@@ -168,7 +168,7 @@ PrometheusMetrics::PrometheusMetrics()
       unindexed_scan_queries_family_{
           prometheus::BuildCounter()
               .Name("memgraph_unindexed_scan_queries_total")
-              .Help("Query executions whose plan had a ScanAll+Filter an index could have served (counts once "
+              .Help("Planned queries whose plan had a ScanAll+Filter an index could have served (counts once "
                     "per query)")
               .Register(registry_)},
       // Operators
@@ -1578,7 +1578,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back({"WriteQuery", "QueryType", "Counter", static_cast<int64_t>(h.write_query.Value())});
   out.push_back({"ReadWriteQuery", "QueryType", "Counter", static_cast<int64_t>(h.read_write_query.Value())});
 
-  // Query (planner-level signals)
+  // Query — planner-level signals
   out.push_back({"UnindexedScanQueries", "Query", "Counter", static_cast<int64_t>(h.unindexed_scan_queries.Value())});
 
   // TTL
@@ -1592,7 +1592,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back(
       {"ShowStorageInfoOnDatabase", "StorageInfo", "Counter", static_cast<int64_t>(h.show_storage_info.Value())});
 
-  // Query
+  // Query — latency
   AppendHistogramPercentiles(out, "QueryExecutionLatency", "Query", *h.query_execution_latency_seconds.get());
 
   // Snapshot
@@ -1965,7 +1965,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   out.push_back({"ShowStorageInfoOnDatabase", "StorageInfo", "Counter", total_show_storage_info});
 
   // Query
-  // UnindexedScanQueries is OpenMetrics / SHOW METRICS INFO only; not aggregated into the deprecated JSON endpoint.
+  // NOTE: UnindexedScanQueries is OpenMetrics / SHOW METRICS INFO only; deliberately not aggregated here.
   AppendMergedHistogramPercentiles(out, "QueryExecutionLatency", "Query", query_exec_hdatas);
 
   // Snapshot

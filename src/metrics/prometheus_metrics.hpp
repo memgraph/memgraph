@@ -248,7 +248,7 @@ struct DatabaseMetricHandles {
   CounterHandle write_query;
   CounterHandle read_write_query;
 
-  // Planner
+  // Query (planner-level signals); emitted under the "Query" category.
   // OpenMetrics / SHOW METRICS INFO only — intentionally not aggregated into the deprecated
   // global JSON endpoint (see GetGlobalMetricsInfoForJson).
   CounterHandle unindexed_scan_queries;
@@ -450,7 +450,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &write_query_family_;
   prometheus::Family<prometheus::Counter> &read_write_query_family_;
 
-  // Per-database metric families — planner
+  // Per-database metric families — query (planner-level signals)
   prometheus::Family<prometheus::Counter> &unindexed_scan_queries_family_;
 
   // Per-database metric families — operators

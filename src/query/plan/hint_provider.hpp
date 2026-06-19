@@ -31,10 +31,11 @@ namespace memgraph::query::plan {
 struct PlanHintsResult {
   std::vector<std::string> hints;
   // True if the plan has any ScanAll+Filter an index could have served.
+  // NOTE: add more boolean signals sparingly; beyond a handful, switch to a bitset/enum-flag field.
   bool has_unindexed_scan{false};
 };
 
-PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
+[[nodiscard]] PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
 
 class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   // Result accessors are only valid after a full traversal; expose them solely through
@@ -388,86 +389,10 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool DefaultPreVisit() override { LOG_FATAL("Operator not implemented for providing plan hints!"); }
 
-  // Resolves the logical scan type to reason about. Parallel-execution plans rewrite a
-  // `Filter -> Scan*` into `Filter -> ScanChunk -> ParallelMerge -> ScanParallel*`, so the
-  // real scan semantics live in the `ScanParallel*` below the chunk. Map those back to the
-  // equivalent sequential scan type so the hint logic below treats both plan shapes alike.
-  // For non-parallel plans this is just the scan's own type.
-  static const utils::TypeInfo &EffectiveScanType(const ScanAll &scan) {
-    const auto &type = scan.GetTypeInfo();
-    if (type != ScanChunk::kType) {
-      return type;
-    }
-    const auto *parallel_merge = scan.input().get();
-    if (parallel_merge == nullptr) return type;
-    const auto *parallel_scan = parallel_merge->input().get();
-    if (parallel_scan == nullptr) return type;
-
-    const auto &parallel_type = parallel_scan->GetTypeInfo();
-    if (parallel_type == ScanParallel::kType) return ScanAll::kType;
-    if (parallel_type == ScanParallelByLabel::kType) return ScanAllByLabel::kType;
-    // Index-backed parallel scans (label-properties, edge variants) already use an index;
-    // leave their type as-is so no missing-index hint or count fires.
-    return parallel_type;
-  }
-
-  void HintIndexUsage(Filter &op) {
-    auto *scan_operator = dynamic_cast<ScanAll *>(op.input().get());
-    if (scan_operator == nullptr) {
-      return;
-    }
-
-    auto const scan_symbol = scan_operator->output_symbol_;
-    auto const &scan_type = EffectiveScanType(*scan_operator);
-
-    Filters filters;
-    filters.CollectFilterExpression(op.expression_, symbol_table_);
-    const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol),
-                                                       [](const auto &item) { return fmt::format(":{0}", item.name); });
-    const std::string filtered_properties =
-        ExtractAndJoin(filters.FilteredProperties(scan_symbol), std::mem_fn(&PropertyIxPath::AsPathString));
-    if (filtered_labels.empty() && filtered_properties.empty()) {
-      return;
-    }
-
-    if (scan_type == ScanAll::kType) {
-      if (!filtered_labels.empty() && !filtered_properties.empty()) {
-        hints_.push_back(
-            fmt::format("Sequential scan will be used on symbol `{0}` although there is a filter on labels {1} and "
-                        "properties {2}. Consider "
-                        "creating a label-property index.",
-                        scan_symbol.name(),
-                        filtered_labels,
-                        filtered_properties));
-        has_unindexed_scan_ = true;
-        return;
-      }
-
-      if (!filtered_labels.empty()) {
-        hints_.push_back(fmt::format(
-            "Sequential scan will be used on symbol `{0}` although there is a filter on labels {1}. Consider "
-            "creating a label index.",
-            scan_symbol.name(),
-            filtered_labels));
-        has_unindexed_scan_ = true;
-        return;
-      }
-      // Property-only filter with no label: no node index can serve a label-less filter,
-      // so there is nothing to suggest and nothing to count.
-      return;
-    }
-
-    // Label index already used; suboptimal-index hint, not a missing-index scan -> does not
-    // increment the unindexed-scan counter.
-    if (scan_type == ScanAllByLabel::kType && !filtered_properties.empty()) {
-      hints_.push_back(fmt::format(
-          "Label index will be used on symbol `{0}` although there is also a filter on properties {1}. Consider "
-          "creating a label-property index.",
-          scan_symbol.name(),
-          filtered_properties));
-      return;
-    }
-  }
+  // Records a missing-/suboptimal-index hint for a Filter and flags has_unindexed_scan_.
+  // Defined out-of-line in hint_provider.cpp. See EffectiveScanType there for the
+  // parallel-execution plan handling.
+  void HintIndexUsage(Filter &op);
 
   template <typename Func>
   std::string ExtractAndJoin(auto &&collection, Func &&projection) {

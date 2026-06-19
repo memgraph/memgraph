@@ -3372,9 +3372,8 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
   }
 }
 
-// Emits the planner's plan hints as notifications and session-trace events. Shared by the
-// regular/EXPLAIN/PROFILE prepare paths; only regular execution additionally increments the
-// unindexed-scan counter, so that step stays at its call site rather than living here.
+// Emits plan hints as notifications and session-trace events. Shared by the regular/EXPLAIN/PROFILE
+// paths; the unindexed-scan counter is bumped only by the regular path, at its call site.
 void EmitPlanHints(const plan::PlanHintsResult &hints, std::vector<Notification> *notifications) {
   for (const auto &hint : hints.hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
@@ -3601,9 +3600,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
   EmitPlanHints(hints, notifications);
-  // Per-query signal: count once even if the plan has several qualifying scans. Counted here
-  // (before AccessorCompliance below) so it reflects every query the planner produced an
-  // unindexed scan for, even one later rejected for a read-only-tx mismatch.
+  // Count once per planned query (not per scan), before AccessorCompliance below, so a query the
+  // planner left unindexed is counted even if later rejected for a read-only-tx mismatch.
   if (hints.has_unindexed_scan) {
     (*current_db.db_acc_)->metric_handles()->unindexed_scan_queries.Increment();
   }
@@ -3734,7 +3732,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
                                              interpreter.query_planner_context());
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
-  // EXPLAIN does not execute the query, so it must not increment the unindexed-scan counter.
+  // EXPLAIN does not execute the query: emit hints only, no counter.
   EmitPlanHints(hints, notifications);
 
   std::stringstream printed_plan;
@@ -3848,8 +3846,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   PrepareCaching(cypher_query_plan->ast_storage(), frame_change_collector);
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
-  // PROFILE is a diagnostic run, not a production execution, so it must not increment the
-  // unindexed-scan counter.
+  // PROFILE is a diagnostic run, not a production execution: emit hints only, no counter.
   EmitPlanHints(hints, notifications);
   AccessorCompliance(*cypher_query_plan, *dba);
   const auto rw_type = cypher_query_plan->rw_type();
