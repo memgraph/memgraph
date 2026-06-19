@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -605,9 +606,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     spdlog::trace("UUID of the last snapshot file: {}", last_snapshot_uuid_str);
     std::optional<RecoveredSnapshot> recovered_snapshot;
 
-    for (auto it = snapshot_files.rbegin(); it != snapshot_files.rend(); ++it) {
-      auto const &path = (*it).path;
-      auto const &file_uuid = (*it).uuid;
+    for (const auto &snapshot_file : std::ranges::reverse_view(snapshot_files)) {
+      auto const &path = snapshot_file.path;
+      auto const &file_uuid = snapshot_file.uuid;
       if (file_uuid != last_snapshot_uuid_str) {
         spdlog::warn("The snapshot file {} isn't related to the latest snapshot file!", path);
         continue;
@@ -632,10 +633,16 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path, e.what());
       }
     }
-    MG_ASSERT(recovered_snapshot,
-              "The database is configured to recover on startup, but couldn't "
-              "recover using any of the specified snapshots! Please inspect them "
-              "and restart the database.");
+    if (!recovered_snapshot) {
+      if (config.durability.allow_recovery_failure) {
+        throw RecoveryFailure(
+            "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database.");
+      }
+      LOG_FATAL(
+          "The database is configured to recover on startup, but couldn't "
+          "recover using any of the specified snapshots! Please inspect them "
+          "and restart the database.");
+    }
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_durable_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;

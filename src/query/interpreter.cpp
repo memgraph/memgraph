@@ -9638,6 +9638,33 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto transaction_requirements = QueryTransactionRequirements{
           parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
+
+      // Fail-closed gate for defunct databases (those that failed durability recovery and
+      // came up empty under --storage-allow-recovery-failure). Any query that operates on
+      // the current database's data is rejected until it is recovered via RECOVER SNAPSHOT
+      // or REPAIR DATABASE. Meta queries (USE/SHOW DATABASES, SHOW STORAGE INFO, auth,
+      // replication, ...) do not touch the tenant graph and are allowed through.
+      if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsDefunct()) {
+        auto *q = parsed_query.query;
+        // RECOVER SNAPSHOT is the cure and must run even though it takes UNIQUE access.
+        const bool is_recovery_query = utils::Downcast<RecoverSnapshotQuery>(q) != nullptr;
+        // "Hits the database": opens a storage accessor (data/DDL) or otherwise operates on
+        // the current DB's storage without a transactional accessor.
+        const bool hits_database =
+            transaction_requirements.accessor_type_.has_value() || utils::Downcast<StreamQuery>(q) != nullptr ||
+            utils::Downcast<CreateSnapshotQuery>(q) != nullptr || utils::Downcast<ShowSnapshotsQuery>(q) != nullptr ||
+            utils::Downcast<ShowNextSnapshotQuery>(q) != nullptr || utils::Downcast<FreeMemoryQuery>(q) != nullptr ||
+            utils::Downcast<StorageModeQuery>(q) != nullptr || utils::Downcast<EdgeImportModeQuery>(q) != nullptr ||
+            utils::Downcast<LockPathQuery>(q) != nullptr;
+        if (hits_database && !is_recovery_query) {
+          throw QueryException(
+              "Database is in the defunct state because the recovery process failed. Please recover your database "
+              "using the RECOVER SNAPSHOT query or REPAIR DATABASE query + run your import queries. If you have a "
+              "backup of the whole data directory, please replace the current data directory with the backup one and "
+              "restart the process.");
+        }
+      }
+
       if (transaction_requirements.accessor_type_) {
         if (transaction_requirements.isolation_level_override_) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
