@@ -1755,6 +1755,81 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
                "");
 }
 
+// Helper: create a single on-exit snapshot containing `count` vertices.
+inline void CreateSimpleSnapshot(const std::filesystem::path &storage_directory, bool properties_on_edges,
+                                 uint64_t count) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+      .salient = {.items = {.properties_on_edges = properties_on_edges, .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto acc = db.Access(memgraph::storage::WRITE);
+  for (uint64_t i = 0; i < count; ++i) {
+    acc->CreateVertex();
+  }
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+// With --storage-allow-recovery-failure enabled, a database whose snapshots are all
+// corrupt comes up empty and defunct instead of crashing the process, and its on-disk
+// durability files are left untouched (so the operator can RECOVER/REPAIR/restore).
+TEST_P(DurabilityTest, SnapshotCorruptDefunctWhenRecoveryFailureAllowed) {
+  CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+
+  for (const auto &snapshot : GetSnapshotsList()) {
+    CorruptSnapshot(snapshot);
+  }
+
+  // Capture on-disk durability state before the (failing) recovery.
+  auto const snapshots_before = GetSnapshotsList();
+  std::map<std::filesystem::path, uint64_t> sizes_before;
+  for (auto const &p : snapshots_before) sizes_before[p] = std::filesystem::file_size(p);
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  EXPECT_TRUE(db.storage()->IsDefunct());
+  auto const info = db.storage()->GetBaseInfo();
+  EXPECT_EQ(info.vertex_count, 0);
+  EXPECT_EQ(info.edge_count, 0);
+
+  // On-disk durability files are left byte-for-byte untouched.
+  EXPECT_EQ(GetSnapshotsList().size(), snapshots_before.size());
+  EXPECT_EQ(GetBackupSnapshotsList().size(), 0);
+  for (auto const &p : snapshots_before) {
+    ASSERT_TRUE(std::filesystem::exists(p));
+    EXPECT_EQ(std::filesystem::file_size(p), sizes_before[p]);
+  }
+}
+
+// With the flag off (default), the same corruption still aborts startup.
+TEST_P(DurabilityTest, SnapshotCorruptCrashesWhenRecoveryFailureNotAllowed) {
+  CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+
+  for (const auto &snapshot : GetSnapshotsList()) {
+    CorruptSnapshot(snapshot);
+  }
+
+  ASSERT_DEATH(([&]() {
+                 memgraph::storage::Config config{
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+                 };
+                 memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+               }()),
+               "");
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, SnapshotRetention) {
   // Create unrelated snapshot.
