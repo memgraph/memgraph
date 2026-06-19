@@ -390,6 +390,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       CommitTsInfo const new_info{.ldt_ = info->last_durable_timestamp,
                                   .num_committed_txns_ = info->num_committed_txns};
       repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
+      metric_handles_.main_commit_timestamp.Set(static_cast<double>(info->last_durable_timestamp));
       spdlog::trace(
           "Recovering last durable timestamp {}. Timestamp recovered to {}. Num committed txns recovered to {}.",
           info->last_durable_timestamp,
@@ -1205,6 +1206,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   };
   // update main's cached info
   atomic_struct_update<CommitTsInfo>(mem_storage->repl_storage_state_.commit_ts_info_, update_func);
+  // Expose the local durable commit timestamp per database (memgraph_main_commit_timestamp). Sourced
+  // here rather than from replica heartbeats so it is fresh and present even with zero replicas.
+  mem_storage->metric_handles_.main_commit_timestamp.Set(static_cast<double>(durability_commit_timestamp));
 
   // Install the new point index, if needed
   auto point_updater = mem_storage->indices_.MakeUpdater();

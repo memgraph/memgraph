@@ -26,6 +26,7 @@
 #include "dbms/constants.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "utils/logging.hpp"
 #include "utils/stat.hpp"
@@ -787,23 +788,34 @@ PrometheusMetrics::PrometheusMetrics()
                                  .Help("Throughput of WAL files sent to each replica during recovery, in bytes/s")
                                  .Register(registry_)},
 
-      replica_commit_timestamp_family_{prometheus::BuildGauge()
-                                           .Name("memgraph_replica_commit_timestamp")
-                                           .Help("Last durable commit timestamp observed on the replica per database")
-                                           .Register(registry_)},
+      replica_commit_timestamp_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_replica_commit_timestamp")
+              .Help("Last durable commit timestamp (logical commit counter, not unix time) observed on the "
+                    "replica, per (replica, database)")
+              .Register(registry_)},
       replica_timestamp_lag_family_{
           prometheus::BuildGauge()
               .Name("memgraph_replica_timestamp_lag")
-              .Help("Timestamp delta main minus replica per database (positive means the replica is behind)")
+              .Help("Logical timestamp delta main minus replica, per (replica, database). Positive means the "
+                    "replica is behind (negation of SHOW REPLICAS' behind count)")
+              .Register(registry_)},
+      replica_lag_seconds_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_replica_lag_seconds")
+              .Help("Wall-clock seconds the replica is behind the main, per (replica, database). 0 when caught "
+                    "up. Sampled at heartbeat granularity from the main's clock")
               .Register(registry_)},
       replica_state_family_{prometheus::BuildGauge()
                                 .Name("memgraph_replica_state")
                                 .Help("Per-(replica, database) state. One series per ReplicaState; exactly one is 1")
                                 .Register(registry_)},
-      main_commit_timestamp_family_{prometheus::BuildGauge()
-                                        .Name("memgraph_main_commit_timestamp")
-                                        .Help("Last durable commit timestamp on the main per database")
-                                        .Register(registry_)}
+      main_commit_timestamp_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_main_commit_timestamp")
+              .Help("Last durable commit timestamp (logical commit counter, not unix time) of this database on "
+                    "the local instance")
+              .Register(registry_)}
 #ifdef MG_ENTERPRISE
       ,
       instance_up_family_{prometheus::BuildGauge()
@@ -1049,6 +1061,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .gc_latency_seconds = {&gc_latency_family_.Add(labels, kLatencyBuckets)},
                   .gc_skiplist_cleanup_latency_seconds = {&gc_skiplist_cleanup_latency_family_.Add(labels,
                                                                                                    kLatencyBuckets)},
+                  .main_commit_timestamp = {&main_commit_timestamp_family_.Add(labels)},
               },
       });
   return databases_.entries.back().handles;
@@ -1159,83 +1172,29 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   snapshot_recovery_latency_family_.Remove(h.snapshot_recovery_latency_seconds.get());
   gc_latency_family_.Remove(h.gc_latency_seconds.get());
   gc_skiplist_cleanup_latency_family_.Remove(h.gc_skiplist_cleanup_latency_seconds.get());
+  main_commit_timestamp_family_.Remove(h.main_commit_timestamp.get());
   if (default_db_uuid_ && *default_db_uuid_ == uuid) {
     default_db_uuid_.reset();
   }
   databases_.entries.erase(it);
 
-  // Per-(replica instance, db) replica info series for this db must also go.
+  // Per-(replica instance, db) replication series for this db must also go.
   auto const db_uuid_str = std::string{uuid};
-  EraseReplicaSeriesForDb(db_uuid_str);
-}
-
-template <typename Map>
-void EraseEntriesIf(prometheus::Family<prometheus::Histogram> &family, Map &registry, auto &&pred) {
-  std::lock_guard const lock{registry.mutex};
-  for (auto it = registry.entries.begin(); it != registry.entries.end();) {
-    if (pred(it->first)) {
-      family.Remove(it->second);
-      it = registry.entries.erase(it);
-    } else {
-      ++it;
-    }
-  }
-}
-
-template <typename Map>
-void EraseGaugeEntriesIf(prometheus::Family<prometheus::Gauge> &family, Map &registry, auto &&pred) {
-  std::lock_guard const lock{registry.mutex};
-  for (auto it = registry.entries.begin(); it != registry.entries.end();) {
-    if (pred(it->first)) {
-      family.Remove(it->second);
-      it = registry.entries.erase(it);
-    } else {
-      ++it;
-    }
-  }
-}
-
-template <typename Map>
-void EraseStateEntriesIf(prometheus::Family<prometheus::Gauge> &family, Map &registry, auto &&pred) {
-  std::lock_guard const lock{registry.mutex};
-  for (auto it = registry.entries.begin(); it != registry.entries.end();) {
-    if (pred(it->first)) {
-      for (auto *g : it->second) {
-        if (g) family.Remove(g);
-      }
-      it = registry.entries.erase(it);
-    } else {
-      ++it;
-    }
-  }
-}
-
-void PrometheusMetrics::EraseReplicaSeriesForDb(std::string const &db_uuid_str) {
-  auto match_db = [&db_uuid_str](auto const &key) { return key.second == db_uuid_str; };
-  EraseEntriesIf(replica_stream_family_, replica_stream_by_instance_db_, match_db);
-  EraseEntriesIf(start_txn_replication_family_, start_txn_replication_by_instance_db_, match_db);
-  EraseEntriesIf(finalize_txn_replication_family_, finalize_txn_replication_by_instance_db_, match_db);
-  EraseGaugeEntriesIf(replica_commit_timestamp_family_, replica_commit_timestamp_by_instance_db_, match_db);
-  EraseGaugeEntriesIf(replica_timestamp_lag_family_, replica_timestamp_lag_by_instance_db_, match_db);
-  EraseStateEntriesIf(replica_state_family_, replica_state_by_instance_db_, match_db);
-  {
-    std::lock_guard const lock{main_commit_timestamp_by_db_.mutex};
-    if (auto it = main_commit_timestamp_by_db_.entries.find(db_uuid_str);
-        it != main_commit_timestamp_by_db_.entries.end()) {
-      main_commit_timestamp_family_.Remove(it->second);
-      main_commit_timestamp_by_db_.entries.erase(it);
-    }
-  }
+  RemoveReplicaSeriesIf([&db_uuid_str](auto const &key) { return key.second == db_uuid_str; });
 }
 
 namespace {
-prometheus::Labels MakeReplicaDbLabels(std::string_view instance, std::string const &db_uuid_str,
-                                       std::string_view db_name) {
-  return {{"mg_instance", std::string{instance}}, {"database", std::string{db_name}}, {"uuid", db_uuid_str}};
-}
+// State enumerators in a fixed order. The per-(replica, db) one-hot `state` series are created in this
+// order and ReplicaMetricHandles::state is indexed by it, so EnsureReplicaHandles and SetState agree.
+using storage::replication::ReplicaState;
+constexpr std::array<ReplicaState, kNumReplicaStates> kReplicaStates{ReplicaState::READY,
+                                                                     ReplicaState::REPLICATING,
+                                                                     ReplicaState::RECOVERY,
+                                                                     ReplicaState::MAYBE_BEHIND,
+                                                                     ReplicaState::DIVERGED_FROM_MAIN};
 
-constexpr std::string_view ReplicaStateLabel(storage::replication::ReplicaState s) {
-  using enum storage::replication::ReplicaState;
+constexpr std::string_view ReplicaStateLabel(ReplicaState s) {
+  using enum ReplicaState;
   switch (s) {
     case READY:
       return "READY";
@@ -1250,121 +1209,86 @@ constexpr std::string_view ReplicaStateLabel(storage::replication::ReplicaState 
   }
   return "UNKNOWN";
 }
+
+std::string_view ModeLabel(replication_coordination_glue::ReplicationMode mode) {
+  using enum replication_coordination_glue::ReplicationMode;
+  switch (mode) {
+    case SYNC:
+      return "sync";
+    case ASYNC:
+      return "async";
+    case STRICT_SYNC:
+      return "strict_sync";
+  }
+  return "unknown";
+}
+
+prometheus::Labels MakeReplicaDbLabels(std::string_view instance, std::string const &db_uuid_str,
+                                       std::string_view db_name, replication_coordination_glue::ReplicationMode mode) {
+  return {{"mg_instance", std::string{instance}},
+          {"database", std::string{db_name}},
+          {"uuid", db_uuid_str},
+          {"sync_mode", std::string{ModeLabel(mode)}}};
+}
 }  // namespace
 
-template <typename Metric>
-Metric &PrometheusMetrics::FindOrAddLabeled(LabeledByInstanceDb<Metric *> &registry, prometheus::Family<Metric> &family,
-                                            std::string_view instance, utils::UUID const &db_uuid,
-                                            std::string_view db_name,
-                                            prometheus::Histogram::BucketBoundaries const *buckets) {
+void ReplicaMetricHandles::SetState(storage::replication::ReplicaState new_state) const {
+  if (state[0] == nullptr) return;  // metrics not registered (e.g. coordinator / metrics disabled)
+  for (std::size_t i = 0; i < kReplicaStates.size(); ++i) {
+    state[i]->Set(kReplicaStates[i] == new_state ? 1.0 : 0.0);
+  }
+}
+
+ReplicaMetricHandles &PrometheusMetrics::EnsureReplicaHandles(std::string_view instance, utils::UUID const &db_uuid,
+                                                              std::string_view db_name,
+                                                              replication_coordination_glue::ReplicationMode mode) {
   auto db_uuid_str = std::string{db_uuid};
   auto key = std::pair{std::string{instance}, db_uuid_str};
-  std::lock_guard const lock{registry.mutex};
-  if (auto it = registry.entries.find(key); it != registry.entries.end()) return *it->second;
-  auto const labels = MakeReplicaDbLabels(instance, db_uuid_str, db_name);
-  Metric *added = nullptr;
-  if constexpr (std::is_same_v<Metric, prometheus::Histogram>) {
-    added = &family.Add(labels, *buckets);
-  } else {
-    added = &family.Add(labels);
+  std::lock_guard const lock{replica_handles_.mutex};
+  if (auto it = replica_handles_.entries.find(key); it != replica_handles_.entries.end()) return it->second;
+
+  auto const labels = MakeReplicaDbLabels(instance, db_uuid_str, db_name, mode);
+  ReplicaMetricHandles handles;
+  handles.replica_stream_seconds = {&replica_stream_family_.Add(labels, kLatencyBuckets)};
+  handles.start_txn_replication_seconds = {&start_txn_replication_family_.Add(labels, kLatencyBuckets)};
+  handles.finalize_txn_replication_seconds = {&finalize_txn_replication_family_.Add(labels, kLatencyBuckets)};
+  handles.commit_timestamp = {&replica_commit_timestamp_family_.Add(labels)};
+  handles.timestamp_lag = {&replica_timestamp_lag_family_.Add(labels)};
+  handles.lag_seconds = {&replica_lag_seconds_family_.Add(labels)};
+  for (std::size_t i = 0; i < kReplicaStates.size(); ++i) {
+    auto state_labels = labels;
+    state_labels.emplace("state", std::string{ReplicaStateLabel(kReplicaStates[i])});
+    handles.state[i] = &replica_state_family_.Add(state_labels);
   }
-  registry.entries.emplace(std::move(key), added);
-  return *added;
+  auto const it = replica_handles_.entries.emplace(std::move(key), handles).first;
+  return it->second;
 }
 
-void PrometheusMetrics::ObserveReplicaStream(std::string_view instance, utils::UUID const &db_uuid,
-                                             std::string_view db_name, double seconds) {
-  FindOrAddLabeled(replica_stream_by_instance_db_, replica_stream_family_, instance, db_uuid, db_name, &kLatencyBuckets)
-      .Observe(seconds);
-}
-
-void PrometheusMetrics::ObserveStartTxnReplication(std::string_view instance, utils::UUID const &db_uuid,
-                                                   std::string_view db_name, double seconds) {
-  FindOrAddLabeled(start_txn_replication_by_instance_db_,
-                   start_txn_replication_family_,
-                   instance,
-                   db_uuid,
-                   db_name,
-                   &kLatencyBuckets)
-      .Observe(seconds);
-}
-
-void PrometheusMetrics::ObserveFinalizeTxnReplication(std::string_view instance, utils::UUID const &db_uuid,
-                                                      std::string_view db_name, double seconds) {
-  FindOrAddLabeled(finalize_txn_replication_by_instance_db_,
-                   finalize_txn_replication_family_,
-                   instance,
-                   db_uuid,
-                   db_name,
-                   &kLatencyBuckets)
-      .Observe(seconds);
-}
-
-void PrometheusMetrics::SetReplicaCommitTimestamp(std::string_view instance, utils::UUID const &db_uuid,
-                                                  std::string_view db_name, uint64_t ts) {
-  FindOrAddLabeled(replica_commit_timestamp_by_instance_db_,
-                   replica_commit_timestamp_family_,
-                   instance,
-                   db_uuid,
-                   db_name,
-                   /*buckets*/ nullptr)
-      .Set(static_cast<double>(ts));
-}
-
-void PrometheusMetrics::SetReplicaTimestampLag(std::string_view instance, utils::UUID const &db_uuid,
-                                               std::string_view db_name, int64_t lag) {
-  FindOrAddLabeled(replica_timestamp_lag_by_instance_db_,
-                   replica_timestamp_lag_family_,
-                   instance,
-                   db_uuid,
-                   db_name,
-                   /*buckets*/ nullptr)
-      .Set(static_cast<double>(lag));
-}
-
-void PrometheusMetrics::SetReplicaState(std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
-                                        storage::replication::ReplicaState new_state) {
-  using enum storage::replication::ReplicaState;
-  constexpr std::array<storage::replication::ReplicaState, 5> kStates{
-      READY, REPLICATING, RECOVERY, MAYBE_BEHIND, DIVERGED_FROM_MAIN};
-  auto const db_uuid_str = std::string{db_uuid};
-  auto key = std::pair{std::string{instance}, db_uuid_str};
-  std::lock_guard const lock{replica_state_by_instance_db_.mutex};
-  auto [it, inserted] = replica_state_by_instance_db_.entries.try_emplace(std::move(key), ReplicaStateSeries{});
-  if (inserted) {
-    for (std::size_t i = 0; i < kStates.size(); ++i) {
-      auto labels = MakeReplicaDbLabels(instance, db_uuid_str, db_name);
-      labels.emplace("state", std::string{ReplicaStateLabel(kStates[i])});
-      it->second[i] = &replica_state_family_.Add(labels);
+void PrometheusMetrics::RemoveReplicaSeriesIf(
+    std::function<bool(std::pair<std::string, std::string> const &)> const &pred) {
+  std::lock_guard const lock{replica_handles_.mutex};
+  for (auto it = replica_handles_.entries.begin(); it != replica_handles_.entries.end();) {
+    if (!pred(it->first)) {
+      ++it;
+      continue;
     }
+    auto const &h = it->second;
+    replica_stream_family_.Remove(h.replica_stream_seconds.get());
+    start_txn_replication_family_.Remove(h.start_txn_replication_seconds.get());
+    finalize_txn_replication_family_.Remove(h.finalize_txn_replication_seconds.get());
+    replica_commit_timestamp_family_.Remove(h.commit_timestamp.get());
+    replica_timestamp_lag_family_.Remove(h.timestamp_lag.get());
+    replica_lag_seconds_family_.Remove(h.lag_seconds.get());
+    for (auto *g : h.state) {
+      if (g != nullptr) replica_state_family_.Remove(g);
+    }
+    it = replica_handles_.entries.erase(it);
   }
-  for (std::size_t i = 0; i < kStates.size(); ++i) {
-    it->second[i]->Set(kStates[i] == new_state ? 1.0 : 0.0);
-  }
-}
-
-void PrometheusMetrics::SetMainCommitTimestamp(utils::UUID const &db_uuid, std::string_view db_name, uint64_t ts) {
-  auto db_uuid_str = std::string{db_uuid};
-  std::lock_guard const lock{main_commit_timestamp_by_db_.mutex};
-  auto it = main_commit_timestamp_by_db_.entries.find(db_uuid_str);
-  if (it == main_commit_timestamp_by_db_.entries.end()) {
-    prometheus::Labels const labels{{"database", std::string{db_name}}, {"uuid", db_uuid_str}};
-    it =
-        main_commit_timestamp_by_db_.entries.emplace(std::move(db_uuid_str), &main_commit_timestamp_family_.Add(labels))
-            .first;
-  }
-  it->second->Set(static_cast<double>(ts));
 }
 
 void PrometheusMetrics::RemoveReplicaInstanceMetrics(std::string_view instance) {
   std::string const instance_str{instance};
-  auto match_instance = [&instance_str](auto const &key) { return key.first == instance_str; };
-  EraseEntriesIf(replica_stream_family_, replica_stream_by_instance_db_, match_instance);
-  EraseEntriesIf(start_txn_replication_family_, start_txn_replication_by_instance_db_, match_instance);
-  EraseEntriesIf(finalize_txn_replication_family_, finalize_txn_replication_by_instance_db_, match_instance);
-  EraseGaugeEntriesIf(replica_commit_timestamp_family_, replica_commit_timestamp_by_instance_db_, match_instance);
-  EraseGaugeEntriesIf(replica_timestamp_lag_family_, replica_timestamp_lag_by_instance_db_, match_instance);
-  EraseStateEntriesIf(replica_state_family_, replica_state_by_instance_db_, match_instance);
+  RemoveReplicaSeriesIf([&instance_str](auto const &key) { return key.first == instance_str; });
 }
 
 void PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID const &new_uuid) {
@@ -1565,6 +1489,15 @@ std::vector<prometheus::ClientMetric::Histogram> CollectFamilyHistograms(
     for (auto const &cm : mf.metric) hdatas.push_back(cm.histogram);
   }
   return hdatas;
+}
+
+// Largest gauge value across all labeled series of `family` (0 if there are none).
+double MaxGaugeValue(prometheus::Family<prometheus::Gauge> const &family) {
+  double max_value = 0.0;
+  for (auto const &mf : family.Collect()) {
+    for (auto const &cm : mf.metric) max_value = std::max(max_value, cm.gauge.value);
+  }
+  return max_value;
 }
 
 // Appends per-instance throughput percentiles (bytes/second) for every replica tracked in `throughput`. Unlike the
@@ -2221,6 +2154,29 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   return out;
 }
 
+void PrometheusMetrics::AppendReplicaLagSummaries(std::vector<MetricInfo> &out) const {
+  // Worst logical lag (transactions behind) across all replicas; floored at 0 (a replica that is
+  // ahead due to a snapshot is not "behind").
+  out.push_back({"MaxReplicaTimestampLag",
+                 "HighAvailability",
+                 "Gauge",
+                 static_cast<int64_t>(MaxGaugeValue(replica_timestamp_lag_family_))});
+  // Worst wall-clock lag (seconds behind) across all replicas.
+  out.push_back({"MaxReplicaLagSeconds", "HighAvailability", "Gauge", MaxGaugeValue(replica_lag_seconds_family_)});
+
+  // Number of (replica, database) pairs whose current state is not READY. Each pair has exactly one
+  // one-hot `state` series set to 1.
+  int64_t not_ready = 0;
+  for (auto const &mf : replica_state_family_.Collect()) {
+    for (auto const &cm : mf.metric) {
+      if (cm.gauge.value != 1.0) continue;
+      auto const state_it = r::find_if(cm.label, [](auto const &label) { return label.name == "state"; });
+      if (state_it != cm.label.end() && state_it->value != "READY") ++not_ready;
+    }
+  }
+  out.push_back({"ReplicasNotReady", "HighAvailability", "Gauge", not_ready});
+}
+
 std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   std::vector<MetricInfo> out;
 
@@ -2393,6 +2349,11 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   // Per-instance replication transfer throughput (bytes/s)
   AppendThroughputPercentiles(out, "SnapshotThroughput", "HighAvailability", snapshot_throughput_);
   AppendThroughputPercentiles(out, "WalThroughput", "HighAvailability", wal_throughput_);
+
+  // Worst-case replication-lag/health summaries. The per-(replica, db) detail is OpenMetrics-only
+  // (it has a label dimension this flat view can't carry); these scalars give SHOW METRICS INFO a
+  // single number to alert on.
+  AppendReplicaLagSummaries(out);
 
   // StorageInfo global/system level (no-db SHOW STORAGE INFO)
   out.push_back({"ShowStorageInfo", "StorageInfo", "Counter", static_cast<int64_t>(global.show_storage_info->Value())});

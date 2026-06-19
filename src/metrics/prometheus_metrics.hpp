@@ -46,7 +46,16 @@ namespace memgraph::storage::replication {
 enum class ReplicaState : std::uint8_t;
 }
 
+namespace memgraph::replication_coordination_glue {
+enum class ReplicationMode : std::uint8_t;
+}
+
 namespace memgraph::metrics {
+
+// Number of memgraph::storage::replication::ReplicaState enumerators. Kept here (rather than derived)
+// so prometheus_metrics.hpp need not include the storage enum header; ReplicaStateLabel's switch in
+// the .cpp is -Wswitch-checked, so adding a state there fails the build until this is bumped too.
+inline constexpr std::size_t kNumReplicaStates = 5;
 
 struct MetricInfo {
   std::string name;
@@ -271,6 +280,48 @@ struct DatabaseMetricHandles {
   HistogramHandle snapshot_recovery_latency_seconds;
   HistogramHandle gc_latency_seconds;
   HistogramHandle gc_skiplist_cleanup_latency_seconds;
+
+  // Last durable (logical) commit timestamp of this database on the local instance. Set from the
+  // commit path (see InMemoryStorage::FinalizeCommitPhase), so it is present and fresh regardless of
+  // whether any replicas are registered. Exposed as memgraph_main_commit_timestamp on OpenMetrics.
+  GaugeHandle main_commit_timestamp;
+};
+
+// Per-(replica instance, database) replication metric handles. Resolved once per replication client
+// (PrometheusMetrics::EnsureReplicaHandles) and then written directly on the commit/heartbeat paths
+// with no registry lookup or allocation. All series carry {mg_instance, database, uuid, sync_mode}
+// labels (the state series additionally carries `state`).
+struct ReplicaMetricHandles {
+  // Latency histograms (seconds).
+  HistogramHandle replica_stream_seconds;
+  HistogramHandle start_txn_replication_seconds;
+  HistogramHandle finalize_txn_replication_seconds;
+
+  // Replica position / health gauges.
+  GaugeHandle commit_timestamp;  // replica's last durable (logical) commit timestamp
+  // main_ts - replica_ts; positive means the replica is behind. NOTE: this is the negation of
+  // SHOW REPLICAS' `current_number_of_timestamp_behind_main` (which is replica - main); the metric
+  // uses the positive=behind convention that Prometheus/alerting tooling expects.
+  GaugeHandle timestamp_lag;
+  GaugeHandle lag_seconds;  // wall-clock seconds the replica is behind main (>= 0; 0 when caught up)
+
+  // One series per ReplicaState; exactly one is 1 at a time (one-hot). Order matches the kReplicaStates
+  // array in prometheus_metrics.cpp.
+  std::array<prometheus::Gauge *, kNumReplicaStates> state{};
+
+  void ObserveReplicaStream(double seconds) const { replica_stream_seconds.Observe(seconds); }
+
+  void ObserveStartTxn(double seconds) const { start_txn_replication_seconds.Observe(seconds); }
+
+  void ObserveFinalizeTxn(double seconds) const { finalize_txn_replication_seconds.Observe(seconds); }
+
+  void SetCommitTimestamp(uint64_t ts) const { commit_timestamp.Set(static_cast<double>(ts)); }
+
+  void SetTimestampLag(int64_t lag) const { timestamp_lag.Set(static_cast<double>(lag)); }
+
+  void SetLagSeconds(double seconds) const { lag_seconds.Set(seconds); }
+
+  void SetState(storage::replication::ReplicaState new_state) const;
 };
 
 struct GlobalMetricHandles {
@@ -383,26 +434,16 @@ class PrometheusMetrics {
   // unregistered so the throughput maps and the registry don't grow unbounded across the main's lifetime.
   void RemoveReplicationThroughput(std::string_view instance_name);
 
-  // Per-(replica instance, database) replication latency observations. Labeled series only;
-  // global aggregates are recovered in PromQL via `sum by () (...)`.
-  void ObserveReplicaStream(std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
-                            double seconds);
-  void ObserveStartTxnReplication(std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
-                                  double seconds);
-  void ObserveFinalizeTxnReplication(std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
-                                     double seconds);
+  // Per-(replica instance, database) replication metric handles, resolved once per client and reused
+  // on the hot path (no per-observe map lookup / allocation). Idempotent: returns the existing bundle
+  // if already created. The returned reference is stable (std::map node) until the series are removed
+  // on DROP REPLICA / DROP DATABASE, which only happens after the owning client is destroyed.
+  ReplicaMetricHandles &EnsureReplicaHandles(std::string_view instance, utils::UUID const &db_uuid,
+                                             std::string_view db_name,
+                                             replication_coordination_glue::ReplicationMode mode);
 
-  // Per-(replica instance, database) replica info gauges (heartbeat-driven).
-  void SetReplicaCommitTimestamp(std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
-                                 uint64_t ts);
-  void SetReplicaTimestampLag(std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
-                              int64_t lag);
-  void SetReplicaState(std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
-                       storage::replication::ReplicaState new_state);
-  void SetMainCommitTimestamp(utils::UUID const &db_uuid, std::string_view db_name, uint64_t ts);
-
-  // Drop all per-(instance, db) entries for `instance` (hooked from DROP REPLICA, alongside
-  // the existing replication-throughput cleanup).
+  // Drop all per-(instance, db) series for `instance` (hooked from DROP REPLICA, alongside the
+  // existing replication-throughput cleanup).
   void RemoveReplicaInstanceMetrics(std::string_view instance);
 
   void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
@@ -660,44 +701,31 @@ class PrometheusMetrics {
   DurabilityThroughput snapshot_throughput_;
   DurabilityThroughput wal_throughput_;
 
-  // Per-(replica instance, database) replica info gauge families. Series are inserted lazily
-  // on first observation and removed on DROP REPLICA / DROP DATABASE.
+  // Per-(replica instance, database) replication gauge families. Series are inserted lazily on first
+  // use (EnsureReplicaHandles) and removed on DROP REPLICA / DROP DATABASE. The matching latency
+  // histogram families (replica_stream_family_ / start_txn_replication_family_ /
+  // finalize_txn_replication_family_) are declared above with the other HA histograms.
   prometheus::Family<prometheus::Gauge> &replica_commit_timestamp_family_;
   prometheus::Family<prometheus::Gauge> &replica_timestamp_lag_family_;
+  prometheus::Family<prometheus::Gauge> &replica_lag_seconds_family_;
   prometheus::Family<prometheus::Gauge> &replica_state_family_;
+  // Per-database gauge owned by DatabaseMetricHandles (set from the commit path), not a per-replica
+  // series; declared here because it is registered alongside the per-replica families.
   prometheus::Family<prometheus::Gauge> &main_commit_timestamp_family_;
 
-  // Lazy registry of per-(replica instance, database) labeled series. Key = (instance, db_uuid).
-  template <typename V>
-  struct LabeledByInstanceDb {
-    std::mutex mutex;
-    std::map<std::pair<std::string, std::string>, V> entries;
-  };
-
-  // ReplicaState has 5 enumerator values; one series per state, exactly one is 1 at a time.
-  using ReplicaStateSeries = std::array<prometheus::Gauge *, 5>;
-
-  LabeledByInstanceDb<prometheus::Histogram *> replica_stream_by_instance_db_;
-  LabeledByInstanceDb<prometheus::Histogram *> start_txn_replication_by_instance_db_;
-  LabeledByInstanceDb<prometheus::Histogram *> finalize_txn_replication_by_instance_db_;
-  LabeledByInstanceDb<prometheus::Gauge *> replica_commit_timestamp_by_instance_db_;
-  LabeledByInstanceDb<prometheus::Gauge *> replica_timestamp_lag_by_instance_db_;
-  LabeledByInstanceDb<ReplicaStateSeries> replica_state_by_instance_db_;
-
+  // One bundle of handles per (replica instance, db_uuid). std::map keeps element addresses stable, so
+  // a replication client can cache &entries[key] for its lifetime. `mutex` guards insert/find/erase.
   struct {
     std::mutex mutex;
-    std::map<std::string, prometheus::Gauge *> entries;  // key = db_uuid
-  } main_commit_timestamp_by_db_;
+    std::map<std::pair<std::string, std::string>, ReplicaMetricHandles> entries;
+  } replica_handles_;
 
-  // Lazily inserts (or returns the cached) series for `(instance, db_uuid)`. The caller must
-  // hold no locks — this helper takes the registry's mutex internally.
-  template <typename Metric>
-  Metric &FindOrAddLabeled(LabeledByInstanceDb<Metric *> &registry, prometheus::Family<Metric> &family,
-                           std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
-                           prometheus::Histogram::BucketBoundaries const *buckets);
+  // Removes (and de-registers from their families) every bundle whose (instance, db_uuid) key matches.
+  void RemoveReplicaSeriesIf(std::function<bool(std::pair<std::string, std::string> const &)> const &pred);
 
-  // Erases every per-(instance, db) series with matching db_uuid across all replica-info maps.
-  void EraseReplicaSeriesForDb(std::string const &db_uuid_str);
+  // Appends worst-case replication-lag/health summaries (across all per-(replica, db) series) for the
+  // flat SHOW METRICS INFO / JSON view; per-replica detail lives on the OpenMetrics endpoint.
+  void AppendReplicaLagSummaries(std::vector<MetricInfo> &out) const;
 
 #ifdef MG_ENTERPRISE
   // Global metric families — HA instance status

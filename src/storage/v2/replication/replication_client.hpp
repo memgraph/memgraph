@@ -24,14 +24,21 @@
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
+#include <chrono>
 #include <concepts>
+#include <deque>
 #include <expected>
+#include <mutex>
 #include <optional>
 #include <string>
 
 namespace memgraph::memory {
 class ArenaPool;
 }  // namespace memgraph::memory
+
+namespace memgraph::metrics {
+struct ReplicaMetricHandles;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -249,11 +256,40 @@ class ReplicationStorageClient {
    */
   void TryCheckReplicaStateSync(Storage *main_storage, DatabaseProtector const &protector);
 
+  /**
+   * @brief Resolve-once accessor for this (replica, database)'s metric handles. The (instance, db,
+   * sync_mode) labels are fixed for the client's lifetime, so the bundle is created on first use and
+   * reused directly afterwards — no per-observation registry lookup or allocation on the hot path.
+   */
+  auto ReplicaMetrics(Storage const *storage) const -> metrics::ReplicaMetricHandles &;
+
+  /**
+   * @brief Record a heartbeat-time (main_ts, now) sample and return the wall-clock seconds the replica
+   * is behind the main (>= 0; 0 when caught up). Uses only the main's clock, so it is immune to clock
+   * skew; resolution is heartbeat-granular.
+   */
+  auto SampleLagSeconds(uint64_t main_ts, uint64_t replica_ts) const -> double;
+
   ::memgraph::replication::ReplicationClient &client_;
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
   mutable std::atomic<CommitTsInfo> commit_ts_info_;
   const utils::UUID main_uuid_;
+
+  // Metric handles for this (replica, database). Points into the metrics registry (stable address);
+  // valid until the series are removed on DROP REPLICA / DROP DATABASE, which happens only after this
+  // client is destroyed. Resolved exactly once via metrics_handles_once_.
+  mutable std::once_flag metrics_handles_once_;
+  mutable metrics::ReplicaMetricHandles *metrics_handles_{nullptr};
+
+  // Bounded (main_ts, observed_at) history for deriving wall-clock replica lag. Touched only on the
+  // heartbeat path (UpdateReplicaState), never on the commit hot path.
+  struct LagSample {
+    uint64_t main_ts;
+    std::chrono::steady_clock::time_point at;
+  };
+
+  mutable utils::Synchronized<std::deque<LagSample>, utils::SpinLock> lag_samples_;
 };
 
 }  // namespace memgraph::storage

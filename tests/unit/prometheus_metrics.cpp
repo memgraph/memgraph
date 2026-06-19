@@ -25,6 +25,7 @@
 #include "flags/general.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage.hpp"
@@ -60,6 +61,32 @@ bool HasSeriesWithLabel(std::vector<prometheus::MetricFamily> const &families, s
     }
   }
   return false;
+}
+
+// Value of the (first) gauge series carrying every (name, value) pair in `required`.
+std::optional<double> GaugeValueWithLabels(std::vector<prometheus::MetricFamily> const &families, std::string_view name,
+                                           std::vector<std::pair<std::string_view, std::string_view>> const &required) {
+  for (auto const &family : families) {
+    if (family.name != name) continue;
+    for (auto const &metric : family.metric) {
+      bool const all_present = std::ranges::all_of(required, [&](auto const &req) {
+        return std::ranges::any_of(metric.label,
+                                   [&](auto const &l) { return l.name == req.first && l.value == req.second; });
+      });
+      if (all_present) return metric.gauge.value;
+    }
+  }
+  return std::nullopt;
+}
+
+// Value of a scalar metric from a MetricInfo list (SHOW METRICS INFO / global), as a double.
+std::optional<double> MetricInfoValue(std::vector<memgraph::metrics::MetricInfo> const &metrics,
+                                      std::string_view name) {
+  for (auto const &m : metrics) {
+    if (m.name != name) continue;
+    return std::visit([](auto v) { return static_cast<double>(v); }, m.value);
+  }
+  return std::nullopt;
 }
 
 }  // namespace
@@ -129,8 +156,35 @@ TEST(PrometheusMetrics, RemoveDatabaseRemovesMetrics) {
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), std::nullopt);
 }
 
+namespace {
+using memgraph::replication_coordination_glue::ReplicationMode;
+using memgraph::storage::replication::ReplicaState;
+
+// Resolve a (replica, db) bundle and write one value to every series so it exists in the registry.
+void SeedReplicaSeries(memgraph::metrics::PrometheusMetrics &pm, std::string_view instance,
+                       memgraph::utils::UUID const &uuid, std::string_view name,
+                       ReplicationMode mode = ReplicationMode::SYNC, ReplicaState state = ReplicaState::READY) {
+  auto const &h = pm.EnsureReplicaHandles(instance, uuid, name, mode);
+  h.ObserveReplicaStream(0.001);
+  h.ObserveStartTxn(0.001);
+  h.ObserveFinalizeTxn(0.001);
+  h.SetCommitTimestamp(100);
+  h.SetTimestampLag(5);
+  h.SetLagSeconds(2.0);
+  h.SetState(state);
+}
+
+// All per-(replica, db) families, plus the per-db main_commit_timestamp.
+constexpr std::array kReplicaFamilies = {"memgraph_replica_stream_seconds",
+                                         "memgraph_start_txn_replication_seconds",
+                                         "memgraph_finalize_txn_replication_seconds",
+                                         "memgraph_replica_commit_timestamp",
+                                         "memgraph_replica_timestamp_lag",
+                                         "memgraph_replica_lag_seconds",
+                                         "memgraph_replica_state"};
+}  // namespace
+
 TEST(PrometheusMetrics, RemoveDatabaseErasesReplicaSeriesForThatDb) {
-  using memgraph::storage::replication::ReplicaState;
   FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
 
@@ -138,84 +192,112 @@ TEST(PrometheusMetrics, RemoveDatabaseErasesReplicaSeriesForThatDb) {
   memgraph::utils::UUID const uuid2{};
   ASSERT_NE(uuid1, uuid2);
 
-  // RemoveDatabase early-returns unless the db was added, so register both.
+  // AddDatabase registers main_commit_timestamp; RemoveDatabase early-returns unless the db was added.
   pm.AddDatabase(uuid1, "db1");
   pm.AddDatabase(uuid2, "db2");
+  SeedReplicaSeries(pm, "replica_a", uuid1, "db1");
+  SeedReplicaSeries(pm, "replica_a", uuid2, "db2");
 
-  // Seed every per-(replica, db) replication series for both databases.
-  for (auto const &[uuid, name] : {std::pair{uuid1, "db1"}, std::pair{uuid2, "db2"}}) {
-    pm.ObserveReplicaStream("replica_a", uuid, name, 0.001);
-    pm.ObserveStartTxnReplication("replica_a", uuid, name, 0.001);
-    pm.ObserveFinalizeTxnReplication("replica_a", uuid, name, 0.001);
-    pm.SetReplicaCommitTimestamp("replica_a", uuid, name, 100);
-    pm.SetReplicaTimestampLag("replica_a", uuid, name, 5);
-    pm.SetReplicaState("replica_a", uuid, name, ReplicaState::READY);
-    pm.SetMainCommitTimestamp(uuid, name, 105);
-  }
-
-  static constexpr std::array kReplicaFamilies = {"memgraph_replica_stream_seconds",
-                                                  "memgraph_start_txn_replication_seconds",
-                                                  "memgraph_finalize_txn_replication_seconds",
-                                                  "memgraph_replica_commit_timestamp",
-                                                  "memgraph_replica_timestamp_lag",
-                                                  "memgraph_replica_state",
-                                                  "memgraph_main_commit_timestamp"};
-
-  // Both databases have all replica series before removal.
+  // Both databases have every replica series plus main_commit_timestamp before removal.
   auto const before = pm.registry().Collect();
   for (auto const *name : kReplicaFamilies) {
     EXPECT_TRUE(HasSeriesWithLabel(before, name, "database", "db1")) << name << " missing for db1 before removal";
     EXPECT_TRUE(HasSeriesWithLabel(before, name, "database", "db2")) << name << " missing for db2 before removal";
   }
+  EXPECT_TRUE(HasSeriesWithLabel(before, "memgraph_main_commit_timestamp", "database", "db1"));
+  EXPECT_TRUE(HasSeriesWithLabel(before, "memgraph_main_commit_timestamp", "database", "db2"));
 
   pm.RemoveDatabase(uuid1);
 
-  // db1's series are erased across every replica family; db2's remain untouched.
+  // db1's series are erased across every family (incl. main_commit_timestamp); db2's remain untouched.
   auto const after = pm.registry().Collect();
   for (auto const *name : kReplicaFamilies) {
     EXPECT_FALSE(HasSeriesWithLabel(after, name, "database", "db1")) << name << " should be erased for db1";
     EXPECT_TRUE(HasSeriesWithLabel(after, name, "database", "db2")) << name << " should remain for db2";
   }
+  EXPECT_FALSE(HasSeriesWithLabel(after, "memgraph_main_commit_timestamp", "database", "db1"));
+  EXPECT_TRUE(HasSeriesWithLabel(after, "memgraph_main_commit_timestamp", "database", "db2"));
 }
 
 TEST(PrometheusMetrics, RemoveReplicaInstanceMetricsErasesSeriesForThatInstance) {
-  using memgraph::storage::replication::ReplicaState;
   FLAGS_metrics_format = "OpenMetrics";
   memgraph::metrics::PrometheusMetrics pm;
   memgraph::utils::UUID const db_uuid{};
 
-  // Seed per-(replica, db) series for two replica instances on the same database.
-  for (auto const *instance : {"replica_a", "replica_b"}) {
-    pm.ObserveReplicaStream(instance, db_uuid, "db1", 0.001);
-    pm.ObserveStartTxnReplication(instance, db_uuid, "db1", 0.001);
-    pm.ObserveFinalizeTxnReplication(instance, db_uuid, "db1", 0.001);
-    pm.SetReplicaCommitTimestamp(instance, db_uuid, "db1", 100);
-    pm.SetReplicaTimestampLag(instance, db_uuid, "db1", 5);
-    pm.SetReplicaState(instance, db_uuid, "db1", ReplicaState::READY);
-  }
-
-  // main_commit_timestamp is not per-instance, so RemoveReplicaInstanceMetrics must not touch it.
-  static constexpr std::array kInstanceFamilies = {"memgraph_replica_stream_seconds",
-                                                   "memgraph_start_txn_replication_seconds",
-                                                   "memgraph_finalize_txn_replication_seconds",
-                                                   "memgraph_replica_commit_timestamp",
-                                                   "memgraph_replica_timestamp_lag",
-                                                   "memgraph_replica_state"};
+  pm.AddDatabase(db_uuid, "db1");  // owns the per-db main_commit_timestamp
+  SeedReplicaSeries(pm, "replica_a", db_uuid, "db1");
+  SeedReplicaSeries(pm, "replica_b", db_uuid, "db1");
 
   auto const before = pm.registry().Collect();
-  for (auto const *name : kInstanceFamilies) {
+  for (auto const *name : kReplicaFamilies) {
     EXPECT_TRUE(HasSeriesWithLabel(before, name, "mg_instance", "replica_a")) << name << " missing for replica_a";
     EXPECT_TRUE(HasSeriesWithLabel(before, name, "mg_instance", "replica_b")) << name << " missing for replica_b";
   }
 
   pm.RemoveReplicaInstanceMetrics("replica_a");
 
-  // replica_a's series are erased across every family; replica_b's remain untouched.
+  // replica_a's series are erased; replica_b's remain, and the per-db main_commit_timestamp is untouched.
   auto const after = pm.registry().Collect();
-  for (auto const *name : kInstanceFamilies) {
+  for (auto const *name : kReplicaFamilies) {
     EXPECT_FALSE(HasSeriesWithLabel(after, name, "mg_instance", "replica_a")) << name << " should be erased";
     EXPECT_TRUE(HasSeriesWithLabel(after, name, "mg_instance", "replica_b")) << name << " should remain";
   }
+  EXPECT_TRUE(HasSeriesWithLabel(after, "memgraph_main_commit_timestamp", "database", "db1"))
+      << "main_commit_timestamp is per-db, not per-instance";
+}
+
+TEST(PrometheusMetrics, ReplicaStateSeriesIsOneHot) {
+  FLAGS_metrics_format = "OpenMetrics";
+  memgraph::metrics::PrometheusMetrics pm;
+  memgraph::utils::UUID const db_uuid{};
+
+  auto const &h = pm.EnsureReplicaHandles("replica_a", db_uuid, "db1", ReplicationMode::SYNC);
+  h.SetState(ReplicaState::REPLICATING);
+
+  auto value_for = [&](std::string_view state) {
+    return GaugeValueWithLabels(
+        pm.registry().Collect(), "memgraph_replica_state", {{"mg_instance", "replica_a"}, {"state", state}});
+  };
+  EXPECT_EQ(value_for("REPLICATING"), 1.0);
+  EXPECT_EQ(value_for("READY"), 0.0);
+  EXPECT_EQ(value_for("DIVERGED_FROM_MAIN"), 0.0);
+
+  // Transition flips exactly one series on and the previous one off.
+  h.SetState(ReplicaState::READY);
+  EXPECT_EQ(value_for("READY"), 1.0);
+  EXPECT_EQ(value_for("REPLICATING"), 0.0);
+}
+
+TEST(PrometheusMetrics, ReplicaSeriesCarrySyncModeLabel) {
+  FLAGS_metrics_format = "OpenMetrics";
+  memgraph::metrics::PrometheusMetrics pm;
+  memgraph::utils::UUID const db_uuid{};
+
+  SeedReplicaSeries(pm, "replica_async", db_uuid, "db1", ReplicationMode::ASYNC);
+  auto const families = pm.registry().Collect();
+  EXPECT_TRUE(HasSeriesWithLabel(families, "memgraph_replica_lag_seconds", "sync_mode", "async"));
+  EXPECT_TRUE(HasSeriesWithLabel(families, "memgraph_replica_state", "sync_mode", "async"));
+}
+
+TEST(PrometheusMetrics, GlobalMetricsInfoReportsReplicaLagSummaries) {
+  FLAGS_metrics_format = "OpenMetrics";
+  memgraph::metrics::PrometheusMetrics pm;
+  memgraph::utils::UUID const db_uuid{};
+
+  // replica_a: caught up (READY); replica_b: behind and RECOVERY.
+  auto const &a = pm.EnsureReplicaHandles("replica_a", db_uuid, "db1", ReplicationMode::SYNC);
+  a.SetTimestampLag(3);
+  a.SetLagSeconds(1.5);
+  a.SetState(ReplicaState::READY);
+  auto const &b = pm.EnsureReplicaHandles("replica_b", db_uuid, "db1", ReplicationMode::ASYNC);
+  b.SetTimestampLag(42);
+  b.SetLagSeconds(7.5);
+  b.SetState(ReplicaState::RECOVERY);
+
+  auto const global = pm.GetGlobalMetricsInfo();
+  EXPECT_EQ(MetricInfoValue(global, "MaxReplicaTimestampLag"), 42.0);
+  EXPECT_EQ(MetricInfoValue(global, "MaxReplicaLagSeconds"), 7.5);
+  EXPECT_EQ(MetricInfoValue(global, "ReplicasNotReady"), 1.0);  // only replica_b
 }
 
 TEST(DatabaseMetrics, SwitchToOnDiskUpdatesSnapshotCallback) {

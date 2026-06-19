@@ -179,8 +179,8 @@ def test_replica_info_metrics_on_main(test_name):
     def all_replica_info_present():
         body = _scrape(DATA_METRICS_URLS["instance_3"])
         for replica in ("instance_1", "instance_2"):
-            # Histogram bucket entries carry all three labels; checking for the shared prefix
-            # is enough (OpenMetrics emits labels alphabetically: database, mg_instance, uuid).
+            # Histogram bucket entries carry all labels; checking for the shared prefix is enough
+            # (OpenMetrics emits labels alphabetically: database, mg_instance, sync_mode, uuid).
             prefix_replica_stream = (
                 f'memgraph_replica_stream_seconds_bucket{{database="memgraph",mg_instance="{replica}"'
             )
@@ -188,8 +188,14 @@ def test_replica_info_metrics_on_main(test_name):
             prefix_finalize = (
                 f'memgraph_finalize_txn_replication_seconds_bucket{{database="memgraph",mg_instance="{replica}"'
             )
-            ready_line = f'memgraph_replica_state{{database="memgraph",mg_instance="{replica}",state="READY",uuid='
-            if not all(p in body for p in (prefix_replica_stream, prefix_start, prefix_finalize, ready_line)):
+            # Time-based lag gauge (Gap 1) and the sync_mode label (Gap 5). instance_3 registers its
+            # replicas as SYNC, so the series carry sync_mode="sync".
+            lag_seconds = f'memgraph_replica_lag_seconds{{database="memgraph",mg_instance="{replica}",sync_mode="sync"'
+            # mg_instance < state < sync_mode alphabetically, so this substring is order-stable.
+            ready_line = f'memgraph_replica_state{{database="memgraph",mg_instance="{replica}",state="READY"'
+            if not all(
+                p in body for p in (prefix_replica_stream, prefix_start, prefix_finalize, lag_seconds, ready_line)
+            ):
                 return False
         return 'memgraph_main_commit_timestamp{database="memgraph"' in body
 

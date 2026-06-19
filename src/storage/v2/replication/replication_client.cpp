@@ -65,22 +65,53 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
                                                    utils::UUID const main_uuid)
     : client_{client}, main_uuid_(main_uuid) {}
 
+auto ReplicationStorageClient::ReplicaMetrics(Storage const *storage) const -> metrics::ReplicaMetricHandles & {
+  std::call_once(metrics_handles_once_, [&] {
+    metrics_handles_ =
+        &metrics::Metrics().EnsureReplicaHandles(client_.name_, storage->uuid(), storage->name(), client_.mode_);
+  });
+  return *metrics_handles_;
+}
+
+auto ReplicationStorageClient::SampleLagSeconds(uint64_t const main_ts, uint64_t const replica_ts) const -> double {
+  // Bounds the retained history; beyond this, a hopelessly-behind replica's lag is under-reported
+  // rather than growing memory without limit (its state series already flags it as unhealthy).
+  constexpr std::size_t kMaxSamples = 1024;
+  auto const now = std::chrono::steady_clock::now();
+  return lag_samples_.WithLock([&](auto &samples) -> double {
+    // Record a sample only when the main has advanced, so an idle main doesn't grow the buffer.
+    if (samples.empty() || main_ts > samples.back().main_ts) {
+      samples.push_back({.main_ts = main_ts, .at = now});
+      if (samples.size() > kMaxSamples) samples.pop_front();
+    }
+    // Drop samples the replica has already caught up to; the front then marks the oldest main commit
+    // the replica is still missing.
+    while (!samples.empty() && samples.front().main_ts <= replica_ts) samples.pop_front();
+    if (samples.empty()) return 0.0;  // replica caught up (or ahead, e.g. after a snapshot)
+    return std::chrono::duration<double>(now - samples.front().at).count();
+  });
+}
+
 void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseProtector const &protector) {
   auto &main_repl_state = main_storage->repl_storage_state_;
   auto const &main_db_name = main_storage->name();
 
-  // Push the four replica-info gauges on every exit path so a scrape between heartbeats always
-  // reflects the most-recently-observed state — not just the happy path.
+  // Push the replica-info gauges on every exit path so a scrape between heartbeats always reflects
+  // the most-recently-observed state — not just the happy path. (main_commit_timestamp is pushed
+  // from the commit path instead, so it is fresh and present even with zero replicas.)
   utils::OnScopeExit const push_replica_gauges{[&] {
     auto const main_ts = main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_;
     auto const replica_ts = commit_ts_info_.load(std::memory_order_acquire).ldt_;
-    auto const lag = static_cast<int64_t>(main_ts) - static_cast<int64_t>(replica_ts);
+    // Positive => replica behind. Negation of SHOW REPLICAS' behind count (replica - main); the metric
+    // uses the positive=behind convention that alerting tooling expects.
+    auto const logical_lag = static_cast<int64_t>(main_ts) - static_cast<int64_t>(replica_ts);
+    auto const lag_seconds = SampleLagSeconds(main_ts, replica_ts);
     auto const current_state = *replica_state_.Lock();
-    auto &metrics = metrics::Metrics();
-    metrics.SetReplicaCommitTimestamp(client_.name_, main_storage->uuid(), main_db_name, replica_ts);
-    metrics.SetReplicaTimestampLag(client_.name_, main_storage->uuid(), main_db_name, lag);
-    metrics.SetReplicaState(client_.name_, main_storage->uuid(), main_db_name, current_state);
-    metrics.SetMainCommitTimestamp(main_storage->uuid(), main_db_name, main_ts);
+    auto const &handles = ReplicaMetrics(main_storage);
+    handles.SetCommitTimestamp(replica_ts);
+    handles.SetTimestampLag(logical_lag);
+    handles.SetLagSeconds(lag_seconds);
+    handles.SetState(current_state);
   }};
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
@@ -342,10 +373,8 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
                                                            uint64_t const durability_commit_timestamp)
     -> std::expected<ReplicaStream, StartTxnReplicationError> {
   utils::Timer const start_txn_timer;
-  utils::OnScopeExit const observe_start_txn{[&] {
-    metrics::Metrics().ObserveStartTxnReplication(
-        client_.name_, storage->uuid(), storage->name(), start_txn_timer.Elapsed().count());
-  }};
+  utils::OnScopeExit const observe_start_txn{
+      [&] { ReplicaMetrics(storage).ObserveStartTxn(start_txn_timer.Elapsed().count()); }};
   auto locked_state = replica_state_.Lock();
   spdlog::trace(
       "Starting transaction replication for replica {} in state {}", client_.name_, StateToString(*locked_state));
@@ -378,10 +407,8 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     case READY: {
       try {
         utils::Timer const replica_stream_timer;
-        utils::OnScopeExit const observe_replica_stream{[&] {
-          metrics::Metrics().ObserveReplicaStream(
-              client_.name_, storage->uuid(), storage->name(), replica_stream_timer.Elapsed().count());
-        }};
+        utils::OnScopeExit const observe_replica_stream{
+            [&] { ReplicaMetrics(storage).ObserveReplicaStream(replica_stream_timer.Elapsed().count()); }};
         std::optional<rpc::Client::StreamHandler<replication::PrepareCommitRpc>> maybe_stream_handler;
 
         // Try to obtain RPC stream for ASYNC replica. It is OK to fail.
@@ -462,9 +489,8 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   utils::Timer const finalize_timer;
   Storage *const labeled_storage = replica_stream ? replica_stream->storage() : nullptr;
   utils::OnScopeExit const observe_finalize{[&] {
-    if (!labeled_storage) return;  // unlabeled — no storage context to attribute to
-    metrics::Metrics().ObserveFinalizeTxnReplication(
-        client_.name_, labeled_storage->uuid(), labeled_storage->name(), finalize_timer.Elapsed().count());
+    if (!labeled_storage) return;  // no storage context to attribute to
+    ReplicaMetrics(labeled_storage).ObserveFinalizeTxn(finalize_timer.Elapsed().count());
   }};
   auto const continue_finalize = replica_state_.WithLock([this, &replica_stream](auto &state) mutable {
     spdlog::trace("Finalizing 1st phase on replica {} in state {}", client_.name_, StateToString(state));
@@ -543,9 +569,8 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   utils::Timer const finalize_timer;
   Storage *const labeled_storage = replica_stream ? replica_stream->storage() : nullptr;
   utils::OnScopeExit const observe_finalize{[&] {
-    if (!labeled_storage) return;
-    metrics::Metrics().ObserveFinalizeTxnReplication(
-        client_.name_, labeled_storage->uuid(), labeled_storage->name(), finalize_timer.Elapsed().count());
+    if (!labeled_storage) return;  // no storage context to attribute to
+    ReplicaMetrics(labeled_storage).ObserveFinalizeTxn(finalize_timer.Elapsed().count());
   }};
   auto const continue_finalize = replica_state_.WithLock([this, &replica_stream](auto &state) mutable {
     spdlog::trace("Finalizing transaction on replica {} in state {}", client_.name_, StateToString(state));
