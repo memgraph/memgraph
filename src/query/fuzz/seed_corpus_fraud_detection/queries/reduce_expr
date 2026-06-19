@@ -1,0 +1,1 @@
+MATCH p = (a:Account)-[:TRANSFERRED_TO*1..3]->(b:Account) RETURN a.name, b.name, reduce(total = 0, r IN relationships(p) | total + r.amount) AS path_total

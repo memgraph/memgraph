@@ -1,0 +1,1 @@
+MATCH (a:Account {flagged: true}) REMOVE a.flagged RETURN a.name
