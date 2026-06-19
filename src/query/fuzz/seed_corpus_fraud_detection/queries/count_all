@@ -1,0 +1,1 @@
+MATCH (n) RETURN labels(n)[0] AS type, count(*) AS cnt

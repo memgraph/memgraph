@@ -1,0 +1,1 @@
+MATCH (a:Account)-[t:TRANSFERRED_TO]->() WITH a, count(t) AS cnt, sum(t.amount) AS total WHERE cnt > 1 RETURN a.name, cnt, total

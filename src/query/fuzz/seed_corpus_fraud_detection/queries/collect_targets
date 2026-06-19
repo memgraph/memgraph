@@ -1,0 +1,1 @@
+MATCH (a:Account)-[:TRANSFERRED_TO]->(b:Account) RETURN a.name, collect(b.name) AS targets
