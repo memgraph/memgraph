@@ -704,6 +704,10 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
   }
 }
 
+TYPED_TEST(InterpreterTest, DollarSpaceNumberDoesNotCrash) {
+  ASSERT_THROW(this->Interpret("RETURN $ 1"), memgraph::query::UnprovidedParameterError);
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);
