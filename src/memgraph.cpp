@@ -521,6 +521,7 @@ int main(int argc, char **argv) {
       .durability = {.storage_directory = FLAGS_data_directory,
                      .root_data_directory = FLAGS_data_directory,
                      .recover_on_startup = FLAGS_data_recovery_on_startup,
+                     .allow_recovery_failure = FLAGS_storage_allow_recovery_failure,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
