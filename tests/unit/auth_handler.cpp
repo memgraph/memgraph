@@ -3512,4 +3512,100 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesForUserIncludesRolePropertyPermiss
   EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
   EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO ROLE");
 }
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesDeduplicatesUserAndRoleLbacPermissions) {
+  using FGP = memgraph::auth::FineGrainedPermission;
+
+  auto user_label_perms = memgraph::auth::FineGrainedAccessPermissions{};
+  user_label_perms.GrantGlobal(FGP::READ);
+
+  auto role_label_perms = memgraph::auth::FineGrainedAccessPermissions{};
+  role_label_perms.GrantGlobal(FGP::READ);
+
+  memgraph::auth::User user{user_name};
+  user.fine_grained_access_handler() = memgraph::auth::FineGrainedAccessHandler{
+      std::move(user_label_perms), memgraph::auth::FineGrainedAccessPermissions{}};
+  auth.value()->SaveUser(user);
+
+  memgraph::auth::Role role{"analyst"};
+  role.fine_grained_access_handler() = memgraph::auth::FineGrainedAccessHandler{
+      std::move(role_label_perms), memgraph::auth::FineGrainedAccessPermissions{}};
+  auth.value()->SaveRole(role);
+
+  auth_handler.AddRoles(user_name, {"analyst"}, {}, nullptr);
+
+  auto privileges =
+      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+
+  std::vector<std::vector<memgraph::query::TypedValue>> lbac_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("LABEL") != std::string::npos &&
+        row[0].ValueString().find("ALL LABELS") != std::string::npos) {
+      lbac_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(lbac_rows.size(), 1);
+  EXPECT_EQ(lbac_rows[0][0].ValueString(), "READ ON ALL LABELS");
+  EXPECT_EQ(lbac_rows[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(lbac_rows[0][2].ValueString(),
+            "GLOBAL LABEL PERMISSION GRANTED TO USER, GLOBAL LABEL PERMISSION GRANTED TO ROLE");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesDeduplicatesUserAndRolePbacPermissions) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+  auth_handler.CreateRole("analyst", nullptr);
+
+  // Grant global {*} READ and WRITE to both user and role
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"*"},
+                                       {"*"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr);
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"*"},
+                                       {"*"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::WRITE,
+                                       nullptr);
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"*"},
+                                       {"*"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr);
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"*"},
+                                       {"*"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::WRITE,
+                                       nullptr);
+
+  auth_handler.AddRoles(user_name, {"analyst"}, {}, nullptr);
+
+  auto privileges =
+      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos &&
+        row[0].ValueString().find("ALL LABELS") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 1);
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ, SET PROPERTY {*} ON ALL LABELS");
+  EXPECT_EQ(prop_rows[0][2].ValueString(),
+            "GLOBAL PROPERTY PERMISSION GRANTED TO USER, GLOBAL PROPERTY PERMISSION GRANTED TO ROLE");
+}
 #endif

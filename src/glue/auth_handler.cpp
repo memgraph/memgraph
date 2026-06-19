@@ -396,6 +396,23 @@ void EmitPropertyMap(std::unordered_map<std::string, memgraph::auth::PropertyPer
   emit_level(read_denied, write_denied, "DENY", "DENIED");
 }
 
+void DeduplicatePermissionRows(std::vector<std::vector<memgraph::query::TypedValue>> &rows) {
+  std::map<std::pair<std::string, std::string>, size_t> seen;
+  std::vector<std::vector<memgraph::query::TypedValue>> result;
+  for (auto &row : rows) {
+    auto key = std::make_pair(std::string(row[0].ValueString()), std::string(row[1].ValueString()));
+    if (auto it = seen.find(key); it != seen.end()) {
+      auto &existing_desc = result[it->second][2];
+      auto combined = std::string(existing_desc.ValueString()) + ", " + std::string(row[2].ValueString());
+      existing_desc = memgraph::query::TypedValue(combined);
+    } else {
+      seen.emplace(std::move(key), result.size());
+      result.push_back(std::move(row));
+    }
+  }
+  rows = std::move(result);
+}
+
 void EmitPropertyPermissions(memgraph::auth::PropertyAccessPermissions const &perms,
                              memgraph::auth::PropertyEntityKind kind, std::string_view user_or_role_str,
                              std::vector<std::vector<memgraph::query::TypedValue>> &result) {
@@ -1017,10 +1034,13 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedUserPrivileges(user, db_name);
-        fine_grained_grants.append_range(ShowPropertyPermissions(user->property_access_handler(), "USER"));
+        DeduplicatePermissionRows(fine_grained_grants);
+        auto property_rows = ShowPropertyPermissions(user->property_access_handler(), "USER");
         for (auto const &role : user->roles()) {
-          fine_grained_grants.append_range(ShowPropertyPermissions(role.property_access_handler(), "ROLE"));
+          property_rows.append_range(ShowPropertyPermissions(role.property_access_handler(), "ROLE"));
         }
+        DeduplicatePermissionRows(property_rows);
+        fine_grained_grants.append_range(std::move(property_rows));
       }
 #endif
     } else if (role) {
