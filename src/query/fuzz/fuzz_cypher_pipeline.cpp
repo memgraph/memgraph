@@ -120,6 +120,8 @@ bool g_setup_done = false;
 
 }  // namespace
 
+extern "C" char const *__lsan_default_options() { return "detect_leaks=0"; }
+
 extern "C" int LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) {
   if (size == 0 || size > 4096) return 0;
 

@@ -1,0 +1,1 @@
+MATCH (a:Account)-[t:TRANSFERRED_TO]->(b:Account) RETURN a.name, t.amount, t.amount * 1.1 AS with_fee, t.amount / a.balance * 100 AS pct_of_balance
