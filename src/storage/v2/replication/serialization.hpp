@@ -28,6 +28,8 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteBool(bool value) override;
 
+  uint32_t WriteCrc() override;
+
   void WriteUint(uint64_t value) override;
 
   void WriteDouble(double value) override;
@@ -48,7 +50,13 @@ class Encoder final : public durability::BaseEncoder {
 
   bool WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write);
 
+  uint64_t GetPosition() override;
+
   slk::Builder *GetBuilder() const { return builder_; }
+
+  void ResetCrcAcc() override {}
+
+  auto CrcAccValue() const -> uint32_t override { return 0; }
 
  private:
   slk::Builder *builder_;
@@ -79,6 +87,11 @@ class Decoder final : public durability::BaseDecoder {
   bool SkipString() override;
 
   bool SkipExternalPropertyValue() override;
+
+  // Replicated deltas are integrity-protected by TCP; no CRC is accumulated (see Encoder above).
+  void ResetCrcAcc() override {}
+
+  auto CrcAccValue() -> uint32_t override { return 0; }
 
  private:
   slk::Reader *reader_;

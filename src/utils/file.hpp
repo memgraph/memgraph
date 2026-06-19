@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "utils/crc_accumulator.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::utils {
@@ -141,8 +142,20 @@ class InputFile {
   /// Closes the currently opened file. On failure it crashes the program.
   void Close() noexcept;
 
+  /// Restarts CRC accumulation from the current position.
+  void ResetCrc();
+
+  /// Returns the CRC-32 of all bytes consumed via `Read` since the last `ResetCrc` (or `Open`). Bytes skipped over
+  /// with `SetPosition` are not included; bytes inspected with `Peek` enter the CRC only once they are `Read`.
+  /// Accumulation is folded lazily at internal buffer granularity, so this is much cheaper than folding every `Read`.
+  auto CrcValue() -> uint32_t;
+
  private:
   bool LoadBuffer();
+
+  // Folds the consumed-but-not-yet-folded byte range of the current buffer into the CRC. Must be called before the
+  // buffer is discarded (reload or seek), since the pending bytes are only available there.
+  void FoldPendingCrc();
 
   int fd_{-1};
   std::filesystem::path path_;
@@ -153,6 +166,11 @@ class InputFile {
   std::optional<size_t> buffer_start_;
   size_t buffer_size_{0};
   size_t buffer_position_{0};
+
+  CrcAccumulator crc_acc_;
+  // Absolute file offset up to which consumed bytes have been folded into `crc_acc_`. Invariant: it either equals the
+  // current position (nothing pending) or lies within the current buffer, at or before the current position.
+  size_t crc_fold_position_{0};
 };
 
 /// This class implements a file handler that is used for mission critical files

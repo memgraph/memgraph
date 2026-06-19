@@ -12,6 +12,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/utils.hpp"  // Include after all SLK definitions are present
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -21,8 +22,6 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-
-#include "memory/db_arena_fwd.hpp"
 #include "utils/file.hpp"
 #include "utils/observer.hpp"
 
@@ -1175,12 +1174,12 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
   std::unordered_map<EdgeSetPropertyCacheKey, EdgeAccessor, EdgeSetPropertyCacheKeyHash> edge_set_property_cache;
 
+  decoder->ResetCrcAcc();
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx, ++current_batch_counter) {
     if (current_batch_counter == deltas_batch_progress_size) {
       rpc::SendInProgressMsg(res_builder);
       current_batch_counter = 0;
     }
-
     auto const [delta_timestamp, delta] = ReadDelta(decoder, version);
     if (delta_timestamp != prev_printed_timestamp) {
       spdlog::trace("Timestamp: {}", delta_timestamp);
@@ -1472,11 +1471,17 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
           access_type = data.access_type ? std::optional(translate_access_type(*data.access_type)) : std::nullopt;
         },
-        [&](WalTransactionEnd const &) {
+        [&](WalTransactionEnd const &txn_end) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
           if (!commit_accessor || commit_timestamp != delta_timestamp) {
             throw utils::BasicException("Invalid commit data!");
           }
+          // We don't do CRC verification on PrepareCommitRpc because we are already using TCP sockets
+          if (loading_wal && txn_end.txn_crc.has_value() && !utils::CrcAccumulator::Verify(decoder->CrcAccValue())) {
+            throw utils::BasicException(
+                "Replication WAL CRC mismatch (stored {}, residue {}).", *txn_end.txn_crc, decoder->CrcAccValue());
+          }
+          decoder->ResetCrcAcc();
 
           // Durability could take some time on replica
           rpc::SendInProgressMsg(res_builder);
@@ -1973,7 +1978,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
     };
-
     // If I received PrepareCommitRpc, deltas should be applied (loading_wal will be false)
     // If loading WAL file, WalTransactionStart is decision-maker whether to load the txn from WAL or not
     if (loading_wal && !should_commit) continue;

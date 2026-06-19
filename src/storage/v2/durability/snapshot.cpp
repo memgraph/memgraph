@@ -450,7 +450,7 @@ SnapshotInfo ReadSnapshotInfoPreVersion23(const std::filesystem::path &path) {
       auto maybe_offset = snapshot.ReadUint();
       if (!maybe_offset) throw RecoveryFailure("Invalid snapshot format!");
       auto offset = *maybe_offset;
-      if (offset > *snapshot_size) throw RecoveryFailure("Invalid snapshot format!");
+      if (offset > snapshot_size) throw RecoveryFailure("Invalid snapshot format!");
       return offset;
     };
 
@@ -538,7 +538,7 @@ SnapshotInfo ReadSnapshotInfoPreVersionNumCommittedTxns(const std::filesystem::p
       auto maybe_offset = snapshot.ReadUint();
       if (!maybe_offset) throw RecoveryFailure("Invalid snapshot format!");
       auto offset = *maybe_offset;
-      if (offset > *snapshot_size) throw RecoveryFailure("Invalid snapshot format!");
+      if (offset > snapshot_size) throw RecoveryFailure("Invalid snapshot format!");
       return offset;
     };
 
@@ -637,7 +637,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
       auto maybe_offset = snapshot.ReadUint();
       if (!maybe_offset) throw RecoveryFailure("Invalid snapshot format!");
       auto offset = *maybe_offset;
-      if (offset > *snapshot_size) throw RecoveryFailure("Invalid snapshot format!");
+      if (offset > snapshot_size) throw RecoveryFailure("Invalid snapshot format!");
       return offset;
     };
 

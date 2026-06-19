@@ -20,6 +20,7 @@ target_sources(mg-utils
     PRIVATE
     async_timer.cpp
     base64.cpp
+    crc_accumulator.cpp
     file.cpp
     file_locker.cpp
     file_owner.cpp
@@ -55,6 +56,7 @@ target_sources(mg-utils
     FILES
     allocator/page_aligned.hpp
     allocator/page_slab_memory_resource.hpp
+    crc_accumulator.hpp
     data_queue.hpp
     exponential_backoff.hpp
     fixed_string.hpp
