@@ -1247,6 +1247,7 @@ dependencies = [
  "log",
  "serde_json",
  "tantivy",
+ "tantivy-fst",
 ]
 
 [[package]]

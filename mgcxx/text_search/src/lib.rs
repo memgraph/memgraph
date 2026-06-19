@@ -11,6 +11,7 @@
 
 use log::debug;
 use serde_json::{to_string, Value};
+use std::collections::HashSet;
 use std::io::{Error, ErrorKind};
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_result::AggregationResults;
@@ -19,7 +20,8 @@ use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{QueryParser, RegexQuery};
 use tantivy::schema::*;
-use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument};
+use tantivy::{DocSet, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, TERMINATED};
+use tantivy_fst::Regex;
 
 // NOTE: Result<T> == Result<T,std::io::Error>.
 #[cxx::bridge(namespace = "mgcxx::text_search")]
@@ -911,46 +913,62 @@ fn regex_search_gids_pinned(
     searcher_ctx: &SearcherContext,
     input: &ffi::SearchInput,
 ) -> Result<ffi::GidScoreOutput, std::io::Error> {
+    // Regex queries in tantivy produce a constant score (ConstScorer) for every matching doc, so
+    // there is no meaningful ranking to preserve. Instead of letting RegexQuery+TopDocs eagerly
+    // materialize the full matching doc set into a max_doc-sized bitset (see AutomatonWeight::scorer),
+    // we stream the FST-pruned matching terms and their postings lazily and stop as soon as we have
+    // collected `limit` distinct docs. This turns the cost from O(all matching docs) into O(limit)
+    // for prefix-style patterns that fan out across many terms.
     let index_path = &context.tantivyContext.index_path;
     let schema = &context.tantivyContext.schema;
 
     let search_field = search_get_fields(&input.search_fields, schema, index_path)?[0];
-    let query = RegexQuery::from_pattern(&input.search_query, search_field).map_err(|e| {
+    let regex = Regex::new(&input.search_query).map_err(|e| {
         Error::new(
             ErrorKind::Other,
             format!("Unable to create regex search query for {:?} -> {}", index_path, e),
         )
     })?;
 
-    let top_docs = searcher_ctx
-        .searcher
-        .search(&query, &TopDocs::with_limit(input.effective_limit()))
-        .map_err(|e| {
-            Error::new(
-                ErrorKind::Other,
-                format!("Unable to perform text search under {:?} -> {}", index_path, e),
-            )
-        })?;
+    let limit = input.effective_limit();
+    let mut docs: Vec<ffi::GidScore> = Vec::with_capacity(limit);
+    // A single doc can carry several matching terms (kAllField concatenates all property values),
+    // so dedup on the globally-unique gid. `limit` is small, so the set is cheap.
+    let mut seen: HashSet<u64> = HashSet::new();
 
-    // Read `gid` from the columnar fast field instead of decompressing the stored doc per hit.
-    let gid_columns = searcher_ctx
-        .searcher
-        .segment_readers()
-        .iter()
-        .map(|sr| sr.fast_fields().u64("gid"))
-        .collect::<Result<Vec<_>, tantivy::TantivyError>>()
-        .map_err(|e| {
+    'segments: for segment_reader in searcher_ctx.searcher.segment_readers() {
+        let inverted_index = segment_reader.inverted_index(search_field).map_err(|e| {
+            Error::new(ErrorKind::Other, format!("inverted index not available in {:?} -> {}", index_path, e))
+        })?;
+        let gid_column = segment_reader.fast_fields().u64("gid").map_err(|e| {
             Error::new(ErrorKind::Other, format!("gid fast field not available in {:?} -> {}", index_path, e))
         })?;
+        // Postings include soft-deleted docs (Memgraph deletes via delete_query); skip them just as
+        // searcher.search() would via the alive bitset.
+        let alive_bitset = segment_reader.alive_bitset();
 
-    let mut docs: Vec<ffi::GidScore> = Vec::with_capacity(top_docs.len());
-    for (score, doc_address) in top_docs {
-        let gid = gid_columns[doc_address.segment_ord as usize]
-            .first(doc_address.doc_id)
-            .ok_or_else(|| {
-                Error::new(ErrorKind::Other, format!("gid missing for matched doc in {:?}", index_path))
-            })?;
-        docs.push(ffi::GidScore { gid, score });
+        let mut term_stream = inverted_index.terms().search(&regex).into_stream()?;
+        while term_stream.advance() {
+            let term_info = term_stream.value();
+            let mut postings =
+                inverted_index.read_postings_from_terminfo(term_info, IndexRecordOption::Basic)?;
+            let mut doc = postings.doc();
+            while doc != TERMINATED {
+                let alive = alive_bitset.map_or(true, |bitset| bitset.is_alive(doc));
+                if alive {
+                    if let Some(gid) = gid_column.first(doc) {
+                        if seen.insert(gid) {
+                            // Score matches the constant ConstScorer value RegexQuery would emit.
+                            docs.push(ffi::GidScore { gid, score: 1.0 });
+                            if docs.len() >= limit {
+                                break 'segments;
+                            }
+                        }
+                    }
+                }
+                doc = postings.advance();
+            }
+        }
     }
     Ok(ffi::GidScoreOutput { docs })
 }
@@ -1021,55 +1039,69 @@ fn regex_search_edge_gids_pinned(
     searcher_ctx: &SearcherContext,
     input: &ffi::SearchInput,
 ) -> Result<ffi::EdgeGidScoreOutput, std::io::Error> {
+    // Same lazy, early-terminating strategy as regex_search_gids_pinned (see comment there): regex
+    // scores are constant, so we stream FST-pruned matching terms and stop at `limit` distinct edges
+    // instead of materializing the full matching doc set. The edge/from/to gids are read from the
+    // columnar fast fields rather than decompressing the stored document per hit.
     let index_path = &context.tantivyContext.index_path;
     let schema = &context.tantivyContext.schema;
 
     let search_field = search_get_fields(&input.search_fields, schema, index_path)?[0];
-    let query = RegexQuery::from_pattern(&input.search_query, search_field).map_err(|e| {
+    let regex = Regex::new(&input.search_query).map_err(|e| {
         Error::new(
             ErrorKind::Other,
             format!("Unable to create regex search query for {:?} -> {}", index_path, e),
         )
     })?;
 
-    let top_docs = searcher_ctx
-        .searcher
-        .search(&query, &TopDocs::with_limit(input.effective_limit()))
-        .map_err(|e| {
-            Error::new(
-                ErrorKind::Other,
-                format!("Unable to perform text search under {:?} -> {}", index_path, e),
-            )
-        })?;
+    let limit = input.effective_limit();
+    let mut docs: Vec<ffi::EdgeGidScore> = Vec::with_capacity(limit);
+    let mut seen: HashSet<u64> = HashSet::new();
 
-    // Read the edge/from/to gids from columnar fast fields instead of decompressing the stored
-    // document per hit. All three are configured as fast fields.
-    let segment_readers = searcher_ctx.searcher.segment_readers();
-    let fast_u64_column = |field_name: &str| {
-        segment_readers
-            .iter()
-            .map(|sr| sr.fast_fields().u64(field_name))
-            .collect::<Result<Vec<_>, tantivy::TantivyError>>()
-            .map_err(|e| {
+    'segments: for segment_reader in searcher_ctx.searcher.segment_readers() {
+        let inverted_index = segment_reader.inverted_index(search_field).map_err(|e| {
+            Error::new(ErrorKind::Other, format!("inverted index not available in {:?} -> {}", index_path, e))
+        })?;
+        let fast_fields = segment_reader.fast_fields();
+        let fast_u64_column = |field_name: &str| {
+            fast_fields.u64(field_name).map_err(|e| {
                 Error::new(ErrorKind::Other, format!("{} fast field not available in {:?} -> {}", field_name, index_path, e))
             })
-    };
-    let edge_gid_columns = fast_u64_column("edge_gid")?;
-    let from_gid_columns = fast_u64_column("from_vertex_gid")?;
-    let to_gid_columns = fast_u64_column("to_vertex_gid")?;
+        };
+        let edge_gid_column = fast_u64_column("edge_gid")?;
+        let from_gid_column = fast_u64_column("from_vertex_gid")?;
+        let to_gid_column = fast_u64_column("to_vertex_gid")?;
+        // Postings include soft-deleted docs (Memgraph deletes via delete_query); skip them just as
+        // searcher.search() would via the alive bitset.
+        let alive_bitset = segment_reader.alive_bitset();
 
-    let read_gid = |columns: &[tantivy::columnar::Column<u64>], doc: &tantivy::DocAddress, field_name: &str| {
-        columns[doc.segment_ord as usize].first(doc.doc_id).ok_or_else(|| {
-            Error::new(ErrorKind::Other, format!("{} missing for matched doc in {:?}", field_name, index_path))
-        })
-    };
-
-    let mut docs: Vec<ffi::EdgeGidScore> = Vec::with_capacity(top_docs.len());
-    for (score, doc_address) in top_docs {
-        let edge_gid = read_gid(&edge_gid_columns, &doc_address, "edge_gid")?;
-        let from_gid = read_gid(&from_gid_columns, &doc_address, "from_vertex_gid")?;
-        let to_gid = read_gid(&to_gid_columns, &doc_address, "to_vertex_gid")?;
-        docs.push(ffi::EdgeGidScore { edge_gid, from_gid, to_gid, score });
+        let mut term_stream = inverted_index.terms().search(&regex).into_stream()?;
+        while term_stream.advance() {
+            let term_info = term_stream.value();
+            let mut postings =
+                inverted_index.read_postings_from_terminfo(term_info, IndexRecordOption::Basic)?;
+            let mut doc = postings.doc();
+            while doc != TERMINATED {
+                let alive = alive_bitset.map_or(true, |bitset| bitset.is_alive(doc));
+                if alive {
+                    if let Some(edge_gid) = edge_gid_column.first(doc) {
+                        if seen.insert(edge_gid) {
+                            let from_gid = from_gid_column.first(doc).ok_or_else(|| {
+                                Error::new(ErrorKind::Other, format!("from_vertex_gid missing for matched doc in {:?}", index_path))
+                            })?;
+                            let to_gid = to_gid_column.first(doc).ok_or_else(|| {
+                                Error::new(ErrorKind::Other, format!("to_vertex_gid missing for matched doc in {:?}", index_path))
+                            })?;
+                            docs.push(ffi::EdgeGidScore { edge_gid, from_gid, to_gid, score: 1.0 });
+                            if docs.len() >= limit {
+                                break 'segments;
+                            }
+                        }
+                    }
+                }
+                doc = postings.advance();
+            }
+        }
     }
     Ok(ffi::EdgeGidScoreOutput { docs })
 }
