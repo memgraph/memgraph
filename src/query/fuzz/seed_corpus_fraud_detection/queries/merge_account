@@ -1,0 +1,1 @@
+MERGE (a:Account {id: 7, name: 'Grace', flagged: false, balance: 5000}) RETURN a

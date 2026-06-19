@@ -1,0 +1,1 @@
+MATCH (a:Account {id: 6})-[t:TRANSFERRED_TO]->() DELETE t

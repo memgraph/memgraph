@@ -43,4 +43,30 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_CURRENT_BINARY_DIR}/corpus_cypher_parser/*
         COMMENT "Clearing Cypher parser corpus..."
     )
+
+    # Full pipeline fuzzer: parse + plan + execute against an in-memory database
+    add_executable(fuzz_cypher_pipeline EXCLUDE_FROM_ALL)
+    target_sources(fuzz_cypher_pipeline PRIVATE
+        fuzz_cypher_pipeline.cpp
+        ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+    )
+    target_link_libraries(fuzz_cypher_pipeline PRIVATE mg-communication mg-query mg-glue)
+    target_compile_options(fuzz_cypher_pipeline PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
+    target_link_options(fuzz_cypher_pipeline PRIVATE -fsanitize=fuzzer,address)
+
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_cypher_pipeline)
+
+    add_custom_target(run_fuzz_cypher_pipeline
+        COMMAND $<TARGET_FILE:fuzz_cypher_pipeline>
+            ${CMAKE_CURRENT_BINARY_DIR}/corpus_cypher_pipeline
+            ${CMAKE_CURRENT_SOURCE_DIR}/seed_corpus_fraud_detection/queries
+        DEPENDS fuzz_cypher_pipeline
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running Cypher pipeline fuzzer..."
+    )
+
+    add_custom_target(clear_corpus_cypher_pipeline
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_CURRENT_BINARY_DIR}/corpus_cypher_pipeline/*
+        COMMENT "Clearing Cypher pipeline corpus..."
+    )
 endif()
