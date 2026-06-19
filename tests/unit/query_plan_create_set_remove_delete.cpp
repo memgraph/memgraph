@@ -2995,6 +2995,64 @@ TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertiesFromVertexMasksDeniedRe
   execute_set(user, plan::SetProperties::Op::UPDATE);
   assert_all_vertices_empty();
 }
+
+TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertiesUpdateDeniedSourcePropertyRemovesTarget) {
+  // src(:Src) has {prop: 2, prop2: 3}, dst(:Dst) has {prop: 5, prop2: 7}
+  // User can READ prop, but not prop2.
+  // SET dst += src should:
+  //   - copy prop (readable): dst.prop becomes src.prop, i.e, 2
+  //   - null prop2 (denied, redacted to null): dst.prop2 becomes null, i.e., removed
+  auto const src_label = this->dba.NameToLabel("Src");
+  auto const dst_label = this->dba.NameToLabel("Dst");
+
+  auto src = this->dba.InsertVertex();
+  ASSERT_TRUE(src.AddLabel(src_label).has_value());
+  ASSERT_TRUE(src.SetProperty(this->entity_prop, memgraph::storage::PropertyValue(2)).has_value());
+  ASSERT_TRUE(src.SetProperty(this->entity_prop_2, memgraph::storage::PropertyValue(3)).has_value());
+
+  auto dst = this->dba.InsertVertex();
+  ASSERT_TRUE(dst.AddLabel(dst_label).has_value());
+  ASSERT_TRUE(dst.SetProperty(this->entity_prop, memgraph::storage::PropertyValue(5)).has_value());
+  ASSERT_TRUE(dst.SetProperty(this->entity_prop_2, memgraph::storage::PropertyValue(7)).has_value());
+  this->dba.AdvanceCommand();
+
+  memgraph::auth::User user{"partial_read"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(static_cast<memgraph::auth::FineGrainedPermission>(
+      memgraph::auth::kVertexLabelUpdatePermissions | memgraph::auth::FineGrainedPermission::READ));
+  user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+  user.property_access_handler().label_properties().DenyGlobal(this->entity_prop_2_name,
+                                                               memgraph::auth::PropertyPermissionType::READ);
+
+  // MATCH (dst:Dst), (src:Src) SET dst += src
+  auto scan_dst = MakeScanAll(this->storage, this->symbol_table, "dst");
+  std::vector<LabelIx> dst_labels{this->storage.GetLabelIx(this->dba.LabelToName(dst_label))};
+  auto *dst_filter_expr = this->storage.template Create<LabelsTest>(scan_dst.node_->identifier_, dst_labels);
+  auto dst_filter =
+      std::make_shared<Filter>(scan_dst.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, dst_filter_expr);
+
+  auto scan_src = MakeScanAll(this->storage, this->symbol_table, "src", dst_filter);
+  std::vector<LabelIx> src_labels{this->storage.GetLabelIx(this->dba.LabelToName(src_label))};
+  auto *src_filter_expr = this->storage.template Create<LabelsTest>(scan_src.node_->identifier_, src_labels);
+  auto src_filter =
+      std::make_shared<Filter>(scan_src.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, src_filter_expr);
+
+  auto *src_ident = IDENT("src")->MapTo(scan_src.sym_);
+  auto set_props =
+      std::make_shared<plan::SetProperties>(src_filter, scan_dst.sym_, src_ident, plan::SetProperties::Op::UPDATE);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+  PullAll(*set_props, &context);
+  this->dba.AdvanceCommand();
+
+  // prop should be 2 (copied from src), prop2 should be removed
+  auto maybe_props = dst.Properties(memgraph::storage::View::NEW);
+  ASSERT_TRUE(maybe_props.has_value());
+  EXPECT_FALSE(maybe_props->contains(this->entity_prop_2)) << "denied source property should remove target value";
+  auto it = maybe_props->find(this->entity_prop);
+  ASSERT_NE(it, maybe_props->end());
+  EXPECT_EQ(it->second.ValueInt(), 2);
+}
 #endif
 
 template <typename StorageType>
