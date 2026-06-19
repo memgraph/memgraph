@@ -396,9 +396,13 @@ void EmitPropertyMap(std::unordered_map<std::string, memgraph::auth::PropertyPer
   emit_level(read_denied, write_denied, "DENY", "DENIED");
 }
 
-void EmitPropertyPermissions(memgraph::auth::PropertyAccessPermissions const &perms, std::string_view entity_kind,
-                             std::string_view global_entity_kind, std::string_view user_or_role_str,
+void EmitPropertyPermissions(memgraph::auth::PropertyAccessPermissions const &perms,
+                             memgraph::auth::PropertyEntityKind kind, std::string_view user_or_role_str,
                              std::vector<std::vector<memgraph::query::TypedValue>> &result) {
+  auto const is_node = kind == memgraph::auth::PropertyEntityKind::NODE;
+  auto const *entity_kind = is_node ? "NODES CONTAINING LABELS" : "EDGES OF TYPE";
+  auto const *global_entity_kind = is_node ? "ALL LABELS" : "ALL EDGE_TYPES";
+
   if (!perms.GetGlobalRules().empty()) {
     EmitPropertyMap(perms.GetGlobalRules(), global_entity_kind, true, user_or_role_str, result);
   }
@@ -407,8 +411,8 @@ void EmitPropertyPermissions(memgraph::auth::PropertyAccessPermissions const &pe
     std::ranges::sort(sorted_entities);
     auto formatted = sorted_entities | std::views::transform([](auto const &e) { return fmt::format(":{}", e); });
     auto entity_str = memgraph::utils::Join(formatted, ", ");
-    if (rule.entities.size() > 1) {
-      entity_str += rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY ? " (EXACTLY)" : " (ANY)";
+    if (is_node) {
+      entity_str += rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY ? " MATCHING EXACTLY" : " MATCHING ANY";
     }
     EmitPropertyMap(rule.properties, fmt::format("{} {}", entity_kind, entity_str), false, user_or_role_str, result);
   }
@@ -418,8 +422,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
     memgraph::auth::PropertyAccessHandler const &handler, std::string_view user_or_role_str) {
   std::vector<std::vector<memgraph::query::TypedValue>> result;
   EmitPropertyPermissions(
-      handler.label_properties(), "NODES CONTAINING LABELS", "ALL LABELS", user_or_role_str, result);
-  EmitPropertyPermissions(handler.edge_type_properties(), "EDGES OF TYPE", "ALL EDGE_TYPES", user_or_role_str, result);
+      handler.label_properties(), memgraph::auth::PropertyEntityKind::NODE, user_or_role_str, result);
+  EmitPropertyPermissions(
+      handler.edge_type_properties(), memgraph::auth::PropertyEntityKind::EDGE, user_or_role_str, result);
   return result;
 }
 
