@@ -79,6 +79,21 @@ case "$UPLOAD_CORE" in
   *) echo "Error: --upload-core must be true, false or auto (got '$UPLOAD_CORE')" >&2; exit 1 ;;
 esac
 
+# CORES_DIR and CORE_GLOB are interpolated into container-side shell commands,
+# so restrict them to a safe character set: anything else could break the
+# command or inject unintended shell behaviour inside the container.
+# (']' is placed first and '-' last so they're literal inside the class.)
+dir_re='^[A-Za-z0-9._/-]+$'
+glob_re='^[]A-Za-z0-9._*?[-]+$'
+if [[ ! "$CORES_DIR" =~ $dir_re ]]; then
+  echo "Error: --cores-dir contains unsafe characters (got '$CORES_DIR')" >&2
+  exit 1
+fi
+if [[ ! "$CORE_GLOB" =~ $glob_re ]]; then
+  echo "Error: --core-glob contains unsafe characters (got '$CORE_GLOB')" >&2
+  exit 1
+fi
+
 if [[ -z "$BUILD_CONTAINER" ]]; then
   if [[ -z "$OS" ]]; then
     echo "Error: provide --os (or --build-container) to locate the container" >&2
@@ -92,9 +107,10 @@ if ! docker inspect "$BUILD_CONTAINER" >/dev/null 2>&1; then
   exit 0
 fi
 
-# Any core dumps to handle?
+# Any core dumps to handle? Count via a nullglob array expansion rather than
+# parsing `ls` output (so filenames with odd characters can't skew the count).
 core_count="$(docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
-  "ls -1 ${CORES_DIR}/${CORE_GLOB} 2>/dev/null | wc -l" 2>/dev/null || echo 0)"
+  "shopt -s nullglob; cores=(${CORES_DIR}/${CORE_GLOB}); echo \${#cores[@]}" 2>/dev/null || echo 0)"
 if [[ "${core_count:-0}" -eq 0 ]]; then
   echo "No core dumps found in ${BUILD_CONTAINER}:${CORES_DIR} — nothing to collect."
   exit 0

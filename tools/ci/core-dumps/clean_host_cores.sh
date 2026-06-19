@@ -55,7 +55,7 @@ rm -rf "${CORES_DIR:?}"/* 2>/dev/null || true
 if [[ -n "$IMAGE" ]] && command -v docker >/dev/null 2>&1; then
   docker run --rm -u root --entrypoint sh \
     -v "${CORES_DIR}:${CORES_DIR}" "$IMAGE" \
-    -c "rm -rf ${CORES_DIR:?}/* 2>/dev/null || true" 2>/dev/null || true
+    -c "rm -rf '${CORES_DIR:?}'/* 2>/dev/null || true" 2>/dev/null || true
 fi
 
 remaining="$(find "$CORES_DIR" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"

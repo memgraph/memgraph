@@ -88,6 +88,21 @@ if [[ -z "$BUILD_CONTAINER" || -z "$S3_PREFIX" ]]; then
   exit 1
 fi
 
+# CORES_DIR and CORE_GLOB are interpolated into a container-side shell command,
+# so restrict them to a safe character set: anything else could break the
+# command or inject unintended shell behaviour inside the container.
+# (']' is placed first and '-' last so they're literal inside the class.)
+dir_re='^[A-Za-z0-9._/-]+$'
+glob_re='^[]A-Za-z0-9._*?[-]+$'
+if [[ ! "$CORES_DIR" =~ $dir_re ]]; then
+  echo "Error: --cores-dir contains unsafe characters (got '$CORES_DIR')" >&2
+  exit 1
+fi
+if [[ ! "$CORE_GLOB" =~ $glob_re ]]; then
+  echo "Error: --core-glob contains unsafe characters (got '$CORE_GLOB')" >&2
+  exit 1
+fi
+
 # Resolve the effective size limit (in GiB) from the mode, then to bytes.
 case "$MODE" in
   false) echo "Core upload mode=false — skipping core and build-artifact upload."; exit 0 ;;
@@ -143,10 +158,12 @@ fi
 build_parent="$(dirname "$BUILD_DIR")"
 build_base="$(basename "$BUILD_DIR")"
 echo "Uploading build artifacts (memgraph + *.debug + *.so) -> ${base_uri}/binaries.tar.gz"
+binaries_url=""
 if docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
      "cd '$build_parent' && find '$build_base' -type f \\( -name memgraph -o -name '*.debug' -o -name '*.so' \\) -print0 | tar --null -czf - -T -" \
      | aws s3 cp --region "$S3_REGION" - "${base_uri}/binaries.tar.gz"; then
-  echo "  build artifacts uploaded: ${base_url}/binaries.tar.gz"
+  binaries_url="${base_url}/binaries.tar.gz"
+  echo "  build artifacts uploaded: ${binaries_url}"
 else
   echo "Warning: build artifact upload failed (continuing)." >&2
 fi
@@ -169,14 +186,17 @@ for entry in "${eligible[@]}"; do
   fi
 done
 
+# Only advertise the binaries URL when the upload actually succeeded, so the
+# caller (collect.sh / monitoring) and the workflow annotation never carry a
+# dead link.
 if [[ -n "$URL_OUT" ]]; then
   {
-    echo "binaries_url=${base_url}/binaries.tar.gz"
+    echo "binaries_url=${binaries_url}"
     echo "core_url=${first_core_url}"
   } > "$URL_OUT"
 fi
 
 echo "Core bundle available under: ${base_url}/"
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-  echo "::warning title=Memgraph core dump uploaded::Core dump: ${first_core_url:-(upload failed)}%0ABinaries: ${base_url}/binaries.tar.gz"
+  echo "::warning title=Memgraph core dump uploaded::Core dump: ${first_core_url:-(upload failed)}%0ABinaries: ${binaries_url:-(upload failed)}"
 fi
