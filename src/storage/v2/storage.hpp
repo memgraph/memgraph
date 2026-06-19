@@ -264,6 +264,13 @@ class Storage {
 
   auto uuid() -> utils::UUID & { return config_.salient.uuid; }
 
+  // A storage is defunct when it failed durability recovery on startup and was
+  // brought up empty (see --storage-allow-recovery-failure). A defunct storage
+  // rejects data queries until recovered via RECOVER SNAPSHOT or REPAIR DATABASE.
+  bool IsDefunct() const noexcept { return defunct_.load(std::memory_order_acquire); }
+
+  void SetDefunct(bool value) noexcept { defunct_.store(value, std::memory_order_release); }
+
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
   using Accessor = memgraph::storage::Accessor;
@@ -398,6 +405,9 @@ class Storage {
   // keep a separate count of edges that is always updated. This counter is also used
   // for disk storage.
   std::atomic<uint64_t> edge_count_{0};
+
+  // Set when durability recovery failed and the storage was brought up empty.
+  std::atomic<bool> defunct_{false};
 
   std::unique_ptr<NameIdMapper> name_id_mapper_;
   Config config_;

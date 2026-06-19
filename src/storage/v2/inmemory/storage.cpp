@@ -459,7 +459,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Destroy is noexcept; deleted_edges_/graveyard are empty at recovery time
     // because the WAL edge-delete replay arm calls LightEdgePool::Destroy
     // directly without queuing).
-    auto info = std::invoke([&] {
+    auto info = std::invoke([&] -> std::optional<durability::RecoveryInfo> {
       try {
         return recovery_.RecoverData(
             uuid(),
@@ -493,7 +493,18 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         if (config_.salient.items.storage_light_edge) {
           ClearLightEdges();
         }
-        throw;
+
+        // --storage-allow-recovery-failure: instead of crashing the process, bring this
+        // database up empty and defunct. RecoverData only reads durability files, so the
+        // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT,
+        // REPAIR DATABASE, or restore the whole data directory from a backup.
+        if (!config_.durability.allow_recovery_failure) throw;
+        spdlog::warn("Database '{}' failed to recover; bringing it up in the defunct state.", name());
+        Clear();
+        name_id_mapper_->Clear();
+        description_store_.Clear();
+        SetDefunct(true);
+        return std::nullopt;
       }
     });
     metric_handles_.snapshot_recovery_latency_seconds.Observe(
@@ -638,7 +649,8 @@ InMemoryStorage::~InMemoryStorage() {
   }
 
   snapshot_runner_.Stop();
-  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
+  // A defunct database must not write an exit snapshot over its untouched corrupt files.
+  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler && !IsDefunct()) {
     create_snapshot_handler("exit");
   }
   // Leak fix: a deleted light edge whose delta chain was never GC-unlinked
@@ -4197,6 +4209,12 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
 std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
     bool force, std::string_view trigger) {
+  // A defunct storage (failed recovery) is empty and must never overwrite the
+  // operator's untouched corrupt durability files with an empty snapshot.
+  if (IsDefunct()) {
+    return std::unexpected{CreateSnapshotError::AbortSnapshot};
+  }
+
   auto abort_reset = utils::OnScopeExit([this]() mutable {
     // Abort is a one shot, reset it to false every time
     abort_snapshot_.store(false, std::memory_order_release);
@@ -4675,7 +4693,10 @@ void InMemoryStorage::CreateSnapshotHandler(
   snapshot_runner_.SetInterval(config_.durability.snapshot_interval);
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
     const memory::DbArenaScope db_arena_scope{db_arena_};
-    if (!token.stop_requested()) {
+    // Skip defunct databases: they are empty and writing a snapshot would overwrite
+    // the operator's untouched corrupt durability files. Skipped silently to avoid
+    // per-tick log spam (CreateSnapshot also guards defensively).
+    if (!token.stop_requested() && !IsDefunct()) {
       this->create_snapshot_handler("periodic");
     }
   });
