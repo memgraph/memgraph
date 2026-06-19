@@ -1892,8 +1892,13 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_edge_type_index
-           ->PopulateIndex(
-               edge_type, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
+           ->PopulateIndex(edge_type,
+                           in_memory->vertices_.access(),
+                           std::nullopt,
+                           updater,
+                           std::nullopt,
+                           &transaction_,
+                           std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }
@@ -1930,6 +1935,7 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
            ->PopulateIndex(edge_type,
                            property,
                            in_memory->vertices_.access(),
+                           std::nullopt,
                            updater,
                            std::nullopt,
                            &transaction_,
@@ -1968,8 +1974,13 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   }
   DowngradeToReadIfValid();
   if (!mem_edge_property_index
-           ->PopulateIndex(
-               property, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
+           ->PopulateIndex(property,
+                           in_memory->vertices_.access(),
+                           std::nullopt,
+                           updater,
+                           std::nullopt,
+                           &transaction_,
+                           std::move(cancel_check))
            .has_value()) {
     return std::unexpected{IndexDefinitionCancelationError{}};
   }

@@ -452,6 +452,24 @@ bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
   return PublishIndex(label, properties, 0, order);
 }
 
+auto InMemoryLabelPropertyIndex::GetPopulateInserter(LabelId label, PropertiesPaths const &properties, IndexOrder order,
+                                                     std::optional<SnapshotObserverInfo> const &snapshot_info)
+    -> IndexInserterFactory {
+  // snapshot_info is captured by reference: it outlives the single-pass population that invokes
+  // these factories/inserters (it is owned by the recovery call frame). SnapshotObserverInfo is
+  // non-copyable, so capturing by value would make the factory non-copyable.
+  auto make = [&](auto index) -> IndexInserterFactory {
+    MG_ASSERT(index, "Index must be registered before collecting its population inserter.");
+    return [index, label, &snapshot_info]() -> IndexVertexInserter {
+      return [acc = index->skiplist.access(), index, label, &snapshot_info](Vertex &vertex) mutable {
+        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, acc, snapshot_info);
+      };
+    };
+  };
+  return (order == IndexOrder::ASC) ? make(GetIndividualIndex<Entry>(label, properties))
+                                    : make(GetIndividualIndex<DescEntry>(label, properties));
+}
+
 namespace {
 // Inserts a new index into indices_map, updates the all_indices tracking list,
 // and populates the reverse lookup. Returns false if the index already exists.

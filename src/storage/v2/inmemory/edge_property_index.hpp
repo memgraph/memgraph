@@ -19,6 +19,7 @@
 #include "metrics/prometheus_metrics.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "storage/v2/common_function_signatures.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
@@ -248,11 +249,18 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+                          const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
+  /// Builds a single-pass population inserter factory for an already-registered index.
+  /// Used by recovery to populate many indices in one pass over the vertices.
+  auto GetPopulateInserter(PropertyId property, std::optional<SnapshotObserverInfo> const &snapshot_info)
+      -> IndexInserterFactory;
+
   bool RegisterIndex(PropertyId property, ActiveIndicesUpdater const &updater);
   auto PopulateIndex(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
+                     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      ActiveIndicesUpdater const &updater,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)

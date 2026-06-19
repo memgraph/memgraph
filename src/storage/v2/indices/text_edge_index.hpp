@@ -147,6 +147,18 @@ class TextEdgeIndex {
                     NameIdMapper *name_id_mapper, ActiveIndicesUpdater const &updater,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
+  /// Recovery phase 1 (serial): creates/loads the tantivy index, registering it into the shared
+  /// index container. Returns true if the on-disk index is missing/incompatible and must be
+  /// repopulated. Mutates the copy-on-write container, so it must NOT run concurrently with other
+  /// PrepareForRecovery/CreateIndex calls.
+  bool PrepareForRecovery(const TextEdgeIndexSpec &index_info);
+
+  /// Recovery phase 2 (parallel-safe across distinct indices): repopulates an already-prepared
+  /// index by scanning the vertices' out-edges and committing. Touches only this index's own
+  /// tantivy context, so different indices may run this concurrently. Does not publish.
+  void PopulateRecoveredIndex(const TextEdgeIndexSpec &index_info, utils::SkipListDb<Vertex>::Accessor vertices,
+                              NameIdMapper *name_id_mapper);
+
   /// Removes the index from the live container and returns the evicted
   /// TextEdgeIndexData. The caller MUST keep the returned shared_ptr until
   /// commit time and only then flip its `deferred_drop` flag — doing so
