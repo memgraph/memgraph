@@ -196,5 +196,51 @@ def test_replica_info_metrics_on_main(test_name):
     mg_sleep_and_assert(True, all_replica_info_present)
 
 
+# All four instances up, instance_3 as main — shared by the cleanup tests below.
+EXPECTED_INSTANCES_UP = [
+    ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+    ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
+    ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
+    ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
+]
+
+
+def _main_metrics():
+    return _scrape(DATA_METRICS_URLS["instance_3"])
+
+
+def _replica_series_present(body, replica):
+    # OpenMetrics emits labels alphabetically: database, mg_instance, uuid.
+    return f'memgraph_replica_commit_timestamp{{database="memgraph",mg_instance="{replica}"' in body
+
+
+def test_replica_metrics_removed_on_unregister(test_name):
+    """DROP REPLICA path: UNREGISTER INSTANCE drops that replica's series via RemoveReplicaInstanceMetrics."""
+    coord = setup_test(test_name)
+    mg_sleep_and_assert(EXPECTED_INSTANCES_UP, partial(show_instances, coord))
+
+    main = connect(host="localhost", port=7687).cursor()
+    for _ in range(5):
+        execute_and_fetch_all(main, "CREATE (:Node {v: 1})")
+
+    # Both replicas have series on the main's scrape.
+    def both_present():
+        body = _main_metrics()
+        return _replica_series_present(body, "instance_1") and _replica_series_present(body, "instance_2")
+
+    mg_sleep_and_assert(True, both_present)
+
+    # Kill then unregister instance_1 (mirrors coord_cluster_registration.py).
+    interactive_mg_runner.kill(get_memgraph_instances_description(test_name), "instance_1")
+    execute_and_fetch_all(coord, "UNREGISTER INSTANCE instance_1")
+
+    # instance_1's series are dropped from the main; instance_2's remain.
+    def only_instance_2():
+        body = _main_metrics()
+        return not _replica_series_present(body, "instance_1") and _replica_series_present(body, "instance_2")
+
+    mg_sleep_and_assert(True, only_instance_2)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

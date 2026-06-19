@@ -395,8 +395,8 @@ class PrometheusMetrics {
   // Per-(replica instance, database) replica info gauges (heartbeat-driven).
   void SetReplicaCommitTimestamp(std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
                                  uint64_t ts);
-  void SetReplicaBehindCount(std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
-                             int64_t behind);
+  void SetReplicaTimestampLag(std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
+                              int64_t lag);
   void SetReplicaState(std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
                        storage::replication::ReplicaState new_state);
   void SetMainCommitTimestamp(utils::UUID const &db_uuid, std::string_view db_name, uint64_t ts);
@@ -663,7 +663,7 @@ class PrometheusMetrics {
   // Per-(replica instance, database) replica info gauge families. Series are inserted lazily
   // on first observation and removed on DROP REPLICA / DROP DATABASE.
   prometheus::Family<prometheus::Gauge> &replica_commit_timestamp_family_;
-  prometheus::Family<prometheus::Gauge> &replica_behind_count_family_;
+  prometheus::Family<prometheus::Gauge> &replica_timestamp_lag_family_;
   prometheus::Family<prometheus::Gauge> &replica_state_family_;
   prometheus::Family<prometheus::Gauge> &main_commit_timestamp_family_;
 
@@ -681,7 +681,7 @@ class PrometheusMetrics {
   LabeledByInstanceDb<prometheus::Histogram *> start_txn_replication_by_instance_db_;
   LabeledByInstanceDb<prometheus::Histogram *> finalize_txn_replication_by_instance_db_;
   LabeledByInstanceDb<prometheus::Gauge *> replica_commit_timestamp_by_instance_db_;
-  LabeledByInstanceDb<prometheus::Gauge *> replica_behind_count_by_instance_db_;
+  LabeledByInstanceDb<prometheus::Gauge *> replica_timestamp_lag_by_instance_db_;
   LabeledByInstanceDb<ReplicaStateSeries> replica_state_by_instance_db_;
 
   struct {

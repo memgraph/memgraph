@@ -12,7 +12,9 @@
 #include "metrics/prometheus_metrics.hpp"
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
+#include <utility>
 
 #include <gtest/gtest.h>
 #include <prometheus/metric_family.h>
@@ -24,6 +26,7 @@
 #include "metrics/scoped_gauge.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage.hpp"
 
 namespace {
@@ -41,6 +44,22 @@ std::optional<double> FindSample(std::vector<prometheus::MetricFamily> const &fa
     }
   }
   return std::nullopt;
+}
+
+// Type-agnostic presence check for a series carrying label_name=label_value (works for histograms
+// too, where FindSample returns nullopt).
+bool HasSeriesWithLabel(std::vector<prometheus::MetricFamily> const &families, std::string_view name,
+                        std::string_view label_name, std::string_view label_value) {
+  for (auto const &family : families) {
+    if (family.name != name) continue;
+    for (auto const &metric : family.metric) {
+      if (std::ranges::any_of(metric.label,
+                              [&](auto const &l) { return l.name == label_name && l.value == label_value; })) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -108,6 +127,95 @@ TEST(PrometheusMetrics, RemoveDatabaseRemovesMetrics) {
 
   auto const families = pm.registry().Collect();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), std::nullopt);
+}
+
+TEST(PrometheusMetrics, RemoveDatabaseErasesReplicaSeriesForThatDb) {
+  using memgraph::storage::replication::ReplicaState;
+  FLAGS_metrics_format = "OpenMetrics";
+  memgraph::metrics::PrometheusMetrics pm;
+
+  memgraph::utils::UUID const uuid1{};
+  memgraph::utils::UUID const uuid2{};
+  ASSERT_NE(uuid1, uuid2);
+
+  // RemoveDatabase early-returns unless the db was added, so register both.
+  pm.AddDatabase(uuid1, "db1");
+  pm.AddDatabase(uuid2, "db2");
+
+  // Seed every per-(replica, db) replication series for both databases.
+  for (auto const &[uuid, name] : {std::pair{uuid1, "db1"}, std::pair{uuid2, "db2"}}) {
+    pm.ObserveReplicaStream("replica_a", uuid, name, 0.001);
+    pm.ObserveStartTxnReplication("replica_a", uuid, name, 0.001);
+    pm.ObserveFinalizeTxnReplication("replica_a", uuid, name, 0.001);
+    pm.SetReplicaCommitTimestamp("replica_a", uuid, name, 100);
+    pm.SetReplicaTimestampLag("replica_a", uuid, name, 5);
+    pm.SetReplicaState("replica_a", uuid, name, ReplicaState::READY);
+    pm.SetMainCommitTimestamp(uuid, name, 105);
+  }
+
+  static constexpr std::array kReplicaFamilies = {"memgraph_replica_stream_seconds",
+                                                  "memgraph_start_txn_replication_seconds",
+                                                  "memgraph_finalize_txn_replication_seconds",
+                                                  "memgraph_replica_commit_timestamp",
+                                                  "memgraph_replica_timestamp_lag",
+                                                  "memgraph_replica_state",
+                                                  "memgraph_main_commit_timestamp"};
+
+  // Both databases have all replica series before removal.
+  auto const before = pm.registry().Collect();
+  for (auto const *name : kReplicaFamilies) {
+    EXPECT_TRUE(HasSeriesWithLabel(before, name, "database", "db1")) << name << " missing for db1 before removal";
+    EXPECT_TRUE(HasSeriesWithLabel(before, name, "database", "db2")) << name << " missing for db2 before removal";
+  }
+
+  pm.RemoveDatabase(uuid1);
+
+  // db1's series are erased across every replica family; db2's remain untouched.
+  auto const after = pm.registry().Collect();
+  for (auto const *name : kReplicaFamilies) {
+    EXPECT_FALSE(HasSeriesWithLabel(after, name, "database", "db1")) << name << " should be erased for db1";
+    EXPECT_TRUE(HasSeriesWithLabel(after, name, "database", "db2")) << name << " should remain for db2";
+  }
+}
+
+TEST(PrometheusMetrics, RemoveReplicaInstanceMetricsErasesSeriesForThatInstance) {
+  using memgraph::storage::replication::ReplicaState;
+  FLAGS_metrics_format = "OpenMetrics";
+  memgraph::metrics::PrometheusMetrics pm;
+  memgraph::utils::UUID const db_uuid{};
+
+  // Seed per-(replica, db) series for two replica instances on the same database.
+  for (auto const *instance : {"replica_a", "replica_b"}) {
+    pm.ObserveReplicaStream(instance, db_uuid, "db1", 0.001);
+    pm.ObserveStartTxnReplication(instance, db_uuid, "db1", 0.001);
+    pm.ObserveFinalizeTxnReplication(instance, db_uuid, "db1", 0.001);
+    pm.SetReplicaCommitTimestamp(instance, db_uuid, "db1", 100);
+    pm.SetReplicaTimestampLag(instance, db_uuid, "db1", 5);
+    pm.SetReplicaState(instance, db_uuid, "db1", ReplicaState::READY);
+  }
+
+  // main_commit_timestamp is not per-instance, so RemoveReplicaInstanceMetrics must not touch it.
+  static constexpr std::array kInstanceFamilies = {"memgraph_replica_stream_seconds",
+                                                   "memgraph_start_txn_replication_seconds",
+                                                   "memgraph_finalize_txn_replication_seconds",
+                                                   "memgraph_replica_commit_timestamp",
+                                                   "memgraph_replica_timestamp_lag",
+                                                   "memgraph_replica_state"};
+
+  auto const before = pm.registry().Collect();
+  for (auto const *name : kInstanceFamilies) {
+    EXPECT_TRUE(HasSeriesWithLabel(before, name, "mg_instance", "replica_a")) << name << " missing for replica_a";
+    EXPECT_TRUE(HasSeriesWithLabel(before, name, "mg_instance", "replica_b")) << name << " missing for replica_b";
+  }
+
+  pm.RemoveReplicaInstanceMetrics("replica_a");
+
+  // replica_a's series are erased across every family; replica_b's remain untouched.
+  auto const after = pm.registry().Collect();
+  for (auto const *name : kInstanceFamilies) {
+    EXPECT_FALSE(HasSeriesWithLabel(after, name, "mg_instance", "replica_a")) << name << " should be erased";
+    EXPECT_TRUE(HasSeriesWithLabel(after, name, "mg_instance", "replica_b")) << name << " should remain";
+  }
 }
 
 TEST(DatabaseMetrics, SwitchToOnDiskUpdatesSnapshotCallback) {

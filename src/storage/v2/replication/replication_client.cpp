@@ -74,11 +74,11 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   utils::OnScopeExit const push_replica_gauges{[&] {
     auto const main_ts = main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_;
     auto const replica_ts = commit_ts_info_.load(std::memory_order_acquire).ldt_;
-    auto const behind = static_cast<int64_t>(main_ts) - static_cast<int64_t>(replica_ts);
+    auto const lag = static_cast<int64_t>(main_ts) - static_cast<int64_t>(replica_ts);
     auto const current_state = *replica_state_.Lock();
     auto &metrics = metrics::Metrics();
     metrics.SetReplicaCommitTimestamp(client_.name_, main_storage->uuid(), main_db_name, replica_ts);
-    metrics.SetReplicaBehindCount(client_.name_, main_storage->uuid(), main_db_name, behind);
+    metrics.SetReplicaTimestampLag(client_.name_, main_storage->uuid(), main_db_name, lag);
     metrics.SetReplicaState(client_.name_, main_storage->uuid(), main_db_name, current_state);
     metrics.SetMainCommitTimestamp(main_storage->uuid(), main_db_name, main_ts);
   }};

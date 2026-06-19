@@ -791,9 +791,9 @@ PrometheusMetrics::PrometheusMetrics()
                                            .Name("memgraph_replica_commit_timestamp")
                                            .Help("Last durable commit timestamp observed on the replica per database")
                                            .Register(registry_)},
-      replica_behind_count_family_{
+      replica_timestamp_lag_family_{
           prometheus::BuildGauge()
-              .Name("memgraph_replica_behind_count")
+              .Name("memgraph_replica_timestamp_lag")
               .Help("Timestamp delta main minus replica per database (positive means the replica is behind)")
               .Register(registry_)},
       replica_state_family_{prometheus::BuildGauge()
@@ -1216,7 +1216,7 @@ void PrometheusMetrics::EraseReplicaSeriesForDb(std::string const &db_uuid_str) 
   EraseEntriesIf(start_txn_replication_family_, start_txn_replication_by_instance_db_, match_db);
   EraseEntriesIf(finalize_txn_replication_family_, finalize_txn_replication_by_instance_db_, match_db);
   EraseGaugeEntriesIf(replica_commit_timestamp_family_, replica_commit_timestamp_by_instance_db_, match_db);
-  EraseGaugeEntriesIf(replica_behind_count_family_, replica_behind_count_by_instance_db_, match_db);
+  EraseGaugeEntriesIf(replica_timestamp_lag_family_, replica_timestamp_lag_by_instance_db_, match_db);
   EraseStateEntriesIf(replica_state_family_, replica_state_by_instance_db_, match_db);
   {
     std::lock_guard const lock{main_commit_timestamp_by_db_.mutex};
@@ -1311,15 +1311,15 @@ void PrometheusMetrics::SetReplicaCommitTimestamp(std::string_view instance, uti
       .Set(static_cast<double>(ts));
 }
 
-void PrometheusMetrics::SetReplicaBehindCount(std::string_view instance, utils::UUID const &db_uuid,
-                                              std::string_view db_name, int64_t behind) {
-  FindOrAddLabeled(replica_behind_count_by_instance_db_,
-                   replica_behind_count_family_,
+void PrometheusMetrics::SetReplicaTimestampLag(std::string_view instance, utils::UUID const &db_uuid,
+                                               std::string_view db_name, int64_t lag) {
+  FindOrAddLabeled(replica_timestamp_lag_by_instance_db_,
+                   replica_timestamp_lag_family_,
                    instance,
                    db_uuid,
                    db_name,
                    /*buckets*/ nullptr)
-      .Set(static_cast<double>(behind));
+      .Set(static_cast<double>(lag));
 }
 
 void PrometheusMetrics::SetReplicaState(std::string_view instance, utils::UUID const &db_uuid, std::string_view db_name,
@@ -1363,7 +1363,7 @@ void PrometheusMetrics::RemoveReplicaInstanceMetrics(std::string_view instance) 
   EraseEntriesIf(start_txn_replication_family_, start_txn_replication_by_instance_db_, match_instance);
   EraseEntriesIf(finalize_txn_replication_family_, finalize_txn_replication_by_instance_db_, match_instance);
   EraseGaugeEntriesIf(replica_commit_timestamp_family_, replica_commit_timestamp_by_instance_db_, match_instance);
-  EraseGaugeEntriesIf(replica_behind_count_family_, replica_behind_count_by_instance_db_, match_instance);
+  EraseGaugeEntriesIf(replica_timestamp_lag_family_, replica_timestamp_lag_by_instance_db_, match_instance);
   EraseStateEntriesIf(replica_state_family_, replica_state_by_instance_db_, match_instance);
 }
 
@@ -1554,6 +1554,17 @@ void AppendMergedHistogramPercentiles(std::vector<MetricInfo> &out, std::string 
        {std::pair{0.50, "_us_50p"}, std::pair{0.90, "_us_90p"}, std::pair{0.99, "_us_99p"}}) {
     out.push_back({name + label, type, "Histogram", MergedHistogramPercentile(hdatas, quantile) * 1e6});
   }
+}
+
+// Gathers every labeled child histogram in `family` so its series can be merged into a single global
+// percentile for the flat SHOW METRICS INFO / JSON output (OpenMetrics keeps the labeled series).
+std::vector<prometheus::ClientMetric::Histogram> CollectFamilyHistograms(
+    prometheus::Family<prometheus::Histogram> const &family) {
+  std::vector<prometheus::ClientMetric::Histogram> hdatas;
+  for (auto const &mf : family.Collect()) {
+    for (auto const &cm : mf.metric) hdatas.push_back(cm.histogram);
+  }
+  return hdatas;
 }
 
 // Appends per-instance throughput percentiles (bytes/second) for every replica tracked in `throughput`. Unlike the
@@ -2348,8 +2359,14 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(
       out, "ChooseMostUpToDateInstance", "HighAvailability", *global.choose_most_up_to_date_instance_seconds);
   AppendHistogramPercentiles(out, "SocketConnect", "HighAvailability", *global.socket_connect_seconds);
-  // ReplicaStream / StartTxnReplication / FinalizeTxnReplication moved to per-(replica, db) labeled
-  // series exposed via OpenMetrics only.
+  // ReplicaStream / StartTxnReplication / FinalizeTxnReplication are per-(replica, db) labeled series in
+  // OpenMetrics; the flat SHOW METRICS INFO / JSON percentiles are recovered by merging those series.
+  AppendMergedHistogramPercentiles(
+      out, "ReplicaStream", "HighAvailability", CollectFamilyHistograms(replica_stream_family_));
+  AppendMergedHistogramPercentiles(
+      out, "StartTxnReplication", "HighAvailability", CollectFamilyHistograms(start_txn_replication_family_));
+  AppendMergedHistogramPercentiles(
+      out, "FinalizeTxnReplication", "HighAvailability", CollectFamilyHistograms(finalize_txn_replication_family_));
   AppendHistogramPercentiles(out, "DataFailover", "HighAvailability", *global.data_failover_seconds);
   AppendHistogramPercentiles(out, "PromoteToMainRpc", "HighAvailability", *global.promote_to_main_rpc_seconds);
   AppendHistogramPercentiles(
