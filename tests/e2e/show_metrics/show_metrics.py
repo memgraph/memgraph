@@ -266,8 +266,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
     results = list(memgraph.execute_and_fetch("SHOW METRICS INFO"))
     actual_metrics = [{"name": x["name"], "type": x["type"], "metric type": x["metric type"]} for x in results]
 
-    for expected, actual in zip(expected_metrics, actual_metrics):
-        assert expected == actual
+    assert actual_metrics == expected_metrics
 
 
 def get_metric_value(memgraph, metric_name, on_clause=None):

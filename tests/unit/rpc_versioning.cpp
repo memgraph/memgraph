@@ -384,6 +384,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   EXPECT_EQ(seen_cold[0].stats.edge_count, 456U);
   EXPECT_DOUBLE_EQ(seen_cold[0].stats.average_degree, 2.5);
   EXPECT_EQ(seen_cold[0].stats.memory_res, 7890U);
+  EXPECT_EQ(seen_cold[0].stats.storage_mode, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
   EXPECT_EQ(seen_cold[0].stats.isolation_level, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
   EXPECT_TRUE(seen_cold[0].stats.durability_wal_enabled);
   EXPECT_EQ(seen_cold[0].stats.schema_vertex_count, 9U);

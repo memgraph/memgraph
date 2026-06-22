@@ -201,6 +201,7 @@ TEST_F(HotColdSuspend, SuspendSuccessMakesColdShellInaccessible) {
 
   auto result = handler_->Suspend(name);
   ASSERT_TRUE(result.has_value()) << "Suspend unexpectedly failed";
+  EXPECT_TRUE(handler_->IsSuspended(name)) << "Tenant must be in the COLD/suspended state after a successful suspend";
 
   // COLD: not in the HOT set, and a Get() no longer yields an accessor.
   EXPECT_FALSE(InAll(name)) << "A COLD tenant must not appear in the HOT set";

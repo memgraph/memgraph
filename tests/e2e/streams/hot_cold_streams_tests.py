@@ -61,7 +61,7 @@ def test_stream_stops_on_suspend_and_restores_running_on_resume(kafka_producer, 
 
     # SUSPEND hcdb -> COLD. Its stream consumer is stopped and the database becomes inaccessible.
     common.execute_and_fetch_all(control, "SUSPEND DATABASE hcdb;")
-    assert mg_sleep_and_assert("COLD", lambda: _show_databases(control).get("hcdb")), "hcdb must be COLD after SUSPEND"
+    mg_sleep_and_assert("COLD", lambda: _show_databases(control).get("hcdb"))
     with pytest.raises(mgclient.DatabaseError) as exc:
         common.execute_and_fetch_all(scursor, "USE DATABASE hcdb;")
     assert "suspended (cold)" in str(exc.value), f"a cold database's stream must be inaccessible: {exc.value}"
