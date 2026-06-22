@@ -408,6 +408,7 @@ jobs:
           --dest-dir "$(pwd)/mage"
 
       - name: "Build OpenSSL"
+        if: ${{ inputs.build_docker_image != 'none' }}
         run: |
           # This step is necessary so that we can build custom packages of OpenSSL and libssl3 for
           # the Docker images. These packages will be installed by apt, and as long as the remote
