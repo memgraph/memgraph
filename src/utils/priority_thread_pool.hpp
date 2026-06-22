@@ -207,6 +207,14 @@ class TaskCollection {
   std::optional<uint16_t> progress_waiter_worker_id_;
   std::shared_ptr<std::atomic<Task::State>> progress_waiter_task_state_{};  // for the PARKED->SCHEDULED CAS
 
+  // Lifetime barrier: number of WrapTask invocations currently executing on this collection. A worker
+  // that stores the last task FINISHED (which releases Wait()) is still inside WrapTask afterwards (e.g.
+  // NotifyProgress() touching progress_cv_). Wait() must not return — and the caller must not destroy
+  // the collection — until this reaches 0, or progress_cv_ would be destroyed while a worker notifies on
+  // it. Incremented at WrapTask entry (before any state CAS, so it is visible once a task is seen
+  // FINISHED) and decremented at WrapTask exit (after NotifyProgress, on every path incl. exceptions).
+  std::atomic<int> in_flight_{0};
+
   friend class CollectionScheduler;
 };
 

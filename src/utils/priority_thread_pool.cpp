@@ -24,6 +24,7 @@
 
 #include "utils/barrier.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
 #include "utils/thread.hpp"
 #include "utils/tsc.hpp"
@@ -558,6 +559,15 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
 ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool *pool) {
   auto &task = tasks_[index];
   return [this, index, &task = task.task_, state = task.state_, pool]() -> bool {
+    // Lifetime barrier (see in_flight_ docs): count this WrapTask invocation BEFORE touching any task
+    // state, so once Wait() observes a task FINISHED (release/acquire on state_) it also sees this
+    // increment and will not return until we fully exit (the OnScopeExit decrements after NotifyProgress,
+    // on every path including the early CAS-fail returns and exceptions).
+    in_flight_.fetch_add(1, std::memory_order_relaxed);
+    const auto in_flight_guard = utils::OnScopeExit{[this]() noexcept {
+      in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+      in_flight_.notify_all();
+    }};
     const auto initial_state = state->load(std::memory_order_acquire);
     spdlog::trace("WrapTask[{}]: starting with state={}", index, static_cast<int>(initial_state));
 #ifndef NDEBUG
@@ -674,6 +684,19 @@ bool TaskCollection::Wait(std::chrono::milliseconds timeout) {
       expected = task.state_->load(std::memory_order_acquire);
       spdlog::trace("TaskCollection::Wait(): task[{}] woke, new state={}", i, static_cast<int>(expected));
     }
+  }
+  // Lifetime barrier: a worker that stored the last FINISHED (which woke us above) is still executing
+  // WrapTask afterwards (e.g. NotifyProgress() touching progress_cv_). Do NOT return — the caller may
+  // destroy the collection right after — until every in-flight WrapTask invocation has fully exited.
+  // (TryExecuteOneIdleTask runs inline on this same thread, sequenced-before here, so it is not counted.)
+  auto inflight = in_flight_.load(std::memory_order_acquire);
+  while (inflight != 0) {
+    if (std::chrono::steady_clock::now() >= deadline) {
+      spdlog::error("TaskCollection::Wait() timeout: {} in-flight WrapTask invocation(s) did not drain", inflight);
+      return false;
+    }
+    in_flight_.wait(inflight, std::memory_order_acquire);
+    inflight = in_flight_.load(std::memory_order_acquire);
   }
   spdlog::trace("TaskCollection::Wait() completed");
   return true;
