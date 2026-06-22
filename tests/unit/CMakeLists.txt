@@ -302,7 +302,7 @@ add_unit_test(query_virtual_graph
 
 add_unit_test(query_graph_view
     SOURCES query_graph_view.cpp
-    LINK_TARGETS mg-query storage_test_utils
+    LINK_TARGETS mg-query storage_test_utils mg-glue mg-auth
 )
 
 

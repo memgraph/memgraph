@@ -866,10 +866,16 @@ bool ScannedVertexVisible(FineGrainedAuthChecker &checker, const VertexAccessor 
 }
 
 bool ScannedVertexVisible(FineGrainedAuthChecker &checker, const ScanVertex &vertex, storage::View view) {
-  // A projection's VirtualNode carries no real-graph privileges, so it is always
-  // visible; a real vertex is checked.
   if (const auto *real = std::get_if<VertexAccessor>(&vertex)) {
     return checker.Has(*real, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+  }
+  // An overlay node reads through to a real origin vertex, so it gets the same
+  // label-based visibility decision a direct read of the origin would: it is
+  // visible only if the origin is. A synthetic node has no origin and no
+  // real-graph privileges, so it is always visible.
+  const auto &vnode = std::get<VirtualNode>(vertex);
+  if (const auto &origin = vnode.Origin()) {
+    return checker.Has(*origin, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
   }
   return true;
 }

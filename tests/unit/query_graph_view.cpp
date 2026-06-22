@@ -27,6 +27,13 @@
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/memory.hpp"
 
+#ifdef MG_ENTERPRISE
+#include "auth/models.hpp"
+#include "glue/auth_checker.hpp"
+#include "license/license.hpp"
+#include "query/frontend/ast/ast.hpp"
+#endif
+
 namespace memgraph::query::test {
 
 using storage::Gid;
@@ -224,6 +231,72 @@ TEST_F(VirtualGraphViewTest, ScanAllOverProjectionYieldsVirtualNodes) {
 
   EXPECT_EQ(scanned, expected);
 }
+
+#ifdef MG_ENTERPRISE
+// A scanned overlay node is subject to the same fine-grained visibility decision
+// as its origin vertex: an overlay over a vertex whose label the user is denied
+// is filtered from the scan, so its read-through to the origin can never expose
+// data the user could not read on the origin directly. A synthetic node carries
+// no origin and stays visible.
+TEST_F(VirtualGraphViewTest, ScanFiltersOverlayWhoseOriginIsDenied) {
+  memgraph::license::global_license_checker.EnableTesting();
+
+  auto wacc = storage_->Access(storage::StorageAccessType::WRITE);
+  DbAccessor dba{wacc.get()};
+  auto public_origin = dba.InsertVertex();
+  ASSERT_TRUE(public_origin.AddLabel(dba.NameToLabel("Public")).has_value());
+  auto secret_origin = dba.InsertVertex();
+  ASSERT_TRUE(secret_origin.AddLabel(dba.NameToLabel("Secret")).has_value());
+  dba.AdvanceCommand();
+
+  std::vector<VirtualNode> nodes;
+  nodes.emplace_back(
+      VirtualNode::label_list{}, VirtualNode::property_map{}, VirtualNode::allocator_type{}, public_origin);
+  nodes.back().SetHandle(1);
+  const auto public_overlay_gid = nodes.back().Gid();
+  nodes.emplace_back(
+      VirtualNode::label_list{}, VirtualNode::property_map{}, VirtualNode::allocator_type{}, secret_origin);
+  nodes.back().SetHandle(2);
+  const auto secret_overlay_gid = nodes.back().Gid();
+  nodes.push_back(HandledNode(3));
+  const auto synthetic_gid = nodes.back().Gid();
+
+  auto graph = AssembleVirtualGraph(nodes, {}, DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());
+  VirtualGraphView view{&graph, &dba};
+
+  memgraph::auth::User user{"test"};
+  user.db_access().GrantAll();
+  user.fine_grained_access_handler().label_permissions().Grant({"Public"}, memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().label_permissions().Deny({"Secret"}, memgraph::auth::kAllLabelPermissions);
+  std::shared_ptr<FineGrainedAuthChecker> checker =
+      std::make_shared<memgraph::glue::FineGrainedAuthChecker>(user, &dba);
+
+  ASSERT_TRUE(checker->Has(public_origin, View::NEW, AuthQuery::FineGrainedPrivilege::READ));
+  ASSERT_FALSE(checker->Has(secret_origin, View::NEW, AuthQuery::FineGrainedPrivilege::READ));
+
+  SymbolTable symbol_table;
+  auto symbol = symbol_table.CreateSymbol("n", true);
+  auto scan_all = std::make_shared<plan::ScanAll>(nullptr, symbol, View::NEW);
+
+  memgraph::metrics::DatabaseMetricHandles metric_handles;
+  ExecutionContext context{.db_accessor = &dba};
+  context.evaluation_context.graph_view = &view;
+  context.symbol_table = symbol_table;
+  context.evaluation_context.memory = memgraph::utils::NewDeleteResource();
+  context.metric_handles = &metric_handles;
+  context.auth_checker = checker;
+
+  Frame frame(symbol_table.max_position());
+  auto cursor = scan_all->MakeCursor(memgraph::utils::NewDeleteResource(), metric_handles);
+  std::set<Gid> scanned;
+  while (cursor->Pull(frame, context)) scanned.insert(frame[symbol].ValueVirtualNode().Gid());
+
+  // The overlay over the denied origin is filtered; the granted overlay and the
+  // synthetic node remain.
+  EXPECT_EQ(scanned, (std::set<Gid>{public_overlay_gid, synthetic_gid}));
+  EXPECT_EQ(scanned.count(secret_overlay_gid), 0U);
+}
+#endif
 
 // Names resolve through the view to the same ids the shared accessor uses.
 TEST_F(VirtualGraphViewTest, NameMappingSharesTheRealNamespace) {

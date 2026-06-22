@@ -1,6 +1,25 @@
 # Enforce fine-grained authorization on a derive() overlay read-through
 
-Status: not started
+Status: done
+
+## Resolution
+
+A gap was found and closed at the scan-visibility seam.
+
+Memgraph's fine-grained authorization is label-based (and edge-type-based) for
+reads; there is no per-property read permission. So the protection that applies
+to an overlay read-through is the label-based vertex-visibility decision its
+origin would receive: if a user may not read the origin vertex (a denied label),
+they must not read it through an overlay either. The read-through reaches origin
+properties only after the overlay node is produced by a scan, so enforcing
+visibility at the scan covers the read-through: a node you cannot scan, you
+cannot read properties or labels from.
+
+`ScannedVertexVisible` waved every `VirtualNode` through unconditionally. It now
+gives an overlay node (one carrying an origin) the same READ visibility decision
+as its origin vertex; a synthetic node (no origin, no real-graph data) stays
+always-visible. A scanned overlay over a denied origin is filtered exactly as
+the origin would be.
 
 ## Parent
 
@@ -28,15 +47,20 @@ Enterprise only, since fine-grained authorization is an enterprise feature.
 
 ## Acceptance criteria
 
-- [ ] A test denies a property (and a label) via fine-grained authorization,
-      derives an overlay over that node, and reads the unmodified property/label
-      through a `USE` scope; the denied value is not exposed.
-- [ ] A test confirms a scanned overlay node with an origin is subject to the
-      same vertex visibility decision as its origin under fine-grained auth.
-- [ ] If a gap is found, the read-through and scan-visibility paths enforce the
-      fine-grained checks; if no gap is found, the tests remain as guards and the
-      issue records that the path was already safe.
-- [ ] Tests are enterprise-gated.
+- [x] A label is denied via fine-grained authorization, an overlay carries that
+      origin, and a scan over the projection does not expose it. Property-level
+      denial is not a Memgraph feature (auth is label/edge-type only), so the
+      label-gated vertex visibility is the applicable check; filtering the node
+      at scan keeps both its labels and its read-through properties unexposed.
+      Covered by `query_graph_view.ScanFiltersOverlayWhoseOriginIsDenied`.
+- [x] A scanned overlay node with an origin gets the same READ visibility
+      decision as its origin: the test grants one origin's label and denies
+      another, and only the granted overlay (plus the origin-less synthetic node)
+      survives the scan.
+- [x] The gap was real and is closed in `ScannedVertexVisible`: an overlay's
+      origin is checked, a synthetic node stays visible. The test fails without
+      the change.
+- [x] The test is enterprise-gated (`MG_ENTERPRISE`).
 
 ## Blocked by
 
