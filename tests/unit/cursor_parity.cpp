@@ -22,6 +22,16 @@
 // the cursors that have a DoPull, so each cursor PR should add queries that route through its
 // cursors. Keep corpus queries DETERMINISTIC (fixed seed data + stable ordering) so the two renders
 // compare equal without order-normalization.
+//
+// PHASE-1 COMPLETE (P1.1-P1.14): every SERIAL query-plan cursor is dual-path. The corpus + mutation
+// corpus below cover all serial families: Once/Produce, Scan*, Filter/Skip/Limit/NamedPath/Exists,
+// Expand*, *BFS/*WSHORTEST/*ALLSHORTEST/*KSHORTEST, Create/Set/Remove/Delete (+ nested props),
+// Accumulate/Aggregate/EmptyResult, OrderBy/Distinct, the combiners (Cartesian/Optional/Apply/
+// HashJoin/IndexedJoin/RollUpApply), the sub-plan cursors (Merge/Union/Unwind/Foreach), and the IO
+// cursors reachable in-process (CallProcedure, LoadCsv). The only cursors NOT yet dual-path are the
+// six ENTERPRISE parallel cursors (Scan/Distinct/Aggregate/OrderBy-Parallel, ParallelMerge,
+// ParallelBranch) -- they are entangled with the scheduler rewrite and are converted in Phase 3,
+// which is also when Cursor::Pull becomes non-virtual and the PullLegacy bodies are deleted.
 
 #include <fstream>
 #include <sstream>
