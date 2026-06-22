@@ -102,7 +102,8 @@ TEST_F(GraphViewTest, ScanAllReadsThroughBoundView) {
   auto scan_all = std::make_shared<plan::ScanAll>(nullptr, symbol, View::NEW);
 
   memgraph::metrics::DatabaseMetricHandles metric_handles;
-  ExecutionContext context{.db_accessor = &empty_dba, .graph_view = &bound_view};
+  ExecutionContext context{.db_accessor = &empty_dba};
+  context.evaluation_context.graph_view = &bound_view;
   context.symbol_table = symbol_table;
   context.evaluation_context.memory = memgraph::utils::NewDeleteResource();
   context.metric_handles = &metric_handles;
@@ -210,7 +211,8 @@ TEST_F(VirtualGraphViewTest, ScanAllOverProjectionYieldsVirtualNodes) {
   auto scan_all = std::make_shared<plan::ScanAll>(nullptr, symbol, View::NEW);
 
   memgraph::metrics::DatabaseMetricHandles metric_handles;
-  ExecutionContext context{.db_accessor = &dba_, .graph_view = &view};
+  ExecutionContext context{.db_accessor = &dba_};
+  context.evaluation_context.graph_view = &view;
   context.symbol_table = symbol_table;
   context.evaluation_context.memory = memgraph::utils::NewDeleteResource();
   context.metric_handles = &metric_handles;

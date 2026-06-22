@@ -1105,6 +1105,27 @@ class TestUseScopeOverDerive:
         )
         assert results == [(1, "E", 2)]
 
+    def test_use_scope_over_derive_degree_counts_projection_edges(self, connection):
+        """degree/outDegree/inDegree over a projection node count the projection's
+        edges, which differ from the node's real-graph degree."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        # a has real out-degree 2.
+        execute_and_fetch_all(cursor, "CREATE (a:N {id: 1})-[:R]->(:N {id: 2}), (a)-[:R]->(:N {id: 3});")
+        # The projection derived from the single path a->b has one edge.
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            CALL { USE g MATCH (n) WHERE n.id = 1 RETURN degree(n) AS d, outDegree(n) AS od, inDegree(n) AS ind }
+            RETURN d, od, ind;
+            """,
+        )
+        assert results == [(1, 1, 0)]
+        real = execute_and_fetch_all(cursor, "MATCH (a:N {id: 1}) RETURN outDegree(a) AS od;")
+        assert real == [(2,)]
+
 
 class TestUseScopeOverSubgraph:
     """A USE scope over a project() subgraph: scans its real member nodes and
@@ -1146,6 +1167,26 @@ class TestUseScopeOverSubgraph:
             """,
         )
         assert results == [("a", "b")]
+
+    def test_use_scope_over_subgraph_degree_counts_member_edges(self, connection):
+        """degree over a subgraph member counts only member edges, differing from
+        the node's real-graph degree."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        # b has real degree 2: an in-edge from a and an out-edge to c.
+        execute_and_fetch_all(cursor, "CREATE (a:A)-[:R]->(b:B {id: 1}), (b)-[:R2]->(:C);")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:A)-[:R]->(:B)
+            WITH project(p) AS sg
+            CALL { USE sg MATCH (n:B) RETURN degree(n) AS d, inDegree(n) AS ind, outDegree(n) AS od }
+            RETURN d, ind, od;
+            """,
+        )
+        assert results == [(1, 1, 0)]
+        real = execute_and_fetch_all(cursor, "MATCH (b:B {id: 1}) RETURN degree(b) AS d;")
+        assert real == [(2,)]
 
 
 if __name__ == "__main__":

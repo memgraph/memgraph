@@ -23,6 +23,7 @@ namespace memgraph::query {
 
 class DbAccessor;
 class TypedValue;
+class GraphView;
 struct QueryUserOrRole;
 
 namespace {
@@ -42,6 +43,9 @@ struct FunctionContext {
   int64_t hops_counter{0};
   const QueryUserOrRole *user_or_role{nullptr};
   const QueryUserOrRole *triggering_user{nullptr};
+  // The ambient graph view, bound inside a `CALL { USE ... }` scope. The topology
+  // functions resolve over it; null outside the operator path.
+  GraphView *graph_view{nullptr};
 };
 
 using func_impl =

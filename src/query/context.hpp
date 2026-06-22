@@ -73,6 +73,10 @@ struct EvaluationContext {
   /// modifies the values
   mutable std::unordered_map<std::string, int64_t> counters{};
   Scope scope{};
+  // The ambient graph the read operators scan and the topology functions resolve
+  // over. Bound to the identity view (the real graph) by default; a
+  // `CALL { USE ... }` scope rebinds a projection or subgraph view for the block.
+  GraphView *graph_view{nullptr};
 };
 
 std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string> &property_names, DbAccessor *dba);
@@ -115,10 +119,6 @@ struct StoppingContext {
 
 struct ExecutionContext {
   DbAccessor *db_accessor{nullptr};
-  // The ambient graph the read operators scan. When null the operators read the
-  // real graph directly (the identity view); a `CALL { USE ... }` scope binds a
-  // projection or subgraph view here for the block.
-  GraphView *graph_view{nullptr};
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   StoppingContext stopping_context;

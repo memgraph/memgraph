@@ -3138,7 +3138,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.parallel_execution = parallel_execution;
 #endif
   ctx_.db_accessor = dba;
-  ctx_.graph_view = &identity_graph_view_;
+  ctx_.evaluation_context.graph_view = &identity_graph_view_;
   ctx_.db_arena_pool = db_arena_pool;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();

@@ -1047,8 +1047,8 @@ UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem, metrics::Databas
   auto vertices = [this](Frame &, ExecutionContext &context) -> std::optional<VertexRange> {
     // Scan through the ambient graph view. Without one bound, read the real
     // graph directly - the identity view's behaviour, expressed inline.
-    if (context.graph_view != nullptr) {
-      return context.graph_view->Vertices(view_);
+    if (context.evaluation_context.graph_view != nullptr) {
+      return context.evaluation_context.graph_view->Vertices(view_);
     }
     return VertexRange{context.db_accessor->Vertices(view_)};
   };
@@ -2071,7 +2071,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
 
     // A real member of a bound subgraph expands its real edges filtered to the
     // subgraph's membership; outside a subgraph scope this stays null.
-    subgraph_view_ = dynamic_cast<SubgraphGraphView *>(context.graph_view);
+    subgraph_view_ = dynamic_cast<SubgraphGraphView *>(context.evaluation_context.graph_view);
 
     expansion_info_ = GetExpansionInfo(frame);
 
@@ -2163,7 +2163,7 @@ bool Expand::ExpandCursor::InitVirtualEdges(Frame &frame, ExecutionContext &cont
   // A VirtualNode on the frame means a projection is the ambient view, so its
   // edge index is the bound view's. Edge expansion is the projection's, reached
   // through the view rather than the real-graph accessor.
-  auto *view = dynamic_cast<VirtualGraphView *>(context.graph_view);
+  auto *view = dynamic_cast<VirtualGraphView *>(context.evaluation_context.graph_view);
   DMG_ASSERT(view, "A VirtualNode is scanned only with a projection bound as the ambient view");
 
   allowed_edge_type_names_.clear();
@@ -9138,14 +9138,14 @@ class BindGraphViewCursor : public Cursor {
     // outer row (Reset clears it) and reuse the view for every pull of the body.
     if (!view_) BindView(frame, context);
 
-    auto *const outer_view = context.graph_view;
-    context.graph_view = view_;
+    auto *const outer_view = context.evaluation_context.graph_view;
+    context.evaluation_context.graph_view = view_;
     try {
       const bool pulled = input_cursor_->Pull(frame, context);
-      context.graph_view = outer_view;
+      context.evaluation_context.graph_view = outer_view;
       return pulled;
     } catch (...) {
-      context.graph_view = outer_view;
+      context.evaluation_context.graph_view = outer_view;
       throw;
     }
   }

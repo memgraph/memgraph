@@ -1,6 +1,6 @@
 # Topology functions over the ambient projection
 
-Status: ready-for-agent
+Status: done - `degree`/`inDegree`/`outDegree` resolve over the ambient `GraphView` (`graph_view` moved to `EvaluationContext` and threaded into `FunctionContext`): a projection node counts `VirtualGraphView` edges, a subgraph member counts only member edges, a real vertex keeps real degree. Neighbour/relationship *traversal* is `MATCH` expansion, already routed through the view in issue 22 - there is no separate per-node built-in to wire (the `relationships()` built-in is a path function). Tests in `tests/unit/interpreter.cpp` and `tests/e2e/write_procedures/virtual_graph.py`.
 
 ## Parent
 
@@ -17,10 +17,10 @@ stays in issue 15.
 
 ## Acceptance criteria
 
-- [ ] `degree`/`indegree`/`outdegree` over a projection node inside `USE` count projection edges
-- [ ] Neighbour/relationship functions resolve over the projection topology
-- [ ] The result differs from the real-graph degree when the projection differs (asserted)
-- [ ] e2e test
+- [x] `degree`/`indegree`/`outdegree` over a projection node inside `USE` count projection edges
+- [x] Neighbour/relationship functions resolve over the projection topology (traversal is `MATCH` expansion over the bound view, issue 22; no separate per-node built-in exists)
+- [x] The result differs from the real-graph degree when the projection differs (asserted)
+- [x] e2e test
 
 ## Blocked by
 

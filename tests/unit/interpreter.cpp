@@ -577,6 +577,51 @@ TYPED_TEST(InterpreterTest, CallUseScopeOverSubgraphExpansionRespectsMembership)
   EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "b");
 }
 
+// degree/inDegree/outDegree over a projection node inside a USE scope count the
+// projection's edges, which differ from the node's real-graph degree.
+TYPED_TEST(InterpreterTest, CallUseScopeDegreeOverProjection) {
+  // a has real out-degree 2.
+  this->Interpret("CREATE (a:N {id: 1})-[:R]->(:N {id: 2}), (a)-[:R]->(:N {id: 3})");
+  // The projection derived from the single path a->b has one edge, so a's
+  // projection out-degree is 1.
+  auto stream = this->Interpret(
+      "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) "
+      "WITH derive(p, {virtualEdgeType: 'E'}) AS g "
+      "CALL { USE g MATCH (n) WHERE n.id = 1 RETURN degree(n) AS d, outDegree(n) AS od, inDegree(n) AS ind } "
+      "RETURN d, od, ind");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 0);
+
+  // The same node's real-graph out-degree is 2, differing from the projection.
+  auto real = this->Interpret("MATCH (a:N {id: 1}) RETURN outDegree(a) AS od");
+  ASSERT_EQ(real.GetResults().size(), 1U);
+  EXPECT_EQ(real.GetResults()[0][0].ValueInt(), 2);
+}
+
+// degree over a subgraph member inside a USE scope counts only member edges,
+// differing from the node's real-graph degree.
+TYPED_TEST(InterpreterTest, CallUseScopeDegreeOverSubgraph) {
+  // b has real degree 2: an in-edge from a and an out-edge to c.
+  this->Interpret("CREATE (a:A)-[:R]->(b:B {id: 1}), (b)-[:R2]->(:C)");
+  // The subgraph holds only the a->b edge, so b's subgraph degree is 1.
+  auto stream = this->Interpret(
+      "MATCH p=(:A)-[:R]->(:B) "
+      "WITH project(p) AS sg "
+      "CALL { USE sg MATCH (n:B) RETURN degree(n) AS d, inDegree(n) AS ind, outDegree(n) AS od } "
+      "RETURN d, ind, od");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 0);
+
+  // The same node's real-graph degree is 2, differing from the subgraph.
+  auto real = this->Interpret("MATCH (b:B {id: 1}) RETURN degree(b) AS d");
+  ASSERT_EQ(real.GetResults().size(), 1U);
+  EXPECT_EQ(real.GetResults()[0][0].ValueInt(), 2);
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);
