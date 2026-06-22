@@ -445,6 +445,47 @@ TYPED_TEST(InterpreterTest, CallUseScopeExpandsSelfLoop) {
   EXPECT_EQ(in.GetResults()[0][1].ValueInt(), 7);
 }
 
+// A label-filtered MATCH inside a USE scope returns only the projection nodes
+// carrying that label, by full scan plus filter.
+TYPED_TEST(InterpreterTest, CallUseScopeLabelFilter) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'A', {x: 1}), virtualNode(2, 'B', {x: 2}), virtualNode(3, 'A', {x: 3})] AS nodes, "
+      "[] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n:A) RETURN n.x AS x } "
+      "RETURN x ORDER BY x");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);
+}
+
+// A label-filtered scan over a projection stays a full scan even when the real
+// graph has an index on that label: the projection is read, not the real graph.
+TYPED_TEST(InterpreterTest, CallUseScopeLabelFilterIgnoresRealIndex) {
+  this->Interpret("CREATE INDEX ON :A");
+  this->Interpret("CREATE (:A {x: 100})");
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'A', {x: 1}), virtualNode(2, 'B', {x: 2})] AS nodes, [] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n:A) RETURN n.x AS x } "
+      "RETURN x ORDER BY x");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+}
+
+// A WHERE property predicate inside a USE scope filters projection nodes by scan.
+TYPED_TEST(InterpreterTest, CallUseScopePropertyPredicate) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 10}), virtualNode(2, 'N', {x: 20}), virtualNode(3, 'N', {x: 30})] AS nodes, "
+      "[] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n) WHERE n.x > 15 RETURN n.x AS x } "
+      "RETURN x ORDER BY x");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 20);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 30);
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);

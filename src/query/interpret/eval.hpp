@@ -19,6 +19,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "query/common.hpp"
@@ -28,6 +29,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_node.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/point.hpp"
@@ -240,8 +242,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
                       storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
-                      const int64_t *hops_counter = nullptr,
-		      const std::shared_ptr<QueryUserOrRole> &user_or_role = {},
+                      const int64_t *hops_counter = nullptr, const std::shared_ptr<QueryUserOrRole> &user_or_role = {},
                       const std::shared_ptr<QueryUserOrRole> &triggering_user = {})
       : frame_(frame),
         symbol_table_(&symbol_table),
@@ -632,6 +633,22 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           if (!has_at_least_one_label) {
             return TypedValue(false, ctx_->memory);
           }
+        }
+        return TypedValue(true, ctx_->memory);
+      }
+      case TypedValue::Type::VirtualNode: {
+        // A projection node carries its labels as names, not ids, and exposes no
+        // index, so the test is a membership check over its label list.
+        const auto &node = expression_result.ValueVirtualNode();
+        const auto has_label = [&](const LabelIx &label) {
+          return std::ranges::any_of(
+              node.Labels(), [&](const auto &held) { return std::string_view{held} == std::string_view{label.name}; });
+        };
+        for (const auto &label : labels_test.labels_) {
+          if (!has_label(label)) return TypedValue(false, ctx_->memory);
+        }
+        for (const auto &or_labels_pattern : labels_test.or_labels_) {
+          if (!std::ranges::any_of(or_labels_pattern, has_label)) return TypedValue(false, ctx_->memory);
         }
         return TypedValue(true, ctx_->memory);
       }

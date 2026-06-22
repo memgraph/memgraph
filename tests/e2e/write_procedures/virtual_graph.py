@@ -973,6 +973,55 @@ class TestUseScope:
         )
         assert in_rows == [(7, 7)]
 
+    def test_use_scope_label_filter(self, connection):
+        """A label-filtered MATCH returns only the projection nodes with that
+        label, via a full scan plus filter."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'A', {x: 1}), virtualNode(2, 'B', {x: 2}), virtualNode(3, 'A', {x: 3})] AS nodes,
+                 [] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (n:A) RETURN n.x AS x }
+            RETURN x ORDER BY x;
+            """,
+        )
+        assert results == [(1,), (3,)]
+
+    def test_use_scope_label_filter_ignores_real_index(self, connection):
+        """A label scan over a projection stays a full scan even when the real
+        graph has an index on that label: the projection is read, not the real
+        graph."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "CREATE INDEX ON :A")
+        execute_and_fetch_all(cursor, "CREATE (:A {x: 100})")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'A', {x: 1}), virtualNode(2, 'B', {x: 2})] AS nodes, [] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (n:A) RETURN n.x AS x }
+            RETURN x ORDER BY x;
+            """,
+        )
+        assert results == [(1,)]
+
+    def test_use_scope_property_predicate(self, connection):
+        """A WHERE property predicate filters projection nodes by scan."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 10}), virtualNode(2, 'N', {x: 20}), virtualNode(3, 'N', {x: 30})] AS nodes,
+                 [] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (n) WHERE n.x > 15 RETURN n.x AS x }
+            RETURN x ORDER BY x;
+            """,
+        )
+        assert results == [(20,), (30,)]
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -797,9 +797,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(BindGraphView &op) override {
     prev_ops_.push_back(&op);
-    // The body scans a projection, which exposes no index, so rewrite it as an
-    // isolated branch rather than pushing the outer query's index lookups in.
-    RewriteBranch(&op.input_);
+    // The body scans a projection, which exposes no index or statistics. Leave it
+    // a full ScanAll + Filter: an index scan reads the real graph through the
+    // accessor, not the bound projection, so substituting one here would read the
+    // wrong graph. The body is not rewritten.
     return false;
   }
 

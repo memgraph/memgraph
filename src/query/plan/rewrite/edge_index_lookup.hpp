@@ -632,7 +632,9 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(BindGraphView &op) override {
     prev_ops_.push_back(&op);
-    RewriteBranch(&op.input_);
+    // The body scans a projection, which exposes no edge-type index. An edge-type
+    // index scan reads the real graph, not the bound projection, so the body is
+    // left a full scan and not rewritten.
     return false;
   }
 

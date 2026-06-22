@@ -99,7 +99,12 @@ Four decisions:
   string-query projection for exactly this reason.
 - Full-scan v1 means a different performance regime inside a scope than over the
   real, indexed graph; this is documented, not hidden, and motivates later index/
-  statistics work on projections.
+  statistics work on projections. Concretely, the index, edge-index, and join plan
+  rewriters do not descend into a `USE` body: an index or join scan reads the real
+  graph through the accessor, not the bound projection, so a labelled match
+  `MATCH (n:Label)` and a property predicate stay a full `ScanAll` followed by a
+  `Filter`. Re-enabling rewriting inside the scope would silently read the real
+  graph and is a correctness bug, not an optimization.
 
 ## Alternatives considered
 
