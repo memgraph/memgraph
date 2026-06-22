@@ -473,6 +473,63 @@ TYPED_TEST(InterpreterTest, CallUseScopeLabelFilterIgnoresRealIndex) {
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
 }
 
+// A label+property equality match inside a USE scope stays a full scan even when
+// the real graph carries a composite index on that label and property: the
+// projection's matching node is returned, not the real graph's.
+TYPED_TEST(InterpreterTest, CallUseScopeLabelPropertyEqualityIgnoresRealIndex) {
+  this->Interpret("CREATE INDEX ON :A(x)");
+  this->Interpret("CREATE (:A {x: 1})");
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'A', {x: 1, tag: 11}), virtualNode(2, 'A', {x: 2, tag: 22})] AS nodes, [] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n:A {x: 1}) RETURN n.tag AS tag } "
+      "RETURN tag");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 11);
+}
+
+// A label+property range match inside a USE scope stays a full scan even when the
+// real graph carries a composite index on that label and property: only the
+// projection nodes satisfying the range are returned, not the real graph's.
+TYPED_TEST(InterpreterTest, CallUseScopeLabelPropertyRangeIgnoresRealIndex) {
+  this->Interpret("CREATE INDEX ON :A(x)");
+  this->Interpret("CREATE (:A {x: 100})");
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'A', {x: 5, tag: 11}), virtualNode(2, 'A', {x: 1, tag: 22})] AS nodes, [] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n:A) WHERE n.x > 3 RETURN n.tag AS tag } "
+      "RETURN tag ORDER BY tag");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 11);
+}
+
+// An id predicate inside a USE scope over a project() subgraph stays a full scan
+// of the members: a real vertex outside the subgraph is not reachable by its id,
+// and a member is. Were the id lookup to resolve through the real accessor it
+// would return the non-member.
+TYPED_TEST(InterpreterTest, CallUseScopeIdFilterScansSubgraphMembers) {
+  this->Interpret("CREATE (:A {name: 'a'})-[:R]->(:B {name: 'b'}), (:C {name: 'c'})");
+  const auto id_of = [this](const std::string &query) { return this->Interpret(query).GetResults()[0][0].ValueInt(); };
+  const auto member_id = id_of("MATCH (b:B) RETURN id(b)");
+  const auto non_member_id = id_of("MATCH (c:C) RETURN id(c)");
+
+  auto absent = this->Interpret(
+      "MATCH p=(:A)-[:R]->(:B) WITH project(p) AS sg "
+      "CALL { USE sg MATCH (n) WHERE id(n) = $cid RETURN n.name AS name } "
+      "RETURN count(name) AS cnt",
+      {{"cid", memgraph::storage::ExternalPropertyValue(non_member_id)}});
+  ASSERT_EQ(absent.GetResults().size(), 1U);
+  EXPECT_EQ(absent.GetResults()[0][0].ValueInt(), 0);
+
+  auto present = this->Interpret(
+      "MATCH p=(:A)-[:R]->(:B) WITH project(p) AS sg "
+      "CALL { USE sg MATCH (n) WHERE id(n) = $bid RETURN n.name AS name } "
+      "RETURN name",
+      {{"bid", memgraph::storage::ExternalPropertyValue(member_id)}});
+  ASSERT_EQ(present.GetResults().size(), 1U);
+  EXPECT_EQ(present.GetResults()[0][0].ValueString(), "b");
+}
+
 // A WHERE property predicate inside a USE scope filters projection nodes by scan.
 TYPED_TEST(InterpreterTest, CallUseScopePropertyPredicate) {
   auto stream = this->Interpret(

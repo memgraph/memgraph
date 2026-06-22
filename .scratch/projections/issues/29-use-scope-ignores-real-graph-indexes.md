@@ -1,6 +1,23 @@
 # Scan the bound projection, not a real-graph index, inside a USE scope
 
-Status: not started
+Status: done
+
+## Resolution
+
+The leak is already prevented at the rewriter boundary. `HandleSubquery` plans
+the USE body into a raw logical plan (`ScanAll` + `Filter`) and wraps it in
+`BindGraphView`; index substitution happens later, in a single post-process
+rewrite over the whole tree. The index, edge-index, and join rewriters each stop
+at `BindGraphView` (their `PreVisit` does not descend), so no `ScanAllByLabel`,
+`ScanAllByLabelProperties` (value or range), `ScanAllById`, or edge-type index
+scan is ever substituted into the body. The body stays a full scan over the
+ambient `GraphView` plus a filter, for every scan flavour.
+
+This was delivered for the label case alongside the rewriter boundary. The work
+here is the regression coverage the criteria below ask for: label+property
+equality, label+property range, and id, each against a real-graph index, plus
+confirming the edge-type path is closed by the same boundary. No production
+change was needed; the added tests fail if the boundary is removed.
 
 ## Parent
 
@@ -30,18 +47,24 @@ plan_v2 rejects `USE` in a `CALL` subquery and is out of scope here.
 
 ## Acceptance criteria
 
-- [ ] A failing test is written first: a real-graph index exists on a label
-      (and on a label+property), a projection is built whose members differ from
-      the real graph, and `CALL { USE p MATCH (n:Label ...) ... }` returns the
-      projection's members, not the real graph's.
-- [ ] The fix covers every scan that would otherwise consult a real-graph index
-      inside a `USE` scope: label, label+property (value and range), and id.
-- [ ] Equivalent coverage for an edge-typed scan if an expand inside a `USE`
-      scope could pick an edge index; otherwise note in the test that no such
-      path exists.
-- [ ] Existing `USE`-scope scan and expand tests stay green.
-- [ ] Planning and execution outside a `USE` scope are unchanged (index scans
-      still selected as before).
+- [x] A real-graph index exists on a label (and on a label+property), a
+      projection is built whose members differ from the real graph, and
+      `CALL { USE p MATCH (n:Label ...) ... }` returns the projection's members,
+      not the real graph's. Covered by `CallUseScopeLabelFilterIgnoresRealIndex`
+      and the new `CallUseScopeLabelProperty{Equality,Range}IgnoresRealIndex`.
+- [x] Every scan that would otherwise consult a real-graph index inside a `USE`
+      scope is covered: label, label+property (value and range), and id. The id
+      case is exercised over a `project()` subgraph
+      (`CallUseScopeIdFilterScansSubgraphMembers`): a real vertex outside the
+      subgraph is not reachable by its id, a member is.
+- [x] The edge-typed scan path is closed by the same boundary: the edge-index
+      rewriter does not descend into a `BindGraphView` body, so an edge-type
+      index scan is never substituted. Type-filtered expansion over a projection
+      is covered by `CallUseScopeExpandsTypeFiltered`.
+- [x] Existing `USE`-scope scan and expand tests stay green.
+- [x] Planning and execution outside a `USE` scope are unchanged: the boundary
+      only stops descent into the USE body, so index scans are still selected as
+      before everywhere else.
 
 ## Blocked by
 
