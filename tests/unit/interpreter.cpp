@@ -500,6 +500,55 @@ TYPED_TEST(InterpreterTest, CallUseScopeReadsPropertyAndSubscript) {
   EXPECT_EQ(stream.GetResults()[0][2].type(), memgraph::communication::bolt::Value::Type::Null);
 }
 
+// A USE scope over a derive() overlay projection reads through to the origin: a
+// MATCH inside the scope returns the origin's property values, and a predicate
+// over a read-through value filters correctly.
+TYPED_TEST(InterpreterTest, CallUseScopeOverDeriveReadsThrough) {
+  this->Interpret("CREATE (:N {id: 1, v: 7})-[:R]->(:N {id: 2, v: 9})");
+  auto stream = this->Interpret(
+      "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) "
+      "WITH derive(p, {virtualEdgeType: 'E'}) AS g "
+      "CALL { USE g MATCH (n) WHERE n.v > 8 RETURN n.id AS id, n.v AS v } "
+      "RETURN id, v ORDER BY id");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 9);
+}
+
+// An overlay-bound key shadows the origin value inside a USE scope.
+TYPED_TEST(InterpreterTest, CallUseScopeOverDeriveOverlayShadows) {
+  this->Interpret("CREATE (:N {id: 1, v: 7})-[:R]->(:N {id: 2, v: 9})");
+  auto stream = this->Interpret(
+      "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) "
+      "WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {v: 'overlay'}, sourceNodeProperties: {v: 100}}) AS g "
+      "CALL { USE g MATCH (n) WHERE n.id = 1 RETURN n.v AS v } "
+      "RETURN v");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 100);
+}
+
+// A hidden key is invisible to reads and to predicates inside a USE scope: the
+// read yields null, and `WHERE n.secret IS NULL` matches every node.
+TYPED_TEST(InterpreterTest, CallUseScopeOverDeriveHiddenInvisible) {
+  this->Interpret("CREATE (:N {id: 1, secret: 42})-[:R]->(:N {id: 2, secret: 43})");
+  auto read = this->Interpret(
+      "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) "
+      "WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {secret: 'hidden'}}) AS g "
+      "CALL { USE g MATCH (n) WHERE n.id = 1 RETURN n.secret AS s } "
+      "RETURN s");
+  ASSERT_EQ(read.GetResults().size(), 1U);
+  EXPECT_EQ(read.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null);
+
+  auto pred = this->Interpret(
+      "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) "
+      "WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {secret: 'hidden'}}) AS g "
+      "CALL { USE g MATCH (n) WHERE n.secret IS NULL RETURN n.id AS id } "
+      "RETURN id ORDER BY id");
+  ASSERT_EQ(pred.GetResults().size(), 2U);
+  EXPECT_EQ(pred.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(pred.GetResults()[1][0].ValueInt(), 2);
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);

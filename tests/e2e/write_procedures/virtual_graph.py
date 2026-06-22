@@ -1023,5 +1023,88 @@ class TestUseScope:
         assert results == [(20,), (30,)]
 
 
+class TestUseScopeOverDerive:
+    """A USE scope over a derive() overlay projection: reads inside the scope go
+    through to the origin per the per-property binding."""
+
+    def _make_path(self, cursor):
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1, v: 7, secret: 42})-[:R]->(:N {id: 2, v: 9, secret: 43});")
+
+    def test_use_scope_over_derive_reads_through(self, connection):
+        """A MATCH inside the scope returns the origin's property values, and a
+        predicate over a read-through value filters correctly."""
+        cursor = connection.cursor()
+        self._make_path(cursor)
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            CALL { USE g MATCH (n) WHERE n.v > 8 RETURN n.id AS id, n.v AS v }
+            RETURN id, v ORDER BY id;
+            """,
+        )
+        assert results == [(2, 9)]
+
+    def test_use_scope_over_derive_overlay_shadows(self, connection):
+        """An overlay-bound key shadows the origin value inside the scope."""
+        cursor = connection.cursor()
+        self._make_path(cursor)
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {v: 'overlay'}, sourceNodeProperties: {v: 100}}) AS g
+            CALL { USE g MATCH (n) WHERE n.id = 1 RETURN n.v AS v }
+            RETURN v;
+            """,
+        )
+        assert results == [(100,)]
+
+    def test_use_scope_over_derive_hidden_invisible(self, connection):
+        """A hidden key is invisible to reads and to predicates inside the scope:
+        the read yields null and `WHERE n.secret IS NULL` matches every node."""
+        cursor = connection.cursor()
+        self._make_path(cursor)
+        read = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {secret: 'hidden'}}) AS g
+            CALL { USE g MATCH (n) WHERE n.id = 1 RETURN n.secret AS s }
+            RETURN s;
+            """,
+        )
+        assert read == [(None,)]
+
+        pred = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E', propertyPolicy: {secret: 'hidden'}}) AS g
+            CALL { USE g MATCH (n) WHERE n.secret IS NULL RETURN n.id AS id }
+            RETURN id ORDER BY id;
+            """,
+        )
+        assert pred == [(1,), (2,)]
+
+    def test_use_scope_over_derive_expands_with_read_through_endpoints(self, connection):
+        """Expanding the derived edge inside the scope binds endpoints that read
+        through to their origins."""
+        cursor = connection.cursor()
+        self._make_path(cursor)
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E'}) AS g
+            CALL { USE g MATCH (a)-[r]->(b) RETURN a.id AS aid, type(r) AS t, b.id AS bid }
+            RETURN aid, t, bid;
+            """,
+        )
+        assert results == [(1, "E", 2)]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
