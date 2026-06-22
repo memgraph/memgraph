@@ -1453,5 +1453,130 @@ def test_suspend_is_isolated_from_other_databases(connection, test_name):
     assert tenant_probe(main_cursor, "A")() == 9, "A must round-trip its data through suspend/resume"
 
 
+def test_drop_recreate_cold_tenant_uuid_fix_converges(connection, test_name):
+    # F1 (SystemRecovery COLD loop stale-UUID regression):
+    #   Before the fix, the replica's SystemRecovery COLD loop refreshed a cold tenant's stats but never
+    #   its UUID. When a tenant was dropped and recreated under the same name while the replica was down,
+    #   the replica's COLD shell still carried the OLD uuid. On reconnect, SystemRecovery would match the
+    #   name "tenant_x" in the COLD set and update its stats, but leave the UUID stale. Because all
+    #   subsequent replication traffic (data + state) is routed by UUID, the replica remained permanently
+    #   BEHIND — the new tenant's data never arrived and no self-heal was possible.
+    #   After the fix, the COLD loop also refreshes the UUID, so the replica's COLD shell is re-keyed to
+    #   the new UUID and the new tenant's data replicates normally.
+    #
+    # Sequence:
+    #   1. main + replica_1, ASYNC (the replica goes down mid-scenario).
+    #   2. Create tenant_x on MAIN with 3 :OldLabel nodes; wait replica HOT.
+    #   3. SUSPEND tenant_x on MAIN; wait replica COLD.
+    #   4. Kill the replica (keep its data dir so it recovers tenant_x COLD from disk on restart).
+    #   5. While the replica is DOWN:
+    #        DROP DATABASE tenant_x  (destroys the old UUID)
+    #        CREATE DATABASE tenant_x (mints a brand-new UUID under the same name)
+    #        write 7 :NewLabel nodes to the new tenant_x
+    #        SUSPEND tenant_x again (so MAIN holds the NEW tenant_x COLD)
+    #   6. Restart the replica; it recovers the OLD tenant_x as a COLD shell from its own disk and
+    #      restores its REPLICA role. MAIN reconnects and runs SystemRecovery (V3).
+    #   7. RESUME tenant_x on MAIN (NEW uuid, NEW data); write 1 :MarkerLabel node as fresh replication
+    #      bait; let it replicate to the now-converged replica.
+    #   8. ASSERT that the replica ends up with the NEW tenant's data (8 nodes total: 7 :NewLabel + 1
+    #      :MarkerLabel), NOT the old data (3 :OldLabel nodes). Pre-fix: the replica is permanently
+    #      BEHIND (stale UUID) and tenant_probe never reaches 8; post-fix it converges.
+    instances = {
+        "replica_1": replica_args(test_name, recovery=True),
+        "main": main_args(test_name),
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    set_replica_role(replica_cursor)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    # ASYNC: SUSPEND and DROP must not block on the (soon) down replica.
+    register_replica(main_cursor, sync=False)
+
+    # Create the initial tenant_x with 3 :OldLabel nodes (distinguishable from the new data).
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE tenant_x;")
+    execute_and_fetch_all(main_cursor, "USE DATABASE tenant_x;")
+    for _ in range(3):
+        execute_and_fetch_all(main_cursor, "CREATE (:OldLabel);")
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    # Wait for the replica to receive the initial data HOT.
+    mg_sleep_and_assert(3, tenant_probe(replica_cursor, "tenant_x"))
+
+    # SUSPEND tenant_x on MAIN; wait for the replica copy to go COLD too.
+    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE tenant_x;")
+    mg_sleep_and_assert("COLD", tenant_probe(replica_cursor, "tenant_x"))
+    assert tenant_probe(main_cursor, "tenant_x")() == "COLD"
+
+    # Take the replica DOWN; keep its data directory so it recovers tenant_x COLD from disk on restart.
+    # From this point the replica misses every operation until it is restarted in step 6.
+    interactive_mg_runner.kill(instances, "replica_1", keep_directories=True)
+
+    # ---- While the replica is offline ----
+    # DROP the old tenant_x (destroys the old UUID from MAIN's perspective).
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "DROP DATABASE tenant_x;")
+    assert tenant_probe(main_cursor, "tenant_x")() == "MISSING"
+
+    # CREATE a brand-new tenant_x (fresh UUID under the same name).
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE tenant_x;")
+    execute_and_fetch_all(main_cursor, "USE DATABASE tenant_x;")
+    for _ in range(7):
+        execute_and_fetch_all(main_cursor, "CREATE (:NewLabel);")
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+
+    # SUSPEND the new tenant_x so MAIN holds it COLD with the new UUID.
+    # This is the exact state SystemRecovery will encounter on reconnect: MAIN's COLD set contains
+    # tenant_x at a UUID the replica has NEVER seen.
+    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE tenant_x;")
+    assert tenant_probe(main_cursor, "tenant_x")() == "COLD"
+
+    # ---- Restart the replica ----
+    # It recovers the OLD tenant_x COLD shell from its own disk (stale UUID) and restores its REPLICA
+    # role (--replication-restore-state-on-startup) so MAIN reconnects and runs SystemRecovery (V3).
+    interactive_mg_runner.start(instances, "replica_1")
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+
+    # ---- Resume on MAIN and write a replication marker ----
+    # RESUME the new tenant_x on MAIN (new UUID, new data). Then write 1 :MarkerLabel node so there is
+    # fresh replicated data in flight that the convergence assertion can wait on.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "RESUME DATABASE tenant_x;")
+    execute_and_fetch_all(main_cursor, "USE DATABASE tenant_x;")
+    execute_and_fetch_all(main_cursor, "CREATE (:MarkerLabel);")
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+
+    # ASSERT CONVERGENCE: the replica must end up with the NEW tenant's data — 8 nodes total
+    # (7 :NewLabel from the recreated tenant + 1 :MarkerLabel written after resume). Pre-fix: the
+    # replica is pinned to the stale UUID and never converges (mg_sleep_and_assert times out here).
+    # Post-fix: SystemRecovery re-keys the COLD shell to the new UUID and the new data replicates.
+    mg_sleep_and_assert(8, tenant_probe(replica_cursor, "tenant_x"))
+
+    # STRONG assertion: no :OldLabel nodes must be present (they belonged to the dropped tenant; if the
+    # replica mistakenly kept the old shell, at least 3 OldLabel nodes would be here instead).
+    def old_label_count():
+        def func():
+            try:
+                execute_and_fetch_all(replica_cursor, "USE DATABASE tenant_x;")
+                return execute_and_fetch_all(replica_cursor, "MATCH (n:OldLabel) RETURN count(*);")[0][0]
+            except mgclient.DatabaseError as e:
+                msg = str(e)
+                if "suspended (cold)" in msg or "unknown database" in msg.lower() or "doesn't exist" in msg.lower():
+                    return -1  # not yet converged; keep polling
+                raise
+            finally:
+                try:
+                    execute_and_fetch_all(replica_cursor, "USE DATABASE memgraph;")
+                except mgclient.DatabaseError:
+                    pass
+
+        return func
+
+    mg_sleep_and_assert(0, old_label_count())
+
+    # Sanity: MAIN's own view of the new tenant is also correct.
+    assert tenant_probe(main_cursor, "tenant_x")() == 8, "MAIN must also hold 8 nodes after the marker write"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -121,6 +121,9 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
 
   try {
     // NOTE: Single communication channel can exist at a time, no other database can be deleted/created at the moment.
+    // Symmetric with SuspendDatabaseHandler: drop any cached 2PC commit accessor for this tenant before
+    // its storage is destroyed, otherwise a later DestroyReplAccessor() dereferences a dead Storage*.
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(req.uuid);
     auto new_db = dbms_handler.Delete(req.uuid);
     if (!new_db) {
       if (new_db.error() == DeleteError::NON_EXISTENT) {
@@ -436,10 +439,20 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
     std::erase(old, name);
 
     if (dbms_handler.IsSuspended(name)) {
-      // Already COLD here — refresh MAIN's as-of-suspend stats snapshot (R11) AND epoch metadata
-      // (C16/MED2): a converged-then-promoted replica needs MAIN's epoch to record the right boundary.
-      dbms_handler.ApplyColdRecoveryMeta(name, cold);
-      continue;
+      // Same tenant still COLD here: refresh MAIN's as-of-suspend stats snapshot AND epoch metadata
+      // (a converged-then-promoted replica needs MAIN's epoch to record the right boundary).
+      if (dbms_handler.IsSuspendedWithUuid(name, config.uuid)) {
+        dbms_handler.ApplyColdRecoveryMeta(name, cold);
+        continue;
+      }
+      // Same name, DIFFERENT uuid: MAIN drop+recreated this tenant while this replica kept the OLD
+      // one COLD. The local shell points at the old tenant's data — drop it so the rebuild below
+      // recreates MAIN's new tenant. Leaving it would make every per-uuid Suspend/Resume RPC for the
+      // new uuid return NON_EXISTENT, latching this replica BEHIND permanently with no self-heal.
+      if (const auto del = dbms_handler.Delete(name); !del && del.error() != DeleteError::NON_EXISTENT) {
+        spdlog::debug("SystemRecoveryHandler: failed to drop stale COLD database \"{}\" before recreate.", name);
+        return false;
+      }
     }
 
     // Currently HOT (force-suspend) or absent (create HOT first, then suspend). Update() creates a

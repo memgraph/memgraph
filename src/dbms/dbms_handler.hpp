@@ -432,6 +432,19 @@ class DbmsHandler {
   }
 
   /**
+   * @brief Is @p name suspended here AND under this exact @p uuid? Distinguishes a tenant that is
+   * still the same COLD tenant (refresh its metadata) from one MAIN drop+recreated under the same
+   * name while this replica kept the OLD one COLD (a stale shell that must be dropped and rebuilt —
+   * otherwise per-uuid Suspend/Resume RPC for the new uuid misses forever and the replica stays
+   * permanently BEHIND).
+   */
+  bool IsSuspendedWithUuid(std::string_view name, const utils::UUID &uuid) const {
+    auto rd = std::shared_lock{lock_};
+    auto it = suspended_.find(name);
+    return it != suspended_.end() && it->second.salient.uuid == uuid;
+  }
+
+  /**
    * @brief Holistic-review #3: does this node know @p uuid AT ALL — HOT (db_handler_) or COLD (suspended_)?
    *
    * The replica suspend/resume apply handlers resolve a UUID via SuspendByUUID/ResumeByUUID, which return
