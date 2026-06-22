@@ -3691,7 +3691,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         yielded_vertices_(mem),
         pq_(mem) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
 
@@ -3913,9 +3913,251 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     }
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master ExpandWeightedShortestPath::Pull().
+    // oom/profile/evaluator/frame_writer and the create_state/expand_pair/restore/expand_from_vertex
+    // lambdas are per-iteration, alive across the co_await PullChild input pull (as master holds them
+    // across input_cursor_->Pull) but die before co_yield. The lambdas + ClearQueue +
+    // CalculateNextWeight never pull input, so they stay SYNCHRONOUS. One emitted path == one master
+    // Pull (the machine loop may refill from several input rows before yielding).
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
+
+        ExpressionEvaluator evaluator(&frame,
+                                      context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor,
+                                      storage::View::OLD,
+                                      nullptr,
+                                      &context.number_of_hops,
+                                      context.user_or_role,
+                                      context.triggering_user);
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
+          return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
+        };
+
+        // For the given (edge, vertex, weight, depth) tuple checks if they
+        // satisfy the "where" condition. if so, places them in the priority
+        // queue.
+        auto expand_pair =
+            [this, &evaluator, &frame, &create_state, &frame_writer](
+                const EdgeAccessor &edge, const VertexAccessor &vertex, const TypedValue &total_weight, int64_t depth) {
+              frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, edge);
+              frame_writer.Write(self_.weight_lambda_->inner_node_symbol, vertex);
+              TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
+
+              std::optional<Path> curr_acc_path = std::nullopt;
+              if (self_.filter_lambda_.expression) {
+                frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
+                frame_writer.Write(self_.filter_lambda_.inner_node_symbol, vertex);
+                if (self_.filter_lambda_.accumulated_path_symbol) {
+                  MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
+                            "Accumulated path must be path");
+
+                  auto expand_path = [&](TypedValue &value) {
+                    Path &accumulated_path = value.ValuePath();
+                    accumulated_path.Expand(edge);
+                    accumulated_path.Expand(vertex);
+                  };
+                  frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
+                  curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();  // const ref
+
+                  if (self_.filter_lambda_.accumulated_weight_symbol) {
+                    frame_writer.Write(self_.filter_lambda_.accumulated_weight_symbol.value(), next_weight);
+                  }
+                }
+
+                if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
+              }
+
+              auto next_state = create_state(vertex, depth);
+
+              auto found_it = total_cost_.find(next_state);
+              if (found_it != total_cost_.end() &&
+                  (found_it->second.IsNull() || (found_it->second <= next_weight).ValueBool()))
+                return;
+
+              pq_.emplace(next_weight, depth + 1, vertex, edge, curr_acc_path);
+            };
+
+        auto restore_frame_state_after_expansion = [this, &frame_writer]() {
+          if (self_.filter_lambda_.accumulated_path_symbol) {
+            auto shrink = [&](TypedValue &value) { value.ValuePath().Shrink(); };
+            frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
+          }
+        };
+
+        // Populates the priority queue structure with expansions
+        // from the given vertex. skips expansions that don't satisfy
+        // the "where" condition.
+        auto expand_from_vertex = [this, &context, &expand_pair, &restore_frame_state_after_expansion](
+                                      const VertexAccessor &vertex, const TypedValue &weight, int64_t depth) {
+          if (self_.common_.direction != EdgeAtom::Direction::IN) {
+            auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
+            for (const auto &edge : out_edges) {
+#ifdef MG_ENTERPRISE
+              if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                  !(context.auth_checker->Has(
+                        edge.To(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                    context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                continue;
+              }
+#endif
+              expand_pair(edge, edge.To(), weight, depth);
+              restore_frame_state_after_expansion();
+            }
+          }
+          if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+            auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
+            for (const auto &edge : in_edges) {
+#ifdef MG_ENTERPRISE
+              if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                  !(context.auth_checker->Has(
+                        edge.From(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                    context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                continue;
+              }
+#endif
+              expand_pair(edge, edge.From(), weight, depth);
+              restore_frame_state_after_expansion();
+            }
+          }
+        };
+
+        while (true) {
+          AbortCheck(context);
+          if (pq_.empty()) {
+            if (!co_await PullChild(*input_cursor_, frame, context)) break;
+            const auto &vertex_value = frame[self_.input_symbol_];
+            if (vertex_value.IsNull()) continue;
+            auto vertex = vertex_value.ValueVertex();
+            if (self_.common_.existing_node) {
+              const auto &node = frame[self_.common_.node_symbol];
+              // Due to optional matching the existing node could be null.
+              // Skip expansion for such nodes.
+              if (node.IsNull()) continue;
+            }
+
+            std::optional<Path> curr_acc_path;
+            if (self_.filter_lambda_.accumulated_path_symbol) {
+              // Add initial vertex of path to the accumulated path
+              curr_acc_path = Path(vertex);
+              frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), curr_acc_path.value());
+            }
+            if (self_.upper_bound_) {
+              upper_bound_ =
+                  EvaluateInt(evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
+              upper_bound_set_ = true;
+            } else {
+              upper_bound_ = std::numeric_limits<int64_t>::max();
+              upper_bound_set_ = false;
+            }
+            if (upper_bound_ < 1)
+              throw QueryRuntimeException(
+                  "Maximum depth in weighted shortest path expansion must be at "
+                  "least 1.");
+
+            frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, TypedValue());
+            frame_writer.Write(self_.weight_lambda_->inner_node_symbol, vertex);
+            TypedValue current_weight =
+                CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator);
+
+            // Clear existing data structures.
+            previous_.clear();
+            total_cost_.clear();
+            yielded_vertices_.clear();
+
+            pq_.emplace(current_weight, 0, vertex, std::nullopt, curr_acc_path);
+            // We are adding the starting vertex to the set of yielded vertices
+            // because we don't want to yield paths that end with the starting
+            // vertex.
+            yielded_vertices_.insert(vertex);
+          }
+
+          while (!pq_.empty()) {
+            AbortCheck(context);
+            auto [current_weight, current_depth, current_vertex, current_edge, curr_acc_path] = pq_.top();
+            pq_.pop();
+
+            auto current_state = create_state(current_vertex, current_depth);
+
+            // Check if the vertex has already been processed.
+            if (total_cost_.contains(current_state)) {
+              continue;
+            }
+            previous_.emplace(current_state, current_edge);
+            total_cost_.emplace(current_state, current_weight);
+
+            // Expand only if what we've just expanded is less than max depth.
+            if (current_depth < upper_bound_) {
+              if (self_.filter_lambda_.accumulated_path_symbol) {
+                frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(),
+                                   std::move(curr_acc_path.value()));
+              }
+              expand_from_vertex(current_vertex, current_weight, current_depth);
+            }
+
+            // If we yielded a path for a vertex already, make the expansion but
+            // don't return the path again.
+            if (yielded_vertices_.contains(current_vertex)) continue;
+
+            // Reconstruct the path.
+            auto last_vertex = current_vertex;
+            auto last_depth = current_depth;
+            auto *pull_memory = context.evaluation_context.memory;
+            utils::pmr::vector<TypedValue> edge_list(pull_memory);
+            while (true) {
+              // Origin_vertex must be in previous.
+              const auto &previous_edge = previous_.find(create_state(last_vertex, last_depth))->second;
+              if (!previous_edge) break;
+              last_vertex = previous_edge->From() == last_vertex ? previous_edge->To() : previous_edge->From();
+              last_depth--;
+              edge_list.emplace_back(previous_edge.value());
+            }
+
+            // Place destination node on the frame, handle existence flag.
+            if (self_.common_.existing_node) {
+              const auto &node = frame[self_.common_.node_symbol];
+              if ((node != TypedValue(current_vertex, pull_memory)).ValueBool()) {
+                continue;
+              }
+              // Prevent expanding other paths, because we found the
+              // shortest to existing node.
+              ClearQueue();
+            } else {
+              frame_writer.Write(self_.common_.node_symbol, current_vertex);
+            }
+
+            if (!self_.is_reverse_) {
+              // Place edges on the frame in the correct order.
+              std::ranges::reverse(edge_list);
+            }
+            frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
+            frame_writer.Write(self_.total_weight_.value(), current_weight);
+            yielded_vertices_.insert(current_vertex);
+            produced = true;
+            break;
+          }
+          if (produced) break;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     previous_.clear();
     total_cost_.clear();
@@ -4009,7 +4251,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         traversal_stack_(mem),
         pq_(mem) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
 
@@ -4336,9 +4578,362 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     }
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master ExpandAllShortestPaths::Pull().
+    // oom/profile/evaluator/frame_writer, the upper_bound_ computation, and the lambdas
+    // (create_state/expand_vertex/restore/expand_from_vertex/create_path/create_DFS_traversal_tree)
+    // are per-iteration, alive across the co_await PullChild input pull (as master holds them across
+    // input_cursor_->Pull) but die before co_yield. None of the lambdas pull input, so they stay
+    // SYNCHRONOUS. start_vertex is a fresh per-iteration local (master re-declares it per Pull). One
+    // emitted path == one master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
+
+        ExpressionEvaluator evaluator(&frame,
+                                      context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor,
+                                      storage::View::OLD,
+                                      nullptr,
+                                      &context.number_of_hops,
+                                      context.user_or_role,
+                                      context.triggering_user);
+
+        auto *memory = context.evaluation_context.memory;
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
+
+        auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
+          return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
+        };
+
+        // For the given (edge, direction, weight, depth) tuple checks if they
+        // satisfy the "where" condition. if so, places them in the priority
+        // queue.
+        auto expand_vertex = [this, &evaluator, &frame, &frame_writer](const EdgeAccessor &edge,
+                                                                       const EdgeAtom::Direction direction,
+                                                                       const TypedValue &total_weight,
+                                                                       int64_t depth) {
+          auto const &next_vertex = direction == EdgeAtom::Direction::IN ? edge.From() : edge.To();
+
+          // Evaluate current weight
+          frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, edge);
+          frame_writer.Write(self_.weight_lambda_->inner_node_symbol, next_vertex);
+          TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
+
+          // If filter expression exists, evaluate filter
+          std::optional<Path> curr_acc_path = std::nullopt;
+          if (self_.filter_lambda_.expression) {
+            frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
+            frame_writer.Write(self_.filter_lambda_.inner_node_symbol, next_vertex);
+            if (self_.filter_lambda_.accumulated_path_symbol) {
+              MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
+                        "Accumulated path must be path");
+              auto expand_path = [&](TypedValue &value) {
+                Path &accumulated_path = value.ValuePath();
+                accumulated_path.Expand(edge);
+                accumulated_path.Expand(next_vertex);
+              };
+              frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
+              curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();  // const ref
+
+              if (self_.filter_lambda_.accumulated_weight_symbol) {
+                frame_writer.Write(self_.filter_lambda_.accumulated_weight_symbol.value(), next_weight);
+              }
+            }
+
+            if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
+          }
+
+          auto found_it = visited_cost_.find(next_vertex);
+          // Check if the vertex has already been processed.
+          if (found_it != visited_cost_.end()) {
+            auto &weights = found_it->second;
+            bool insert = std::ranges::none_of(weights, [&depth, &next_weight](const auto &entry) {
+              auto const &[old_weight, old_depth] = entry;
+              return old_depth <= depth && (old_weight < next_weight).ValueBool() &&
+                     !are_equal(old_weight, next_weight);
+            });
+
+            if (!insert) return;
+            // They cannot be equal since we checked for that above
+            // Its possible that some weights are worse because we update weights at the same time as expanding instead
+            // of later when popping from the queue
+            std::erase_if(weights, [&next_weight, depth](const std::pair<TypedValue, int64_t> &p) {
+              return p.second >= depth && (p.first > next_weight).ValueBool();
+            });
+            weights.emplace_back(next_weight, depth);
+
+          } else {
+            visited_cost_[next_vertex] = {
+                std::make_pair(next_weight, depth)};  // TODO (ivan): will this use correct allocator?
+          }
+
+          // update cheapest cost to get to the vertex
+          auto best_cost = cheapest_cost_.find(next_vertex);
+          if (best_cost == cheapest_cost_.end() || best_cost->second.IsNull() ||
+              (next_weight < best_cost->second).ValueBool()) {
+            cheapest_cost_[next_vertex] = next_weight;
+          }
+
+          pq_.emplace(std::move(next_weight),
+                      depth + 1,
+                      next_vertex,
+                      DirectedEdge{edge, direction, next_weight},
+                      std::move(curr_acc_path));
+        };
+
+        auto restore_frame_state_after_expansion = [this, &frame_writer]() {
+          if (self_.filter_lambda_.accumulated_path_symbol) {
+            auto shrink = [&](TypedValue &value) { value.ValuePath().Shrink(); };
+            frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
+          }
+        };
+
+        // Populates the priority queue structure with expansions
+        // from the given vertex. skips expansions that don't satisfy
+        // the "where" condition.
+        auto expand_from_vertex = [this, &expand_vertex, &context, &restore_frame_state_after_expansion](
+                                      const VertexAccessor &vertex, const TypedValue &weight, int64_t depth) {
+          if (self_.common_.direction != EdgeAtom::Direction::IN) {
+            auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
+            for (const auto &edge : out_edges) {
+#ifdef MG_ENTERPRISE
+              if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                  !(context.auth_checker->Has(
+                        edge.To(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                    context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                continue;
+              }
+#endif
+              expand_vertex(edge, EdgeAtom::Direction::OUT, weight, depth);
+              restore_frame_state_after_expansion();
+            }
+          }
+          if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+            auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
+            for (const auto &edge : in_edges) {
+#ifdef MG_ENTERPRISE
+              if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                  !(context.auth_checker->Has(
+                        edge.From(), storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                    context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+                continue;
+              }
+#endif
+              expand_vertex(edge, EdgeAtom::Direction::IN, weight, depth);
+              restore_frame_state_after_expansion();
+            }
+          }
+        };
+
+        std::optional<VertexAccessor> start_vertex;
+
+        auto create_path = [this, &frame, &memory, &frame_writer]() {
+          auto &current_level = traversal_stack_.back();
+
+          auto pop_edge = [&](TypedValue &value) {
+            auto &edges_on_frame = value.ValueList();  // Clean out the current stack
+            if (current_level.empty()) {
+              if (!edges_on_frame.empty()) {
+                if (!self_.is_reverse_) {
+                  edges_on_frame.pop_back();
+                } else {
+                  edges_on_frame.erase(edges_on_frame.begin());
+                }
+              }
+              traversal_stack_.pop_back();
+              return false;
+            }
+            return true;
+          };
+
+          auto result = frame_writer.Modify(self_.common_.edge_symbol, pop_edge);
+          if (!result) return false;
+
+          auto [current_edge, current_edge_direction, current_weight] = current_level.back();
+          current_level.pop_back();
+
+          auto push_current_edge = [&](TypedValue &value) {
+            auto &edges_on_frame = value.ValueList();
+            // Edges order depends on direction of expansion
+            if (!self_.is_reverse_)
+              edges_on_frame.emplace_back(current_edge);
+            else
+              edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
+          };
+
+          frame_writer.Modify(self_.common_.edge_symbol, push_current_edge);
+
+          auto next_vertex =
+              current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
+          frame_writer.Write(self_.total_weight_.value(), current_weight);
+
+          if (next_edges_.contains({next_vertex, traversal_stack_.size()})) {
+            auto [it, inserted] =
+                next_edges_.try_emplace({next_vertex, traversal_stack_.size()}, utils::pmr::list<DirectedEdge>(memory));
+
+            // Need to propagate the allocator
+            traversal_stack_.emplace_back(utils::pmr::list<DirectedEdge>(it->second, memory));
+          } else {
+            // Signal the end of iteration
+            traversal_stack_.emplace_back(utils::pmr::list<DirectedEdge>(memory));
+          }
+
+          auto cheapest_cost = cheapest_cost_.find(next_vertex)->second;
+          if ((current_weight > cheapest_cost).ValueBool() && !are_equal(current_weight, cheapest_cost)) return false;
+
+          // Place destination node on the frame, handle existence flag
+          if (self_.common_.existing_node) {
+            const auto &node = frame[self_.common_.node_symbol];
+            ExpectType(self_.common_.node_symbol, node, TypedValue::Type::Vertex);
+            if (node.ValueVertex() != next_vertex) return false;
+          } else {
+            frame_writer.Write(self_.common_.node_symbol, next_vertex);
+          }
+          return true;
+        };
+
+        auto create_DFS_traversal_tree =
+            [this, &context, &memory, &frame_writer, &create_state, &expand_from_vertex]() {
+              while (!pq_.empty()) {
+                AbortCheck(context);
+
+                auto [current_weight, current_depth, current_vertex, directed_edge, acc_path] = pq_.top();
+                pq_.pop();
+
+                const auto &[current_edge, direction, weight] = directed_edge;
+                auto current_state = create_state(current_vertex, current_depth);
+
+                auto position = total_cost_.find(current_state);
+                if (position != total_cost_.end()) {
+                  if ((position->second < current_weight).ValueBool() && !are_equal(position->second, current_weight))
+                    continue;
+                } else {
+                  total_cost_.emplace(current_state, current_weight);
+                  if (current_depth < upper_bound_) {
+                    if (self_.filter_lambda_.accumulated_path_symbol) {
+                      DMG_ASSERT(acc_path.has_value(), "Path must be already filled in AllShortestPath DFS traversals");
+                      frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(),
+                                         std::move(acc_path.value()));
+                    }
+                    expand_from_vertex(current_vertex, current_weight, current_depth);
+                  }
+                }
+
+                // Searching for a previous vertex in the expansion
+                auto prev_vertex = direction == EdgeAtom::Direction::IN ? current_edge.To() : current_edge.From();
+
+                // Update the parent
+                if (!next_edges_.contains({prev_vertex, current_depth - 1})) {
+                  next_edges_[{prev_vertex, current_depth - 1}] = utils::pmr::list<DirectedEdge>(memory);
+                }
+                next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(directed_edge);
+              }
+            };
+
+        // upper_bound_set is used when storing visited edges, because with an upper bound we also consider suboptimal
+        // paths if they are shorter in depth
+        if (self_.upper_bound_) {
+          upper_bound_ = EvaluateInt(evaluator, self_.upper_bound_, "Max depth in all shortest path expansion");
+          upper_bound_set_ = true;
+        } else {
+          upper_bound_ = std::numeric_limits<int64_t>::max();
+          upper_bound_set_ = false;
+        }
+
+        // Check if upper bound is valid
+        if (upper_bound_ < 1) {
+          throw QueryRuntimeException("Maximum depth in all shortest paths expansion must be at least 1.");
+        }
+
+        // On first Pull run, traversal stack and priority queue are empty, so we start a pulling stream
+        // and create a DFS traversal tree (main part of algorithm). Then we return the first path
+        // created from the DFS traversal tree (basically a DFS algorithm).
+        // On each subsequent Pull run, paths are created from the traversal stack and returned.
+        while (true) {
+          // Check if there is an external error.
+          AbortCheck(context);
+
+          // The algorithm is run all at once by create_DFS_traversal_tree, after which we
+          // traverse the tree iteratively by preserving the traversal state on stack.
+          while (!traversal_stack_.empty()) {
+            if (create_path()) {
+              produced = true;
+              break;
+            }
+          }
+          if (produced) break;
+
+          // If priority queue is empty start new pulling stream.
+          if (pq_.empty()) {
+            // Finish if there is nothing to pull
+            if (!co_await PullChild(*input_cursor_, frame, context)) break;
+
+            const auto &vertex_value = frame[self_.input_symbol_];
+            if (vertex_value.IsNull()) continue;
+
+            start_vertex = vertex_value.ValueVertex();
+
+            if (self_.common_.existing_node) {
+              const auto &node = frame[self_.common_.node_symbol];
+              // Due to optional matching the existing node could be null.
+              // Skip expansion for such nodes.
+              if (node.IsNull()) continue;
+            }
+
+            // Clear existing data structures.
+            visited_cost_.clear();
+            cheapest_cost_.clear();
+            next_edges_.clear();
+            traversal_stack_.clear();
+            total_cost_.clear();
+
+            if (self_.filter_lambda_.accumulated_path_symbol) {
+              // Add initial vertex of path to the accumulated path
+              frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(*start_vertex));
+            }
+
+            frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, TypedValue());
+            frame_writer.Write(self_.weight_lambda_->inner_node_symbol, *start_vertex);
+            TypedValue current_weight =
+                CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator);
+
+            expand_from_vertex(*start_vertex, current_weight, 0);
+            cheapest_cost_[*start_vertex] = 0;
+            visited_cost_.emplace(
+                *start_vertex, std::vector<std::pair<TypedValue, int64_t>>{std::make_pair(TypedValue(0, memory), 0)});
+
+            auto new_vector = TypedValue::TVector(memory);
+            if (upper_bound_set_ && upper_bound_ > 0) {
+              new_vector.reserve(upper_bound_);
+            }
+            frame_writer.Write(self_.common_.edge_symbol, std::move(new_vector));
+          }
+
+          // Create a DFS traversal tree from the start node
+          create_DFS_traversal_tree();
+
+          // DFS traversal tree is create,
+          if (start_vertex && next_edges_.contains({*start_vertex, 0})) {
+            auto [it, inserted] = next_edges_.try_emplace({*start_vertex, 0}, utils::pmr::list<DirectedEdge>(memory));
+            traversal_stack_.emplace_back(utils::pmr::list<DirectedEdge>(it->second, memory));
+          }
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     visited_cost_.clear();
     cheapest_cost_.clear();
