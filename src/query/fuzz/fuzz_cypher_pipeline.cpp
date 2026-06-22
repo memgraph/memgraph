@@ -117,6 +117,8 @@ FuzzEnvironment *GetEnvironment() {
 }
 
 bool g_setup_done = false;
+uint64_t g_iteration = 0;
+constexpr uint64_t kFlushInterval = 1000;
 
 }  // namespace
 
@@ -127,7 +129,11 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) {
 
   auto *env = GetEnvironment();
 
-  if (!g_setup_done) {
+  if (!g_setup_done || (++g_iteration % kFlushInterval == 0)) {
+    try {
+      env->RunQuery("MATCH (n) DETACH DELETE n");
+    } catch (...) {
+    }
     env->RunSetup("seed_corpus_fraud_detection/setup.cypher");
     g_setup_done = true;
   }
