@@ -98,7 +98,7 @@ class PackageMageSetup:
                 "arch": "arm" if package == "arm" else "amd",
                 "cuda": "true" if package == "cuda" else "false",
                 "cugraph": "true" if package == "cugraph" else "false",
-                "centos-9": "true" if package == "centos-9" else "false",
+                "os": "centos-9" if package == "centos-9" else "ubuntu-24.04",
             }
             out.update(default_args)
             return out
