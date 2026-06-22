@@ -1851,7 +1851,18 @@ build_mage() {
     build_args+=("--split-debug")
   fi
 
-  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
+  # Pin the C/C++ compiler to the toolchain's gcc/g++. The toolchain's
+  # `activate` only prepends its bin dir to PATH and adds -isystem flags; it
+  # does not set CC/CXX, and it ships gcc/g++ (no `c++` symlink). So CMake's
+  # default compiler search falls through to the system /usr/bin/c++ — fine on
+  # Ubuntu (GCC 13, has <format>) but broken on RPM distros like centos-9 (GCC
+  # 11, no <format>, so mgp.hpp's #include <format> fails). MAGE's C++ flags
+  # (e.g. -fvect-cost-model) are GCC-specific, so we use the toolchain gcc, not
+  # its clang. CC/CXX propagate into build.sh's `python3 setup` → cmake, which
+  # honours them on a fresh configure (CI containers start clean).
+  local TOOLCHAIN_ROOT="/opt/toolchain-${toolchain_version}"
+  local EXPORT_MAGE_COMPILER="export CC=${TOOLCHAIN_ROOT}/bin/gcc CXX=${TOOLCHAIN_ROOT}/bin/g++"
+  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && $EXPORT_MAGE_COMPILER && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
   if [[ "$config_only" = true ]]; then
     echo -e "${GREEN_BOLD}Configuration done successfully${RESET}"
     exit 0
