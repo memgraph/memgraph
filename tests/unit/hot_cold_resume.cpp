@@ -255,6 +255,20 @@ TEST_F(HotColdResume, ConcurrentResumeSingleFlight) {
   EXPECT_EQ(successes.load(), kThreads) << "Every concurrent resumer must observe the published HOT tenant";
   EXPECT_TRUE(InAll(name));
 
+  // Post-join deterministic confirmation: the tenant is usable (HOT) for every subsequent caller —
+  // not just the racing threads. Get() would throw if the tenant were COLD; a successful accessor
+  // proves the published state is durable and not a transient winner artifact.
+  // Resume() is also called one more time to confirm the idempotent HOT fast-path works post-flight.
+  EXPECT_NO_THROW({
+    auto post_join_acc = handler_->Get(name);
+    EXPECT_TRUE(post_join_acc) << "Get() after all resumers joined must return a valid accessor";
+  }) << "tenant must be usable (HOT) for all callers after the concurrent single-flight completes";
+
+  auto post_resume = handler_->Resume(name);
+  ASSERT_TRUE(post_resume.has_value())
+      << "Resume() on an already-HOT tenant must return the live accessor (idempotent HOT fast-path)";
+  EXPECT_EQ(post_resume.value()->name(), name);
+
   handler_->SetOnResume({});
 }
 
@@ -350,14 +364,23 @@ TEST_F(HotColdResume, CrossRestartColdTenantStaysColdHotTenantRecovers) {
   auto cold = CreateAndPopulate("cold_persist", kColdNodes);
   auto hot = CreateAndPopulate("hot_persist", kHotNodes);
 
+  // Capture the gauge BEFORE the suspend. DbmsHandler's constructor calls Set(suspended_.size()),
+  // so Restart() resets the gauge to the new handler's cold count (1 here). Capturing before
+  // Suspend() means: baseline=N, after_restart=N+1 → delta=1. Capturing after Suspend() would
+  // give baseline=N+1, after_restart=N+1 → delta=0 (wrong). The SetUp() ctor already sets gauge=0
+  // for a fresh test directory, so N=0 in isolation; the delta form is safe even if other tests
+  // in this binary leave residue (each test's SetUp constructs a fresh handler that calls Set(0)).
+  const double cold_gauge_before_suspend = memgraph::metrics::Metrics().global.cold_databases->Value();
+
   ASSERT_TRUE(handler_->Suspend(cold).has_value());
   EXPECT_FALSE(InAll(cold)) << "tenant must be COLD before the restart";
 
   Restart();
 
-  // F2: the boot restore loop set the cold-tenant gauge once, to this fresh handler's cold count (1).
-  EXPECT_DOUBLE_EQ(memgraph::metrics::Metrics().global.cold_databases->Value(), 1.0)
-      << "the cold-tenant gauge must reflect the one tenant restored COLD on boot";
+  // F2: after restart the new handler sets the gauge to its own cold-tenant count (1).
+  // The delta vs. the pre-suspend baseline is exactly 1 (one tenant restored COLD on boot).
+  EXPECT_DOUBLE_EQ(memgraph::metrics::Metrics().global.cold_databases->Value() - cold_gauge_before_suspend, 1.0)
+      << "the cold-tenant gauge must increase by 1 (net vs. pre-suspend baseline) after restart with one COLD tenant";
 
   // The cold tenant is restored as a COLD shell: not in All(), and Get() trips the cold seam.
   EXPECT_FALSE(InAll(cold)) << "a tenant suspended before restart must recover COLD";
@@ -583,24 +606,29 @@ TEST_F(HotColdResume, AppliedWireEpochDrivesColdPromotionBoundary) {
 // suspends/resumes counters and the cold-tenant gauge.
 //   - The counters are process-global monotonic singletons shared across every test in this binary, so
 //     assert on DELTAS captured around the operation.
-//   - The gauge is SET to the live DbmsHandler's suspended_ size (in production there is exactly one
-//     handler, so the gauge is globally accurate). This test owns the only live handler, whose fresh
-//     data dir restores zero cold tenants, so the gauge reads its absolute suspended_ size: 1 while the
-//     sole tenant is cold, 0 once resumed.
+//   - The gauge is a process-global singleton too (SET to the live DbmsHandler's suspended_ size), so
+//     it is also asserted as a DELTA: capture the baseline before the operation and assert the change
+//     (+1 after suspend, 0 after resume), rather than an absolute value that would be flaky if sibling
+//     tests in this binary leave residue.
 TEST_F(HotColdResume, SuspendResumeMoveObservabilityMetrics) {
   auto &m = memgraph::metrics::Metrics().global;
   const double suspends0 = m.database_suspends->Value();
   const double resumes0 = m.database_resumes->Value();
+  // Capture the gauge baseline BEFORE any suspend so both gauge assertions are deltas, not absolutes.
+  // The gauge is a process-global singleton; other tests in this binary may have left residue.
+  const double cold_gauge0 = m.cold_databases->Value();
 
   auto t = CreateAndPopulate("metrics_tenant", 3);
   ASSERT_TRUE(handler_->Suspend(t).has_value());
   EXPECT_DOUBLE_EQ(m.database_suspends->Value() - suspends0, 1.0)
       << "a successful SUSPEND increments the suspends counter";
-  EXPECT_DOUBLE_EQ(m.cold_databases->Value(), 1.0) << "the cold-tenant gauge reflects the one suspended tenant";
+  EXPECT_DOUBLE_EQ(m.cold_databases->Value() - cold_gauge0, 1.0)
+      << "the cold-tenant gauge increases by 1 when the tenant is suspended";
 
   ASSERT_TRUE(handler_->Resume(t).has_value());
   EXPECT_DOUBLE_EQ(m.database_resumes->Value() - resumes0, 1.0) << "a successful RESUME increments the resumes counter";
-  EXPECT_DOUBLE_EQ(m.cold_databases->Value(), 0.0) << "the cold-tenant gauge returns to zero after resume";
+  EXPECT_DOUBLE_EQ(m.cold_databases->Value() - cold_gauge0, 0.0)
+      << "the cold-tenant gauge returns to its pre-test level after resume";
 }
 
 // A tenant whose HOT recovery FAILS at boot must be left COLD (not abort the process) and marked
