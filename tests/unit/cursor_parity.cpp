@@ -135,6 +135,13 @@ TEST_F(CursorParityTest, Corpus) {
       "MATCH ()-[r:E]->() RETURN r.w AS w ORDER BY w",
       "MATCH (a:N)-[:E]->(b:N) RETURN count(*) AS edges",
       "UNWIND [1, 2, 3, 3] AS x RETURN DISTINCT x ORDER BY x",
+      // Filter / Skip / Limit (P1.3 dual-path).
+      "MATCH (n:N) WHERE n.id >= 2 RETURN n.id AS id ORDER BY id",
+      "MATCH (n:N) WHERE n.id = 2 OR n.id = 3 RETURN n.id AS id ORDER BY id SKIP 1 LIMIT 1",
+      // ConstructNamedPath (P1.3 dual-path).
+      "MATCH p = (a:N {id: 1})-[:E]->(b:N) RETURN size(relationships(p)) AS hops ORDER BY hops",
+      // EvaluatePatternFilter / EXISTS (P1.3 dual-path synchronous island).
+      "MATCH (n:N) WHERE exists((n)-[:E]->(:N)) RETURN n.id AS id ORDER BY id",
   };
   for (const auto &q : corpus) {
     ExpectParity(q);
