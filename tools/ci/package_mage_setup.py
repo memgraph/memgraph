@@ -90,7 +90,6 @@ class PackageMageSetup:
             "package_mage": "default",
             "generate_sbom": "false",
             "ref": "",
-            "os": "ubuntu-24.04",
         }
         if f"CI -package=mage-{package}" in pr_labels:
             print(f'Found label for "{package}"')
