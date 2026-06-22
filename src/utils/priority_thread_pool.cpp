@@ -134,6 +134,11 @@ PriorityThreadPool::PriorityThreadPool(uint16_t work_threads_count, ThreadInitCa
     pool_.emplace_back([this, i, &barrier, thread_init_callback]() {
       // Divide work by each thread
       workers_[i] = std::make_unique<Worker>();
+      // Publish worker_id_ / yield_registry_ BEFORE the barrier: push() (called from the main thread
+      // right after the ctor returns, once the barrier releases) reads them, so the barrier must provide
+      // the happens-before edge. Setting them inside operator() (after the barrier) is a data race.
+      workers_[i]->worker_id_ = static_cast<uint16_t>(i);
+      workers_[i]->yield_registry_ = yield_registry_;
       barrier.arrive_and_wait();
       // Call user-defined thread initialization callback (e.g., to register with Python interpreter)
       if (thread_init_callback) {
@@ -410,8 +415,9 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
                                             HotMask &hot_threads, WorkerYieldRegistry *yield_registry) {
   utils::ThreadSetName("worker");
 
-  yield_registry_ = yield_registry;
-  worker_id_ = worker_id;
+  // worker_id_ / yield_registry_ are already published by the ctor before the start barrier (so cross-
+  // thread push() reads are happens-before ordered); do NOT re-assign them here (that write would race
+  // a concurrent push()). Use the by-value params below.
   if (yield_registry) {
     DMG_ASSERT(worker_id < yield_registry->MaxWorkers(),
                "worker_id {} out of range (max {})",
@@ -570,17 +576,10 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
     }};
     const auto initial_state = state->load(std::memory_order_acquire);
     spdlog::trace("WrapTask[{}]: starting with state={}", index, static_cast<int>(initial_state));
-#ifndef NDEBUG
-
-    DMG_ASSERT(initial_state == Task::State::IDLE || initial_state == Task::State::SCHEDULED ||
-                   initial_state == Task::State::PARKED,
-               "WrapTask[{}] started with invalid initial state {} (expected IDLE/SCHEDULED/PARKED)",
-               index,
-               static_cast<uint8_t>(initial_state));
-    DMG_ASSERT(initial_state != Task::State::FINISHED,
-               "WrapTask[{}] invoked on already-FINISHED task - this indicates a stale queued resume closure",
-               index);
-#endif
+    // NOTE: every Task::State is a valid entry state and is handled below — IDLE (run), SCHEDULED/PARKED
+    // (resume), STOLEN (claimed by WaitOrSteal -> skip), FINISHED (stale queued closure -> skip). Do NOT
+    // assert a subset here: a stolen (STOLEN) or already-finished (FINISHED) closure reaching this point
+    // is expected, and the CAS-and-skip below is the real guard.
 
     auto expected = Task::State::IDLE;
     if (!state->compare_exchange_strong(expected, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
@@ -825,7 +824,10 @@ bool TaskCollection::RegisterProgressWaiter(TaskSignature resume_task, PriorityT
   if (progress_epoch_ != observed_epoch || Finished()) {
     return false;  // lost-wakeup guard: progress already happened, caller must not suspend
   }
-  DMG_ASSERT(!progress_waiter_task_, "Only one progress waiter can be registered at a time");
+  // MG_ASSERT (not DMG_): the single-waiter invariant is load-bearing — it is what makes the
+  // generation-counter unnecessary (one resume closure per park). A release-build double-registration
+  // would silently drop the first waiter's closure, leaving its task PARKED forever (Wait() timeout).
+  MG_ASSERT(!progress_waiter_task_, "Only one progress waiter can be registered at a time");
   // RELEASE: Finished()/HasNonTerminalTasks()/AllTerminal() read task_state OUTSIDE this mutex with
   // acquire, so a parked task must be visible to them as PARKED (matches RegisterTaskWaiter / :854).
   if (task_state) {
@@ -854,9 +856,11 @@ void TaskCollection::NotifyProgress() {
   if (!waiter_task) return;
   // The closure IS the WrapTask re-entry: RescheduleTaskOnWorker enqueues it pinned, and WrapTask's
   // PARKED->SCHEDULED CAS is the double-resume + UAF guard (a FINISHED/aborted task fails the CAS and
-  // is never touched). NO raw handle.resume() anywhere. (No generation guard needed: ResumableWrapper::
-  // Run never reschedules a parked task, so no stale WrapTask closure can race this one; the CAS is the
-  // backstop. A future change that reschedules a parked task would need a per-park generation guard.)
+  // is never touched). This NotifyProgress path does NO raw handle.resume() — it dispatches via the
+  // task-closure (unlike WorkerResumeEvent::NotifyAll's raw-handle overload, which is a separate,
+  // currently-unused API path). (No generation guard needed: ResumableWrapper::Run never reschedules a
+  // parked task, so no stale WrapTask closure can race this one; the CAS is the backstop. A future
+  // change that reschedules a parked task would need a per-park generation guard.)
   if (waiter_pool && waiter_worker_id) {
     waiter_pool->RescheduleTaskOnWorker(*waiter_worker_id, std::move(waiter_task));
   } else {
