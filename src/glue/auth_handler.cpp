@@ -34,7 +34,9 @@
 #include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
 
+#ifdef MG_ENTERPRISE
 namespace r = std::ranges;
+#endif
 
 namespace {
 
