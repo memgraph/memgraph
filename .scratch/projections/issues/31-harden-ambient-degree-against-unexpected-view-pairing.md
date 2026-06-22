@@ -1,6 +1,25 @@
 # Harden ambient degree against an unexpected (view, element) pairing
 
-Status: not started
+Status: done
+
+## Resolution
+
+Both pairings are reachable through valid Cypher, so neither becomes an
+assertion (a `DMG_ASSERT` would crash a valid query). The expand-path assertion
+holds only for *scanned* nodes; `degree` also accepts nodes from expressions,
+which is a wider input space.
+
+- A virtual node with no `VirtualGraphView` bound is reachable as a literal
+  `virtualNode()` outside any `USE` scope (`RETURN degree(virtualNode(...))`). A
+  node built by `virtualNode()` carries no edges, so `{0, 0}` is correct. Kept,
+  with a regression test.
+- A real vertex under a bound `VirtualGraphView` is reachable by importing the
+  vertex into a projection scope (`MATCH (r) ... CALL (r) { USE g RETURN
+  degree(r) }`). It returned the vertex's real-graph degree, leaking real
+  topology into a projection scope. A real vertex is not a node of a projection,
+  so its ambient degree is now `{0, 0}`, consistent with the subgraph branch
+  where a non-member contributes no member edges. This was a wrong-but-quiet
+  result and is now fixed.
 
 ## Parent
 
@@ -29,10 +48,13 @@ subgraph or identity view. The deliverable is to settle that, not to assume it.
 
 ## Acceptance criteria
 
-- [ ] Each silent branch is shown to be unreachable and converted to an
-      assertion matching the expand path, or a query that reaches it is found and
-      the wrong-degree result is fixed.
-- [ ] If assertions are added, existing `USE`-scope degree tests stay green.
+- [x] Both branches were shown reachable, so neither is asserted. The
+      VirtualNode-without-projection branch is correct (`{0, 0}` for a literal
+      virtual node) and kept; the real-vertex-under-projection branch returned a
+      wrong real-graph degree and is fixed to `{0, 0}`. Covered by
+      `DegreeOverLiteralVirtualNodeIsZero` and
+      `DegreeOverRealVertexImportedIntoProjectionScopeIsZero`.
+- [x] Existing `USE`-scope degree tests stay green.
 
 ## Blocked by
 

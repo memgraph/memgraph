@@ -601,7 +601,8 @@ std::pair<int64_t, int64_t> AmbientInOutDegree(const TypedValue &arg, const Func
       return {static_cast<int64_t>(projection->InEdges(gid).size()),
               static_cast<int64_t>(projection->OutEdges(gid).size())};
     }
-    // A projection node with no projection bound has no ambient topology.
+    // A virtual node outside a projection scope (a literal virtualNode(), no
+    // VirtualGraphView bound) has no ambient topology.
     return {0, 0};
   }
   const auto &vertex = arg.ValueVertex();
@@ -615,6 +616,13 @@ std::pair<int64_t, int64_t> AmbientInOutDegree(const TypedValue &arg, const Func
       return count;
     };
     return {count_members(vertex.InEdges(ctx.view)), count_members(vertex.OutEdges(ctx.view))};
+  }
+  if (dynamic_cast<VirtualGraphView *>(ctx.graph_view) != nullptr) {
+    // A real vertex is not a node of a projection, so it has no edges in the
+    // ambient projection graph. Reached when a real vertex is imported into a
+    // CALL { USE <projection> ... } scope; the scope must not report the
+    // vertex's real-graph degree.
+    return {0, 0};
   }
   return {static_cast<int64_t>(UnwrapDegreeResult(vertex.InDegree(ctx.view))),
           static_cast<int64_t>(UnwrapDegreeResult(vertex.OutDegree(ctx.view)))};

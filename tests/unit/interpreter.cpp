@@ -694,6 +694,39 @@ TYPED_TEST(InterpreterTest, CallUseScopeReadsVirtualEdgeProperty) {
   EXPECT_EQ(stream.GetResults()[0][2].type(), memgraph::communication::bolt::Value::Type::Null);
 }
 
+// degree over a literal virtual node outside any USE scope counts its ambient
+// topology, which is none: a node built by virtualNode() carries no edges, so
+// every degree is zero.
+TYPED_TEST(InterpreterTest, DegreeOverLiteralVirtualNodeIsZero) {
+  auto stream = this->Interpret(
+      "RETURN degree(virtualNode(1, 'N', {})) AS d, inDegree(virtualNode(2, 'N', {})) AS ind, "
+      "outDegree(virtualNode(3, 'N', {})) AS od");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 0);
+  EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 0);
+}
+
+// A real vertex imported into a USE scope over a projection is not a node of
+// that projection, so its degree in the ambient graph is zero. The scope must
+// not leak the vertex's real-graph degree.
+TYPED_TEST(InterpreterTest, DegreeOverRealVertexImportedIntoProjectionScopeIsZero) {
+  this->Interpret("CREATE (a:N {id: 1})-[:R]->(:N {id: 2}), (a)-[:R]->(:N {id: 3})");
+  auto stream = this->Interpret(
+      "MATCH (r:N {id: 1}) WITH r, virtualGraph([virtualNode(1, 'N', {})], []) AS g "
+      "CALL (r) { USE g RETURN degree(r) AS d, inDegree(r) AS ind, outDegree(r) AS od } "
+      "RETURN d, ind, od");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 0);
+  EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 0);
+
+  // Outside the projection scope the same vertex has real-graph out-degree 2.
+  auto real = this->Interpret("MATCH (r:N {id: 1}) RETURN outDegree(r) AS od");
+  ASSERT_EQ(real.GetResults().size(), 1U);
+  EXPECT_EQ(real.GetResults()[0][0].ValueInt(), 2);
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);
