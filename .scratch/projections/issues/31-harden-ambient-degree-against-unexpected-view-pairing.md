@@ -21,6 +21,11 @@ which is a wider input space.
   where a non-member contributes no member edges. This was a wrong-but-quiet
   result and is now fixed.
 
+Expansion was made consistent with this: a real vertex in a projection scope no
+longer expands its real-graph edges (it is not a projection node, so it has no
+edges in the ambient projection). Without this, `degree(r)` reported zero while
+`MATCH (r)-->(x)` still traversed the real graph in the same scope.
+
 ## Parent
 
 `.scratch/projections/PRD.md` (ADR 0005)

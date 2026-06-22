@@ -298,6 +298,66 @@ TEST_F(VirtualGraphViewTest, ScanFiltersOverlayWhoseOriginIsDenied) {
 }
 #endif
 
+#ifdef MG_ENTERPRISE
+// An overlay node reached by edge expansion (not by a scan) is also subject to
+// its origin's fine-grained visibility: expanding to an overlay over a denied
+// origin drops the edge, so a denied origin cannot be read through an expansion
+// any more than through a scan.
+TEST_F(VirtualGraphViewTest, ExpandToOverlayWhoseOriginIsDeniedIsFiltered) {
+  memgraph::license::global_license_checker.EnableTesting();
+
+  auto wacc = storage_->Access(storage::StorageAccessType::WRITE);
+  DbAccessor dba{wacc.get()};
+  auto secret_origin = dba.InsertVertex();
+  ASSERT_TRUE(secret_origin.AddLabel(dba.NameToLabel("Secret")).has_value());
+  dba.AdvanceCommand();
+
+  // A synthetic source node with an out-edge to an overlay node over the denied
+  // origin.
+  std::vector<VirtualNode> nodes;
+  nodes.push_back(HandledNode(1, {"Src"}));
+  nodes.emplace_back(
+      VirtualNode::label_list{}, VirtualNode::property_map{}, VirtualNode::allocator_type{}, secret_origin);
+  nodes.back().SetHandle(2);
+  const auto denied_gid = nodes.back().Gid();
+  std::vector<VirtualEdge> edges;
+  edges.emplace_back(int64_t{1}, int64_t{2}, "R");
+  auto graph = AssembleVirtualGraph(nodes, edges, DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());
+  VirtualGraphView view{&graph, &dba};
+
+  memgraph::auth::User user{"test"};
+  user.db_access().GrantAll();
+  user.fine_grained_access_handler().label_permissions().Deny({"Secret"}, memgraph::auth::kAllLabelPermissions);
+  std::shared_ptr<FineGrainedAuthChecker> checker =
+      std::make_shared<memgraph::glue::FineGrainedAuthChecker>(user, &dba);
+
+  SymbolTable symbol_table;
+  auto src = symbol_table.CreateSymbol("a", true);
+  auto dst = symbol_table.CreateSymbol("m", true);
+  auto edge = symbol_table.CreateSymbol("e", true);
+  auto scan = std::make_shared<plan::ScanAll>(nullptr, src, View::NEW);
+  auto expand = std::make_shared<plan::Expand>(
+      scan, src, dst, edge, EdgeAtom::Direction::OUT, std::vector<storage::EdgeTypeId>{}, false, View::NEW);
+
+  memgraph::metrics::DatabaseMetricHandles metric_handles;
+  ExecutionContext context{.db_accessor = &dba};
+  context.evaluation_context.graph_view = &view;
+  context.symbol_table = symbol_table;
+  context.evaluation_context.memory = memgraph::utils::NewDeleteResource();
+  context.metric_handles = &metric_handles;
+  context.auth_checker = checker;
+
+  Frame frame(symbol_table.max_position());
+  auto cursor = expand->MakeCursor(memgraph::utils::NewDeleteResource(), metric_handles);
+  std::set<Gid> reached;
+  while (cursor->Pull(frame, context)) reached.insert(frame[dst].ValueVirtualNode().Gid());
+
+  // The overlay over the denied origin is not reachable; the edge to it is
+  // dropped exactly as the scan would drop the node.
+  EXPECT_EQ(reached.count(denied_gid), 0U);
+}
+#endif
+
 // Names resolve through the view to the same ids the shared accessor uses.
 TEST_F(VirtualGraphViewTest, NameMappingSharesTheRealNamespace) {
   auto graph = AssembleVirtualGraph({}, {}, DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());

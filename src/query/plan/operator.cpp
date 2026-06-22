@@ -865,19 +865,23 @@ bool ScannedVertexVisible(FineGrainedAuthChecker &checker, const VertexAccessor 
   return checker.Has(vertex, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
 }
 
-bool ScannedVertexVisible(FineGrainedAuthChecker &checker, const ScanVertex &vertex, storage::View view) {
-  if (const auto *real = std::get_if<VertexAccessor>(&vertex)) {
-    return checker.Has(*real, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
-  }
-  // An overlay node reads through to a real origin vertex, so it gets the same
-  // label-based visibility decision a direct read of the origin would: it is
-  // visible only if the origin is. A synthetic node has no origin and no
-  // real-graph privileges, so it is always visible.
-  const auto &vnode = std::get<VirtualNode>(vertex);
+// An overlay node reads through to a real origin vertex, so it gets the same
+// label-based visibility decision a direct read of the origin would: it is
+// visible only if the origin is. A synthetic node has no origin and no
+// real-graph privileges, so it is always visible. A projection node surfaces
+// through both the scan and the expand paths, so both gate on this.
+bool OverlayNodeVisible(FineGrainedAuthChecker &checker, const VirtualNode &vnode, storage::View view) {
   if (const auto &origin = vnode.Origin()) {
     return checker.Has(*origin, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
   }
   return true;
+}
+
+bool ScannedVertexVisible(FineGrainedAuthChecker &checker, const ScanVertex &vertex, storage::View view) {
+  if (const auto *real = std::get_if<VertexAccessor>(&vertex)) {
+    return checker.Has(*real, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+  }
+  return OverlayNodeVisible(checker, std::get<VirtualNode>(vertex), view);
 }
 #endif
 }  // namespace
@@ -1928,6 +1932,12 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       const VirtualEdge *edge = *(*in_vedges_it_)++;
       const VirtualNode &other = edge->From();
       if (!VirtualEdgeMatches(*edge, other)) continue;
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !OverlayNodeVisible(*context.auth_checker, other, self_.view_)) {
+        continue;
+      }
+#endif
       frame_writer.Write(self_.common_.edge_symbol, *edge);
       if (!self_.common_.existing_node) frame_writer.Write(self_.common_.node_symbol, other);
       return true;
@@ -1939,6 +1949,12 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge->FromGid() == edge->ToGid()) continue;
       const VirtualNode &other = edge->To();
       if (!VirtualEdgeMatches(*edge, other)) continue;
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !OverlayNodeVisible(*context.auth_checker, other, self_.view_)) {
+        continue;
+      }
+#endif
       frame_writer.Write(self_.common_.edge_symbol, *edge);
       if (!self_.common_.existing_node) frame_writer.Write(self_.common_.node_symbol, other);
       return true;
@@ -2072,6 +2088,14 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
     const TypedValue &input_value = frame[self_.input_symbol_];
     if (input_value.IsVirtualNode()) {
       if (InitVirtualEdges(frame, context, input_value.ValueVirtualNode())) return true;
+      continue;
+    }
+
+    // A real vertex is not a node of a projection, so inside a projection scope
+    // it has no edges in the ambient graph: its real-graph edges are not part of
+    // the projection and are not expanded. This keeps expansion consistent with
+    // degree(), which reports zero for the same pairing.
+    if (dynamic_cast<VirtualGraphView *>(context.evaluation_context.graph_view) != nullptr) {
       continue;
     }
 

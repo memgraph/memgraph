@@ -727,6 +727,20 @@ TYPED_TEST(InterpreterTest, DegreeOverRealVertexImportedIntoProjectionScopeIsZer
   EXPECT_EQ(real.GetResults()[0][0].ValueInt(), 2);
 }
 
+// Expansion from a real vertex imported into a USE scope over a projection
+// yields nothing: the vertex is not a node of the projection, so it has no edges
+// in the ambient graph, consistent with its zero degree. The real graph's
+// neighbours are not leaked into the scope.
+TYPED_TEST(InterpreterTest, ExpandFromRealVertexImportedIntoProjectionScopeYieldsNothing) {
+  this->Interpret("CREATE (a:N {id: 1})-[:R]->(:N {id: 2}), (a)-[:R]->(:N {id: 3})");
+  auto stream = this->Interpret(
+      "MATCH (r:N {id: 1}) WITH r, virtualGraph([virtualNode(1, 'N', {})], []) AS g "
+      "CALL (r) { USE g MATCH (r)-[e]->(x) RETURN x } "
+      "RETURN count(*) AS c");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);

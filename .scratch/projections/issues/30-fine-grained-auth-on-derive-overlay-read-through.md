@@ -21,6 +21,12 @@ as its origin vertex; a synthetic node (no origin, no real-graph data) stays
 always-visible. A scanned overlay over a denied origin is filtered exactly as
 the origin would be.
 
+An overlay also surfaces through edge expansion, not only a scan. The
+virtual-edge expansion arms now apply the same overlay-origin visibility check
+(shared with the scan via `OverlayNodeVisible`), so an overlay over a denied
+origin reached as an expansion endpoint is dropped just as the scan drops it.
+Guarding the scan alone left the expansion path open.
+
 ## Parent
 
 `.scratch/projections/PRD.md` (ADR 0005)
