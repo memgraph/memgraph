@@ -481,7 +481,7 @@ struct PlanCreationHelper {
       context.is_profile_query ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), ref, &context) \
                                : std::nullopt;
 
-bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
+bool Once::OnceCursor::PullLegacy(Frame &, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Once");
 
@@ -492,6 +492,28 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
     return true;
   }
   return false;
+}
+
+PullAwaitable Once::OnceCursor::DoPull(Frame &, ExecutionContext &context) {
+  // FIDELITY: each while-iteration reproduces exactly one master Once::Pull(). The inner scope
+  // closes before co_yield/co_return, so oom_exception + profile are destroyed at the same point
+  // master's `return` would destroy them.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("Once");
+
+      AbortCheck(context);
+
+      if (!did_pull_) {
+        did_pull_ = true;
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
 }
 
 UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles) const {
@@ -510,7 +532,10 @@ std::unique_ptr<LogicalOperator> Once::Clone(AstStorage *storage) const {
 
 void Once::OnceCursor::Shutdown() {}
 
-void Once::OnceCursor::Reset() { did_pull_ = false; }
+void Once::OnceCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
+  did_pull_ = false;
+}
 
 CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeCreationInfo node_info)
     : input_(input ? input : std::make_shared<Once>()), node_info_(std::move(node_info)) {}
