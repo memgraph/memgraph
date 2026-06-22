@@ -844,6 +844,10 @@ int main(int argc, char **argv) {
 
   // Global worker pool!
   // Used by sessions to schedule tasks.
+  // Registry must be declared (and thus destroyed) AFTER the pool so that its lifetime
+  // covers all worker threads.  Declaration order here: registry first → pool second;
+  // destruction order (reverse): pool first → registry second. Correct.
+  std::optional<memgraph::utils::WorkerYieldRegistry> worker_yield_registry_;
   std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
   unsigned io_n_threads = FLAGS_bolt_num_workers;
 
@@ -854,11 +858,12 @@ int main(int argc, char **argv) {
     // procedures during parallel execution.
     // NOTE: We should also register cleanup, but since threads exist until the end of the program,
     //       everyhting will be cleaned up anyway at program exit.
-
-    worker_pool_.emplace(/* low priority */
-                         static_cast<uint16_t>(FLAGS_bolt_num_workers),
-                         /* high priority */ 1U,
-                         is_coordinator_instance ? []() {} : []() { memgraph::query::procedure::RegisterPyThread(); });
+    const auto num_workers = static_cast<uint16_t>(FLAGS_bolt_num_workers);
+    worker_yield_registry_.emplace(num_workers);
+    worker_pool_.emplace(
+        num_workers,
+        is_coordinator_instance ? []() {} : []() { memgraph::query::procedure::RegisterPyThread(); },
+        &*worker_yield_registry_);
     io_n_threads = 1U;
   }
 

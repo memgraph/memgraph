@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <coroutine>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -23,8 +24,13 @@
 #include "utils/logging.hpp"
 #include "utils/priorities.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/worker_yield_signal.hpp"
 
 namespace memgraph::utils {
+class PriorityThreadPool;
+class WorkerResumeEvent;
+class TaskCollection;  // Forward declaration
+
 // Thread-safe mask that returns the position of first set bit
 class HotMask {
  public:
@@ -71,22 +77,44 @@ class HotMask {
   const uint16_t n_groups_;
 };
 
-using TaskSignature = std::move_only_function<void(utils::Priority)>;
+using TaskSignature = std::move_only_function<void()>;
 
-// Collection of tasks that can be executed by the thread pool
-// The idea is to batch tasks and have the ability to wait on them
+// Resumable task: returns true if it yielded and wants to be rescheduled on the
+// same worker, false if it completed.
+using ResumableTaskSignature = std::move_only_function<bool()>;
+
+class TaskCollection;
+
 // Also execute non scheduler tasks in the local thread
 class TaskCollection {
  public:
   explicit TaskCollection(size_t num_tasks) { tasks_.reserve(num_tasks); }
 
   TaskCollection() = default;
+  TaskCollection(const TaskCollection &) = delete;
+  TaskCollection &operator=(const TaskCollection &) = delete;
 
-  void AddTask(TaskSignature task) { tasks_.emplace_back(std::move(task)); }
+  TaskCollection(TaskCollection &&other) noexcept {
+    auto tasks_guard = std::lock_guard{other.tasks_mutex_};
+    auto progress_guard = std::lock_guard{other.progress_mutex_};
+    tasks_ = std::move(other.tasks_);
+    progress_epoch_ = other.progress_epoch_;
+  }
+
+  TaskCollection &operator=(TaskCollection &&) = delete;
+
+  void AddTask(TaskSignature task) {
+    tasks_.emplace_back([t = std::move(task)]() mutable {
+      t();
+      return false;
+    });
+  }
+
+  void AddResumableTask(ResumableTaskSignature task) { tasks_.emplace_back(std::move(task)); }
 
   class Task {
    public:
-    explicit Task(TaskSignature task)
+    explicit Task(ResumableTaskSignature task)
         : state_(std::make_shared<std::atomic<State>>(State::IDLE)), task_(std::move(task)) {}
 
     ~Task() = default;
@@ -97,25 +125,137 @@ class TaskCollection {
 
     enum class State : uint8_t {
       IDLE,
-      SCHEDULED,
+      SCHEDULED,  // Claimed by pool's WrapTask closure; also "suspended between yield-resume cycles"
+      PARKED,     // Suspended on external progress; an event will requeue the task
+      STOLEN,     // Claimed by WaitOrSteal for direct execution on the calling thread
       FINISHED,
     };
+
+    /// Returns true if this state represents terminal completion (no more execution possible).
+    bool IsTerminal() const { return state_->load(std::memory_order_acquire) == State::FINISHED; }
+
+    /// Returns true if this task could potentially run later (not terminal and not actively running).
+    bool CanRunLater() const {
+      const auto s = state_->load(std::memory_order_acquire);
+      return s == State::IDLE || s == State::SCHEDULED || s == State::PARKED || s == State::STOLEN;
+    }
+
     std::shared_ptr<std::atomic<State>> state_;
-    TaskSignature task_;
+    ResumableTaskSignature task_;
   };
 
   Task &operator[](size_t index) { return tasks_[index]; }
 
-  TaskSignature WrapTask(size_t index);
+  ResumableTaskSignature WrapTask(size_t index, PriorityThreadPool *pool = nullptr);
 
-  void Wait();
+  // Wait for all tasks to finish with optional timeout (default 30s).
+  // Returns true if all tasks finished, false if timeout occurred.
+  bool Wait(std::chrono::milliseconds timeout = std::chrono::milliseconds(30000));
 
-  void WaitOrSteal();
+  // Wait for tasks with stealing, returns true if all finished, false on timeout
+  bool WaitOrSteal(std::chrono::milliseconds timeout = std::chrono::milliseconds(30000));
+
+  /// Try to steal and run a single IDLE task on the calling thread.
+  /// Returns true if a task was claimed and executed, false otherwise.
+  /// This is intended for cooperative polling loops that want to make local
+  /// progress without blocking the current thread.
+  /// If a pool is provided and the task yields, it will be rescheduled on the pool.
+  /// If no pool is provided and the task yields, a runtime error is thrown.
+  bool TryExecuteOneIdleTask(PriorityThreadPool *pool = nullptr);
+
+  /// Wait for any task in the collection to report progress (finish or yield),
+  /// or until the timeout expires. Returns true if progress was observed.
+  bool WaitForProgress(std::chrono::milliseconds timeout);
+
+  uint64_t ProgressEpoch() const;
+
+  bool Finished() const;
+
+  /// Returns true only when ALL tasks are in FINISHED state.
+  /// This is the proper join predicate - no task can run later.
+  bool AllTerminal() const;
+
+  /// Returns true if any task could potentially run later (not terminal).
+  bool HasNonTerminalTasks() const;
 
   size_t Size() const { return tasks_.size(); }
 
+#ifdef NDEBUG
+  /// Debug-only: verify task state invariants (no-op in release).
+  void DbgVerifyState() const {}
+#else
+  /// Debug-only: verify that task state transitions are valid.
+  void DbgVerifyState() const;
+#endif
+
  private:
+  bool RegisterProgressWaiter(std::coroutine_handle<> handle, PriorityThreadPool *pool, uint16_t worker_id,
+                              uint64_t observed_epoch);
+  void NotifyProgress();
+
   std::vector<Task> tasks_;
+  mutable std::mutex tasks_mutex_;  // Protects tasks_ during concurrent steal/schedule operations
+  mutable std::mutex progress_mutex_;
+  std::condition_variable progress_cv_;
+  uint64_t progress_epoch_{0};
+  std::coroutine_handle<> progress_waiter_{};
+  PriorityThreadPool *progress_waiter_pool_{nullptr};
+  std::optional<uint16_t> progress_waiter_worker_id_;
+
+  friend class CollectionScheduler;
+};
+
+class WorkerResumeEvent {
+ public:
+  WorkerResumeEvent() = default;
+  WorkerResumeEvent(const WorkerResumeEvent &) = delete;
+  WorkerResumeEvent &operator=(const WorkerResumeEvent &) = delete;
+  WorkerResumeEvent(WorkerResumeEvent &&) = delete;
+  WorkerResumeEvent &operator=(WorkerResumeEvent &&) = delete;
+
+  uint64_t Epoch() const;
+
+  bool RegisterWaiter(std::coroutine_handle<> handle, PriorityThreadPool *pool, std::optional<uint16_t> worker_id,
+                      uint64_t observed_epoch);
+
+  bool RegisterTaskWaiter(TaskSignature task, PriorityThreadPool *pool, std::optional<uint16_t> worker_id,
+                          uint64_t observed_epoch,
+                          std::shared_ptr<std::atomic<TaskCollection::Task::State>> task_state = nullptr);
+
+  // Remove a waiter that was previously registered but should not be notified.
+  // Used when a task decides not to suspend after successfully registering.
+  // Returns true if the waiter was found and removed, false otherwise.
+  bool RemoveWaiter(std::coroutine_handle<> handle, uint64_t observed_epoch,
+                    std::shared_ptr<std::atomic<TaskCollection::Task::State>> task_state = nullptr);
+
+  void NotifyAll();
+
+ private:
+  struct Waiter {
+    std::coroutine_handle<> handle;
+    TaskSignature task;
+    PriorityThreadPool *pool;
+    std::optional<uint16_t> worker_id;
+    // Only set for task-based waiters (registered via RegisterTaskWaiter).
+    // Used by RemoveWaiter to match when handle is null.
+    std::shared_ptr<std::atomic<TaskCollection::Task::State>> task_state;
+  };
+
+  mutable std::mutex mutex_;
+  uint64_t epoch_{0};
+  std::vector<Waiter> waiters_;
+};
+
+/// Thread-local access to the currently running resumable task.
+/// Allows generic external-progress awaiters to self-park the task and arrange
+/// for it to be resumed later by a WorkerResumeEvent.
+class CurrentResumableTask {
+ public:
+  static bool RegisterWaiter(WorkerResumeEvent &event, uint64_t observed_epoch);
+  static std::shared_ptr<std::atomic<TaskCollection::Task::State>> GetCurrentTaskState();
+  // Clears the TLS parked flag without reading it.  Call this in a shutdown-race
+  // path where RegisterWaiter returned true but the task will NOT actually suspend.
+  static void ClearParked();
 };
 
 class PriorityThreadPool {
@@ -123,8 +263,8 @@ class PriorityThreadPool {
   using TaskID = uint64_t;
   using ThreadInitCallback = std::function<void()>;
 
-  PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
-                     ThreadInitCallback thread_init_callback = nullptr);
+  PriorityThreadPool(uint16_t work_threads_count, ThreadInitCallback thread_init_callback = nullptr,
+                     WorkerYieldRegistry *yield_registry = nullptr);
 
   ~PriorityThreadPool();
 
@@ -139,9 +279,21 @@ class PriorityThreadPool {
 
   void ScheduledAddTask(TaskSignature new_task, Priority priority);
 
+  // Schedule a resumable task. The task returns true if it yielded and wants to
+  // be rescheduled on the same worker, false when it is done. The pool handles
+  // all yield detection and worker-pinned rescheduling internally.
+  void ScheduleResumableTask(ResumableTaskSignature task, Priority priority);
+
+  /**
+   * Schedules a task on a specific worker. Use when the task must run on that
+   * worker (e.g. continuation after yield, to respect thread-local state).
+   * worker_id must be in [0, GetNumMixedWorkers()).
+   */
+  void RescheduleTaskOnWorker(uint16_t worker_id, TaskSignature new_task);
+
   void ScheduledCollection(TaskCollection &collection) {
     for (size_t i = 0; i < collection.Size(); ++i) {
-      ScheduledAddTask(collection.WrapTask(i), Priority::LOW);
+      ScheduleResumableTask(collection.WrapTask(i, this), Priority::LOW);
     }
   }
 
@@ -150,6 +302,10 @@ class PriorityThreadPool {
   uint64_t GetNumHighPriorityWorkers() const { return hp_workers_.size(); }
 
   uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
+
+  /// Returns true if the pool is shutting down (stop has been requested).
+  /// Used by ResumableWrapper to detect shutdown and handle yields inline.
+  bool IsShuttingDown() const { return pool_stop_source_.stop_requested(); }
 
   // Single worker implementation
   class Worker {
@@ -165,21 +321,24 @@ class PriorityThreadPool {
     struct Work {
       TaskID id;                   // ID used to order (issued by the pool)
       mutable TaskSignature work;  // mutable so it can be moved from the queue
+      bool pinned{false};          // if true, task must run on this worker (not stealable)
 
       bool operator<(const Work &other) const { return id < other.id; }
     };
 
-    void push(TaskSignature new_task, TaskID id);
+    void push(TaskSignature new_task, TaskID id, bool pinned = false);
 
     void stop();
 
     template <Priority ThreadPriority>
-    void operator()(uint16_t worker_id, const std::vector<std::unique_ptr<Worker>> &workers_pool, HotMask &hot_threads);
+    void operator()(uint16_t worker_id, const std::vector<std::unique_ptr<Worker>> &workers_pool, HotMask &hot_threads,
+                    WorkerYieldRegistry *yield_registry);
 
    private:
     mutable std::mutex mtx_;
     std::condition_variable cv_;
-    std::priority_queue<Work> work_;
+    std::priority_queue<Work> work_;         // Stealable work
+    std::priority_queue<Work> work_pinned_;  // Pinned to this worker (never stolen)
 
     // Stats
     std::atomic_bool has_pending_work_{false};
@@ -187,6 +346,10 @@ class PriorityThreadPool {
     std::atomic_bool run_{true};
     // Used by monitor to decide if worker is blocked
     std::atomic<TaskID> last_task_{0};
+
+    // Set by operator() for LP workers; used in push() to request yield when adding HP task to busy worker
+    WorkerYieldRegistry *yield_registry_{nullptr};
+    uint16_t worker_id_{0};
 
     friend class PriorityThreadPool;
   };
@@ -202,12 +365,35 @@ class PriorityThreadPool {
   std::vector<std::jthread> pool_;  // All available threads (list so the elements are stable)
   utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging
 
-  std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
-  std::atomic<uint16_t> last_wid_;  // Used to pick next worker
+  std::atomic<TaskID> task_id_;  // Generates a unique tasks id | MSB signals high priority
+
+  WorkerYieldRegistry *yield_registry_{nullptr};
 };
 
 class CollectionScheduler {
  public:
+  class ProgressAwaitable {
+   public:
+    explicit ProgressAwaitable(CollectionScheduler *scheduler)
+        : scheduler_(scheduler), observed_epoch_(scheduler ? scheduler->ProgressEpoch() : 0) {}
+
+    bool await_ready() const { return !scheduler_ || scheduler_->Finished(); }
+
+    bool await_suspend(std::coroutine_handle<> handle) const {
+      // No CurrentResumableTaskScope: registering the raw coroutine handle would
+      // create a double-resume race. NotifyProgress() may resume via RescheduleTaskOnWorker
+      // while another path (e.g., ResumableWrapper::Run) could also try to resume.
+      // Fall through to busy-spin: await_ready() will re-check on next iteration.
+      return false;
+    }
+
+    void await_resume() const {}
+
+   private:
+    CollectionScheduler *scheduler_{nullptr};
+    uint64_t observed_epoch_{0};
+  };
+
   CollectionScheduler(PriorityThreadPool *pool, std::shared_ptr<TaskCollection> collection)
       : pool_{pool}, collection_{std::move(collection)} {}
 
@@ -225,7 +411,40 @@ class CollectionScheduler {
     collection_.reset();
   }
 
+  bool TryExecuteOneIdleTask() const { return collection_ && collection_->TryExecuteOneIdleTask(pool_); }
+
+  bool WaitForProgress(std::chrono::milliseconds timeout) const {
+    return collection_ && collection_->WaitForProgress(timeout);
+  }
+
+  auto WaitForProgressAwaitable() { return ProgressAwaitable(this); }
+
+  bool Finished() const {
+    if (collection_) return collection_->Finished();
+    return true;
+  }
+
+  /// Returns true only when ALL tasks are in FINISHED state.
+  bool AllTerminal() const {
+    if (collection_) return collection_->AllTerminal();
+    return true;
+  }
+
+  /// Returns true if any task could potentially run later (not terminal).
+  bool HasNonTerminalTasks() const {
+    if (collection_) return collection_->HasNonTerminalTasks();
+    return false;
+  }
+
+  /// Debug-only state verification (no-op in release).
+  void DbgVerifyState() const {
+    if (collection_) collection_->DbgVerifyState();
+  }
+
  private:
+  bool RegisterProgressWaiter(std::coroutine_handle<> handle, uint64_t observed_epoch) const;
+  uint64_t ProgressEpoch() const;
+
   PriorityThreadPool *pool_;
   std::shared_ptr<TaskCollection> collection_;
 };

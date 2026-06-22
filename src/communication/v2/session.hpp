@@ -388,17 +388,20 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoWork() {
+    // Schedule using the session's approximate query priority so high-priority
+    // tasks are placed ahead of low-priority ones in the shared worker queue.
+    const auto task_priority = session_.ApproximateQueryPriority();
     session_context_->AddTask(
-        [shared_this = shared_from_this()](const auto thread_priority) {
+        [shared_this = shared_from_this()]() {
           try {
             while (true) {
               if (shared_this->session_.Execute()) {
-                // Check if we can just steal this task (loop through)
-                if (thread_priority > shared_this->session_.ApproximateQueryPriority()) {
-                  // Task priority lower; reschedule
-                  shared_this->DoWork();
-                  return;
-                }
+                // Uniform-worker pool: there is no dedicated-HP-worker tier to
+                // hand lower-priority work back to, so master's priority-rebalance
+                // reschedule is gone by design. Priority is instead enforced by
+                // yield-preemption (a worker running low-priority work yields when
+                // a high-priority task arrives); the yield-aware DoWork loop is
+                // wired in Phase 3 (PR3). For now the session runs to completion.
               } else {
                 // Handled all data,  async wait for new incoming data
                 shared_this->DoRead();
@@ -410,7 +413,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                               [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
           }
         },
-        session_.ApproximateQueryPriority());
+        task_priority);
   }
 
   void OnError(const boost::system::error_code &ec) {
