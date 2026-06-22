@@ -2645,7 +2645,9 @@ class Merge : public memgraph::query::plan::LogicalOperator {
   class MergeCursor : public Cursor {
    public:
     MergeCursor(const Merge &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2820,7 +2822,9 @@ class Union : public memgraph::query::plan::LogicalOperator {
   class UnionCursor : public Cursor {
    public:
     UnionCursor(const Union &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 

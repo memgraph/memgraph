@@ -214,6 +214,13 @@ TEST_F(CursorParityTest, Corpus) {
       // MatchMultiPatternWithIndexJoin).
       "MATCH (a:J)-[:JE]->(b:J), (c:J)-[:JE]->(d:J) WHERE c.id = a.id "
       "RETURN a.id AS aid, b.id AS bid, d.id AS did ORDER BY aid, bid, did",
+      // Sub-plan combiners (P1.12 dual-path).
+      // Unwind: literal list + correlated list (one output row per element).
+      "UNWIND [10, 20, 30] AS x RETURN x ORDER BY x",
+      "MATCH (n:N) UNWIND [n.id, n.id * 10] AS v RETURN v ORDER BY v",
+      // Union: DISTINCT concat (dedups) + UNION ALL concat (keeps dups).
+      "RETURN 1 AS x UNION RETURN 2 AS x",
+      "MATCH (n:N) RETURN n.id AS x UNION ALL RETURN 99 AS x",
   };
   for (const auto &q : corpus) {
     ExpectParity(q);
@@ -273,6 +280,13 @@ TEST_F(CursorParityTest, MutationCorpus) {
       // RemoveNestedProperty (P1.10): erase a leaf key from an existing nested map.
       {"CREATE (:Tmp {id: 1, data: {x: 1, y: 2}})",
        "MATCH (n:Tmp) REMOVE n.data.x RETURN n.data.x AS x, n.data.y AS y"},
+      // Merge (P1.12): create branch (no match -> merge_create) returns the created node's id.
+      {"", "MERGE (n:Tmp {id: 1}) RETURN n.id AS id"},
+      // Merge (P1.12): match branch (existing node -> merge_match + ON MATCH SET).
+      {"CREATE (:Tmp {id: 1})", "MERGE (n:Tmp {id: 1}) ON MATCH SET n.matched = true RETURN n.matched AS m"},
+      // Foreach (P1.12): the updates sub-plan runs once per list element; RETURN the observable result.
+      {"CREATE (:Tmp {id: 1})",
+       "MATCH (n:Tmp) FOREACH (x IN [1, 2, 3] | SET n.cnt = coalesce(n.cnt, 0) + x) RETURN n.cnt AS c"},
   };
   for (const auto &c : cases) {
     ExpectMutationParity(c.setup, c.mutation, cleanup);

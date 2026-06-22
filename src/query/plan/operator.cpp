@@ -9970,7 +9970,7 @@ Merge::MergeCursor::MergeCursor(const Merge &self, utils::MemoryResource *mem,
       merge_match_cursor_(self.merge_match_->MakeCursor(mem, metric_handles)),
       merge_create_cursor_(self.merge_create_->MakeCursor(mem, metric_handles)) {}
 
-bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool Merge::MergeCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Merge");
 
@@ -10012,6 +10012,65 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 }
 
+PullAwaitable Merge::MergeCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master Merge::Pull(). oom/profile and the
+  // in_merge scope guard are per-iteration, alive across the co_await PullChild input/match/create
+  // pulls in the inner refill loop (as master holds them across the corresponding ->Pull) but die
+  // before co_yield. One emitted row == one master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("Merge");
+
+      context.evaluation_context.scope.in_merge = true;
+      memgraph::utils::OnScopeExit merge_exit([&] { context.evaluation_context.scope.in_merge = false; });
+
+      while (true) {
+        AbortCheck(context);
+        if (pull_input_) {
+          if (co_await PullChild(*input_cursor_, frame, context)) {
+            // after a successful input from the input
+            // reset merge_match (it's expand iterators maintain state)
+            // and merge_create (could have a Once at the beginning)
+            merge_match_cursor_->Reset();
+            merge_create_cursor_->Reset();
+          } else {
+            // input is exhausted, we're done
+            break;  // produced stays false -> co_return false
+          }
+        }
+
+        // pull from the merge_match cursor
+        if (co_await PullChild(*merge_match_cursor_, frame, context)) {
+          // if successful, next Pull from this should not pull_input_
+          pull_input_ = false;
+          produced = true;
+          break;
+        } else {
+          // failed to Pull from the merge_match cursor
+          if (pull_input_) {
+            // if we have just now pulled from the input
+            // and failed to pull from merge_match, we should create.
+            // Master: `return merge_create_cursor_->Pull(...)`. The create branch (a CREATE pattern
+            // over a Once) ALWAYS yields exactly one row, so produced becomes true and a
+            // create-false terminal co_return is unreachable (inert, same class as PR7d's hops-limit
+            // terminal break). pull_input_ stays true so the next Pull advances to the next input row.
+            produced = co_await PullChild(*merge_create_cursor_, frame, context);
+            break;
+          }
+          // We have exhausted merge_match_cursor_ after 1 or more successful
+          // Pulls. Attempt next input_cursor_ pull
+          pull_input_ = true;
+          continue;
+        }
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void Merge::MergeCursor::Shutdown() {
   input_cursor_->Shutdown();
   merge_match_cursor_->Shutdown();
@@ -10019,6 +10078,7 @@ void Merge::MergeCursor::Shutdown() {
 }
 
 void Merge::MergeCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
   input_cursor_->Reset();
   merge_match_cursor_->Reset();
   merge_create_cursor_->Reset();
@@ -10196,7 +10256,7 @@ class UnwindCursor : public Cursor {
   UnwindCursor(const Unwind &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
       : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), input_value_(mem) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Unwind");
 
@@ -10235,9 +10295,65 @@ class UnwindCursor : public Cursor {
     }
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master Unwind::Pull(). oom/profile/
+    // frame_writer are per-iteration; the inner refill loop pulls input (co_await) when the current
+    // list is exhausted, evaluates the next list, and yields one element. input_value_/input_value_it_
+    // are MEMBERS -> survive co_yield, so successive Pulls walk the same list. One element == one Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP("Unwind");
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        while (true) {
+          AbortCheck(context);
+          // if we reached the end of our list of values
+          // pull from the input
+          if (input_value_it_ == input_value_.end()) {
+            if (!co_await PullChild(*input_cursor_, frame, context)) {
+              break;  // produced stays false -> co_return false
+            }
+
+            // successful pull from input, initialize value and iterator
+            ExpressionEvaluator evaluator(&frame,
+                                          context.symbol_table,
+                                          context.evaluation_context,
+                                          context.db_accessor,
+                                          storage::View::OLD,
+                                          nullptr,
+                                          nullptr,
+                                          context.user_or_role,
+                                          context.triggering_user);
+            TypedValue input_value = self_.input_expression_->Accept(evaluator);
+            if (input_value.type() != TypedValue::Type::List)
+              throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.",
+                                          input_value.type());
+            // Move the evaluted input_value_list to our vector.
+            input_value_ = std::move(input_value.ValueList());
+            input_value_it_ = input_value_.begin();
+          }
+
+          // if we reached the end of our list of values goto back to top
+          if (input_value_it_ == input_value_.end()) continue;
+
+          frame_writer.Write(self_.output_symbol_, std::move(*input_value_it_++));
+          produced = true;
+          break;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     input_value_.clear();
     input_value_it_ = input_value_.end();
@@ -10584,7 +10700,7 @@ Union::UnionCursor::UnionCursor(const Union &self, utils::MemoryResource *mem,
       left_cursor_(self.left_op_->MakeCursor(mem, metric_handles)),
       right_cursor_(self.right_op_->MakeCursor(mem, metric_handles)) {}
 
-bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool Union::UnionCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
@@ -10613,12 +10729,60 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   return true;
 }
 
+PullAwaitable Union::UnionCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master Union::Pull(). oom/profile are
+  // per-iteration. Each Pull emits ONE row: from the left branch until exhausted (is_left_exhausted_
+  // is a MEMBER -> survives co_yield), then from the right branch. The left short-circuit is preserved
+  // by co_awaiting inside the `&&` (PullChild on left only runs while !is_left_exhausted_). One row ==
+  // one master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP_BY_REF(self_);
+
+      AbortCheck(context);
+
+      utils::pmr::unordered_map<std::string, TypedValue> results(context.evaluation_context.memory);
+      bool have_row = false;
+      if (!is_left_exhausted_ && co_await PullChild(*left_cursor_, frame, context)) {
+        // collect values from the left child
+        for (const auto &output_symbol : self_.left_symbols_) {
+          results[output_symbol.name()] = frame[output_symbol];
+        }
+        have_row = true;
+      } else {
+        is_left_exhausted_ = true;
+        if (co_await PullChild(*right_cursor_, frame, context)) {
+          // collect values from the right child
+          for (const auto &output_symbol : self_.right_symbols_) {
+            results[output_symbol.name()] = frame[output_symbol];
+          }
+          have_row = true;
+        }
+      }
+
+      if (have_row) {
+        // put collected values on frame under union symbols
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+        for (const auto &symbol : self_.union_symbols_) {
+          frame_writer.Write(symbol, results[symbol.name()]);
+        }
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void Union::UnionCursor::Shutdown() {
   left_cursor_->Shutdown();
   right_cursor_->Shutdown();
 }
 
 void Union::UnionCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
   left_cursor_->Reset();
   right_cursor_->Reset();
   is_left_exhausted_ = false;
@@ -11733,7 +11897,7 @@ class ForeachCursor : public Cursor {
         updates_(foreach.update_clauses_->MakeCursor(mem, metric_handles)),
         expression(foreach.expression_) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP(op_name_);
 
@@ -11773,11 +11937,65 @@ class ForeachCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master Foreach::Pull(). oom/profile/
+    // evaluator/frame_writer are per-iteration, alive across the co_await PullChild input pull and the
+    // per-element updates drain (as master holds them across input_->Pull / updates_->Pull) but die
+    // before co_yield. One input row (executing FOREACH updates for every list element) == one Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP(op_name_);
+
+        if (co_await PullChild(*input_, frame, context)) {
+          ExpressionEvaluator evaluator(&frame,
+                                        context.symbol_table,
+                                        context.evaluation_context,
+                                        context.db_accessor,
+                                        storage::View::NEW,
+                                        nullptr,
+                                        &context.number_of_hops,
+                                        context.user_or_role,
+                                        context.triggering_user);
+          TypedValue expr_result = expression->Accept(evaluator);
+
+          if (expr_result.IsNull()) {
+            // master: return true (null passthrough, no updates executed)
+            produced = true;
+          } else {
+            if (!expr_result.IsList()) {
+              throw QueryRuntimeException("FOREACH expression must resolve to a list, but got '{}'.",
+                                          expr_result.type());
+            }
+
+            auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+            const auto &cache_ = expr_result.ValueList();
+            for (const auto &index : cache_) {
+              frame_writer.Write(loop_variable_symbol_, index);
+              while (co_await PullChild(*updates_, frame, context)) {
+                AbortCheck(context);
+              }
+              ResetUpdates();
+            }
+
+            produced = true;  // master: return true
+          }
+        }
+        // else: input exhausted -> produced stays false -> co_return false
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_->Shutdown(); }
 
   void ResetUpdates() { updates_->Reset(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_->Reset();
     ResetUpdates();
   }
