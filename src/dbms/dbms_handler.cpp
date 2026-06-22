@@ -1277,12 +1277,21 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
 DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewire_replication,
                                                system::Transaction *txn) {
   // Outer loop: a loser that observes a COLD-fallback (the winner aborted) restarts the whole
-  // attempt from Phase A. Every restart re-initializes gk/entry/won_resume from the map under a
-  // fresh shared lock. All early-exit paths (NON_EXISTENT, already-HOT, timeout, build failure)
-  // are `return`s; only the COLD-fallback path `continue`s.
+  // attempt from Phase A. Every restart re-initializes gk/salient/rel_dir/won_resume from the map
+  // under a fresh shared lock. All early-exit paths (NON_EXISTENT, already-HOT, timeout, build
+  // failure) are `return`s; only the COLD-fallback path `continue`s.
+  // Bound the retry count: a transient single abort retries; a persistent on_resume_ failure is
+  // surfaced as RECOVERY_FAILED instead of looping forever.
+  constexpr int kMaxColdFallbackRestarts = 16;
+  int cold_fallback_restarts = 0;
   while (true) {
     utils::Gatekeeper<Database> *gk = nullptr;
-    SuspendedEntry entry;
+    // F5: copy only the two fields the off-lock build needs (salient + rel_dir) instead of the full
+    // SuspendedEntry (which includes epoch_history — a deque up to kEpochHistoryRetention≈1000
+    // entries — and cold_stats). The epoch fields are re-read from a fresh suspended_.find under
+    // the exclusive publish lock below (~line 1376), so the Phase-A copy of them is never used.
+    storage::SalientConfig salient;
+    std::filesystem::path rel_dir;
     bool won_resume = false;
     {
       // PHASE A — decide + acquire the single-flight token, all under the shared lock_.
@@ -1301,7 +1310,8 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       if (!gk) return std::unexpected{ResumeError::NON_EXISTENT};
       auto it = suspended_.find(name);
       if (it == suspended_.end()) return std::unexpected{ResumeError::NON_EXISTENT};
-      entry = it->second;               // copy rebuild metadata (salient + rel_dir) for the off-lock build
+      salient = it->second.salient;     // copy only the two fields the off-lock build needs
+      rel_dir = it->second.rel_dir;     // (epoch_history + cold_stats re-read fresh under publish lock)
       won_resume = gk->begin_resume();  // COLD -> RESUMING (LAST step in Phase A)
     }
 
@@ -1338,6 +1348,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           return std::unexpected{ResumeError::RECOVERY_FAILED};
         }
       }
+      // F6: bound the retry — a single transient abort is retried; a persistent on_resume_ failure
+      // (e.g. corrupt trigger metadata) is surfaced as RECOVERY_FAILED instead of looping forever.
+      if (++cold_fallback_restarts > kMaxColdFallbackRestarts) return std::unexpected{ResumeError::RECOVERY_FAILED};
       continue;  // COLD-fallback confirmed (lock released): restart Phase A
     }
 
@@ -1347,9 +1360,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
     // the fresh gatekeeper's destruction.
     try {
       storage::Config cfg = default_config_;
-      cfg.salient = entry.salient;
+      cfg.salient = salient;
       cfg.durability.recover_on_startup = true;
-      storage::UpdatePaths(cfg, default_config_.durability.storage_directory / entry.rel_dir);
+      storage::UpdatePaths(cfg, default_config_.durability.storage_directory / rel_dir);
       auto fresh = db_handler_.BuildDetached(std::move(cfg));  // Database ctor recovers from disk
       DatabaseAccess acc = fresh.access().value();             // fresh gk is HOT => has_value
       try {
@@ -1408,7 +1421,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         auto wr = std::lock_guard{lock_};
         if (!suspended_.contains(name)) {
           try {
-            durability_->Put(Durability::GenKey(name), Durability::GenVal(entry.salient.uuid, entry.rel_dir));
+            durability_->Put(Durability::GenKey(name), Durability::GenVal(salient.uuid, rel_dir));
           } catch (const std::exception &e) {
             spdlog::warn(
                 "hot/cold resume: failed to clear the cold durability marker for '{}' ({}); the database is live "
@@ -1434,7 +1447,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       }
       // Record the system action so the resume is ordered + replicated like CREATE/DROP DATABASE.
       // Reached only on the winner's successful publish; the replica wire is filled by DoReplication.
-      if (txn) txn->AddAction<ResumeDatabase>(entry.salient.uuid);
+      if (txn) txn->AddAction<ResumeDatabase>(salient.uuid);
 
       spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
       return acc;
@@ -1495,6 +1508,12 @@ void DbmsHandler::PromoteColdTenants(std::string_view new_epoch_id) {
   // Lock discipline: holds ONLY lock_ + KVStore Put; never acquires repl_state (the caller holds
   // the repl_state write lock). The durable Put is the same small metadata write the suspend path
   // does under lock_.
+  //
+  // The Puts run UNDER lock_ on purpose (not snapshot-then-flush-outside): releasing lock_ between
+  // mutating an in-memory entry and persisting it would let a concurrent DROP erase the tenant in
+  // the gap, after which the trailing Put would re-write a durable COLD entry for a tenant that no
+  // longer exists -> resurrection on the next restart. Promotion is a rare failover event, so the
+  // O(cold-set) lock hold is an acceptable price for that safety.
   auto wr = std::lock_guard{lock_};
 
   for (auto &[name, entry] : suspended_) {

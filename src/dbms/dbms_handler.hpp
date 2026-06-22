@@ -347,6 +347,12 @@ class DbmsHandler {
    * @brief Set the pre-publish resume arm (runs on the recovered DatabaseAccess BEFORE the fresh
    *        gatekeeper is published into the map). Used for triggers/streams/TTL re-arm. Default empty.
    *        If it throws, the resume is aborted (RESUMING -> COLD) and the tenant stays retriable.
+   *
+   * INVARIANT: the arm must operate on the supplied DatabaseAccess and must NOT synchronously
+   * re-acquire the SAME tenant's accessor (Get/GetDatabaseAccessor by name or UUID) on this thread.
+   * The tenant is mid-RESUMING, so a re-entrant resume on the same thread would lose the single-flight
+   * race against itself and block. The current arms honour this (they use the passed accessor; stream
+   * consumers run on their own threads); a future arm must too.
    */
   void SetOnResume(std::function<void(DatabaseAccess)> cb) { on_resume_ = std::move(cb); }
 
