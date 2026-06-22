@@ -5021,7 +5021,7 @@ class KShortestPathsCursor : public Cursor {
         distances_(mem),
         predecessors_(mem) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("KShortestPaths");
 
@@ -5113,9 +5113,122 @@ class KShortestPathsCursor : public Cursor {
     return false;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master KShortestPaths::Pull(). oom/profile/
+    // evaluator + the per-Pull limit_ recompute + push_next_path/unsent_paths_count lambdas are
+    // per-iteration, alive across the co_await PullChild input pull (master holds them across
+    // input_cursor_->Pull) but die before co_yield. All Yen/Dijkstra helpers (ComputeNextShortestPath,
+    // InitializeKShortestPaths, ComputeShortestPath, PushPathToFrame, ...) never pull input, so they
+    // stay SYNCHRONOUS. Master's sequential early-returns become an if/else-if chain (equivalent:
+    // each was an early return); a "return true" sets produced and falls to co_yield, a "return false"
+    // leaves produced false and falls to co_return. One emitted path == one master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP("KShortestPaths");
+
+        ExpressionEvaluator evaluator(&frame,
+                                      context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor,
+                                      storage::View::OLD,
+                                      nullptr,
+                                      &context.number_of_hops,
+                                      context.user_or_role,
+                                      context.triggering_user);
+
+        limit_ = self_.limit_ ? EvaluateInt(evaluator, self_.limit_, "Limit in KSHORTEST path expansion")
+                              : std::numeric_limits<int64_t>::max();
+
+        auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
+          PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource(), context);
+          n_returned_paths_++;
+        };
+
+        auto unsent_paths_count = [&]() { return shortest_paths_.size() - current_path_index_; };
+
+        // Check if we reached the maximum number of paths to return
+        if (n_returned_paths_ >= limit_) {
+          // master: return false -> produced stays false -> co_return false below
+        } else if (unsent_paths_count() > 0) {
+          // If we have cached shortest paths, return the next one
+          push_next_path(frame, evaluator);
+          produced = true;
+        } else if (current_input_initialized_ && current_source_.has_value() && current_target_.has_value() &&
+                   ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
+          // Try to compute the next shortest path for current input
+          push_next_path(frame, evaluator);
+          produced = true;
+        } else {
+          // Need to pull new input
+          while (co_await PullChild(*input_cursor_, frame, context)) {
+            AbortCheck(context);
+            // Master `return false` here; under the coroutine seam this break leaves produced==false,
+            // so DoPull co_returns false and the cursor is permanently done. That is faithful to
+            // master ONLY because (a) HopsLimit::is_limit_reached is sticky-monotonic (never reset
+            // within a query) and (b) the candidate_paths_ min-heap guarantees ComputeNextShortestPath
+            // returns false whenever no valid (<=upper_bound, unseen) candidate remains — so master's
+            // re-pullable `return false` would also yield nothing further. If either invariant ever
+            // changes (resettable hops limit / reordered candidate pop), revisit this terminal break.
+            if (context.hops_limit.IsLimitReached()) break;
+
+            auto &source_tv = frame[self_.input_symbol_];
+            auto &target_tv = frame[self_.common_.node_symbol];
+
+            // It is possible that source or sink vertex is Null due to optional matching.
+            if (source_tv.IsNull() || target_tv.IsNull()) continue;
+
+            auto &source_vertex = source_tv.ValueVertex();
+            auto &target_vertex = target_tv.ValueVertex();
+
+            // Skip if source and target are the same vertex
+            if (source_vertex == target_vertex) continue;
+
+            lower_bound_ =
+                self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in expansion") : 1;
+            upper_bound_ = self_.upper_bound_ ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in expansion")
+                                              : std::numeric_limits<int64_t>::max();
+
+            // Initialize for this new source-target pair
+            current_source_ = source_vertex;
+            current_target_ = target_vertex;
+            current_input_initialized_ = true;
+
+            if (!InitializeKShortestPaths(source_vertex, target_vertex, evaluator, context)) {
+              // If no path found, continue to next input
+              continue;
+            }
+
+            // Handle lower bound
+            auto *last_path = &shortest_paths_.back();
+            while (last_path->edges.size() < lower_bound_) {
+              current_path_index_ = shortest_paths_.size();
+              if (!ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
+                break;
+              }
+              last_path = &shortest_paths_.back();
+            }
+
+            if (unsent_paths_count() > 0) {
+              push_next_path(frame, evaluator);
+              produced = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     ResetState();
     current_input_initialized_ = false;

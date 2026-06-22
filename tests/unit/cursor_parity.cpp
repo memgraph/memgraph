@@ -154,6 +154,10 @@ TEST_F(CursorParityTest, Corpus) {
       // Weighted / all-shortest (P1.6 dual-path) over weighted 1-(10)->2-(20)->3.
       "MATCH (a:N {id: 1})-[r *WSHORTEST (e, n | e.w) total]->(b:N) RETURN b.id AS bid, total AS cost ORDER BY bid",
       "MATCH (a:N {id: 1})-[r *ALLSHORTEST (e, n | e.w) total]->(b:N) RETURN b.id AS bid, total AS cost ORDER BY bid",
+      // K-shortest (Yen's, P1.7 dual-path) over the 1->2->3 chain. KSHORTEST needs both endpoints
+      // bound, so match the pair first.
+      "MATCH (a:N {id: 1}), (b:N {id: 3}) WITH a, b MATCH (a)-[r:E *KSHORTEST]->(b) RETURN size(r) AS hops ORDER BY "
+      "hops",
   };
   for (const auto &q : corpus) {
     ExpectParity(q);
