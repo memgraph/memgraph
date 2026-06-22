@@ -2474,7 +2474,7 @@ class ExpandVariableCursor : public Cursor {
                        metrics::DatabaseMetricHandles &metric_handles)
       : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), edges_(mem), edges_it_(mem) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
@@ -2505,9 +2505,64 @@ class ExpandVariableCursor : public Cursor {
     }
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each while-iteration reproduces one master ExpandVariable::Pull(). oom/profile are
+    // per-iteration and stay alive across co_await PullInputCo (as master holds them across the
+    // PullInput call). Expand() stays SYNCHRONOUS (pure DFS-stack logic, no input pull); only
+    // PullInputCo pulls the input and is therefore a co_awaited helper coroutine (twin of the
+    // synchronous PullInput kept for PullLegacy).
+    while (true) {
+      bool produced = false;
+      bool exhausted = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+
+        AbortCheck(context);
+
+        while (true) {
+          if (Expand(frame, context)) {
+            produced = true;
+            break;
+          }
+
+          if (co_await PullInputCo(frame, context)) {
+            // if lower bound is zero we also yield empty paths
+            if (lower_bound_ == 0) {
+              auto &start_vertex = frame[self_.input_symbol_].ValueVertex();
+              if (!self_.common_.existing_node) {
+                auto frame_writer =
+                    frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+                frame_writer.Write(self_.common_.node_symbol, start_vertex);
+                produced = true;
+                break;
+              }
+              if (CheckExistingNode(start_vertex, self_.common_.node_symbol, frame)) {
+                produced = true;
+                break;
+              }
+            }
+            // if lower bound is not zero, we just continue, the next
+            // loop iteration will attempt to expand and we're good
+          } else {
+            exhausted = true;
+            break;
+          }
+          // else continue with the loop, try to expand again
+          // because we succesfully pulled from the input
+        }
+      }
+      if (exhausted) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     edges_.clear();
     edges_it_.clear();
@@ -2597,6 +2652,72 @@ class ExpandVariableCursor : public Cursor {
       }
 
       return true;
+    }
+  }
+
+  // Coroutine twin of PullInput (verbatim, with the input pull as co_await PullChild + co_return),
+  // used by DoPull. No oom/profile here -- the caller (DoPull) holds them across this co_await, as
+  // master holds them across the synchronous PullInput call. Phase 3 deletes PullInput + PullLegacy
+  // and renames this back to PullInput.
+  PullAwaitable PullInputCo(Frame &frame, ExecutionContext &context) {
+    // Input Vertex could be null if it is created by a failed optional match.
+    // In those cases we skip that input pull and continue with the next.
+    while (true) {
+      AbortCheck(context);
+      if (!co_await PullChild(*input_cursor_, frame, context)) co_return false;
+
+      if (context.hops_limit.IsLimitReached()) co_return false;
+
+      TypedValue const &vertex_value = frame[self_.input_symbol_];
+
+      // Null check due to possible failed optional match.
+      if (vertex_value.IsNull()) continue;
+
+      ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+      auto &vertex = vertex_value.ValueVertex();
+
+      // Evaluate the upper and lower bounds.
+      ExpressionEvaluator evaluator(&frame,
+                                    context.symbol_table,
+                                    context.evaluation_context,
+                                    context.db_accessor,
+                                    storage::View::OLD,
+                                    nullptr,
+                                    &context.number_of_hops,
+                                    context.user_or_role,
+                                    context.triggering_user);
+      auto calc_bound = [&evaluator](auto &bound) {
+        auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
+        if (value < 0) throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
+        return value;
+      };
+
+      lower_bound_ = self_.lower_bound_ ? calc_bound(self_.lower_bound_) : 1;
+      upper_bound_ = self_.upper_bound_ ? calc_bound(self_.upper_bound_) : std::numeric_limits<int64_t>::max();
+
+      if (upper_bound_ > 0) {
+        auto *memory = edges_.get_allocator().resource();
+        edges_.emplace_back(
+            ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
+        edges_it_.emplace_back(edges_.back().begin());
+      }
+
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      if (self_.filter_lambda_.accumulated_path_symbol) {
+        // Add initial vertex of path to the accumulated path
+        frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(vertex));
+      }
+
+      // reset the frame value to an empty edge list
+      if (frame[self_.common_.edge_symbol].IsList()) {
+        // Preserve the list capacity if possible
+        frame_writer.Modify(self_.common_.edge_symbol, [](TypedValue &value) { value.ValueList().clear(); });
+      } else {
+        auto *pull_memory = context.evaluation_context.memory;
+        frame_writer.Write(self_.common_.edge_symbol, TypedValue::TVector(pull_memory));
+      }
+
+      co_return true;
     }
   }
 
@@ -6517,7 +6638,7 @@ bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
 }
 }  // namespace
 
-bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("EdgeUniquenessFilter");
 
@@ -6540,9 +6661,48 @@ bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, Execut
   return false;
 }
 
+PullAwaitable EdgeUniquenessFilter::EdgeUniquenessFilterCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each while-iteration reproduces one master EdgeUniquenessFilter::Pull(). oom/profile
+  // are per-iteration; the refill loop pulls input (co_await) until the uniqueness predicate
+  // passes, then yields one row.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("EdgeUniquenessFilter");
+
+      AbortCheck(context);
+
+      auto expansion_ok = [&]() {
+        const auto &expand_value = frame[self_.expand_symbol_];
+        for (const auto &previous_symbol : self_.previous_symbols_) {
+          const auto &previous_value = frame[previous_symbol];
+          // This shouldn't raise a TypedValueException, because the planner
+          // makes sure these are all of the expected type. In case they are not
+          // an error should be raised long before this code is executed.
+          if (ContainsSameEdge(previous_value, expand_value)) return false;
+        }
+        return true;
+      };
+
+      while (co_await PullChild(*input_cursor_, frame, context)) {
+        if (expansion_ok()) {
+          produced = true;
+          break;
+        }
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Reset() { input_cursor_->Reset(); }
+void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 EmptyResult::EmptyResult(const std::shared_ptr<LogicalOperator> &input)
     : input_(input ? input : std::make_shared<Once>()) {}

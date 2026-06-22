@@ -145,6 +145,9 @@ TEST_F(CursorParityTest, Corpus) {
       // Expand (P1.4a dual-path) — directed and both-direction (exercises the BOTH cycle path).
       "MATCH (a:N {id: 2})-[:E]->(b:N) RETURN b.id AS bid ORDER BY bid",
       "MATCH (a:N)-[:E]-(b:N) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid",
+      // ExpandVariable + EdgeUniquenessFilter (P1.4b dual-path) — variable-length over the 1->2->3 chain.
+      "MATCH (a:N {id: 1})-[:E*1..2]->(b:N) RETURN b.id AS bid ORDER BY bid",
+      "MATCH (a:N {id: 1})-[r:E*1..3]->(b:N) RETURN size(r) AS hops, b.id AS bid ORDER BY hops, bid",
   };
   for (const auto &q : corpus) {
     ExpectParity(q);
