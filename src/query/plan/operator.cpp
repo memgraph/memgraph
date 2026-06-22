@@ -7028,7 +7028,7 @@ SetNestedProperty::SetNestedPropertyCursor::SetNestedPropertyCursor(const SetNes
                                                                     metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
 
-bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool SetNestedProperty::SetNestedPropertyCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetNestedProperty");
 
@@ -7172,9 +7172,173 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
   return true;
 }
 
+PullAwaitable SetNestedProperty::SetNestedPropertyCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master SetNestedProperty::Pull(). oom/profile
+  // and the post-pull evaluator are per-iteration, alive across the co_await PullChild input pull (as
+  // master holds them across input_cursor_->Pull) but die before co_yield. One updated property == one
+  // master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("SetNestedProperty");
+
+      AbortCheck(context);
+
+      if (co_await PullChild(*input_cursor_, frame, context)) {
+        // Set, just like Create needs to see the latest changes.
+        ExpressionEvaluator evaluator(&frame,
+                                      context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor,
+                                      storage::View::NEW,
+                                      nullptr,
+                                      nullptr,
+                                      context.user_or_role,
+                                      context.triggering_user);
+        TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
+        TypedValue rhs = self_.rhs_->Accept(evaluator);
+
+        auto set_nested_property = [this, &context, &evaluator, &rhs](auto *record) {
+          if (self_.lhs_->lookup_mode_ == PropertyLookup::LookupMode::APPEND && !rhs.IsMap()) {
+            throw QueryRuntimeException(
+                fmt::format("Trying to append to nested property with type {}. Setting of nested property by using the "
+                            "append operator (+=) is only allowed if the right expression is of "
+                            "type Map!",
+                            rhs.type()));
+          }
+
+          TypedValue old_value = TypedValue(evaluator.GetProperty(*record, self_.lhs_->property_path_[0]),
+                                            evaluator.GetNameIdMapper(),
+                                            context.evaluation_context.memory);
+          if (old_value.IsNull()) {
+            old_value = TypedValue(TypedValue::TMap{}, context.evaluation_context.memory);
+          } else if (!old_value.IsMap()) {
+            throw QueryRuntimeException("Nested property must be of type Map!");
+          }
+
+          TypedValue::TMap &old_value_map = old_value.ValueMap();
+          // Traverse the property path, creating sub-maps as needed
+          TypedValue::TMap *current_map = &old_value_map;
+          for (size_t i = 1; i < self_.property_path_.size() - 1; ++i) {
+            // This part of the code is traversing through the nested structures, and creating empty maps if necessary
+            TypedValue::TString key{context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_[i]),
+                                    context.evaluation_context.memory};
+            auto it = current_map->find(key);
+            if (it == current_map->end()) {
+              it = current_map->emplace(key, TypedValue(TypedValue::TMap{}, context.evaluation_context.memory)).first;
+            } else if (!it->second.IsMap()) {
+              throw QueryRuntimeException(
+                  "Invalid set of nested properties! The property inside the nested structure already exists and is "
+                  "not of "
+                  "type Map!");
+            }
+            current_map = &it->second.ValueMap();
+          }
+
+          // In the leaf structure, we need to set the property if the method is to replace
+          // If the method is to append, then we need a map property as we're adding to the current structure
+          TypedValue::TString final_key{
+              context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_.back()),
+              context.evaluation_context.memory};
+          switch (self_.lhs_->lookup_mode_) {
+            case PropertyLookup::LookupMode::REPLACE: {
+              // We don't care what's the value here, we just override
+              (*current_map)[final_key] = rhs;
+              break;
+            }
+            case PropertyLookup::LookupMode::APPEND: {
+              // Here we need to check if the left hand side is a map
+              // If the map is appended on top level, we skip the part of searching for leaf map as the top map is the
+              // leaf one If there is a property path larger than one, we get the leaf map and update that one
+              TypedValue::TMap *leaf_map = current_map;
+              if (self_.property_path_.size() > 1) {
+                auto it = current_map->find(final_key);
+                if (it == current_map->end()) {
+                  it =
+                      current_map->emplace(final_key, TypedValue(TypedValue::TMap{}, context.evaluation_context.memory))
+                          .first;
+                } else if (!it->second.IsMap()) {
+                  throw QueryRuntimeException(
+                      "Invalid set of nested properties! The leaf property inside the nested structure already exists "
+                      "and is "
+                      "not of "
+                      "type Map!");
+                }
+                leaf_map = &it->second.ValueMap();
+              }
+              for (const auto &[k, v] : rhs.ValueMap()) {
+                leaf_map->emplace(k, v);
+              }
+              break;
+            }
+            default:
+              throw QueryRuntimeException("Unknown property lookup mode in set nested property!");
+          }
+
+          auto reconstructed_property_value = TypedValue(old_value_map, context.evaluation_context.memory);
+          auto old_stored_value = PropsSetChecked(record,
+                                                  self_.property_path_[0],
+                                                  reconstructed_property_value,
+                                                  context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
+                                                  *context.metric_handles);
+          context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+          if (context.trigger_context_collector) {
+            context.trigger_context_collector->RegisterSetObjectProperty(
+                *record,
+                self_.property_path_[0],
+                TypedValue{std::move(old_stored_value), evaluator.GetNameIdMapper()},
+                reconstructed_property_value);
+          }
+        };
+
+        switch (lhs.type()) {
+          case TypedValue::Type::Vertex: {
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !context.auth_checker->Has(lhs.ValueVertex(),
+                                           storage::View::NEW,
+                                           memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+              throw QueryRuntimeException(
+                  "Setting node property failed: missing SET PROPERTY or UPDATE permission on labels.");
+            }
+#endif
+            set_nested_property(&lhs.ValueVertex());
+            break;
+          }
+          case TypedValue::Type::Edge: {
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !context.auth_checker->Has(lhs.ValueEdge(),
+                                           memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+              throw QueryRuntimeException(
+                  "Setting edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
+            }
+#endif
+            set_nested_property(&lhs.ValueEdge());
+            break;
+          }
+          case TypedValue::Type::Null:
+            // Skip setting properties on Null (can occur in optional match).
+            break;
+          case TypedValue::Type::Map:
+          default:
+            throw QueryRuntimeException("Nested properties can only be set on edges and vertices.");
+        }
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void SetNestedProperty::SetNestedPropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void SetNestedProperty::SetNestedPropertyCursor::Reset() { input_cursor_->Reset(); }
+void SetNestedProperty::SetNestedPropertyCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Expression *rhs, Op op)
     : input_(input ? input : std::make_shared<Once>()), input_symbol_(std::move(input_symbol)), rhs_(rhs), op_(op) {}
@@ -7924,7 +8088,7 @@ RemoveNestedProperty::RemoveNestedPropertyCursor::RemoveNestedPropertyCursor(
     const RemoveNestedProperty &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
 
-bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool RemoveNestedProperty::RemoveNestedPropertyCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveNestedProperty");
 
@@ -8026,9 +8190,127 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
   return true;
 }
 
+PullAwaitable RemoveNestedProperty::RemoveNestedPropertyCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master RemoveNestedProperty::Pull(). oom/profile
+  // and the post-pull evaluator are per-iteration, alive across the co_await PullChild input pull (as
+  // master holds them across input_cursor_->Pull) but die before co_yield. One updated property == one
+  // master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("RemoveNestedProperty");
+
+      AbortCheck(context);
+
+      if (co_await PullChild(*input_cursor_, frame, context)) {
+        ExpressionEvaluator evaluator(&frame,
+                                      context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor,
+                                      storage::View::NEW,
+                                      nullptr,
+                                      &context.number_of_hops,
+                                      context.user_or_role,
+                                      context.triggering_user);
+        TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
+
+        auto remove_nested_property = [this, &context, &evaluator](auto *record) {
+          TypedValue old_value = TypedValue(evaluator.GetProperty(*record, self_.lhs_->property_path_[0]),
+                                            evaluator.GetNameIdMapper(),
+                                            context.evaluation_context.memory);
+
+          if (!old_value.IsMap()) {
+            throw QueryRuntimeException("Nested property must be of type Map!");
+          }
+
+          TypedValue::TMap &old_value_map = old_value.ValueMap();
+          // Traverse the property path, creating sub-maps as needed
+          TypedValue::TMap *current_map = &old_value_map;
+          for (size_t i = 1; i < self_.property_path_.size() - 1; ++i) {
+            // This part of the code is traversing through the nested structures, and creating empty maps if necessary
+            TypedValue::TString key{context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_[i]),
+                                    context.evaluation_context.memory};
+            auto it = current_map->find(key);
+            if (it == current_map->end()) {
+              throw QueryRuntimeException(fmt::format("Nested property '{}' is nonexistent!", key));
+            }
+            if (!it->second.IsMap()) {
+              throw QueryRuntimeException("Nested structure is not of type map!");
+            }
+            current_map = &it->second.ValueMap();
+          }
+
+          const TypedValue::TString final_key{
+              context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_.back()),
+              context.evaluation_context.memory};
+          auto it = current_map->find(final_key);
+          if (it != current_map->end()) {
+            current_map->erase(it);
+          }
+
+          auto reconstructed_property_value = TypedValue(old_value_map, context.evaluation_context.memory);
+          auto old_stored_value = PropsSetChecked(record,
+                                                  self_.property_path_[0],
+                                                  reconstructed_property_value,
+                                                  context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
+                                                  *context.metric_handles);
+          context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+          if (context.trigger_context_collector) {
+            context.trigger_context_collector->RegisterSetObjectProperty(
+                *record,
+                self_.property_path_[0],
+                TypedValue{std::move(old_stored_value), evaluator.GetNameIdMapper()},
+                reconstructed_property_value);
+          }
+        };
+
+        switch (lhs.type()) {
+          case TypedValue::Type::Vertex: {
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !context.auth_checker->Has(lhs.ValueVertex(),
+                                           storage::View::NEW,
+                                           memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+              throw QueryRuntimeException(
+                  "Removing node property failed: missing SET PROPERTY or UPDATE permission on labels.");
+            }
+#endif
+            remove_nested_property(&lhs.ValueVertex());
+            break;
+          }
+          case TypedValue::Type::Edge: {
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !context.auth_checker->Has(lhs.ValueEdge(),
+                                           memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+              throw QueryRuntimeException(
+                  "Removing edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
+            }
+#endif
+            remove_nested_property(&lhs.ValueEdge());
+            break;
+          }
+          case TypedValue::Type::Null:
+            // Skip removing properties on Null (can occur in optional match).
+            break;
+          default:
+            throw QueryRuntimeException("Nested properties can only be removed from vertices and edges.");
+        }
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void RemoveNestedProperty::RemoveNestedPropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void RemoveNestedProperty::RemoveNestedPropertyCursor::Reset() { input_cursor_->Reset(); }
+void RemoveNestedProperty::RemoveNestedPropertyCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                            std::vector<StorageLabelType> labels)
@@ -9421,7 +9703,7 @@ class OrderByCursor : public Cursor {
         cache_(mem),
         order_by_cache_(mem) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
@@ -9497,9 +9779,108 @@ class OrderByCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master OrderBy::Pull(). oom/profile are
+    // per-iteration; the input is drained+sorted ONCE into cache_ (guarded by did_pull_all_) on the
+    // first iteration (the drain evaluator/order_by/output locals are alive across the co_await
+    // PullChild drain but die before co_yield, exactly as master scopes them to the if block); each
+    // subsequent iteration emits one cached row. AbortCheck runs only when a row is emitted (after the
+    // end-check), and in parallel mode no frame write / cache_it_ advance occurs — both as master. One
+    // emitted row == one master Pull.
+    //
+    // PARALLEL-MODE CONTRACT: when driven as a branch of ParallelBranchCursor/OrderByParallelCursor,
+    // this cursor is Pull()ed exactly ONCE (the single drive triggers the full drain+sort that
+    // populates cache_/order_by_cache_, which OrderByParallelCursor then reads via friend access). The
+    // gen_ frame is left suspended at co_yield holding by-reference the driver's stack-local frame; it
+    // is only ever destroyed (Reset/dtor), never re-resumed. Re-Pulling a driven parallel branch
+    // cursor is a contract violation (true for every coroutine cursor used as a parallel branch).
+    while (true) {
+      bool produced = false;
+      {
+        const OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+
+        if (!did_pull_all_) [[unlikely]] {
+          ExpressionEvaluator evaluator(&frame,
+                                        context.symbol_table,
+                                        context.evaluation_context,
+                                        context.db_accessor,
+                                        storage::View::OLD,
+                                        nullptr,
+                                        &context.number_of_hops,
+                                        context.user_or_role,
+                                        context.triggering_user);
+          // auto *pull_mem = context.evaluation_context.memory;
+          auto *query_mem = cache_.get_allocator().resource();
+
+          utils::pmr::vector<utils::pmr::vector<TypedValue>> order_by(query_mem);  // Cached for parallel merge
+          utils::pmr::vector<utils::pmr::vector<TypedValue>> output(query_mem);    // Cached, query memory
+
+          while (co_await PullChild(*input_cursor_, frame, context)) {
+            // collect the order_by elements
+            utils::pmr::vector<TypedValue> order_by_elem(query_mem);
+            order_by_elem.reserve(self_.order_by_.size());
+            for (auto const &expression_ptr : self_.order_by_) {
+              order_by_elem.emplace_back(expression_ptr->Accept(evaluator));
+            }
+            order_by.emplace_back(std::move(order_by_elem));
+
+            // collect the output elements
+            utils::pmr::vector<TypedValue> output_elem(query_mem);
+            output_elem.reserve(self_.output_symbols_.size());
+            for (const Symbol &output_sym : self_.output_symbols_) {
+              output_elem.emplace_back(frame[output_sym]);
+            }
+            output.emplace_back(std::move(output_elem));
+          }
+
+          // sorting with range zip
+          // we compare on just the projection of the 1st range (order_by)
+          // this will also permute the 2nd range (output)
+          ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(), [](auto const &value) -> auto const & {
+            return std::get<0>(value);
+          });
+
+          // Keep order_by for parallel merge only (saves memory in single-threaded mode)
+          if (parallel_execution_) {
+            order_by_cache_ = std::move(order_by);
+          }
+          cache_ = std::move(output);
+
+          did_pull_all_ = true;
+          cache_it_ = cache_.begin();
+          order_by_cache_it_ = order_by_cache_.begin();
+        }
+
+        if (cache_it_ != cache_.end()) {
+          AbortCheck(context);
+
+          // Parallel execution will extract the cache and handle the output values in OrderByParallelCursor
+          if (!parallel_execution_) {
+            // place the output values on the frame
+            DMG_ASSERT(self_.output_symbols_.size() == cache_it_->size(),
+                       "Number of values does not match the number of output symbols "
+                       "in OrderBy");
+            auto output_sym_it = self_.output_symbols_.begin();
+            auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+            for (auto &&output : *cache_it_) {
+              frame_writer.Write(*output_sym_it++, std::move(output));
+            }
+            cache_it_++;
+          }
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     did_pull_all_ = false;
     cache_.clear();
@@ -9830,7 +10211,7 @@ class DistinctCursor : public Cursor {
   DistinctCursor(const Distinct &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
       : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), seen_rows_(mem) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Distinct");
 
@@ -9855,9 +10236,46 @@ class DistinctCursor : public Cursor {
     }
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master Distinct::Pull(). oom/profile are
+    // per-iteration; the refill loop pulls input (co_await) until an unseen row is found, then yields
+    // it. On input exhaustion seen_rows_ is cleared (as master does) before co_return false.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP("Distinct");
+
+        AbortCheck(context);
+
+        while (co_await PullChild(*input_cursor_, frame, context)) {
+          utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().resource());
+          row.reserve(self_.value_symbols_.size());
+
+          for (const auto &symbol : self_.value_symbols_) {
+            row.emplace_back(frame.at(symbol));
+          }
+
+          if (seen_rows_.insert(std::move(row)).second) {
+            produced = true;
+            break;
+          }
+        }
+
+        if (!produced) {
+          seen_rows_.clear();
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     seen_rows_.clear();
   }

@@ -143,7 +143,7 @@ TEST_F(CursorParityTest, Corpus) {
       // Once + Produce (P1.1/P1.2 dual-path).
       "RETURN 1",
       "RETURN 1 + 2 AS s, 'x' AS t",
-      // ScanAll + Produce (P1.2 dual-path) + OrderBy/Limit/Aggregate/Distinct (legacy until their PRs).
+      // ScanAll + Produce (P1.2 dual-path); OrderBy/Distinct now dual-path (P1.10).
       "MATCH (n:N) RETURN n.id AS id ORDER BY id",
       "MATCH (n:N) RETURN n.id AS id ORDER BY id LIMIT 2",
       "MATCH (n:N) RETURN n.id AS id ORDER BY id SKIP 1",
@@ -184,6 +184,14 @@ TEST_F(CursorParityTest, Corpus) {
       "MATCH (n:N) RETURN count(DISTINCT (n.id % 2)) AS c",
       "MATCH (n:N) RETURN size(collect(n.id)) AS c",
       "MATCH (n:NoSuchLabel) RETURN count(*) AS c, sum(n.id) AS s",  // no-input -> DefaultAggregation
+      // OrderBy (P1.10 dual-path): descending + multi-key + ORDER BY over an expression.
+      "MATCH (n:N) RETURN n.id AS id ORDER BY id DESC",
+      "MATCH (a:N)-[r:E]->(b:N) RETURN a.id AS aid, r.w AS w ORDER BY r.w DESC, a.id ASC",
+      "MATCH (n:N) RETURN n.id AS id ORDER BY n.id % 2, n.id DESC",
+      // Distinct (P1.10 dual-path): single-symbol, multi-symbol, and DISTINCT over a chained projection.
+      "UNWIND [1, 1, 2, 2, 3] AS x RETURN DISTINCT x ORDER BY x",
+      "UNWIND [[1, 2], [1, 2], [1, 3]] AS pair RETURN DISTINCT pair[0] AS a, pair[1] AS b ORDER BY a, b",
+      "MATCH (n:N) WITH DISTINCT n.id % 2 AS parity RETURN parity ORDER BY parity",
   };
   for (const auto &q : corpus) {
     ExpectParity(q);
@@ -221,6 +229,17 @@ TEST_F(CursorParityTest, MutationCorpus) {
       {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})", "MATCH (n:Tmp) SET n.x = 1"},
       // Accumulate (P1.9): WITH between MATCH and SET forces materialization of the read side.
       {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})", "MATCH (n:Tmp) WITH n ORDER BY n.id SET n.seq = 1 RETURN n.seq AS s"},
+      // SetNestedProperty (P1.10): replace a leaf key inside an existing nested map.
+      {"CREATE (:Tmp {id: 1, data: {x: 1, y: 2}})",
+       "MATCH (n:Tmp) SET n.data.x = 99 RETURN n.data.x AS x, n.data.y AS y"},
+      // SetNestedProperty APPEND (+=): merge a map into a nested key.
+      {"CREATE (:Tmp {id: 1, data: {x: 1}})",
+       "MATCH (n:Tmp) SET n.data += {y: 2, z: 3} RETURN n.data.x AS x, n.data.y AS y, n.data.z AS z"},
+      // SetNestedProperty creating the nested map from scratch (lhs null -> new map).
+      {"CREATE (:Tmp {id: 1})", "MATCH (n:Tmp) SET n.data.k = 7 RETURN n.data.k AS k"},
+      // RemoveNestedProperty (P1.10): erase a leaf key from an existing nested map.
+      {"CREATE (:Tmp {id: 1, data: {x: 1, y: 2}})",
+       "MATCH (n:Tmp) REMOVE n.data.x RETURN n.data.x AS x, n.data.y AS y"},
   };
   for (const auto &c : cases) {
     ExpectMutationParity(c.setup, c.mutation, cleanup);

@@ -1555,7 +1555,9 @@ class SetNestedProperty : public memgraph::query::plan::LogicalOperator {
   class SetNestedPropertyCursor : public Cursor {
    public:
     SetNestedPropertyCursor(const SetNestedProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1741,7 +1743,9 @@ class RemoveNestedProperty : public memgraph::query::plan::LogicalOperator {
   class RemoveNestedPropertyCursor : public Cursor {
    public:
     RemoveNestedPropertyCursor(const RemoveNestedProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
