@@ -47,6 +47,7 @@ class Frame;
 class SymbolTable;
 class VirtualNode;
 class VirtualEdge;
+class SubgraphGraphView;
 
 namespace plan {
 
@@ -1104,6 +1105,10 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     std::optional<VEdgeIteratorT> out_vedges_it_;
     std::vector<std::string_view> allowed_edge_type_names_;
     std::optional<storage::Gid> existing_vnode_gid_;
+
+    // Non-null while expanding a real member of a bound subgraph; expansion drops
+    // edges that are not members.
+    SubgraphGraphView *subgraph_view_{nullptr};
 
     bool InitEdges(Frame &, ExecutionContext &);
     bool InitVirtualEdges(Frame &, ExecutionContext &, const VirtualNode &);

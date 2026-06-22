@@ -1106,5 +1106,47 @@ class TestUseScopeOverDerive:
         assert results == [(1, "E", 2)]
 
 
+class TestUseScopeOverSubgraph:
+    """A USE scope over a project() subgraph: scans its real member nodes and
+    keeps expansion within membership, through the same seam as projections."""
+
+    def test_use_scope_over_subgraph_scans_members(self, connection):
+        """A MATCH inside the scope returns only the subgraph's member nodes, not
+        other real-graph nodes."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:A {name: 'a'})-[:R]->(:B {name: 'b'}), (:C {name: 'c'});")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:A)-[:R]->(:B)
+            WITH project(p) AS sg
+            CALL { USE sg MATCH (n) RETURN n.name AS name }
+            RETURN name ORDER BY name;
+            """,
+        )
+        assert results == [("a",), ("b",)]
+
+    def test_use_scope_over_subgraph_expansion_respects_membership(self, connection):
+        """Expanding inside the scope stays within the subgraph: a member node's
+        edge to a non-member is not traversed."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(
+            cursor,
+            "CREATE (a:A {name: 'a'})-[:R]->(b:B {name: 'b'}), (b)-[:R2]->(:C {name: 'c'});",
+        )
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:A)-[:R]->(:B)
+            WITH project(p) AS sg
+            CALL { USE sg MATCH (x)-[r]->(y) RETURN x.name AS xn, y.name AS yn }
+            RETURN xn, yn ORDER BY xn;
+            """,
+        )
+        assert results == [("a", "b")]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

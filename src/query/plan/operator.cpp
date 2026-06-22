@@ -54,6 +54,7 @@
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/subgraph_graph_view.hpp"
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "query/virtual_graph_view.hpp"
@@ -1940,6 +1941,9 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
+      // Inside a subgraph scope, expansion stays within the subgraph: drop an
+      // edge that is not a member.
+      if (subgraph_view_ && !subgraph_view_->ContainsEdge(edge)) continue;
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
@@ -1957,6 +1961,9 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     // attempt to get a value from the outgoing edges
     if (out_edges_ && *out_edges_it_ != out_edges_->end()) {
       auto edge = *(*out_edges_it_)++;
+      // Inside a subgraph scope, expansion stays within the subgraph: drop an
+      // edge that is not a member.
+      if (subgraph_view_ && !subgraph_view_->ContainsEdge(edge)) continue;
       // when expanding in EdgeAtom::Direction::BOTH directions
       // we should do only one expansion for cycles, and it was
       // already done in the block above
@@ -2061,6 +2068,10 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
       if (InitVirtualEdges(frame, context, input_value.ValueVirtualNode())) return true;
       continue;
     }
+
+    // A real member of a bound subgraph expands its real edges filtered to the
+    // subgraph's membership; outside a subgraph scope this stays null.
+    subgraph_view_ = dynamic_cast<SubgraphGraphView *>(context.graph_view);
 
     expansion_info_ = GetExpansionInfo(frame);
 
@@ -9128,7 +9139,7 @@ class BindGraphViewCursor : public Cursor {
     if (!view_) BindView(frame, context);
 
     auto *const outer_view = context.graph_view;
-    context.graph_view = &*view_;
+    context.graph_view = view_;
     try {
       const bool pulled = input_cursor_->Pull(frame, context);
       context.graph_view = outer_view;
@@ -9143,7 +9154,8 @@ class BindGraphViewCursor : public Cursor {
 
   void Reset() override {
     input_cursor_->Reset();
-    view_.reset();
+    view_ = nullptr;
+    view_storage_.emplace<std::monostate>();
     graph_value_.reset();
   }
 
@@ -9159,19 +9171,28 @@ class BindGraphViewCursor : public Cursor {
                                   context.user_or_role,
                                   context.triggering_user);
     graph_value_.emplace(self_.use_graph_->Accept(evaluator));
-    if (graph_value_->type() != TypedValue::Type::VirtualGraph) {
-      throw QueryRuntimeException("USE expects a projection value produced by virtualGraph().");
+    switch (graph_value_->type()) {
+      case TypedValue::Type::VirtualGraph:
+        view_ = &view_storage_.emplace<VirtualGraphView>(&graph_value_->ValueVirtualGraph(), context.db_accessor);
+        break;
+      case TypedValue::Type::Graph:
+        view_ = &view_storage_.emplace<SubgraphGraphView>(&graph_value_->ValueGraph(), context.db_accessor);
+        break;
+      default:
+        throw QueryRuntimeException(
+            "USE expects a projection produced by virtualGraph()/derive() or a subgraph produced by project().");
     }
-    view_.emplace(&graph_value_->ValueVirtualGraph(), context.db_accessor);
   }
 
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const BindGraphView &self_;
   UniqueCursorPtr input_cursor_;
-  // graph_value_ owns the projection; view_ borrows it, so the two are bound and
-  // released together.
+  // graph_value_ owns the projection or subgraph; the view in view_storage_
+  // borrows it and view_ points at it through the GraphView seam, so the three
+  // are bound and released together.
   std::optional<TypedValue> graph_value_;
-  std::optional<VirtualGraphView> view_;
+  std::variant<std::monostate, VirtualGraphView, SubgraphGraphView> view_storage_;
+  GraphView *view_{nullptr};
 };
 }  // namespace
 

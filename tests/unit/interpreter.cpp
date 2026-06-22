@@ -549,6 +549,34 @@ TYPED_TEST(InterpreterTest, CallUseScopeOverDeriveHiddenInvisible) {
   EXPECT_EQ(pred.GetResults()[1][0].ValueInt(), 2);
 }
 
+// A USE scope over a project() subgraph scans only the subgraph's member nodes,
+// not other real-graph nodes.
+TYPED_TEST(InterpreterTest, CallUseScopeOverSubgraphScansMembers) {
+  this->Interpret("CREATE (:A {name: 'a'})-[:R]->(:B {name: 'b'}), (:C {name: 'c'})");
+  auto stream = this->Interpret(
+      "MATCH p=(:A)-[:R]->(:B) "
+      "WITH project(p) AS sg "
+      "CALL { USE sg MATCH (n) RETURN n.name AS name } "
+      "RETURN name ORDER BY name");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "a");
+  EXPECT_EQ(stream.GetResults()[1][0].ValueString(), "b");
+}
+
+// Expansion inside a USE scope over a subgraph stays within membership: a member
+// node's edge to a non-member is not traversed.
+TYPED_TEST(InterpreterTest, CallUseScopeOverSubgraphExpansionRespectsMembership) {
+  this->Interpret("CREATE (a:A {name: 'a'})-[:R]->(b:B {name: 'b'}), (b)-[:R2]->(:C {name: 'c'})");
+  auto stream = this->Interpret(
+      "MATCH p=(:A)-[:R]->(:B) "
+      "WITH project(p) AS sg "
+      "CALL { USE sg MATCH (x)-[r]->(y) RETURN x.name AS xn, y.name AS yn } "
+      "RETURN xn, yn ORDER BY xn");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "a");
+  EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "b");
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);
