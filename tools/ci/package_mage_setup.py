@@ -3,7 +3,7 @@ import json
 import os
 import sys
 
-PR_BUILDS = ["amd", "arm", "cuda", "cugraph"]
+PR_BUILDS = ["amd", "arm", "cuda", "cugraph", "centos-9"]
 
 # Matrix values are emitted as JSON and consumed by package_mage.yaml via
 # `${{ matrix.X == 'true' }}` comparisons. GitHub Actions coerces operands to
@@ -98,13 +98,7 @@ class PackageMageSetup:
                 "arch": "arm" if package == "arm" else "amd",
                 "cuda": "true" if package == "cuda" else "false",
                 "cugraph": "true" if package == "cugraph" else "false",
-            }
-            out.update(default_args)
-            return out
-        if "CI -package=mage-centos-9" in pr_labels:
-            print("Found label for CentOS 9")
-            out = {
-                "arch": "x86",
+                "centos-9": "true" if package == "centos-9" else "false",
             }
             out.update(default_args)
             return out
