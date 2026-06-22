@@ -111,6 +111,12 @@ class PullAwaitable {
       }
     }
 
+    // LATENT (Phase-2/3 hardening): Awaiter is an aggregate (brace-initialized at the co_await sites),
+    // hence COPYABLE. It is only ever materialized via C++17 prvalue elision and never actually copied,
+    // so the owns_handle_ double-owner hazard is not reachable today. A copy would double-free. If a real
+    // copy site is ever introduced, give Awaiter explicit constructors + deleted copy (it cannot remain
+    // an aggregate then). Left as-is for Phase 1 to preserve aggregate initialization.
+
     // handle_ is null for default-constructed or immediate PullAwaitables; await_ready() returns true
     // in both cases so await_suspend is never reached with a null handle.
     bool await_ready() const noexcept { return immediate_ready_ || !handle_; }
@@ -141,6 +147,9 @@ class PullAwaitable {
 
   explicit PullAwaitable(std::coroutine_handle<promise_type> h) noexcept : handle_(h) {}
 
+  // NOTE: currently unused. The wired immediate (no-frame/legacy) path is ResumeAwaitable::Immediate
+  // in the base Cursor::PullCo. This PullAwaitable-level immediate ctor is retained for potential
+  // Phase-2 use (leaf cursors yielding an immediate value); revisit in the Phase-3 cleanup if still unused.
   explicit PullAwaitable(bool immediate_has_row) noexcept
       : immediate_ready_(true), immediate_value_(immediate_has_row) {}
 

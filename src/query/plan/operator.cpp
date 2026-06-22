@@ -9795,6 +9795,11 @@ class OrderByCursor : public Cursor {
     // gen_ frame is left suspended at co_yield holding by-reference the driver's stack-local frame; it
     // is only ever destroyed (Reset/dtor), never re-resumed. Re-Pulling a driven parallel branch
     // cursor is a contract violation (true for every coroutine cursor used as a parallel branch).
+    //
+    // PHASE-3 HARDENING (do before COROUTINE_CURSORS is ever default-on): have the parallel driver
+    // gen_.reset() (Cursor::Reset()) each branch INSIDE the task lambda, while the driver's frame is
+    // still alive, so no suspended branch frame ever outlives the stack frame it references. Safe today
+    // only because such a driven branch is never re-resumed (only destroyed); this closes the window.
     while (true) {
       bool produced = false;
       {
