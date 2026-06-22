@@ -125,15 +125,22 @@ class CursorParityTest : public ::testing::Test {
   // run `mutation` under the flag and capture its RETURNED rows, then `cleanup` (flag-off). The two
   // runs are independent and start from identical input, so the returned rows must match. Mutation
   // queries must RETURN deterministic projections (properties / computed values, never internal ids).
-  void ExpectMutationParity(const std::string &setup, const std::string &mutation, const std::string &cleanup) {
+  //
+  // Optional `readback`: when non-empty, the mutation itself need not RETURN anything (EmptyResult
+  // path). After the mutation runs, `readback` is executed flag-off to observe the written state;
+  // its render is used for comparison instead of the mutation's (empty) render. The readback runs
+  // before `cleanup` so it sees the mutated sub-graph.
+  void ExpectMutationParity(const std::string &setup, const std::string &mutation, const std::string &cleanup,
+                            const std::string &readback = "") {
     auto run = [&](memgraph::flags::Experiments mode) {
       memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
       if (!setup.empty()) interpreter.Interpret(setup);
       memgraph::flags::SetExperimental(mode);
       auto stream = interpreter.Interpret(mutation);
       memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+      std::string result = readback.empty() ? Render(stream) : Render(interpreter.Interpret(readback));
       if (!cleanup.empty()) interpreter.Interpret(cleanup);
-      return Render(stream);
+      return result;
     };
     const auto legacy = run(memgraph::flags::Experiments::NONE);
     const auto coroutine = run(memgraph::flags::Experiments::COROUTINE_CURSORS);
@@ -274,6 +281,7 @@ TEST_F(CursorParityTest, MutationCorpus) {
   struct Case {
     std::string setup;
     std::string mutation;
+    std::string readback;  // optional: flag-off observation query run after the mutation (see ExpectMutationParity)
   };
 
   const std::vector<Case> cases = {
@@ -293,8 +301,11 @@ TEST_F(CursorParityTest, MutationCorpus) {
       {"CREATE (:Tmp:Extra {id: 1})", "MATCH (n:Tmp) REMOVE n:Extra RETURN 'Extra' IN labels(n) AS has"},
       // Delete (buffered passthrough; capture id BEFORE delete -- can't read a deleted object)
       {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})", "MATCH (n:Tmp) WITH n, n.id AS id DELETE n RETURN id ORDER BY id"},
-      // EmptyResult sink (P1.9): a no-RETURN write drains through EmptyResult (both runs return nothing).
-      {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})", "MATCH (n:Tmp) SET n.x = 1"},
+      // EmptyResult sink (P1.9): a no-RETURN write drains through EmptyResult; the readback verifies the
+      // write landed identically under both pull paths (the mutation itself returns nothing).
+      {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})",
+       "MATCH (n:Tmp) SET n.x = 1",
+       "MATCH (n:Tmp) RETURN n.x AS x ORDER BY x"},
       // Accumulate (P1.9): WITH between MATCH and SET forces materialization of the read side.
       {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})", "MATCH (n:Tmp) WITH n ORDER BY n.id SET n.seq = 1 RETURN n.seq AS s"},
       // SetNestedProperty (P1.10): replace a leaf key inside an existing nested map.
@@ -317,7 +328,7 @@ TEST_F(CursorParityTest, MutationCorpus) {
        "MATCH (n:Tmp) FOREACH (x IN [1, 2, 3] | SET n.cnt = coalesce(n.cnt, 0) + x) RETURN n.cnt AS c"},
   };
   for (const auto &c : cases) {
-    ExpectMutationParity(c.setup, c.mutation, cleanup);
+    ExpectMutationParity(c.setup, c.mutation, cleanup, c.readback);
   }
 }
 

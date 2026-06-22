@@ -129,9 +129,13 @@ class PullAwaitable {
     }
   };
 
-  // On scheduler yield: the leaf is suspended (handle_.done()==false), so ~Awaiter() skips destroy().
-  // Ownership transfers to PullPlan::suspended_handle_ via YieldPointAwaitable::await_suspend.
-  // ~PullPlan calls cursor_->Reset() which destroys the root generator, unwinding the entire coroutine chain.
+  // PHASE-2 NOTE (cooperative yield not yet wired). ~Awaiter() destroys its handle whenever
+  // owns_handle_ is set; it does NOT inspect handle_.done(). So once yield lands and a parent frame can
+  // be parked over a co_await with its child leaf still suspended, YieldPointAwaitable::await_suspend
+  // MUST transfer the handle out of the Awaiter (clear owns_handle_ / null handle_) before the parent
+  // suspends -- otherwise tearing down the parent's Awaiter would destroy a child frame the scheduler
+  // still holds (double-free). Today nothing yields, so no Awaiter is ever live across a real suspension.
+  // ~PullPlan calls cursor_->Reset(), which destroys the root generator and unwinds the coroutine chain.
 
   PullAwaitable() = default;
 
