@@ -23,6 +23,7 @@
 // cursors. Keep corpus queries DETERMINISTIC (fixed seed data + stable ordering) so the two renders
 // compare equal without order-normalization.
 
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -221,6 +222,8 @@ TEST_F(CursorParityTest, Corpus) {
       // Union: DISTINCT concat (dedups) + UNION ALL concat (keeps dups).
       "RETURN 1 AS x UNION RETURN 2 AS x",
       "MATCH (n:N) RETURN n.id AS x UNION ALL RETURN 99 AS x",
+      // CallProcedure (P1.13): a builtin procedure call (the registry is identical across both runs).
+      "CALL mg.procedures() YIELD name RETURN count(name) AS c",
   };
   for (const auto &q : corpus) {
     ExpectParity(q);
@@ -236,6 +239,21 @@ TEST_F(CursorParityTest, Corpus) {
   const auto index_plan = Render(interpreter.Interpret(
       "EXPLAIN MATCH (a:J)-[:JE]->(b:J), (c:J)-[:JE]->(d:J) WHERE c.id = a.id RETURN a.id, b.id, d.id"));
   EXPECT_NE(index_plan.find("IndexedJoin"), std::string::npos) << "IndexedJoin no longer planned:\n" << index_plan;
+  const auto proc_plan = Render(interpreter.Interpret("EXPLAIN CALL mg.procedures() YIELD name RETURN count(name)"));
+  EXPECT_NE(proc_plan.find("CallProcedure"), std::string::npos) << "CallProcedure no longer planned:\n" << proc_plan;
+
+  // LoadCsv (P1.13): write a small CSV and read it back -- one output row per data line. The same file
+  // is read under both flag states (read-only), so the rendered rows must match.
+  const auto csv_path = (data_directory / "parity.csv").string();
+  {
+    std::ofstream f(csv_path);
+    f << "a,b\n1,x\n2,y\n3,z\n";
+  }
+  ExpectParity("LOAD CSV FROM \"" + csv_path + "\" WITH HEADER AS row RETURN row.a AS a, row.b AS b ORDER BY a");
+  // Note: OutputTable(Stream), LoadParquet/Jsonl and Periodic{Commit,Subquery} are not parity-covered
+  // here (they need binary fixtures / IN-TRANSACTIONS semantics that don't fit this in-process harness).
+  // Their safety rests on flag-OFF == master verbatim + the byte-identical DoPull splice + the dedicated
+  // load_parquet / periodic-commit suites; they are exercised end-to-end under the flag in P1.14.
 }
 
 // Write-cursor parity (P1.8 MUTATE). Each case: {setup, mutation-with-RETURN, cleanup}. The mutation

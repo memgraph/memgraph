@@ -10984,7 +10984,7 @@ class OutputTableCursor : public Cursor {
  public:
   explicit OutputTableCursor(const OutputTable &self) : self_(self) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
 
     AbortCheck(context);
@@ -11009,7 +11009,44 @@ class OutputTableCursor : public Cursor {
     return false;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master OutputTableCursor::Pull(). Leaf cursor
+    // (no input/child pull, hence no co_await); the callback rows are fetched once (guarded by pulled_)
+    // and one row is emitted per Pull. rows_/current_row_/pulled_ are MEMBERS -> survive co_yield. One
+    // row == one master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+
+        AbortCheck(context);
+
+        if (!pulled_) {
+          rows_ = self_.callback_(&frame, &context);
+          for (const auto &row : rows_) {
+            MG_ASSERT(row.size() == self_.output_symbols_.size(), "Wrong number of columns in row!");
+          }
+          pulled_ = true;
+        }
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        if (current_row_ < rows_.size()) {
+          for (size_t i = 0UZ; i < self_.output_symbols_.size(); ++i) {
+            frame_writer.Write(self_.output_symbols_[i], rows_[current_row_][i]);
+          }
+          current_row_++;
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     pulled_ = false;
     current_row_ = 0;
     rows_.clear();
@@ -11047,7 +11084,7 @@ class OutputTableStreamCursor : public Cursor {
  public:
   explicit OutputTableStreamCursor(const OutputTableStream *self) : self_(self) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
 
     AbortCheck(context);
@@ -11063,6 +11100,34 @@ class OutputTableStreamCursor : public Cursor {
       return true;
     }
     return false;
+  }
+
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master OutputTableStreamCursor::Pull(). Leaf
+    // (no input/child pull, hence no co_await); the callback yields one optional row per Pull. One row
+    // == one master Pull. Reset is unsupported (throws), as in master.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+
+        AbortCheck(context);
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        const auto row = self_->callback_(&frame, &context);
+        if (row) {
+          MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
+          for (size_t i = 0UZ; i < self_->output_symbols_.size(); ++i) {
+            frame_writer.Write(self_->output_symbols_[i], row->at(i));
+          }
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
   }
 
   // TODO(tsabolcec): Come up with better approach for handling `Reset()`.
@@ -11289,7 +11354,7 @@ class CallProcedureCursor : public Cursor {
     }
   }
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
 
@@ -11396,7 +11461,137 @@ class CallProcedureCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master CallProcedureCursor::Pull(). oom/
+    // profile/frame_writer are per-iteration, alive across the co_await PullChild input pull and the
+    // synchronous CallCustomProcedure (FFI) in the refill loop, but die before co_yield. The refill
+    // loop pulls input + (re)runs the procedure when result_ rows are exhausted; one result row is
+    // emitted per Pull. result_/result_row_it_/stream_exhausted/call_initializer/cleanup_ are MEMBERS
+    // -> survive co_yield. One row == one master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(*self_);
+
+        AbortCheck(context);
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        auto skip_rows_with_deleted_values = [this]() {
+          while (result_row_it_ != result_.rows.end() && result_row_it_->has_deleted_values) {
+            ++result_row_it_;
+          }
+        };
+
+        // input_exhausted distinguishes master's in-loop `return false` (input exhausted) from the
+        // post-loop emit. void_procedure_'s in-loop `return true` maps to produced=true + break.
+        bool input_exhausted = false;
+
+        // We need to fetch new procedure results after pulling from input.
+        // TODO: Look into openCypher's distinction between procedures returning an
+        // empty result set vs procedures which return `void`. We currently don't
+        // have procedures registering what they return.
+        // This `while` loop will skip over empty results.
+        while (result_row_it_ == result_.rows.end()) {
+          if (!proc_->info.is_batched) {
+            stream_exhausted = true;
+          }
+          if (stream_exhausted) {
+            if (!co_await PullChild(*input_cursor_, frame, context)) {
+              if (proc_->cleanup) {
+                proc_->cleanup.value()();
+              }
+              input_exhausted = true;
+              break;
+            }
+            stream_exhausted = false;
+            if (proc_->initializer) {
+              call_initializer = true;
+              MG_ASSERT(proc_->cleanup);
+              proc_->cleanup.value()();
+            }
+          }
+          if (!cleanup_ && proc_->cleanup) [[unlikely]] {
+            cleanup_.emplace(*proc_->cleanup);
+          }
+          result_.rows.clear();
+
+          const auto graph_view = proc_->info.is_write ? storage::View::NEW : storage::View::OLD;
+          ExpressionEvaluator evaluator(&frame,
+                                        context.symbol_table,
+                                        context.evaluation_context,
+                                        context.db_accessor,
+                                        graph_view,
+                                        nullptr,
+                                        &context.number_of_hops,
+                                        context.user_or_role,
+                                        context.triggering_user);
+          result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
+          auto *memory = context.evaluation_context.memory;
+          auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
+          auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
+          CallCustomProcedure(self_->procedure_name_,
+                              *proc_,
+                              self_->arguments_,
+                              graph,
+                              &evaluator,
+                              memory,
+                              memory_limit,
+                              &result_,
+                              self_->procedure_id_,
+                              call_initializer);
+
+          if (call_initializer) call_initializer = false;
+
+          if (result_.error_msg) {
+            memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
+            throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
+          }
+
+          if (self_->void_procedure_) {
+            // we do not throw if a void procedure returns something, so we clear the iterators here
+            result_.rows.clear();
+            result_row_it_ = result_.rows.end();
+            produced = true;  // master: return true
+            break;
+          }
+
+          result_row_it_ = result_.rows.begin();
+          if (!result_.is_transactional) {
+            skip_rows_with_deleted_values();
+          }
+
+          stream_exhausted = result_row_it_ == result_.rows.end();
+        }
+
+        if (!input_exhausted && !produced) {
+          // Instead of checking if procedure yielded all required values
+          // it is filled with null values on construction. This came as a
+          // direct consequence of changing from mgp_result rows from map to vector
+          // PRO: this is a lot faster
+          // CON: doesn't throw anymore if not all values are present
+          // Values are ordered the same as result_fields
+          auto &values = result_row_it_->values;
+          for (int i = 0; i < self_->result_fields_.size(); ++i) {
+            frame_writer.Write(self_->result_symbols_[i], std::move(values[i]));
+          }
+          ++result_row_it_;
+          if (!result_.is_transactional) {
+            skip_rows_with_deleted_values();
+          }
+
+          produced = true;  // master: return true
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     result_.rows.clear();
     result_row_it_ = result_.rows.begin();
     if (cleanup_) {
@@ -11546,7 +11741,7 @@ class LoadCsvCursor : public Cursor {
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem, metric_handles)) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
 
@@ -11590,7 +11785,67 @@ class LoadCsvCursor : public Cursor {
     return true;
   }
 
-  void Reset() override { input_cursor_->Reset(); }
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master LoadCsvCursor::Pull(). oom/profile/
+    // frame_writer are per-iteration. reader_/did_pull_/nullif_ are MEMBERS -> survive co_yield. The
+    // input pull runs every Pull (master pulls input each call; the cardinality-1 input Once yields
+    // once -> did_pull_=true + reader Reset on the first row, then yields false thereafter). One CSV
+    // row is emitted per Pull from the reader; reader EOF -> co_return false. One row == one master
+    // Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(*self_);
+
+        AbortCheck(context);
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        // ToDo(the-joksim):
+        //  - this is an ungodly hack because the pipeline of creating a plan
+        //  doesn't allow evaluating the expressions contained in self_->file_,
+        //  self_->delimiter_, and self_->quote_ earlier (say, in the interpreter.cpp)
+        //  without massacring the code even worse than I did here
+        if (!reader_) [[unlikely]] {
+          reader_ = MakeReader(&context.evaluation_context);
+          nullif_ = ParseNullif(&context.evaluation_context);
+        }
+
+        if (co_await PullChild(*input_cursor_, frame, context)) {
+          if (did_pull_) {
+            throw QueryRuntimeException(
+                "LOAD CSV can be executed only once, please check if the cardinality of the operator before LOAD CSV "
+                "is "
+                "1");
+          }
+          did_pull_ = true;
+          reader_->Reset();
+        }
+
+        auto row = reader_->GetNextRow(context.evaluation_context.memory);
+        if (row) {
+          if (!reader_->HasHeader()) {
+            frame_writer.Write(self_->row_var_, CsvRowToTypedList(*row, nullif_));
+          } else {
+            frame_writer.Write(
+                self_->row_var_,
+                CsvRowToTypedMap(
+                    *row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory), nullif_));
+          }
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
+  void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
+    input_cursor_->Reset();
+  }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
@@ -11695,7 +11950,7 @@ class LoadParquetCursor : public Cursor {
   LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem, metric_handles)), row_(mem) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
     AbortCheck(context);
@@ -11756,7 +12011,80 @@ class LoadParquetCursor : public Cursor {
     return true;
   }
 
-  void Reset() override { input_cursor_->Reset(); }
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master LoadParquetCursor::Pull(). oom/profile/
+    // frame_writer are per-iteration. reader_/did_pull_/row_ are MEMBERS -> survive co_yield. The input
+    // pull runs every Pull (cardinality-1 Once yields once -> did_pull_=true on the first row). One
+    // parquet row emitted per Pull from the reader; reader EOF -> co_return false. One row == one Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler const oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(*self_);
+        AbortCheck(context);
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        auto *mem = context.evaluation_context.memory;
+        if (UNLIKELY(!reader_.has_value())) {
+          auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
+          auto maybe_file = self_->file_->Accept(evaluator).ValueString();
+
+          auto maybe_config_map = ParseConfigMap(self_->config_map_, evaluator);
+
+          if (!maybe_config_map) {
+            throw QueryRuntimeException("Failed to parse config map for LOAD PARQUET clause!");
+          }
+
+          if (maybe_config_map->size() > 4) {
+            throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
+                                        utils::kAwsRegionQuerySetting,
+                                        utils::kAwsAccessKeyQuerySetting,
+                                        utils::kAwsSecretKeyQuerySetting,
+                                        utils::kAwsEndpointUrlQuerySetting);
+          }
+
+          auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
+
+          // No need to check if maybe_file is std::nullopt, as the parser makes sure
+          // we can't get a nullptr for the 'file_' member in the LoadParquet clause
+          reader_.emplace(maybe_file,
+                          utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()),
+                          mem,
+                          std::move(abort_check_erased));
+        }
+
+        if (co_await PullChild(*input_cursor_, frame, context)) {
+          if (did_pull_) {
+            throw QueryRuntimeException(
+                "LOAD PARQUET can be executed only once, please check if the cardinality of the operator before LOAD "
+                "PARQUET "
+                "is 1");
+          }
+          did_pull_ = true;
+        }
+
+        if (reader_->GetNextRow(row_)) {
+          frame_writer.Modify(self_->row_var_, [&](TypedValue &value) {
+            if (value.IsMap()) {
+              std::swap(value.ValueMap(), row_);
+            } else {
+              value = TypedValue(std::move(row_), mem);
+            }
+          });
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
+  void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
+    input_cursor_->Reset();
+  }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 };
@@ -11810,7 +12138,7 @@ class LoadJsonlCursor : public Cursor {
   LoadJsonlCursor(const LoadJsonl *self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem, metric_handles)) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
     AbortCheck(context);
@@ -11868,7 +12196,79 @@ class LoadJsonlCursor : public Cursor {
     return true;
   }
 
-  void Reset() override { input_cursor_->Reset(); }
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master LoadJsonlCursor::Pull(). oom/profile/
+    // frame_writer are per-iteration. reader_/did_pull_ are MEMBERS -> survive co_yield (row is a
+    // per-iteration local, as in master). The input pull runs every Pull (cardinality-1 Once yields
+    // once -> did_pull_=true on the first row). One jsonl row emitted per Pull; reader EOF -> co_return
+    // false. One row == one master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler const oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(*self_);
+        AbortCheck(context);
+
+        auto *mem = context.evaluation_context.memory;
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        if (UNLIKELY(!reader_.has_value())) {
+          auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
+          auto maybe_file = self_->file_->Accept(evaluator).ValueString();
+
+          constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+          auto maybe_config_map = ParseConfigMap(self_->config_map_, evaluator);
+
+          if (!maybe_config_map) {
+            throw QueryRuntimeException("Failed to parse config map for LOAD JSONL clause!");
+          }
+
+          if (maybe_config_map->size() > 4) {
+            throw QueryRuntimeException("Config map cannot contain > 4 entries. Only {}, {}, {} and {} can be provided",
+                                        utils::kAwsRegionQuerySetting,
+                                        utils::kAwsAccessKeyQuerySetting,
+                                        utils::kAwsSecretKeyQuerySetting,
+                                        utils::kAwsEndpointUrlQuerySetting);
+          }
+
+          std::optional<utils::S3Config> s3_config;
+          if (s3_matcher(maybe_file)) {
+            s3_config.emplace(utils::S3Config::Build(std::move(*maybe_config_map), BuildRunTimeS3Config()));
+          }
+
+          auto abort_check_erased = context.stopping_context.MakeMaybeAborter(1);
+
+          reader_.emplace(std::string{maybe_file}, std::move(s3_config), mem, std::move(abort_check_erased));
+        }
+
+        if (co_await PullChild(*input_cursor_, frame, context)) {
+          if (did_pull_) {
+            throw QueryRuntimeException(
+                "LOAD JSONL can be executed only once, please check if the cardinality of the operator before LOAD "
+                "JSONL "
+                "is 1");
+          }
+          did_pull_ = true;
+        }
+
+        Row row{mem};
+
+        if (reader_->GetNextRow(row)) {
+          frame_writer.Write(self_->row_var_, TypedValue(std::move(row), mem));
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
+  void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
+    input_cursor_->Reset();
+  }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 };
@@ -12707,7 +13107,7 @@ class PeriodicCommitCursor : public Cursor {
     MG_ASSERT(self_.commit_frequency_ != nullptr, "Commit frequency should be defined at this point!");
   }
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     // NOLINTNEXTLINE(misc-const-correctness)
     OOMExceptionEnabler oom_exception;
     // NOLINTNEXTLINE(misc-const-correctness)
@@ -12748,9 +13148,64 @@ class PeriodicCommitCursor : public Cursor {
     return pull_value;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master PeriodicCommitCursor::Pull(). oom/
+    // profile are per-iteration. 1:1 passthrough: pull input once, increment pulled_, run the periodic
+    // commit when the threshold is reached OR on input exhaustion (with pulled_>0), then emit
+    // pull_value. PeriodicCommit runs synchronously between co_awaits (naturally atomic; no yield
+    // suppression). commit_frequency_/pulled_ are MEMBERS -> survive co_yield. One row == one Pull.
+    while (true) {
+      bool produced = false;
+      {
+        // NOLINTNEXTLINE(misc-const-correctness)
+        OOMExceptionEnabler oom_exception;
+        // NOLINTNEXTLINE(misc-const-correctness)
+        SCOPED_PROFILE_OP_BY_REF(self_);
+
+        AbortCheck(context);
+
+        if (!commit_frequency_) [[unlikely]] {
+          ExpressionEvaluator evaluator(&frame,
+                                        context.symbol_table,
+                                        context.evaluation_context,
+                                        context.db_accessor,
+                                        storage::View::OLD,
+                                        nullptr,
+                                        &context.number_of_hops,
+                                        context.user_or_role,
+                                        context.triggering_user);
+          commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
+        }
+
+        bool const pull_value = co_await PullChild(*input_cursor_, frame, context);
+
+        pulled_++;
+        std::expected<void, storage::StorageManipulationError> commit_result;
+        if (pulled_ >= commit_frequency_) {
+          // do periodic commit since we pulled that many times
+          commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
+          pulled_ = 0;
+        } else if (!pull_value && pulled_ > 0) {
+          // do periodic commit for the rest of pulled items
+          commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
+        }
+
+        if (!commit_result) {
+          HandlePeriodicCommitError(commit_result.error());
+        }
+
+        produced = pull_value;
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     commit_frequency_.reset();
     pulled_ = 0;
@@ -12813,7 +13268,7 @@ class PeriodicSubqueryCursor : public Cursor {
     MG_ASSERT(self_.commit_frequency_ != nullptr, "Commit frequency should be defined at this point!");
   }
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     // NOLINTNEXTLINE(misc-const-correctness)
     OOMExceptionEnabler oom_exception;
     // NOLINTNEXTLINE(misc-const-correctness)
@@ -12875,12 +13330,93 @@ class PeriodicSubqueryCursor : public Cursor {
     }
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master PeriodicSubqueryCursor::Pull(). oom/
+    // profile are per-iteration; AbortCheck + commit_frequency_ init run once per Pull (before the
+    // inner refill loop), as master. Apply-pattern refill over input_ + subquery_ with periodic commit
+    // on input-exhaustion (pulled_>0) and on subquery-exhaustion (pulled_>=freq). PeriodicCommit runs
+    // synchronously between co_awaits (naturally atomic). pull_input_/pulled_/commit_frequency_ are
+    // MEMBERS -> survive co_yield. One emitted row == one master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        // NOLINTNEXTLINE(misc-const-correctness)
+        OOMExceptionEnabler oom_exception;
+        // NOLINTNEXTLINE(misc-const-correctness)
+        SCOPED_PROFILE_OP("PeriodicSubquery");
+
+        AbortCheck(context);
+
+        if (!commit_frequency_) [[unlikely]] {
+          ExpressionEvaluator evaluator(&frame,
+                                        context.symbol_table,
+                                        context.evaluation_context,
+                                        context.db_accessor,
+                                        storage::View::OLD,
+                                        nullptr,
+                                        &context.number_of_hops,
+                                        context.user_or_role,
+                                        context.triggering_user);
+          commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
+        }
+
+        while (true) {
+          if (pull_input_) {
+            if (co_await PullChild(*input_, frame, context)) {
+              pulled_++;
+            } else {
+              if (pulled_ > 0) {
+                // do periodic commit for the rest of pulled items
+                const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
+                if (!commit_result) {
+                  HandlePeriodicCommitError(commit_result.error());
+                }
+              }
+              break;  // input exhausted -> produced stays false -> co_return false
+            }
+          }
+
+          if (co_await PullChild(*subquery_, frame, context)) {
+            // if successful, next Pull from this should not pull_input_
+            pull_input_ = false;
+            produced = true;
+            break;
+          }
+
+          if (pulled_ >= commit_frequency_) {
+            // do periodic commit since we pulled that many times
+            const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
+            if (!commit_result) {
+              HandlePeriodicCommitError(commit_result.error());
+            }
+            pulled_ = 0;
+          }
+
+          // subquery cursor has been exhausted
+          // skip that row
+          pull_input_ = true;
+          subquery_->Reset();
+
+          // don't skip row if no rows are returned from subquery, return input_ rows
+          if (!subquery_has_return_) {
+            produced = true;
+            break;
+          }
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override {
     input_->Shutdown();
     subquery_->Shutdown();
   }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_->Reset();
     subquery_->Reset();
     pull_input_ = true;
