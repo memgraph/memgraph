@@ -24,7 +24,9 @@
 #include "metrics/scoped_gauge.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 namespace {
 
@@ -207,6 +209,54 @@ TEST(PrometheusMetrics, RebindDefaultDatabaseUUIDUpdatesUuidLabel) {
     });
   });
   EXPECT_FALSE(has_old_uuid) << "old UUID series should be fully removed after rebind";
+}
+
+TEST(PrometheusMetrics, RebindPropagatesHandlesToIndicesAndConstraints) {
+  FLAGS_metrics_format = "OpenMetrics";
+  memgraph::metrics::PrometheusMetrics pm;
+
+  memgraph::utils::UUID const uuid_a{};
+  memgraph::utils::UUID const uuid_b{};
+
+  // Register default db with uuid_a, install handles into storage
+  auto handles_a = pm.AddDatabase(uuid_a, "memgraph");
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>();
+  storage->RebindMetricHandles(handles_a);
+
+  // Rebind to uuid_b, which destroys uuid_a gauge objects and creates uuid_b
+  // gauges
+  auto handles_b = pm.RebindDefaultDatabaseUUID(uuid_b);
+  storage->RebindMetricHandles(handles_b);
+
+  // Create index + constraint: these increment gauges via handles
+  // stored inside indices_/constraints_
+  memgraph::storage::LabelId label;
+  memgraph::storage::PropertyId prop;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    label = acc->NameToLabel("TestLabel");
+    prop = acc->NameToProperty("test_prop");
+  }
+  {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateIndex(label).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateExistenceConstraint(label, prop).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Scrape and verify gauges appear under uuid_b
+  auto const families = pm.registry().Collect();
+  auto const idx_val = FindSample(families, "memgraph_active_label_indices", "memgraph");
+  ASSERT_TRUE(idx_val.has_value());
+  EXPECT_EQ(*idx_val, 1.0);
+
+  auto const constr_val = FindSample(families, "memgraph_active_existence_constraints", "memgraph");
+  ASSERT_TRUE(constr_val.has_value());
+  EXPECT_EQ(*constr_val, 1.0);
 }
 
 TEST(MetricHandles, GaugeHandleNullSafety) {
