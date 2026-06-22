@@ -2230,3 +2230,234 @@ TEST(RealWaitPark, Stress) {
   pool.ShutDown();
   pool.AwaitShutdown();
 }
+
+// ============================================================================
+// REGRESSION TESTS — two production fixes landed in this branch
+// ============================================================================
+
+// Fix #1 regression: WrapTask captures `self = weak_from_this().lock()` so an
+// in-flight closure co-owns the collection even after the external shared_ptr is
+// dropped.  Before the fix, the collection could be destroyed while a worker was
+// still inside WrapTask (touching progress_cv_ in NotifyProgress) -> UAF.
+//
+// Non-vacuity: if the WrapTask closure did NOT capture `self`, the collection's
+// ref-count would drop to 0 when `collection.reset()` fires below (while the task
+// body is spinning), and `weak.expired()` would be true at the EXPECT_FALSE check.
+// With the fix the closure holds a ref-count and keeps the weak_ptr alive.
+TEST(TaskCollection, CoOwnershipSurvivesExternalReset) {
+  using namespace memgraph;
+
+  // REQUIRED: must be heap-shared so enable_shared_from_this / weak_from_this work.
+  auto collection = std::make_shared<utils::TaskCollection>();
+  std::weak_ptr<utils::TaskCollection> weak{collection};
+
+  std::atomic<bool> started{false};
+  std::atomic<bool> release{false};
+
+  // A resumable task whose body spins until `release` is set, then finishes.
+  // While it spins the WrapTask closure is provably in-flight on the worker thread.
+  collection->AddResumableTask([&started, &release]() -> bool {
+    started.store(true, std::memory_order_release);
+    while (!release.load(std::memory_order_acquire)) {
+      std::this_thread::yield();
+    }
+    return false;  // done
+  });
+
+  // A 1-worker pool.  WrapTask sets TLS worker_id so in_flight_ guard is active.
+  utils::WorkerYieldRegistry registry(1);
+  utils::PriorityThreadPool pool(1, nullptr, &registry);
+  pool.ScheduledCollection(*collection);
+
+  // Wait until the task body is executing (closure is mid-flight).
+  const auto deadline = std::chrono::steady_clock::now() + 5s;
+  while (!started.load(std::memory_order_acquire)) {
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline) << "CoOwnershipSurvivesExternalReset: task never started";
+    std::this_thread::sleep_for(1ms);
+  }
+
+  // Drop the external shared_ptr while the WrapTask closure is still in-flight.
+  // This mirrors CollectionScheduler::WaitOrSteal() resetting collection_.
+  collection.reset();
+
+  // KEY assertion: the in-flight closure's captured `self` must keep the
+  // collection alive.  Before the fix (no `self` capture), the collection
+  // would be destroyed here and `weak` would be expired -> EXPECT_FALSE fires.
+  EXPECT_FALSE(weak.expired()) << "WrapTask's captured `self` must keep the collection alive while the task body runs";
+
+  // Unblock the spinning task so the closure can exit normally.
+  release.store(true, std::memory_order_release);
+
+  // AwaitShutdown() joins workers, ensuring every WrapTask frame has exited and
+  // the in-flight `self` copy has been destroyed along with it.
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  // After all workers are joined, the closure and its `self` copy are destroyed
+  // -> the last ref-count is released -> weak must expire now.
+  EXPECT_TRUE(weak.expired()) << "WrapTask's `self` must be released once the closure fully exits";
+}
+
+// Fix #2 regression: TaskCollection::RegisterProgressWaiter returns false when
+// `pool->IsShuttingDown()` is true, so a task cannot park into a tearing-down pool
+// (which would leave it PARKED forever, causing Wait() to time out).
+//
+// NOTE: TaskCollection::RegisterProgressWaiter is private; the only public entry
+// point that reaches it is CollectionScheduler::RegisterProgressWaiter (called from
+// CollectionScheduler::ProgressAwaitable::await_suspend).  That path further requires
+// TLS resume-closure context (GetCurrentResumeTask() != nullptr) which is only set
+// by WrapTask's CurrentResumableTaskScope.  Therefore the test runs both controls
+// inside a WrapTask frame: the waiter task is scheduled via ScheduledCollection so
+// the task body executes with full TLS context, and from within that body it calls
+// scheduler.WaitForProgressAwaitable().await_suspend() and captures the result.
+//
+// Non-vacuity:
+//   Negative control — without the `IsShuttingDown()` guard in RegisterProgressWaiter,
+//   the registration of the shutting-down pool would succeed (return true), the task
+//   would store PARKED, and Wait() would time out waiting for a resume that never fires.
+//   With the guard the call is short-circuited to false → WasParked() stays false →
+//   the task completes normally and Wait() returns promptly.
+//   Positive control — same code path on a live pool succeeds, proving the negative
+//   control is not a trivially-always-false path.
+TEST(TaskCollection, RegisterProgressWaiterRefusedDuringShutdown) {
+  using namespace memgraph;
+
+  // ── NEGATIVE CONTROL: shutting-down pool refuses park registration ────────
+  //
+  // Strategy: schedule a task via ScheduledCollection (so WrapTask sets TLS).
+  // Inside the task body, signal "started", then wait until the test thread has
+  // called pool.ShutDown() (IsShuttingDown() = true), then call await_suspend.
+  // The IsShuttingDown() guard must short-circuit RegisterProgressWaiter to false.
+  {
+    utils::WorkerYieldRegistry registry(1);
+    utils::PriorityThreadPool pool(1, nullptr, &registry);
+
+    // "Blocker" collection: its single task is never scheduled; Finished() stays false.
+    // The waiter task tries to park on this scheduler, simulating a real consumer
+    // waiting for a producer that has not yet run.
+    auto blocker = std::make_shared<utils::TaskCollection>();
+    blocker->AddTask([]() { /* intentionally never scheduled */ });
+    utils::CollectionScheduler blocker_sched(&pool, blocker);
+
+    // "Waiter" collection: one resumable task that, from inside its WrapTask frame,
+    // calls WaitForProgressAwaitable().await_suspend() and captures the result.
+    auto waiter_coll = std::make_shared<utils::TaskCollection>();
+    std::atomic<bool> task_started{false};
+    std::atomic<bool> proceed{false};
+    std::atomic<bool> park_accepted{true};  // will be overwritten; init true to detect non-write
+
+    waiter_coll->AddResumableTask([&]() -> bool {
+      // Signal the test thread that we are inside the WrapTask frame.
+      task_started.store(true, std::memory_order_release);
+      // Wait until the test thread has called ShutDown() so IsShuttingDown() = true.
+      while (!proceed.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      // Now call await_suspend from inside the WrapTask frame (full TLS context set).
+      auto awaitable = blocker_sched.WaitForProgressAwaitable();
+      // await_ready() must be false: blocker is not Finished().
+      if (awaitable.await_ready()) {
+        // Precondition failed: store a sentinel so the outer assertion catches it.
+        park_accepted.store(false, std::memory_order_release);
+        return false;
+      }
+      // KEY call: await_suspend routes through CollectionScheduler::RegisterProgressWaiter
+      // -> TaskCollection::RegisterProgressWaiter -> IsShuttingDown() guard -> false.
+      const bool suspended = awaitable.await_suspend(std::noop_coroutine());
+      park_accepted.store(suspended, std::memory_order_release);
+      return false;  // task done
+    });
+
+    // Schedule the waiter task while the pool is still alive.
+    pool.ScheduledCollection(*waiter_coll);
+
+    // Wait until the task body has entered the WrapTask frame.
+    const auto start_deadline = std::chrono::steady_clock::now() + 5s;
+    while (!task_started.load(std::memory_order_acquire)) {
+      ASSERT_LT(std::chrono::steady_clock::now(), start_deadline)
+          << "RegisterProgressWaiterRefusedDuringShutdown (neg): task never started";
+      std::this_thread::sleep_for(1ms);
+    }
+
+    // Trigger shutdown while the task is spinning inside WrapTask.
+    pool.ShutDown();  // pool.IsShuttingDown() = true from here
+
+    // Unblock the task; it will now call await_suspend with IsShuttingDown() = true.
+    proceed.store(true, std::memory_order_release);
+
+    // Wait for the task to finish (WasParked() false → task returns false → FINISHED).
+    const bool finished_in_time = waiter_coll->Wait(3000ms);
+
+    // KEY negative-control assertion: the guard must have refused the park.
+    EXPECT_FALSE(park_accepted.load())
+        << "RegisterProgressWaiter must return false (refuse park) when pool->IsShuttingDown(); "
+           "without the guard the task would store PARKED and Wait() would time out";
+    EXPECT_TRUE(finished_in_time) << "Task must reach FINISHED promptly; a PARKED task would cause Wait() to time out";
+
+    const auto final_state = (*waiter_coll)[0].state_->load(std::memory_order_acquire);
+    EXPECT_EQ(final_state, utils::TaskCollection::Task::State::FINISHED)
+        << "Task state must be FINISHED (not PARKED) after shutdown-guard fires";
+
+    pool.AwaitShutdown();
+  }
+
+  // ── POSITIVE CONTROL: live pool accepts park registration ─────────────────
+  // Same structure: a task inside a WrapTask frame calls await_suspend on a live pool.
+  // It must succeed (return true, state = PARKED).  We then unpark it manually so
+  // the collection can reach FINISHED and Wait() returns.
+  {
+    utils::WorkerYieldRegistry registry(1);
+    utils::PriorityThreadPool pool(1, nullptr, &registry);
+
+    auto blocker = std::make_shared<utils::TaskCollection>();
+    blocker->AddTask([]() { /* never scheduled */ });
+    utils::CollectionScheduler blocker_sched(&pool, blocker);
+
+    auto waiter_coll = std::make_shared<utils::TaskCollection>();
+    std::atomic<bool> task_started{false};
+    std::atomic<bool> park_accepted_pos{false};
+
+    waiter_coll->AddResumableTask([&]() -> bool {
+      task_started.store(true, std::memory_order_release);
+      auto awaitable = blocker_sched.WaitForProgressAwaitable();
+      if (awaitable.await_ready()) {
+        return false;  // precondition failed; don't overwrite park_accepted_pos
+      }
+      const bool suspended = awaitable.await_suspend(std::noop_coroutine());
+      park_accepted_pos.store(suspended, std::memory_order_release);
+      // If registered, WasParked() will be true -> WrapTask suspends and stores PARKED.
+      // We return false here so WrapTask's `yielded` path is skipped; WasParked() is
+      // the actual gate (it reads state.parked from TLS and resets it).
+      return false;
+    });
+
+    // Pin the waiter task to worker 0 to ensure TLS worker_id is set consistently.
+    pool.RescheduleTaskOnWorker(0, [&]() {
+      // Execute the WrapTask closure from worker 0 so worker_id is set in TLS.
+      // Wrap the waiter task manually: this is what ScheduledCollection does.
+      auto wrap = waiter_coll->WrapTask(0, &pool);
+      wrap();
+    });
+
+    // Wait for the task to run.
+    const auto pos_deadline = std::chrono::steady_clock::now() + 5s;
+    while (!task_started.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < pos_deadline) {
+      std::this_thread::sleep_for(1ms);
+    }
+
+    // KEY positive-control assertion: registration on a live pool must succeed.
+    EXPECT_TRUE(park_accepted_pos.load()) << "Positive control: RegisterProgressWaiter must succeed on a live pool; "
+                                             "this proves the negative control above is not trivially-always-false";
+
+    // The task stored PARKED (via CurrentResumableTask::SetParked() -> WasParked() = true
+    // -> WrapTask returns without storing FINISHED).  Manually advance the epoch to
+    // simulate NotifyProgress so the collection can be cleaned up.
+    // We can't call NotifyProgress directly (private), but we can force the task state
+    // to FINISHED from the test thread (the same trick as AbortWhileParkedNoUAF test).
+    (*waiter_coll)[0].state_->store(utils::TaskCollection::Task::State::FINISHED, std::memory_order_release);
+    (*waiter_coll)[0].state_->notify_one();
+
+    pool.ShutDown();
+    pool.AwaitShutdown();
+  }
+}

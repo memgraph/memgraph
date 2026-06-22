@@ -85,7 +85,7 @@ using ResumableTaskSignature = std::move_only_function<bool()>;
 class TaskCollection;
 
 // Also execute non scheduler tasks in the local thread
-class TaskCollection {
+class TaskCollection : public std::enable_shared_from_this<TaskCollection> {
  public:
   explicit TaskCollection(size_t num_tasks) { tasks_.reserve(num_tasks); }
 

@@ -497,13 +497,13 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
 // Prepares task for safe scheduling
 ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool *pool) {
   auto &task = tasks_[index];
-  return [this, index, &task = task.task_, state = task.state_, pool]() -> bool {
+  return [this, self = weak_from_this().lock(), index, &task = task.task_, state = task.state_, pool]() -> bool {
     // Lifetime barrier (see in_flight_ docs): count this WrapTask invocation BEFORE touching any task
     // state, so once Wait() observes a task FINISHED (release/acquire on state_) it also sees this
     // increment and will not return until we fully exit (the OnScopeExit decrements after NotifyProgress,
     // on every path including the early CAS-fail returns and exceptions).
     in_flight_.fetch_add(1, std::memory_order_relaxed);
-    const auto in_flight_guard = utils::OnScopeExit{[this]() noexcept {
+    const auto in_flight_guard = utils::OnScopeExit{[this, self]() noexcept {
       in_flight_.fetch_sub(1, std::memory_order_acq_rel);
       in_flight_.notify_all();
     }};
@@ -540,7 +540,7 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
     try {
       CurrentResumableTaskScope current_task_scope{pool,
                                                    WorkerYieldRegistry::GetCurrentWorkerId(),
-                                                   [this, index, pool]() mutable {
+                                                   [this, self, index, pool]() mutable {
                                                      auto wrapped_task = WrapTask(index, pool);
                                                      wrapped_task();
                                                    },
@@ -726,6 +726,11 @@ bool TaskCollection::RegisterProgressWaiter(TaskSignature resume_task, PriorityT
                                             uint64_t observed_epoch,
                                             std::shared_ptr<std::atomic<Task::State>> task_state) {
   const auto lock = std::lock_guard(progress_mutex_);
+  // shutdown-park guard: never park into a tearing-down pool (nothing would fire NotifyProgress ->
+  // the task would stay PARKED until Wait() times out). Returning false makes the caller busy-spin and
+  // observe shutdown, exactly like the EC-2 stolen-task fallback. (Full interrupt->wake-all-parked is a
+  // P3.2 concern with the parallel-join consumer; this guard covers shutdown-already-in-progress.)
+  if (pool && pool->IsShuttingDown()) return false;
   if (progress_epoch_ != observed_epoch || Finished()) {
     return false;  // lost-wakeup guard: progress already happened, caller must not suspend
   }
