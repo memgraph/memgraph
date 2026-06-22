@@ -5233,12 +5233,14 @@ void CheckPropertyPermissionsForSetProperties(TypedValue const &rhs, SetProperti
       break;
     case TypedValue::Type::Vertex: {
       auto maybe_props = rhs.ValueVertex().Properties(storage::View::NEW);
-      if (maybe_props) check_property_id_keys(*maybe_props);
+      if (!maybe_props) throw QueryRuntimeException("Unexpected error when checking property permissions.");
+      check_property_id_keys(*maybe_props);
       break;
     }
     case TypedValue::Type::Edge: {
       auto maybe_props = rhs.ValueEdge().Properties(storage::View::NEW);
-      if (maybe_props) check_property_id_keys(*maybe_props);
+      if (!maybe_props) throw QueryRuntimeException("Unexpected error when checking property permissions.");
+      check_property_id_keys(*maybe_props);
       break;
     }
     default:
@@ -5247,10 +5249,9 @@ void CheckPropertyPermissionsForSetProperties(TypedValue const &rhs, SetProperti
 
   if (op == SetProperties::Op::REPLACE) {
     auto maybe_existing = record.Properties(storage::View::NEW);
-    if (maybe_existing) {
-      for (auto const &[prop_id, _] : *maybe_existing) {
-        check_prop(prop_id);
-      }
+    if (!maybe_existing) throw QueryRuntimeException("Unexpected error when checking property permissions.");
+    for (auto const &[prop_id, _] : *maybe_existing) {
+      check_prop(prop_id);
     }
   }
 }

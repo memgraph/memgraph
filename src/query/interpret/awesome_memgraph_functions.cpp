@@ -449,6 +449,9 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 
 constexpr auto allow_all_properties = [](storage::PropertyId) { return true; };
 
+// NOTE: Denied properties appear as keys with null values. This differs from
+// keys() and values(), which omit denied properties entirely. This divergence
+// is by design.
 TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
   auto *dba = ctx.db_accessor;

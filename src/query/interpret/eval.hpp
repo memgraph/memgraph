@@ -1088,9 +1088,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
-#ifdef MG_ENTERPRISE
     if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
-#endif
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
@@ -1119,9 +1117,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
     auto prop_id = dba_->NameToProperty(name);
-#ifdef MG_ENTERPRISE
     if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
-#endif
     auto maybe_prop = record_accessor.GetProperty(view_, prop_id);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.

@@ -55,7 +55,7 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
 /// @throw std::bad_alloc
 storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, const storage::Storage &db,
                                                       storage::View view,
-                                                      query::FineGrainedAuthChecker const *auth_checker = nullptr);
+                                                      query::FineGrainedAuthChecker const *auth_checker);
 
 /// @param query::Graph for converting to communication::bolt::Map.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
@@ -64,7 +64,7 @@ storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, c
 /// @throw std::bad_alloc
 storage::Result<communication::bolt::map_t> ToBoltGraph(const query::Graph &graph, const storage::Storage &db,
                                                         storage::View view,
-                                                        query::FineGrainedAuthChecker const *auth_checker = nullptr);
+                                                        query::FineGrainedAuthChecker const *auth_checker);
 
 communication::bolt::map_t ToBoltVirtualGraph(const query::VirtualGraph &vg, const storage::Storage &db);
 

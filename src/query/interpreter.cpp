@@ -8489,12 +8489,14 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       };
 
       const auto node_property_predicate = [&auth_checker](auto const &labels, storage::PropertyId prop) {
-        return auth_checker->HasPropertyPermission(std::span<storage::LabelId const>{labels.data(), labels.size()},
+        return auth_checker &&
+               auth_checker->HasPropertyPermission(std::span<storage::LabelId const>{labels.data(), labels.size()},
                                                    prop,
                                                    AuthQuery::PropertyPermissionType::READ);
       };
       const auto edge_property_predicate = [&auth_checker](storage::EdgeTypeId edge_type, storage::PropertyId prop) {
-        return auth_checker->HasPropertyPermission(edge_type, prop, AuthQuery::PropertyPermissionType::READ);
+        return auth_checker &&
+               auth_checker->HasPropertyPermission(edge_type, prop, AuthQuery::PropertyPermissionType::READ);
       };
 
       auto json = auth_checker != nullptr

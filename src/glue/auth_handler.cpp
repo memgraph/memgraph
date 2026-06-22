@@ -34,6 +34,8 @@
 #include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
 
+namespace r = std::ranges;
+
 namespace {
 
 struct PermissionForPrivilegeResult {
@@ -361,10 +363,10 @@ void EmitPropertyMap(std::unordered_map<std::string, memgraph::auth::PropertyPer
     else if ((perm.denies & PPT::WRITE) != PPT::NONE)
       write_denied.push_back(prop);
   }
-  std::ranges::sort(read_granted);
-  std::ranges::sort(read_denied);
-  std::ranges::sort(write_granted);
-  std::ranges::sort(write_denied);
+  r::sort(read_granted);
+  r::sort(read_denied);
+  r::sort(write_granted);
+  r::sort(write_denied);
 
   auto emit_row = [&](std::string_view type_label,
                       std::vector<std::string> const &props,
@@ -425,7 +427,7 @@ void EmitPropertyPermissions(memgraph::auth::PropertyAccessPermissions const &pe
   }
   for (auto const &rule : perms.GetRules()) {
     std::vector<std::string> sorted_entities(rule.entities.begin(), rule.entities.end());
-    std::ranges::sort(sorted_entities);
+    r::sort(sorted_entities);
     auto formatted = sorted_entities | std::views::transform([](auto const &e) { return fmt::format(":{}", e); });
     auto entity_str = memgraph::utils::Join(formatted, ", ");
     if (is_node) {
@@ -643,8 +645,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatab
     auto locked_auth = auth_->ReadLock();
     auto local_user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user) : std::nullopt;
     auto has_role = [&](const std::vector<std::string> &role_names) {
-      return std::ranges::any_of(role_names,
-                                 [&](const auto &role_name) { return locked_auth->GetRole(role_name).has_value(); });
+      return r::any_of(role_names, [&](const auto &role_name) { return locked_auth->GetRole(role_name).has_value(); });
     };
 
     if (type == auth::UserOrRoleType::UNSPECIFIED && local_user && has_role(roles)) {
@@ -1447,27 +1448,40 @@ void AuthQueryHandler::EditPropertyPermission(const std::string &user_or_role,
   }
 }
 
+namespace {
+using GlobalFn = void (auth::PropertyAccessPermissions::*)(std::string const &, auth::PropertyPermissionType);
+using PerEntityFn = void (auth::PropertyAccessPermissions::*)(std::unordered_set<std::string> const &,
+                                                              std::string const &, auth::PropertyPermissionType,
+                                                              auth::MatchingMode);
+
+auto MakePropertyEditFn(GlobalFn global_fn, PerEntityFn per_entity_fn, auth::PropertyPermissionType perm_type) {
+  return [=](auth::PropertyAccessPermissions &perms, auto const &entities, auto mm, auto const &prop) {
+    bool const is_global = entities.size() == 1 && entities[0] == "*";
+    if (is_global) {
+      (perms.*global_fn)(prop, perm_type);
+    } else {
+      (perms.*per_entity_fn)({entities.begin(), entities.end()}, prop, perm_type, mm);
+    }
+  };
+}
+}  // namespace
+
 void AuthQueryHandler::GrantPropertyPermission(const std::string &user_or_role,
                                                const std::vector<std::string> &properties,
                                                const std::vector<std::string> &entity_names,
                                                auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
                                                auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
                                                system::Transaction *system_tx) {
-  EditPropertyPermission(user_or_role,
-                         properties,
-                         entity_names,
-                         entity_kind,
-                         matching_mode,
-                         type,
-                         system_tx,
-                         [perm_type](auto &perms, auto const &entities, auto mm, auto const &prop) {
-                           bool const is_global = entities.size() == 1 && entities[0] == "*";
-                           if (is_global) {
-                             perms.GrantGlobal(prop, perm_type);
-                           } else {
-                             perms.Grant({entities.begin(), entities.end()}, prop, perm_type, mm);
-                           }
-                         });
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_names,
+      entity_kind,
+      matching_mode,
+      type,
+      system_tx,
+      MakePropertyEditFn(
+          &auth::PropertyAccessPermissions::GrantGlobal, &auth::PropertyAccessPermissions::Grant, perm_type));
 }
 
 void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
@@ -1476,21 +1490,16 @@ void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
                                               auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
                                               auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
                                               system::Transaction *system_tx) {
-  EditPropertyPermission(user_or_role,
-                         properties,
-                         entity_names,
-                         entity_kind,
-                         matching_mode,
-                         type,
-                         system_tx,
-                         [perm_type](auto &perms, auto const &entities, auto mm, auto const &prop) {
-                           bool const is_global = entities.size() == 1 && entities[0] == "*";
-                           if (is_global) {
-                             perms.DenyGlobal(prop, perm_type);
-                           } else {
-                             perms.Deny({entities.begin(), entities.end()}, prop, perm_type, mm);
-                           }
-                         });
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_names,
+      entity_kind,
+      matching_mode,
+      type,
+      system_tx,
+      MakePropertyEditFn(
+          &auth::PropertyAccessPermissions::DenyGlobal, &auth::PropertyAccessPermissions::Deny, perm_type));
 }
 
 void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
@@ -1499,21 +1508,16 @@ void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
                                                 auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
                                                 auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
                                                 system::Transaction *system_tx) {
-  EditPropertyPermission(user_or_role,
-                         properties,
-                         entity_names,
-                         entity_kind,
-                         matching_mode,
-                         type,
-                         system_tx,
-                         [perm_type](auto &perms, auto const &entities, auto mm, auto const &prop) {
-                           bool const is_global = entities.size() == 1 && entities[0] == "*";
-                           if (is_global) {
-                             perms.RevokeGlobal(prop, perm_type);
-                           } else {
-                             perms.Revoke({entities.begin(), entities.end()}, prop, perm_type, mm);
-                           }
-                         });
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_names,
+      entity_kind,
+      matching_mode,
+      type,
+      system_tx,
+      MakePropertyEditFn(
+          &auth::PropertyAccessPermissions::RevokeGlobal, &auth::PropertyAccessPermissions::Revoke, perm_type));
 }
 
 void AuthQueryHandler::CreateProfile(const std::string &profile_name,
