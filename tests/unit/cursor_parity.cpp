@@ -138,6 +138,11 @@ TEST_F(CursorParityTest, Corpus) {
   interpreter.Interpret("CREATE (a:N {id: 1}), (b:N {id: 2}), (c:N {id: 3})");
   interpreter.Interpret("MATCH (a:N {id: 1}), (b:N {id: 2}) CREATE (a)-[:E {w: 10}]->(b)");
   interpreter.Interpret("MATCH (b:N {id: 2}), (c:N {id: 3}) CREATE (b)-[:E {w: 20}]->(c)");
+  // Indexed label :J + edges :JE for the IndexedJoin corpus query (the same multi-pattern equi-join
+  // that yields a HashJoin on the un-indexed :N becomes an IndexedJoin once :J(id) is indexed).
+  interpreter.Interpret("CREATE INDEX ON :J(id)");
+  interpreter.Interpret("CREATE (:J {id: 1})-[:JE]->(:J {id: 2})");
+  interpreter.Interpret("CREATE (:J {id: 1})-[:JE]->(:J {id: 3})");
 
   const std::vector<std::string> corpus = {
       // Once + Produce (P1.1/P1.2 dual-path).
@@ -192,10 +197,38 @@ TEST_F(CursorParityTest, Corpus) {
       "UNWIND [1, 1, 2, 2, 3] AS x RETURN DISTINCT x ORDER BY x",
       "UNWIND [[1, 2], [1, 2], [1, 3]] AS pair RETURN DISTINCT pair[0] AS a, pair[1] AS b ORDER BY a, b",
       "MATCH (n:N) WITH DISTINCT n.id % 2 AS parity RETURN parity ORDER BY parity",
+      // Combiners (P1.11 dual-path).
+      // Cartesian: comma-separated patterns with no shared symbol -> cross product.
+      "MATCH (a:N), (b:N) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid",
+      // Optional: left-outer with null-fill where no outgoing edge exists (node id 3).
+      "MATCH (n:N) OPTIONAL MATCH (n)-[:E]->(m:N) RETURN n.id AS nid, m.id AS mid ORDER BY nid, mid",
+      // Apply: correlated CALL subquery (the subquery cursor is driven per input row).
+      "MATCH (n:N) CALL { WITH n MATCH (n)-[:E]->(m:N) RETURN m.id AS mid } RETURN n.id AS nid, mid ORDER BY nid, mid",
+      // RollUpApply: pattern comprehension collects a per-row list (drives list_collection_cursor_).
+      "MATCH (n:N) RETURN n.id AS id, [(n)-[:E]->(m:N) | m.id] AS outs ORDER BY id",
+      // HashJoin: multi-pattern equi-join on the un-indexed :N (planner picks HashJoin, see query_plan
+      // MatchMultiPatternWithHashJoin).
+      "MATCH (a:N)-[:E]->(b:N), (c:N)-[:E]->(d:N) WHERE c.id = a.id "
+      "RETURN a.id AS aid, b.id AS bid, d.id AS did ORDER BY aid, bid, did",
+      // IndexedJoin: same equi-join shape over the indexed :J (planner picks IndexedJoin, see query_plan
+      // MatchMultiPatternWithIndexJoin).
+      "MATCH (a:J)-[:JE]->(b:J), (c:J)-[:JE]->(d:J) WHERE c.id = a.id "
+      "RETURN a.id AS aid, b.id AS bid, d.id AS did ORDER BY aid, bid, did",
   };
   for (const auto &q : corpus) {
     ExpectParity(q);
   }
+
+  // Coverage guard: HashJoin / IndexedJoin are planner-chosen, so confirm the corpus queries above
+  // still route through them (otherwise the parity assertions would silently stop exercising those
+  // DoPull paths). The planner is flag-independent, so checking once (flag-off) is sufficient.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+  const auto hash_plan = Render(interpreter.Interpret(
+      "EXPLAIN MATCH (a:N)-[:E]->(b:N), (c:N)-[:E]->(d:N) WHERE c.id = a.id RETURN a.id, b.id, d.id"));
+  EXPECT_NE(hash_plan.find("HashJoin"), std::string::npos) << "HashJoin no longer planned:\n" << hash_plan;
+  const auto index_plan = Render(interpreter.Interpret(
+      "EXPLAIN MATCH (a:J)-[:JE]->(b:J), (c:J)-[:JE]->(d:J) WHERE c.id = a.id RETURN a.id, b.id, d.id"));
+  EXPECT_NE(index_plan.find("IndexedJoin"), std::string::npos) << "IndexedJoin no longer planned:\n" << index_plan;
 }
 
 // Write-cursor parity (P1.8 MUTATE). Each case: {setup, mutation-with-RETURN, cleanup}. The mutation

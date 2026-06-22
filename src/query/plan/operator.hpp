@@ -2699,7 +2699,9 @@ class Optional : public memgraph::query::plan::LogicalOperator {
   class OptionalCursor : public Cursor {
    public:
     OptionalCursor(const Optional &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -3124,7 +3126,9 @@ class Apply : public memgraph::query::plan::LogicalOperator {
   class ApplyCursor : public Cursor {
    public:
     ApplyCursor(const Apply &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -3165,7 +3169,9 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
   class IndexedJoinCursor : public Cursor {
    public:
     IndexedJoinCursor(const IndexedJoin &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame & /*unused*/, ExecutionContext & /*unused*/) override;
+    bool PullLegacy(Frame & /*unused*/, ExecutionContext & /*unused*/) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
