@@ -1113,7 +1113,9 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     ExpandCursor(const Expand &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     ExpandCursor(const Expand &, int64_t input_degree, int64_t existing_node_degree, utils::MemoryResource *,
                  metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
     ExpansionInfo GetExpansionInfo(Frame &);
@@ -1139,6 +1141,10 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     int64_t prev_existing_degree_{-1};
 
     bool InitEdges(Frame &, ExecutionContext &);
+    // Coroutine twin of InitEdges used by the DoPull (flag-on) path; co_awaits the input pull so the
+    // chain can cooperatively yield. PullLegacy (flag-off) keeps the synchronous InitEdges above.
+    // Phase 3 deletes InitEdges + PullLegacy and renames this back to InitEdges.
+    PullAwaitable InitEdgesCo(Frame &, ExecutionContext &);
   };
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;

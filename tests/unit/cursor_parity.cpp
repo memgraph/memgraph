@@ -142,6 +142,9 @@ TEST_F(CursorParityTest, Corpus) {
       "MATCH p = (a:N {id: 1})-[:E]->(b:N) RETURN size(relationships(p)) AS hops ORDER BY hops",
       // EvaluatePatternFilter / EXISTS (P1.3 dual-path synchronous island).
       "MATCH (n:N) WHERE exists((n)-[:E]->(:N)) RETURN n.id AS id ORDER BY id",
+      // Expand (P1.4a dual-path) — directed and both-direction (exercises the BOTH cycle path).
+      "MATCH (a:N {id: 2})-[:E]->(b:N) RETURN b.id AS bid ORDER BY bid",
+      "MATCH (a:N)-[:E]-(b:N) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid",
   };
   for (const auto &q : corpus) {
     ExpectParity(q);

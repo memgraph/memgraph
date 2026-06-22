@@ -2004,7 +2004,7 @@ Expand::ExpandCursor::ExpandCursor(const Expand &self, int64_t input_degree, int
       prev_input_degree_(input_degree),
       prev_existing_degree_(existing_node_degree) {}
 
-bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool Expand::ExpandCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
@@ -2069,9 +2069,93 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 }
 
+PullAwaitable Expand::ExpandCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each emitted edge reproduces one master Expand::Pull(). oom/profile/frame_writer/
+  // pull_node are scoped per emitted edge -- recreated each outer iteration and destroyed before
+  // the co_yield, exactly as master recreates them every Pull. They remain alive across the
+  // `co_await InitEdgesCo` within the iteration (faithful: master holds them across the synchronous
+  // InitEdges call too) but never span the co_yield.
+  while (true) {
+    bool produced = false;
+    bool exhausted = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP_BY_REF(self_);
+
+      // A helper function for expanding a node from an edge.
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      auto pull_node = [this, &frame_writer]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
+                                                                            utils::tag_value<direction>) {
+        if (self_.common_.existing_node) return;
+        if constexpr (direction == EdgeAtom::Direction::IN) {
+          frame_writer.Write(self_.common_.node_symbol, new_edge.From());
+        } else if constexpr (direction == EdgeAtom::Direction::OUT) {
+          frame_writer.Write(self_.common_.node_symbol, new_edge.To());
+        } else {
+          LOG_FATAL("Must indicate exact expansion direction here");
+        }
+      };
+
+      while (true) {
+        AbortCheck(context);
+        // attempt to get a value from the incoming edges
+        if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
+          auto edge = *(*in_edges_it_)++;
+#ifdef MG_ENTERPRISE
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+              !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                context.auth_checker->Has(
+                    edge.From(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            continue;
+          }
+#endif
+
+          frame_writer.Write(self_.common_.edge_symbol, edge);
+          pull_node(edge, utils::tag_v<EdgeAtom::Direction::IN>);
+          produced = true;
+          break;
+        }
+
+        // attempt to get a value from the outgoing edges
+        if (out_edges_ && *out_edges_it_ != out_edges_->end()) {
+          auto edge = *(*out_edges_it_)++;
+          // when expanding in EdgeAtom::Direction::BOTH directions
+          // we should do only one expansion for cycles, and it was
+          // already done in the block above
+          if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
+#ifdef MG_ENTERPRISE
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+              !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                context.auth_checker->Has(
+                    edge.To(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            continue;
+          }
+#endif
+          frame_writer.Write(self_.common_.edge_symbol, edge);
+          pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
+          produced = true;
+          break;
+        }
+
+        // If we are here, either the edges have not been initialized,
+        // or they have been exhausted. Attempt to initialize the edges.
+        if (!co_await InitEdgesCo(frame, context)) {
+          exhausted = true;
+          break;
+        }
+
+        // we have re-initialized the edges, continue with the loop
+      }
+    }
+    if (exhausted) co_return false;
+    co_yield true;
+  }
+}
+
 void Expand::ExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Expand::ExpandCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
   input_cursor_->Reset();
   in_edges_ = std::nullopt;
   in_edges_it_ = std::nullopt;
@@ -2208,6 +2292,91 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
     }
 
     return true;
+  }
+}
+
+PullAwaitable Expand::ExpandCursor::InitEdgesCo(Frame &frame, ExecutionContext &context) {
+  // Coroutine twin of InitEdges (verbatim, with the input pull as co_await PullChild + co_return).
+  // No oom/profile here -- the caller (DoPull) holds them across this co_await, as master holds
+  // them across the synchronous InitEdges call.
+  // Input Vertex could be null if it is created by a failed optional match. In
+  // those cases we skip that input pull and continue with the next.
+  while (true) {
+    if (!co_await PullChild(*input_cursor_, frame, context)) co_return false;
+
+    if (context.hops_limit.IsLimitReached()) co_return false;
+
+    expansion_info_ = GetExpansionInfo(frame);
+
+    if (!expansion_info_.input_node) {
+      continue;
+    }
+
+    auto vertex = *expansion_info_.input_node;
+    auto direction = expansion_info_.direction;
+
+    int64_t num_expanded_first = -1;
+    if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
+      if (self_.common_.existing_node) {
+        if (expansion_info_.existing_node) {
+          auto existing_node = *expansion_info_.existing_node;
+
+          auto edges_result = UnwrapEdgesResult(
+              vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
+          context.number_of_hops += edges_result.expanded_count;
+          in_edges_.emplace(std::move(edges_result.edges));
+          num_expanded_first = edges_result.expanded_count;
+        }
+      } else {
+        auto edges_result =
+            UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
+        context.number_of_hops += edges_result.expanded_count;
+        in_edges_.emplace(std::move(edges_result.edges));
+        num_expanded_first = edges_result.expanded_count;
+      }
+      if (in_edges_) {
+        in_edges_it_.emplace(in_edges_->begin());
+      }
+    }
+
+    int64_t num_expanded_second = -1;
+    if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
+      if (self_.common_.existing_node) {
+        if (expansion_info_.existing_node) {
+          auto existing_node = *expansion_info_.existing_node;
+          auto edges_result = UnwrapEdgesResult(
+              vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
+          context.number_of_hops += edges_result.expanded_count;
+          out_edges_.emplace(std::move(edges_result.edges));
+          num_expanded_second = edges_result.expanded_count;
+        }
+      } else {
+        auto edges_result =
+            UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
+        context.number_of_hops += edges_result.expanded_count;
+        out_edges_.emplace(std::move(edges_result.edges));
+        num_expanded_second = edges_result.expanded_count;
+      }
+      if (out_edges_) {
+        out_edges_it_.emplace(out_edges_->begin());
+      }
+    }
+
+    if (!expansion_info_.existing_node) {
+      co_return true;
+    }
+
+    num_expanded_first = num_expanded_first == -1 ? 0 : num_expanded_first;
+    num_expanded_second = num_expanded_second == -1 ? 0 : num_expanded_second;
+    int64_t total_expanded_edges = num_expanded_first + num_expanded_second;
+
+    if (!expansion_info_.reversed) {
+      prev_input_degree_ = total_expanded_edges;
+    } else {
+      prev_existing_degree_ = total_expanded_edges;
+    }
+
+    co_return true;
   }
 }
 
