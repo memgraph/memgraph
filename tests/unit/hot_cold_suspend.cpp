@@ -21,7 +21,9 @@
 //   SuspendDefaultDbRejected            — kDefaultDB is never suspendable
 //   SuspendNonExistentRejected          — absent tenant returns NON_EXISTENT
 //   SuspendWithActiveAccessorRejected   — live accessor -> ACTIVE_CONNECTIONS, rolls back to HOT
-//   SuspendDurabilityIncompleteRejected — DISABLED durability -> DURABILITY_INCOMPLETE
+//   SuspendDurabilityGateRejectsUserButBypassesForRecovery — DISABLED durability: user suspend
+//     rejected with DURABILITY_INCOMPLETE; SuspendForRecovery bypasses the gate, forces COLD, and
+//     writes the consolidating snapshot unconditionally so the shell stays recoverable
 //   SuspendSuccessMakesColdShellInaccessible — happy path: Get() throws, name leaves All()
 //   SuspendMultipleTenants              — two independent suspends both succeed
 
@@ -117,38 +119,16 @@ TEST_F(HotColdSuspend, SuspendWithActiveAccessorRejected) {
   EXPECT_TRUE(acc2) << "Gatekeeper must be back in HOT after abort_suspend";
 }
 
-// A tenant whose durability config is DISABLED (no periodic snapshot+WAL) must
-// be rejected with DURABILITY_INCOMPLETE.
-TEST(HotColdSuspendNoDurability, SuspendDurabilityIncompleteRejected) {
-  fs::path dir{g_storage_root / "no_durability_test"};
-  fs::remove_all(dir);
-  fs::create_directories(dir);
-
-  memgraph::storage::Config conf;
-  memgraph::storage::UpdatePaths(conf, dir);
-  conf.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
-
-  auto handler = std::make_unique<DbmsHandler>(conf);
-  {
-    // The accessor returned by New() must be released BEFORE handler.reset(),
-    // otherwise ~Gatekeeper() waits forever for count_ == 0.
-    auto result = handler->New("no_wal_db");
-    ASSERT_TRUE(result.has_value()) << "Failed to create no-durability tenant";
-
-    auto suspend = handler->Suspend("no_wal_db");
-    ASSERT_FALSE(suspend.has_value());
-    EXPECT_EQ(suspend.error(), DbmsHandler::SuspendError::DURABILITY_INCOMPLETE);
-  }
-  handler.reset();
-  fs::remove_all(dir);
-}
-
-// A USER suspend of a durability-incomplete tenant is rejected (DURABILITY_INCOMPLETE),
-// but SuspendForRecovery() BYPASSES that gate so a replica converging to MAIN's authoritative cold set
-// is not stuck in a BEHIND retry loop. The consolidating snapshot is written unconditionally, so the
-// forced cold shell stays recoverable.
-TEST(HotColdSuspendNoDurability, SuspendForRecoveryBypassesDurabilityGate) {
-  fs::path dir{g_storage_root / "no_durability_recovery_test"};
+// Two complementary halves of the durability-gate rule, exercised in one shared setup:
+//
+//   (1) A USER suspend of a durability-incomplete tenant (DISABLED snapshot+WAL) is REJECTED with
+//       DURABILITY_INCOMPLETE — the gate prevents creating an unrecoverable cold shell.
+//
+//   (2) SuspendForRecovery() BYPASSES that gate: a replica converging to MAIN's authoritative cold set
+//       must not be stuck in a BEHIND retry loop. The consolidating snapshot is written UNCONDITIONALLY
+//       (even with WAL disabled), so the forced cold shell stays recoverable.
+TEST(HotColdSuspendNoDurability, SuspendDurabilityGateRejectsUserButBypassesForRecovery) {
+  fs::path dir{g_storage_root / "no_durability_gate_test"};
   fs::remove_all(dir);
   fs::create_directories(dir);
 
@@ -166,14 +146,14 @@ TEST(HotColdSuspendNoDurability, SuspendForRecoveryBypassesDurabilityGate) {
     uuid_str = static_cast<std::string>(result.value()->storage()->uuid());
   }
 
-  // A user-initiated suspend is rejected — the gate protects against an unrecoverable cold tenant.
+  // (1) User-initiated suspend is rejected — the gate protects against an unrecoverable cold tenant.
   {
     auto suspend = handler->Suspend("no_wal_db");
     ASSERT_FALSE(suspend.has_value());
     EXPECT_EQ(suspend.error(), DbmsHandler::SuspendError::DURABILITY_INCOMPLETE);
   }
 
-  // Recovery bypasses the gate and succeeds.
+  // (2) Recovery bypasses the gate and succeeds.
   {
     auto recovery = handler->SuspendForRecovery("no_wal_db");
     ASSERT_TRUE(recovery.has_value()) << "SuspendForRecovery must bypass the durability-complete gate";
