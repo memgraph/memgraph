@@ -506,6 +506,30 @@ jobs:
           DEB_DEBUGINFO_PACKAGE="$(ls output/memgraph-mage-debuginfo_*.deb 2>/dev/null | head -n 1 || true)"
           echo "DEB_DEBUGINFO_PACKAGE=${DEB_DEBUGINFO_PACKAGE}" >> $GITHUB_ENV
 
+      - name: Build RPM package in MGBUILD container
+        # RPM counterpart of the DEB step above, gated on the rpm-based distros.
+        # The push-to-GitHub/S3 artifact steps for *.rpm already exist further
+        # down; this step is what actually produces output/memgraph-mage*.rpm.
+        if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_MAGE == 'true' && startsWith(inputs.os, 'fedora-') || startsWith(inputs.os, 'centos-') || startsWith(inputs.os, 'rocky-') }}
+        run: |
+          PACKAGE_ARGS="${{ inputs.malloc && '--malloc' || '' }}${{ inputs.cuda && ' --cuda' || '' }}"
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
+            package-mage-rpm \
+            --version $MEMGRAPH_VERSION \
+            $PACKAGE_ARGS
+
+          # memgraph-mage-[0-9]* matches the main package; excludes the
+          # memgraph-mage-debuginfo-*.rpm sidecar package.
+          RPM_PACKAGE="$(ls output/memgraph-mage-[0-9]*.rpm | head -n 1)"
+          echo "RPM_PACKAGE=${RPM_PACKAGE}" >> $GITHUB_ENV
+          RPM_DEBUGINFO_PACKAGE="$(ls output/memgraph-mage-debuginfo-*.rpm 2>/dev/null | head -n 1 || true)"
+          echo "RPM_DEBUGINFO_PACKAGE=${RPM_DEBUGINFO_PACKAGE}" >> $GITHUB_ENV
+
       - name: Build offline installer (.run) for Ubuntu 24.04
         if: ${{ inputs.build_offline_installer && env.PACKAGE_MAGE == 'true' && startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-') }}
         run: |
@@ -933,7 +957,7 @@ jobs:
         if: ${{ inputs.push_to_github && env.PACKAGE_MAGE == 'true' && startsWith(inputs.os, 'fedora-') || startsWith(inputs.os, 'centos-') || startsWith(inputs.os, 'rocky-') }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
-          name: "${{ env.ARTIFACT_NAME }}-deb"
+          name: "${{ env.ARTIFACT_NAME }}-rpm"
           path: "output/memgraph-mage*.rpm"
 
       - name: Push docker image to GitHub

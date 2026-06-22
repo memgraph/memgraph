@@ -1,0 +1,113 @@
+# -*- rpm-spec -*-
+#
+# Hand-written specfile for the MAGE query-modules RPM. This is the RPM
+# counterpart of the DEB packaging under ../debian/ and is rendered + driven by
+# ../build-rpm.sh (the analogue of build-deb.sh).
+#
+# build-rpm.sh pre-stages the payload into %{stage_root} (and, when split-debug
+# sidecars exist, into %{debug_stage_root}); this spec only re-homes those trees
+# into the buildroot and declares file ownership. The @TOKEN@ placeholders are
+# filled in by sed in build-rpm.sh before rpmbuild runs.
+
+# Ship the query-module .so files exactly as build-mage produced them. With
+# --split-debug they are already stripped and accompanied by .debug sidecars
+# (shipped by the debuginfo subpackage below), so suppress rpmbuild's own strip
+# / debuginfo extraction — the same intent as `override_dh_dwz:` in the DEB
+# rules. Without this, brp-strip would re-strip the .so files and the separate
+# .debug sidecars would either be regenerated or have their DWARF removed.
+%global debug_package %{nil}
+%global __os_install_post %{nil}
+%define __strip /bin/true
+%global _build_id_links none
+
+# Set to 1 by build-rpm.sh when mage-debug.tar.gz carried .debug sidecars.
+%global with_debuginfo @WITH_DEBUGINFO@
+
+Name:           memgraph-mage
+Version:        @VERSION@
+Release:        1%{?dist}
+Summary:        Extra query modules for Memgraph
+License:        BSL-1.1
+Vendor:         Memgraph Ltd.
+URL:            https://memgraph.com
+BuildArch:      @ARCH@
+# Mirror the DEB control's Depends as closely as the RPM world allows. The
+# library sonames are resolved automatically on most distros, but memgraph and
+# the python tooling are named explicitly so a bare `dnf install` pulls them in.
+Requires:       memgraph
+Requires:       libcurl, openssl, python3, python3-pip, python3-setuptools, libgomp, libatomic
+
+%description
+Additional query modules for Memgraph, installed under
+/usr/lib/memgraph/query_modules/.
+
+%if %{with_debuginfo}
+%package debuginfo
+Summary:        Debug symbols for memgraph-mage
+Requires:       memgraph-mage = %{version}-%{release}
+
+%description debuginfo
+Sidecar .debug files for the MAGE query modules, produced by
+objcopy --only-keep-debug at build time. Install alongside
+memgraph-mage for symbolicated stack traces; gdb auto-locates
+each .debug file via .gnu_debuglink next to the corresponding .so.
+%endif
+
+%install
+rm -rf %{buildroot}
+mkdir -p %{buildroot}
+# %{stage_root} / %{debug_stage_root} are absolute trees rooted at "/", so
+# copying their contents into the buildroot reproduces the install layout.
+cp -a %{stage_root}/. %{buildroot}/
+%if %{with_debuginfo}
+cp -a %{debug_stage_root}/. %{buildroot}/
+%endif
+
+# Generate the %files lists by walking the staged buildroot. The .debug
+# sidecars and the rest of the payload share /usr/lib/memgraph/query_modules/,
+# so we split them by name into two -f filelists rather than owning the
+# directory (which memgraph already owns) from either subpackage.
+cd %{buildroot}
+find . -mindepth 1 \( -type f -o -type l \) ! -name '*.debug' | sed 's,^\.,,' > %{_builddir}/mage_main_files.txt
+%if %{with_debuginfo}
+find . -type f -name '*.debug' | sed 's,^\.,,' > %{_builddir}/mage_debuginfo_files.txt
+%endif
+
+%post
+# Mirror of debian/postinst's `configure` step.
+CUDA=@CUDA@
+ARCH=@PKG_ARCH@
+# install_python_requirements.sh fetches torch/PyG/DGL wheels from the network.
+# During an offline install the wheels are already on disk and the call fails,
+# but the deps are present, so tolerate failure when MEMGRAPH_OFFLINE_INSTALL=1
+# (set by the .run installer). For a normal dnf/rpm install the failure stays
+# hard so a genuine network/pip error doesn't silently leave MAGE broken.
+if ! su - memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA --arch $ARCH"; then
+    if [ "${MEMGRAPH_OFFLINE_INSTALL:-}" = "1" ]; then
+        echo "WARNING: install_python_requirements.sh exited non-zero." >&2
+        echo "         Tolerated because MEMGRAPH_OFFLINE_INSTALL=1 — the python deps" >&2
+        echo "         were installed by the offline installer's wheel pass." >&2
+    else
+        echo "ERROR: install_python_requirements.sh failed." >&2
+        echo "       Check network connectivity and pip configuration, then retry." >&2
+        exit 1
+    fi
+fi
+# Only restart memgraph if systemd is actually running (absent in containers,
+# chroots, and minimal images); otherwise `systemctl` fails the scriptlet.
+if [ -d /run/systemd/system ]; then
+    systemctl restart memgraph.service
+fi
+exit 0
+
+%files -f %{_builddir}/mage_main_files.txt
+%defattr(-,root,root,-)
+
+%if %{with_debuginfo}
+%files debuginfo -f %{_builddir}/mage_debuginfo_files.txt
+%defattr(-,root,root,-)
+%endif
+
+%changelog
+* Thu Jun 01 2025 Matt James <matthew.james@memgraph.io> - @VERSION@-1
+- Release v@VERSION@.

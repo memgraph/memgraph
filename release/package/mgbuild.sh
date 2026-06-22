@@ -94,6 +94,7 @@ print_help () {
   echo -e "  package-docker [OPTIONS]           Create memgraph docker image and pack it as .tar.gz"
   echo -e "  package-smoke-image [OPTIONS]      Build a Docker image with the .deb/.rpm package installed (for smoke tests)"
   echo -e "  package-mage-deb [OPTIONS]         Create MAGE DEB package"
+  echo -e "  package-mage-rpm [OPTIONS]         Create MAGE RPM package"
   echo -e "  package-mage-docker [OPTIONS]      Create MAGE docker image"
   echo -e "  package-mage-offline-installer [OPTIONS]  Build a self-contained .run installer for Memgraph + MAGE on Ubuntu 24.04"
   echo -e "  pull                               Pull mgbuild image from dockerhub"
@@ -174,6 +175,12 @@ print_help () {
   echo -e "                                This directory should contain the memgraph package."
   echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
   echo -e "  --package-flavour string        Docker package flavour: 'prod' or 'debug' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling."
+
+  echo -e "\npackage-mage-deb / package-mage-rpm options:"
+  echo -e "  --version string              Memgraph version embedded in the package (required)"
+  echo -e "  --malloc                      Variant flag — affects the output filename only"
+  echo -e "  --cuda                        CUDA variant (uses requirements-gpu.txt; implied by global --cugraph)"
+  echo -e "                                Arch and build-type come from the global --arch / --build-type flags."
 
   echo -e "\npackage-mage-docker options:"
   echo -e "  --docker-repository-name str  Docker repository name (default \"memgraph/memgraph-mage\")"
@@ -1906,6 +1913,62 @@ package_mage_deb() {
   done
 }
 
+package_mage_rpm() {
+
+  local version=""
+  local malloc=false
+  local cuda=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version)
+        version=$2
+        shift 2
+      ;;
+      --malloc)
+        malloc=true
+        shift 1
+      ;;
+      --cuda)
+        cuda=true
+        shift 1
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ "$cugraph" = true ]]; then
+    cuda=true
+  fi
+
+  # RPM uses different arch spellings than dpkg. rpm_arch is the package
+  # BuildArch (x86_64/aarch64); pkg_arch (amd64/arm64) is what the postinst
+  # forwards to install_python_requirements.sh, matching the DEB path.
+  local rpm_arch pkg_arch
+  case "$arch" in
+    amd) rpm_arch="x86_64";  pkg_arch="amd64" ;;
+    arm) rpm_arch="aarch64"; pkg_arch="arm64" ;;
+    *)
+      echo -e "${RED_BOLD}Error: package_mage_rpm: unsupported arch '$arch' (expected amd or arm)${RESET}"
+      exit 1
+    ;;
+  esac
+
+  echo -e "${GREEN_BOLD}Packaging MAGE RPM package${RESET}"
+  docker exec -i -u root $build_container bash -c "command -v rpmbuild >/dev/null 2>&1 || (dnf install -y rpm-build || yum install -y rpm-build)"
+
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-rpm.sh '${rpm_arch}' '${pkg_arch}' $build_type $version $malloc $cuda $cugraph"
+
+  mkdir -pv output
+  for path in $(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.rpm"); do
+    docker cp $build_container:$path output/
+    echo "Package: $path"
+  done
+}
+
 
 package_mage_docker() {
 
@@ -3009,6 +3072,9 @@ case $command in
     ;;
     package-mage-deb)
       package_mage_deb $@
+    ;;
+    package-mage-rpm)
+      package_mage_rpm $@
     ;;
     package-mage-docker)
       package_mage_docker $@
