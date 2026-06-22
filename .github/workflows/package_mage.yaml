@@ -55,6 +55,13 @@ on:
         type: string
         description: "Branch or tag to build"
         default: ''
+      os:
+        type: choice
+        description: Target OS
+        default: ubuntu-24.04
+        options:
+          - ubuntu-24.04
+          - centos-9
 
   workflow_call:
     inputs:
@@ -106,6 +113,10 @@ on:
         type: string
         description: "Branch or tag to build"
         default: ''
+      os:
+        type: string
+        description: Target OS
+        default: ubuntu-24.04
 
 
 jobs:
@@ -128,7 +139,7 @@ jobs:
 
       - name: Set up package execution
         id: setup
-        run: python3 tools/ci/package_mage_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME"
+        run: python3 tools/ci/package_mage_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME"  #TODO: handle Linux distro
 
 
   BuildMage:
@@ -156,4 +167,5 @@ jobs:
       generate_sbom: ${{ matrix.generate_sbom == 'true' }}
       build_offline_installer: ${{ inputs.build_offline_installer == true }}
       ref: ${{ matrix.ref }}
+      os: ${{ matrix.os }}
     secrets: inherit

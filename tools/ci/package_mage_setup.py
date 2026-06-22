@@ -90,6 +90,7 @@ class PackageMageSetup:
             "package_deb": "default",
             "generate_sbom": "false",
             "ref": "",
+            "os": "ubuntu-24.04",
         }
         if f"CI -package=mage-{package}" in pr_labels:
             print(f'Found label for "{package}"')
@@ -115,7 +116,7 @@ class PackageMageSetup:
         return None
 
     def _check_workflow_input(self) -> bool:
-        if self.workflow_inputs.get(f"matrix_build") == "true":
+        if self.workflow_inputs.get("matrix_build") == "true":
             return MATRIX_BUILDS
         # GitHub passes workflow_dispatch/workflow_call inputs as strings
         # ("true"/"false"); keep the fallbacks as strings too so the matrix
@@ -134,6 +135,7 @@ class PackageMageSetup:
                 "package_deb": self.workflow_inputs.get("package_deb", "default"),
                 "generate_sbom": self.workflow_inputs.get("generate_sbom", "false"),
                 "ref": self.workflow_inputs.get("ref", ""),
+                "os": self.workflow_inputs("os", "ubuntu-24.04"),
             }
         ]
 
@@ -185,6 +187,7 @@ def print_package_suite(package_suite: dict) -> None:
         print(f"Package deb: {build.get('package_deb')}")
         print(f"Generate SBOM: {build.get('generate_sbom')}")
         print(f"Ref: {build.get('ref')}")
+        print(f"OS: {build.get('os')}")
 
     build_packages = "true" if len(package_suite) > 0 else "false"
     set_output("build_packages", build_packages)

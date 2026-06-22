@@ -62,7 +62,7 @@ on:
         type: boolean
         description: "Run tests"
         default: false
-      package_deb:
+      package_mage:
         type: string
         description: "Build deb package (true|false|default)"
         # default is build only for Release/RelWithDebInfo + amd64/arm64 (other combinations are not actually different)
@@ -91,11 +91,15 @@ on:
         type: boolean
         description: "Selects the daily/master PR-style version (<tag>+pr<pr>~<commit>) instead of using release/get_version.py."
         default: false
+      os:
+        type: string
+        description: Target distro
+        default: ubuntu-24.04
 
 run-name: "Build and test MAGE"
 
 env:
-  OS: "${{ inputs.arch == 'arm' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}"
+  OS: "${{ inputs.os }}${{ inputs.arch == 'arm' && '-arm' || '' }}"
   ARCH: "${{ inputs.arch }}"
   DOCKER_REPOSITORY_NAME: memgraph/memgraph-mage
   BUILD_TYPE: "${{ inputs.build_type }}"
@@ -169,27 +173,27 @@ jobs:
         run: |
           ./tools/ci/pull-e2e-docker-images.sh &
 
-      - name: Check package deb build
+      - name: Check package DEB/RPM build
         env:
-          INPUT_PACKAGE_DEB: "${{ inputs.package_deb }}"
+          INPUT_PACKAGE_MAGE: "${{ inputs.package_mage }}"
         run: |
-          if [[ "$INPUT_PACKAGE_DEB" == "true" ]]; then
-            package_deb=true
-          elif [[ "$INPUT_PACKAGE_DEB" == "false" ]]; then
-            package_deb=false
+          if [[ "$INPUT_PACKAGE_MAGE" == "true" ]]; then
+            package_mage=true
+          elif [[ "$INPUT_PACKAGE_MAGE" == "false" ]]; then
+            package_mage=false
           else
             if [[ "$MALLOC" == true ]]; then
-              package_deb=false
+              package_mage=false
             else
-              package_deb=true
+              package_mage=true
             fi
           fi
-          if [[ "$package_deb" == true ]]; then
-            echo "Building deb package"
+          if [[ "$package_mage" == true ]]; then
+            echo "Building DEB/RPM package"
           else
-            echo "Not building deb package"
+            echo "Not building DEB/RPM package"
           fi
-          echo "PACKAGE_DEB=${package_deb}" >> $GITHUB_ENV
+          echo "PACKAGE_MAGE=${package_mage}" >> $GITHUB_ENV
 
       - name: Check mgdeps-cache availability
         run: |
@@ -484,7 +488,7 @@ jobs:
           rm -rf "$DBG_DIR"
 
       - name: Build DEB package in MGBUILD container
-        if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_DEB == 'true' }}
+        if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_MAGE == 'true' && startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-') }}
         run: |
           PACKAGE_ARGS="${{ inputs.malloc && '--malloc' || '' }}${{ inputs.cuda && ' --cuda' || '' }}"
           ./release/package/mgbuild.sh \
@@ -503,7 +507,7 @@ jobs:
           echo "DEB_DEBUGINFO_PACKAGE=${DEB_DEBUGINFO_PACKAGE}" >> $GITHUB_ENV
 
       - name: Build offline installer (.run) for Ubuntu 24.04
-        if: ${{ inputs.build_offline_installer && env.PACKAGE_DEB == 'true' }}
+        if: ${{ inputs.build_offline_installer && env.PACKAGE_MAGE == 'true' && startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-') }}
         run: |
           SUFFIX=""
           [[ "$MALLOC" == "true" ]]               && SUFFIX="${SUFFIX}-malloc"
@@ -593,7 +597,7 @@ jobs:
           stop --remove
 
       - name: "Build image (prod)"
-        if: ${{ env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both' }}
+        if: ${{ (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') && startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-') }}
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -611,7 +615,7 @@ jobs:
             --package-flavour prod
 
       - name: "Build image (debug)"
-        if: ${{ env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both' }}
+        if: ${{ (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') && startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-') }}
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -919,11 +923,18 @@ jobs:
           path: "mage/mage.tar.gz"
 
       - name: Push DEB package to GitHub
-        if: ${{ inputs.push_to_github && env.PACKAGE_DEB == 'true' }}
+        if: ${{ inputs.push_to_github && env.PACKAGE_MAGE == 'true' && startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-') }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "${{ env.ARTIFACT_NAME }}-deb"
           path: "output/memgraph-mage*.deb"
+
+      - name: Push RPM package to GitHub
+        if: ${{ inputs.push_to_github && env.PACKAGE_MAGE == 'true' && startsWith(inputs.os, 'fedora-') || startsWith(inputs.os, 'centos-') || startsWith(inputs.os, 'rocky-') }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: "${{ env.ARTIFACT_NAME }}-deb"
+          path: "output/memgraph-mage*.rpm"
 
       - name: Push docker image to GitHub
         if: ${{ inputs.push_to_github && env.BUILD_DOCKER_IMAGE != 'none' }}
