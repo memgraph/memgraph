@@ -79,7 +79,7 @@ class PackageMageSetup:
     def get_package_suite(self) -> dict:
         return self._package_suite
 
-    def _check_pr_label(self, package: str, pr_labels: list) -> bool:
+    def _check_pr_label(self, package: str, pr_labels: list) -> dict | None:
         default_args = {
             "malloc": "false",
             "memgraph_download_link": "",
@@ -87,7 +87,7 @@ class PackageMageSetup:
             "s3_dest_dir": "mage-unofficial",
             "run_smoke_tests": "true",
             "run_tests": "true",
-            "package_deb": "default",
+            "package_mage": "default",
             "generate_sbom": "false",
             "ref": "",
             "os": "ubuntu-24.04",
@@ -98,6 +98,13 @@ class PackageMageSetup:
                 "arch": "arm" if package == "arm" else "amd",
                 "cuda": "true" if package == "cuda" else "false",
                 "cugraph": "true" if package == "cugraph" else "false",
+            }
+            out.update(default_args)
+            return out
+        if "CI -package=mage-centos-9" in pr_labels:
+            print("Found label for CentOS 9")
+            out = {
+                "arch": "x86",
             }
             out.update(default_args)
             return out
@@ -115,7 +122,7 @@ class PackageMageSetup:
             return self._gh_context.get("event").get("inputs")
         return None
 
-    def _check_workflow_input(self) -> bool:
+    def _check_workflow_input(self) -> list:
         if self.workflow_inputs.get("matrix_build") == "true":
             return MATRIX_BUILDS
         # GitHub passes workflow_dispatch/workflow_call inputs as strings
@@ -132,10 +139,10 @@ class PackageMageSetup:
                 "s3_dest_dir": self.workflow_inputs.get("s3_dest_dir", "mage-unofficial"),
                 "run_smoke_tests": self.workflow_inputs.get("run_smoke_tests", "false"),
                 "run_tests": self.workflow_inputs.get("run_tests", "false"),
-                "package_deb": self.workflow_inputs.get("package_deb", "default"),
+                "package_mage": self.workflow_inputs.get("package_mage", "default"),
                 "generate_sbom": self.workflow_inputs.get("generate_sbom", "false"),
                 "ref": self.workflow_inputs.get("ref", ""),
-                "os": self.workflow_inputs("os", "ubuntu-24.04"),
+                "os": self.workflow_inputs.get("os", "ubuntu-24.04"),
             }
         ]
 
@@ -184,7 +191,7 @@ def print_package_suite(package_suite: dict) -> None:
         print(f"S3 dest dir: {build.get('s3_dest_dir')}")
         print(f"Run smoke tests: {build.get('run_smoke_tests')}")
         print(f"Run tests: {build.get('run_tests')}")
-        print(f"Package deb: {build.get('package_deb')}")
+        print(f"Package MAGE: {build.get('package_mage')}")
         print(f"Generate SBOM: {build.get('generate_sbom')}")
         print(f"Ref: {build.get('ref')}")
         print(f"OS: {build.get('os')}")

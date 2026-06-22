@@ -163,7 +163,7 @@ jobs:
       malloc: ${{ matrix.malloc == 'true' }}
       run_smoke_tests: ${{ matrix.run_smoke_tests == 'true' }}
       run_tests: ${{ matrix.run_tests == 'true' }}
-      package_deb: ${{ matrix.package_deb }}
+      package_mage: ${{ matrix.package_mage }}
       generate_sbom: ${{ matrix.generate_sbom == 'true' }}
       build_offline_installer: ${{ inputs.build_offline_installer == true }}
       ref: ${{ matrix.ref }}
