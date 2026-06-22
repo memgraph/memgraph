@@ -111,3 +111,36 @@ as long as `TypedValue` is a tagged union, independent of the accessor seam.
   run inside a scope.
 - **`mgp_edge` asymmetry:** the per-element edge variant is 2-way (no
   subgraph-edge arm) while the vertex variant is 3-way; reconcile when unifying.
+
+## Status after the GraphView/USE arc (issues 18-28)
+
+The seam landed as `GraphView` (`src/query/graph_view.hpp`) with the real
+`DbAccessorGraphView`, the projection `VirtualGraphView`, and the subgraph
+`SubgraphGraphView` implementing it, bound on `EvaluationContext::graph_view`.
+What the arc retired from the tiers above:
+
+- **Tier 2 read path - retired.** `ScanAll`/`Expand` no longer bind a concrete
+  `DbAccessor *`: they read through the ambient `GraphView` (a scan yields the
+  bound graph's vertices; expansion takes the projection's edge index or the
+  subgraph's membership filter). `eval.cpp` `PropertyLookup` and the `[]`
+  subscript read a real vertex, a projected node, and a projected edge through
+  one shared `GetProperty` helper, after `VirtualNode` and `VirtualEdge` gained
+  the `VertexAccessor`/`EdgeAccessor`-shaped `(View) -> Result<>` read signature.
+  The `IsVertex() || IsVirtualNode()` read-path dispatch is gone.
+
+- **Tier 3 topology functions - retired.** `degree`/`inDegree`/`outDegree`
+  resolve over the ambient `GraphView`, counting the projection's or subgraph's
+  edges. Neighbour/relationship traversal is `MATCH` expansion, already over the
+  bound view; there is no separate per-node built-in.
+
+- **What legitimately remains (not a regression to collapse).** The value
+  functions over a *standalone* virtual value - `labels`/`properties`/`id`/
+  `type`/`startNode`/`endNode`/`keys`, and the `FType` matchers that admit a
+  virtual value as a vertex/edge - still carry explicit virtual arms. Per ADR
+  0004 these are inherent: a standalone virtual value is not bound to an ambient
+  graph, so it has no accessor to resolve through; this is the value-function
+  surface owned by issue 15, not the seam. The `AllProperties` map-projection
+  arms (`g.nodes`/`g.edges`, `n{.*}`/`e{.*}`) build a map from a value's own
+  property set and are value-access, not read-path dispatch. Tiers 4-6
+  (write-back, Bolt serialization, `TypedValue` enumeration switches) were out of
+  scope and are unchanged.

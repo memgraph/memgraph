@@ -1,6 +1,6 @@
 # Retire hand-rolled node-kind forks through GraphView
 
-Status: ready-for-agent
+Status: done - the Tier 2-3 collapsible forks were routed through the seam across issues 21-28: `ScanAll`/`Expand` read through the ambient `GraphView`, `PropertyLookup`/subscript read real and projected nodes and edges through one shared `GetProperty` helper (`VirtualEdge` gained the `(View) -> Result` read signature here, completing the node work from issue 24), and `degree`/`inDegree`/`outDegree` resolve over the bound view (issue 27). The value-function arms over standalone virtual values legitimately remain (issue 15 surface). Inventory updated with a "Status after the GraphView/USE arc" section.
 
 ## Parent
 
@@ -17,9 +17,9 @@ See `.scratch/projections/issue-16-branch-inventory.md` for the fork list.
 
 ## Acceptance criteria
 
-- [ ] The identified Tier 2-3 forks are routed through `GraphView` or removed
-- [ ] The full test suite is green (behaviour unchanged)
-- [ ] The branch-point inventory is updated to reflect what was removed
+- [x] The identified Tier 2-3 forks are routed through `GraphView` or removed
+- [x] The full test suite is green (behaviour unchanged)
+- [x] The branch-point inventory is updated to reflect what was removed
 
 ## Blocked by
 

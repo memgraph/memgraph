@@ -622,6 +622,21 @@ TYPED_TEST(InterpreterTest, CallUseScopeDegreeOverSubgraph) {
   EXPECT_EQ(real.GetResults()[0][0].ValueInt(), 2);
 }
 
+// A projected edge reads a property through the same call site as a real edge,
+// by name lookup and by subscript - no edge-kind branch.
+TYPED_TEST(InterpreterTest, CallUseScopeReadsVirtualEdgeProperty) {
+  this->Interpret("CREATE (:N {id: 1})-[:R]->(:N {id: 2})");
+  auto stream = this->Interpret(
+      "MATCH p=(:N {id: 1})-[:R]->(:N {id: 2}) "
+      "WITH derive(p, {virtualEdgeType: 'E', relationshipProperties: {weight: 99}}) AS g "
+      "CALL { USE g MATCH ()-[r]->() RETURN r.weight AS by_name, r['weight'] AS by_subscript, r.missing AS absent } "
+      "RETURN by_name, by_subscript, absent");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 99);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 99);
+  EXPECT_EQ(stream.GetResults()[0][2].type(), memgraph::communication::bolt::Value::Type::Null);
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);

@@ -466,13 +466,11 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
                 GetNameIdMapper(),
                 ctx_->memory};
       }
-    case TypedValue::Type::VirtualEdge: {
-      const auto &ve = expression_result_ptr->ValueVirtualEdge();
-      auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
-      auto prop_value = ve.GetProperty(prop_id);
-      if (prop_value.IsNull()) return TypedValue(ctx_->memory);
-      return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
-    }
+    case TypedValue::Type::VirtualEdge:
+      // A projected edge reads through the same EdgeAccessor-shaped GetProperty as a real edge.
+      return {GetProperty(expression_result_ptr->ValueVirtualEdge(), property_lookup.property_),
+              GetNameIdMapper(),
+              ctx_->memory};
     case TypedValue::Type::VirtualNode:
       // A projected node reads through the same VertexAccessor-shaped GetProperty as a real vertex,
       // so the read goes through the shared helper with no node-kind branch.

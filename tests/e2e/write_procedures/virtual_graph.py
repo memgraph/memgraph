@@ -1126,6 +1126,23 @@ class TestUseScopeOverDerive:
         real = execute_and_fetch_all(cursor, "MATCH (a:N {id: 1}) RETURN outDegree(a) AS od;")
         assert real == [(2,)]
 
+    def test_use_scope_reads_virtual_edge_property(self, connection):
+        """A projected edge reads a property through the same call site as a real
+        edge, by name lookup and by subscript."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:N {id: 1})-[:R]->(:N {id: 2});")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:N {id: 1})-[:R]->(:N {id: 2})
+            WITH derive(p, {virtualEdgeType: 'E', relationshipProperties: {weight: 99}}) AS g
+            CALL { USE g MATCH ()-[r]->() RETURN r.weight AS by_name, r['weight'] AS by_subscript }
+            RETURN by_name, by_subscript;
+            """,
+        )
+        assert results == [(99, 99)]
+
 
 class TestUseScopeOverSubgraph:
     """A USE scope over a project() subgraph: scans its real member nodes and

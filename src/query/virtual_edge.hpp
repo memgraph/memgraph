@@ -109,6 +109,14 @@ class VirtualEdge final {
 
   [[nodiscard]] size_t Hash() const noexcept { return HashKey(FromGid(), ToGid(), impl_->edge_type_name); }
 
+  // Read, in the EdgeAccessor shape, so one call site reads a property from either a real edge or a
+  // virtual edge. A virtual edge has no origin to read through, so the view is unused and the read
+  // cannot fail; the Result is returned for one uniform shape.
+  [[nodiscard]] auto GetProperty(storage::View /*view*/, storage::PropertyId key) const
+      -> storage::Result<storage::PropertyValue> {
+    return GetProperty(key);
+  }
+
   [[nodiscard]] auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
     if (const auto it = impl_->properties.find(key); it != impl_->properties.end()) return it->second;
     return storage::PropertyValue{};
