@@ -267,10 +267,12 @@ TEST_F(CursorParityTest, Corpus) {
     f << "a,b\n1,x\n2,y\n3,z\n";
   }
   ExpectParity("LOAD CSV FROM \"" + csv_path + "\" WITH HEADER AS row RETURN row.a AS a, row.b AS b ORDER BY a");
-  // Note: OutputTable(Stream), LoadParquet/Jsonl and Periodic{Commit,Subquery} are not parity-covered
-  // here (they need binary fixtures / IN-TRANSACTIONS semantics that don't fit this in-process harness).
-  // Their safety rests on flag-OFF == master verbatim + the byte-identical DoPull splice + the dedicated
-  // load_parquet / periodic-commit suites; they are exercised end-to-end under the flag in P1.14.
+  // FOLLOW-UP (tracked): OutputTable(Stream), LoadParquet/Jsonl and Periodic{Commit,Subquery} are NOT
+  // parity-covered here -- they need binary fixtures / IN-TRANSACTIONS semantics that don't fit this
+  // in-process harness. Today their safety rests on flag-OFF == master verbatim + the byte-identical
+  // DoPull splice + the dedicated load_parquet / periodic-commit suites (which run flag-OFF). They are
+  // to be exercised end-to-end under the flag in PHASE 3 (e2e + stress); a periodic-commit parity case
+  // counting commits across both flag states would be the strongest in-process guard if added earlier.
 }
 
 // Write-cursor parity (P1.8 MUTATE). Each case: {setup, mutation-with-RETURN, cleanup}. The mutation
