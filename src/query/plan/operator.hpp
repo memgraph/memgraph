@@ -1393,7 +1393,9 @@ class Produce : public memgraph::query::plan::LogicalOperator {
   class ProduceCursor : public Cursor {
    public:
     ProduceCursor(const Produce &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 

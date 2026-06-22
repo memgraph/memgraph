@@ -879,7 +879,7 @@ class ScanAllCursor : public Cursor {
         get_vertices_(std::move(get_vertices)),
         op_name_(op_name) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
@@ -909,6 +909,53 @@ class ScanAllCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each while-iteration reproduces exactly one master ScanAllCursor::Pull(). oom +
+    // profile are scoped per-iteration (destroyed before co_yield/co_return, where master's return
+    // would destroy them).
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+
+        AbortCheck(context);
+
+        bool ok = true;
+        while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
+          if (!co_await PullChild(*input_cursor_, frame, context)) {
+            ok = false;
+            break;
+          }
+          // We need a getter function, because in case of exhausting a lazy
+          // iterable, we cannot simply reset it by calling begin().
+          auto next_vertices = get_vertices_(frame, context);
+          if (!next_vertices) continue;
+          vertices_ = std::move(next_vertices);
+          vertices_it_.emplace(vertices_->begin());
+          vertices_end_it_.emplace(vertices_->end());
+        }
+#ifdef MG_ENTERPRISE
+        if (ok && license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+            !FindNextVertex(context)) {
+          ok = false;
+        }
+#endif
+
+        if (ok) {
+          auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+          frame_writer.Write(output_symbol_, *vertices_it_.value());
+          ++vertices_it_.value();
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
 #ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_end_it_.value()) {
@@ -925,6 +972,7 @@ class ScanAllCursor : public Cursor {
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     vertices_ = std::nullopt;
     vertices_it_ = std::nullopt;
@@ -954,7 +1002,7 @@ class ScanAllByEdgeCursor : public Cursor {
         get_edges_(std::move(get_edges)),
         op_name_(op_name) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
@@ -1004,9 +1052,83 @@ class ScanAllByEdgeCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each while-iteration reproduces exactly one master ScanAllByEdgeCursor::Pull(),
+    // including the EdgeAtom::Direction::BOTH case, where one edge yields two rows across two
+    // consecutive Pull()s. We re-read `edge` from the iterator each iteration (do_reverse_output_
+    // gates forward vs reverse and whether to advance) -- master does the same on the second Pull,
+    // re-running oom/profile/AbortCheck.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+
+        AbortCheck(context);
+
+        bool ok = true;
+        while (!edges_ || edges_it_.value() == edges_end_it_.value()) {
+          if (!co_await PullChild(*input_cursor_, frame, context)) {
+            ok = false;
+            break;
+          }
+          auto next_edges = get_edges_(frame, context);
+          if (!next_edges) continue;
+
+          edges_.emplace(std::move(next_edges.value()));
+          edges_it_.emplace(edges_->begin());
+          edges_end_it_.emplace(edges_->end());
+        }
+
+        if (ok) {
+          auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+          auto output_expansion = [this, &frame_writer](const EdgeAccessor &edge, bool reverse) {
+            frame_writer.Write(self_.common_.edge_symbol, edge);
+            frame_writer.Write(self_.common_.edge_symbol, edge);
+            if (!reverse) {
+              frame_writer.Write(self_.common_.node1_symbol, edge.From());
+              frame_writer.Write(self_.common_.node2_symbol, edge.To());
+            } else {
+              frame_writer.Write(self_.common_.node1_symbol, edge.To());
+              frame_writer.Write(self_.common_.node2_symbol, edge.From());
+            }
+          };
+
+          const EdgeAccessor edge = *edges_it_.value();
+          frame_writer.Write(self_.common_.edge_symbol, edge);
+          bool early = false;
+          if (self_.common_.direction == EdgeAtom::Direction::OUT) {
+            output_expansion(edge, false);
+          } else if (self_.common_.direction == EdgeAtom::Direction::IN) {
+            output_expansion(edge, true);
+          } else {
+            // both, need to output the edge twice (forward this Pull, reverse the next)
+            if (!do_reverse_output_) {
+              output_expansion(edge, false);
+              do_reverse_output_ = true;
+              early = true;  // master returns true here WITHOUT advancing edges_it_
+            } else {
+              output_expansion(edge, true);
+            }
+          }
+          if (!early) {
+            do_reverse_output_ = false;
+            ++edges_it_.value();
+          }
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     edges_ = std::nullopt;
     edges_it_ = std::nullopt;
@@ -4743,7 +4865,7 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
                                       metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {}
 
-bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool Produce::ProduceCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
@@ -4768,9 +4890,47 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   return false;
 }
 
+PullAwaitable Produce::ProduceCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each while-iteration reproduces exactly one master Produce::Pull(). oom_exception +
+  // profile + evaluator are alive across `co_await PullChild` — which is correct: in master the
+  // same guards are alive during the nested input_cursor_->Pull() call. The inner scope closes
+  // before co_yield/co_return, destroying them where master's `return` would.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP_BY_REF(self_);
+
+      AbortCheck(context);
+
+      if (co_await PullChild(*input_cursor_, frame, context)) {
+        // Produce should always yield the latest results.
+        ExpressionEvaluator evaluator(&frame,
+                                      context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor,
+                                      storage::View::NEW,
+                                      context.frame_change_collector,
+                                      &context.number_of_hops,
+                                      context.user_or_role,
+                                      context.triggering_user);
+        for (auto *named_expr : self_.named_expressions_) {
+          named_expr->Accept(evaluator);
+        }
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
+void Produce::ProduceCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 Delete::Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<Expression *> &expressions, bool detach)
     : input_(input ? input : std::make_shared<Once>()), expressions_(expressions), detach_(detach) {}

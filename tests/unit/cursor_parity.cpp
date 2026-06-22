@@ -115,16 +115,25 @@ class CursorParityTest : public ::testing::Test {
 TEST_F(CursorParityTest, Corpus) {
   // Seed deterministic data once (flag OFF). Reads below compare across both flag states.
   memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
-  interpreter.Interpret("CREATE (:N {id: 1}), (:N {id: 2}), (:N {id: 3})");
+  interpreter.Interpret("CREATE (a:N {id: 1}), (b:N {id: 2}), (c:N {id: 3})");
+  interpreter.Interpret("MATCH (a:N {id: 1}), (b:N {id: 2}) CREATE (a)-[:E {w: 10}]->(b)");
+  interpreter.Interpret("MATCH (b:N {id: 2}), (c:N {id: 3}) CREATE (b)-[:E {w: 20}]->(c)");
 
   const std::vector<std::string> corpus = {
-      // Once + Produce (Once is dual-path at P1.1).
+      // Once + Produce (P1.1/P1.2 dual-path).
       "RETURN 1",
       "RETURN 1 + 2 AS s, 'x' AS t",
-      // Scan + Produce + OrderBy/Limit (legacy until their PRs; still must be identical).
+      // ScanAll + Produce (P1.2 dual-path) + OrderBy/Limit/Aggregate/Distinct (legacy until their PRs).
       "MATCH (n:N) RETURN n.id AS id ORDER BY id",
       "MATCH (n:N) RETURN n.id AS id ORDER BY id LIMIT 2",
+      "MATCH (n:N) RETURN n.id AS id ORDER BY id SKIP 1",
+      "MATCH (n:N) WHERE n.id > 1 RETURN n.id AS id ORDER BY id",
       "MATCH (n:N) RETURN count(*) AS c",
+      "MATCH (n:N) RETURN sum(n.id) AS total",
+      // Edge / expand paths (exercise ScanAllByEdge or Expand depending on the chosen plan).
+      "MATCH (a:N)-[r:E]->(b:N) RETURN a.id AS aid, b.id AS bid, r.w AS w ORDER BY aid, bid",
+      "MATCH ()-[r:E]->() RETURN r.w AS w ORDER BY w",
+      "MATCH (a:N)-[:E]->(b:N) RETURN count(*) AS edges",
       "UNWIND [1, 2, 3, 3] AS x RETURN DISTINCT x ORDER BY x",
   };
   for (const auto &q : corpus) {
