@@ -8362,7 +8362,7 @@ class EmptyResultCursor : public Cursor {
   EmptyResultCursor(const EmptyResult &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
       : input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("EmptyResult");
 
     if (!pulled_all_input_) {
@@ -8374,9 +8374,27 @@ class EmptyResultCursor : public Cursor {
     return false;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // EmptyResult is a sink: it drains all input (discarding rows) and never emits. The drain runs
+    // once on the first (only) DoPull invocation; the coroutine then co_returns false and is done.
+    // No co_yield, so no per-yield lifetime concern; profile spans the single drain == master Pull.
+    SCOPED_PROFILE_OP("EmptyResult");
+
+    if (!pulled_all_input_) {
+      while (co_await PullChild(*input_cursor_, frame, context)) {
+        AbortCheck(context);
+      }
+      pulled_all_input_ = true;
+    }
+    co_return false;
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     pulled_all_input_ = false;
   }
@@ -8412,7 +8430,7 @@ class AccumulateCursor : public Cursor {
   AccumulateCursor(const Accumulate &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
       : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), cache_(mem) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Accumulate");
 
@@ -8441,9 +8459,54 @@ class AccumulateCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master Accumulate::Pull(). oom/profile (and
+    // the per-iteration frame_writer) are alive across the co_await PullChild drain on the first
+    // iteration but die before co_yield. The input is drained ONCE into cache_ (guarded by
+    // pulled_all_input_); each subsequent iteration emits one cached row. One emitted row == one
+    // master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP("Accumulate");
+
+        auto &dba = *context.db_accessor;
+        // cache all the input
+        if (!pulled_all_input_) {
+          while (co_await PullChild(*input_cursor_, frame, context)) {
+            utils::pmr::vector<TypedValue> row(cache_.get_allocator().resource());
+            row.reserve(self_.symbols_.size());
+            for (const Symbol &symbol : self_.symbols_) row.emplace_back(frame[symbol]);
+            cache_.emplace_back(std::move(row));
+          }
+          pulled_all_input_ = true;
+          cache_it_ = cache_.begin();
+
+          if (self_.advance_command_) dba.AdvanceCommand();
+        }
+
+        AbortCheck(context);
+        if (cache_it_ != cache_.end()) {
+          auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+          auto row_it = (cache_it_++)->begin();
+          for (const Symbol &symbol : self_.symbols_) {
+            frame_writer.Write(symbol, *row_it++);
+          }
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     cache_.clear();
     cache_it_ = cache_.begin();
@@ -8546,7 +8609,7 @@ class AggregateCursor : public Cursor {
         aggregation_(mem),
         reused_group_by_(self.group_by_.size(), mem) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
     AbortCheck(context);
@@ -8574,9 +8637,55 @@ class AggregateCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master Aggregate::Pull(). oom/profile/
+    // frame_writer are per-iteration, alive across the co_await ProcessAllCo drain on the first
+    // iteration but die before co_yield. ProcessAllCo is the input-pulling helper coroutine twin (it
+    // drains input via co_await PullChild then post-processes); it runs ONCE (pulled_all_input_
+    // guard). Each subsequent iteration emits one aggregation group. Master's `return false` ->
+    // co_return false; master's `return true` -> produced=true -> the single co_yield. One emitted
+    // group == one master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+        AbortCheck(context);
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+        if (!pulled_all_input_) {
+          if (!(co_await ProcessAllCo(&frame, &context)) && !self_.group_by_.empty()) co_return false;
+          pulled_all_input_ = true;
+          aggregation_it_ = aggregation_.begin();
+
+          if (aggregation_.empty()) {
+            DefaultAggregation(context, self_.aggregations_, self_.remember_, frame_writer);
+            produced = true;
+          }
+        }
+        if (!produced) {
+          if (aggregation_it_ == aggregation_.end()) co_return false;
+          // place aggregation values on the frame
+          size_t pos = 0;
+          for (const auto &aggregation_elem : self_.aggregations_)
+            frame_writer.Write(aggregation_elem.output_sym, aggregation_it_->second.values_[pos++]);
+          // place remember values on the frame
+          pos = 0;
+          for (const Symbol &remember_sym : self_.remember_)
+            frame_writer.Write(remember_sym, aggregation_it_->second.remember_[pos++]);
+          aggregation_it_++;
+          produced = true;
+        }
+      }
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    Cursor::Reset();  // destroy the generator frame first
     input_cursor_->Reset();
     aggregation_.clear();
     aggregation_it_ = aggregation_.begin();
@@ -8803,6 +8912,64 @@ class AggregateCursor : public Cursor {
       }
     }
     return true;
+  }
+
+  // Coroutine twin of ProcessAll, used by DoPull (co_awaits the input drain). PullLegacy uses the
+  // synchronous ProcessAll above. Phase 3 deletes ProcessAll + PullLegacy and renames this back.
+  PullAwaitable ProcessAllCo(Frame *frame, ExecutionContext *context) {
+    db_accessor_ = context->db_accessor;
+    MG_ASSERT(db_accessor_, "Aggregation expects a current DB transaction");
+    ExpressionEvaluator evaluator(frame,
+                                  context->symbol_table,
+                                  context->evaluation_context,
+                                  context->db_accessor,
+                                  storage::View::NEW,
+                                  nullptr,
+                                  &context->number_of_hops,
+                                  context->user_or_role);
+
+    bool pulled = false;
+    while (co_await PullChild(*input_cursor_, *frame, *context)) {
+      ProcessOne(*frame, &evaluator);
+      pulled = true;
+    }
+    if (!pulled) co_return false;
+
+    // post processing
+    for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
+      switch (self_.aggregations_[pos].op) {
+        case Aggregation::Op::AVG: {
+          // calculate AVG aggregations (so far they have only been summed)
+          for (auto &kv : aggregation_) {
+            const CompactAggregationValue &agg_value = kv.second;
+            auto count = agg_value.counts_[pos];
+            auto *pull_memory = context->evaluation_context.memory;
+            if (count > 0) {
+              kv.second.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
+            }
+          }
+          break;
+        }
+        case Aggregation::Op::COUNT: {
+          // Copy counts to be the value
+          for (auto &kv : aggregation_) {
+            const CompactAggregationValue &agg_value = kv.second;
+            kv.second.values_[pos] = agg_value.counts_[pos];
+          }
+          break;
+        }
+        case Aggregation::Op::MIN:
+        case Aggregation::Op::MAX:
+        case Aggregation::Op::SUM:
+        case Aggregation::Op::COLLECT_LIST:
+        case Aggregation::Op::COLLECT_MAP:
+        case Aggregation::Op::PROJECT_PATH:
+        case Aggregation::Op::PROJECT_LISTS:
+        case Aggregation::Op::DERIVE:
+          break;
+      }
+    }
+    co_return true;
   }
 
   /**

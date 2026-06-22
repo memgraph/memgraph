@@ -178,6 +178,12 @@ TEST_F(CursorParityTest, Corpus) {
       // bound, so match the pair first.
       "MATCH (a:N {id: 1}), (b:N {id: 3}) WITH a, b MATCH (a)-[r:E *KSHORTEST]->(b) RETURN size(r) AS hops ORDER BY "
       "hops",
+      // Aggregate (P1.9 dual-path): group-by, avg/min/max, DISTINCT-agg, no-input default aggregation.
+      "MATCH (n:N) RETURN n.id % 2 AS parity, count(*) AS c ORDER BY parity",
+      "MATCH (n:N) RETURN avg(n.id) AS a, min(n.id) AS mn, max(n.id) AS mx",
+      "MATCH (n:N) RETURN count(DISTINCT (n.id % 2)) AS c",
+      "MATCH (n:N) RETURN size(collect(n.id)) AS c",
+      "MATCH (n:NoSuchLabel) RETURN count(*) AS c, sum(n.id) AS s",  // no-input -> DefaultAggregation
   };
   for (const auto &q : corpus) {
     ExpectParity(q);
@@ -211,6 +217,10 @@ TEST_F(CursorParityTest, MutationCorpus) {
       {"CREATE (:Tmp:Extra {id: 1})", "MATCH (n:Tmp) REMOVE n:Extra RETURN 'Extra' IN labels(n) AS has"},
       // Delete (buffered passthrough; capture id BEFORE delete -- can't read a deleted object)
       {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})", "MATCH (n:Tmp) WITH n, n.id AS id DELETE n RETURN id ORDER BY id"},
+      // EmptyResult sink (P1.9): a no-RETURN write drains through EmptyResult (both runs return nothing).
+      {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})", "MATCH (n:Tmp) SET n.x = 1"},
+      // Accumulate (P1.9): WITH between MATCH and SET forces materialization of the read side.
+      {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})", "MATCH (n:Tmp) WITH n ORDER BY n.id SET n.seq = 1 RETURN n.seq AS s"},
   };
   for (const auto &c : cases) {
     ExpectMutationParity(c.setup, c.mutation, cleanup);
