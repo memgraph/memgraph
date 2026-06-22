@@ -1772,15 +1772,19 @@ TEST(TaskCollectionStress, TryExecuteOneIdleTaskWithYieldAndPool) {
     return false;  // Complete
   });
 
-  // TryExecuteOneIdleTask with pool should handle yielded task
+  // TryExecuteOneIdleTask runs the task inline once (execution_count==1), it yields, and is rescheduled
+  // onto the pool. The inline portion must have executed.
   bool executed = collection.TryExecuteOneIdleTask(&pool);
   ASSERT_TRUE(executed);
-  ASSERT_EQ(execution_count.load(), 1);
+  // NOTE: the exact intermediate state here is RACY — the 2-worker pool can run the rescheduled resume
+  // (execution_count -> 2, task -> terminal) before we observe it. So only assert the lower bound; the
+  // deterministic end state is checked after Wait(). (Asserting ==1 / HasNonTerminalTasks here would fail
+  // and, critically, ASSERT's early-return would SKIP Wait() below, destroying the collection while a
+  // pool worker is still inside NotifyProgress -> a teardown data race.)
+  ASSERT_GE(execution_count.load(), 1);
 
-  // Task yielded and was rescheduled, so not terminal yet
-  ASSERT_TRUE(collection.HasNonTerminalTasks());
-
-  // Wait for the rescheduled task to complete
+  // Wait for the rescheduled task to complete (and for all in-flight WrapTask invocations to drain,
+  // so the collection can be safely destroyed at scope exit).
   collection.Wait();
 
   ASSERT_EQ(execution_count.load(), 2);
