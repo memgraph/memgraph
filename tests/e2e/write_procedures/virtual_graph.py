@@ -1206,5 +1206,86 @@ class TestUseScopeOverSubgraph:
         assert real == [(2,)]
 
 
+class TestUseScopeProceduresHonorAmbientView:
+    """Inside a `CALL { USE g ... }` scope, an unmodified read procedure that
+    reads `ctx.graph` operates on the bound view, not the real graph. The
+    procedures here take no graph argument, so the only graph they can see is
+    the ambient one routed in by the USE scope."""
+
+    def test_ambient_virtualgraph_view_iterates_projection_vertices(self, connection):
+        """An ambient virtualGraph projection: an unmodified vertex-iterating
+        procedure yields the projection's nodes."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 10}), virtualNode(2, 'N', {x: 20})] AS nodes, [] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g CALL read.subgraph_get_vertices() YIELD node RETURN node.x AS x }
+            RETURN x ORDER BY x;
+            """,
+        )
+        assert results == [(10,), (20,)]
+
+    def test_ambient_virtualgraph_view_expands_projection_edges(self, connection):
+        """An ambient virtualGraph projection: an unmodified edge-expanding
+        procedure traverses the projection's edges."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes,
+                 [virtualEdge('R', 1, 2)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a {x: 1}) CALL read.subgraph_get_out_edges(a) YIELD edge RETURN type(edge) AS t }
+            RETURN t;
+            """,
+        )
+        assert results == [("R",)]
+
+    def test_ambient_subgraph_view_iterates_member_vertices(self, connection):
+        """An ambient project() subgraph: an unmodified vertex-iterating procedure
+        yields only the subgraph's member nodes."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:A {name: 'a'})-[:R]->(:B {name: 'b'}), (:C {name: 'c'});")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:A)-[:R]->(:B)
+            WITH project(p) AS sg
+            CALL { USE sg CALL read.subgraph_get_vertices() YIELD node RETURN node.name AS name }
+            RETURN name ORDER BY name;
+            """,
+        )
+        assert results == [("a",), ("b",)]
+
+    def test_procedure_outside_use_scope_sees_real_graph(self, connection):
+        """With no USE scope, the same procedure reads the real graph."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:Real {name: 'r1'}), (:Real {name: 'r2'});")
+        results = execute_and_fetch_all(
+            cursor,
+            "CALL read.subgraph_get_vertices() YIELD node RETURN node.name AS name ORDER BY name;",
+        )
+        assert results == [("r1",), ("r2",)]
+
+    def test_explicit_graph_argument_wins_over_ambient_view(self, connection):
+        """An explicit graph argument takes precedence over the ambient view:
+        `USE h { CALL proc(g) }` runs the procedure over g, not h."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH virtualGraph([virtualNode(1, 'N', {x: 10})], []) AS g,
+                 virtualGraph([virtualNode(2, 'N', {x: 20})], []) AS h
+            CALL (g) { USE h CALL read.subgraph_get_vertices(g) YIELD node RETURN node.x AS x }
+            RETURN x;
+            """,
+        )
+        assert results == [(10,)]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -34,13 +34,17 @@ namespace memgraph::query {
 // OutEdges/InEdges are exposed here for the projection's expand surface rather
 // than on GraphView.
 class VirtualGraphView final : public GraphView {
-  const VirtualGraph *graph_;
+  VirtualGraph *graph_;
   DbAccessor *names_;
 
  public:
-  VirtualGraphView(const VirtualGraph *graph, DbAccessor *names) : graph_(graph), names_(names) {}
+  VirtualGraphView(VirtualGraph *graph, DbAccessor *names) : graph_(graph), names_(names) {}
 
   VirtualNodeRange Nodes() const { return VirtualNodeRange{graph_->nodes()}; }
+
+  // The borrowed projection, for wrapping in a VirtualGraphDbAccessor when this
+  // view is the ambient graph of a procedure call.
+  [[nodiscard]] VirtualGraph *graph() const { return graph_; }
 
   VertexRange Vertices(storage::View /*view*/) override { return VertexRange{Nodes()}; }
 

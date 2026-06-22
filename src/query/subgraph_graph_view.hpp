@@ -41,6 +41,10 @@ class SubgraphGraphView final : public GraphView {
   // edges so a match stays within the subgraph.
   [[nodiscard]] bool ContainsEdge(const EdgeAccessor &edge) const { return graph_->edges().contains(edge); }
 
+  // The borrowed subgraph, for wrapping in a SubgraphDbAccessor when this view
+  // is the ambient graph of a procedure call.
+  [[nodiscard]] Graph *graph() const { return graph_; }
+
   VertexRange Vertices(storage::View /*view*/) override { return VertexRange{VerticesIterable(&graph_->vertices())}; }
 
   storage::LabelId NameToLabel(std::string_view name) override { return names_->NameToLabel(name); }

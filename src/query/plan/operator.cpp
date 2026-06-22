@@ -8181,7 +8181,8 @@ namespace {
 void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result,
-                         int64_t procedure_id, const bool call_initializer = false) {
+                         int64_t procedure_id, const bool call_initializer = false,
+                         query::GraphView *ambient_view = nullptr) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
@@ -8211,6 +8212,17 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 
     vg_acc = query::VirtualGraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), &*virtual_graph);
     graph.impl = &*vg_acc;
+  } else if (ambient_view != nullptr) {
+    // No explicit graph argument, but a `CALL { USE g ... }` scope bound an
+    // ambient view: route the procedure over it, borrowing the scope-owned
+    // graph (no copy). An explicit argument above takes precedence over this.
+    if (auto *subgraph_view = dynamic_cast<query::SubgraphGraphView *>(ambient_view)) {
+      db_acc = query::SubgraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), subgraph_view->graph());
+      graph.impl = &*db_acc;
+    } else if (auto *virtual_view = dynamic_cast<query::VirtualGraphView *>(ambient_view)) {
+      vg_acc = query::VirtualGraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), virtual_view->graph());
+      graph.impl = &*vg_acc;
+    }
   }
 
   procedure::ValidateArguments(args_list, proc, fully_qualified_procedure_name);
@@ -8407,7 +8419,8 @@ class CallProcedureCursor : public Cursor {
                           memory_limit,
                           &result_,
                           self_->procedure_id_,
-                          call_initializer);
+                          call_initializer,
+                          context.evaluation_context.graph_view);
 
       if (call_initializer) call_initializer = false;
 
