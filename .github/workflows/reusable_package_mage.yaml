@@ -351,19 +351,27 @@ jobs:
           --package \
           --dest-dir $MG_PACKAGE_ARTIFACT_DIR
 
-          mv -v "$MG_PACKAGE_ARTIFACT_DIR"/memgraph_*.deb mage/memgraph.deb
-          # Debug-flavoured docker images install memgraph-debuginfo on top
-          # of the prod deb. Stage the companion sidecar deb when either
-          # docker variant needs it; the relwithdebinfo Dockerfile target
-          # consumes it from mage/memgraph-debuginfo.deb.
-          if [[ ("$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both") && "$OS" == ubuntu-* ]]; then
-            debuginfo_deb=$(ls -1 "$MG_PACKAGE_ARTIFACT_DIR"/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)
-            if [[ -z "$debuginfo_deb" ]]; then
-              echo "Error: building the relwithdebinfo MAGE docker image requires a memgraph-debuginfo deb in $MG_PACKAGE_ARTIFACT_DIR" >&2
-              echo "       (memgraph must build with --split-debug — should always be true under RelWithDebInfo)" >&2
-              exit 1
+          # Stage the base memgraph package as mage/memgraph.deb for the
+          # downstream MAGE docker build and the offline installer. Both only
+          # run on deb-based distros; on rpm distros (centos/fedora/rocky) the
+          # base package is an .rpm and isn't consumed here — package-mage-rpm
+          # only declares `Requires: memgraph`, it doesn't bundle it — so skip
+          # this staging entirely rather than failing on a missing *.deb glob.
+          if [[ "$OS" == ubuntu-* || "$OS" == debian-* ]]; then
+            mv -v "$MG_PACKAGE_ARTIFACT_DIR"/memgraph_*.deb mage/memgraph.deb
+            # Debug-flavoured docker images install memgraph-debuginfo on top
+            # of the prod deb. Stage the companion sidecar deb when either
+            # docker variant needs it; the relwithdebinfo Dockerfile target
+            # consumes it from mage/memgraph-debuginfo.deb.
+            if [[ ("$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both") && "$OS" == ubuntu-* ]]; then
+              debuginfo_deb=$(ls -1 "$MG_PACKAGE_ARTIFACT_DIR"/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)
+              if [[ -z "$debuginfo_deb" ]]; then
+                echo "Error: building the relwithdebinfo MAGE docker image requires a memgraph-debuginfo deb in $MG_PACKAGE_ARTIFACT_DIR" >&2
+                echo "       (memgraph must build with --split-debug — should always be true under RelWithDebInfo)" >&2
+                exit 1
+              fi
+              mv -v "$debuginfo_deb" mage/memgraph-debuginfo.deb
             fi
-            mv -v "$debuginfo_deb" mage/memgraph-debuginfo.deb
           fi
 
       - name: "Copy SBOM"
