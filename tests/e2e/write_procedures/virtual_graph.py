@@ -901,6 +901,78 @@ class TestUseScope:
                 """,
             )
 
+    def test_use_scope_expands_directed(self, connection):
+        """A directed expand inside the scope returns the projection's edge with
+        both endpoints bound to projection nodes."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes,
+                 [virtualEdge('R', 1, 2)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a)-[r]->(b) RETURN a.x AS ax, type(r) AS t, b.x AS bx }
+            RETURN ax, t, bx;
+            """,
+        )
+        assert results == [(1, "R", 2)]
+
+    def test_use_scope_expands_undirected(self, connection):
+        """An undirected expand traverses the edge from both ends."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes,
+                 [virtualEdge('R', 1, 2)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a)-[r]-(b) RETURN a.x AS ax, b.x AS bx }
+            RETURN ax, bx ORDER BY ax;
+            """,
+        )
+        assert results == [(1, 2), (2, 1)]
+
+    def test_use_scope_expands_type_filtered(self, connection):
+        """An edge-type filter selects only edges of that type."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes,
+                 [virtualEdge('R', 1, 2), virtualEdge('S', 1, 2)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a)-[r:R]->(b) RETURN type(r) AS t }
+            RETURN t;
+            """,
+        )
+        assert results == [("R",)]
+
+    def test_use_scope_expands_self_loop(self, connection):
+        """A self-loop is reachable expanding either direction; both endpoints are
+        the same projection node."""
+        cursor = connection.cursor()
+        out_rows = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 7})] AS nodes, [virtualEdge('R', 1, 1)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a)-[r]->(b) RETURN a.x AS ax, b.x AS bx }
+            RETURN ax, bx;
+            """,
+        )
+        assert out_rows == [(7, 7)]
+
+        in_rows = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 7})] AS nodes, [virtualEdge('R', 1, 1)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a)<-[r]-(b) RETURN a.x AS ax, b.x AS bx }
+            RETURN ax, bx;
+            """,
+        )
+        assert in_rows == [(7, 7)]
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

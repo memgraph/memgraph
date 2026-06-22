@@ -1913,6 +1913,30 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   while (true) {
     AbortCheck(context);
+
+    // A projection's edges, when the input node is a VirtualNode. The endpoint
+    // is the edge's other end, and both edge and node go to the frame as their
+    // virtual TypedValue variants.
+    if (in_vedges_ && *in_vedges_it_ != in_vedges_->end()) {
+      const VirtualEdge *edge = *(*in_vedges_it_)++;
+      const VirtualNode &other = edge->From();
+      if (!VirtualEdgeMatches(*edge, other)) continue;
+      frame_writer.Write(self_.common_.edge_symbol, *edge);
+      if (!self_.common_.existing_node) frame_writer.Write(self_.common_.node_symbol, other);
+      return true;
+    }
+    if (out_vedges_ && *out_vedges_it_ != out_vedges_->end()) {
+      const VirtualEdge *edge = *(*out_vedges_it_)++;
+      // A self-loop is both an in-edge and an out-edge; expanding BOTH ways it
+      // was already emitted from the in-edge arm, so emit it once.
+      if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge->FromGid() == edge->ToGid()) continue;
+      const VirtualNode &other = edge->To();
+      if (!VirtualEdgeMatches(*edge, other)) continue;
+      frame_writer.Write(self_.common_.edge_symbol, *edge);
+      if (!self_.common_.existing_node) frame_writer.Write(self_.common_.node_symbol, other);
+      return true;
+    }
+
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
@@ -1966,6 +1990,10 @@ void Expand::ExpandCursor::Reset() {
   in_edges_it_ = std::nullopt;
   out_edges_ = std::nullopt;
   out_edges_it_ = std::nullopt;
+  in_vedges_ = std::nullopt;
+  in_vedges_it_ = std::nullopt;
+  out_vedges_ = std::nullopt;
+  out_vedges_it_ = std::nullopt;
 }
 
 ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame) {
@@ -2025,6 +2053,14 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
     if (!input_cursor_->Pull(frame, context)) return false;
 
     if (context.hops_limit.IsLimitReached()) return false;
+
+    // A projection node expands through the bound view's edge index, not the
+    // real-graph accessor.
+    const TypedValue &input_value = frame[self_.input_symbol_];
+    if (input_value.IsVirtualNode()) {
+      if (InitVirtualEdges(frame, context, input_value.ValueVirtualNode())) return true;
+      continue;
+    }
 
     expansion_info_ = GetExpansionInfo(frame);
 
@@ -2098,6 +2134,50 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
 
     return true;
   }
+}
+
+bool Expand::ExpandCursor::VirtualEdgeMatches(const VirtualEdge &edge, const VirtualNode &other) const {
+  if (!allowed_edge_type_names_.empty() &&
+      std::ranges::find(allowed_edge_type_names_, std::string_view{edge.EdgeTypeName()}) ==
+          allowed_edge_type_names_.end()) {
+    return false;
+  }
+  // When the pattern's other end is already bound (existing_node), only the edge
+  // reaching that node matches.
+  if (existing_vnode_gid_ && other.Gid() != *existing_vnode_gid_) return false;
+  return true;
+}
+
+bool Expand::ExpandCursor::InitVirtualEdges(Frame &frame, ExecutionContext &context, const VirtualNode &vnode) {
+  // A VirtualNode on the frame means a projection is the ambient view, so its
+  // edge index is the bound view's. Edge expansion is the projection's, reached
+  // through the view rather than the real-graph accessor.
+  auto *view = dynamic_cast<VirtualGraphView *>(context.graph_view);
+  DMG_ASSERT(view, "A VirtualNode is scanned only with a projection bound as the ambient view");
+
+  allowed_edge_type_names_.clear();
+  for (const auto edge_type : self_.common_.edge_types) {
+    allowed_edge_type_names_.emplace_back(view->EdgeTypeToName(edge_type));
+  }
+
+  existing_vnode_gid_.reset();
+  if (self_.common_.existing_node) {
+    const TypedValue &existing = frame[self_.common_.node_symbol];
+    if (existing.IsNull()) return true;  // an unbound optional end matches nothing
+    existing_vnode_gid_ = existing.ValueVirtualNode().Gid();
+  }
+
+  const auto gid = vnode.Gid();
+  const auto direction = self_.common_.direction;
+  if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
+    in_vedges_ = view->InEdges(gid);
+    in_vedges_it_ = in_vedges_->begin();
+  }
+  if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
+    out_vedges_ = view->OutEdges(gid);
+    out_vedges_it_ = out_vedges_->begin();
+  }
+  return true;
 }
 
 ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,

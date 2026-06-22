@@ -383,6 +383,68 @@ TYPED_TEST(InterpreterTest, CallUseScopeIsScopedToTheProjection) {
   EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 10);
 }
 
+// A directed expand inside a USE scope resolves a projection node's edge; both
+// endpoints bind back to projection nodes.
+TYPED_TEST(InterpreterTest, CallUseScopeExpandsDirected) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes, [virtualEdge('R', 1, 2)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a)-[r]->(b) RETURN a.x AS ax, type(r) AS t, b.x AS bx } "
+      "RETURN ax, t, bx");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "R");
+  EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 2);
+}
+
+// An undirected expand traverses the edge from both ends.
+TYPED_TEST(InterpreterTest, CallUseScopeExpandsUndirected) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes, [virtualEdge('R', 1, 2)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a)-[r]-(b) RETURN a.x AS ax, b.x AS bx } "
+      "RETURN ax, bx ORDER BY ax");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
+}
+
+// An edge-type filter selects only edges of that type.
+TYPED_TEST(InterpreterTest, CallUseScopeExpandsTypeFiltered) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2})] AS nodes, "
+      "[virtualEdge('R', 1, 2), virtualEdge('S', 1, 2)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a)-[r:R]->(b) RETURN type(r) AS t } "
+      "RETURN t");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "R");
+}
+
+// A self-loop is reachable expanding either direction; its two endpoints are the
+// same projection node.
+TYPED_TEST(InterpreterTest, CallUseScopeExpandsSelfLoop) {
+  auto out = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 7})] AS nodes, [virtualEdge('R', 1, 1)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a)-[r]->(b) RETURN a.x AS ax, b.x AS bx } "
+      "RETURN ax, bx");
+  ASSERT_EQ(out.GetResults().size(), 1U);
+  EXPECT_EQ(out.GetResults()[0][0].ValueInt(), 7);
+  EXPECT_EQ(out.GetResults()[0][1].ValueInt(), 7);
+
+  auto in = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 7})] AS nodes, [virtualEdge('R', 1, 1)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a)<-[r]-(b) RETURN a.x AS ax, b.x AS bx } "
+      "RETURN ax, bx");
+  ASSERT_EQ(in.GetResults().size(), 1U);
+  EXPECT_EQ(in.GetResults()[0][0].ValueInt(), 7);
+  EXPECT_EQ(in.GetResults()[0][1].ValueInt(), 7);
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);

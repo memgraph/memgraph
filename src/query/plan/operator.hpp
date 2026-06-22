@@ -13,6 +13,8 @@
 
 #include <memory>
 #include <optional>
+#include <span>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -43,6 +45,8 @@ struct ExecutionContext;
 class ExpressionEvaluator;
 class Frame;
 class SymbolTable;
+class VirtualNode;
+class VirtualEdge;
 
 namespace plan {
 
@@ -1073,6 +1077,10 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     using OutEdgeT = std::vector<EdgeAccessor>;
     using OutEdgeIteratorT = decltype(std::declval<OutEdgeT>().begin());
 
+    // A projection's incident edges, borrowed from the bound view's edge index.
+    using VEdgeRange = std::span<const VirtualEdge *const>;
+    using VEdgeIteratorT = VEdgeRange::iterator;
+
     const Expand &self_;
     const UniqueCursorPtr input_cursor_;
 
@@ -1087,7 +1095,19 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     int64_t prev_input_degree_{-1};
     int64_t prev_existing_degree_{-1};
 
+    // The projection-expansion arm, live when the input node is a VirtualNode.
+    // The ranges borrow the bound view's edge index, stable for the read-only
+    // scope; the allowed type names and existing-node gid are the in/out filter.
+    std::optional<VEdgeRange> in_vedges_;
+    std::optional<VEdgeIteratorT> in_vedges_it_;
+    std::optional<VEdgeRange> out_vedges_;
+    std::optional<VEdgeIteratorT> out_vedges_it_;
+    std::vector<std::string_view> allowed_edge_type_names_;
+    std::optional<storage::Gid> existing_vnode_gid_;
+
     bool InitEdges(Frame &, ExecutionContext &);
+    bool InitVirtualEdges(Frame &, ExecutionContext &, const VirtualNode &);
+    bool VirtualEdgeMatches(const VirtualEdge &, const VirtualNode &other) const;
   };
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
