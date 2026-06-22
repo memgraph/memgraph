@@ -148,6 +148,9 @@ TEST_F(CursorParityTest, Corpus) {
       // ExpandVariable + EdgeUniquenessFilter (P1.4b dual-path) — variable-length over the 1->2->3 chain.
       "MATCH (a:N {id: 1})-[:E*1..2]->(b:N) RETURN b.id AS bid ORDER BY bid",
       "MATCH (a:N {id: 1})-[r:E*1..3]->(b:N) RETURN size(r) AS hops, b.id AS bid ORDER BY hops, bid",
+      // Shortest-path BFS (P1.5 dual-path): SingleSource (source bound) + ST (both endpoints bound).
+      "MATCH (a:N {id: 1})-[r *BFS]->(b:N) RETURN b.id AS bid, size(r) AS hops ORDER BY bid",
+      "MATCH (a:N {id: 1})-[r *BFS]->(b:N {id: 3}) RETURN size(r) AS hops",
   };
   for (const auto &q : corpus) {
     ExpectParity(q);
