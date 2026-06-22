@@ -67,7 +67,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
   struct DbInfo {
     std::vector<storage::SalientConfig> configs;
     uint64_t last_committed_timestamp;
-    // Hot/cold (C8/C16): COLD set carried so a reconnecting/lagging replica converges to {HOT ∪ COLD}.
+    // Hot/cold: COLD set carried so a reconnecting/lagging replica converges to {HOT ∪ COLD}.
     // One ColdTenantRecovery per suspended tenant (salient + stats + epoch); empty on non-enterprise /
     // no-license.
     std::vector<storage::ColdTenantRecovery> cold_databases;

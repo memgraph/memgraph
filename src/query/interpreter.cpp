@@ -7298,8 +7298,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       auto *dbms_handler = interpreter_context->dbms_handler;
 #ifdef MG_ENTERPRISE
       // SHOW STORAGE INFO ON <cold> serves the durable as-of-suspend snapshot instead of tripping
-      // the Get_ cold seam (reverses HC-5). The numbers are MAIN's as-of-suspend snapshot; physical
-      // fields (memory/disk) are MAIN-relative and labelled COLD (R11).
+      // the Get_ cold seam (which would otherwise error). The numbers are MAIN's as-of-suspend snapshot;
+      // physical fields (memory/disk) are MAIN-relative and labelled COLD.
       if (info_query->database_) {
         if (auto cold = dbms_handler->GetColdShowInfo(*info_query->database_)) {
           const auto &db_name = *info_query->database_;

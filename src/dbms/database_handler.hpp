@@ -87,7 +87,7 @@ class DatabaseHandler : public Handler<Database> {
           // A hot/cold COLD shell is a no-value gatekeeper (access() == nullopt). It does not hold a
           // live storage claiming a directory (its durable dir is unique, UUID-derived, and a resume
           // rebuilds via BuildDetached, never New()), so it cannot collide — skip it. MG_ASSERTing
-          // has_value() here would abort whenever New() runs with any tenant suspended (e.g. the C8
+          // has_value() here would abort whenever New() runs with any tenant suspended (e.g. the
           // replica reconcile materializing an absent COLD tenant, or a plain CREATE DATABASE).
           auto db_acc = elem.second.access();
           if (!db_acc) return false;

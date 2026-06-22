@@ -9,25 +9,25 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# End-to-end coverage for hot/cold tenants over replication (feature v2, commits C7 + C8) plus the
-# node-local cross-restart durability path (C9).
+# End-to-end coverage for hot/cold tenants over replication plus the node-local cross-restart
+# durability path.
 #
-#   C7 — SUSPEND/RESUME DATABASE is system-replicated: a SUSPEND on MAIN streams a SuspendDatabaseRpc
+#   SUSPEND/RESUME DATABASE is system-replicated: a SUSPEND on MAIN streams a SuspendDatabaseRpc
 #        so each connected replica tears its own copy down to a COLD shell; RESUME rebuilds it. This
 #        is exercised by test_suspend_resume_convergence (replica online the whole time).
 #
-#   C8 — a reconnecting/lagging replica converges to MAIN's authoritative {HOT ∪ COLD} set via the
+#   A reconnecting/lagging replica converges to MAIN's authoritative {HOT ∪ COLD} set via the
 #        V3 SystemRecovery payload (which now carries the COLD set). This is exercised by
 #        test_lagging_replica_convergence: the replica is DOWN across the SUSPEND, so the
 #        SuspendDatabaseRpc never reaches it; on reconnect SystemRecovery must force-suspend the
 #        tenant the replica still holds HOT (SR-1 exempt-from-delete + SR-1'(2) force-suspend).
 #
-#   C9 — hot/cold is durable: a tenant suspended before a restart recovers COLD (metadata-only shell,
+#   Hot/cold is durable: a tenant suspended before a restart recovers COLD (metadata-only shell,
 #        durable cold marker), a HOT tenant recovers HOT with its data, and the COLD tenant still
 #        resumes with all data intact. This is a single-instance test (no replication) exercised by
 #        test_cross_restart_hot_only_recovery.
 #
-#   C10 — eager-epoch promotion: when a node holding a COLD tenant is promoted to MAIN, the new epoch
+#   Eager-epoch promotion: when a node holding a COLD tenant is promoted to MAIN, the new epoch
 #        is written into the cold tenant's durable metadata (PromoteColdTenants, since ForEach skips
 #        cold tenants) WITH the pre-promotion epoch appended to the epoch history. A later RESUME runs
 #        the new epoch, and a replica that still holds the tenant at the OLD epoch finds that old epoch
@@ -35,10 +35,10 @@
 #        test_promotion_eager_epoch_convergence (the negative control: without the history boundary the
 #        old-epoch replica would DIVERGE and never converge).
 #
-#   C11 — hot/cold is observable: SHOW DATABASES lists a COLD tenant with a HOT/COLD status column
+#   Hot/cold is observable: SHOW DATABASES lists a COLD tenant with a HOT/COLD status column
 #        (it would otherwise vanish, being excluded from All()), and SHOW STORAGE INFO ON <cold>
-#        serves the durable as-of-suspend snapshot instead of erroring (reverses HC-5). Exercised by
-#        test_cold_aware_show.
+#        serves the durable as-of-suspend snapshot instead of erroring (previously this errored).
+#        Exercised by test_cold_aware_show.
 #
 # Note: querying DATA on a COLD tenant (USE DATABASE + MATCH) still trips the query seam in
 # DbmsHandler::Get_ ("... is suspended (cold); run RESUME ..."), which tenant_probe relies on — only
@@ -64,8 +64,8 @@ interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_r
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 BOLT_PORTS = {"main": 7687, "replica_1": 7688}
-# replica_1 is the original replica; "main" gets a replication port too because the C10 test demotes
-# the old MAIN to a REPLICA of the promoted node (manual failover).
+# replica_1 is the original replica; "main" gets a replication port too because the promotion test
+# demotes the old MAIN to a REPLICA of the promoted node (manual failover).
 REPLICATION_PORTS = {"replica_1": 10001, "main": 10002}
 file = "hot_cold_convergence"
 
@@ -149,7 +149,8 @@ def tenant_probe(cursor, db_name):
     IMPORTANT: the probe resets the session back to the default database in a finally block. A bolt
     session keeps a live accessor on its current database for the whole session, which would pin the
     tenant HOT (an "active connection") and prevent SUSPEND from ever reaching the sole-accessor state
-    — both the C7 apply handler and the C8 reconcile would time out draining. Releasing A after every
+    — both the SuspendDatabaseRpc apply handler and the SystemRecovery reconcile would time out
+    draining. Releasing A after every
     probe leaves the suspend a window to win."""
 
     def func():
@@ -174,7 +175,7 @@ def tenant_probe(cursor, db_name):
 
 
 def test_suspend_resume_convergence(connection, test_name):
-    # C7: with the replica online, a SUSPEND on MAIN must drive the replica COLD, and a RESUME must
+    # With the replica online, a SUSPEND on MAIN must drive the replica COLD, and a RESUME must
     # drive it HOT again with the tenant's data intact.
     instances = {
         "replica_1": replica_args(test_name, recovery=False),
@@ -192,14 +193,14 @@ def test_suspend_resume_convergence(connection, test_name):
     create_and_populate(main_cursor, "A", 5)
     mg_sleep_and_assert(5, tenant_probe(replica_cursor, "A"))
 
-    # SUSPEND on MAIN -> replica copy torn down to COLD (C7 SuspendDatabaseRpc).
+    # SUSPEND on MAIN -> streams SuspendDatabaseRpc, replica copy torn down to COLD.
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
     execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
     mg_sleep_and_assert("COLD", tenant_probe(replica_cursor, "A"))
     # MAIN's own copy is COLD too.
     assert tenant_probe(main_cursor, "A")() == "COLD"
 
-    # RESUME on MAIN -> replica copy rebuilt HOT with data intact (C7 ResumeDatabaseRpc).
+    # RESUME on MAIN -> streams ResumeDatabaseRpc, replica copy rebuilt HOT with data intact.
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
     execute_and_fetch_all(main_cursor, "RESUME DATABASE A;")
     mg_sleep_and_assert(5, tenant_probe(replica_cursor, "A"))
@@ -207,7 +208,7 @@ def test_suspend_resume_convergence(connection, test_name):
 
 
 def test_lagging_replica_convergence(connection, test_name):
-    # C8: the replica is DOWN across the SUSPEND, so the SuspendDatabaseRpc never reaches it. On
+    # The replica is DOWN across the SUSPEND, so the SuspendDatabaseRpc never reaches it. On
     # reconnect, the V3 SystemRecovery payload carries A in the COLD set; the replica (which recovered
     # A HOT from its own disk) must force-suspend it to converge (SR-1 / SR-1'(2)) rather than serving
     # a stale HOT copy or dropping it.
@@ -248,7 +249,7 @@ def test_lagging_replica_convergence(connection, test_name):
 
 
 def test_cross_restart_hot_only_recovery(connection, test_name):
-    # C9: a single MAIN, no replication. A tenant suspended before a restart must recover COLD (durable
+    # Single MAIN, no replication. A tenant suspended before a restart must recover COLD (durable
     # cold marker), a HOT tenant must recover HOT with its data, and the COLD tenant must still resume
     # with all its data — proving the durable cold marker round-trips and the restore loop branches on
     # it (and preserves both data directories).
@@ -281,9 +282,9 @@ def test_cross_restart_hot_only_recovery(connection, test_name):
 
 
 def test_cold_aware_show(connection, test_name):
-    # C11: a single MAIN. After SUSPEND, the cold tenant must remain VISIBLE in SHOW DATABASES (tagged
+    # Single MAIN. After SUSPEND, the cold tenant must remain VISIBLE in SHOW DATABASES (tagged
     # COLD) and SHOW STORAGE INFO ON <cold> must serve its as-of-suspend snapshot instead of erroring
-    # (HC-5 reversed). RESUME flips it back to HOT.
+    # (previously this errored). RESUME flips it back to HOT.
     instances = {"main": main_args(test_name)}
     interactive_mg_runner.start_all(instances, keep_directories=False)
 
@@ -320,21 +321,21 @@ def test_cold_aware_show(connection, test_name):
 
 
 def test_promotion_eager_epoch_convergence(connection, test_name):
-    # C10: promote a node that holds a COLD tenant, then prove a replica still at the pre-promotion
+    # Promote a node that holds a COLD tenant, then prove a replica still at the pre-promotion
     # epoch converges (continuous history) instead of diverging.
     #
     #   1. main + replica_1, tenant A replicated, both HOT at epoch E1.
     #   2. SUSPEND A -> both COLD; A's data sits on disk at E1 on both.
     #   3. Kill main. replica_1 is the survivor, holding COLD A at E1.
     #   4. Promote replica_1 -> MAIN: DoToMainPromotion mints a new epoch E2 and PromoteColdTenants
-    #      rewrites A's durable cold metadata to E2 WITH (E1, ldt) appended to its epoch history (the
-    #      C10 path; the ForEach epoch loop alone would skip the cold tenant).
+    #      rewrites A's durable cold metadata to E2 WITH (E1, ldt) appended to its epoch history
+    #      (ForEach alone would skip the cold tenant, so PromoteColdTenants handles it explicitly).
     #   5. RESUME A on the new MAIN -> HOT at E2, data intact, history carrying the E1 boundary.
     #   6. Restart the old main as a REPLICA of the new MAIN. It still holds A at E1. The new MAIN's
     #      continuous-history check finds E1 in A's history -> continuous -> the replica converges to
-    #      the new MAIN's data. WITHOUT the C10 boundary, the replica at E1 would be flagged a branching
-    #      point (DIVERGED_FROM_MAIN) and never converge -> this assertion would time out (the negative
-    #      control that gives the test teeth).
+    #      the new MAIN's data. Without the eager-epoch boundary, the replica at E1 would be flagged a
+    #      branching point (DIVERGED_FROM_MAIN) and never converge -> this assertion would time out
+    #      (the negative control that gives the test teeth).
     instances = {
         "replica_1": replica_args(test_name, recovery=True),
         "main": main_args(test_name, recovery=True),
@@ -359,8 +360,8 @@ def test_promotion_eager_epoch_convergence(connection, test_name):
     # Kill the old MAIN (keep its data dir: it returns as a replica still holding A at E1).
     interactive_mg_runner.kill(instances, "main", keep_directories=True)
 
-    # Promote the survivor (replica_1) to MAIN. This is the C10 trigger: DoToMainPromotion generates a
-    # new epoch and PromoteColdTenants rewrites the COLD tenant's durable epoch + history boundary.
+    # Promote the survivor (replica_1) to MAIN. DoToMainPromotion generates a new epoch and
+    # PromoteColdTenants rewrites the COLD tenant's durable epoch + history boundary.
     execute_and_fetch_all(replica_cursor, "SET REPLICATION ROLE TO MAIN;")
 
     # RESUME A on the new MAIN: it runs the new epoch E2, data intact, history holds the E1 boundary.
@@ -447,7 +448,7 @@ def _supervised(body, worker_errors):
 
 
 def test_concurrent_suspend_resume_under_memory_ceiling(connection, test_name):
-    # C13: the stress matrix (product point 7 — "audit + stress-test every bad_alloc/crash point"). A single
+    # Stress matrix (product point 7 — "audit + stress-test every bad_alloc/crash point"). A single
     # MAIN under a hard memory ceiling runs concurrent allocating writers against several tenants WHILE a
     # suspender and a resumer churn those tenants HOT <-> COLD. The feature must stay crash-free and
     # lossless: every error a client sees must be one of the known retriable outcomes (cold access,
@@ -455,8 +456,8 @@ def test_concurrent_suspend_resume_under_memory_ceiling(connection, test_name):
     # a half-SUSPENDING/half-RESUMING limbo, or lost committed data. After the churn, every tenant resumed
     # HOT must hold EXACTLY the nodes its writer knows it durably committed.
     #
-    # The companion exception-safety audit (commit message / design §19) proves the suspend/resume paths are
-    # OOM-safe by construction; this test is the runtime backstop that the proof holds under real contention.
+    # The companion exception-safety audit proves the suspend/resume paths are OOM-safe by construction;
+    # this test is the runtime backstop that the proof holds under real contention.
     instances = {
         "main": {
             "args": [
@@ -602,8 +603,8 @@ def test_concurrent_suspend_resume_under_memory_ceiling(connection, test_name):
 
 
 def test_tenant_query_memory_pressure_with_churn(connection, test_name):
-    # Gap A+C (added after the holistic test-coverage review): the C13 stress above pressures memory with a
-    # transient query on the always-HOT DEFAULT database, while the churned tenants stay tiny. This test
+    # Gap A+C (added after the holistic test-coverage review): the stress test above pressures memory with
+    # a transient query on the always-HOT DEFAULT database, while the churned tenants stay tiny. This test
     # closes the gap the review flagged: the memory-consuming query runs ON the tenant that is being
     # SUSPENDed/RESUMEd, so a ~96 MiB allocation is in flight in tenant T's query context at the instant a
     # churner tears T down (SUSPEND) or rebuilds it (RESUME). The feature must stay crash-free and lossless:
@@ -1037,7 +1038,7 @@ def test_tenant_churn_under_memory_pressure_replicated(connection, test_name):
     # CONVERGENCE: force a reconnect-driven SystemRecovery, then assert the replica reconciles to MAIN's
     # per-tenant counts. This is deliberate: under ASYNC, writes MAIN streamed for a tenant while the
     # replica's copy was momentarily COLD (a resume lagging the churn) cannot apply on the replica and plain
-    # ASYNC catch-up never backfills them — only the SystemRecovery (C8) that a (re)registration triggers
+    # ASYNC catch-up never backfills them — only the SystemRecovery that a (re)registration triggers
     # re-streams MAIN's authoritative state. So we DROP + re-REGISTER the replica (the supported way to
     # repair a diverged ASYNC replica) and require it to converge. The assertion proves the replica's
     # apply-handler teardown/rebuild left it in a state SystemRecovery can fully reconcile after the stress.
@@ -1161,7 +1162,7 @@ def test_drop_cold_tenant_converges(connection, test_name):
     create_and_populate(main_cursor, "A", 5)
     mg_sleep_and_assert(5, tenant_probe(replica_cursor, "A"))
 
-    # SUSPEND A on MAIN -> replica copy torn down to COLD (C7 SuspendDatabaseRpc).
+    # SUSPEND A on MAIN -> streams SuspendDatabaseRpc, replica copy torn down to COLD.
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
     execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
     mg_sleep_and_assert("COLD", tenant_probe(replica_cursor, "A"))

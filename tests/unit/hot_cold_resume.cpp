@@ -11,10 +11,10 @@
 
 // Unit tests for the hot/cold RESUME engine (DbmsHandler::Resume_).
 //
-// C5 is the NODE-LOCAL synchronous resume engine: single-flight via the gatekeeper, off-lock
-// recovery, pre-publish (on_resume_) arm, and the COLD-access query seam (Get() on a suspended
-// tenant errors with an actionable message). Resume is exercised directly here; the interpreter
-// query-seam caller is wired in the same commit but verified via the e2e suite later.
+// The NODE-LOCAL synchronous resume engine provides single-flight semantics via the gatekeeper,
+// off-lock recovery, a pre-publish (on_resume_) arm, and the COLD-access query seam (Get() on a
+// suspended tenant errors with an actionable message). Resume is exercised directly here; the
+// interpreter query-seam caller is wired in the same commit but verified via the e2e suite later.
 //
 // Coverage:
 //   ResumeNonExistentRejected           — resuming an absent tenant returns NON_EXISTENT
@@ -74,7 +74,7 @@ class HotColdResume : public ::testing::Test {
 
   // Simulate a process restart: tear down the handler (closes durability + storage) and reconstruct
   // it over the SAME data directory, so the new handler runs its restore loop against what the old
-  // one persisted. Used by the cross-restart (C9) tests.
+  // one persisted. Used by the cross-restart tests.
   void Restart() {
     handler_.reset();
     handler_ = std::make_unique<DbmsHandler>(conf_);
@@ -109,7 +109,7 @@ class HotColdResume : public ::testing::Test {
     return std::find(all.begin(), all.end(), name) != all.end();
   }
 
-  // C12: clobber every durability file under a tenant's data dir with garbage, so the next boot's
+  // Clobber every durability file under a tenant's data dir with garbage, so the next boot's
   // recovery trips a RecoveryFailure (bad magic) instead of recovering — exercising the leave-cold
   // path deterministically. Call between handler_.reset() and reconstruction (NOT via Restart()): a
   // live storage holds the WAL open and its dtor would rewrite it.
@@ -258,8 +258,8 @@ TEST_F(HotColdResume, ConcurrentResumeSingleFlight) {
   handler_->SetOnResume({});
 }
 
-// C6 routing: suspend/resume driven through a real system::Transaction must record their actions and
-// complete the HOT -> COLD -> HOT round-trip. Committing the transaction (DoNothing on a node with no
+// Suspend/resume driven through a real system::Transaction must record their actions and complete
+// the HOT -> COLD -> HOT round-trip. Committing the transaction (DoNothing on a node with no
 // replicas) drives the action's DoDurability + the system-ts finalize without dropping data.
 TEST_F(HotColdResume, SuspendResumeThroughSystemTransaction) {
   constexpr int kNodes = 5;
@@ -285,9 +285,9 @@ TEST_F(HotColdResume, SuspendResumeThroughSystemTransaction) {
   EXPECT_TRUE(InAll(name)) << "Tenant must be HOT after a system-transaction resume";
 }
 
-// C7 engine: the by-UUID entrypoints (used by the replica Suspend/ResumeDatabaseRpc apply handlers,
-// which only carry the tenant UUID on the wire) complete the HOT -> COLD -> HOT round-trip and
-// recover data, identically to the by-name path. Resolved UUID -> name internally.
+// The by-UUID entrypoints (used by the replica Suspend/ResumeDatabaseRpc apply handlers, which only
+// carry the tenant UUID on the wire) complete the HOT -> COLD -> HOT round-trip and recover data,
+// identically to the by-name path. Resolved UUID -> name internally.
 TEST_F(HotColdResume, SuspendResumeByUUIDRoundTrip) {
   constexpr int kNodes = 4;
   auto name = CreateAndPopulate("by_uuid", kNodes);
@@ -319,9 +319,9 @@ TEST_F(HotColdResume, SuspendResumeByUnknownUUIDRejected) {
   EXPECT_EQ(r.error(), DbmsHandler::ResumeError::NON_EXISTENT);
 }
 
-// C8 regression: creating a NEW tenant while another is COLD must not abort. New()'s data-directory
+// Regression: creating a NEW tenant while another is COLD must not abort. New()'s data-directory
 // collision scan iterates every gatekeeper; a COLD shell yields no accessor, and the old MG_ASSERT
-// there aborted the process. This is the C8 replica-recovery steady state (materialize an absent
+// there aborted the process. This covers the replica-recovery steady state (materialize an absent
 // tenant while a COLD shell exists), and also a plain CREATE-while-suspended.
 TEST_F(HotColdResume, CreateTenantWhileAnotherSuspended) {
   auto cold = CreateAndPopulate("cold_one", 3);
@@ -340,7 +340,7 @@ TEST_F(HotColdResume, CreateTenantWhileAnotherSuspended) {
   EXPECT_EQ(CountNodes(resumed.value()), 3);
 }
 
-// C9 cross-restart: a tenant suspended before a restart must come back COLD (durable cold marker),
+// Cross-restart: a tenant suspended before a restart must come back COLD (durable cold marker),
 // not HOT, and must still resume with all its data. A HOT tenant present across the same restart must
 // recover HOT and unchanged — proving the restore loop branches on the marker and the cleanup pass
 // preserves both tenants' data directories.
@@ -400,7 +400,7 @@ TEST_F(HotColdResume, CrossRestartColdTenantStaysColdHotTenantRecovers) {
   EXPECT_EQ(CountNodes(resumed.value()), kColdNodes) << "all data must survive suspend -> restart -> resume";
 }
 
-// C9: a RESUME clears the durable cold marker, so a tenant that was resumed before a restart recovers
+// A RESUME clears the durable cold marker, so a tenant that was resumed before a restart recovers
 // HOT (not COLD) on the next boot — the inverse of the test above.
 TEST_F(HotColdResume, CrossRestartResumedTenantRecoversHot) {
   constexpr int kNodes = 5;
@@ -417,10 +417,10 @@ TEST_F(HotColdResume, CrossRestartResumedTenantRecoversHot) {
   EXPECT_EQ(CountNodes(acc), kNodes);
 }
 
-// C10 (RE-9′): a COLD tenant whose durable epoch metadata was rewritten by PromoteColdTenants (eager
-// promotion) runs the NEW epoch after a restart+resume, and its epoch history carries the promotion
-// boundary (the pre-promotion epoch). Without this, a lagging replica reconnecting at the old epoch
-// would fail MAIN's continuous-history check and spuriously DIVERGE after failover.
+// A COLD tenant whose durable epoch metadata was rewritten by PromoteColdTenants (eager promotion)
+// runs the NEW epoch after a restart+resume, and its epoch history carries the promotion boundary
+// (the pre-promotion epoch). Without this, a lagging replica reconnecting at the old epoch would
+// fail MAIN's continuous-history check and spuriously DIVERGE after failover.
 TEST_F(HotColdResume, CrossRestartPromotedColdTenantRunsNewEpoch) {
   constexpr int kNodes = 6;
   auto cold = CreateAndPopulate("promoted_cold", kNodes);
@@ -451,13 +451,13 @@ TEST_F(HotColdResume, CrossRestartPromotedColdTenantRunsNewEpoch) {
 
   auto &rss = resumed.value()->storage()->repl_storage_state_;
   EXPECT_EQ(std::string{rss.epoch_.id()}, e2)
-      << "the resumed tenant must run the post-promotion epoch, not the disk-recovered one (RE-9′)";
+      << "the resumed tenant must run the post-promotion epoch, not the disk-recovered one";
   ASSERT_FALSE(rss.history.empty()) << "the promotion boundary must be present in the epoch history";
   EXPECT_EQ(rss.history.back().first, e1)
       << "the epoch history must carry the pre-promotion epoch as the promotion boundary (continuous history)";
 }
 
-// C10: a COLD tenant restarted+resumed WITHOUT a promotion keeps its original epoch — the RE-9′ resume
+// A COLD tenant restarted+resumed WITHOUT a promotion keeps its original epoch — the resume epoch
 // override restores the captured epoch verbatim and must not corrupt or rotate it.
 TEST_F(HotColdResume, CrossRestartColdTenantWithoutPromotionKeepsEpoch) {
   constexpr int kNodes = 3;
@@ -480,11 +480,11 @@ TEST_F(HotColdResume, CrossRestartColdTenantWithoutPromotionKeepsEpoch) {
   EXPECT_EQ(std::string{rss.epoch_.id()}, e1) << "a non-promoted resume must preserve the original epoch";
 }
 
-// C10 (race): a promotion that lands in the resume's off-lock BuildDetached window must win. The
+// Race: a promotion that lands in the resume's off-lock BuildDetached window must win. The
 // on_resume_ hook fires after BuildDetached and before the publish lock, so promoting from inside it
-// rewrites the in-map suspended_ entry to a new epoch AFTER the resume copied the (now stale) entry in
-// Phase A. The resume must re-read the entry under the publish lock and apply the PROMOTED epoch, not
-// the stale Phase-A snapshot. (Deterministically fails if the override uses the Phase-A copy.)
+// rewrites the in-map suspended_ entry to a new epoch AFTER the resume copied the (now stale) entry
+// in Phase A. The resume must re-read the entry under the publish lock and apply the PROMOTED epoch,
+// not the stale Phase-A snapshot. (Deterministically fails if the override uses the Phase-A copy.)
 TEST_F(HotColdResume, PromotionDuringResumeAppliesPromotedEpoch) {
   constexpr int kNodes = 5;
   auto cold = CreateAndPopulate("promote_during_resume", kNodes);
@@ -509,12 +509,13 @@ TEST_F(HotColdResume, PromotionDuringResumeAppliesPromotedEpoch) {
   EXPECT_EQ(rss.history.back().first, e1) << "the promotion boundary must still carry the pre-promotion epoch";
 }
 
-// C16 (MED2): on a replica, a cold tenant's epoch metadata arrives over the V3 SystemRecovery wire and is
+// On a replica, a cold tenant's epoch metadata arrives over the V3 SystemRecovery wire and is
 // installed by ApplyColdRecoveryMeta, OVERRIDING the local disk-recovered epoch. A subsequent eager
-// promotion (PromoteColdTenants) must then build its continuity boundary from MAIN's APPLIED epoch, not the
-// stale local one — otherwise a replica promoted after reconnect would emit a phantom boundary and a lagging
-// downstream replica would spuriously DIVERGE on MAIN's continuous-history check. This proves the
-// producer -> wire -> consumer epoch (ColdTenantRecovery.current_epoch) is honored end to end on the consumer.
+// promotion (PromoteColdTenants) must then build its continuity boundary from MAIN's APPLIED epoch,
+// not the stale local one — otherwise a replica promoted after reconnect would emit a phantom
+// boundary and a lagging downstream replica would spuriously DIVERGE on MAIN's continuous-history
+// check. This proves the producer -> wire -> consumer epoch (ColdTenantRecovery.current_epoch) is
+// honored end to end on the consumer.
 TEST_F(HotColdResume, AppliedWireEpochDrivesColdPromotionBoundary) {
   constexpr int kNodes = 4;
   auto cold = CreateAndPopulate("wire_epoch_cold", kNodes);
@@ -602,11 +603,11 @@ TEST_F(HotColdResume, SuspendResumeMoveObservabilityMetrics) {
   EXPECT_DOUBLE_EQ(m.cold_databases->Value(), 0.0) << "the cold-tenant gauge returns to zero after resume";
 }
 
-// C12: a tenant whose HOT recovery FAILS at boot must be left COLD (not abort the process) and marked
+// A tenant whose HOT recovery FAILS at boot must be left COLD (not abort the process) and marked
 // with a 'recovery failed' status in the cold-aware SHOW surface — degraded-but-alive. An intact
 // tenant in the same boot must recover HOT with its data. (The OOM-specific branch shares this exact
 // plumbing, differing only in the caught exception type → status string; real OOM is exercised under
-// the C13 memory-ceiling stress, not deterministically injectable here.)
+// the memory-ceiling stress tests, not deterministically injectable here.)
 TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
   constexpr int kBadNodes = 5;
   constexpr int kGoodNodes = 3;
@@ -674,7 +675,7 @@ TEST_F(HotColdResume, CorruptDurableEntrySkippedAndDataPreserved) {
   ASSERT_TRUE(fs::exists(victim_dir));
 
   // Tear down, then clobber the victim's durability VALUE (valid key, non-JSON value) so the next boot's
-  // restore loop trips json::parse — a different failure class than C12's data-dir corruption.
+  // restore loop trips json::parse — a different failure class from data-dir corruption (tested above).
   handler_.reset();
   {
     memgraph::kvstore::KVStore kv(test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / ".durability");

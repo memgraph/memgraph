@@ -307,7 +307,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
     });
 
 #ifdef MG_ENTERPRISE
-    // STEP 4b) C10 (PR-1): COLD (suspended) tenants are invisible to the ForEach loops above (no-value
+    // STEP 4b) COLD (suspended) tenants are invisible to the ForEach loops above (no-value
     // gatekeeper), so rewrite their durable epoch metadata to the same new epoch directly. Metadata-only
     // (no force-resume); takes only DbmsHandler::lock_ + KVStore, never repl_state, so it is safe to call
     // while holding the repl_state write lock here. See DbmsHandler::PromoteColdTenants.

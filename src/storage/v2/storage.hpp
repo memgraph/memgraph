@@ -138,7 +138,7 @@ struct StorageInfo {
 // the durability cold_stats JSON (Durability::StatsToJson/StatsFromJson) and the V3 SystemRecovery SLK
 // (system_rpc.cpp Save/Load) — drives serialization through this one visitor, so adding a field to
 // StorageInfo extends all of them at once instead of silently drifting (the field-drift hazard flagged
-// in the C9/C16 reviews). `visit(key, ref)` is invoked once per field in declaration order; the caller's
+// in earlier reviews). `visit(key, ref)` is invoked once per field in declaration order; the caller's
 // visitor handles scalars directly and enums via `if constexpr (std::is_enum_v<T>)`. Templated on Self so
 // the SAME field list serves a const StorageInfo (save) and a mutable one (load).
 template <typename Self, typename Visit>
@@ -168,13 +168,13 @@ void StorageInfoForEachField(Self &s, Visit &&visit) {
   visit("schema_edge_count", s.schema_edge_count);
 }
 
-// Hot/cold (C16): the per-COLD-tenant recovery payload carried in SystemRecoveryReq V3 so a
+// Hot/cold: the per-COLD-tenant recovery payload carried in SystemRecoveryReq V3 so a
 // reconnecting/lagging replica converges to MAIN's authoritative {HOT ∪ COLD} set WITH the correct
 // epoch. Replaces the earlier two parallel (salient, stats) vectors; bundling them keeps the 1:1
 // pairing structural (no length-mismatch guard) and adds the epoch metadata MAIN needs so a
 // SystemRecovery-converged-then-promoted replica appends the right continuous-history boundary.
 // Composed of storage:: types only, so it can sit in both the dbms and replication_handler signatures
-// without a layer cycle. `has_epoch_meta` is false for a pre-C10 cold entry (no epoch recorded) — the
+// without a layer cycle. `has_epoch_meta` is false for an older cold entry (no epoch recorded) — the
 // replica then leaves its disk-recovered epoch intact (R15 tolerant).
 struct ColdTenantRecovery {
   SalientConfig salient;
@@ -309,13 +309,6 @@ class Storage {
   [[nodiscard]] bool IsDurabilityCompleteForSuspend() const {
     return config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
   }
-
-  // True iff this storage is currently a replication participant on the MAIN side
-  // (has at least one registered replica). Hot/cold suspend is gated on this being
-  // false (cold tenants are never replicated — a per-instance, MAIN-local memory
-  // optimization). NOTE: this does NOT detect the REPLICA role; the dbms layer gates
-  // the replica-role case separately via an injected predicate.
-  [[nodiscard]] bool IsReplicationParticipant() const;
 
   // Called by DbmsHandler::Suspend_ after a consolidating snapshot has been written, so that
   // the InMemoryStorage destructor (triggered by finish_suspend()) does NOT write another

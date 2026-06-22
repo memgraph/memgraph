@@ -76,7 +76,7 @@ void Load(memgraph::storage::StorageInfo *self, memgraph::slk::Reader *reader) {
   });
 }
 
-// C16 (MED2): one COLD tenant's recovery payload — salient + as-of-suspend stats + epoch metadata.
+// One COLD tenant's recovery payload — salient + as-of-suspend stats + epoch metadata.
 void Save(const memgraph::storage::ColdTenantRecovery &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.salient, builder);
   memgraph::slk::Save(self.stats, builder);

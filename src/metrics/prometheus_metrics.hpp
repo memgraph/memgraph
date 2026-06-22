@@ -282,7 +282,7 @@ struct GlobalMetricHandles {
   // Hot/cold tenants (global — the cold set is process-wide, not per-database since a COLD tenant has no
   // live storage to attribute a per-db series to). suspends/resumes count user-driven operations; the
   // gauge tracks the current COLD set size; the boot-recovery counters surface databases left COLD because
-  // their HOT recovery failed at startup (the OOM split mirrors the C12 degraded-boot safety valve).
+  // their HOT recovery failed at startup (the OOM split mirrors the degraded-boot safety valve).
   prometheus::Counter *database_suspends;
   prometheus::Counter *database_resumes;
   prometheus::Gauge *cold_databases;

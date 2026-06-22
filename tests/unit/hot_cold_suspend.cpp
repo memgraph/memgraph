@@ -11,11 +11,11 @@
 
 // Unit tests for the hot/cold suspend engine (DbmsHandler::Suspend_).
 //
-// C4 is the NODE-LOCAL suspend engine only. Suspension is verified through the
-// primitives this commit owns: the Suspend() result code, Get() accessibility
+// These tests cover the NODE-LOCAL suspend engine only. Suspension is verified
+// through the primitives: the Suspend() result code, Get() accessibility
 // (a COLD tenant is no longer HOT, so Get() throws), and All() membership (the
-// HOT set excludes the COLD shell). Durable round-trip is covered in C9 and the
-// SHOW-facing observability views in C11.
+// HOT set excludes the COLD shell). Durable round-trip and SHOW-facing
+// observability views are covered in separate test suites.
 //
 // Coverage:
 //   SuspendDefaultDbRejected            — kDefaultDB is never suspendable
@@ -143,7 +143,7 @@ TEST(HotColdSuspendNoDurability, SuspendDurabilityIncompleteRejected) {
   fs::remove_all(dir);
 }
 
-// HOLE-1 (C15): a USER suspend of a durability-incomplete tenant is rejected (DURABILITY_INCOMPLETE),
+// A USER suspend of a durability-incomplete tenant is rejected (DURABILITY_INCOMPLETE),
 // but SuspendForRecovery() BYPASSES that gate so a replica converging to MAIN's authoritative cold set
 // is not stuck in a BEHIND retry loop. The consolidating snapshot is written unconditionally, so the
 // forced cold shell stays recoverable.
@@ -208,7 +208,7 @@ TEST_F(HotColdSuspend, SuspendSuccessMakesColdShellInaccessible) {
   EXPECT_THROW(handler_->Get(name), std::exception) << "Get() on a COLD tenant must fail";
 }
 
-// SU-STREAMS: the pre-teardown suspend arm (SetOnSuspend) runs BEFORE the freeze and can release the
+// The pre-teardown suspend arm (SetOnSuspend) runs BEFORE the freeze and can release the
 // accessors that pin the tenant HOT, so a tenant that would otherwise be ACTIVE_CONNECTIONS becomes
 // suspendable. A live stream consumer holds a DatabaseAccess via its captured Interpreter; here a plain
 // held accessor stands in for it, and the arm releases it exactly as Streams::Shutdown() does for real.
@@ -227,9 +227,9 @@ TEST_F(HotColdSuspend, OnSuspendArmUnpinsTenantThenSuspendSucceeds) {
   EXPECT_FALSE(InAll(name)) << "the tenant must be COLD after the successful suspend";
 }
 
-// SU-STREAMS: a suspend that does NOT commit (a foreign accessor the arm cannot release -> sole-accessor
-// is never reached -> ACTIVE_CONNECTIONS) must run the streams-restore UNDO, so a failed SUSPEND never
-// silently leaves the stream consumers stopped. The tenant also stays HOT.
+// A suspend that does NOT commit (a foreign accessor the arm cannot release — sole-accessor
+// count is never reached — ACTIVE_CONNECTIONS) must run the streams-restore UNDO, so a failed
+// SUSPEND never silently leaves the stream consumers stopped. The tenant also stays HOT.
 TEST_F(HotColdSuspend, FailedSuspendRunsStreamRestoreUndo) {
   auto name = CreateTenant("undo_db");
 
@@ -249,9 +249,9 @@ TEST_F(HotColdSuspend, FailedSuspendRunsStreamRestoreUndo) {
   EXPECT_TRUE(InAll(name)) << "the tenant must stay HOT after a failed (rolled-back) suspend";
 }
 
-// SU-STREAMS: resume must invoke the on_resume_ arm (which re-arms triggers + streams from durable
-// metadata). This locks in the wiring: pre-fix the arm was never set, so a resumed tenant silently lost
-// its streams/triggers.
+// Resume must invoke the on_resume_ arm (which re-arms triggers and streams from durable
+// metadata). This pins the wiring: before the fix the arm was never set, so a resumed tenant
+// silently lost its streams and triggers.
 TEST_F(HotColdSuspend, ResumeInvokesOnResumeArm) {
   auto name = CreateTenant("resume_arm_db");
   ASSERT_TRUE(handler_->Suspend(name).has_value());

@@ -31,7 +31,7 @@
 #include "utils/enum.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
-#include "utils/memory_tracker.hpp"  // C12: utils::OutOfMemoryException (boot-OOM detection)
+#include "utils/memory_tracker.hpp"  // utils::OutOfMemoryException (boot-OOM detection)
 #include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
@@ -78,7 +78,7 @@ struct Durability {
   enum class DurabilityVersion : uint8_t {
     V0 = 0,
     V1,
-    V2,  //!< hot/cold: COLD entries gain a `cold` marker + heartbeat metadata + cold_stats (C9)
+    V2,  //!< hot/cold: COLD entries gain a `cold` marker + heartbeat metadata + cold_stats
   };
 
   struct VersionException : public utils::BasicException {
@@ -136,7 +136,7 @@ struct Durability {
   }
 
   // Reads back a StatsToJson object. Tolerant of missing keys (defaults to 0/false): a V1 COLD entry
-  // never existed, but a forward-compatible read of a partial object must not throw (R15).
+  // never existed, but a forward-compatible read of a partial object must not throw.
   static storage::StorageInfo StatsFromJson(const nlohmann::json &j) {
     storage::StorageInfo s{};
     storage::StorageInfoForEachField(s, [&](const char *key, auto &v) {
@@ -171,10 +171,10 @@ struct Durability {
     json["cold"] = true;
     json["last_durable_timestamp"] = last_durable_timestamp;
     json["num_committed_txns"] = num_committed_txns;
-    // C10 (RE-9′): the full replication epoch state. current_epoch is the live epoch id at suspend
-    // (rewritten to the new epoch on promotion); epoch_history is the prior-epochs deque (gains the
-    // promotion boundary on promotion). Resume_ restores both verbatim. Presence of current_epoch is
-    // the has_epoch_meta flag on read.
+    // Full replication epoch state. current_epoch is the live epoch id at suspend (rewritten to
+    // the new epoch on promotion); epoch_history is the prior-epochs deque (gains the promotion
+    // boundary on promotion). Resume_ restores both verbatim. Presence of current_epoch is the
+    // has_epoch_meta flag on read.
     json["current_epoch"] = current_epoch;
     auto hist = nlohmann::json::array();
     for (const auto &[epoch_id, ldt] : epoch_history) hist.push_back({{"epoch", epoch_id}, {"ldt", ldt}});
@@ -216,7 +216,7 @@ struct Durability {
 
     // V1 -> V2 is purely additive: V1 entries are all HOT ({uuid, rel_dir}) and remain valid as-is;
     // V2 only ADDS optional COLD entries (written by SUSPEND). Reads default `cold` to false and
-    // `cold_stats` to zeros, so an unmigrated V1 entry is read correctly with no data movement (R15).
+    // `cold_stats` to zeros, so an unmigrated V1 entry is read correctly with no data movement.
 
     // Set version to the current schema (V2).
     durability->Put("version", "V2");
@@ -262,9 +262,9 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
         entry.rel_dir = std::move(rel_dir);
         entry.last_durable_timestamp = json.value("last_durable_timestamp", uint64_t{0});
         entry.num_committed_txns = json.value("num_committed_txns", uint64_t{0});
-        // C10 (RE-9′): restore the full epoch state. has_epoch_meta is false for a pre-C10 V2 entry
-        // (no current_epoch key) -> resume leaves the disk-recovered epoch/history intact (R15
-        // tolerant read), and PromoteColdTenants skips it so it is never corrupted with a "" boundary.
+        // Restore the full epoch state. has_epoch_meta is false for older V2 entries without a
+        // current_epoch key -> resume leaves the disk-recovered epoch/history intact (tolerant read),
+        // and PromoteColdTenants skips it so it is never corrupted with a "" boundary.
         if (json.contains("current_epoch")) {
           entry.has_epoch_meta = true;
           entry.current_epoch = json.value("current_epoch", std::string{});
@@ -280,10 +280,10 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
 
   // Restore databases. A tenant is restored HOT (storage built + recovered) unless its durable entry
   // carries `cold:true`, in which case only a no-value COLD shell + suspended_ metadata is restored
-  // (no storage build). A HOT recovery that fails is left COLD rather than aborting the process (R4):
-  // C12 adds OOM-specific detection/metrics on top of this leave-cold infrastructure.
-  // C14 (F1): if a durable entry fails to parse we cannot learn its data directory, so we must NOT run
-  // the cleanup pass below (it would delete every dir not in the keep-set, including the one this corrupt
+  // (no storage build). A HOT recovery that fails is left COLD rather than aborting the process:
+  // OOM failures get specific detection/metrics on top of this leave-cold infrastructure.
+  // If a durable entry fails to parse we cannot learn its data directory, so we must NOT run the
+  // cleanup pass below (it would delete every dir not in the keep-set, including the one this corrupt
   // entry owned). Track that the durable view is incomplete and skip cleanup for this boot.
   bool durability_view_incomplete = false;
   auto it = durability_->begin(std::string(kDBPrefix));
@@ -291,7 +291,7 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
   for (; it != end; ++it) {
     const auto &[key, config_json] = *it;
     const auto name = key.substr(kDBPrefix.size());
-    // C14 (F1): parse defensively. A corrupt/truncated entry must leave the instance starting DEGRADED
+    // Parse defensively. A corrupt/truncated entry must leave the instance starting DEGRADED
     // (skip the entry, keep the data on disk) rather than throwing out of the ctor and bricking boot.
     nlohmann::json json;
     utils::UUID uuid;
@@ -329,7 +329,7 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
     // HOT: build + recover the storage. On failure, leave the tenant COLD instead of aborting.
     spdlog::info("Restoring database {} at {}.", name, rel_dir);
     bool recovered = false;
-    // C12: classify the failure. OOM (out-of-memory during recovery — bad_alloc or the tracker's
+    // Classify the failure. OOM (out-of-memory during recovery — bad_alloc or the tracker's
     // OutOfMemoryException) is the case the boot-OOM safety valve exists for: the instance comes up
     // DEGRADED with the tenant left cold + loudly logged + marked in SHOW, rather than bricking.
     auto reason = SuspendedEntry::ColdReason::kRecoveryFailed;
@@ -394,7 +394,7 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
   /*
    * DATABASES CLEAN UP
    */
-  // Clean the unused directories. C14 (F1): if any durable entry failed to parse, the keep-set is
+  // Clean the unused directories. If any durable entry failed to parse, the keep-set is
   // incomplete — skip cleanup entirely so we never delete the data dir of a tenant we could not read.
   // The orphan dirs are merely disk overhead and get reclaimed on the next clean boot.
   if (durability_view_incomplete) {
@@ -985,7 +985,7 @@ void DbmsHandler::RestoreTriggersFor(DatabaseAccess db_acc, query::InterpreterCo
 struct SuspendDatabase : memgraph::system::ISystemAction {
   explicit SuspendDatabase(utils::UUID uuid) : uuid_{uuid} {}
 
-  void DoDurability() override { /* COLD marker persisted during dbms execution (C9) */ }
+  void DoDurability() override { /* COLD marker persisted during Suspend_ (before this action runs) */ }
 
   bool ShouldReplicateInCommunity() const override { return false; }
 
@@ -1011,7 +1011,7 @@ struct SuspendDatabase : memgraph::system::ISystemAction {
 struct ResumeDatabase : memgraph::system::ISystemAction {
   explicit ResumeDatabase(utils::UUID uuid) : uuid_{uuid} {}
 
-  void DoDurability() override { /* COLD marker cleared during dbms execution (C9) */ }
+  void DoDurability() override { /* COLD marker cleared during Resume_ (before this action runs) */ }
 
   bool ShouldReplicateInCommunity() const override { return false; }
 
@@ -1038,7 +1038,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   utils::Gatekeeper<Database> *gk = nullptr;
   std::optional<DatabaseAccess> acc;
 
-  // SU-STREAMS — PHASE A-pre (OFF-lock): stop the per-database features that keep the tenant pinned HOT.
+  // PHASE A-pre (OFF-lock): stop the per-database features that keep the tenant pinned HOT.
   // Each Kafka/Pulsar stream consumer captures a shared_ptr<Interpreter> that owns a DatabaseAccess, so
   // the freeze in Phase A could never reach sole-accessor (count==1) while any stream exists -> suspend
   // would always fail ACTIVE_CONNECTIONS. on_suspend_ runs Streams::Shutdown() which stops the consumers
@@ -1074,7 +1074,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   {
     // PHASE A — eligibility check + metadata capture + freeze, all under the shared lock_.
     //
-    // SU-1 / BUG #1 FIX: try_begin_suspend() is called INSIDE this shared_lock scope (not after).
+    // try_begin_suspend() is called INSIDE this shared_lock scope (not after).
     // Rationale: between releasing the shared lock and try_begin_suspend(), a concurrent
     // DROP DATABASE (Delete -> DeferDelete) sees state HOT, moves `gk` out of the map, and
     // erases it -> gk dangling -> heap-UAF on try_begin_suspend(). By calling
@@ -1092,9 +1092,9 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     if (!a) return std::unexpected{SuspendError::NON_EXISTENT};
     auto *db = a->get();
     auto *st = db->storage();
-    // SU-3: Suspend requires {periodic snapshot + WAL} durability AND a RUNTIME
-    // storage mode of IN_MEMORY_TRANSACTIONAL. The runtime-mode check is load-bearing and must NOT
-    // be replaced by the config: a tenant switched to IN_MEMORY_ANALYTICAL at runtime suppresses WAL
+    // Suspend requires {periodic snapshot + WAL} durability AND a RUNTIME storage mode of
+    // IN_MEMORY_TRANSACTIONAL. The runtime-mode check is load-bearing and must NOT be replaced by
+    // the config: a tenant switched to IN_MEMORY_ANALYTICAL at runtime suppresses WAL
     // (InitializeWalFile() returns false for analytical) and pauses the snapshot runner, yet
     // IsDurabilityCompleteForSuspend() only inspects the creation-time config.
     // Rejecting anything not in-memory transactional covers both ON_DISK_TRANSACTIONAL and
@@ -1104,10 +1104,10 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     }
     if (!st->IsDurabilityCompleteForSuspend()) {
       if (!for_recovery) return std::unexpected{SuspendError::DURABILITY_INCOMPLETE};
-      // HOLE-1 (C15): in recovery the replica converges to MAIN's AUTHORITATIVE cold set. The
-      // durability-complete gate protects a USER-initiated SUSPEND from creating an unrecoverable cold
-      // tenant; in recovery the tenant is already COLD on MAIN, and the consolidating snapshot at
-      // suspend is written unconditionally and read back on resume, so the tenant stays recoverable.
+      // In recovery the replica converges to MAIN's AUTHORITATIVE cold set. The durability-complete
+      // gate protects a USER-initiated SUSPEND from creating an unrecoverable cold tenant; in recovery
+      // the tenant is already COLD on MAIN, and the consolidating snapshot at suspend is written
+      // unconditionally and read back on resume, so the tenant stays recoverable.
       // Reachable only when this replica's durability differs from MAIN's (e.g. the WAL/snapshot config
       // is inconsistent across the cluster) — bypass with a loud warning rather than failing recovery
       // and stalling the replica in a BEHIND retry loop.
@@ -1118,11 +1118,11 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
           "from MAIN — align the WAL/snapshot durability flags across the cluster.",
           name);
     }
-    // SU-REPL-1: NO IsReplicationParticipant() guard. Hot/cold is a system-replicated operation
-    // (sibling of CREATE/DROP DATABASE): suspending a tenant that has replicas is the SUPPORTED flow
-    // — the SuspendDatabase system action streams a SuspendDatabaseRpc so each replica tears down its
-    // own copy in system-timestamp order. The earlier "reject while replicating" guard encoded only
-    // the v1 node-local limitation (no wire to tell replicas) and protects no MAIN-local invariant:
+    // Suspend does NOT gate on whether replicas are registered. Hot/cold is a system-replicated operation (sibling of
+    // CREATE/DROP DATABASE): suspending a tenant that has replicas is the SUPPORTED flow — the
+    // SuspendDatabase system action streams a SuspendDatabaseRpc so each replica tears down its own
+    // copy in system-timestamp order. The earlier "reject while replicating" guard encoded only the
+    // v1 node-local limitation (no wire to tell replicas) and protects no MAIN-local invariant:
     // IsDurabilityCompleteForSuspend() + the freeze-to-count==1 below already guarantee MAIN's state
     // is fully durable before teardown. On a replica this predicate is false anyway (replication
     // storage clients live on MAIN), so the path is identical there.
@@ -1134,24 +1134,23 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     gk = db_handler_.GetGatekeeper(name);  // stable pointer to the in-map gatekeeper
     acc = std::move(*a);                   // hold the accessor across phases (count includes it)
 
-    // SU-1 / BUG #1 FIX: transition HOT -> SUSPENDING under the shared lock (LAST step in Phase A).
+    // Transition HOT -> SUSPENDING under the shared lock (LAST step in Phase A).
     if (!gk->try_begin_suspend()) return std::unexpected{SuspendError::ACTIVE_CONNECTIONS};
   }
   // State is now SUSPENDING. Concurrent Drop sees SUSPENDING and returns USING without
   // erasing gk, so gk is valid for the rest of this function (lock-free Phase B/C).
 
-  // SU-2 / BUG #5 FIX: RAII rollback guard. If anything in the SUSPENDING window throws,
-  // abort_suspend() restores HOT so the gatekeeper is not permanently stuck SUSPENDING (which would
-  // hang ~Gatekeeper).
+  // RAII rollback guard. If anything in the SUSPENDING window throws, abort_suspend() restores HOT
+  // so the gatekeeper is not permanently stuck SUSPENDING (which would hang ~Gatekeeper).
   auto rollback = utils::OnScopeExit{[&] { gk->abort_suspend(); }};
 
   // PHASE B — post-freeze work (lock-free; gk is SUSPENDING so Drop is rejected).
-  // SU-REPL-1: no post-freeze IsReplicationParticipant() re-check either — see Phase A. A
+  // No post-freeze replica-registration re-check either — see Phase A rationale above. A
   // RegisterReplica racing into the A->freeze window only adds replicas, which is now allowed.
 
-  // SU-4 / A7: Consolidating snapshot at suspend. The tenant is frozen (no in-flight txns), so
-  // this captures the full committed state. On resume, recovery loads this snapshot and skips WAL
-  // files at/below its durable timestamp -> near-zero WAL replay (fast reheat).
+  // Consolidating snapshot at suspend. The tenant is frozen (no in-flight txns), so this captures
+  // the full committed state. On resume, recovery loads this snapshot and skips WAL files at/below
+  // its durable timestamp -> near-zero WAL replay (fast reheat).
   if (auto *inmem = dynamic_cast<storage::InMemoryStorage *>((*acc)->storage())) {
     using CreateSnapshotError = storage::InMemoryStorage::CreateSnapshotError;
     // A7: the periodic snapshot scheduler is NOT paused by the freeze, so a periodic
@@ -1176,9 +1175,9 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
             name,
             storage::InMemoryStorage::CreateSnapshotErrorToString(snap.error()));
       } else {
-        // C15/HOLE-1: on the recovery bypass path durability is incomplete (no WAL), so a failed
-        // consolidating snapshot leaves NOTHING to recover from — do not claim a WAL fallback. The
-        // cold shell may be unrecoverable; the replica re-syncs from MAIN on the next recovery round.
+        // On the recovery bypass path durability is incomplete (no WAL), so a failed consolidating
+        // snapshot leaves NOTHING to recover from — do not claim a WAL fallback. The cold shell may
+        // be unrecoverable; the replica re-syncs from MAIN on the next recovery round.
         spdlog::error(
             "hot/cold suspend (recovery): consolidating snapshot for '{}' was not written ({}) and "
             "durability is incomplete (no WAL fallback); the cold shell may be unrecoverable — the "
@@ -1191,29 +1190,29 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     inmem->DisableExitSnapshot();
   }
 
-  // SU-5: Capture heartbeat metadata POST-freeze (count==1, no concurrent commit can advance
+  // Capture heartbeat metadata POST-freeze (count==1, no concurrent commit can advance
   // ldt/epoch between this read and teardown).
   {
     auto *st = (*acc)->storage();
     auto const commit_info = st->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
     entry.last_durable_timestamp = commit_info.ldt_;
     entry.num_committed_txns = commit_info.num_committed_txns_;
-    // C10 (RE-9′): capture the FULL replication epoch state, coherent with the ldt above — the freeze
-    // (count==1, SUSPENDING shell refuses new accessors, ForEach skips us) means no concurrent commit
-    // can rotate epoch_ or append to history between these reads. current_epoch is the live epoch id;
-    // epoch_history is the prior-epochs deque (the boundary is appended only on a later promotion).
+    // Capture the FULL replication epoch state, coherent with the ldt above — the freeze (count==1,
+    // SUSPENDING shell refuses new accessors, ForEach skips us) means no concurrent commit can rotate
+    // epoch_ or append to history between these reads. current_epoch is the live epoch id; epoch_history
+    // is the prior-epochs deque (the boundary is appended only on a later promotion).
     entry.has_epoch_meta = true;
     entry.current_epoch = std::string{st->repl_storage_state_.epoch_.id()};
     // Move: the consolidating snapshot already serialized history (above), the storage is frozen and
     // about to be torn down, and nothing reads history again during teardown.
     entry.epoch_history = std::move(st->repl_storage_state_.history);
-    // P4 — last-hot stats snapshot (for C7 replication / coordinator history).
+    // Capture last-hot stats snapshot (used for replication and coordinator history).
     entry.cold_stats = st->GetBaseInfo();
   }
 
   // PHASE C — record metadata (lock_), then heavy teardown OUTSIDE lock_.
   const auto tenant_uuid = entry.salient.uuid;  // capture before `entry` is moved into suspended_
-  // C9: serialize the durable COLD marker from `entry` BEFORE it is moved into suspended_.
+  // Serialize the durable COLD marker from `entry` BEFORE it is moved into suspended_.
   std::string cold_val;
   if (durability_) {
     cold_val = Durability::GenColdVal(entry.salient.uuid,
@@ -1232,9 +1231,9 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     // recovery force-suspend all funnel through here); the gauge tracks the live cold-set size.
     metrics::Metrics().global.database_suspends->Increment();
     metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
-    // SU-6 / C9: persist the durable COLD marker under the SAME lock_ as the suspended_ insert so a
-    // concurrent Resume_ cannot observe a half state. A Put failure degrades to a warning and never
-    // rolls back or throws (the in-memory teardown still proceeds; MAIN's data stays durable on disk).
+    // Persist the durable COLD marker under the SAME lock_ as the suspended_ insert so a concurrent
+    // Resume_ cannot observe a half state. A Put failure degrades to a warning and never rolls back
+    // or throws (the in-memory teardown still proceeds; MAIN's data stays durable on disk).
     if (durability_) {
       try {
         durability_->Put(Durability::GenKey(name), cold_val);
@@ -1248,7 +1247,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     }
   }
 
-  // SU-2: Disable the rollback guard BEFORE calling finish_suspend(). finish_suspend() transitions
+  // Disable the rollback guard BEFORE calling finish_suspend(). finish_suspend() transitions
   // SUSPENDING -> COLD; if the guard fired afterwards it would abort_suspend() on a non-SUSPENDING
   // state and trip the debug assert.
   rollback.Disable();
@@ -1257,7 +1256,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // The COLD shell stays in db_handler_ so a later resume can move-assign a fresh gatekeeper.
   gk->finish_suspend();
 
-  // SU-STREAMS: the suspend is committed (tenant is COLD, in-memory storage and stream consumers dropped;
+  // The suspend is committed (tenant is COLD, in-memory storage and stream consumers dropped;
   // durable stream metadata persists for resume). Keep the streams stopped — do NOT run the undo guard.
   //
   // On the gap between rollback.Disable() above and this Disable(): finish_suspend() CANNOT throw-and-unwind
@@ -1268,7 +1267,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   stream_restore.Disable();
 
   // Record the system action so the suspend is ordered + replicated like CREATE/DROP DATABASE.
-  // Done only after the local teardown commits; the replica wire is filled in C7.
+  // Done only after the local teardown commits; the replica wire is filled by DoReplication.
   if (txn) txn->AddAction<SuspendDatabase>(tenant_uuid);
 
   spdlog::info("hot/cold: database '{}' suspended (HOT -> COLD)", name);
@@ -1363,16 +1362,16 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           // erase(iterator) — both nothrow — so the publish block cannot throw after the noexcept
           // move commits the gatekeeper to HOT.
           auto wr = std::unique_lock{lock_};
-          // C10 (RE-9′): BuildDetached recovered the PRE-promotion epoch+history from disk. If a
-          // promotion rewrote our durable epoch metadata while we were COLD, restore the full epoch
-          // state so the rebuilt storage runs the post-promotion epoch and a lagging replica's
-          // continuous-history check finds the promotion boundary (no spurious DIVERGED). Re-read
-          // suspended_[name] HERE, under the exclusive publish lock — NOT the Phase-A copy, which a
-          // PromoteColdTenants landing in the off-lock BuildDetached window would have left stale (it
-          // rewrites the in-map entry under this same lock_). `fresh` is still private (not yet
-          // move-published), so the write needs no engine_lock_, and it must precede the move (`acc`
-          // points into `fresh`'s pimpl). Skipped for pre-C10 V2 entries (has_epoch_meta == false) ->
-          // the disk-recovered epoch/history stand. Move out of the entry: it is erased just below.
+          // BuildDetached recovered the PRE-promotion epoch+history from disk. If a promotion
+          // rewrote our durable epoch metadata while we were COLD, restore the full epoch state so the
+          // rebuilt storage runs the post-promotion epoch and a lagging replica's continuous-history
+          // check finds the promotion boundary (no spurious DIVERGED). Re-read suspended_[name] HERE,
+          // under the exclusive publish lock — NOT the Phase-A copy, which a PromoteColdTenants
+          // landing in the off-lock BuildDetached window would have left stale (it rewrites the in-map
+          // entry under this same lock_). `fresh` is still private (not yet move-published), so the
+          // write needs no engine_lock_, and it must precede the move (`acc` points into `fresh`'s
+          // pimpl). Skipped for older V2 entries (has_epoch_meta == false) — the disk-recovered
+          // epoch/history stand. Move out of the entry: it is erased just below.
           auto it = suspended_.find(name);  // valid across the move below (it touches db_handler_, not suspended_)
           if (it != suspended_.end() && it->second.has_epoch_meta) {
             auto &rss = acc->storage()->repl_storage_state_;
@@ -1399,7 +1398,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         return std::unexpected{ResumeError::RECOVERY_FAILED};
       }
 
-      // C9: flip the durable entry back to HOT (drop the cold marker) so a restart recovers it HOT.
+      // Flip the durable entry back to HOT (drop the cold marker) so a restart recovers it HOT.
       // Done in a SEPARATE short lock_ scope AFTER the publish — NOT inside the publish block, whose
       // noexcept guarantee a throwing Put would violate. The write is guarded by !suspended_.contains:
       // if a SUSPEND raced in after our publish-erase and re-suspended the tenant, its under-lock COLD
@@ -1434,7 +1433,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
             name);
       }
       // Record the system action so the resume is ordered + replicated like CREATE/DROP DATABASE.
-      // Reached only on the winner's successful publish; the replica wire is filled in C7.
+      // Reached only on the winner's successful publish; the replica wire is filled by DoReplication.
       if (txn) txn->AddAction<ResumeDatabase>(entry.salient.uuid);
 
       spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
@@ -1472,9 +1471,10 @@ DbmsHandler::SuspendResult DbmsHandler::SuspendByUUID(utils::UUID uuid, system::
 
 DbmsHandler::ResumeResult DbmsHandler::ResumeByUUID(utils::UUID uuid, system::Transaction *txn) {
   // Resolve UUID -> name from the suspended-set, then delegate to Resume_ with rewire_replication
-  // false (SY-1: the apply / DD-1-barrier caller holds the repl_state read lock). The lock is dropped
-  // before Resume_ re-acquires it; Resume_ re-validates the COLD shell under its own lock, so the
-  // brief TOCTOU is benign (a racing resume just makes Resume_ observe HOT and share the accessor).
+  // false — the replication-apply caller holds the repl_state read lock, so on_resume_repl_ must
+  // not re-take it as a write lock. The lock is dropped before Resume_ re-acquires it; Resume_
+  // re-validates the COLD shell under its own lock, so the brief TOCTOU is benign (a racing resume
+  // just makes Resume_ observe HOT and share the accessor).
   std::string name;
   {
     auto rd = std::shared_lock{lock_};
@@ -1486,19 +1486,20 @@ DbmsHandler::ResumeResult DbmsHandler::ResumeByUUID(utils::UUID uuid, system::Tr
 }
 
 void DbmsHandler::PromoteColdTenants(std::string_view new_epoch_id) {
-  // C10 (PR-1 / RE-9′): COLD tenants are invisible to the DoToMainPromotion ForEach epoch loop. Rewrite
-  // their durable epoch metadata so a later resume runs the new epoch and the replica continuous-history
-  // check finds the promotion boundary. Metadata-only — no force-resume (replaces v1's
-  // ResumeColdTenantsForPromotion). The new epoch reaches replicas via the normal resume data stream;
-  // this only makes MAIN's restored history continuous so that stream is accepted.
+  // COLD tenants are invisible to the DoToMainPromotion ForEach epoch loop. Rewrite their durable
+  // epoch metadata so a later resume runs the new epoch and the replica continuous-history check
+  // finds the promotion boundary. Metadata-only — no force-resume. The new epoch reaches replicas
+  // via the normal resume data stream; this only makes MAIN's restored history continuous so that
+  // stream is accepted.
   //
-  // PR-1′ lock discipline: holds ONLY lock_ + KVStore Put; never acquires repl_state (the caller holds
-  // the repl_state write lock). The durable Put is the same small metadata write SU-6 does under lock_.
+  // Lock discipline: holds ONLY lock_ + KVStore Put; never acquires repl_state (the caller holds
+  // the repl_state write lock). The durable Put is the same small metadata write the suspend path
+  // does under lock_.
   auto wr = std::lock_guard{lock_};
 
   for (auto &[name, entry] : suspended_) {
-    // Skip pre-C10 V2 entries (no captured epoch) — mutating them would write a phantom "" boundary,
-    // and resume leaves their disk-recovered epoch intact anyway (has_epoch_meta == false).
+    // Skip older V2 entries without captured epoch metadata — mutating them would write a phantom
+    // "" boundary, and resume leaves their disk-recovered epoch intact anyway (has_epoch_meta == false).
     if (!entry.has_epoch_meta) continue;
 
     // Append the promotion boundary (the just-ended epoch + its last durable ts), mirroring
@@ -1521,8 +1522,8 @@ void DbmsHandler::PromoteColdTenants(std::string_view new_epoch_id) {
                                                 entry.epoch_history,
                                                 entry.cold_stats));
       } catch (const std::exception &e) {
-        // Best-effort, like SU-6: the in-memory entry already carries the new epoch (a resume in this
-        // process is correct); only a restart-before-persist would recover the pre-promotion epoch.
+        // Best-effort: the in-memory entry already carries the new epoch (a resume in this process is
+        // correct); only a restart-before-persist would recover the pre-promotion epoch.
         spdlog::warn("hot/cold promotion: failed to persist new epoch for cold database '{}' ({}).", name, e.what());
       }
     }

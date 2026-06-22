@@ -242,9 +242,8 @@ void SuspendDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &syste
     // down the storage with it still cached would dangle it.
     InMemoryReplicationHandlers::AbortTwoPCForTenant(req.uuid);
 
-    // SY-1: no repl_state lock held (we follow the DropDatabase pattern). SY-2: SuspendByUUID ->
-    // Suspend_ uses the gatekeeper's bounded count==1 drain. On a replica IsReplicationParticipant()
-    // is false so no guard bypass is needed.
+    // No repl_state lock is held here (we follow the DropDatabase pattern). SuspendByUUID ->
+    // Suspend_ uses the gatekeeper's bounded count==1 drain; suspend does not gate on replication state.
     auto result = dbms_handler.SuspendByUUID(req.uuid);
     if (result) {
       res = SuspendDatabaseRes(SuspendDatabaseRes::Result::SUCCESS);
@@ -253,15 +252,15 @@ void SuspendDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &syste
       // Holistic-review #3: NON_EXISTENT means "not HOT". Only treat it as an idempotent NO_NEED when the
       // tenant is KNOWN (already COLD) — i.e. genuinely already in the target state. If the tenant is
       // unknown entirely, this is a divergence (MAIN suspended a tenant this replica is missing); leave
-      // the apply FAILURE so the replica latches BEHIND and SystemRecovery (C8) supplies it.
+      // the apply FAILURE so the replica latches BEHIND and SystemRecovery supplies it.
       res = SuspendDatabaseRes(SuspendDatabaseRes::Result::NO_NEED);
     }
-    // Any other error (e.g. ACTIVE_CONNECTIONS bounded-drain timeout) leaves FAILURE. SY-2: the
+    // Any other error (e.g. ACTIVE_CONNECTIONS bounded-drain timeout) leaves FAILURE. The
     // replica does NOT silently diverge — the system timestamp still advances via FinalizeSystemTxRpc
     // and the failed apply flags this replica BEHIND, so it reconciles on the next ordered re-sync /
-    // SystemRecovery (C8).
+    // SystemRecovery.
   } catch (const std::exception &e) {
-    // FAILURE: log so a diverged replica (SY-2) has a diagnostic anchor.
+    // FAILURE: log so a diverged replica has a diagnostic anchor.
     spdlog::error(
         "SuspendDatabaseHandler: failed to apply suspend for database {}: {}", std::string{req.uuid}, e.what());
   } catch (...) {
@@ -304,7 +303,7 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   }
 
   try {
-    // SY-1: ResumeByUUID -> Resume_(rewire_replication=false). The apply thread holds no repl_state
+    // ResumeByUUID -> Resume_(rewire_replication=false). The apply thread holds no repl_state
     // lock, so the post-publish replication arm (which would take a repl_state write lock) is skipped.
     auto result = dbms_handler.ResumeByUUID(req.uuid);
     if (result) {
@@ -314,12 +313,12 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
       // Holistic-review #3: NON_EXISTENT means "not in the suspended-set". Only treat it as an idempotent
       // NO_NEED when the tenant is KNOWN (already HOT here). If it is unknown entirely, this is a
       // divergence (MAIN resumed a tenant this replica is missing); leave the apply FAILURE so the replica
-      // latches BEHIND and SystemRecovery (C8) supplies it.
+      // latches BEHIND and SystemRecovery supplies it.
       res = ResumeDatabaseRes(ResumeDatabaseRes::Result::NO_NEED);
     }
-    // RECOVERY_FAILED leaves FAILURE -> diverge-then-reconcile via SystemRecovery (C8).
+    // RECOVERY_FAILED leaves FAILURE -> diverge-then-reconcile via SystemRecovery.
   } catch (const std::exception &e) {
-    // FAILURE: log so a diverged replica (SY-2) has a diagnostic anchor.
+    // FAILURE: log so a diverged replica has a diagnostic anchor.
     spdlog::error("ResumeDatabaseHandler: failed to apply resume for database {}: {}", std::string{req.uuid}, e.what());
   } catch (...) {
     spdlog::error("ResumeDatabaseHandler: failed to apply resume for database {}", std::string{req.uuid});
@@ -336,7 +335,7 @@ namespace {
 // structurally unreachable here (DEFAULT_DB/NOT_IN_MEMORY/DURABILITY_INCOMPLETE are config-fixed, and
 // there is no MAIN-side replication-participant gate). The engine's try_begin_suspend() already waits
 // 100ms for count==1; this bounded outer retry covers a slow background accessor. On timeout the caller flags
-// BEHIND and the whole recovery is retried (SY-2 diverge-then-reconcile).
+// BEHIND and the whole recovery is retried (diverge-then-reconcile via SystemRecovery).
 bool ForceSuspendForRecovery(DbmsHandler &dbms_handler, std::string_view name) {
   constexpr auto kRetryStep = std::chrono::milliseconds(20);
   // Bounded so it does not hold the single-threaded replica RPC server (heartbeat/WAL deltas) for
@@ -346,9 +345,9 @@ bool ForceSuspendForRecovery(DbmsHandler &dbms_handler, std::string_view name) {
   constexpr auto kTimeout = std::chrono::seconds(2);
   const auto deadline = std::chrono::steady_clock::now() + kTimeout;
   while (true) {
-    // HOLE-1 (C15): recovery bypasses the durability-complete gate (the tenant is already COLD on
-    // MAIN; the consolidating snapshot is written unconditionally and read back on resume). Without
-    // the bypass a replica whose durability config differs from MAIN's would fail here with
+    // Recovery bypasses the durability-complete gate (the tenant is already COLD on MAIN; the
+    // consolidating snapshot is written unconditionally and read back on resume). Without the bypass
+    // a replica whose durability config differs from MAIN's would fail here with
     // DURABILITY_INCOMPLETE and spin forever in the BEHIND->reconcile loop.
     auto res = dbms_handler.SuspendForRecovery(name);
     if (res.has_value()) return true;
@@ -391,8 +390,8 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   /*
    * MULTI-TENANCY
    */
-  // C16 (MED2): the COLD set arrives as one ColdTenantRecovery per tenant (salient + stats + epoch),
-  // so the salient<->stats pairing is structural — the earlier mismatched-length guard is gone.
+  // The COLD set arrives as one ColdTenantRecovery per tenant (salient + stats + epoch), so the
+  // salient<->stats pairing is structural — the earlier mismatched-length guard is gone.
 
   // H4: seed the leftover-delete set from HOT *and* COLD tenants. All() skips COLD shells, so a
   // tenant MAIN has dropped while this replica holds it COLD would otherwise be in neither the

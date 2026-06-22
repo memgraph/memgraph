@@ -315,7 +315,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
 }
 
 // SystemRecoveryRpc V3 (hot/cold): the COLD set (a vector of ColdTenantRecovery: salient + StorageInfo
-// + epoch metadata) survives the SLK round-trip, including the StorageInfo serializer and the C16
+// + epoch metadata) survives the SLK round-trip, including the StorageInfo serializer and the
 // epoch fields (current_epoch + epoch_history deque-as-pairs + has_epoch_meta).
 TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   Endpoint const endpoint{"localhost", port};
@@ -358,7 +358,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   cold.stats.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION;
   cold.stats.durability_wal_enabled = true;
   cold.stats.schema_vertex_count = 9;
-  // C16: epoch metadata must round-trip too.
+  // Epoch metadata must round-trip too.
   cold.current_epoch = "epoch-E2";
   cold.epoch_history = memgraph::storage::EpochHistory{{"epoch-E1", 42}, {"epoch-E0", 7}};
   cold.has_epoch_meta = true;
@@ -388,7 +388,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   EXPECT_EQ(seen_cold[0].stats.isolation_level, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
   EXPECT_TRUE(seen_cold[0].stats.durability_wal_enabled);
   EXPECT_EQ(seen_cold[0].stats.schema_vertex_count, 9U);
-  // C16 epoch round-trip:
+  // Epoch round-trip:
   EXPECT_TRUE(seen_cold[0].has_epoch_meta);
   EXPECT_EQ(seen_cold[0].current_epoch, "epoch-E2");
   ASSERT_EQ(seen_cold[0].epoch_history.size(), 2U);

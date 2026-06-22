@@ -400,8 +400,8 @@ class DbmsHandler {
    * @brief Suspend a tenant identified by UUID (replica-apply path for SuspendDatabaseRpc).
    *
    * Resolves the UUID to a name (the apply handler only has the UUID from the wire), then runs the
-   * same node-local Suspend_ as MAIN. On a replica IsReplicationParticipant() is false, so no guard
-   * bypass is needed; SY-2 bounded drain is the gatekeeper's try_begin_suspend() count==1 wait.
+   * same node-local Suspend_ as MAIN. Suspend never gates on replication state, so the replica path
+   * needs no special handling; the bounded drain is the gatekeeper's try_begin_suspend() count==1 wait.
    *
    * @return SuspendResult — NON_EXISTENT if no HOT tenant has this UUID.
    */
@@ -409,10 +409,10 @@ class DbmsHandler {
 
   /**
    * @brief Resume a tenant identified by UUID (replica-apply path for ResumeDatabaseRpc and the
-   *        DD-1 inline self-resume barrier in GetDatabaseAccessor).
+   *        inline self-resume barrier in GetDatabaseAccessor).
    *
    * Resolves the UUID to a name from the suspended-set, then runs Resume_ with
-   * rewire_replication=false (SY-1: the caller holds the repl_state read lock; the post-publish
+   * rewire_replication=false (the caller holds the repl_state read lock; the post-publish
    * replication arm would re-take it as a write lock -> self-deadlock).
    *
    * @return ResumeResult — the HOT DatabaseAccess on success, NON_EXISTENT if no COLD tenant has
@@ -453,7 +453,7 @@ class DbmsHandler {
    * when it is missing ENTIRELY (genuine divergence). Mapping both to NO_NEED would silently score the
    * divergent case as success, so MAIN never latches this replica BEHIND and SystemRecovery never fires to
    * supply the missing tenant. This predicate lets the handler tell the two apart: known -> NO_NEED;
-   * unknown -> leave the apply FAILURE so the replica reconciles via SystemRecovery (C8).
+   * unknown -> leave the apply FAILURE so the replica reconciles via SystemRecovery.
    */
   // NOT const: probing a HOT tenant's uuid mints (and immediately drops) a gatekeeper accessor, exactly
   // as SuspendByUUID does — Gatekeeper::access() is non-const because it transiently bumps the count.
@@ -470,7 +470,7 @@ class DbmsHandler {
   }
 
   /**
-   * @brief C11: atomic, de-duplicated HOT ∪ COLD tenant set for cold-aware SHOW DATABASES.
+   * @brief Atomic, de-duplicated HOT ∪ COLD tenant set for cold-aware SHOW DATABASES.
    *
    * All()/ForEach skip COLD shells, so a suspended tenant would otherwise vanish from SHOW DATABASES.
    * This reads db_handler_ (HOT) and suspended_ (COLD) under a SINGLE shared_lock and returns each
@@ -484,7 +484,7 @@ class DbmsHandler {
     auto rd = std::shared_lock{lock_};
     std::vector<std::pair<std::string, std::string>> out;
     out.reserve(suspended_.size() + db_handler_.size());
-    // C12: the COLD status string distinguishes a user-suspended tenant ("COLD") from one left cold by
+    // The COLD status string distinguishes a user-suspended tenant ("COLD") from one left cold by
     // a failed boot recovery ("COLD (recovery failed[: out of memory])") — the degraded-but-alive
     // marker so the instance never silently drops a tenant.
     for (const auto &[name, entry] : suspended_) {
@@ -508,19 +508,19 @@ class DbmsHandler {
     return out;
   }
 
-  /// C11/C12: minimal projection of a COLD tenant for SHOW STORAGE INFO ON <cold> (reverses HC-5).
+  /// Minimal projection of a COLD tenant for SHOW STORAGE INFO ON <cold> (previously this errored).
   struct ColdShowInfo {
     utils::UUID uuid;
-    storage::StorageInfo stats;  //!< as-of-suspend snapshot (on MAIN); physical fields are MAIN-relative (R11)
-    std::string status;          //!< C12 marker: "COLD (as-of-suspend snapshot)" or "COLD (recovery failed[...])"
+    storage::StorageInfo stats;  //!< as-of-suspend snapshot (on MAIN); physical fields are MAIN-relative
+    std::string status;          //!< "COLD (as-of-suspend snapshot)" or "COLD (recovery failed[...])"
   };
 
   /**
-   * @brief C11: fetch a COLD tenant's as-of-suspend snapshot by name (nullopt if not suspended).
+   * @brief Fetch a COLD tenant's as-of-suspend snapshot by name (nullopt if not suspended).
    *
    * Lets SHOW STORAGE INFO ON <cold> serve the durable cold_stats instead of tripping the Get_ cold
-   * seam (HC-5). The numbers are MAIN's as-of-suspend snapshot, labeled as such by the caller (R11).
-   * C12: for a tenant left cold by a failed recovery the stats are defaults (no snapshot was captured),
+   * seam. The numbers are MAIN's as-of-suspend snapshot, labeled as such by the caller.
+   * For a tenant left cold by a failed recovery the stats are defaults (no snapshot was captured),
    * so `status` reports the failure instead of an "as-of-suspend" label.
    */
   std::optional<ColdShowInfo> GetColdShowInfo(std::string_view name) const {
@@ -548,7 +548,7 @@ class DbmsHandler {
    *
    * SR-1′(1): when MAIN's incoming HOT config names a tenant this replica holds COLD, Update() would
    * throw UnknownDatabaseException on the COLD shell. Resume it first. rewire=false because recovery
-   * runs in the replica apply context (SY-1: on_resume_repl_ would re-take the repl_state lock).
+   * runs in the replica apply context (on_resume_repl_ would re-take the repl_state lock).
    */
   ResumeResult ResumeForRecovery(std::string_view name) { return Resume_(name, /*rewire_replication=*/false); }
 
@@ -557,22 +557,22 @@ class DbmsHandler {
    * durability-complete gate. The gate protects a USER-initiated SUSPEND; in recovery the tenant is
    * already COLD on MAIN (authoritative) and suspend's consolidating snapshot is written
    * unconditionally, so it stays recoverable. Bypassing avoids a BEHIND retry loop on a replica whose
-   * durability config differs from MAIN's (see HOLE-1).
+   * durability config differs from MAIN's.
    */
   SuspendResult SuspendForRecovery(std::string_view name) {
     return Suspend_(name, /*txn=*/nullptr, /*for_recovery=*/true);
   }
 
   /**
-   * @brief C16 (MED2): apply MAIN's authoritative cold metadata to a suspended tenant during recovery.
+   * @brief Apply MAIN's authoritative cold metadata to a suspended tenant during recovery.
    *
-   * Overwrites cold_stats with MAIN's as-of-suspend snapshot (R11) AND, when MAIN recorded epoch
-   * metadata (has_epoch_meta — a post-C10 cold entry), the current_epoch + epoch_history too. The epoch
+   * Overwrites cold_stats with MAIN's as-of-suspend snapshot AND, when MAIN recorded epoch
+   * metadata (has_epoch_meta — a post-epoch-capture cold entry), the current_epoch + epoch_history too. The epoch
    * matters because a replica that converges a tenant via SystemRecovery (rather than the ordered
    * SuspendDatabaseRpc) and is LATER promoted must append the correct continuous-history boundary in
    * PromoteColdTenants; without MAIN's epoch it would keep its disk-recovered one and emit a phantom
-   * boundary -> spurious DIVERGED downstream. has_epoch_meta=false (pre-C10) leaves the local epoch
-   * intact (R15 tolerant). No-op if @p name is not suspended.
+   * boundary -> spurious DIVERGED downstream. has_epoch_meta=false leaves the local epoch
+   * intact. No-op if @p name is not suspended.
    */
   void ApplyColdRecoveryMeta(std::string_view name, const storage::ColdTenantRecovery &meta) {
     auto wr = std::lock_guard{lock_};
@@ -614,19 +614,19 @@ class DbmsHandler {
   }
 
   /**
-   * @brief C10 (PR-1 / RE-9′): eager-epoch rewrite for COLD tenants on MAIN promotion.
+   * @brief Eager-epoch rewrite for COLD tenants on MAIN promotion.
    *
    * ForEach/All() skip COLD tenants (no-value gatekeeper -> access() nullopt), so the promotion epoch
    * loop never reaches them and a resumed cold tenant would otherwise keep its pre-promotion (disk)
    * epoch -> the replica continuous-history check fails -> spurious DIVERGED after failover. This
    * iterates suspended_ DIRECTLY, appending the promotion boundary (current_epoch, last_durable_ts) to
    * each entry's epoch_history and setting current_epoch = @p new_epoch_id, then rewriting the durable
-   * COLD marker. Resume_ later restores history+epoch verbatim (RE-9′). Metadata-only: no force-resume.
+   * COLD marker. Resume_ later restores history+epoch verbatim. Metadata-only: no force-resume.
    *
-   * Lock discipline (PR-1′): takes ONLY lock_ + KVStore Put, never repl_state — the caller
+   * Lock discipline: takes ONLY lock_ + KVStore Put, never repl_state — the caller
    * (DoToMainPromotion) holds the repl_state write lock, so acquiring it here would deadlock. The
    * reverse edge (lock_ -> repl_state via on_resume_repl_) lives only in the resume path, which this
-   * does not use. Pre-C10 V2 entries (has_epoch_meta == false) are left untouched.
+   * does not use. Older V2 entries (has_epoch_meta == false) are left untouched.
    *
    * @param new_epoch_id the single new epoch id generated for all tenants at promotion
    */
@@ -870,17 +870,17 @@ class DbmsHandler {
   struct SuspendedEntry {
     storage::SalientConfig salient;  //!< salient config to recreate the storage
     std::filesystem::path rel_dir;   //!< durability dir relative to the instance root
-    // Heartbeat metadata captured at suspend time (P4 — for C7 replication).
+    // Heartbeat metadata captured at suspend time, for replication.
     uint64_t last_durable_timestamp{0};  //!< repl_storage_state_.commit_ts_info_.ldt_ at suspend
     uint64_t num_committed_txns{0};      //!< repl_storage_state_.commit_ts_info_.num_committed_txns_
-    // C10 (RE-9′): the FULL replication epoch state captured at suspend, so a promotion can rewrite it
+    // The FULL replication epoch state captured at suspend, so a promotion can rewrite it
     // and a resume can restore it verbatim (a single epoch string is insufficient — the replica
     // continuous-history check needs the whole deque; see PromoteColdTenants + Resume_).
     std::string current_epoch;            //!< repl_storage_state_.epoch_.id() at suspend (post-promotion: new epoch)
     storage::EpochHistory epoch_history;  //!< copy of repl_storage_state_.history at suspend
-    bool has_epoch_meta{false};           //!< false for pre-C10 V2 cold entries (no epoch fields) — skip override
-    storage::StorageInfo cold_stats;      //!< P4 — last-hot stats snapshot
-    // C12: why this tenant is COLD. RUNTIME-ONLY (never serialized): a tenant left cold by a failed boot
+    bool has_epoch_meta{false};           //!< false for older V2 cold entries (no epoch fields) — skip override
+    storage::StorageInfo cold_stats;      //!< last-hot stats snapshot
+    // Why this tenant is COLD. RUNTIME-ONLY (never serialized): a tenant left cold by a failed boot
     // recovery keeps its durable entry HOT, so the next restart retries; this only drives the SHOW
     // marker + log for the current (degraded) process lifetime. A user SUSPEND / restored cold entry is
     // kSuspended.
@@ -1100,8 +1100,7 @@ class DbmsHandler {
       auto acc = db_gk.access();
       // Skip non-HOT shells: a COLD (suspended) tenant keeps an in-map gatekeeper, but access()
       // returns nullopt (it is not HOT). Dereferencing it would be UB. A COLD tenant is correctly
-      // "not found by UUID" here — the caller (e.g. the replica DD-1 barrier) falls back to
-      // ResumeByUUID, which reheats it from disk.
+      // "not found by UUID" here — the caller falls back to ResumeByUUID, which reheats it from disk.
       if (acc && acc->get()->uuid() == uuid) {
         return std::move(*acc);
       }

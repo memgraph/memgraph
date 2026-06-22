@@ -208,14 +208,14 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
     return std::optional{std::move(acc)};
   } catch (const dbms::UnknownDatabaseException &) {
 #ifdef MG_ENTERPRISE
-    // DD-1 / R1': a data or recovery RPC referenced a tenant that is not HOT on this replica. If it
+    // A data or recovery RPC referenced a tenant that is not HOT on this replica. If it
     // is a known COLD (suspended) tenant, reheat it from disk INLINE on this (single-threaded) RPC
     // thread — never by waiting for another RPC, which would self-deadlock the one server thread.
     // ResumeByUUID runs synchronous local recovery (snapshot + WAL), so this is a bounded,
     // self-contained reheat. This barrier lets a data delta that arrives for a still-COLD tenant
     // (reconnect/lag, before the RESUME system delta is applied) be applied rather than dropped.
     if (auto resumed = dbms_handler->ResumeByUUID(uuid); resumed.has_value()) {
-      spdlog::info("Replica reheated COLD database \"{}\" to apply an incoming delta (DD-1).", std::string{uuid});
+      spdlog::info("Replica reheated COLD database \"{}\" to apply an incoming delta.", std::string{uuid});
       auto &acc = resumed.value();
       const memory::DbArenaScope db_arena_scope{acc.get()};
       auto const *inmem_storage = static_cast<storage::InMemoryStorage *>(acc.get()->storage());

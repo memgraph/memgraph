@@ -97,7 +97,7 @@ struct SystemRecoveryReqV2 {
 
 // V3 (hot/cold tenants): adds the COLD set as a vector of ColdTenantRecovery so a reconnecting/lagging
 // replica converges to MAIN's authoritative {HOT ∪ COLD} set. Each entry carries a suspended tenant's
-// salient config, MAIN's as-of-suspend stats snapshot (R11), AND its epoch metadata (C16/MED2) so a
+// salient config, MAIN's as-of-suspend stats snapshot, AND its epoch metadata so a
 // SystemRecovery-converged-then-promoted replica records the correct continuous-history boundary.
 // ColdTenantRecovery is composed of storage:: types only, so the dbms reconcile signature stays
 // cycle-free.
@@ -145,7 +145,7 @@ struct SystemRecoveryReq {
   std::vector<auth::Role> roles;
   std::vector<auth::UserProfiles::Profile> profiles;
   std::vector<parameters::ParameterInfo> parameters;
-  // C16 (MED2): one payload per COLD tenant (salient + as-of-suspend stats + epoch metadata). Replaces
+  // One payload per COLD tenant (salient + as-of-suspend stats + epoch metadata). Replaces
   // the earlier parallel cold_database_configs/cold_database_stats vectors.
   std::vector<storage::ColdTenantRecovery> cold_databases;
 };
