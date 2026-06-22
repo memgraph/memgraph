@@ -36,20 +36,66 @@ bool Cursor::Pull(Frame &f, ExecutionContext &ctx) {
   return ResumePullStep(ra, ctx).status == PullRunResult::Status::HasRow;
 }
 
-PullRunResult ResumePullStep(PullAwaitable::ResumeAwaitable &ra, ExecutionContext & /*ctx*/) {
+// ─────────────────────────────────────────────────────────────────────────────
+// ResumePullStep — drives the root generator forward by exactly ONE step.
+//
+// CONTRACT (single-result):
+//   One call == one co_yield (HasRow), or exhaustion (Done), or a cooperative
+//   yield that suspended the leaf frame before producing a row (Yielded).
+//
+// YIELD PROTOCOL:
+//   ctx.suspended_task_handle_ptr is a pointer to a slot OWNED by the active
+//   PullDriverScope (set by that RAII object, not by callers here).  It is
+//   nullptr when no driver scope is active or when yield is suppressed.
+//
+//   • If the slot contains a non-null handle (a previously suspended leaf
+//     frame), we resume that leaf frame directly — not the root generator.
+//     We consume the slot first (*slot = {}) so a fresh yield during this
+//     resume will re-populate it.
+//   • After the resume() call returns we check the slot again: if it is now
+//     non-null, the coroutine suspended at a YieldPointAwaitable before
+//     producing a row → return Yielded.
+//   • If the slot is null after the resume, the coroutine ran to a co_yield
+//     (HasRow) or co_return (Done) → report normally.
+//
+// YIELD-OFF IDENTITY:
+//   When ctx.suspended_task_handle_ptr == nullptr (Phase 1/2 default, and any
+//   PullDriverScope(Suppressed) region) the slot branch is never taken and
+//   the post-resume check is also skipped — behaviour is identical to the
+//   original yield-OFF implementation.
+// ─────────────────────────────────────────────────────────────────────────────
+PullRunResult ResumePullStep(PullAwaitable::ResumeAwaitable &ra, ExecutionContext &ctx) {
   // Immediate (legacy, no-frame) or already-exhausted generator: report without resuming.
   if (ra.Done()) {
     ra.RethrowIfException();
     return ra.Result() ? PullRunResult::Row() : PullRunResult::Done();
   }
 
-  // PR4 yield-OFF: a single resume runs the whole symmetric-transfer chain down the operator
-  // tree and back, landing on the next co_yield (one row) or co_return (exhausted). Cooperative
-  // scheduler yield (PR10) will add the Yielded path here using ctx.
-  ra.GetHandle().resume();
+  // Decide which handle to resume.
+  //
+  // If a PullDriverScope is active (suspended_task_handle_ptr != nullptr) AND
+  // a leaf frame was stashed by a previous yield, resume that leaf directly.
+  // Otherwise resume the root generator handle.
+  std::coroutine_handle<> target = ra.GetHandle();
+  if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
+    target = *ctx.suspended_task_handle_ptr;
+    *ctx.suspended_task_handle_ptr = {};  // consume; a fresh yield in this step will re-stash
+  }
 
-  // Surface any exception the coroutine stored via unhandled_exception() before reporting status.
+  target.resume();
+
+  // Surface any exception the coroutine stored via unhandled_exception() before reporting
+  // yield/row/done status. The root promise always carries propagated exceptions even if
+  // the throw originated deep in a leaf (symmetric transfer unwinds to BasePromise::
+  // unhandled_exception via final_suspend→SymmetricTransfer→parent chain).
   ra.RethrowIfException();
+
+  // A leaf that yielded wrote its handle into the slot during this resume call.
+  // The void await_suspend in YieldPointAwaitable terminates the symmetric-transfer
+  // chain, so target.resume() returns here (not at a co_yield/co_return).
+  if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {
+    return PullRunResult::Yielded();
+  }
 
   return ra.Result() ? PullRunResult::Row() : PullRunResult::Done();
 }

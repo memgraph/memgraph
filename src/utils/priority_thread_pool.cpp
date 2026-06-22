@@ -849,9 +849,13 @@ bool WorkerResumeEvent::RegisterTaskWaiter(TaskSignature task, PriorityThreadPoo
     return false;
   }
   // CRITICAL FIX: Store PARKED state BEFORE adding to waiters list
-  // This ensures atomicity - either both happen, or neither
+  // This ensures atomicity - either both happen, or neither.
+  // RELEASE (not relaxed): although this store is under WorkerResumeEvent::mutex_, the PARKED state is
+  // also read OUTSIDE that mutex by Finished()/HasNonTerminalTasks()/AllTerminal() (acquire loads). On a
+  // weakly-ordered arch a relaxed store could be invisible to those out-of-mutex observers; release pairs
+  // with their acquire so a parked task is never mistaken for non-existent/terminal.
   if (task_state) {
-    task_state->store(TaskCollection::Task::State::PARKED, std::memory_order_relaxed);
+    task_state->store(TaskCollection::Task::State::PARKED, std::memory_order_release);
     spdlog::trace("RegisterTaskWaiter: stored PARKED state for task");
   }
   waiters_.push_back(Waiter{.task = std::move(task), .pool = pool, .worker_id = worker_id, .task_state = task_state});
