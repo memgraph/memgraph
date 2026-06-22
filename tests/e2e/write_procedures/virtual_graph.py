@@ -1260,6 +1260,23 @@ class TestUseScopeProceduresHonorAmbientView:
         )
         assert results == [("a",), ("b",)]
 
+    def test_ambient_subgraph_view_expands_member_edges(self, connection):
+        """An ambient project() subgraph: an unmodified edge-expanding procedure
+        traverses a member node's edges through the bound subgraph."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:A {name: 'a'})-[:R]->(:B {name: 'b'}), (:C {name: 'c'});")
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:A)-[:R]->(:B)
+            WITH project(p) AS sg
+            CALL { USE sg MATCH (x:A) CALL read.subgraph_get_out_edges(x) YIELD edge RETURN type(edge) AS t }
+            RETURN t;
+            """,
+        )
+        assert results == [("R",)]
+
     def test_procedure_outside_use_scope_sees_real_graph(self, connection):
         """With no USE scope, the same procedure reads the real graph."""
         cursor = connection.cursor()
