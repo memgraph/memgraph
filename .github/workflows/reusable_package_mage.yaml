@@ -356,7 +356,7 @@ jobs:
           # of the prod deb. Stage the companion sidecar deb when either
           # docker variant needs it; the relwithdebinfo Dockerfile target
           # consumes it from mage/memgraph-debuginfo.deb.
-          if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+          if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" && "$OS" == ubuntu-* ]]; then
             debuginfo_deb=$(ls -1 "$MG_PACKAGE_ARTIFACT_DIR"/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)
             if [[ -z "$debuginfo_deb" ]]; then
               echo "Error: building the relwithdebinfo MAGE docker image requires a memgraph-debuginfo deb in $MG_PACKAGE_ARTIFACT_DIR" >&2
