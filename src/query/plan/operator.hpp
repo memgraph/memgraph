@@ -482,7 +482,9 @@ class CreateNode : public memgraph::query::plan::LogicalOperator {
   class CreateNodeCursor : public Cursor {
    public:
     CreateNodeCursor(const CreateNode &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -577,7 +579,9 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
   class CreateExpandCursor : public Cursor {
    public:
     CreateExpandCursor(const CreateExpand &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1454,7 +1458,9 @@ class Delete : public memgraph::query::plan::LogicalOperator {
   class DeleteCursor : public Cursor {
    public:
     DeleteCursor(const Delete &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1505,7 +1511,9 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
   class SetPropertyCursor : public Cursor {
    public:
     SetPropertyCursor(const SetProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1601,7 +1609,9 @@ class SetProperties : public memgraph::query::plan::LogicalOperator {
   class SetPropertiesCursor : public Cursor {
    public:
     SetPropertiesCursor(const SetProperties &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1644,7 +1654,9 @@ class SetLabels : public memgraph::query::plan::LogicalOperator {
   class SetLabelsCursor : public Cursor {
    public:
     SetLabelsCursor(const SetLabels &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1685,7 +1697,9 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
   class RemovePropertyCursor : public Cursor {
    public:
     RemovePropertyCursor(const RemoveProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1770,7 +1784,9 @@ class RemoveLabels : public memgraph::query::plan::LogicalOperator {
   class RemoveLabelsCursor : public Cursor {
    public:
     RemoveLabelsCursor(const RemoveLabels &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 

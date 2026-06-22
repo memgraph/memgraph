@@ -108,6 +108,26 @@ class CursorParityTest : public ::testing::Test {
 
     EXPECT_EQ(Render(legacy), Render(coroutine)) << "PARITY MISMATCH for query: " << query;
   }
+
+  // Parity for WRITE cursors. A mutation changes shared state, so we cannot run it twice on the same
+  // data. Instead each flag state gets its OWN fresh, equivalent sub-graph: run `setup` (flag-off),
+  // run `mutation` under the flag and capture its RETURNED rows, then `cleanup` (flag-off). The two
+  // runs are independent and start from identical input, so the returned rows must match. Mutation
+  // queries must RETURN deterministic projections (properties / computed values, never internal ids).
+  void ExpectMutationParity(const std::string &setup, const std::string &mutation, const std::string &cleanup) {
+    auto run = [&](memgraph::flags::Experiments mode) {
+      memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+      if (!setup.empty()) interpreter.Interpret(setup);
+      memgraph::flags::SetExperimental(mode);
+      auto stream = interpreter.Interpret(mutation);
+      memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+      if (!cleanup.empty()) interpreter.Interpret(cleanup);
+      return Render(stream);
+    };
+    const auto legacy = run(memgraph::flags::Experiments::NONE);
+    const auto coroutine = run(memgraph::flags::Experiments::COROUTINE_CURSORS);
+    EXPECT_EQ(legacy, coroutine) << "MUTATION PARITY MISMATCH for: " << mutation;
+  }
 };
 
 // Phase 1 corpus. GROW this as cursor families are converted (each PR adds queries routing through
@@ -161,6 +181,39 @@ TEST_F(CursorParityTest, Corpus) {
   };
   for (const auto &q : corpus) {
     ExpectParity(q);
+  }
+}
+
+// Write-cursor parity (P1.8 MUTATE). Each case: {setup, mutation-with-RETURN, cleanup}. The mutation
+// runs once flag-off and once flag-on, each on its own fresh sub-graph; the RETURNED rows must match.
+TEST_F(CursorParityTest, MutationCorpus) {
+  const std::string cleanup = "MATCH (n:Tmp) DETACH DELETE n";
+
+  struct Case {
+    std::string setup;
+    std::string mutation;
+  };
+
+  const std::vector<Case> cases = {
+      // CreateNode
+      {"", "CREATE (n:Tmp {v: 42}) RETURN n.v AS v"},
+      // CreateExpand
+      {"", "CREATE (a:Tmp {id: 1})-[r:R {w: 7}]->(b:Tmp {id: 2}) RETURN r.w AS w, a.id AS aid, b.id AS bid"},
+      // SetProperty
+      {"CREATE (:Tmp {id: 1})", "MATCH (n:Tmp) SET n.x = 9 RETURN n.x AS x"},
+      // SetProperties (+=)
+      {"CREATE (:Tmp {id: 1})", "MATCH (n:Tmp) SET n += {a: 1, b: 2} RETURN n.a AS a, n.b AS b"},
+      // SetLabels
+      {"CREATE (:Tmp {id: 1})", "MATCH (n:Tmp) SET n:Extra RETURN 'Extra' IN labels(n) AS has"},
+      // RemoveProperty
+      {"CREATE (:Tmp {id: 1, x: 5})", "MATCH (n:Tmp) REMOVE n.x RETURN n.x AS x"},
+      // RemoveLabels
+      {"CREATE (:Tmp:Extra {id: 1})", "MATCH (n:Tmp) REMOVE n:Extra RETURN 'Extra' IN labels(n) AS has"},
+      // Delete (buffered passthrough; capture id BEFORE delete -- can't read a deleted object)
+      {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})", "MATCH (n:Tmp) WITH n, n.id AS id DELETE n RETURN id ORDER BY id"},
+  };
+  for (const auto &c : cases) {
+    ExpectMutationParity(c.setup, c.mutation, cleanup);
   }
 }
 

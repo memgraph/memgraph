@@ -622,7 +622,7 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
                                                metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
 
-bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool CreateNode::CreateNodeCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("CreateNode");
 
@@ -659,9 +659,57 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   return false;
 }
 
+PullAwaitable CreateNode::CreateNodeCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master CreateNode::Pull(). oom/profile/
+  // evaluator are per-iteration and alive across the co_await PullChild input pull (as master holds
+  // them across input_cursor_->Pull) but die before co_yield. One created node == one master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("CreateNode");
+
+      AbortCheck(context);
+
+      ExpressionEvaluator evaluator(&frame,
+                                    context.symbol_table,
+                                    context.evaluation_context,
+                                    context.db_accessor,
+                                    storage::View::NEW,
+                                    nullptr,
+                                    &context.number_of_hops,
+                                    context.user_or_role,
+                                    context.triggering_user);
+
+      if (co_await PullChild(*input_cursor_, frame, context)) {
+        // we have to resolve the labels before we can check for permissions
+        auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
+
+#ifdef MG_ENTERPRISE
+        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+            !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
+          throw QueryRuntimeException("Creating node failed: missing CREATE permission on labels.");
+        }
+#endif
+
+        auto const &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
+        if (context.trigger_context_collector) {
+          context.trigger_context_collector->RegisterCreatedObject(created_vertex);
+        }
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void CreateNode::CreateNodeCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void CreateNode::CreateNodeCursor::Reset() { input_cursor_->Reset(); }
+void CreateNode::CreateNodeCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 CreateExpand::CreateExpand(NodeCreationInfo node_info, EdgeCreationInfo edge_info,
                            const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, bool existing_node)
@@ -768,7 +816,7 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, const storage::EdgeTy
 
 }  // namespace
 
-bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool CreateExpand::CreateExpandCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
@@ -847,9 +895,103 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   return true;
 }
 
+PullAwaitable CreateExpand::CreateExpandCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master CreateExpand::Pull(). oom/profile and
+  // the post-pull evaluator are per-iteration, alive across the co_await PullChild input pull (as
+  // master holds them across input_cursor_->Pull) but die before co_yield. One created edge == one
+  // master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP_BY_REF(self_);
+
+      AbortCheck(context);
+
+      if (co_await PullChild(*input_cursor_, frame, context)) {
+        ExpressionEvaluator evaluator(&frame,
+                                      context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor,
+                                      storage::View::NEW,
+                                      nullptr,
+                                      &context.number_of_hops,
+                                      context.user_or_role,
+                                      context.triggering_user);
+        auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
+        auto edge_type = EvaluateEdgeType(self_.edge_info_.edge_type, evaluator, context.db_accessor);
+
+#ifdef MG_ENTERPRISE
+        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+          if (!context.auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
+            throw QueryRuntimeException("Creating edge failed: missing CREATE permission on edge type.");
+          }
+          if (!self_.existing_node_ &&
+              !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
+            throw QueryRuntimeException("Creating node failed: missing CREATE permission on labels.");
+          }
+        }
+#endif
+        // get the origin vertex
+        TypedValue const &vertex_value = frame[self_.input_symbol_];
+        ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+        auto v1 = vertex_value.ValueVertex();
+
+        // get the destination vertex (possibly an existing node)
+        auto v2 = OtherVertex(frame, context, labels, evaluator);
+
+#ifdef MG_ENTERPRISE
+        // Check CREATE_EDGE permission on both endpoints
+        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+          if (!context.auth_checker->Has(
+                  v1, storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
+            throw QueryRuntimeException(
+                "Creating edge failed: missing CREATE EDGE or UPDATE permission on source node labels.");
+          }
+          if (v1 != v2 && !context.auth_checker->Has(
+                              v2, storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
+            throw QueryRuntimeException(
+                "Creating edge failed: missing CREATE EDGE or UPDATE permission on destination node labels.");
+          }
+        }
+#endif
+
+        // create an edge between the two nodes
+        auto *dba = context.db_accessor;
+
+        auto created_edge = [&] {
+          switch (self_.edge_info_.direction) {
+            case EdgeAtom::Direction::IN:
+              return CreateEdge(self_.edge_info_, edge_type, dba, &v2, &v1, &frame, context, &evaluator);
+            case EdgeAtom::Direction::OUT:
+            // in the case of an undirected CreateExpand we choose an arbitrary
+            // direction. this is used in the MERGE clause
+            // it is not allowed in the CREATE clause, and the semantic
+            // checker needs to ensure it doesn't reach this point
+            case EdgeAtom::Direction::BOTH:
+              return CreateEdge(self_.edge_info_, edge_type, dba, &v1, &v2, &frame, context, &evaluator);
+          }
+        }();
+
+        context.execution_stats[ExecutionStats::Key::CREATED_EDGES] += 1;
+        if (context.trigger_context_collector) {
+          context.trigger_context_collector->RegisterCreatedObject(created_edge);
+        }
+
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void CreateExpand::CreateExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void CreateExpand::CreateExpandCursor::Reset() { input_cursor_->Reset(); }
+void CreateExpand::CreateExpandCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 VertexAccessor const &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, ExecutionContext &context,
                                                                     std::vector<storage::LabelId> &labels,
@@ -6484,7 +6626,7 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
   }
 }
 
-bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool Delete::DeleteCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Delete");
 
@@ -6551,9 +6693,88 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   return has_more;
 }
 
+PullAwaitable Delete::DeleteCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master Delete::Pull(). Delete is a
+  // passthrough-with-buffered-side-effect: it returns has_more per Pull and flushes the delete
+  // buffer on buffer-full or input exhaustion. produced = has_more maps that exactly (the flush
+  // runs inside the scope before the co_return on the exhausting Pull). All helpers stay synchronous.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("Delete");
+
+      AbortCheck(context);
+
+      if (self_.buffer_size_ != nullptr && !buffer_size_.has_value()) [[unlikely]] {
+        ExpressionEvaluator evaluator(&frame,
+                                      context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor,
+                                      storage::View::OLD,
+                                      nullptr,
+                                      &context.number_of_hops,
+                                      context.user_or_role,
+                                      context.triggering_user);
+        buffer_size_ = *EvaluateDeleteBufferSize(evaluator, self_.buffer_size_);
+      }
+
+      bool const has_more = co_await PullChild(*input_cursor_, frame, context);
+
+      if (has_more) {
+        UpdateDeleteBuffer(frame, context);
+        pulled_++;
+      }
+
+      if (!has_more || (buffer_size_.has_value() && pulled_ >= *buffer_size_)) {
+        auto &dba = *context.db_accessor;
+        auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_);
+        if (!res) {
+          switch (res.error()) {
+            case storage::Error::SERIALIZATION_ERROR:
+              context.metric_handles->write_write_conflicts.Increment();
+              throw TransactionSerializationException();
+            case storage::Error::VERTEX_HAS_EDGES:
+              throw RemoveAttachedVertexException();
+            case storage::Error::DELETED_OBJECT:
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw QueryRuntimeException("Unexpected error when deleting a node.");
+          }
+        }
+
+        if (*res) {
+          context.execution_stats[ExecutionStats::Key::DELETED_NODES] += static_cast<int64_t>((*res)->first.size());
+          context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
+        }
+
+        // Update deleted objects for triggers
+        if (context.trigger_context_collector && *res) {
+          for (const auto &node : (*res)->first) {
+            context.trigger_context_collector->RegisterDeletedObject(node);
+          }
+
+          if (context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+            for (const auto &edge : (*res)->second) {
+              context.trigger_context_collector->RegisterDeletedObject(edge);
+            }
+          }
+        }
+
+        pulled_ = 0;
+      }
+
+      produced = has_more;
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Delete::DeleteCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
   input_cursor_->Reset();
   pulled_ = 0;
 }
@@ -6588,7 +6809,7 @@ SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils
                                                   metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
 
-bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool SetProperty::SetPropertyCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetProperty");
 
@@ -6670,9 +6891,107 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
   return true;
 }
 
+PullAwaitable SetProperty::SetPropertyCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master SetProperty::Pull(). oom/profile and
+  // the post-pull evaluator are per-iteration, alive across the co_await PullChild input pull (as
+  // master holds them across input_cursor_->Pull) but die before co_yield. One updated property ==
+  // one master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("SetProperty");
+
+      AbortCheck(context);
+
+      if (co_await PullChild(*input_cursor_, frame, context)) {
+        // Set, just like Create needs to see the latest changes.
+        ExpressionEvaluator evaluator(&frame,
+                                      context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor,
+                                      storage::View::NEW,
+                                      nullptr,
+                                      &context.number_of_hops,
+                                      context.user_or_role,
+                                      context.triggering_user);
+        TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
+        TypedValue rhs = self_.rhs_->Accept(evaluator);
+
+        switch (lhs.type()) {
+          case TypedValue::Type::Vertex: {
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !context.auth_checker->Has(lhs.ValueVertex(),
+                                           storage::View::NEW,
+                                           memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+              throw QueryRuntimeException(
+                  "Setting node property failed: missing SET PROPERTY or UPDATE permission on labels.");
+            }
+#endif
+            auto old_value = PropsSetChecked(&lhs.ValueVertex(),
+                                             self_.property_,
+                                             rhs,
+                                             context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
+                                             *context.metric_handles);
+            context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+            if (context.trigger_context_collector) {
+              // rhs cannot be moved because it was created with the allocator that is only valid during current pull
+              context.trigger_context_collector->RegisterSetObjectProperty(
+                  lhs.ValueVertex(),
+                  self_.property_,
+                  TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
+                  TypedValue{rhs});
+            }
+            break;
+          }
+          case TypedValue::Type::Edge: {
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !context.auth_checker->Has(lhs.ValueEdge(),
+                                           memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+              throw QueryRuntimeException(
+                  "Setting edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
+            }
+#endif
+            auto old_value = PropsSetChecked(&lhs.ValueEdge(),
+                                             self_.property_,
+                                             rhs,
+                                             context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
+                                             *context.metric_handles);
+            context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+            if (context.trigger_context_collector) {
+              // rhs cannot be moved because it was created with the allocator that is only valid
+              // during current pull
+              context.trigger_context_collector->RegisterSetObjectProperty(
+                  lhs.ValueEdge(),
+                  self_.property_,
+                  TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
+                  TypedValue{rhs});
+            }
+            break;
+          }
+          case TypedValue::Type::Null:
+            // Skip setting properties on Null (can occur in optional match).
+            break;
+          case TypedValue::Type::Map:
+          default:
+            throw QueryRuntimeException("Properties can only be set on edges and vertices.");
+        }
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void SetProperty::SetPropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void SetProperty::SetPropertyCursor::Reset() { input_cursor_->Reset(); }
+void SetProperty::SetPropertyCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 SetNestedProperty::SetNestedProperty(const std::shared_ptr<LogicalOperator> &input,
                                      std::vector<storage::PropertyId> property_path, PropertyLookup *lhs,
@@ -7031,7 +7350,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 
 }  // namespace
 
-bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool SetProperties::SetPropertiesCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetProperties");
 
@@ -7096,9 +7415,90 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
   return true;
 }
 
+PullAwaitable SetProperties::SetPropertiesCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master SetProperties::Pull(). oom/profile
+  // and the post-pull evaluator/frame_writer are per-iteration, alive across the co_await PullChild
+  // input pull (as master holds them across input_cursor_->Pull) but die before co_yield. One
+  // updated row == one master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("SetProperties");
+
+      AbortCheck(context);
+
+      if (co_await PullChild(*input_cursor_, frame, context)) {
+        TypedValue const &lhs = frame[self_.input_symbol_];
+
+        // Set, just like Create needs to see the latest changes.
+        ExpressionEvaluator evaluator(&frame,
+                                      context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor,
+                                      storage::View::NEW,
+                                      nullptr,
+                                      &context.number_of_hops,
+                                      context.user_or_role,
+                                      context.triggering_user);
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        TypedValue rhs = self_.rhs_->Accept(evaluator);
+
+        switch (lhs.type()) {
+          case TypedValue::Type::Vertex: {
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !context.auth_checker->Has(lhs.ValueVertex(),
+                                           storage::View::NEW,
+                                           memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+              throw QueryRuntimeException(
+                  "Setting node properties failed: missing SET PROPERTY or UPDATE permission on labels.");
+            }
+#endif
+            auto set_properties_on_record = [&](TypedValue &vertex) {
+              SetPropertiesOnRecord(&vertex.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
+            };
+            frame_writer.Modify(self_.input_symbol_, set_properties_on_record);
+            break;
+          }
+          case TypedValue::Type::Edge: {
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !context.auth_checker->Has(lhs.ValueEdge(),
+                                           memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+              throw QueryRuntimeException(
+                  "Setting edge properties failed: missing SET PROPERTY or UPDATE permission on edge type.");
+            }
+#endif
+            auto set_properties_on_record = [&](TypedValue &edge) {
+              SetPropertiesOnRecord(&edge.ValueEdge(), rhs, self_.op_, &context, cached_name_id_);
+            };
+            frame_writer.Modify(self_.input_symbol_, set_properties_on_record);
+            break;
+          }
+          case TypedValue::Type::Null: {
+            // Skip setting properties on Null (can occur in optional match).
+            break;
+          }
+          default: {
+            throw QueryRuntimeException("Properties can only be set on edges and vertices.");
+          }
+        }
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void SetProperties::SetPropertiesCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void SetProperties::SetPropertiesCursor::Reset() { input_cursor_->Reset(); }
+void SetProperties::SetPropertiesCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                      std::vector<StorageLabelType> labels)
@@ -7131,7 +7531,7 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
                                             metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
 
-bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool SetLabels::SetLabelsCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetLabels");
 
@@ -7199,9 +7599,94 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   return frame_writer.Modify(self_.input_symbol_, add_label);
 }
 
+PullAwaitable SetLabels::SetLabelsCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master SetLabels::Pull(). oom/profile/
+  // evaluator/frame_writer are per-iteration (master creates evaluator+frame_writer before the input
+  // pull), alive across the co_await PullChild input pull but die before co_yield. produced =
+  // frame_writer.Modify(...) preserves master's `return frame_writer.Modify(...)` exit (the add_label
+  // lambda's internal `return true` is the lambda's, not the cursor's). One row == one master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("SetLabels");
+
+      AbortCheck(context);
+
+      ExpressionEvaluator evaluator(&frame,
+                                    context.symbol_table,
+                                    context.evaluation_context,
+                                    context.db_accessor,
+                                    storage::View::NEW,
+                                    nullptr,
+                                    &context.number_of_hops,
+                                    context.user_or_role,
+                                    context.triggering_user);
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+      if (co_await PullChild(*input_cursor_, frame, context)) {
+        auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
+
+#ifdef MG_ENTERPRISE
+        // Check CREATE on the labels being added (target check)
+        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+            !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
+          throw QueryRuntimeException("Adding label failed: missing CREATE permission on target labels.");
+        }
+#endif
+
+        auto add_label = [&](TypedValue &vertex_value) {
+          // Skip setting labels on Null (can occur in optional match).
+          if (vertex_value.IsNull()) return true;
+          ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+          auto &vertex = vertex_value.ValueVertex();
+
+#ifdef MG_ENTERPRISE
+          // Check SET_LABEL on the existing vertex (gatekeeper check)
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+              !context.auth_checker->Has(
+                  vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_LABEL)) {
+            throw QueryRuntimeException(
+                "Adding label failed: missing SET LABEL or UPDATE permission on existing labels.");
+          }
+#endif
+
+          for (auto label : labels) {
+            auto maybe_value = vertex.AddLabel(label);
+            if (!maybe_value) {
+              switch (maybe_value.error()) {
+                case storage::Error::SERIALIZATION_ERROR:
+                  context.metric_handles->write_write_conflicts.Increment();
+                  throw TransactionSerializationException();
+                case storage::Error::DELETED_OBJECT:
+                  throw QueryRuntimeException("Trying to set a label on a deleted node.");
+                case storage::Error::VERTEX_HAS_EDGES:
+                case storage::Error::PROPERTIES_DISABLED:
+                case storage::Error::NONEXISTENT_OBJECT:
+                  throw QueryRuntimeException("Unexpected error when setting a label.");
+              }
+            }
+
+            if (context.trigger_context_collector && *maybe_value) {
+              context.trigger_context_collector->RegisterSetVertexLabel(vertex, label);
+            }
+          }
+          return true;
+        };
+        produced = frame_writer.Modify(self_.input_symbol_, add_label);
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void SetLabels::SetLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void SetLabels::SetLabelsCursor::Reset() { input_cursor_->Reset(); }
+void SetLabels::SetLabelsCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
                                PropertyLookup *lhs)
@@ -7232,7 +7717,7 @@ RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(const RemoveProperty 
                                                            metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
 
-bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool RemoveProperty::RemovePropertyCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveProperty");
 
@@ -7311,9 +7796,104 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
   return true;
 }
 
+PullAwaitable RemoveProperty::RemovePropertyCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master RemoveProperty::Pull(). oom/profile
+  // and the post-pull evaluator are per-iteration, alive across the co_await PullChild input pull (as
+  // master holds them across input_cursor_->Pull) but die before co_yield. One updated row == one
+  // master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("RemoveProperty");
+
+      AbortCheck(context);
+
+      if (co_await PullChild(*input_cursor_, frame, context)) {
+        // Remove, just like Delete needs to see the latest changes.
+        ExpressionEvaluator evaluator(&frame,
+                                      context.symbol_table,
+                                      context.evaluation_context,
+                                      context.db_accessor,
+                                      storage::View::NEW,
+                                      nullptr,
+                                      &context.number_of_hops,
+                                      context.user_or_role,
+                                      context.triggering_user);
+        TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
+
+        auto remove_prop = [property = self_.property_, &context](auto *record) {
+          auto maybe_old_value = record->RemoveProperty(property);
+          if (!maybe_old_value) {
+            switch (maybe_old_value.error()) {
+              case storage::Error::DELETED_OBJECT:
+                throw QueryRuntimeException("Trying to remove a property on a deleted graph element.");
+              case storage::Error::SERIALIZATION_ERROR:
+                context.metric_handles->write_write_conflicts.Increment();
+                throw TransactionSerializationException();
+              case storage::Error::PROPERTIES_DISABLED:
+                throw QueryRuntimeException(
+                    "Can't remove property because properties on edges are "
+                    "disabled.");
+              case storage::Error::VERTEX_HAS_EDGES:
+              case storage::Error::NONEXISTENT_OBJECT:
+                throw QueryRuntimeException("Unexpected error when removing property.");
+            }
+          }
+
+          if (context.trigger_context_collector) {
+            context.trigger_context_collector->RegisterRemovedObjectProperty(
+                *record,
+                property,
+                TypedValue(std::move(*maybe_old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
+          }
+        };
+
+        switch (lhs.type()) {
+          case TypedValue::Type::Vertex:
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !context.auth_checker->Has(lhs.ValueVertex(),
+                                           storage::View::NEW,
+                                           memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+              throw QueryRuntimeException(
+                  "Removing node property failed: missing SET PROPERTY or UPDATE permission on labels.");
+            }
+#endif
+            remove_prop(&lhs.ValueVertex());
+
+            break;
+          case TypedValue::Type::Edge:
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !context.auth_checker->Has(lhs.ValueEdge(),
+                                           memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
+              throw QueryRuntimeException(
+                  "Removing edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
+            }
+#endif
+            remove_prop(&lhs.ValueEdge());
+            break;
+          case TypedValue::Type::Null:
+            // Skip removing properties on Null (can occur in optional match).
+            break;
+          default:
+            throw QueryRuntimeException("Properties can only be removed from vertices and edges.");
+        }
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void RemoveProperty::RemovePropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
+void RemoveProperty::RemovePropertyCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 RemoveNestedProperty::RemoveNestedProperty(const std::shared_ptr<LogicalOperator> &input,
                                            std::vector<storage::PropertyId> property_path, PropertyLookup *lhs)
@@ -7481,7 +8061,7 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
                                                      metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
 
-bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool RemoveLabels::RemoveLabelsCursor::PullLegacy(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveLabels");
 
@@ -7551,9 +8131,95 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   return frame_writer.Modify(self_.input_symbol_, remove_label);
 }
 
+PullAwaitable RemoveLabels::RemoveLabelsCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master RemoveLabels::Pull(). oom/profile/
+  // evaluator/frame_writer are per-iteration (master creates evaluator+frame_writer before the input
+  // pull), alive across the co_await PullChild input pull but die before co_yield. produced =
+  // frame_writer.Modify(...) preserves master's `return frame_writer.Modify(...)` exit (the
+  // remove_label lambda's internal `return true` is the lambda's). One row == one master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("RemoveLabels");
+
+      AbortCheck(context);
+
+      ExpressionEvaluator evaluator(&frame,
+                                    context.symbol_table,
+                                    context.evaluation_context,
+                                    context.db_accessor,
+                                    storage::View::NEW,
+                                    nullptr,
+                                    &context.number_of_hops,
+                                    context.user_or_role,
+                                    context.triggering_user);
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+      if (co_await PullChild(*input_cursor_, frame, context)) {
+        auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
+
+#ifdef MG_ENTERPRISE
+        // Check DELETE on the target labels being removed
+        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+            !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
+          throw QueryRuntimeException("Removing label failed: missing DELETE permission on target labels.");
+        }
+#endif
+
+        auto remove_label = [&](TypedValue &vertex_value) {
+          // Skip removing labels on Null (can occur in optional match).
+          if (vertex_value.IsNull()) return true;
+          ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+          auto &vertex = vertex_value.ValueVertex();
+
+#ifdef MG_ENTERPRISE
+          // Check REMOVE_LABEL on the existing vertex (gatekeeper check)
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+              !context.auth_checker->Has(
+                  vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL)) {
+            throw QueryRuntimeException(
+                "Removing label failed: missing REMOVE LABEL or UPDATE permission on existing labels.");
+          }
+#endif
+
+          for (auto label : labels) {
+            auto maybe_value = vertex.RemoveLabel(label);
+            if (!maybe_value) {
+              switch (maybe_value.error()) {
+                case storage::Error::SERIALIZATION_ERROR:
+                  context.metric_handles->write_write_conflicts.Increment();
+                  throw TransactionSerializationException();
+                case storage::Error::DELETED_OBJECT:
+                  throw QueryRuntimeException("Trying to remove labels from a deleted node.");
+                case storage::Error::VERTEX_HAS_EDGES:
+                case storage::Error::PROPERTIES_DISABLED:
+                case storage::Error::NONEXISTENT_OBJECT:
+                  throw QueryRuntimeException("Unexpected error when removing labels from a node.");
+              }
+            }
+
+            context.execution_stats[ExecutionStats::Key::DELETED_LABELS] += 1;
+            if (context.trigger_context_collector && *maybe_value) {
+              context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
+            }
+          }
+          return true;
+        };
+        produced = frame_writer.Modify(self_.input_symbol_, remove_label);
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void RemoveLabels::RemoveLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void RemoveLabels::RemoveLabelsCursor::Reset() { input_cursor_->Reset(); }
+void RemoveLabels::RemoveLabelsCursor::Reset() {
+  Cursor::Reset();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 EdgeUniquenessFilter::EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator> &input, Symbol expand_symbol,
                                            const std::vector<Symbol> &previous_symbols)
