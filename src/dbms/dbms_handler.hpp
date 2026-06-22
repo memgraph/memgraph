@@ -24,6 +24,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <string>
 #include <system_error>
@@ -600,14 +601,15 @@ class DbmsHandler {
     auto rd = std::shared_lock{lock_};
     std::vector<storage::ColdTenantRecovery> out;
     out.reserve(suspended_.size());
-    for (const auto &[name, entry] : suspended_) {
-      out.push_back(storage::ColdTenantRecovery{.salient = entry.salient,
-                                                .stats = entry.cold_stats,
-                                                .has_epoch_meta = entry.has_epoch_meta,
-                                                .last_durable_timestamp = entry.last_durable_timestamp,
-                                                .current_epoch = entry.current_epoch,
-                                                .epoch_history = entry.epoch_history});
-    }
+    std::ranges::transform(suspended_, std::back_inserter(out), [](const auto &kv) {
+      const auto &entry = kv.second;
+      return storage::ColdTenantRecovery{.salient = entry.salient,
+                                         .stats = entry.cold_stats,
+                                         .has_epoch_meta = entry.has_epoch_meta,
+                                         .last_durable_timestamp = entry.last_durable_timestamp,
+                                         .current_epoch = entry.current_epoch,
+                                         .epoch_history = entry.epoch_history};
+    });
     return out;
   }
 
@@ -868,7 +870,6 @@ class DbmsHandler {
   struct SuspendedEntry {
     storage::SalientConfig salient;  //!< salient config to recreate the storage
     std::filesystem::path rel_dir;   //!< durability dir relative to the instance root
-    int64_t last_used_ns;            //!< last-used stamp captured at suspend time
     // Heartbeat metadata captured at suspend time (P4 — for C7 replication).
     uint64_t last_durable_timestamp{0};  //!< repl_storage_state_.commit_ts_info_.ldt_ at suspend
     uint64_t num_committed_txns{0};      //!< repl_storage_state_.commit_ts_info_.num_committed_txns_

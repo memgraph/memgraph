@@ -260,7 +260,6 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
         entry.salient.name = nm;
         entry.salient.uuid = id;
         entry.rel_dir = std::move(rel_dir);
-        entry.last_used_ns = 0;  // not persisted; resume does not depend on it
         entry.last_durable_timestamp = json.value("last_durable_timestamp", uint64_t{0});
         entry.num_committed_txns = json.value("num_committed_txns", uint64_t{0});
         // C10 (RE-9′): restore the full epoch state. has_epoch_meta is false for a pre-C10 V2 entry
@@ -1131,7 +1130,6 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     entry.salient = db->config().salient;
     entry.rel_dir = std::filesystem::relative(db->config().durability.storage_directory,
                                               default_config_.durability.storage_directory);
-    entry.last_used_ns = db->LastUsedNs();
 
     gk = db_handler_.GetGatekeeper(name);  // stable pointer to the in-map gatekeeper
     acc = std::move(*a);                   // hold the accessor across phases (count includes it)
