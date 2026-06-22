@@ -23,7 +23,6 @@
 
 #include "utils/logging.hpp"
 #include "utils/priorities.hpp"
-#include "utils/scheduler.hpp"
 #include "utils/worker_yield_signal.hpp"
 
 namespace memgraph::utils {
@@ -321,9 +320,7 @@ class PriorityThreadPool {
 
   uint64_t GetNumMixedWorkers() const { return workers_.size(); }
 
-  uint64_t GetNumHighPriorityWorkers() const { return hp_workers_.size(); }
-
-  uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
+  uint64_t GetNumWorkers() const { return workers_.size(); }
 
   /// Returns true if the pool is shutting down (stop has been requested).
   /// Used by ResumableWrapper to detect shutdown and handle yields inline.
@@ -380,12 +377,9 @@ class PriorityThreadPool {
   std::stop_source pool_stop_source_;
 
   std::vector<std::unique_ptr<Worker>> workers_;  // Mixed work threads
-  std::vector<std::unique_ptr<Worker>>
-      hp_workers_;       // High priority work threads | ideally tasks yield and this isn't needed
-  HotMask hot_threads_;  // Mask of workers waiting for new work (but still not sleeping)
+  HotMask hot_threads_;                           // Mask of workers waiting for new work (but still not sleeping)
 
   std::vector<std::jthread> pool_;  // All available threads (list so the elements are stable)
-  utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging
 
   std::atomic<TaskID> task_id_;  // Generates a unique tasks id | MSB signals high priority
 

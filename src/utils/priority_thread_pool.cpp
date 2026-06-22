@@ -149,49 +149,6 @@ PriorityThreadPool::PriorityThreadPool(uint16_t work_threads_count, ThreadInitCa
   }
 
   barrier.wait();
-
-  // // Under heavy load a task can get stuck, monitor and move to different thread
-  // monitoring_.SetInterval(std::chrono::milliseconds(100));
-  // monitoring_.Run("sched_mon",
-  //                 [this,
-  //                  workers_num = workers_.size(),
-  //                  hp_workers_num = hp_workers_.size(),
-  //                  last_task = std::array<TaskID, kMaxWorkers>{}]() mutable {
-  //                   size_t i = 0;
-  //                   for (auto &worker : workers_) {
-  //                     const auto worker_id = i++;
-  //                     auto &worker_last_task = last_task[worker_id];
-  //                     auto update = utils::OnScopeExit{[&]() mutable { worker_last_task = worker->last_task_; }};
-  //                     if (worker_last_task == worker->last_task_ && worker->working_ && worker->has_pending_work_) {
-  //                       // worker stuck on a task; move task to a different queue
-  //                       auto l = std::unique_lock{worker->mtx_, std::defer_lock};
-  //                       if (!l.try_lock()) continue;  // Thread is busy...
-  //                       // Recheck under lock
-  //                       if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
-  //                       // Update flag as soon as possible
-  //                       worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
-  //                       Worker::Work work{.id = worker->work_.top().id, .work = std::move(worker->work_.top().work)};
-  //                       worker->work_.pop();
-  //                       l.unlock();
-
-  //                       auto tid = hot_threads_.GetHotElement();
-  //                       if (!tid) {
-  //                         // No hot LP threads available; schedule HP work to HP thread
-  //                         if (work.id > kMinHighPriorityId) {
-  //                           static size_t last_hp_thread = 0;
-  //                           auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num :
-  //                           0]; if (!hp_worker->has_pending_work_) {
-  //                             hp_worker->push(std::move(work.work), work.id);
-  //                             continue;
-  //                           }
-  //                         }
-  //                         // No hot thread and low priority work, schedule to the next lp worker
-  //                         tid = (worker_id + 1) % workers_num;
-  //                       }
-  //                       workers_[*tid]->push(std::move(work.work), work.id);
-  //                     }
-  //                   }
-  //                 });
 }
 
 PriorityThreadPool::~PriorityThreadPool() {
@@ -205,8 +162,6 @@ void PriorityThreadPool::AwaitShutdown() { pool_.clear(); }
 void PriorityThreadPool::ShutDown() {
   {
     pool_stop_source_.request_stop();
-    // Stop monitoring thread before workers
-    monitoring_.Stop();
     // Workers
     for (auto &worker : workers_) {
       worker->stop();
@@ -216,7 +171,6 @@ void PriorityThreadPool::ShutDown() {
 
 void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority priority) {
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
-    spdlog::trace("ScheduledAddTask: pool stopping, executing task inline to avoid deadlock (P9 fix)");
     new_task();  // Execute synchronously instead of dropping - prevents deadlock (P9)
     return;
   }
@@ -232,10 +186,6 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
     // If no hot thread found, give it to the next thread
     tid = last_wid++ % max_wakeup_thread;
   }
-  spdlog::trace("ScheduledAddTask: adding task_id={} to worker {} (priority={})",
-                id,
-                *tid,
-                priority == Priority::HIGH ? "HIGH" : "LOW");
   workers_[*tid]->push(std::move(new_task), id);
   // High priority tasks are marked and given to mixed priority threads (at front of the queue)
   // HP threads are going to steal this work if not executed in time
@@ -291,22 +241,17 @@ void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Prio
 
     void Run() {
       const auto worker_id = WorkerYieldRegistry::GetCurrentWorkerId();
-      spdlog::trace("ResumableWrapper::Run: START worker_id={}", worker_id ? std::to_string(*worker_id) : "none");
       CurrentResumableTaskScope current_task_scope{pool, worker_id, [w = *this]() mutable { w.Run(); }};
       const bool yielded = (*task)();
       const bool was_parked = current_task_scope.WasParked();
-      spdlog::trace("ResumableWrapper::Run: task completed yielded={} parked={}", yielded, was_parked);
       if (was_parked) {
-        spdlog::trace("ResumableWrapper::Run: task was PARKED, returning");
         return;
       }
       if (!yielded) {
-        spdlog::trace("ResumableWrapper::Run: task FINISHED (not yielded), returning");
         return;
       }
       auto *sig = WorkerYieldRegistry::GetCurrentYieldSignal();
       if (sig && sig->load(std::memory_order_acquire)) {
-        spdlog::trace("ResumableWrapper::Run: clearing yield signal");
         // Clear the yield signal before rescheduling to prevent infinite rescheduling loops (P10 fix)
         sig->store(false, std::memory_order_release);
       }
@@ -317,7 +262,6 @@ void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Prio
         // ill-behaved task that keeps yielding with no way to observe shutdown (there is no abort channel
         // into the user task body), so the drain cannot wait for cooperation. The task has already run
         // once above, so call-once progress is kept.
-        spdlog::trace("ResumableWrapper::Run: pool shutting down, draining inline (bounded)");
         constexpr int kMaxShutdownDrainIterations = 64;
         for (int drain_i = 0; drain_i < kMaxShutdownDrainIterations; ++drain_i) {
           const auto wid = WorkerYieldRegistry::GetCurrentWorkerId();
@@ -334,11 +278,9 @@ void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Prio
       // P10: Yield signal has been cleared above
       // Task must be rescheduled on the same worker to preserve thread-local state
       if (auto wid = WorkerYieldRegistry::GetCurrentWorkerId()) {
-        spdlog::trace("ResumableWrapper::Run: rescheduling to worker {}", *wid);
         pool->RescheduleTaskOnWorker(*wid, [w = *this]() mutable { w.Run(); });
       } else {
         // No worker ID - use ScheduledAddTask as fallback
-        spdlog::trace("ResumableWrapper::Run: no worker id, using ScheduledAddTask");
         pool->ScheduledAddTask([w = *this]() mutable { w.Run(); }, priority);
       }
     }
@@ -355,9 +297,7 @@ void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Prio
 // the original task: LP continuations (ID ≤ INT64_MAX) naturally run after any pending
 // HP tasks (ID > INT64_MAX) without needing any special priority boost.
 void PriorityThreadPool::RescheduleTaskOnWorker(uint16_t worker_id, TaskSignature task) {
-  spdlog::trace("RescheduleTaskOnWorker: worker_id={}", worker_id);
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
-    spdlog::trace("RescheduleTaskOnWorker: pool stopping, executing task inline to avoid deadlock");
     task();  // Execute synchronously instead of dropping - prevents deadlock (P4)
     return;
   }
@@ -369,19 +309,14 @@ void PriorityThreadPool::RescheduleTaskOnWorker(uint16_t worker_id, TaskSignatur
     // If no task is currently active, treat it as a new LOW priority task
     id = task_id_.fetch_sub(1, std::memory_order_acq_rel);
   }
-  spdlog::trace("RescheduleTaskOnWorker: pushing to worker {} with task_id={}", worker_id, id);
   w->push(std::move(task), id, /*pinned=*/true);
-  spdlog::trace("RescheduleTaskOnWorker: push completed");
 }
 
 void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id, bool pinned) {
-  spdlog::trace("Worker::push: worker_id={} task_id={} pinned={}", worker_id_, id, pinned);
   {
     auto l = std::unique_lock{mtx_};
     Work w{.id = id, .work = std::move(new_task), .pinned = pinned};
     (pinned ? work_pinned_ : work_).push(std::move(w));
-    spdlog::trace(
-        "Worker::push: worker_id={} queue size: pinned={} normal={}", worker_id_, work_pinned_.size(), work_.size());
     // TODO thing about atomic ordering and if this can be missed or requested when not needed
     // Only request a yield when the worker is actively running a task. If it is idle it will
     // pick up the HP task immediately from the priority queue without needing an interrupt.
@@ -396,9 +331,7 @@ void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id, bool pi
     }
   }
   has_pending_work_.store(true, std::memory_order_release);
-  spdlog::trace("Worker::push: notifying worker {}", worker_id_);
   cv_.notify_one();
-  spdlog::trace("Worker::push: notify completed");
 }
 
 void PriorityThreadPool::Worker::stop() {
@@ -574,8 +507,6 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
       in_flight_.fetch_sub(1, std::memory_order_acq_rel);
       in_flight_.notify_all();
     }};
-    const auto initial_state = state->load(std::memory_order_acquire);
-    spdlog::trace("WrapTask[{}]: starting with state={}", index, static_cast<int>(initial_state));
     // NOTE: every Task::State is a valid entry state and is handled below — IDLE (run), SCHEDULED/PARKED
     // (resume), STOLEN (claimed by WaitOrSteal -> skip), FINISHED (stale queued closure -> skip). Do NOT
     // assert a subset here: a stolen (STOLEN) or already-finished (FINISHED) closure reaching this point
@@ -588,7 +519,6 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
       // STOLEN means WaitOrSteal claimed it for direct execution — don't double-run.
       // FINISHED means already done — skip.
       if (expected != Task::State::SCHEDULED && expected != Task::State::PARKED) {
-        spdlog::trace("WrapTask[{}]: unexpected state {}, skipping", index, static_cast<int>(expected));
         return false;
       }
       // If resuming from PARKED, transition to SCHEDULED so Wait() can track progress correctly.
@@ -602,11 +532,8 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
         auto parked = Task::State::PARKED;
         if (!state->compare_exchange_strong(parked, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
           // State changed while we weren't looking — honour the new state.
-          spdlog::trace(
-              "WrapTask[{}]: PARKED->SCHEDULED CAS lost (state now {}), skipping", index, static_cast<int>(parked));
           return false;
         }
-        spdlog::trace("WrapTask[{}]: transitioned PARKED -> SCHEDULED (CAS)", index);
       }
     }
 
@@ -618,29 +545,22 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
                                                      wrapped_task();
                                                    },
                                                    state};  // Pass task_state for atomic PARKED store
-      spdlog::trace("WrapTask[{}]: executing task body", index);
       const bool yielded = task();
       const bool was_parked = current_task_scope.WasParked();
-      spdlog::trace("WrapTask[{}]: task body completed yielded={} parked={}", index, yielded, was_parked);
       if (was_parked) {
         // State already stored as PARKED by RegisterTaskWaiter under mutex_
-        spdlog::trace("WrapTask[{}]: task was PARKED, notifying progress", index);
         NotifyProgress();  // Notify that task parked (progress in the sense of "state changed")
         return false;
       }
       if (yielded) {
-        spdlog::trace("WrapTask[{}]: task YIELDED, notifying progress", index);
         NotifyProgress();
         return true;
       }
-      spdlog::trace("WrapTask[{}]: setting FINISHED", index);
       state->store(Task::State::FINISHED, std::memory_order_release);
       state->notify_one();  // Notify waiting threads
       NotifyProgress();
-      spdlog::trace("WrapTask[{}]: FINISHED set, returning", index);
       return false;
     } catch (...) {
-      spdlog::trace("WrapTask[{}]: EXCEPTION, setting FINISHED", index);
       state->store(Task::State::FINISHED, std::memory_order_release);
       state->notify_one();  // Notify even on exception
       NotifyProgress();
@@ -650,27 +570,16 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
 }
 
 bool TaskCollection::Wait(std::chrono::milliseconds timeout) {
-  spdlog::trace("TaskCollection::Wait() starting for {} tasks", tasks_.size());
   const auto start = std::chrono::steady_clock::now();
   const auto deadline = start + timeout;
   for (size_t i = 0; i < tasks_.size(); ++i) {
     auto &task = tasks_[i];
     auto expected = task.state_->load(std::memory_order_acquire);
-    spdlog::trace("TaskCollection::Wait(): task[{}] initial state={}", i, static_cast<int>(expected));
-    auto last_log = std::chrono::steady_clock::now();
     while (expected != Task::State::FINISHED) {
-      spdlog::trace("TaskCollection::Wait(): task[{}] waiting on state={}", i, static_cast<int>(expected));
       // EC-4 fix: use atomic::wait() instead of sleep_for(10ms) polling.
       // notify_one() is already called by WrapTask/TryExecuteOneIdleTask when storing FINISHED.
       // Spurious wakeups are handled by re-checking expected after each wait.
       auto now = std::chrono::steady_clock::now();
-      if (now - last_log > std::chrono::seconds(5)) {
-        spdlog::trace("TaskCollection::Wait(): task[{}] still stuck in state={} after {}ms",
-                      i,
-                      static_cast<int>(expected),
-                      std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count());
-        last_log = now;
-      }
       if (now >= deadline) {
         spdlog::error("TaskCollection::Wait() timeout after {}ms - task[{}] stuck in state={}",
                       timeout.count(),
@@ -681,7 +590,6 @@ bool TaskCollection::Wait(std::chrono::milliseconds timeout) {
       // Block until notify_one() wakes us (or spurious wakeup); re-read state after.
       task.state_->wait(expected, std::memory_order_acquire);
       expected = task.state_->load(std::memory_order_acquire);
-      spdlog::trace("TaskCollection::Wait(): task[{}] woke, new state={}", i, static_cast<int>(expected));
     }
   }
   // Lifetime barrier: a worker that stored the last FINISHED (which woke us above) is still executing
@@ -697,7 +605,6 @@ bool TaskCollection::Wait(std::chrono::milliseconds timeout) {
     in_flight_.wait(inflight, std::memory_order_acquire);
     inflight = in_flight_.load(std::memory_order_acquire);
   }
-  spdlog::trace("TaskCollection::Wait() completed");
   return true;
 }
 
@@ -743,12 +650,10 @@ bool TaskCollection::TryExecuteOneIdleTask(PriorityThreadPool *pool) {
 
   if (!captured_state) return false;
 
-  spdlog::trace("TryExecuteOneIdleTask: stole task[{}], executing inline", captured_index);
   try {
     // Call tasks_[captured_index].task_() directly — STOLEN state ensures no concurrent
     // access (any WrapTask closure in the pool queue sees STOLEN and skips execution).
     const bool yielded = tasks_[captured_index].task_();
-    spdlog::trace("TryExecuteOneIdleTask: task[{}] completed yielded={}", captured_index, yielded);
     if (yielded) {
       if (pool != nullptr) {
         captured_state->store(Task::State::SCHEDULED, std::memory_order_release);
@@ -907,10 +812,7 @@ bool WorkerResumeEvent::RegisterTaskWaiter(TaskSignature task, PriorityThreadPoo
                                            std::optional<uint16_t> worker_id, uint64_t observed_epoch,
                                            std::shared_ptr<std::atomic<TaskCollection::Task::State>> task_state) {
   const auto lock = std::lock_guard(mutex_);
-  spdlog::trace(
-      "RegisterTaskWaiter: epoch={}, observed_epoch={}, waiters_before={}", epoch_, observed_epoch, waiters_.size());
   if (epoch_ != observed_epoch) {
-    spdlog::trace("RegisterTaskWaiter: epoch mismatch, returning false");
     return false;
   }
   // CRITICAL FIX: Store PARKED state BEFORE adding to waiters list
@@ -921,10 +823,8 @@ bool WorkerResumeEvent::RegisterTaskWaiter(TaskSignature task, PriorityThreadPoo
   // with their acquire so a parked task is never mistaken for non-existent/terminal.
   if (task_state) {
     task_state->store(TaskCollection::Task::State::PARKED, std::memory_order_release);
-    spdlog::trace("RegisterTaskWaiter: stored PARKED state for task");
   }
   waiters_.push_back(Waiter{.task = std::move(task), .pool = pool, .worker_id = worker_id, .task_state = task_state});
-  spdlog::trace("RegisterTaskWaiter: added waiter, waiters_after={}", waiters_.size());
   return true;
 }
 
@@ -954,36 +854,27 @@ void WorkerResumeEvent::NotifyAll() {
     ++epoch_;
     waiters.swap(waiters_);
   }
-  spdlog::trace("NotifyAll: waking {} waiters, new epoch={}", waiters.size(), epoch_);
-
   for (auto &waiter : waiters) {
     if (waiter.handle) {
       if (waiter.handle.done()) {
-        spdlog::trace("NotifyAll: waiter handle already done, skipping");
         continue;
       }
       if (waiter.pool && waiter.worker_id) {
-        spdlog::trace("NotifyAll: rescheduling handle to worker {}", *waiter.worker_id);
         waiter.pool->RescheduleTaskOnWorker(*waiter.worker_id, [handle = waiter.handle]() mutable {
-          spdlog::trace("Resumed handle lambda: resuming handle");
           if (handle && !handle.done()) handle.resume();
         });
         continue;
       }
-      spdlog::trace("NotifyAll: resuming handle directly");
       waiter.handle.resume();
       continue;
     }
     if (!waiter.task) {
-      spdlog::trace("NotifyAll: waiter has no handle and no task, skipping");
       continue;
     }
     if (waiter.pool && waiter.worker_id) {
-      spdlog::trace("NotifyAll: rescheduling task to worker {}", *waiter.worker_id);
       waiter.pool->RescheduleTaskOnWorker(*waiter.worker_id, std::move(waiter.task));
       continue;
     }
-    spdlog::trace("NotifyAll: executing task directly");
     waiter.task();
   }
 }
