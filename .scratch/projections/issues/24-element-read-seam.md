@@ -1,6 +1,6 @@
 # Element read seam: VertexAccessor-shaped read signature on VirtualNode
 
-Status: ready-for-agent
+Status: done - `VirtualNode` gains `GetProperty(View, PropertyId) -> Result` and `Properties(View) -> Result` in `src/query/virtual_node.hpp`; PropertyLookup and subscript read both a real vertex and a projected node through the shared `GetProperty` helper (`src/query/interpret/eval.{cpp,hpp}`). Labels are materialized on the node (not read-through), so the read-through seam is the property path; the label name/id fork rides with issue 28. Tests in `tests/unit/interpreter.cpp`; read-through/overlay/hidden covered by the existing e2e suite.
 
 ## Parent
 
@@ -19,9 +19,9 @@ branching on `VertexAccessor` vs `VirtualNode` at the unified call site.
 
 ## Acceptance criteria
 
-- [ ] `VirtualNode` exposes the `VertexAccessor`-shaped property/labels read signature
-- [ ] Read-through, overlay-shadow, and hidden-key behaviour are unchanged (tests green)
-- [ ] The unified read call site no longer needs a `VirtualNode`-vs-`VertexAccessor` branch
+- [x] `VirtualNode` exposes the `VertexAccessor`-shaped property read signature (labels are materialized on the node, not read-through, so they are outside the read-through seam)
+- [x] Read-through, overlay-shadow, and hidden-key behaviour are unchanged (tests green)
+- [x] The unified read call site no longer needs a `VirtualNode`-vs-`VertexAccessor` branch
 
 ## Blocked by
 

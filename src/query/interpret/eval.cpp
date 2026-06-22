@@ -473,13 +473,12 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       if (prop_value.IsNull()) return TypedValue(ctx_->memory);
       return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
     }
-    case TypedValue::Type::VirtualNode: {
-      const auto &vn = expression_result_ptr->ValueVirtualNode();
-      auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
-      auto prop_value = vn.GetProperty(prop_id);
-      if (prop_value.IsNull()) return TypedValue(ctx_->memory);
-      return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
-    }
+    case TypedValue::Type::VirtualNode:
+      // A projected node reads through the same VertexAccessor-shaped GetProperty as a real vertex,
+      // so the read goes through the shared helper with no node-kind branch.
+      return {GetProperty(expression_result_ptr->ValueVirtualNode(), property_lookup.property_),
+              GetNameIdMapper(),
+              ctx_->memory};
     case TypedValue::Type::Map: {
       auto &map = expression_result_ptr->ValueMap();
       auto found = map.find(property_lookup.property_.name.c_str());

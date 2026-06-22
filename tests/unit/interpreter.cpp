@@ -486,6 +486,20 @@ TYPED_TEST(InterpreterTest, CallUseScopePropertyPredicate) {
   EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 30);
 }
 
+// A projection node reads a property through the same call site as a real vertex,
+// by name lookup and by subscript.
+TYPED_TEST(InterpreterTest, CallUseScopeReadsPropertyAndSubscript) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 42})] AS nodes, [] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (n) RETURN n.x AS by_name, n['x'] AS by_subscript, n.missing AS absent } "
+      "RETURN by_name, by_subscript, absent");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 42);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 42);
+  EXPECT_EQ(stream.GetResults()[0][2].type(), memgraph::communication::bolt::Value::Type::Null);
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);

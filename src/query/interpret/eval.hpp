@@ -469,7 +469,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       lhs_ptr = &lhs;
     }
     auto index = list_indexing.expression2_->Accept(*this);
-    if (!lhs_ptr->IsList() && !lhs_ptr->IsMap() && !lhs_ptr->IsVertex() && !lhs_ptr->IsEdge() && !lhs_ptr->IsNull())
+    if (!lhs_ptr->IsList() && !lhs_ptr->IsMap() && !lhs_ptr->IsVertex() && !lhs_ptr->IsEdge() &&
+        !lhs_ptr->IsVirtualNode() && !lhs_ptr->IsNull())
       throw QueryRuntimeException(
           "Expected a list, a map, a node or an edge to index with '[]', got "
           "{}.",
@@ -506,6 +507,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
       return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
     };
+
+    if (lhs_ptr->IsVirtualNode()) {
+      if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
+      // A projected node reads through the same GetProperty as a real vertex.
+      return {GetProperty(lhs_ptr->ValueVirtualNode(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
+    }
 
     // lhs is Null
     return TypedValue(ctx_->memory);

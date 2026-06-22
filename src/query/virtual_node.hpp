@@ -120,19 +120,27 @@ class VirtualNode final {
            std::find(impl_->overlay_bound.begin(), impl_->overlay_bound.end(), key) != impl_->overlay_bound.end();
   }
 
-  // Read: hidden keys yield null; an overlay key shadows the origin; otherwise fall through to the
-  // origin lazily (latest transaction view, never cached); otherwise null.
-  [[nodiscard]] auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
+  // Read, in the VertexAccessor shape: a single call site reads a property from either a real
+  // vertex or a projected node. Hidden keys yield null; an overlay key shadows the origin;
+  // otherwise the read falls through to the origin lazily under the given view (never cached);
+  // otherwise null. An overlay-only read cannot fail but still returns a Result for one uniform
+  // shape, and an origin read-through forwards both the view and the origin's Result.
+  [[nodiscard]] auto GetProperty(storage::View view, storage::PropertyId key) const
+      -> storage::Result<storage::PropertyValue> {
     if (IsHidden(key)) return storage::PropertyValue{};
     if (const auto it = impl_->properties.find(key); it != impl_->properties.end()) return it->second;
-    if (impl_->origin) {
-      auto maybe_value = impl_->origin->GetProperty(storage::View::NEW, key);
-      if (!maybe_value.has_value()) {
-        throw QueryRuntimeException("Reading a property of a projected node's origin failed.");
-      }
-      return std::move(*maybe_value);
-    }
+    if (impl_->origin) return impl_->origin->GetProperty(view, key);
     return storage::PropertyValue{};
+  }
+
+  // The bare read used by callers without a view (the procedure and function paths): the origin is
+  // read under the latest transaction view, and an origin failure throws as before.
+  [[nodiscard]] auto GetProperty(storage::PropertyId key) const -> storage::PropertyValue {
+    auto maybe_value = GetProperty(storage::View::NEW, key);
+    if (!maybe_value.has_value()) {
+      throw QueryRuntimeException("Reading a property of a projected node's origin failed.");
+    }
+    return std::move(*maybe_value);
   }
 
   // Write: a synthetic node (no origin) always writes its overlay. On an overlay node, an
@@ -165,15 +173,15 @@ class VirtualNode final {
 
   void ClearProperties() { impl_->properties.clear(); }
 
-  // Merged view: origin properties (read lazily) with overlay keys shadowing them. Returned by
-  // value because the merge is not stored - origin properties are never copied into the overlay.
-  [[nodiscard]] auto Properties() const -> property_map {
+  // Merged view in the VertexAccessor shape: origin properties (read lazily under the given view)
+  // with overlay keys shadowing them, hidden keys omitted. Returned by value because the merge is
+  // not stored - origin properties are never copied into the overlay. An origin read-through
+  // forwards both the view and the origin's Result.
+  [[nodiscard]] auto Properties(storage::View view) const -> storage::Result<property_map> {
     property_map merged{impl_->properties.get_allocator()};
     if (impl_->origin) {
-      auto maybe_props = impl_->origin->Properties(storage::View::NEW);
-      if (!maybe_props.has_value()) {
-        throw QueryRuntimeException("Reading properties of a projected node's origin failed.");
-      }
+      auto maybe_props = impl_->origin->Properties(view);
+      if (!maybe_props.has_value()) return std::unexpected{maybe_props.error()};
       for (auto &[id, value] : *maybe_props) {
         if (!IsHidden(id)) merged.insert_or_assign(id, std::move(value));
       }
@@ -182,6 +190,16 @@ class VirtualNode final {
       if (!IsHidden(id)) merged.insert_or_assign(id, value);
     }
     return merged;
+  }
+
+  // The bare merged view used by callers without a view (the procedure and function paths): the
+  // origin is read under the latest transaction view, and an origin failure throws as before.
+  [[nodiscard]] auto Properties() const -> property_map {
+    auto maybe_props = Properties(storage::View::NEW);
+    if (!maybe_props.has_value()) {
+      throw QueryRuntimeException("Reading properties of a projected node's origin failed.");
+    }
+    return std::move(*maybe_props);
   }
 
   bool operator==(const VirtualNode &other) const noexcept { return gid_ == other.gid_; }
