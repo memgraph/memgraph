@@ -385,6 +385,20 @@ jobs:
           copy \
           --sbom
 
+      - name: Build Query Modules in MGBUILD container
+        run: |
+          SPLIT_DEBUG_ARG=""
+          if [[ "$SPLIT_DEBUG" == "true" ]]; then
+            SPLIT_DEBUG_ARG="--split-debug"
+          fi
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --cugraph $CUGRAPH \
+          build-mage $SPLIT_DEBUG_ARG
+
       - name: "Build heaptrack"
         if: ${{ inputs.build_type == 'RelWithDebInfo' && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
@@ -442,20 +456,6 @@ jobs:
             --build-type $BUILD_TYPE \
             --cugraph $CUGRAPH \
             build-gssapi
-
-      - name: Build Query Modules in MGBUILD container
-        run: |
-          SPLIT_DEBUG_ARG=""
-          if [[ "$SPLIT_DEBUG" == "true" ]]; then
-            SPLIT_DEBUG_ARG="--split-debug"
-          fi
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os "$OS" \
-          --arch $ARCH \
-          --build-type $BUILD_TYPE \
-          --cugraph $CUGRAPH \
-          build-mage $SPLIT_DEBUG_ARG
 
       - name: Upload debug symbols
         if: ${{ inputs.upload_debug_symbols && env.SPLIT_DEBUG == 'true' }}
