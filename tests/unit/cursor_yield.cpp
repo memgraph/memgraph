@@ -32,17 +32,10 @@
 //   ExecutionContext, wrap the driver region in PullDriverScope(Enabled), and
 //   assert exact counts.
 //
-// UNCERTAINTY FLAGS (for the Lead to verify at the first build):
-//   [U1] ExecutionContext default construction: all pointer members are null /
-//        all value members zero-initialize per the field initialisers in
-//        context.hpp.  No out-of-line ctor is called.  If a linker pull-in
-//        for context.cpp causes an undefined reference for a symbol we don't
-//        actually call, we may need to add context.cpp to the SOURCES list.
-//   [U2] Frame{0}: Frame requires a size; we pass 0. MG_ASSERT(size >= 0) should
-//        pass. The leaf coroutine ignores the Frame entirely.
-//   [U3] PullAwaitable::ResumeAwaitable round-trip: we create a PullAwaitable
-//        from the leaf, then call .Resume() to get a ResumeAwaitable which we
-//        pass to ResumePullStep. The PullAwaitable must outlive the loop.
+// NOTE: the fake chain uses a default-constructed ExecutionContext (the yield path only touches
+// stopping_context.yield_requested/transaction_status + suspended_task_handle_ptr) and a Frame{0} the
+// leaf never reads. The PullAwaitable returned by each fake coroutine must outlive the drive loop (its
+// ResumeAwaitable is non-owning).
 
 #include <atomic>
 #include <coroutine>
@@ -70,7 +63,7 @@ namespace {
 //   Period=N means every Nth call fires.
 //
 // NOTE: Frame& is required by the PullAwaitable coroutine signature even though
-// the fake body never reads from it.  [U2]
+// the fake body never reads from it.
 // ─────────────────────────────────────────────────────────────────────────────
 PullAwaitable LeafPull(Frame & /*f*/, ExecutionContext &ctx, int row_count, std::size_t throttle_period) {
   utils::ResettableCounter counter{throttle_period};
@@ -147,8 +140,8 @@ DriveResult DriveChain(PullAwaitable &pa, ExecutionContext &ctx, std::function<v
 // ─────────────────────────────────────────────────────────────────────────────
 TEST(CursorYield, NoYieldBaseline) {
   constexpr int kRows = 5;
-  ExecutionContext ctx;  // all pointers null, stopping_context.yield_requested=nullptr [U1]
-  Frame frame{0};        // [U2]
+  ExecutionContext ctx;  // all pointers null, stopping_context.yield_requested=nullptr
+  Frame frame{0};
 
   auto pa = LeafPull(frame, ctx, kRows, /*throttle_period=*/1);
   ASSERT_FALSE(pa.Done());  // not vacuously empty
