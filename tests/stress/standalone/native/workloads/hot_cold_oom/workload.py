@@ -94,7 +94,6 @@ slowdown.
 
 from __future__ import annotations
 
-import argparse
 import os
 import random
 import sys
@@ -104,24 +103,42 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 # ---------------------------------------------------------------------------
-# Driver import: mirror hot_cold/workload.py — fall back to direct neo4j import.
+# Shared scaffolding bootstrap: resolve the stress-tests root and pull in
+# hot_cold_common which re-exports the neo4j driver and all shared helpers.
 # ---------------------------------------------------------------------------
 _STRESS_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".."))
 if _STRESS_ROOT not in sys.path:
     sys.path.insert(0, _STRESS_ROOT)
 
-try:
-    from neo4j import GraphDatabase
-    from neo4j.exceptions import ClientError, ServiceUnavailable, TransientError
-except ImportError as exc:
-    sys.exit(f"FATAL: neo4j Python driver not installed: {exc}")
+from hot_cold_common import (  # noqa: E402
+    DEFAULT_ENDPOINT,
+    DEFAULT_PASSWORD,
+    DEFAULT_USERNAME,
+    MAX_RETRIES,
+    RETRY_SLEEP,
+    SUSPENDER_TAIL_SEC,
+    TRANSITIONAL_MARKERS,
+    ClientError,
+    ErrorCollector,
+    GraphDatabase,
+    ServiceUnavailable,
+    TransientError,
+    build_base_arg_parser,
+    count_nodes_on_tenant,
+    create_tenants,
+    is_transient,
+    make_driver,
+    resume_tenant_blocking,
+    run_query,
+    run_with_retry,
+    suspend_tenant,
+    suspender_worker,
+    wait_for_server,
+)
 
 # ---------------------------------------------------------------------------
-# Constants / tunables
+# OOM-specific constants / tunables
 # ---------------------------------------------------------------------------
-_DEFAULT_ENDPOINT = "127.0.0.1:7687"
-_DEFAULT_USERNAME = "neo4j"
-_DEFAULT_PASSWORD = "1234"
 
 # Nodes per GROWER / LIGHT-WRITER transaction (keep small so one write never
 # trips OOM mid-commit — that would make the committed-count accounting inexact).
@@ -141,17 +158,6 @@ _LIGHT_WRITER_CAP = 400
 # have grown.
 _HOG_QUERY = "WITH range(1, 8000000) AS r RETURN size(r)"
 
-# v2 error-marker tuple (verbatim from hot_cold/workload.py + e2e convergence test).
-_TRANSITIONAL_MARKERS = (
-    "is suspended (cold)",  # writer touched a tenant that was just taken COLD
-    "active connections",  # SUSPEND lost the race to an active writer
-    "does not exist or is already cold",  # SUSPEND raced another suspender / already COLD
-    "does not exist or is not suspended",  # RESUME raced a writer / already HOT
-    "failed to recover while resuming",  # RESUME hit OOM mid-rebuild; COLD, retriable
-    "memory limit exceeded",  # allocation tripped the hard memory ceiling
-    "multiple concurrent system queries are not supported",  # SUSPEND+RESUME collided on system tx
-)
-
 # Additional substrings tolerated by the PROFILE-CHANGER thread (profile/limit
 # races that are not bugs).
 _PROFILE_EXTRA_TOLERATIONS = (
@@ -161,18 +167,6 @@ _PROFILE_EXTRA_TOLERATIONS = (
     "already exists",
     "limit",
 )
-
-_MAX_RETRIES = 120
-_RETRY_SLEEP = 0.05  # seconds
-
-# Quiescent tail (seconds) the suspender runs AFTER the data writers / memory hog /
-# resumer have stopped. SUSPEND fails fast on an in-use database (ACTIVE_CONNECTIONS, by
-# design), so under continuous churn + memory pressure the suspender can finish the
-# contended window with zero successful suspends and trip the suspends_ok>0 non-vacuity
-# gate on a busy/slow CI host (a flaky false failure, not a product bug). Draining the
-# antagonists first gives the suspender a contention-free tail in which its SUSPENDs land
-# deterministically.
-_SUSPENDER_TAIL_SEC = 5.0  # seconds
 
 # Light-writer inter-batch sleep range (seconds).  Wide enough that a churn
 # tenant is idle for much longer than the SUSPEND sole-accessor freeze window
@@ -186,35 +180,13 @@ _LIGHT_WRITER_SLEEP_HI = 0.30
 # ---------------------------------------------------------------------------
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
+def parse_args():
+    parser = build_base_arg_parser(
         description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--endpoint",
-        default=os.environ.get("ENDPOINT", _DEFAULT_ENDPOINT),
-        help="host:port of the Memgraph Bolt listener",
-    )
-    parser.add_argument("--username", default=_DEFAULT_USERNAME)
-    parser.add_argument("--password", default=_DEFAULT_PASSWORD)
-    parser.add_argument(
-        "--parallelism",
-        type=int,
-        default=int(os.environ.get("PARALLELISM", 6)),
-        help="Hint for ThreadPoolExecutor size; actual worker count is determined by tenant split",
-    )
-    parser.add_argument(
-        "--num-tenants",
-        type=int,
-        default=4,
-        help="Number of tenant databases to create (t0 .. tN-1); must be >= 2",
-    )
-    parser.add_argument(
-        "--duration-sec",
-        type=float,
-        default=120.0,
-        help="How long to run the concurrent phase (seconds)",
+        default_parallelism=6,
+        default_num_tenants=4,
+        default_duration_sec=120.0,
+        add_nodes_per_tx=False,
     )
     parser.add_argument(
         "--payload-bytes",
@@ -222,227 +194,7 @@ def parse_args() -> argparse.Namespace:
         default=16384,
         help="Approximate size of the string payload stored in each ballast node",
     )
-    # Accept and ignore stress-runner boilerplate args.
-    parser.add_argument("--worker-count", type=int, default=None)
-    parser.add_argument("--logging", default=None)
     return parser.parse_args()
-
-
-# ---------------------------------------------------------------------------
-# Driver helpers  (reused verbatim-style from hot_cold/workload.py)
-# ---------------------------------------------------------------------------
-
-
-def _make_driver(endpoint: str, username: str, password: str):
-    """Create a neo4j Bolt driver.  Uses TRUST_ALL_CERTIFICATES for localhost."""
-    try:
-        from neo4j import TRUST_ALL_CERTIFICATES
-
-        return GraphDatabase.driver(
-            f"bolt://{endpoint}",
-            auth=(username, password),
-            encrypted=False,
-            trust=TRUST_ALL_CERTIFICATES,
-        )
-    except TypeError:
-        return GraphDatabase.driver(
-            f"bolt://{endpoint}",
-            auth=(username, password),
-            encrypted=False,
-        )
-
-
-def _run_query(session, query: str, **params) -> list[dict]:
-    """Run a query and consume the result, returning data rows."""
-    result = session.run(query, **params)
-    data = result.data()
-    result.consume()
-    return data
-
-
-def _is_transient(exc: Exception) -> bool:
-    """Return True if the exception matches an expected hot/cold transient error."""
-    msg = str(exc).lower()
-    return any(marker.lower() in msg for marker in _TRANSITIONAL_MARKERS)
-
-
-def _run_with_retry(session, query: str, max_retries: int = _MAX_RETRIES, **params) -> Optional[list[dict]]:
-    """
-    Execute a query on an already-open session, retrying on transient hot/cold
-    errors.  Returns the data rows on success, or None if we exhausted retries
-    on a skippable transient.  Raises on any non-transient error.
-    """
-    for _attempt in range(max_retries):
-        try:
-            return _run_query(session, query, **params)
-        except (ClientError, TransientError) as exc:
-            if _is_transient(exc):
-                time.sleep(_RETRY_SLEEP)
-                continue
-            raise
-        except Exception as exc:
-            if _is_transient(exc):
-                time.sleep(_RETRY_SLEEP)
-                continue
-            raise
-    print(
-        f"  [warn] query exhausted {max_retries} retries on transient error, skipping: {query[:80]}",
-        flush=True,
-    )
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Tenant lifecycle helpers  (reused from hot_cold/workload.py)
-# ---------------------------------------------------------------------------
-
-
-def _wait_for_server(endpoint: str, username: str, password: str, timeout: float = 30.0) -> None:
-    """Poll until the server responds to a simple query."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            drv = _make_driver(endpoint, username, password)
-            with drv.session() as sess:
-                _run_query(sess, "RETURN 1 AS ok")
-            drv.close()
-            return
-        except Exception:
-            time.sleep(0.2)
-    sys.exit(f"FATAL: server at {endpoint} did not become ready within {timeout}s")
-
-
-def _create_tenants(endpoint: str, username: str, password: str, names: list[str]) -> None:
-    """Create all tenant databases.  Ignore already-exists errors."""
-    drv = _make_driver(endpoint, username, password)
-    try:
-        with drv.session() as sess:
-            for name in names:
-                try:
-                    _run_query(sess, f"CREATE DATABASE {name}")
-                    print(f"  created tenant {name}", flush=True)
-                except Exception as exc:
-                    msg = str(exc).lower()
-                    if "already exists" in msg or "duplicate" in msg:
-                        print(f"  tenant {name} already exists, continuing", flush=True)
-                    else:
-                        raise
-    finally:
-        drv.close()
-
-
-def _resume_tenant_blocking(endpoint: str, username: str, password: str, name: str, timeout: float = 90.0) -> None:
-    """
-    Issue RESUME DATABASE <name> and wait until USE DATABASE <name> succeeds
-    (i.e. tenant is fully HOT).  Used in the final verification phase.
-    """
-    deadline = time.monotonic() + timeout
-    drv = _make_driver(endpoint, username, password)
-    try:
-        with drv.session() as sess:
-            try:
-                _run_query(sess, f"RESUME DATABASE {name}")
-            except Exception as exc:
-                msg = str(exc).lower()
-                if "does not exist or is not suspended" not in msg and "does not exist" not in msg:
-                    pass  # some other error; ignore, we will detect below
-
-        while time.monotonic() < deadline:
-            try:
-                with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {name}")
-                    _run_query(sess, "RETURN 1 AS ping")
-                return
-            except Exception as exc:
-                if _is_transient(exc):
-                    time.sleep(0.2)
-                    continue
-                raise
-        raise RuntimeError(f"Tenant {name} did not come HOT within {timeout}s")
-    finally:
-        drv.close()
-
-
-def _count_nodes_on_tenant(endpoint: str, username: str, password: str, name: str) -> int:
-    """USE DATABASE <name> then MATCH (n) RETURN count(n).  Retries on transient errors."""
-    drv = _make_driver(endpoint, username, password)
-    try:
-        for _attempt in range(_MAX_RETRIES):
-            try:
-                with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {name}")
-                    rows = _run_query(sess, "MATCH (n) RETURN count(n) AS cnt")
-                    return int(rows[0]["cnt"])
-            except Exception as exc:
-                if _is_transient(exc):
-                    time.sleep(_RETRY_SLEEP)
-                    continue
-                raise
-        raise RuntimeError(f"count_nodes on {name} failed after {_MAX_RETRIES} retries")
-    finally:
-        drv.close()
-
-
-def _suspend_tenant(endpoint: str, username: str, password: str, name: str) -> None:
-    """
-    Best-effort SUSPEND DATABASE <name>.
-
-    Tolerates: already-cold / transient / active-connection / durability /
-    replica / default-database errors.  Retries on transient errors up to
-    _MAX_RETRIES.  Never raises — suspend here is housekeeping to free memory
-    before the next resume, not a correctness assertion.
-    """
-    _SUSPEND_SWALLOW = (
-        "not in memory",
-        "already",
-        "cold",
-        "suspended",
-        "active",
-        "durability",
-        "replica",
-        "default database",
-    )
-    drv = _make_driver(endpoint, username, password)
-    try:
-        for _attempt in range(_MAX_RETRIES):
-            try:
-                with drv.session() as sess:
-                    _run_query(sess, f"SUSPEND DATABASE {name}")
-                return
-            except Exception as exc:
-                msg = str(exc).lower()
-                if _is_transient(exc):
-                    time.sleep(_RETRY_SLEEP)
-                    continue
-                if any(t in msg for t in _SUSPEND_SWALLOW):
-                    return
-                # Unexpected error: swallow silently (best-effort helper).
-                return
-    finally:
-        drv.close()
-
-
-# ---------------------------------------------------------------------------
-# Shared error collector
-# ---------------------------------------------------------------------------
-
-
-class _ErrorCollector:
-    """Thread-safe list of unexpected (non-marker) client errors."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._errors: list[str] = []
-
-    def record(self, context: str, exc: Exception) -> None:
-        msg = str(exc).lower()
-        if not any(marker.lower() in msg for marker in _TRANSITIONAL_MARKERS):
-            with self._lock:
-                self._errors.append(f"[{context}] {type(exc).__name__}: {exc}")
-
-    def errors(self) -> list[str]:
-        with self._lock:
-            return list(self._errors)
 
 
 # ---------------------------------------------------------------------------
@@ -459,7 +211,7 @@ def _grower_worker(
     stop_flag: list[bool],
     committed_counts: dict[str, int],
     counts_lock: threading.Lock,
-    error_collector: _ErrorCollector,
+    error_collector: ErrorCollector,
     rng_seed: int,
 ) -> None:
     """
@@ -477,7 +229,7 @@ def _grower_worker(
     # number so payloads are distinct and cannot be de-duped.
     base_payload = "X" * max(1, payload_bytes - 20)
     local_committed: int = 0
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
 
     try:
         while not stop_flag[0]:
@@ -486,12 +238,12 @@ def _grower_worker(
             payload = f"{seq:020d}{base_payload}"[: payload_bytes + 20]
 
             committed = False
-            for _attempt in range(_MAX_RETRIES):
+            for _attempt in range(MAX_RETRIES):
                 if stop_flag[0]:
                     break
                 try:
                     with drv.session() as sess:
-                        _run_query(sess, f"USE DATABASE {tenant_name}")
+                        run_query(sess, f"USE DATABASE {tenant_name}")
                         tx = sess.begin_transaction()
                         try:
                             tx.run(
@@ -510,16 +262,16 @@ def _grower_worker(
                             raise
                     break
                 except (ClientError, TransientError) as exc:
-                    if _is_transient(exc):
-                        time.sleep(_RETRY_SLEEP)
+                    if is_transient(exc):
+                        time.sleep(RETRY_SLEEP)
                         continue
                     error_collector.record(f"grower:{tenant_name}", exc)
                     break
                 except ServiceUnavailable:
                     raise
                 except Exception as exc:
-                    if _is_transient(exc):
-                        time.sleep(_RETRY_SLEEP)
+                    if is_transient(exc):
+                        time.sleep(RETRY_SLEEP)
                         continue
                     error_collector.record(f"grower:{tenant_name}", exc)
                     break
@@ -552,7 +304,7 @@ def _light_writer_worker(
     stop_flag: list[bool],
     committed_counts: dict[str, int],
     counts_lock: threading.Lock,
-    error_collector: _ErrorCollector,
+    error_collector: ErrorCollector,
     rng_seed: int,
 ) -> None:
     """
@@ -566,7 +318,7 @@ def _light_writer_worker(
     """
     rng = random.Random(rng_seed)
     local_counts: dict[str, int] = {t: 0 for t in churn_tenants}
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
 
     try:
         while not stop_flag[0]:
@@ -579,7 +331,7 @@ def _light_writer_worker(
             committed = False
             try:
                 with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {tenant}")
+                    run_query(sess, f"USE DATABASE {tenant}")
                     tx = sess.begin_transaction()
                     try:
                         tx.run(
@@ -601,7 +353,7 @@ def _light_writer_worker(
                 if "is suspended (cold)" in msg:
                     # Tenant is mid-suspend: tolerated, do NOT count.
                     pass
-                elif _is_transient(exc):
+                elif is_transient(exc):
                     # Other expected transient: tolerated, do NOT count.
                     pass
                 else:
@@ -609,7 +361,7 @@ def _light_writer_worker(
             except ServiceUnavailable:
                 raise
             except Exception as exc:
-                if _is_transient(exc):
+                if is_transient(exc):
                     pass
                 else:
                     error_collector.record(f"light_writer:{tenant}", exc)
@@ -646,98 +398,50 @@ def _memory_hog_worker(
     stop_flag: list[bool],
     oom_counter: list[int],
     oom_lock: threading.Lock,
-    error_collector: _ErrorCollector,
+    error_collector: ErrorCollector,
 ) -> None:
     """
     Repeatedly run a large transient-allocator query on the default `memgraph`
     DB.  Commits nothing.  Each "memory limit exceeded" OOM increments
     oom_counter[0].  Any other non-marker error is recorded.
     """
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
     runs = 0
     try:
         while not stop_flag[0]:
             try:
                 with drv.session() as sess:
-                    _run_query(sess, _HOG_QUERY)
+                    run_query(sess, _HOG_QUERY)
                 runs += 1
             except (ClientError, TransientError) as exc:
                 msg = str(exc).lower()
                 if "memory limit exceeded" in msg:
                     with oom_lock:
                         oom_counter[0] += 1
-                elif _is_transient(exc):
+                elif is_transient(exc):
                     pass  # other expected transients
                 else:
                     error_collector.record("memory_hog", exc)
             except ServiceUnavailable:
                 raise
             except Exception as exc:
-                if _is_transient(exc):
+                if is_transient(exc):
                     pass
                 else:
                     error_collector.record("memory_hog", exc)
-            time.sleep(_RETRY_SLEEP)
+            time.sleep(RETRY_SLEEP)
     finally:
         drv.close()
     print(f"  [memory_hog] ran {runs} queries, OOM hits will be in oom_counter", flush=True)
 
 
 # ---------------------------------------------------------------------------
-# Worker 4a: SUSPENDER  (targets CHURN tenants only)
-# ---------------------------------------------------------------------------
-
-
-def _suspender_worker(
-    endpoint: str,
-    username: str,
-    password: str,
-    churn_tenants: list[str],
-    stop_flag: list[bool],
-    error_collector: _ErrorCollector,
-    rng_seed: int,
-) -> int:
-    """
-    Repeatedly pick a random CHURN tenant and issue SUSPEND DATABASE.  Returns
-    the count of successful SUSPEND operations for the non-vacuity assertion.
-
-    Because churn tenants are idle most of the time (light-writer sleeps
-    150–300 ms between batches), SUSPEND reliably reaches sole-accessor and
-    suspends_ok climbs consistently.
-    """
-    rng = random.Random(rng_seed)
-    drv = _make_driver(endpoint, username, password)
-    ops = 0
-    try:
-        while not stop_flag[0]:
-            tenant = rng.choice(churn_tenants)
-            try:
-                with drv.session() as sess:
-                    _run_query(sess, f"SUSPEND DATABASE {tenant}")
-                    ops += 1
-            except (ClientError, TransientError) as exc:
-                if _is_transient(exc):
-                    pass
-                else:
-                    msg = str(exc).lower()
-                    if any(m in msg for m in ("default database", "not in memory", "durability", "replica")):
-                        pass
-                    else:
-                        error_collector.record(f"suspender:{tenant}", exc)
-            except Exception as exc:
-                if _is_transient(exc):
-                    pass
-                else:
-                    error_collector.record(f"suspender:{tenant}", exc)
-            time.sleep(_RETRY_SLEEP)
-    finally:
-        drv.close()
-    print(f"  [suspender] issued {ops} successful suspends", flush=True)
-    return ops
-
-
-# ---------------------------------------------------------------------------
-# Worker 4b: RESUMER  (targets CHURN tenants only)
+# Worker 4b: RESUMER  (OOM safe-fail variant — targets CHURN tenants only)
+#
+# IMPORTANT: this is NOT the shared resumer_worker from hot_cold_common.
+# It carries two extra parameters (resume_failed_safe_counter, resume_lock)
+# and a "failed to recover / memory limit" safe-fail branch that tracks the
+# RESUME-CANNOT-FIT path unique to the OOM workload.
 # ---------------------------------------------------------------------------
 
 
@@ -749,7 +453,7 @@ def _resumer_worker(
     stop_flag: list[bool],
     resume_failed_safe_counter: list[int],
     resume_lock: threading.Lock,
-    error_collector: _ErrorCollector,
+    error_collector: ErrorCollector,
     rng_seed: int,
 ) -> int:
     """
@@ -763,30 +467,30 @@ def _resumer_worker(
     increments resume_failed_safe_counter and is NOT treated as a failure.
     """
     rng = random.Random(rng_seed)
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
     ops = 0
     try:
         while not stop_flag[0]:
             tenant = rng.choice(churn_tenants)
             try:
                 with drv.session() as sess:
-                    _run_query(sess, f"RESUME DATABASE {tenant}")
+                    run_query(sess, f"RESUME DATABASE {tenant}")
                     ops += 1
             except (ClientError, TransientError) as exc:
                 msg = str(exc).lower()
                 if "failed to recover while resuming" in msg or "memory limit exceeded" in msg:
                     with resume_lock:
                         resume_failed_safe_counter[0] += 1
-                elif _is_transient(exc):
+                elif is_transient(exc):
                     pass
                 else:
                     error_collector.record(f"resumer:{tenant}", exc)
             except Exception as exc:
-                if _is_transient(exc):
+                if is_transient(exc):
                     pass
                 else:
                     error_collector.record(f"resumer:{tenant}", exc)
-            time.sleep(_RETRY_SLEEP)
+            time.sleep(RETRY_SLEEP)
     finally:
         drv.close()
     print(f"  [resumer] issued {ops} successful resumes", flush=True)
@@ -804,7 +508,7 @@ def _profile_changer_worker(
     password: str,
     churn_tenants: list[str],
     stop_flag: list[bool],
-    error_collector: _ErrorCollector,
+    error_collector: ErrorCollector,
     rng_seed: int,
 ) -> None:
     """
@@ -817,12 +521,12 @@ def _profile_changer_worker(
     Anything else is recorded as an unexpected error.
     """
     rng = random.Random(rng_seed)
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
     profile_seq = 0
 
     def _is_profile_tolerated(exc: Exception) -> bool:
         msg = str(exc).lower()
-        if _is_transient(exc):
+        if is_transient(exc):
             return True
         return any(t in msg for t in _PROFILE_EXTRA_TOLERATIONS)
 
@@ -836,20 +540,20 @@ def _profile_changer_worker(
             # Step 1: CREATE TENANT PROFILE
             try:
                 with drv.session() as sess:
-                    _run_query(
+                    run_query(
                         sess,
                         f"CREATE TENANT PROFILE {profile_name} LIMIT memory_limit {limit_mb} MB",
                     )
             except Exception as exc:
                 if not _is_profile_tolerated(exc):
                     error_collector.record(f"profile_changer:create:{profile_name}", exc)
-                time.sleep(_RETRY_SLEEP)
+                time.sleep(RETRY_SLEEP)
                 continue
 
             # Step 2: SET TENANT PROFILE ON DATABASE tenant TO profile_name
             try:
                 with drv.session() as sess:
-                    _run_query(
+                    run_query(
                         sess,
                         f"SET TENANT PROFILE ON DATABASE {tenant} TO {profile_name}",
                     )
@@ -863,7 +567,7 @@ def _profile_changer_worker(
                 new_limit_mb = rng.randint(50, 400)
                 try:
                     with drv.session() as sess:
-                        _run_query(
+                        run_query(
                             sess,
                             f"ALTER TENANT PROFILE {profile_name} SET memory_limit {new_limit_mb} MB",
                         )
@@ -874,7 +578,7 @@ def _profile_changer_worker(
             # Step 4: REMOVE TENANT PROFILE FROM DATABASE tenant
             try:
                 with drv.session() as sess:
-                    _run_query(sess, f"REMOVE TENANT PROFILE FROM DATABASE {tenant}")
+                    run_query(sess, f"REMOVE TENANT PROFILE FROM DATABASE {tenant}")
             except Exception as exc:
                 if not _is_profile_tolerated(exc):
                     error_collector.record(f"profile_changer:remove:{tenant}", exc)
@@ -956,8 +660,8 @@ def main() -> None:
     # Phase 1: server readiness + tenant setup.
     # -----------------------------------------------------------------------
     print("\n==> Phase 1: server readiness + tenant setup", flush=True)
-    _wait_for_server(endpoint, username, password)
-    _create_tenants(endpoint, username, password, tenant_names)
+    wait_for_server(endpoint, username, password)
+    create_tenants(endpoint, username, password, tenant_names)
 
     # -----------------------------------------------------------------------
     # Phase 2: concurrent stress run.
@@ -972,7 +676,7 @@ def main() -> None:
     oom_lock = threading.Lock()
     resume_failed_safe_counter: list[int] = [0]
     resume_lock = threading.Lock()
-    error_collector = _ErrorCollector()
+    error_collector = ErrorCollector()
 
     base_seed = int(time.time())
     futures = []
@@ -1026,7 +730,7 @@ def main() -> None:
         # SUSPENDER thread (churn tenants only). Uses its OWN stop flag for the
         # staggered shutdown below.
         f = pool.submit(
-            _suspender_worker,
+            suspender_worker,
             endpoint,
             username,
             password,
@@ -1037,7 +741,7 @@ def main() -> None:
         )
         futures.append(("suspender", "churn", f))
 
-        # RESUMER thread (churn tenants only).
+        # RESUMER thread (churn tenants only) — OOM safe-fail variant.
         f = pool.submit(
             _resumer_worker,
             endpoint,
@@ -1067,16 +771,16 @@ def main() -> None:
 
         # Run for duration_sec, then STAGGER the stop: drain the antagonists (writers /
         # memory hog / resumer) first, then give the suspender a short contention-free
-        # tail so its SUSPENDs land deterministically (see _SUSPENDER_TAIL_SEC). The
+        # tail so its SUSPENDs land deterministically (see SUSPENDER_TAIL_SEC). The
         # contended window above still exercises the concurrent suspend-under-OOM path;
         # the tail only guarantees the suspends_ok>0 non-vacuity gate.
         time.sleep(duration_sec)
         stop_flag[0] = True
         print(
-            f"  antagonists stopped; giving the suspender a {_SUSPENDER_TAIL_SEC}s " "quiescent tail window...",
+            f"  antagonists stopped; giving the suspender a {SUSPENDER_TAIL_SEC}s " "quiescent tail window...",
             flush=True,
         )
-        time.sleep(_SUSPENDER_TAIL_SEC)
+        time.sleep(SUSPENDER_TAIL_SEC)
         suspender_stop_flag[0] = True
         print("  stop signal sent, waiting for workers...", flush=True)
 
@@ -1139,12 +843,12 @@ def main() -> None:
 
     # Remove any lingering tenant profiles before resuming.
     # Ballast tenants never had profiles set; this is a no-op for them.
-    drv_cleanup = _make_driver(endpoint, username, password)
+    drv_cleanup = make_driver(endpoint, username, password)
     try:
         with drv_cleanup.session() as sess:
             for tname in tenant_names:
                 try:
-                    _run_query(sess, f"REMOVE TENANT PROFILE FROM DATABASE {tname}")
+                    run_query(sess, f"REMOVE TENANT PROFILE FROM DATABASE {tname}")
                     print(f"  removed profile from {tname}", flush=True)
                 except Exception as exc:
                     msg = str(exc).lower()
@@ -1156,7 +860,7 @@ def main() -> None:
 
     print("  freeing memory: suspended all tenants before one-at-a-time verification", flush=True)
     for tname in tenant_names:
-        _suspend_tenant(endpoint, username, password, tname)
+        suspend_tenant(endpoint, username, password, tname)
 
     mismatches = []
     for tname in tenant_names:
@@ -1168,14 +872,14 @@ def main() -> None:
             # were suspended above (and will be re-suspended in the finally block
             # after counting so the next iteration also has the full budget).
             resumed = False
-            for _attempt in range(_MAX_RETRIES):
+            for _attempt in range(MAX_RETRIES):
                 try:
-                    _resume_tenant_blocking(endpoint, username, password, tname, timeout=90.0)
+                    resume_tenant_blocking(endpoint, username, password, tname, timeout=90.0)
                     resumed = True
                     break
                 except Exception as exc:
-                    if _is_transient(exc):
-                        time.sleep(_RETRY_SLEEP)
+                    if is_transient(exc):
+                        time.sleep(RETRY_SLEEP)
                         continue
                     mismatches.append((tname, -1, expected[tname], f"resume failed: {exc}"))
                     break
@@ -1184,7 +888,7 @@ def main() -> None:
                 continue
 
             try:
-                actual = _count_nodes_on_tenant(endpoint, username, password, tname)
+                actual = count_nodes_on_tenant(endpoint, username, password, tname)
             except Exception as exc:
                 mismatches.append((tname, -1, expected[tname], f"count query failed: {exc}"))
                 continue
@@ -1197,16 +901,16 @@ def main() -> None:
         finally:
             # Re-suspend this tenant so the next tenant has the full memory
             # budget available when it resumes.  Best-effort: never raises.
-            _suspend_tenant(endpoint, username, password, tname)
+            suspend_tenant(endpoint, username, password, tname)
 
     # -----------------------------------------------------------------------
     # Phase 6: server liveness check.
     # -----------------------------------------------------------------------
     print("\n==> Phase 6: server liveness check", flush=True)
     try:
-        drv_live = _make_driver(endpoint, username, password)
+        drv_live = make_driver(endpoint, username, password)
         with drv_live.session() as sess:
-            rows = _run_query(sess, "RETURN 1 AS alive")
+            rows = run_query(sess, "RETURN 1 AS alive")
             assert rows[0]["alive"] == 1
         drv_live.close()
         print("  server alive: OK", flush=True)

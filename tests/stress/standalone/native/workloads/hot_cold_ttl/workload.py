@@ -100,18 +100,31 @@ _STRESS_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__f
 if _STRESS_ROOT not in sys.path:
     sys.path.insert(0, _STRESS_ROOT)
 
-try:
-    from neo4j import GraphDatabase
-    from neo4j.exceptions import ClientError, ServiceUnavailable, TransientError
-except ImportError as exc:
-    sys.exit(f"FATAL: neo4j Python driver not installed: {exc}")
+from hot_cold_common import (
+    MAX_RETRIES,
+    RETRY_SLEEP,
+    TRANSITIONAL_MARKERS,
+    ClientError,
+    ErrorCollector,
+    GraphDatabase,
+    ServiceUnavailable,
+    TransientError,
+    build_base_arg_parser,
+    count_nodes_on_tenant,
+    create_tenants,
+    is_transient,
+    make_driver,
+    resume_tenant_blocking,
+    resumer_worker,
+    run_query,
+    run_with_retry,
+    suspend_tenant,
+    wait_for_server,
+)
 
 # ---------------------------------------------------------------------------
 # Constants / tunables
 # ---------------------------------------------------------------------------
-_DEFAULT_ENDPOINT = "127.0.0.1:7687"
-_DEFAULT_USERNAME = "neo4j"
-_DEFAULT_PASSWORD = "1234"
 
 # Nodes per PERM-WRITER / EPHEMERAL-WRITER transaction.  Kept small so one
 # write never trips a transient error mid-commit (makes committed-count exact).
@@ -135,21 +148,6 @@ _TTL_PROBE_POLL_TIMEOUT_SEC: float = 15.0
 # Sleep between TTL probe poll iterations (seconds).
 _TTL_PROBE_POLL_SLEEP: float = 0.5
 
-# v2 error-marker tuple (verbatim from hot_cold/workload.py + hot_cold_oom/workload.py).
-_TRANSITIONAL_MARKERS = (
-    "is suspended (cold)",  # writer touched a tenant that was just taken COLD
-    "active connections",  # SUSPEND lost the race to an active writer
-    "does not exist or is already cold",  # SUSPEND raced another suspender / already COLD
-    "does not exist or is not suspended",  # RESUME raced a writer / already HOT
-    "failed to recover while resuming",  # RESUME hit OOM mid-rebuild; COLD, retriable
-    "memory limit exceeded",  # allocation tripped the hard memory ceiling
-    "multiple concurrent system queries are not supported",  # SUSPEND+RESUME collided on system tx
-    "unknown database",  # USE DATABASE races mid-suspend teardown; expected transient
-)
-
-_MAX_RETRIES = 120
-_RETRY_SLEEP = 0.05  # seconds between retry attempts
-
 # Number of rapid-fire SUSPEND attempts per tenant per outer-loop iteration.
 # At 50 ms per attempt this spans ~1 s — comfortably longer than the
 # perm-writer's 0.15–0.30 s batch+sleep cycle, so the burst reliably
@@ -163,143 +161,19 @@ _SUSPEND_BURST = 20
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
+    parser = build_base_arg_parser(
         description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        default_parallelism=4,
+        default_num_tenants=3,
+        default_duration_sec=60,
+        add_nodes_per_tx=False,
     )
-    parser.add_argument(
-        "--endpoint",
-        default=os.environ.get("ENDPOINT", _DEFAULT_ENDPOINT),
-        help="host:port of the Memgraph Bolt listener",
-    )
-    parser.add_argument("--username", default=_DEFAULT_USERNAME)
-    parser.add_argument("--password", default=_DEFAULT_PASSWORD)
-    parser.add_argument(
-        "--parallelism",
-        type=int,
-        default=int(os.environ.get("PARALLELISM", 4)),
-        help="Hint for ThreadPoolExecutor size; actual worker count is num_tenants + 3",
-    )
-    parser.add_argument(
-        "--num-tenants",
-        type=int,
-        default=3,
-        help="Number of tenant databases to create (tenant_0 .. tenant_N-1)",
-    )
-    parser.add_argument(
-        "--duration-sec",
-        type=float,
-        default=60.0,
-        help="How long to run the concurrent churn phase (seconds)",
-    )
-    # Accept and ignore stress-runner boilerplate args.
-    parser.add_argument("--worker-count", type=int, default=None)
-    parser.add_argument("--logging", default=None)
     return parser.parse_args()
 
 
 # ---------------------------------------------------------------------------
-# Driver helpers  (reused verbatim-style from hot_cold_oom/workload.py)
+# Tenant lifecycle helpers  (TTL-specific)
 # ---------------------------------------------------------------------------
-
-
-def _make_driver(endpoint: str, username: str, password: str):
-    """Create a neo4j Bolt driver.  Uses TRUST_ALL_CERTIFICATES for localhost."""
-    try:
-        from neo4j import TRUST_ALL_CERTIFICATES
-
-        return GraphDatabase.driver(
-            f"bolt://{endpoint}",
-            auth=(username, password),
-            encrypted=False,
-            trust=TRUST_ALL_CERTIFICATES,
-        )
-    except TypeError:
-        # Newer driver versions removed the trust parameter.
-        return GraphDatabase.driver(
-            f"bolt://{endpoint}",
-            auth=(username, password),
-            encrypted=False,
-        )
-
-
-def _run_query(session, query: str, **params) -> list[dict]:
-    """Run a query and consume the result, returning data rows."""
-    result = session.run(query, **params)
-    data = result.data()
-    result.consume()
-    return data
-
-
-def _is_transient(exc: Exception) -> bool:
-    """Return True if the exception matches an expected hot/cold transient error."""
-    msg = str(exc).lower()
-    return any(marker.lower() in msg for marker in _TRANSITIONAL_MARKERS)
-
-
-def _run_with_retry(session, query: str, max_retries: int = _MAX_RETRIES, **params) -> Optional[list[dict]]:
-    """
-    Execute a query on an already-open session, retrying on transient hot/cold
-    errors.  Returns the data rows on success, or None if we exhausted retries
-    on a skippable transient.  Raises on any non-transient error.
-    """
-    for _attempt in range(max_retries):
-        try:
-            return _run_query(session, query, **params)
-        except (ClientError, TransientError) as exc:
-            if _is_transient(exc):
-                time.sleep(_RETRY_SLEEP)
-                continue
-            raise
-        except Exception as exc:
-            if _is_transient(exc):
-                time.sleep(_RETRY_SLEEP)
-                continue
-            raise
-    print(
-        f"  [warn] query exhausted {max_retries} retries on transient error, skipping: {query[:80]}",
-        flush=True,
-    )
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Tenant lifecycle helpers  (reused verbatim-style from hot_cold_oom/workload.py)
-# ---------------------------------------------------------------------------
-
-
-def _wait_for_server(endpoint: str, username: str, password: str, timeout: float = 30.0) -> None:
-    """Poll until the server responds to a simple query."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            drv = _make_driver(endpoint, username, password)
-            with drv.session() as sess:
-                _run_query(sess, "RETURN 1 AS ok")
-            drv.close()
-            return
-        except Exception:
-            time.sleep(0.2)
-    sys.exit(f"FATAL: server at {endpoint} did not become ready within {timeout}s")
-
-
-def _create_tenants(endpoint: str, username: str, password: str, names: list[str]) -> None:
-    """Create all tenant databases.  Ignore already-exists errors."""
-    drv = _make_driver(endpoint, username, password)
-    try:
-        with drv.session() as sess:
-            for name in names:
-                try:
-                    _run_query(sess, f"CREATE DATABASE {name}")
-                    print(f"  created tenant {name}", flush=True)
-                except Exception as exc:
-                    msg = str(exc).lower()
-                    if "already exists" in msg or "duplicate" in msg:
-                        print(f"  tenant {name} already exists, continuing", flush=True)
-                    else:
-                        raise
-    finally:
-        drv.close()
 
 
 def _enable_ttl_on_tenant(endpoint: str, username: str, password: str, name: str) -> None:
@@ -309,157 +183,43 @@ def _enable_ttl_on_tenant(endpoint: str, username: str, password: str, name: str
     Retries on transient errors.  TTL enabled-state is durable (WAL/snapshot)
     so this call is idempotent across restarts.
     """
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
     try:
-        for _attempt in range(_MAX_RETRIES):
+        for _attempt in range(MAX_RETRIES):
             try:
                 with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {name}")
-                    _run_query(sess, 'ENABLE TTL EVERY "1s"')
+                    run_query(sess, f"USE DATABASE {name}")
+                    run_query(sess, 'ENABLE TTL EVERY "1s"')
                 print(f"  TTL enabled on tenant {name}", flush=True)
                 return
             except Exception as exc:
-                if _is_transient(exc):
-                    time.sleep(_RETRY_SLEEP)
+                if is_transient(exc):
+                    time.sleep(RETRY_SLEEP)
                     continue
                 raise
-        raise RuntimeError(f"_enable_ttl_on_tenant: {name} failed after {_MAX_RETRIES} retries")
-    finally:
-        drv.close()
-
-
-def _resume_tenant_blocking(endpoint: str, username: str, password: str, name: str, timeout: float = 90.0) -> None:
-    """
-    Issue RESUME DATABASE <name> and wait until USE DATABASE <name> succeeds
-    (i.e. tenant is fully HOT).  Used in the final verification phase.
-    """
-    deadline = time.monotonic() + timeout
-    drv = _make_driver(endpoint, username, password)
-    try:
-        with drv.session() as sess:
-            try:
-                _run_query(sess, f"RESUME DATABASE {name}")
-            except Exception as exc:
-                msg = str(exc).lower()
-                if "does not exist or is not suspended" not in msg and "does not exist" not in msg:
-                    pass  # some other error; ignore, we will detect below
-
-        while time.monotonic() < deadline:
-            try:
-                with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {name}")
-                    _run_query(sess, "RETURN 1 AS ping")
-                return
-            except Exception as exc:
-                if _is_transient(exc):
-                    time.sleep(0.2)
-                    continue
-                raise
-        raise RuntimeError(f"Tenant {name} did not come HOT within {timeout}s")
-    finally:
-        drv.close()
-
-
-def _count_nodes_on_tenant(endpoint: str, username: str, password: str, name: str) -> int:
-    """USE DATABASE <name> then MATCH (n) RETURN count(n).  Retries on transient errors."""
-    drv = _make_driver(endpoint, username, password)
-    try:
-        for _attempt in range(_MAX_RETRIES):
-            try:
-                with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {name}")
-                    rows = _run_query(sess, "MATCH (n) RETURN count(n) AS cnt")
-                    return int(rows[0]["cnt"])
-            except Exception as exc:
-                if _is_transient(exc):
-                    time.sleep(_RETRY_SLEEP)
-                    continue
-                raise
-        raise RuntimeError(f"count_nodes on {name} failed after {_MAX_RETRIES} retries")
+        raise RuntimeError(f"_enable_ttl_on_tenant: {name} failed after {MAX_RETRIES} retries")
     finally:
         drv.close()
 
 
 def _count_perm_nodes_on_tenant(endpoint: str, username: str, password: str, name: str) -> int:
     """USE DATABASE <name> then MATCH (n:Perm) RETURN count(n).  Retries on transient errors."""
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
     try:
-        for _attempt in range(_MAX_RETRIES):
+        for _attempt in range(MAX_RETRIES):
             try:
                 with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {name}")
-                    rows = _run_query(sess, "MATCH (n:Perm) RETURN count(n) AS cnt")
+                    run_query(sess, f"USE DATABASE {name}")
+                    rows = run_query(sess, "MATCH (n:Perm) RETURN count(n) AS cnt")
                     return int(rows[0]["cnt"])
             except Exception as exc:
-                if _is_transient(exc):
-                    time.sleep(_RETRY_SLEEP)
+                if is_transient(exc):
+                    time.sleep(RETRY_SLEEP)
                     continue
                 raise
-        raise RuntimeError(f"count_perm_nodes on {name} failed after {_MAX_RETRIES} retries")
+        raise RuntimeError(f"count_perm_nodes on {name} failed after {MAX_RETRIES} retries")
     finally:
         drv.close()
-
-
-def _suspend_tenant(endpoint: str, username: str, password: str, name: str) -> None:
-    """
-    Best-effort SUSPEND DATABASE <name>.
-
-    Tolerates: already-cold / transient / active-connection / durability /
-    replica / default-database errors.  Retries on transient errors up to
-    _MAX_RETRIES.  Never raises — suspend here is housekeeping, not a
-    correctness assertion.
-    """
-    _SUSPEND_SWALLOW = (
-        "not in memory",
-        "already",
-        "cold",
-        "suspended",
-        "active",
-        "durability",
-        "replica",
-        "default database",
-    )
-    drv = _make_driver(endpoint, username, password)
-    try:
-        for _attempt in range(_MAX_RETRIES):
-            try:
-                with drv.session() as sess:
-                    _run_query(sess, f"SUSPEND DATABASE {name}")
-                return
-            except Exception as exc:
-                msg = str(exc).lower()
-                if _is_transient(exc):
-                    time.sleep(_RETRY_SLEEP)
-                    continue
-                if any(t in msg for t in _SUSPEND_SWALLOW):
-                    return
-                # Unexpected error: swallow silently (best-effort helper).
-                return
-    finally:
-        drv.close()
-
-
-# ---------------------------------------------------------------------------
-# Shared error collector  (verbatim from hot_cold_oom/workload.py)
-# ---------------------------------------------------------------------------
-
-
-class _ErrorCollector:
-    """Thread-safe list of unexpected (non-marker) client errors."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._errors: list[str] = []
-
-    def record(self, context: str, exc: Exception) -> None:
-        msg = str(exc).lower()
-        if not any(marker.lower() in msg for marker in _TRANSITIONAL_MARKERS):
-            with self._lock:
-                self._errors.append(f"[{context}] {type(exc).__name__}: {exc}")
-
-    def errors(self) -> list[str]:
-        with self._lock:
-            return list(self._errors)
 
 
 # ---------------------------------------------------------------------------
@@ -475,7 +235,7 @@ def _perm_writer_worker(
     stop_flag: list[bool],
     committed_counts: dict[str, int],
     counts_lock: threading.Lock,
-    error_collector: _ErrorCollector,
+    error_collector: ErrorCollector,
     rng_seed: int,
 ) -> None:
     """
@@ -497,19 +257,19 @@ def _perm_writer_worker(
     rng = random.Random(rng_seed)
     _ = rng  # reserved for future per-batch randomisation
     local_committed: int = 0
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
 
     try:
         while not stop_flag[0]:
             seq = local_committed
 
             committed = False
-            for _attempt in range(_MAX_RETRIES):
+            for _attempt in range(MAX_RETRIES):
                 if stop_flag[0]:
                     break
                 try:
                     with drv.session() as sess:
-                        _run_query(sess, f"USE DATABASE {tenant_name}")
+                        run_query(sess, f"USE DATABASE {tenant_name}")
                         tx = sess.begin_transaction()
                         try:
                             tx.run(
@@ -527,16 +287,16 @@ def _perm_writer_worker(
                             raise
                     break
                 except (ClientError, TransientError) as exc:
-                    if _is_transient(exc):
-                        time.sleep(_RETRY_SLEEP)
+                    if is_transient(exc):
+                        time.sleep(RETRY_SLEEP)
                         continue
                     error_collector.record(f"perm_writer:{tenant_name}", exc)
                     break
                 except ServiceUnavailable:
                     raise
                 except Exception as exc:
-                    if _is_transient(exc):
-                        time.sleep(_RETRY_SLEEP)
+                    if is_transient(exc):
+                        time.sleep(RETRY_SLEEP)
                         continue
                     error_collector.record(f"perm_writer:{tenant_name}", exc)
                     break
@@ -567,7 +327,7 @@ def _ephemeral_writer_worker(
     username: str,
     password: str,
     stop_flag: list[bool],
-    error_collector: _ErrorCollector,
+    error_collector: ErrorCollector,
     rng_seed: int,
 ) -> None:
     """
@@ -592,7 +352,7 @@ def _ephemeral_writer_worker(
     to the error_collector.  Non-transient errors are recorded normally.
     """
     rng = random.Random(rng_seed)
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
 
     try:
         while not stop_flag[0]:
@@ -603,7 +363,7 @@ def _ephemeral_writer_worker(
 
             try:
                 with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {tenant}")
+                    run_query(sess, f"USE DATABASE {tenant}")
                     tx = sess.begin_transaction()
                     try:
                         tx.run(
@@ -619,14 +379,14 @@ def _ephemeral_writer_worker(
                             pass
                         raise
             except (ClientError, TransientError) as exc:
-                if _is_transient(exc):
+                if is_transient(exc):
                     pass  # expected transient (cold tenant / mid-suspend race); skip
                 else:
                     error_collector.record(f"ephemeral_writer:{tenant}", exc)
             except ServiceUnavailable:
                 raise
             except Exception as exc:
-                if _is_transient(exc):
+                if is_transient(exc):
                     pass  # e.g. "unknown database" mid-teardown
                 else:
                     error_collector.record(f"ephemeral_writer:{tenant}", exc)
@@ -640,7 +400,7 @@ def _ephemeral_writer_worker(
 
 
 # ---------------------------------------------------------------------------
-# Worker 3: SUSPENDER  (targets all tenants)
+# Worker 3: SUSPENDER  (targets all tenants — BURST variant, TTL-specific)
 # ---------------------------------------------------------------------------
 
 
@@ -650,7 +410,7 @@ def _suspender_worker(
     password: str,
     tenant_names: list[str],
     stop_flag: list[bool],
-    error_collector: _ErrorCollector,
+    error_collector: ErrorCollector,
     rng_seed: int,
 ) -> int:
     """
@@ -670,14 +430,14 @@ def _suspender_worker(
       - SUCCESS (no exception): increment ops, break inner loop.
       - Tolerated transient ("active connections", "already cold",
         "default database", "not in memory", "durability", "replica",
-        or any _is_transient marker): keep retrying within the burst.
+        or any is_transient marker): keep retrying within the burst.
       - Genuinely unexpected error: record to error_collector, break
         inner loop (do not keep hammering on a broken tenant).
 
     stop_flag is checked inside the inner loop so shutdown is prompt.
     """
     rng = random.Random(rng_seed)
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
     ops = 0
 
     # Errors that indicate "tenant currently busy / already cold" — we keep
@@ -699,13 +459,13 @@ def _suspender_worker(
                     break
                 try:
                     with drv.session() as sess:
-                        _run_query(sess, f"SUSPEND DATABASE {tenant}")
+                        run_query(sess, f"SUSPEND DATABASE {tenant}")
                     ops += 1
                     suspended_this_round = True
                     break  # success — move on to the next outer iteration
                 except (ClientError, TransientError) as exc:
                     msg = str(exc).lower()
-                    if _is_transient(exc) or any(m in msg for m in _BURST_CONTINUE_MARKERS):
+                    if is_transient(exc) or any(m in msg for m in _BURST_CONTINUE_MARKERS):
                         # Tenant busy or already cold — wait and retry within burst.
                         time.sleep(0.05)
                         continue
@@ -713,7 +473,7 @@ def _suspender_worker(
                     error_collector.record(f"suspender:{tenant}", exc)
                     break
                 except Exception as exc:
-                    if _is_transient(exc):
+                    if is_transient(exc):
                         time.sleep(0.05)
                         continue
                     error_collector.record(f"suspender:{tenant}", exc)
@@ -722,56 +482,10 @@ def _suspender_worker(
             # Brief outer sleep after a successful suspend so the resumer has
             # a chance to bring the tenant back up before the next outer pick.
             if suspended_this_round:
-                time.sleep(_RETRY_SLEEP)
+                time.sleep(RETRY_SLEEP)
     finally:
         drv.close()
     print(f"  [suspender] issued {ops} successful suspends", flush=True)
-    return ops
-
-
-# ---------------------------------------------------------------------------
-# Worker 4: RESUMER  (targets all tenants)
-# ---------------------------------------------------------------------------
-
-
-def _resumer_worker(
-    endpoint: str,
-    username: str,
-    password: str,
-    tenant_names: list[str],
-    stop_flag: list[bool],
-    error_collector: _ErrorCollector,
-    rng_seed: int,
-) -> int:
-    """
-    Repeatedly pick a random tenant and issue RESUME DATABASE.
-
-    Returns the count of successful RESUME operations (informational).
-    """
-    rng = random.Random(rng_seed)
-    drv = _make_driver(endpoint, username, password)
-    ops = 0
-    try:
-        while not stop_flag[0]:
-            tenant = rng.choice(tenant_names)
-            try:
-                with drv.session() as sess:
-                    _run_query(sess, f"RESUME DATABASE {tenant}")
-                    ops += 1
-            except (ClientError, TransientError) as exc:
-                if _is_transient(exc):
-                    pass
-                else:
-                    error_collector.record(f"resumer:{tenant}", exc)
-            except Exception as exc:
-                if _is_transient(exc):
-                    pass
-                else:
-                    error_collector.record(f"resumer:{tenant}", exc)
-            time.sleep(_RETRY_SLEEP)
-    finally:
-        drv.close()
-    print(f"  [resumer] issued {ops} successful resumes", flush=True)
     return ops
 
 
@@ -800,19 +514,19 @@ def _probe_ttl_liveness(
     Returns True if the probe was deleted within the timeout (TTL liveness
     confirmed), False otherwise (TTL scheduler did not restart — hard failure).
     """
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
     try:
         # Step 1: count baseline (:TTL nodes before probe).
-        for _attempt in range(_MAX_RETRIES):
+        for _attempt in range(MAX_RETRIES):
             try:
                 with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {tenant_name}")
-                    rows = _run_query(sess, "MATCH (n:TTL) RETURN count(n) AS cnt")
+                    run_query(sess, f"USE DATABASE {tenant_name}")
+                    rows = run_query(sess, "MATCH (n:TTL) RETURN count(n) AS cnt")
                     baseline_count = int(rows[0]["cnt"])
                 break
             except Exception as exc:
-                if _is_transient(exc):
-                    time.sleep(_RETRY_SLEEP)
+                if is_transient(exc):
+                    time.sleep(RETRY_SLEEP)
                     continue
                 raise
         else:
@@ -820,10 +534,10 @@ def _probe_ttl_liveness(
 
         # Step 2: write the probe node with ttl set ~2s in the future.
         probe_ttl_us = int(time.time() * 1_000_000) + _TTL_PROBE_FUTURE_OFFSET_US
-        for _attempt in range(_MAX_RETRIES):
+        for _attempt in range(MAX_RETRIES):
             try:
                 with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {tenant_name}")
+                    run_query(sess, f"USE DATABASE {tenant_name}")
                     tx = sess.begin_transaction()
                     try:
                         tx.run(
@@ -839,24 +553,24 @@ def _probe_ttl_liveness(
                         raise
                 break
             except Exception as exc:
-                if _is_transient(exc):
-                    time.sleep(_RETRY_SLEEP)
+                if is_transient(exc):
+                    time.sleep(RETRY_SLEEP)
                     continue
                 raise
         else:
             raise RuntimeError(f"TTL probe: could not write probe node on {tenant_name}")
 
         # Step 3: sanity-check — count must have gone up by at least 1.
-        for _attempt in range(_MAX_RETRIES):
+        for _attempt in range(MAX_RETRIES):
             try:
                 with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {tenant_name}")
-                    rows = _run_query(sess, "MATCH (n:TTL) RETURN count(n) AS cnt")
+                    run_query(sess, f"USE DATABASE {tenant_name}")
+                    rows = run_query(sess, "MATCH (n:TTL) RETURN count(n) AS cnt")
                     after_write_count = int(rows[0]["cnt"])
                 break
             except Exception as exc:
-                if _is_transient(exc):
-                    time.sleep(_RETRY_SLEEP)
+                if is_transient(exc):
+                    time.sleep(RETRY_SLEEP)
                     continue
                 raise
         else:
@@ -881,8 +595,8 @@ def _probe_ttl_liveness(
             time.sleep(_TTL_PROBE_POLL_SLEEP)
             try:
                 with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {tenant_name}")
-                    rows = _run_query(sess, "MATCH (n:TTL) RETURN count(n) AS cnt")
+                    run_query(sess, f"USE DATABASE {tenant_name}")
+                    rows = run_query(sess, "MATCH (n:TTL) RETURN count(n) AS cnt")
                     current_count = int(rows[0]["cnt"])
                 if current_count != last_count:
                     print(
@@ -897,7 +611,7 @@ def _probe_ttl_liveness(
                     )
                     return True
             except Exception as exc:
-                if _is_transient(exc):
+                if is_transient(exc):
                     continue
                 raise
 
@@ -947,8 +661,8 @@ def main() -> None:
     # Phase 1: server readiness + tenant setup + TTL enable.
     # -----------------------------------------------------------------------
     print("\n==> Phase 1: server readiness + tenant setup + TTL enable", flush=True)
-    _wait_for_server(endpoint, username, password)
-    _create_tenants(endpoint, username, password, tenant_names)
+    wait_for_server(endpoint, username, password)
+    create_tenants(endpoint, username, password, tenant_names)
     for name in tenant_names:
         _enable_ttl_on_tenant(endpoint, username, password, name)
 
@@ -960,7 +674,7 @@ def main() -> None:
     stop_flag: list[bool] = [False]
     committed_counts: dict[str, int] = {}
     counts_lock = threading.Lock()
-    error_collector = _ErrorCollector()
+    error_collector = ErrorCollector()
 
     base_seed = int(time.time())
     futures = []
@@ -995,7 +709,7 @@ def main() -> None:
         )
         futures.append(("ephemeral_writer", "shared", f))
 
-        # SUSPENDER thread (all tenants).
+        # SUSPENDER thread (all tenants) — burst variant.
         f = pool.submit(
             _suspender_worker,
             endpoint,
@@ -1010,7 +724,7 @@ def main() -> None:
 
         # RESUMER thread (all tenants).
         f = pool.submit(
-            _resumer_worker,
+            resumer_worker,
             endpoint,
             username,
             password,
@@ -1080,7 +794,7 @@ def main() -> None:
     # -----------------------------------------------------------------------
     print("\n==> Phase 5: suspending all tenants before one-at-a-time verification", flush=True)
     for tname in tenant_names:
-        _suspend_tenant(endpoint, username, password, tname)
+        suspend_tenant(endpoint, username, password, tname)
         print(f"  suspended {tname}", flush=True)
 
     # -----------------------------------------------------------------------
@@ -1099,14 +813,14 @@ def main() -> None:
         resumed = False
         try:
             # Step A: resume the tenant HOT (bounded retry).
-            for _attempt in range(_MAX_RETRIES):
+            for _attempt in range(MAX_RETRIES):
                 try:
-                    _resume_tenant_blocking(endpoint, username, password, tname, timeout=90.0)
+                    resume_tenant_blocking(endpoint, username, password, tname, timeout=90.0)
                     resumed = True
                     break
                 except Exception as exc:
-                    if _is_transient(exc):
-                        time.sleep(_RETRY_SLEEP)
+                    if is_transient(exc):
+                        time.sleep(RETRY_SLEEP)
                         continue
                     mismatches.append((tname, -1, expected_perm[tname], f"resume failed: {exc}"))
                     break
@@ -1149,16 +863,16 @@ def main() -> None:
                 print(f"  OK   {tname}: {actual_perm} Perm nodes", flush=True)
         finally:
             # Re-suspend so the next tenant gets the full memory budget.
-            _suspend_tenant(endpoint, username, password, tname)
+            suspend_tenant(endpoint, username, password, tname)
 
     # -----------------------------------------------------------------------
     # Phase 7: server liveness check.
     # -----------------------------------------------------------------------
     print("\n==> Phase 7: server liveness check", flush=True)
     try:
-        drv_live = _make_driver(endpoint, username, password)
+        drv_live = make_driver(endpoint, username, password)
         with drv_live.session() as sess:
-            rows = _run_query(sess, "RETURN 1 AS alive")
+            rows = run_query(sess, "RETURN 1 AS alive")
             assert rows[0]["alive"] == 1
         drv_live.close()
         print("  server alive: OK", flush=True)

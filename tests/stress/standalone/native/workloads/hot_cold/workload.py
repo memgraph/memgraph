@@ -70,43 +70,33 @@ _STRESS_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__f
 if _STRESS_ROOT not in sys.path:
     sys.path.insert(0, _STRESS_ROOT)
 
-try:
-    from neo4j import GraphDatabase
-    from neo4j.exceptions import ClientError, ServiceUnavailable, TransientError
-except ImportError as exc:
-    sys.exit(f"FATAL: neo4j Python driver not installed: {exc}")
-
-# ---------------------------------------------------------------------------
-# Constants / tunables
-# ---------------------------------------------------------------------------
-_DEFAULT_ENDPOINT = "127.0.0.1:7687"
-_DEFAULT_USERNAME = "neo4j"
-_DEFAULT_PASSWORD = "1234"
-
-# Error substrings we tolerate under normal hot/cold contention (v2 marker set).
-# These are the authoritative v2 retriable outcomes, copied verbatim from
-# tests/e2e/system_replication/hot_cold_convergence.py::EXPECTED_STRESS_MARKERS.
-# Any client error whose lowercased text matches NONE of these is a real failure.
-_TRANSITIONAL_MARKERS = (
-    "is suspended (cold)",  # a writer touched a tenant a suspender just took COLD
-    "active connections",  # SUSPEND lost the race to a writer still holding the tenant
-    "does not exist or is already cold",  # SUSPEND raced another suspender / tenant already COLD
-    "does not exist or is not suspended",  # RESUME raced a writer / another resumer; tenant already HOT
-    "failed to recover while resuming",  # RESUME hit OOM mid-rebuild; left COLD, retriable
-    "memory limit exceeded",  # an allocation tripped the hard memory ceiling
-    "multiple concurrent system queries are not supported",  # SUSPEND and RESUME collided on the system tx
+from hot_cold_common import (
+    DEFAULT_ENDPOINT,
+    DEFAULT_PASSWORD,
+    DEFAULT_USERNAME,
+    MAX_RETRIES,
+    RETRY_SLEEP,
+    SUSPENDER_TAIL_SEC,
+    TRANSITIONAL_MARKERS,
+    ClientError,
+    ServiceUnavailable,
+    TransientError,
+    build_base_arg_parser,
+    count_nodes_on_tenant,
+    create_tenants,
+    is_transient,
+    make_driver,
+    reader_worker,
+    resume_tenant_blocking,
+    run_query,
+    run_with_retry,
+    wait_for_server,
 )
 
-_MAX_RETRIES = 120  # bounded retry ceiling for transient errors
-_RETRY_SLEEP = 0.05  # seconds between retries (small; avoid tight-spin)
-
-# Quiescent tail (seconds) the suspender runs AFTER the data writers / resumer have
-# stopped. SUSPEND fails fast on an in-use database (ACTIVE_CONNECTIONS, by design), so
-# under continuous churn the suspender can finish the contended window with zero
-# successful suspends and trip the suspends_ok>0 non-vacuity gate on a busy/slow CI host
-# (a flaky false failure, not a product bug). Draining the antagonists first gives the
-# suspender a contention-free tail in which its SUSPENDs land deterministically.
-_SUSPENDER_TAIL_SEC = 5.0  # seconds
+try:
+    from neo4j import GraphDatabase
+except ImportError as exc:
+    sys.exit(f"FATAL: neo4j Python driver not installed: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -115,212 +105,15 @@ _SUSPENDER_TAIL_SEC = 5.0  # seconds
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
+    parser = build_base_arg_parser(
         description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        default_parallelism=8,
+        default_num_tenants=6,
+        default_duration_sec=20,
+        add_nodes_per_tx=True,
+        default_nodes_per_tx=5,
     )
-    parser.add_argument(
-        "--endpoint",
-        default=os.environ.get("ENDPOINT", _DEFAULT_ENDPOINT),
-        help="host:port of the Memgraph Bolt listener",
-    )
-    parser.add_argument("--username", default=_DEFAULT_USERNAME)
-    parser.add_argument("--password", default=_DEFAULT_PASSWORD)
-    parser.add_argument(
-        "--parallelism",
-        type=int,
-        default=int(os.environ.get("PARALLELISM", 8)),
-        help="Number of concurrent writer threads",
-    )
-    parser.add_argument(
-        "--num-tenants",
-        type=int,
-        default=6,
-        help="Number of tenant databases to create (tenant_0 .. tenant_N-1)",
-    )
-    parser.add_argument(
-        "--duration-sec",
-        type=float,
-        default=20.0,
-        help="How long to run the concurrent phase (seconds)",
-    )
-    parser.add_argument(
-        "--nodes-per-tx",
-        type=int,
-        default=5,
-        help="Nodes to create per writer transaction",
-    )
-    # The stress runner passes these; accept and ignore.
-    parser.add_argument("--worker-count", type=int, default=None)
-    parser.add_argument("--logging", default=None)
     return parser.parse_args()
-
-
-# ---------------------------------------------------------------------------
-# Driver helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_driver(endpoint: str, username: str, password: str):
-    """Create a neo4j Bolt driver. Uses TRUST_ALL_CERTIFICATES for localhost."""
-    try:
-        from neo4j import TRUST_ALL_CERTIFICATES
-
-        return GraphDatabase.driver(
-            f"bolt://{endpoint}",
-            auth=(username, password),
-            encrypted=False,
-            trust=TRUST_ALL_CERTIFICATES,
-        )
-    except TypeError:
-        # Newer driver versions removed the trust parameter.
-        return GraphDatabase.driver(
-            f"bolt://{endpoint}",
-            auth=(username, password),
-            encrypted=False,
-        )
-
-
-def _run_query(session, query: str, **params) -> list[dict]:
-    """Run a query and consume the result, returning data rows."""
-    result = session.run(query, **params)
-    data = result.data()
-    result.consume()
-    return data
-
-
-def _is_transient(exc: Exception) -> bool:
-    """Return True if the exception is an expected hot/cold transient error."""
-    msg = str(exc).lower()
-    return any(marker.lower() in msg for marker in _TRANSITIONAL_MARKERS)
-
-
-def _run_with_retry(session, query: str, max_retries: int = _MAX_RETRIES, **params) -> Optional[list[dict]]:
-    """
-    Execute a query on an already-open session, retrying on transient hot/cold
-    errors (tenant suspended/cold, active-connections on suspend, etc.).
-
-    Returns the data rows on success, or None if we exhausted retries on a
-    *skippable* transient (like SUSPEND failing because of active connections).
-    Raises on any non-transient error.
-    """
-    for attempt in range(max_retries):
-        try:
-            return _run_query(session, query, **params)
-        except (ClientError, TransientError) as exc:
-            if _is_transient(exc):
-                time.sleep(_RETRY_SLEEP)
-                continue
-            raise
-        except Exception as exc:
-            if _is_transient(exc):
-                time.sleep(_RETRY_SLEEP)
-                continue
-            raise
-    # Exhausted retries on transient — log and return None (caller decides).
-    print(
-        f"  [warn] query exhausted {max_retries} retries on transient error, skipping: {query[:80]}",
-        flush=True,
-    )
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Tenant lifecycle helpers
-# ---------------------------------------------------------------------------
-
-
-def _wait_for_server(endpoint: str, username: str, password: str, timeout: float = 30.0) -> None:
-    """Poll until the server responds to a simple query."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            drv = _make_driver(endpoint, username, password)
-            with drv.session() as sess:
-                _run_query(sess, "RETURN 1 AS ok")
-            drv.close()
-            return
-        except Exception:
-            time.sleep(0.2)
-    sys.exit(f"FATAL: server at {endpoint} did not become ready within {timeout}s")
-
-
-def _create_tenants(endpoint: str, username: str, password: str, names: list[str]) -> None:
-    """Create all tenant databases. Ignore already-exists errors."""
-    drv = _make_driver(endpoint, username, password)
-    try:
-        with drv.session() as sess:
-            for name in names:
-                try:
-                    _run_query(sess, f"CREATE DATABASE {name}")
-                    print(f"  created tenant {name}", flush=True)
-                except Exception as exc:
-                    msg = str(exc).lower()
-                    if "already exists" in msg or "duplicate" in msg:
-                        print(f"  tenant {name} already exists, continuing", flush=True)
-                    else:
-                        raise
-    finally:
-        drv.close()
-
-
-def _resume_tenant_blocking(endpoint: str, username: str, password: str, name: str, timeout: float = 60.0) -> None:
-    """
-    Issue RESUME DATABASE <name> and wait until USE DATABASE <name> succeeds
-    (i.e., tenant is fully HOT).  Used in the final verification phase.
-    """
-    deadline = time.monotonic() + timeout
-    drv = _make_driver(endpoint, username, password)
-    try:
-        # First try to resume (may already be hot).
-        with drv.session() as sess:
-            try:
-                _run_query(sess, f"RESUME DATABASE {name}")
-            except Exception as exc:
-                msg = str(exc).lower()
-                # "does not exist or is not suspended" means the tenant is already HOT — fine.
-                # Any other error is suppressed here; we will detect it during the poll below.
-                if "does not exist or is not suspended" not in msg and "does not exist" not in msg:
-                    pass  # some other error; ignore, we will poll below
-
-        # Now poll until USE DATABASE succeeds.
-        while time.monotonic() < deadline:
-            try:
-                with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {name}")
-                    _run_query(sess, "RETURN 1 AS ping")
-                return
-            except Exception as exc:
-                if _is_transient(exc):
-                    time.sleep(0.2)
-                    continue
-                raise
-        raise RuntimeError(f"Tenant {name} did not come HOT within {timeout}s")
-    finally:
-        drv.close()
-
-
-def _count_nodes_on_tenant(endpoint: str, username: str, password: str, name: str) -> int:
-    """
-    USE DATABASE <name> then MATCH (n) RETURN count(n).
-    Retries on transient resuming errors.
-    """
-    drv = _make_driver(endpoint, username, password)
-    try:
-        for attempt in range(_MAX_RETRIES):
-            try:
-                with drv.session() as sess:
-                    _run_query(sess, f"USE DATABASE {name}")
-                    rows = _run_query(sess, "MATCH (n) RETURN count(n) AS cnt")
-                    return int(rows[0]["cnt"])
-            except Exception as exc:
-                if _is_transient(exc):
-                    time.sleep(_RETRY_SLEEP)
-                    continue
-                raise
-        raise RuntimeError(f"count_nodes on {name} failed after {_MAX_RETRIES} retries")
-    finally:
-        drv.close()
 
 
 # ---------------------------------------------------------------------------
@@ -347,20 +140,20 @@ def _writer_worker(
     """
     rng = random.Random(rng_seed)
     local_counts: dict[str, int] = defaultdict(int)
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
 
     try:
         while not stop_flag[0]:
             tenant = rng.choice(tenant_names)
             # Each write attempt: new session (so USE DATABASE and state are fresh).
             committed = False
-            for attempt in range(_MAX_RETRIES):
+            for attempt in range(MAX_RETRIES):
                 if stop_flag[0]:
                     break
                 try:
                     with drv.session() as sess:
                         # Switch to tenant context.
-                        _run_query(sess, f"USE DATABASE {tenant}")
+                        run_query(sess, f"USE DATABASE {tenant}")
                         # Explicit transaction: BEGIN / CREATE / COMMIT.
                         tx = sess.begin_transaction()
                         try:
@@ -381,8 +174,8 @@ def _writer_worker(
                             raise
                     break
                 except (ClientError, TransientError) as exc:
-                    if _is_transient(exc):
-                        time.sleep(_RETRY_SLEEP)
+                    if is_transient(exc):
+                        time.sleep(RETRY_SLEEP)
                         continue
                     # Non-transient client error — log and skip this op.
                     print(
@@ -394,8 +187,8 @@ def _writer_worker(
                     # Server gone — propagate up so the test catches it.
                     raise
                 except Exception as exc:
-                    if _is_transient(exc):
-                        time.sleep(_RETRY_SLEEP)
+                    if is_transient(exc):
+                        time.sleep(RETRY_SLEEP)
                         continue
                     print(
                         f"  [writer-{worker_id}] unexpected error on {tenant}: {exc}",
@@ -429,17 +222,17 @@ def _suspender_worker(
     assertion in main).
     """
     rng = random.Random(rng_seed)
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
     ops = 0
     try:
         while not stop_flag[0]:
             tenant = rng.choice(tenant_names)
             try:
                 with drv.session() as sess:
-                    _run_query(sess, f"SUSPEND DATABASE {tenant}")
+                    run_query(sess, f"SUSPEND DATABASE {tenant}")
                     ops += 1
             except (ClientError, TransientError) as exc:
-                if _is_transient(exc):
+                if is_transient(exc):
                     pass  # expected race
                 else:
                     msg = str(exc).lower()
@@ -452,11 +245,11 @@ def _suspender_worker(
                     else:
                         print(f"  [suspender] unexpected error on {tenant}: {exc}", flush=True)
             except Exception as exc:
-                if _is_transient(exc):
+                if is_transient(exc):
                     pass
                 else:
                     print(f"  [suspender] unexpected error on {tenant}: {exc}", flush=True)
-            time.sleep(_RETRY_SLEEP)
+            time.sleep(RETRY_SLEEP)
     finally:
         drv.close()
     print(f"  [suspender] issued {ops} successful suspends", flush=True)
@@ -479,68 +272,30 @@ def _resumer_worker(
     assertion in main).
     """
     rng = random.Random(rng_seed)
-    drv = _make_driver(endpoint, username, password)
+    drv = make_driver(endpoint, username, password)
     ops = 0
     try:
         while not stop_flag[0]:
             tenant = rng.choice(tenant_names)
             try:
                 with drv.session() as sess:
-                    _run_query(sess, f"RESUME DATABASE {tenant}")
+                    run_query(sess, f"RESUME DATABASE {tenant}")
                     ops += 1
             except (ClientError, TransientError) as exc:
-                if _is_transient(exc):
+                if is_transient(exc):
                     pass
                 else:
                     print(f"  [resumer] unexpected error on {tenant}: {exc}", flush=True)
             except Exception as exc:
-                if _is_transient(exc):
+                if is_transient(exc):
                     pass
                 else:
                     print(f"  [resumer] unexpected error on {tenant}: {exc}", flush=True)
-            time.sleep(_RETRY_SLEEP)
+            time.sleep(RETRY_SLEEP)
     finally:
         drv.close()
     print(f"  [resumer] issued {ops} successful resumes", flush=True)
     return ops
-
-
-def _reader_worker(
-    worker_id: int,
-    endpoint: str,
-    username: str,
-    password: str,
-    tenant_names: list[str],
-    stop_flag: list[bool],
-    rng_seed: int,
-) -> None:
-    """
-    Exercises the read-path resume: USE DATABASE tenant_k then count nodes.
-    No assertion during the run (counts change concurrently with writers).
-    """
-    rng = random.Random(rng_seed)
-    drv = _make_driver(endpoint, username, password)
-    ops = 0
-    try:
-        while not stop_flag[0]:
-            tenant = rng.choice(tenant_names)
-            for _attempt in range(_MAX_RETRIES):
-                if stop_flag[0]:
-                    break
-                try:
-                    with drv.session() as sess:
-                        _run_query(sess, f"USE DATABASE {tenant}")
-                        _run_query(sess, "MATCH (n) RETURN count(n) AS cnt")
-                    ops += 1
-                    break
-                except Exception as exc:
-                    if _is_transient(exc):
-                        time.sleep(_RETRY_SLEEP)
-                        continue
-                    break
-    finally:
-        drv.close()
-    print(f"  [reader-{worker_id}] performed {ops} read ops", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -570,8 +325,8 @@ def main() -> None:
 
     # Phase 1: wait for server, then create tenant databases.
     print("\n==> Phase 1: server readiness + tenant setup", flush=True)
-    _wait_for_server(endpoint, username, password)
-    _create_tenants(endpoint, username, password, tenant_names)
+    wait_for_server(endpoint, username, password)
+    create_tenants(endpoint, username, password, tenant_names)
 
     # Phase 2: concurrent stress run.
     print(f"\n==> Phase 2: concurrent stress for {duration_sec}s", flush=True)
@@ -625,7 +380,7 @@ def main() -> None:
 
         # One reader.
         f = pool.submit(
-            _reader_worker,
+            reader_worker,
             0,
             endpoint,
             username,
@@ -639,15 +394,15 @@ def main() -> None:
         # Let all workers run for duration_sec, then STAGGER the stop: drain the
         # antagonists (writers/resumer) first, then give the suspender a short
         # contention-free tail so its SUSPENDs land deterministically (see
-        # _SUSPENDER_TAIL_SEC). The contended window above still exercises the
+        # SUSPENDER_TAIL_SEC). The contended window above still exercises the
         # concurrent suspend-vs-write path; the tail only guarantees non-vacuity.
         time.sleep(duration_sec)
         stop_flag[0] = True
         print(
-            f"  antagonists stopped; giving the suspender a {_SUSPENDER_TAIL_SEC}s " "quiescent tail window...",
+            f"  antagonists stopped; giving the suspender a {SUSPENDER_TAIL_SEC}s " "quiescent tail window...",
             flush=True,
         )
-        time.sleep(_SUSPENDER_TAIL_SEC)
+        time.sleep(SUSPENDER_TAIL_SEC)
         suspender_stop_flag[0] = True
         print("  stop signal sent, waiting for workers...", flush=True)
 
@@ -690,13 +445,13 @@ def main() -> None:
     for name in tenant_names:
         print(f"  verifying {name}...", flush=True)
         try:
-            _resume_tenant_blocking(endpoint, username, password, name, timeout=60.0)
+            resume_tenant_blocking(endpoint, username, password, name, timeout=60.0)
         except Exception as exc:
             mismatches.append((name, -1, expected[name], f"resume failed: {exc}"))
             continue
 
         try:
-            actual = _count_nodes_on_tenant(endpoint, username, password, name)
+            actual = count_nodes_on_tenant(endpoint, username, password, name)
         except Exception as exc:
             mismatches.append((name, -1, expected[name], f"count query failed: {exc}"))
             continue
@@ -713,9 +468,9 @@ def main() -> None:
     # Phase 5: server liveness check.
     print("\n==> Phase 5: server liveness check", flush=True)
     try:
-        drv = _make_driver(endpoint, username, password)
+        drv = make_driver(endpoint, username, password)
         with drv.session() as sess:
-            rows = _run_query(sess, "RETURN 1 AS alive")
+            rows = run_query(sess, "RETURN 1 AS alive")
             assert rows[0]["alive"] == 1
         drv.close()
         print("  server alive: OK", flush=True)
