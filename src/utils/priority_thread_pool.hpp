@@ -99,6 +99,10 @@ class TaskCollection {
     auto progress_guard = std::lock_guard{other.progress_mutex_};
     tasks_ = std::move(other.tasks_);
     progress_epoch_ = other.progress_epoch_;
+    progress_waiter_task_ = std::move(other.progress_waiter_task_);
+    progress_waiter_pool_ = std::exchange(other.progress_waiter_pool_, nullptr);
+    progress_waiter_worker_id_ = std::exchange(other.progress_waiter_worker_id_, std::nullopt);
+    progress_waiter_task_state_ = std::move(other.progress_waiter_task_state_);
   }
 
   TaskCollection &operator=(TaskCollection &&) = delete;
@@ -189,8 +193,8 @@ class TaskCollection {
 #endif
 
  private:
-  bool RegisterProgressWaiter(std::coroutine_handle<> handle, PriorityThreadPool *pool, uint16_t worker_id,
-                              uint64_t observed_epoch);
+  bool RegisterProgressWaiter(TaskSignature resume_task, PriorityThreadPool *pool, uint16_t worker_id,
+                              uint64_t observed_epoch, std::shared_ptr<std::atomic<Task::State>> task_state);
   void NotifyProgress();
 
   std::vector<Task> tasks_;
@@ -198,9 +202,10 @@ class TaskCollection {
   mutable std::mutex progress_mutex_;
   std::condition_variable progress_cv_;
   uint64_t progress_epoch_{0};
-  std::coroutine_handle<> progress_waiter_{};
+  TaskSignature progress_waiter_task_{};  // closure -> WrapTask re-entry
   PriorityThreadPool *progress_waiter_pool_{nullptr};
   std::optional<uint16_t> progress_waiter_worker_id_;
+  std::shared_ptr<std::atomic<Task::State>> progress_waiter_task_state_{};  // for the PARKED->SCHEDULED CAS
 
   friend class CollectionScheduler;
 };
@@ -256,6 +261,15 @@ class CurrentResumableTask {
   // Clears the TLS parked flag without reading it.  Call this in a shutdown-race
   // path where RegisterWaiter returned true but the task will NOT actually suspend.
   static void ClearParked();
+  // Returns the resume closure registered for the current WrapTask frame (the
+  // same closure that WrapTask passes to CurrentResumableTaskScope). Used by
+  // CollectionScheduler::RegisterProgressWaiter to capture it as a progress waiter
+  // rather than storing a raw coroutine handle.
+  // Returns nullptr if not inside a WrapTask frame or if no closure was set.
+  static const std::function<void()> *GetCurrentResumeTask();
+  // Sets the TLS parked flag for the current WrapTask frame, causing WrapTask's
+  // WasParked() check to return true and the task to suspend without rescheduling.
+  static void SetParked();
 };
 
 class PriorityThreadPool {
@@ -379,12 +393,17 @@ class CollectionScheduler {
 
     bool await_ready() const { return !scheduler_ || scheduler_->Finished(); }
 
-    bool await_suspend(std::coroutine_handle<> handle) const {
-      // No CurrentResumableTaskScope: registering the raw coroutine handle would
-      // create a double-resume race. NotifyProgress() may resume via RescheduleTaskOnWorker
-      // while another path (e.g., ResumableWrapper::Run) could also try to resume.
-      // Fall through to busy-spin: await_ready() will re-check on next iteration.
-      return false;
+    bool await_suspend(std::coroutine_handle<> /*handle*/) const {
+      // Real wait: register the WrapTask re-entry closure (captured from TLS) as the
+      // progress waiter and suspend. Returns false (busy-spin fallback) when:
+      //   - no scheduler / no pool
+      //   - EC-2: stolen task with no pinned worker_id
+      //   - not inside a WrapTask frame (no TLS resume closure)
+      //   - epoch already advanced (progress already happened -> no need to wait)
+      //   - collection already Finished()
+      // In all those cases await_ready() will re-check on the next busy-spin iteration.
+      if (!scheduler_) return false;
+      return scheduler_->RegisterProgressWaiter(observed_epoch_);
     }
 
     void await_resume() const {}
@@ -442,7 +461,7 @@ class CollectionScheduler {
   }
 
  private:
-  bool RegisterProgressWaiter(std::coroutine_handle<> handle, uint64_t observed_epoch) const;
+  bool RegisterProgressWaiter(uint64_t observed_epoch) const;
   uint64_t ProgressEpoch() const;
 
   PriorityThreadPool *pool_;

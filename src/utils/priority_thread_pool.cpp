@@ -265,6 +265,18 @@ void CurrentResumableTask::ClearParked() {
   current_resumable_task_stack.back().parked = false;
 }
 
+const std::function<void()> *CurrentResumableTask::GetCurrentResumeTask() {
+  if (current_resumable_task_stack.empty()) return nullptr;
+  auto &state = current_resumable_task_stack.back();
+  if (!state.resume_task) return nullptr;
+  return &state.resume_task;
+}
+
+void CurrentResumableTask::SetParked() {
+  if (current_resumable_task_stack.empty()) return;
+  current_resumable_task_stack.back().parked = true;
+}
+
 void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Priority priority) {
   struct ResumableWrapper {
     std::shared_ptr<ResumableTaskSignature> task;
@@ -532,6 +544,14 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
       });
     }
   }
+
+  // Teardown: drop this thread's published worker identity so GetCurrentWorkerId()/
+  // GetCurrentYieldSignal() return nullopt/nullptr once the thread leaves its pool role. Pool
+  // threads are not reused today (the jthread joins on pool destruction), so this is defensive
+  // hygiene that makes the TLS lifetime contract explicit rather than relying on thread death.
+  if (yield_registry_) {
+    WorkerYieldRegistry::ClearCurrentWorker();
+  }
 }
 
 // Prepares task for safe scheduling
@@ -775,47 +795,65 @@ void TaskCollection::DbgVerifyState() const {
 }
 #endif
 
-bool TaskCollection::RegisterProgressWaiter(std::coroutine_handle<> handle, PriorityThreadPool *pool,
-                                            uint16_t worker_id, uint64_t observed_epoch) {
+bool TaskCollection::RegisterProgressWaiter(TaskSignature resume_task, PriorityThreadPool *pool, uint16_t worker_id,
+                                            uint64_t observed_epoch,
+                                            std::shared_ptr<std::atomic<Task::State>> task_state) {
   const auto lock = std::lock_guard(progress_mutex_);
   if (progress_epoch_ != observed_epoch || Finished()) {
-    return false;
+    return false;  // lost-wakeup guard: progress already happened, caller must not suspend
   }
-  DMG_ASSERT(!progress_waiter_, "Only one progress waiter can be registered at a time");
-  progress_waiter_ = handle;
+  DMG_ASSERT(!progress_waiter_task_, "Only one progress waiter can be registered at a time");
+  // RELEASE: Finished()/HasNonTerminalTasks()/AllTerminal() read task_state OUTSIDE this mutex with
+  // acquire, so a parked task must be visible to them as PARKED (matches RegisterTaskWaiter / :854).
+  if (task_state) {
+    task_state->store(Task::State::PARKED, std::memory_order_release);
+  }
+  progress_waiter_task_ = std::move(resume_task);
   progress_waiter_pool_ = pool;
   progress_waiter_worker_id_ = worker_id;
+  progress_waiter_task_state_ = std::move(task_state);
   return true;
 }
 
 void TaskCollection::NotifyProgress() {
-  std::coroutine_handle<> waiter;
+  TaskSignature waiter_task;
   PriorityThreadPool *waiter_pool{nullptr};
   std::optional<uint16_t> waiter_worker_id;
   {
     auto lock = std::lock_guard(progress_mutex_);
     ++progress_epoch_;
-    waiter = std::exchange(progress_waiter_, {});
+    waiter_task = std::move(progress_waiter_task_);
     waiter_pool = std::exchange(progress_waiter_pool_, nullptr);
     waiter_worker_id = std::exchange(progress_waiter_worker_id_, std::nullopt);
+    progress_waiter_task_state_ = {};  // task_state ownership released; WrapTask CAS guards the resume
   }
   progress_cv_.notify_all();
-  if (waiter) {
-    if (waiter_pool && waiter_worker_id) {
-      waiter_pool->RescheduleTaskOnWorker(*waiter_worker_id, [waiter]() mutable {
-        if (waiter && !waiter.done()) waiter.resume();
-      });
-    } else if (!waiter.done()) {
-      waiter.resume();
-    }
+  if (!waiter_task) return;
+  // The closure IS the WrapTask re-entry: RescheduleTaskOnWorker enqueues it pinned, and WrapTask's
+  // PARKED->SCHEDULED CAS is the double-resume + UAF guard (a FINISHED/aborted task fails the CAS and
+  // is never touched). NO raw handle.resume() anywhere. (No generation guard needed: ResumableWrapper::
+  // Run never reschedules a parked task, so no stale WrapTask closure can race this one; the CAS is the
+  // backstop. A future change that reschedules a parked task would need a per-park generation guard.)
+  if (waiter_pool && waiter_worker_id) {
+    waiter_pool->RescheduleTaskOnWorker(*waiter_worker_id, std::move(waiter_task));
+  } else {
+    waiter_task();  // unreachable today (EC-2 blocks stolen tasks from registering); safe via CAS anyway
   }
 }
 
-bool CollectionScheduler::RegisterProgressWaiter(std::coroutine_handle<> handle, uint64_t observed_epoch) const {
+bool CollectionScheduler::RegisterProgressWaiter(uint64_t observed_epoch) const {
   if (!collection_ || !pool_) return false;
-  auto worker_id = WorkerYieldRegistry::GetCurrentWorkerId();
-  if (!worker_id) return false;
-  return collection_->RegisterProgressWaiter(handle, pool_, *worker_id, observed_epoch);
+  const auto worker_id = WorkerYieldRegistry::GetCurrentWorkerId();
+  if (!worker_id) return false;  // EC-2: stolen task -> busy-spin
+  const auto task_state = CurrentResumableTask::GetCurrentTaskState();
+  if (!task_state) return false;  // not inside a WrapTask frame -> busy-spin
+  const auto *resume_fn = CurrentResumableTask::GetCurrentResumeTask();
+  if (!resume_fn || !(*resume_fn)) return false;
+  TaskSignature resume_task = [fn = *resume_fn]() mutable { fn(); };
+  const bool registered =
+      collection_->RegisterProgressWaiter(std::move(resume_task), pool_, *worker_id, observed_epoch, task_state);
+  if (registered) CurrentResumableTask::SetParked();  // WrapTask's WasParked() -> true -> suspends
+  return registered;
 }
 
 uint64_t CollectionScheduler::ProgressEpoch() const {

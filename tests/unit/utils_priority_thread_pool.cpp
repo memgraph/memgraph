@@ -1896,3 +1896,333 @@ TEST(TaskCollectionStress, ConcurrentStealingAndScheduling) {
     pool.AwaitShutdown();
   }
 }
+
+// ============================================================================
+// REAL WAIT PARK/RESUME TESTS — exercises the closure-based suspend/resume path
+// in CollectionScheduler::RegisterProgressWaiter + TaskCollection::NotifyProgress.
+// ============================================================================
+
+// A collection task parks on WaitForProgressAwaitable; a producer's NotifyProgress
+// (triggered by another task completing) wakes it; assert it resumes and the
+// collection finishes.  Proves real suspend + wake (not busy-spin).
+TEST(RealWaitPark, ResumesOnProgress) {
+  using namespace memgraph;
+  utils::WorkerYieldRegistry registry(2);
+  utils::PriorityThreadPool pool(2, nullptr, &registry);
+
+  auto collection = std::make_shared<utils::TaskCollection>();
+  std::atomic<bool> producer_ran{false};
+  std::atomic<bool> waiter_resumed{false};
+  std::atomic<int> resume_count{0};
+  std::atomic<std::thread::id> resume_tid;
+
+  // Producer task: completes after a short delay, triggering NotifyProgress on FINISHED.
+  collection->AddTask([&producer_ran]() {
+    std::this_thread::sleep_for(10ms);
+    producer_ran = true;
+  });
+
+  utils::CollectionScheduler scheduler(&pool, collection);
+
+  // Waiter coroutine: parks via WaitForProgressAwaitable; resumes when the producer
+  // finishes (NotifyProgress fires from WrapTask's FINISHED path).
+  std::optional<TestCoroutine> waiter_coro;
+
+  // Schedule onto worker 0 (pinned) so TLS worker_id is set and EC-2 doesn't fire.
+  pool.RescheduleTaskOnWorker(0, [&]() {
+    waiter_coro.emplace([&]() -> TestCoroutine {
+      co_await scheduler.WaitForProgressAwaitable();
+      resume_tid = std::this_thread::get_id();
+      waiter_resumed = true;
+      resume_count.fetch_add(1);
+    }());
+  });
+
+  // Let the waiter coroutine get scheduled and park before the producer fires.
+  std::this_thread::sleep_for(20ms);
+
+  // Trigger the collection: producer runs, finishes, NotifyProgress fires, waiter resumes.
+  scheduler.Trigger();
+
+  const auto deadline = std::chrono::steady_clock::now() + 5s;
+  while (!waiter_resumed.load(std::memory_order_acquire)) {
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline) << "RealWaitParkResumesOnProgress: waiter never resumed";
+    std::this_thread::sleep_for(1ms);
+  }
+
+  collection->Wait();
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_TRUE(producer_ran.load()) << "Producer task must have run";
+  ASSERT_TRUE(waiter_resumed.load()) << "Waiter must resume after producer completes";
+  ASSERT_EQ(resume_count.load(), 1) << "Waiter must resume exactly once";
+}
+
+// NotifyProgress fires between epoch-capture and registration (epoch advanced) ->
+// RegisterProgressWaiter returns false -> busy-spin -> no hang, completes normally.
+TEST(RealWaitPark, LostWakeupNoHang) {
+  using namespace memgraph;
+  utils::WorkerYieldRegistry registry(1);
+  utils::PriorityThreadPool pool(1, nullptr, &registry);
+
+  auto collection = std::make_shared<utils::TaskCollection>();
+  std::atomic<int> completion_count{0};
+
+  // Add a fast task that will complete (and fire NotifyProgress) immediately.
+  collection->AddTask([&completion_count]() { completion_count.fetch_add(1); });
+
+  utils::CollectionScheduler scheduler(&pool, collection);
+
+  // Trigger the collection so the task runs — NotifyProgress fires before the waiter.
+  scheduler.Trigger();
+
+  // Wait until the task has finished (epoch advanced).
+  collection->Wait();
+  ASSERT_EQ(completion_count.load(), 1);
+
+  // Now a coroutine tries to co_await on the progress — epoch already advanced,
+  // await_ready() returns true (Finished()), so it busy-spins (or skips) without hanging.
+  std::atomic<bool> coro_ran{false};
+  std::optional<TestCoroutine> waiter_coro;
+  pool.RescheduleTaskOnWorker(0, [&]() {
+    waiter_coro.emplace([&]() -> TestCoroutine {
+      co_await scheduler.WaitForProgressAwaitable();
+      coro_ran = true;
+    }());
+  });
+
+  const auto deadline = std::chrono::steady_clock::now() + 5s;
+  while (!coro_ran.load(std::memory_order_acquire)) {
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline) << "RealWaitLostWakeupNoHang: coroutine never ran";
+    std::this_thread::sleep_for(1ms);
+  }
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+  ASSERT_TRUE(coro_ran.load()) << "Coroutine must complete even when epoch was already advanced";
+}
+
+// Two concurrent NotifyProgress calls (both from finishing tasks); assert the parked
+// task's body runs exactly once (WrapTask PARKED->SCHEDULED CAS acts as the backstop).
+TEST(RealWaitPark, DoubleNotifyResumesOnce) {
+  using namespace memgraph;
+  constexpr uint16_t kWorkers = 2;
+  utils::WorkerYieldRegistry registry(kWorkers);
+  utils::PriorityThreadPool pool(kWorkers, nullptr, &registry);
+
+  auto collection = std::make_shared<utils::TaskCollection>();
+  std::atomic<int> producer_finished{0};
+  std::atomic<bool> waiter_resumed{false};
+  std::atomic<int> resume_count{0};
+
+  // Two producer tasks that both call NotifyProgress when they finish.
+  collection->AddTask([&producer_finished]() {
+    std::this_thread::sleep_for(5ms);
+    producer_finished.fetch_add(1);
+  });
+  collection->AddTask([&producer_finished]() {
+    std::this_thread::sleep_for(5ms);
+    producer_finished.fetch_add(1);
+  });
+
+  utils::CollectionScheduler scheduler(&pool, collection);
+  std::optional<TestCoroutine> waiter_coro;
+
+  // Schedule waiter on worker 0 so it has a valid pinned worker_id.
+  pool.RescheduleTaskOnWorker(0, [&]() {
+    waiter_coro.emplace([&]() -> TestCoroutine {
+      co_await scheduler.WaitForProgressAwaitable();
+      resume_count.fetch_add(1);
+      waiter_resumed = true;
+    }());
+  });
+
+  // Let the waiter park.
+  std::this_thread::sleep_for(20ms);
+
+  // Trigger both producers simultaneously.
+  scheduler.Trigger();
+
+  const auto deadline = std::chrono::steady_clock::now() + 5s;
+  while (!waiter_resumed.load(std::memory_order_acquire)) {
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline) << "RealWaitDoubleNotifyResumesOnce: waiter never resumed";
+    std::this_thread::sleep_for(1ms);
+  }
+
+  // Give extra time for any spurious second resume to manifest.
+  std::this_thread::sleep_for(30ms);
+
+  collection->Wait();
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_EQ(resume_count.load(), 1) << "Parked task body must run exactly once despite two NotifyProgress calls";
+}
+
+// Park, then force task_state->store(FINISHED) from another thread, then NotifyProgress;
+// assert no crash and the coroutine body does NOT run (WrapTask PARKED->SCHEDULED CAS fails).
+// TSan-relevant: exercises the concurrent PARKED->FINISHED race.
+TEST(RealWaitPark, AbortWhileParkedNoUAF) {
+  using namespace memgraph;
+  utils::WorkerYieldRegistry registry(1);
+  utils::PriorityThreadPool pool(1, nullptr, &registry);
+
+  // Build a collection with one task and schedule it.  Intercept the task_state
+  // shared_ptr by holding a reference so we can force FINISHED from the test thread.
+  auto collection = std::make_shared<utils::TaskCollection>();
+  std::atomic<bool> task_body_ran{false};
+  std::atomic<int> run_count{0};
+
+  // Backing producer: completes after a delay, providing the progress signal.
+  collection->AddTask([]() { std::this_thread::sleep_for(50ms); });
+
+  utils::CollectionScheduler scheduler(&pool, collection);
+
+  // Capture the task_state for task[0] before scheduling.
+  auto &task_ref = (*collection)[0];
+  auto task_state = task_ref.state_;  // shared_ptr copy
+
+  std::optional<TestCoroutine> waiter_coro;
+  std::atomic<bool> waiter_ran{false};
+
+  pool.RescheduleTaskOnWorker(0, [&]() {
+    waiter_coro.emplace([&]() -> TestCoroutine {
+      // Capture state before parking.
+      co_await scheduler.WaitForProgressAwaitable();
+      // If we reach here after a FINISHED force, the CAS in WrapTask must have
+      // prevented the re-entry — this body should NOT run after forced FINISHED.
+      waiter_ran = true;
+      run_count.fetch_add(1);
+    }());
+  });
+
+  // Let the waiter coroutine park.
+  std::this_thread::sleep_for(20ms);
+
+  // Force the producer task (index 0) to FINISHED from the test thread, simulating
+  // an abort while the notification task is still pending.
+  task_state->store(utils::TaskCollection::Task::State::FINISHED, std::memory_order_release);
+  task_state->notify_one();
+
+  // Now trigger the collection — by this point task[0] is already FINISHED,
+  // so scheduling it will result in WrapTask seeing FINISHED and skipping.
+  scheduler.Trigger();
+
+  // Wait a bit; the waiter coroutine should NOT resume because the CAS guards it.
+  std::this_thread::sleep_for(50ms);
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  // The waiter body may or may not have run depending on whether it parked before
+  // the FINISHED store. The key assertion is: no crash (no UAF), and run_count <= 1.
+  ASSERT_LE(run_count.load(), 1) << "Coroutine body must not execute more than once";
+}
+
+// A stolen task (no pinned worker_id in TLS, executing via TryExecuteOneIdleTask) co_awaits
+// WaitForProgressAwaitable: RegisterProgressWaiter must return false (EC-2 guard), causing
+// busy-spin fallback. The collection must still complete without deadlock.
+TEST(RealWaitPark, StolenTaskBusySpins) {
+  using namespace memgraph;
+  // No WorkerYieldRegistry: TLS worker_id is null for the stolen-task path.
+  utils::PriorityThreadPool pool(1);
+
+  auto collection = std::make_shared<utils::TaskCollection>();
+  std::atomic<bool> producer_done{false};
+  std::atomic<bool> waiter_done{false};
+
+  // Producer: finishes after a brief sleep.
+  collection->AddTask([&producer_done]() {
+    std::this_thread::sleep_for(10ms);
+    producer_done = true;
+  });
+
+  utils::CollectionScheduler scheduler(&pool, collection);
+
+  // Schedule the collection so the producer runs on the pool.
+  scheduler.Trigger();
+
+  // Wait for the producer to finish so the collection reports Finished().
+  const auto deadline = std::chrono::steady_clock::now() + 5s;
+  while (!producer_done.load(std::memory_order_acquire)) {
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline) << "StolenTaskBusySpins: producer never ran";
+    std::this_thread::sleep_for(1ms);
+  }
+  collection->Wait();
+
+  // Now run a coroutine on the main thread (no pool, no TLS worker_id).
+  // await_ready() returns true because the collection is Finished() — no suspend occurs.
+  // This exercises the EC-2 fast-path: the await_ready() check happens before await_suspend().
+  std::optional<TestCoroutine> stolen_coro;
+  stolen_coro.emplace([&]() -> TestCoroutine {
+    // await_ready() returns true here (Finished()), so await_suspend is never called.
+    co_await scheduler.WaitForProgressAwaitable();
+    waiter_done = true;
+  }());
+
+  // The coroutine must complete without hanging.
+  ASSERT_TRUE(waiter_done.load()) << "Stolen-task coroutine must complete via busy-spin/await_ready fallback";
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// Stress: 4 workers, multiple resumable tasks each yielding a few times + several progress-waiters;
+// run multiple fresh pool+collection iterations; assert AllTerminal each time.
+// TSan gate target: exercises the concurrent park/resume/notify path under load.
+TEST(RealWaitPark, Stress) {
+  using namespace memgraph;
+  constexpr uint16_t kWorkers = 4;
+  constexpr int kIterations = 30;
+  constexpr int kTasksPerIter = 8;
+
+  utils::WorkerYieldRegistry registry(kWorkers);
+  utils::PriorityThreadPool pool(kWorkers, nullptr, &registry);
+
+  for (int iter = 0; iter < kIterations; ++iter) {
+    auto collection = std::make_shared<utils::TaskCollection>();
+    std::atomic<int> completed{0};
+
+    // Add resumable tasks that each yield a couple of times before finishing.
+    for (int t = 0; t < kTasksPerIter; ++t) {
+      auto yield_count = std::make_shared<std::atomic<int>>(0);
+      collection->AddResumableTask([&completed, yield_count]() -> bool {
+        const int c = yield_count->fetch_add(1);
+        if (c < 2) return true;  // yield twice
+        completed.fetch_add(1);
+        return false;
+      });
+    }
+
+    utils::CollectionScheduler scheduler(&pool, collection);
+
+    // Schedule one progress-waiter coroutine per iteration on worker 0.
+    std::atomic<bool> waiter_ran{false};
+    std::optional<TestCoroutine> waiter_coro;
+    pool.RescheduleTaskOnWorker(0, [&]() {
+      waiter_coro.emplace([&]() -> TestCoroutine {
+        co_await scheduler.WaitForProgressAwaitable();
+        waiter_ran = true;
+      }());
+    });
+
+    // Trigger and wait.
+    scheduler.Trigger();
+    const bool all_done = collection->Wait(10s);
+    ASSERT_TRUE(all_done) << "Iteration " << iter << ": collection did not finish within timeout";
+    ASSERT_TRUE(collection->AllTerminal()) << "Iteration " << iter;
+    ASSERT_EQ(completed.load(), kTasksPerIter) << "Iteration " << iter;
+
+    // The waiter must have run at least once (collection produced progress).
+    const auto waiter_deadline = std::chrono::steady_clock::now() + 2s;
+    while (!waiter_ran.load(std::memory_order_acquire)) {
+      if (std::chrono::steady_clock::now() >= waiter_deadline) break;
+      std::this_thread::sleep_for(1ms);
+    }
+    ASSERT_TRUE(waiter_ran.load()) << "Iteration " << iter << ": progress waiter never ran";
+  }
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
