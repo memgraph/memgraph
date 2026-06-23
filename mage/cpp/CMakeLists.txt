@@ -44,6 +44,14 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -funsafe-math-optimizations -fvect-cost-model=dynamic -DNDEBUG")
 set(CMAKE_SHARED_LIBRARY_PREFIX "")
 
+# Emit a GNU build-id in every module. The memgraph toolchain's linker does not
+# add one by default (unlike Debian/Ubuntu's system ld), so without this the
+# query-module .so files — and thus the split-debug .debug sidecars — carry no
+# build-id and can't be indexed for the debuginfod-layout symbol upload. Mirrors
+# add_link_options(LINKER:--build-id) in the top-level memgraph CMakeLists.
+# Must precede target definitions so it applies to every module.
+add_link_options(LINKER:--build-id)
+
 find_package(Threads REQUIRED)
 include(ExternalProject)
 
