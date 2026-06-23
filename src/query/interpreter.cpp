@@ -9646,17 +9646,20 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // replication, ...) do not touch the tenant graph and are allowed through.
       if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsDefunct()) {
         auto *q = parsed_query.query;
-        // RECOVER SNAPSHOT is the cure and must run even though it takes UNIQUE access.
-        const bool is_recovery_query = utils::Downcast<RecoverSnapshotQuery>(q) != nullptr;
-        // "Hits the database": opens a storage accessor (data/DDL) or otherwise operates on
-        // the current DB's storage without a transactional accessor.
-        const bool hits_database =
-            transaction_requirements.accessor_type_.has_value() || utils::Downcast<StreamQuery>(q) != nullptr ||
-            utils::Downcast<CreateSnapshotQuery>(q) != nullptr || utils::Downcast<ShowSnapshotsQuery>(q) != nullptr ||
-            utils::Downcast<ShowNextSnapshotQuery>(q) != nullptr || utils::Downcast<FreeMemoryQuery>(q) != nullptr ||
-            utils::Downcast<StorageModeQuery>(q) != nullptr || utils::Downcast<EdgeImportModeQuery>(q) != nullptr ||
-            utils::Downcast<LockPathQuery>(q) != nullptr;
-        if (hits_database && !is_recovery_query) {
+        // Allowlist: in the defunct state only RECOVER SNAPSHOT (the cure) and read-only meta/info
+        // queries that never touch the tenant graph are permitted. Everything else (Cypher, DDL,
+        // CREATE SNAPSHOT, ...) is rejected until the database is recovered.
+        const bool is_allowed =
+            utils::Downcast<RecoverSnapshotQuery>(q) != nullptr || utils::Downcast<DatabaseInfoQuery>(q) != nullptr ||
+            utils::Downcast<SystemInfoQuery>(q) != nullptr || utils::Downcast<ReplicationInfoQuery>(q) != nullptr ||
+            utils::Downcast<ShowConfigQuery>(q) != nullptr ||
+            utils::Downcast<ShowQueryCallableMappingsQuery>(q) != nullptr ||
+            utils::Downcast<SettingQuery>(q) != nullptr || utils::Downcast<VersionQuery>(q) != nullptr ||
+            utils::Downcast<UseDatabaseQuery>(q) != nullptr || utils::Downcast<MultiDatabaseQuery>(q) != nullptr ||
+            utils::Downcast<ShowDatabaseQuery>(q) != nullptr || utils::Downcast<ShowDatabasesQuery>(q) != nullptr ||
+            utils::Downcast<ShowMemoryInfoQuery>(q) != nullptr || utils::Downcast<SessionTraceQuery>(q) != nullptr ||
+            utils::Downcast<SessionSettingQuery>(q) != nullptr;
+        if (!is_allowed) {
           throw QueryException(
               "Database is in the defunct state because the recovery process failed. Please recover your database "
               "using the RECOVER SNAPSHOT query or REPAIR DATABASE query + run your import queries. If you have a "
