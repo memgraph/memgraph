@@ -340,6 +340,12 @@ In addition, `SHOW DATABASES` shows each database's `HOT`/`COLD` state, and
   limitation, not specific to hot/cold.
 - **Cross-version safety.** The on-disk and replication wire formats were extended to
   carry hot/cold state; this is not downgrade-safe, which is an accepted trade-off.
+- **Best-effort durable-marker persistence.** The hot/cold *state* marker is persisted
+  best-effort: a storage I/O failure while writing it (at suspend, resume, or promotion)
+  is logged but does not roll back or crash. No data is lost — the snapshot is written
+  before teardown — the tenant simply recovers to its last durably-recorded hot/cold state
+  on restart. In the rare case of a MAIN crash between a promotion and the marker write, a
+  cold tenant may recover its pre-promotion epoch; a later resume reconciles it.
 
 ---
 
