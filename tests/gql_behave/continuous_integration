@@ -152,10 +152,13 @@ def generate_result_html(data):
 
 
 class MemgraphRunner:
-    def __init__(self, build_directory):
+    def __init__(self, build_directory, extra_args=None):
         self.build_directory = build_directory
         self.proc_mg = None
         self.args = []
+        self.extra_args = (
+            list(extra_args) if extra_args else []
+        )  # THROWAWAY(coroutine-cursors): remove at P3.4 flag flip
 
     def start(self, args=[]):
         if args == self.args and self.is_running():
@@ -181,7 +184,9 @@ class MemgraphRunner:
             str(os.path.join(BUILD_DIR, "query_modules")),
             "--metrics-format=OpenMetrics",
         ]
-        self.proc_mg = subprocess.Popen(args_mg + self.args)
+        self.proc_mg = subprocess.Popen(
+            args_mg + self.extra_args + self.args
+        )  # THROWAWAY(coroutine-cursors): remove at P3.4 flag flip
         wait_for_server(7687, self.proc_mg, 1)
         assert self.is_running(), "The Memgraph process died!"
 
@@ -208,6 +213,11 @@ def main():
     argp.add_argument(
         "--parallel-execution", action="store_true", help="prepend USING PARALLEL EXECUTION to all queries"
     )
+    argp.add_argument(
+        "--coroutine-cursors",
+        action="store_true",
+        help="THROWAWAY: run memgraph with --experimental-enabled=coroutine-cursors so all queries take the coroutine pull path (removed at P3.4 flag flip)",
+    )
     args = argp.parse_args()
 
     # Load tests from config file
@@ -221,7 +231,9 @@ def main():
     output_dir = tempfile.TemporaryDirectory()
 
     # Memgraph runner
-    memgraph = MemgraphRunner(args.build_directory)
+    # THROWAWAY(coroutine-cursors): remove at P3.4 flag flip
+    coro_extra = ["--experimental-enabled=coroutine-cursors"] if args.coroutine_cursors else []
+    memgraph = MemgraphRunner(args.build_directory, extra_args=coro_extra)
 
     @atexit.register
     def cleanup():
