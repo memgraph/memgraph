@@ -262,7 +262,14 @@ jobs:
       - name: Download Memgraph package
         if: ${{ inputs.memgraph_download_link != '' }}
         run: |
-          wget -O mage/memgraph.deb "$MEMGRAPH_DOWNLOAD_LINK"
+          # rpm distros need the base package staged as mage/memgraph.rpm for the
+          # centos-9 smoke image; deb distros keep mage/memgraph.deb for the
+          # docker build / offline installer.
+          if [[ "$OS" == ubuntu-* || "$OS" == debian-* ]]; then
+            wget -O mage/memgraph.deb "$MEMGRAPH_DOWNLOAD_LINK"
+          else
+            wget -O mage/memgraph.rpm "$MEMGRAPH_DOWNLOAD_LINK"
+          fi
           echo "Memgraph package downloaded"
           if [[ -n "$MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK" ]]; then
             wget -O mage/memgraph-debuginfo.deb "$MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK"
@@ -371,6 +378,16 @@ jobs:
                 exit 1
               fi
               mv -v "$debuginfo_deb" mage/memgraph-debuginfo.deb
+            fi
+          else
+            # rpm distros: stage the base memgraph rpm as mage/memgraph.rpm for
+            # the centos-9 smoke image (Dockerfile.centos-9). Copy rather than
+            # move so the package stays in $MG_PACKAGE_ARTIFACT_DIR. The base
+            # rpm is memgraph-<version>... ; the -debuginfo rpm is excluded by
+            # the [0-9] after the dash.
+            base_rpm=$(ls -1 "$MG_PACKAGE_ARTIFACT_DIR"/memgraph-[0-9]*.rpm 2>/dev/null | head -n 1)
+            if [[ -n "$base_rpm" ]]; then
+              cp -v "$base_rpm" mage/memgraph.rpm
             fi
           fi
 
@@ -665,6 +682,27 @@ jobs:
             --cuda $CUDA \
             --package-flavour debug
 
+      - name: "Build centos-9 smoke image"
+        # centos-9 publishes no MAGE docker image; build a throwaway local image
+        # from the rpms (base memgraph + memgraph-mage) so the Docker smoke-test
+        # framework can exercise the rpm install path. Never pushed. The base
+        # memgraph rpm was staged to mage/memgraph.rpm by the Copy/Download step;
+        # the memgraph-mage rpm comes from the Build RPM package step.
+        if: ${{ inputs.run_smoke_tests && inputs.os == 'centos-9' && !inputs.cugraph && !inputs.cuda }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f mage/memgraph.rpm ]]; then
+            echo "Error: mage/memgraph.rpm not staged — cannot build centos-9 smoke image" >&2
+            exit 1
+          fi
+          mage_rpm="$(ls -t output/memgraph-mage-[0-9]*.rpm | head -n 1)"
+          cp -v "$mage_rpm" mage/memgraph-mage.rpm
+          # BuildKit required: Dockerfile.centos-9 uses RUN --mount=type=bind.
+          DOCKER_BUILDKIT=1 docker build \
+            -f mage/Dockerfile.centos-9 \
+            -t "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}-centos-9" \
+            mage
+
       - name: "Bolt smoke test (prod)"
         if: ${{ !inputs.cugraph && !inputs.cuda && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         run: |
@@ -947,6 +985,21 @@ jobs:
             test-mage smoke \
             --next-image "${DOCKER_REPOSITORY_NAME}:${DEBUG_IMAGE_TAG}" \
             --last-image "${DOCKER_REPOSITORY_NAME}:${LAST_DEBUG_VERSION}"
+
+      - name: "Run Docker smoke tests (centos-9)"
+        # Smoke the freshly-built centos-9 rpm image (next) against the usual
+        # published prod image (last) — there is no prior centos-9 image to diff
+        # against, so the standard prod image stands in as the baseline.
+        if: ${{ inputs.run_smoke_tests && inputs.os == 'centos-9' && !inputs.cugraph && !inputs.cuda }}
+        run: |
+          docker pull "${DOCKER_REPOSITORY_NAME}:${LAST_PROD_VERSION}"
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            test-mage smoke \
+            --next-image "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}-centos-9" \
+            --last-image "${DOCKER_REPOSITORY_NAME}:${LAST_PROD_VERSION}"
 
       - name: Push query module archive to GitHub
         if: ${{ inputs.push_to_github }}

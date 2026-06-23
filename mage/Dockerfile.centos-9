@@ -1,0 +1,42 @@
+# Minimal CentOS Stream 9 image for running MAGE smoke tests against the RPM
+# packages. This is NOT a production image and is never published — it exists
+# only so the smoke-test framework (which drives a Docker image) can exercise
+# the memgraph + memgraph-mage RPMs on an rpm-based distro. The build context
+# is the mage/ directory, mirroring Dockerfile.release.
+#
+# Expects two RPMs staged into the build context under fixed names (as
+# Dockerfile.release does with ./memgraph.deb):
+#   ./memgraph.rpm        - the base memgraph package
+#   ./memgraph-mage.rpm   - the MAGE query-modules package built by build-rpm.sh
+FROM quay.io/centos/centos:stream9 AS base
+
+USER root
+
+# Install the base memgraph package and the MAGE package together so dnf orders
+# them (memgraph first, since memgraph-mage Requires it) and resolves the C/C++
+# runtime deps (libgomp, libatomic, openssl, python3, ...) from the stream9
+# repos. --setopt=tsflags='' keeps memgraph's license docs, which the CentOS
+# minimal image otherwise strips via the default tsflags=nodocs.
+#
+# The memgraph-mage %post runs install_python_requirements.sh, which installs
+# the full MAGE python requirements. That is required, not optional: one of the
+# smoke checks asserts every query module loaded, which fails if any module's
+# python deps are missing. Letting %post run is also the faithful install path —
+# it exercises exactly what a user's `dnf install` does.
+RUN --mount=type=bind,source=./memgraph.rpm,target=/packages/memgraph.rpm,ro \
+    --mount=type=bind,source=./memgraph-mage.rpm,target=/packages/memgraph-mage.rpm,ro \
+  export PIP_BREAK_SYSTEM_PACKAGES=1 && \
+  dnf install -y --setopt=tsflags='' \
+    /packages/memgraph.rpm /packages/memgraph-mage.rpm && \
+  dnf clean all && rm -rf /var/cache/dnf
+
+# query_modules holds the MAGE .so files; memgraph's embedded loader needs them
+# on the library path so inter-module symbols resolve.
+ENV LD_LIBRARY_PATH=/usr/lib/memgraph/query_modules
+
+USER memgraph
+WORKDIR /usr/lib/memgraph
+EXPOSE 7687
+
+ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
+CMD [""]
