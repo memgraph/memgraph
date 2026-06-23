@@ -51,6 +51,22 @@ if [[ "$CUDA" == true && "$ARCH" != "amd64" ]]; then
   exit 1
 fi
 
+# MAGE's pinned GNN wheels (torch/PyG/DGL below) are all cp312, and memgraph
+# embeds python 3.12 to match. Most distros already default `python3` to 3.12,
+# but some don't (e.g. CentOS Stream 9 ships 3.9 as python3 and memgraph is
+# built against an explicitly-installed python3.12). Prefer python3.12 when
+# present so the deps land in the interpreter memgraph actually loads; otherwise
+# fall back to python3. Override with PYTHON=<interpreter> if needed.
+PYTHON="${PYTHON:-}"
+if [[ -z "$PYTHON" ]]; then
+  if command -v python3.12 >/dev/null 2>&1; then
+    PYTHON=python3.12
+  else
+    PYTHON=python3
+  fi
+fi
+echo "Installing MAGE python requirements with: $PYTHON ($($PYTHON --version 2>&1))"
+
 export PIP_BREAK_SYSTEM_PACKAGES=1
 export PIP_DEFAULT_TIMEOUT=120
 export PIP_RETRIES=8
@@ -64,20 +80,20 @@ if [ "$CI" = true ]; then
   # take torch from the wheel house if the cache is present
   if [ "$CACHE_PRESENT" = "true" ]; then
     echo "Installing torch from wheel cache"
-    python3 -m pip install --no-cache-dir --no-index --find-links=$WHEEL_CACHE_DIR torch
+    $PYTHON -m pip install --no-cache-dir --no-index --find-links=$WHEEL_CACHE_DIR torch
   fi
 
   # for building the docker image
-  python3 -m pip install --no-cache-dir -r "/tmp/${requirements_file}"
-  python3 -m pip install --no-cache-dir -r /tmp/auth_module-requirements.txt
+  $PYTHON -m pip install --no-cache-dir -r "/tmp/${requirements_file}"
+  $PYTHON -m pip install --no-cache-dir -r /tmp/auth_module-requirements.txt
 elif [[ "$DEB_PACKAGE" == "true" ]]; then
   # for installing python deps during deb package installation
-  python3 -m pip install --no-cache-dir -r "/usr/lib/memgraph/mage-requirements.txt"
-  python3 -m pip install --no-cache-dir -r "/usr/lib/memgraph/auth_module/requirements.txt"
+  $PYTHON -m pip install --no-cache-dir -r "/usr/lib/memgraph/mage-requirements.txt"
+  $PYTHON -m pip install --no-cache-dir -r "/usr/lib/memgraph/auth_module/requirements.txt"
 else
   # for installing locally, from within the memgraph repo, under the mage directory
-  python3 -m pip install --no-cache-dir -r "$(pwd)/python/${requirements_file}"
-  python3 -m pip install --no-cache-dir -r "$(pwd)/../src/auth/reference_modules/requirements.txt"
+  $PYTHON -m pip install --no-cache-dir -r "$(pwd)/python/${requirements_file}"
+  $PYTHON -m pip install --no-cache-dir -r "$(pwd)/../src/auth/reference_modules/requirements.txt"
 fi
 
 # custom package links TODO(matt): use official binaries when available
@@ -115,32 +131,32 @@ fi
 if [ "$ARCH" = "arm64" ]; then
   if [ "$CACHE_PRESENT" = "true" ]; then
     echo "Using cached torch packages"
-    python3 -m pip install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter dgl
+    $PYTHON -m pip install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter dgl
   else
     # Attempt to install from S3 first, if that fails, fallback to pulling from PyG and building from source, if necessary
     {
-      python3 -m pip install --no-cache-dir $TORCH_SPARSE $TORCH_CLUSTER $TORCH_SPLINE_CONV $TORCH_GEOMETRIC $TORCH_SCATTER
+      $PYTHON -m pip install --no-cache-dir $TORCH_SPARSE $TORCH_CLUSTER $TORCH_SPLINE_CONV $TORCH_GEOMETRIC $TORCH_SCATTER
     } || {
-      python3 -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
+      $PYTHON -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
     }
-    python3 -m pip install --no-cache-dir "$DGL"
+    $PYTHON -m pip install --no-cache-dir "$DGL"
   fi
 else
   if [ "$CACHE_PRESENT" = "true" ]; then
       echo "Using cached torch packages"
-      python3 -m pip install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter dgl
+      $PYTHON -m pip install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter dgl
   else
     # Attempt to install from S3 first, if that fails, fallback to pulling from PyG and building from source, if necessary
     {
-      python3 -m pip install --no-cache-dir $TORCH_SPARSE $TORCH_CLUSTER $TORCH_SPLINE_CONV $TORCH_GEOMETRIC $TORCH_SCATTER
+      $PYTHON -m pip install --no-cache-dir $TORCH_SPARSE $TORCH_CLUSTER $TORCH_SPLINE_CONV $TORCH_GEOMETRIC $TORCH_SCATTER
     } || {
       if [[ "$CUDA" == true ]]; then
-        python3 -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cu130.html
+        $PYTHON -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cu130.html
       else
-        python3 -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
+        $PYTHON -m pip install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
       fi
     }
-    python3 -m pip install --no-cache-dir "$DGL"
+    $PYTHON -m pip install --no-cache-dir "$DGL"
   fi
 fi
 rm -fr /home/memgraph/.cache/pip

@@ -12,20 +12,26 @@ FROM quay.io/centos/centos:stream9 AS base
 
 USER root
 
-# Install the base memgraph package and the MAGE package together so dnf orders
-# them (memgraph first, since memgraph-mage Requires it) and resolves the C/C++
-# runtime deps (libgomp, libatomic, openssl, python3, ...) from the stream9
-# repos. --setopt=tsflags='' keeps memgraph's license docs, which the CentOS
-# minimal image otherwise strips via the default tsflags=nodocs.
+# memgraph here embeds python 3.12 (built with -DMG_PYTHON_VERSION=3.12, since
+# CentOS Stream 9's default python3 is 3.9), so the query-module deps must be
+# installed under 3.12. Stage the 3.12 interpreter/pip plus the build deps the
+# full requirements install needs — gssapi (kerberos auth module) has no PyPI
+# wheel and is compiled from source, needing gcc + krb5-devel + the 3.12 dev
+# headers.
 #
-# The memgraph-mage %post runs install_python_requirements.sh, which installs
-# the full MAGE python requirements. That is required, not optional: one of the
-# smoke checks asserts every query module loaded, which fails if any module's
-# python deps are missing. Letting %post run is also the faithful install path —
-# it exercises exactly what a user's `dnf install` does.
+# Then install the base memgraph package and the MAGE package together so dnf
+# orders them (memgraph first, since memgraph-mage Requires it) and resolves the
+# remaining C/C++ runtime deps (libgomp, libatomic, openssl, ...). The
+# memgraph-mage %post runs install_python_requirements.sh (auto-selecting
+# python3.12) to install the full MAGE python requirements — required, not
+# optional: one of the smoke checks asserts every query module loaded, which
+# fails if any module's python deps are missing. --setopt=tsflags='' keeps
+# memgraph's license docs, which the CentOS minimal image otherwise strips.
 RUN --mount=type=bind,source=./memgraph.rpm,target=/packages/memgraph.rpm,ro \
     --mount=type=bind,source=./memgraph-mage.rpm,target=/packages/memgraph-mage.rpm,ro \
   export PIP_BREAK_SYSTEM_PACKAGES=1 && \
+  dnf install -y --setopt=tsflags='' \
+    python3.12 python3.12-pip python3.12-devel gcc gcc-c++ krb5-devel && \
   dnf install -y --setopt=tsflags='' \
     /packages/memgraph.rpm /packages/memgraph-mage.rpm && \
   dnf clean all && rm -rf /var/cache/dnf

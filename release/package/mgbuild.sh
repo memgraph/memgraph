@@ -739,6 +739,17 @@ build_memgraph () {
     additional_options="$additional_options -DMG_SPLIT_DEBUG=ON"
   fi
 
+  # MAGE's query-module python deps (torch/PyG/DGL) ship only as cp312 wheels,
+  # but CentOS Stream 9's default python3 is 3.9. Build memgraph against python
+  # 3.12 so the interpreter it embeds matches the deps installed at package time
+  # (see environment/os/centos-9.sh and install_python_requirements.sh).
+  # find_package(Python3 3.12 EXACT) needs the 3.12 dev package; install it here
+  # in case the prebuilt mgbuild image predates the centos-9.sh change.
+  if [[ "$os" == centos-9* ]]; then
+    docker exec -u root "$build_container" bash -c "rpm -q python3.12-devel >/dev/null 2>&1 || dnf install -y python3.12 python3.12-devel python3.12-pip"
+    additional_options="$additional_options -DMG_PYTHON_VERSION=3.12"
+  fi
+
   if [[ -n "$additional_options" ]]; then
     echo "Adding additional CMake options: $additional_options"
   fi
@@ -2251,10 +2262,19 @@ test_mage() {
       fi
       docker cp mage/python/$requirements_file $build_container:/tmp/$requirements_file
       docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
+      # MAGE's deps are cp312 and memgraph embeds python 3.12, so the python
+      # test phase must run under 3.12. CentOS Stream 9 defaults python3 to 3.9,
+      # so install and use python3.12 there; other distros already ship 3.12 as
+      # python3. install_python_requirements.sh honours PYTHON=<interpreter>.
+      local pybin="python3"
+      if [[ "$os" == centos-9* ]]; then
+        pybin="python3.12"
+        docker exec -i -u root $build_container bash -c "rpm -q python3.12-pip >/dev/null 2>&1 || dnf install -y python3.12 python3.12-pip python3.12-devel"
+      fi
       docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/ && \
-        ./install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
-        pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
-      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."
+        PYTHON=$pybin ./install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
+        $pybin -m pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
+      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && $pybin -m pytest ."
     ;;
     e2e)
       shift 1
