@@ -81,12 +81,7 @@ void Save(const memgraph::storage::ColdTenantRecovery &self, memgraph::slk::Buil
   memgraph::slk::Save(self.salient, builder);
   memgraph::slk::Save(self.stats, builder);
   memgraph::slk::Save(self.current_epoch, builder);
-  // EpochHistory is a std::deque (no direct slk support). Serialize element-by-element in the SAME wire
-  // layout slk uses for a std::vector (uint64 size + each (epoch, ldt) pair) so the format is unchanged,
-  // without materializing an intermediate vector copy.
-  const uint64_t history_size = self.epoch_history.size();
-  memgraph::slk::Save(history_size, builder);
-  for (const auto &entry : self.epoch_history) memgraph::slk::Save(entry, builder);
+  memgraph::slk::Save(self.epoch_history, builder);
   memgraph::slk::Save(self.has_epoch_meta, builder);
   memgraph::slk::Save(self.last_durable_timestamp, builder);
 }
@@ -95,14 +90,7 @@ void Load(memgraph::storage::ColdTenantRecovery *self, memgraph::slk::Reader *re
   memgraph::slk::Load(&self->salient, reader);
   memgraph::slk::Load(&self->stats, reader);
   memgraph::slk::Load(&self->current_epoch, reader);
-  uint64_t history_size = 0;
-  memgraph::slk::Load(&history_size, reader);
-  self->epoch_history.clear();
-  for (uint64_t i = 0; i < history_size; ++i) {
-    std::pair<std::string, uint64_t> entry;
-    memgraph::slk::Load(&entry, reader);
-    self->epoch_history.push_back(std::move(entry));
-  }
+  memgraph::slk::Load(&self->epoch_history, reader);
   memgraph::slk::Load(&self->has_epoch_meta, reader);
   memgraph::slk::Load(&self->last_durable_timestamp, reader);
 }
@@ -182,11 +170,7 @@ void Save(const memgraph::replication::SystemRecoveryResV1 &self, memgraph::slk:
 }
 
 void Load(memgraph::replication::SystemRecoveryResV1 *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
+  memgraph::slk::Load(&self->result, reader);
 }
 
 // Serialize code for SystemRecoveryResV2 (same layout as Res)
@@ -195,11 +179,7 @@ void Save(const memgraph::replication::SystemRecoveryResV2 &self, memgraph::slk:
 }
 
 void Load(memgraph::replication::SystemRecoveryResV2 *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
+  memgraph::slk::Load(&self->result, reader);
 }
 
 // Serialize code for SystemRecoveryRes
@@ -208,11 +188,7 @@ void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::B
 }
 
 void Load(memgraph::replication::SystemRecoveryRes *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
+  memgraph::slk::Load(&self->result, reader);
 }
 
 }  // namespace memgraph::slk

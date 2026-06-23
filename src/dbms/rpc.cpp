@@ -141,11 +141,7 @@ void Save(const memgraph::storage::replication::CreateDatabaseRes &self, memgrap
 }
 
 void Load(memgraph::storage::replication::CreateDatabaseRes *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
+  memgraph::slk::Load(&self->result, reader);
 }
 
 // Serialize code for DropDatabaseReq
@@ -171,11 +167,7 @@ void Save(const memgraph::storage::replication::DropDatabaseRes &self, memgraph:
 }
 
 void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
+  memgraph::slk::Load(&self->result, reader);
 }
 
 // Serialize code for SuspendDatabaseReq
@@ -201,11 +193,7 @@ void Save(const memgraph::storage::replication::SuspendDatabaseRes &self, memgra
 }
 
 void Load(memgraph::storage::replication::SuspendDatabaseRes *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
+  memgraph::slk::Load(&self->result, reader);
 }
 
 // Serialize code for ResumeDatabaseReq
@@ -231,11 +219,7 @@ void Save(const memgraph::storage::replication::ResumeDatabaseRes &self, memgrap
 }
 
 void Load(memgraph::storage::replication::ResumeDatabaseRes *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
+  memgraph::slk::Load(&self->result, reader);
 }
 
 // Serialize code for RenameDatabaseReq
@@ -265,11 +249,7 @@ void Save(const memgraph::storage::replication::RenameDatabaseRes &self, memgrap
 }
 
 void Load(memgraph::storage::replication::RenameDatabaseRes *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
+  memgraph::slk::Load(&self->result, reader);
 }
 
 void Save(const memgraph::dbms::TenantProfiles::Profile &self, memgraph::slk::Builder *builder) {

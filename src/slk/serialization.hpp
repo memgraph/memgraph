@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -32,6 +33,7 @@
 #include "slk/streams.hpp"
 #include "utils/concepts.hpp"
 #include "utils/endian.hpp"
+#include "utils/enum.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/typeinfo.hpp"
@@ -69,6 +71,11 @@ template <typename T>
 void Save(const std::vector<T> &obj, Builder *builder);
 template <typename T>
 void Load(std::vector<T> *obj, Reader *reader);
+
+template <typename T>
+void Save(const std::deque<T> &obj, Builder *builder);
+template <typename T>
+void Load(std::deque<T> *obj, Reader *reader);
 
 template <typename T>
 void Save(const std::unordered_set<T> &obj, Builder *builder);
@@ -242,6 +249,25 @@ inline void Load(utils::small_vector<T> *obj, Reader *reader) {
   obj->resize(size);
   for (uint64_t i = 0; i < size; ++i) {
     Load(&(*obj)[i], reader);
+  }
+}
+
+template <typename T>
+inline void Save(const std::deque<T> &obj, Builder *builder) {
+  uint64_t size = obj.size();
+  Save(size, builder);
+  for (const auto &x : obj) Save(x, builder);
+}
+
+template <typename T>
+inline void Load(std::deque<T> *obj, Reader *reader) {
+  uint64_t size = 0;
+  Load(&size, reader);
+  obj->clear();
+  for (uint64_t i = 0; i < size; ++i) {
+    T elem;
+    Load(&elem, reader);
+    obj->push_back(std::move(elem));
   }
 }
 
@@ -624,6 +650,20 @@ void Load(T *enum_value, slk::Reader *reader) {
   UnderlyingType value;
   slk::Load(&value, reader);
   *enum_value = static_cast<T>(value);
+}
+
+// More-constrained overload: selected for enums that declare an ::N sentinel.
+// Validates the wire value via NumToEnum (which rejects values >= T::N) and
+// throws SlkReaderException on out-of-range input rather than silently producing
+// an invalid enum value.
+template <utils::Enum T>
+  requires requires { T::N; }
+void Load(T *enum_value, slk::Reader *reader) {
+  std::underlying_type_t<T> value;
+  slk::Load(&value, reader);
+  if (!utils::NumToEnum(value, *enum_value)) {
+    throw SlkReaderException("Unexpected enum value!");
+  }
 }
 
 template <typename... Args>
