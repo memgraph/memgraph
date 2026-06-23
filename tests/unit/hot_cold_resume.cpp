@@ -273,6 +273,55 @@ TEST_F(HotColdResume, ConcurrentResumeSingleFlight) {
   handler_->SetOnResume({});
 }
 
+// Regression: a loser in the single-flight poll must NOT return RECOVERY_FAILED when the winner is
+// running a slow-but-healthy rebuild that exceeds the OLD fixed kPollTimeout (10 s). The fix re-arms
+// the liveness deadline on each poll iteration where the winner is observably still RESUMING, so a
+// build that takes longer than 10 s but shorter than kWinnerLivenessWindow (30 s) succeeds for all
+// concurrent callers.
+//
+// NOTE: this test intentionally takes ~12 seconds — it must exceed the old 10 s deadline to confirm
+// the regression is closed. The on_resume_ arm sleeps 12 s on the first call only, so only one
+// rebuild stalls; subsequent calls return immediately (idempotent HOT fast-path).
+TEST_F(HotColdResume, ConcurrentResumeSlowWinnerDoesNotSpuriouslyFail) {
+  auto name = CreateTenant("slow_winner");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  std::atomic<int> rebuilds{0};
+  // The arm sleeps 12 s on the first call (winner's on_resume_) to simulate a large-tenant rebuild
+  // that would have tripped the OLD fixed 10 s kPollTimeout. Subsequent calls (there should be none
+  // — single-flight guarantees exactly one rebuild) return immediately.
+  handler_->SetOnResume([&rebuilds](memgraph::dbms::DatabaseAccess) {
+    if (rebuilds.fetch_add(1) == 0) {
+      std::this_thread::sleep_for(std::chrono::seconds(12));
+    }
+  });
+
+  constexpr int kThreads = 4;
+  std::atomic<int> successes{0};
+  std::atomic<int> recovery_failed{0};
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads);
+  for (int i = 0; i < kThreads; ++i) {
+    threads.emplace_back([&] {
+      auto res = handler_->Resume(name);
+      if (res.has_value()) {
+        ++successes;
+      } else if (res.error() == DbmsHandler::ResumeError::RECOVERY_FAILED) {
+        ++recovery_failed;
+      }
+    });
+  }
+  for (auto &t : threads) t.join();
+
+  EXPECT_EQ(rebuilds.load(), 1) << "Exactly one thread must rebuild the storage (single-flight)";
+  EXPECT_EQ(recovery_failed.load(), 0)
+      << "No loser must spuriously return RECOVERY_FAILED when the winner is still alive and building";
+  EXPECT_EQ(successes.load(), kThreads) << "Every concurrent resumer must observe the published HOT tenant";
+  EXPECT_TRUE(InAll(name));
+
+  handler_->SetOnResume({});
+}
+
 // Suspend/resume driven through a real system::Transaction must record their actions and complete
 // the HOT -> COLD -> HOT round-trip. Committing the transaction (DoNothing on a node with no
 // replicas) drives the action's DoDurability + the system-ts finalize without dropping data.

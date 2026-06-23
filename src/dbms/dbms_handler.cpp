@@ -1349,12 +1349,24 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       won_resume = gk->begin_resume();  // COLD -> RESUMING (LAST step in Phase A)
     }
 
-    // SINGLE-FLIGHT — loser path: someone else holds RESUMING. Poll Get(name) until HOT, bounded.
+    // SINGLE-FLIGHT — loser path: someone else holds RESUMING. Poll Get(name) until HOT.
+    // The deadline is re-armed on every iteration that confirms the winner is still RESUMING
+    // (demonstrably alive and building), so a healthy large-tenant rebuild that takes longer than the
+    // liveness window does NOT spuriously fail. kMaxWait is an absolute ceiling that still fires if the
+    // winner is stuck-alive (holds RESUMING but never completes). We poll by NAME (not the gatekeeper
+    // cv_): the winner publishes via `*gk = std::move(fresh)`, which destroys the old GKInternals (and
+    // its cv_), so waiting on that cv_ would be a use-after-free.
     if (!won_resume) {
       constexpr auto kPollStep = std::chrono::milliseconds(5);
-      constexpr auto kPollTimeout = std::chrono::seconds(10);
-      const auto deadline = std::chrono::steady_clock::now() + kPollTimeout;
-      while (std::chrono::steady_clock::now() < deadline) {
+      // How long to wait after the LAST confirmed-RESUMING observation before concluding the winner
+      // is dead. Large enough for a healthy rebuild under IO pressure, small enough to surface a
+      // crashed winner before a client request timeout.
+      constexpr auto kWinnerLivenessWindow = std::chrono::seconds(30);
+      // Absolute ceiling from poll entry: bounds a stuck-alive winner (RESUMING forever).
+      constexpr auto kMaxWait = std::chrono::minutes(10);
+      const auto absolute_ceiling = std::chrono::steady_clock::now() + kMaxWait;
+      auto deadline = std::chrono::steady_clock::now() + kWinnerLivenessWindow;
+      while (std::chrono::steady_clock::now() < deadline && std::chrono::steady_clock::now() < absolute_ceiling) {
         bool retry_after_cold_fallback = false;
         {
           auto rd = std::shared_lock{lock_};
@@ -1367,7 +1379,12 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           // same thread -> self-deadlock on the PREFER_READER rwlock): set a flag, drop the lock, then
           // continue the outer loop.
           auto *live_gk = db_handler_.GetGatekeeper(name);
-          if (!live_gk || live_gk->state() == utils::GatekeeperState::COLD) retry_after_cold_fallback = true;
+          if (!live_gk || live_gk->state() == utils::GatekeeperState::COLD) {
+            retry_after_cold_fallback = true;
+          } else if (live_gk->state() == utils::GatekeeperState::RESUMING) {
+            // Winner is demonstrably still alive — extend the liveness deadline.
+            deadline = std::chrono::steady_clock::now() + kWinnerLivenessWindow;
+          }
         }
         if (retry_after_cold_fallback) break;  // exit poll loop; outer `continue` restarts Phase A
         std::this_thread::sleep_for(kPollStep);
@@ -1377,7 +1394,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         auto *live_gk = db_handler_.GetGatekeeper(name);
         if (!live_gk) return std::unexpected{ResumeError::NON_EXISTENT};  // dropped mid-resume
         if (live_gk->state() != utils::GatekeeperState::COLD) {
-          // Still RESUMING (timed out) or now HOT (raced just now — check once more).
+          // Still RESUMING (hit absolute ceiling) or HOT just now — check once more.
           if (auto a = db_handler_.Get(name)) return std::move(*a);
           return std::unexpected{ResumeError::RECOVERY_FAILED};
         }
