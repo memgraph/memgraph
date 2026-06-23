@@ -35,7 +35,13 @@ def test_name(request):
 
 
 def corrupt_snapshots(full_data_directory):
-    """Corrupts random section of the snapshot."""
+    """Corrupts each snapshot from a random offset through the end of the file.
+
+    Overwriting through EOF always destroys the trailing section-offset table that
+    snapshot recovery reads first, so recovery is guaranteed to fail. (A bounded
+    random span could land on payload bytes - e.g. an integer property value - and
+    still parse, since the snapshot format has no whole-file checksum.)
+    """
     snapshot_dir = os.path.join(full_data_directory, "snapshots")
     files = [
         os.path.join(snapshot_dir, f) for f in os.listdir(snapshot_dir) if os.path.isfile(os.path.join(snapshot_dir, f))
@@ -44,14 +50,10 @@ def corrupt_snapshots(full_data_directory):
 
     for path in files:
         size = os.path.getsize(path)
-        a = random.randint(0, size - 1)
-        b = random.randint(0, size - 1)
-        start = min(a, b)
-        end = max(a, b)
-        assert end > start, f"Snapshot {path} too small ({size} bytes) to corrupt safely"
+        start = random.randint(0, size - 1)
         with open(path, "r+b") as fh:
             fh.seek(start)
-            fh.write(b"\xff" * (end - start))
+            fh.write(b"\xff" * (size - start))
     return files
 
 
