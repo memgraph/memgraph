@@ -139,6 +139,11 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
+// Phase-3 yield wiring — required for PullDriverScope, PullRunResult, and the
+// per-worker yield signal.  Included unconditionally so the types are always
+// visible; the flag-gated code paths below keep flag-OFF byte-identical.
+#include "query/plan/cursor_awaitable.hpp"
+#include "utils/worker_yield_signal.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "flags/experimental.hpp"
@@ -3093,6 +3098,19 @@ struct PullPlan {
   // manually by using this flag.
   bool has_unsent_results_ = false;
   metrics::DatabaseMetricHandles *metric_handles_;
+
+  // ── Phase-3 yield members (B2) ───────────────────────────────────────────
+  // driver_scope_ owns the suspended_task_handle_ptr slot for the lifetime of
+  // this PullPlan (across multiple Pull calls).  Emplaced in the ctor ONLY
+  // when COROUTINE_CURSORS is ON; stays nullopt otherwise so ctx_.
+  // suspended_task_handle_ptr remains null and ResumePullStep never yields.
+  // PullDriverScope is non-copyable + non-movable; std::optional::emplace()
+  // constructs it in-place (no move needed — valid since C++17).
+  std::optional<plan::PullDriverScope> driver_scope_;
+
+  // Set to true when the drive loop intercepts a Yielded result (B3).
+  // Reset at the top of every Pull() entry.  Never set on the flag-OFF path.
+  bool yielded_ = false;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
@@ -3162,11 +3180,33 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.protector = std::move(protector);
   ctx_.is_main = interpreter_context->repl_state->ReadLock()->IsMain();
   ctx_.worker_pool = worker_pool;
+
+  // B2 — wire the long-lived PullDriverScope (Enabled) so that ctx_.
+  // suspended_task_handle_ptr points at our owned slot for every Pull call on
+  // this PullPlan.  Constructed AFTER ctx_ is fully populated.  Flag-OFF:
+  // driver_scope_ stays nullopt and ctx_.suspended_task_handle_ptr stays null
+  // → ResumePullStep never takes the yield branch → byte-identical.
+  if (flags::AreExperimentsEnabled(flags::Experiments::COROUTINE_CURSORS)) {
+    driver_scope_.emplace(ctx_, plan::YieldMode::Enabled);
+  }
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
+  // B2 — re-fetch the per-worker yield signal and reset the yielded discriminator.
+  // Both are gated so that the flag-OFF call graph is byte-identical: neither
+  // ctx_.stopping_context.yield_requested nor yielded_ are touched on the
+  // legacy path.
+  if (flags::AreExperimentsEnabled(flags::Experiments::COROUTINE_CURSORS)) {
+    // Re-fetch per-worker signal each call: the worker is stable for the
+    // duration of one Pull call; a pinned reschedule preserves the worker id.
+    // Null when not on a registered pool worker → no yield, legacy behaviour.
+    ctx_.stopping_context.yield_requested = utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+    // Reset so the caller can distinguish a fresh pull from a suspended one.
+    yielded_ = false;
+  }
+
   auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
   // Single query memory limit
   memory_tracker.SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
@@ -3214,21 +3254,59 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
       ++i;
     }
 
-    for (; !n || i < n; ++i) {
-      if (!pull_result()) {
-        break;
+    // B3 — dual-path drive loop.
+    //
+    // Flag ON : drive the root cursor via PullRootStep() (returns HasRow/Done/Yielded).
+    //   On Yielded: intercept BEFORE the look-ahead probe (:3231), summary finalize
+    //   (:3240-3258), and cursor_->Shutdown() (:3260) — those must not run on a
+    //   suspended cursor (hazards H8/H9/H10 from the design; guarded downstream in
+    //   Batch Ib by an early-return on yielded_).
+    //
+    // Flag OFF: the existing cursor_->Pull() bool path runs EXACTLY as before.
+    //   The pull_result lambda above and all control flow below is unchanged.
+    if (flags::AreExperimentsEnabled(flags::Experiments::COROUTINE_CURSORS)) {
+      // Coroutine drive path (flag ON).
+      for (; !n || i < n; ++i) {
+        auto result = cursor_->PullRootStep(frame_, ctx_);
+        if (result.status == plan::PullRunResult::Status::Yielded) {
+          // Intercept before finalization (design: intercept-before-finalize;
+          // H8/H9/H10 are guarded downstream in Ib by an early return on yielded_).
+          yielded_ = true;
+          execution_time_ += timer.Elapsed();
+          // Return nullopt: the cursor is suspended, not exhausted.  The query
+          // handler will read yielded_ in Batch Ib to distinguish this from
+          // has_unsent_results_ (also nullopt today) and schedule a resumption.
+          return std::nullopt;
+        }
+        if (result.status == plan::PullRunResult::Status::Done) {
+          break;
+        }
+        // HasRow — same as the legacy true path.
+        if (!output_symbols.empty()) {
+          stream_values();
+        }
       }
 
-      if (!output_symbols.empty()) {
-        stream_values();
+      // Look-ahead probe (mirrors the legacy path; only reached when not yielded).
+      has_unsent_results_ = i == n && cursor_->PullRootStep(frame_, ctx_).status == plan::PullRunResult::Status::HasRow;
+    } else {
+      // Legacy drive path (flag OFF) — BYTE-IDENTICAL to the pre-B3 code.
+      for (; !n || i < n; ++i) {
+        if (!pull_result()) {
+          break;
+        }
+
+        if (!output_symbols.empty()) {
+          stream_values();
+        }
       }
+
+      // If we finished because we streamed the requested n results,
+      // we try to pull the next result to see if there is more.
+      // If there is additional result, we leave the pulled result in the frame
+      // and set the flag to true.
+      has_unsent_results_ = i == n && pull_result();
     }
-
-    // If we finished because we streamed the requested n results,
-    // we try to pull the next result to see if there is more.
-    // If there is additional result, we leave the pulled result in the frame
-    // and set the flag to true.
-    has_unsent_results_ = i == n && pull_result();
 
     execution_time_ += timer.Elapsed();
   }
