@@ -8034,7 +8034,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       for (const auto &name : all) {
         auto db_name = TypedValue(name);
         auto st = status_of(db_name.ValueString());
-        status.push_back({std::move(db_name), TypedValue(std::move(st))});
+        status.push_back({std::move(db_name), TypedValue(st)});
       }
 
       std::erase_if(status, [&](auto const &row) {
