@@ -10617,7 +10617,18 @@ class DistinctParallelCursor : public Cursor {
     DMG_ASSERT(shared_state_, "DistinctParallelCursor must be created with a shared state");
   }
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  // Approach A (P3.2 parallel-cursor seam): driven synchronously, and for the shared parallel
+  // producers (e.g. the ScanParallel reused across branches via plan_creation_helper_) CONCURRENTLY
+  // by multiple branch workers. A persistent gen_ coroutine cannot be Resumed concurrently, so do
+  // NOT use the MG_COROUTINE_CURSOR_PULLCO/gen_ pattern. Immediate-wrap the synchronous PullLegacy
+  // each call -- no shared coroutine frame, fully re-entrant (PullLegacy is mutex-guarded where the
+  // cursor is shared). Yield is suppressed for branch sub-cursors at the ExecuteBranchesInParallel
+  // level (branch-0) and per-branch. Flag-OFF calls PullLegacy directly (byte-identical to master).
+  PullAwaitable::ResumeAwaitable PullCo(Frame &f, ExecutionContext &ctx) override {
+    return PullAwaitable::ResumeAwaitable::Immediate(PullLegacy(f, ctx));
+  }
+
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Distinct");
 
@@ -13946,7 +13957,18 @@ class ScanParallelCursor : public Cursor {
                      metrics::DatabaseMetricHandles &metric_handles, TChunksFun get_chunks)
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)), get_chunks_(std::move(get_chunks)) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  // Approach A (P3.2 parallel-cursor seam): driven synchronously, and for the shared parallel
+  // producers (e.g. the ScanParallel reused across branches via plan_creation_helper_) CONCURRENTLY
+  // by multiple branch workers. A persistent gen_ coroutine cannot be Resumed concurrently, so do
+  // NOT use the MG_COROUTINE_CURSOR_PULLCO/gen_ pattern. Immediate-wrap the synchronous PullLegacy
+  // each call -- no shared coroutine frame, fully re-entrant (PullLegacy is mutex-guarded where the
+  // cursor is shared). Yield is suppressed for branch sub-cursors at the ExecuteBranchesInParallel
+  // level (branch-0) and per-branch. Flag-OFF calls PullLegacy directly (byte-identical to master).
+  PullAwaitable::ResumeAwaitable PullCo(Frame &f, ExecutionContext &ctx) override {
+    return PullAwaitable::ResumeAwaitable::Immediate(PullLegacy(f, ctx));
+  }
+
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
     size_t index = 0;
@@ -14591,7 +14613,18 @@ class ParallelMergeCursor : public Cursor {
           return plan_creation_helper_.cursor_;
         })) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  // Approach A (P3.2 parallel-cursor seam): driven synchronously, and for the shared parallel
+  // producers (e.g. the ScanParallel reused across branches via plan_creation_helper_) CONCURRENTLY
+  // by multiple branch workers. A persistent gen_ coroutine cannot be Resumed concurrently, so do
+  // NOT use the MG_COROUTINE_CURSOR_PULLCO/gen_ pattern. Immediate-wrap the synchronous PullLegacy
+  // each call -- no shared coroutine frame, fully re-entrant (PullLegacy is mutex-guarded where the
+  // cursor is shared). Yield is suppressed for branch sub-cursors at the ExecuteBranchesInParallel
+  // level (branch-0) and per-branch. Flag-OFF calls PullLegacy directly (byte-identical to master).
+  PullAwaitable::ResumeAwaitable PullCo(Frame &f, ExecutionContext &ctx) override {
+    return PullAwaitable::ResumeAwaitable::Immediate(PullLegacy(f, ctx));
+  }
+
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     auto res = input_cursor_->Pull(frame, context);
 
     // Source aggregation cannot schedule collection until we made a first pass through the query.
@@ -14679,6 +14712,13 @@ class ParallelBranchCursor : public Cursor {
 
     AbortCheck(context);
 
+    // Approach A (P3.2): the entire parallel region is synchronous and must not yield. Suppress yield
+    // on the coordinator context for the whole region. This covers branch-0's inline pull (which runs
+    // on this context) and is inherited by the by-value branch-context copies created below (each
+    // branch then re-points to its OWN slot via its per-branch Suppressed scope, so concurrent branch
+    // sub-cursor coroutines never share a handle slot).
+    PullDriverScope const coordinator_suppress{context, YieldMode::Suppressed};
+
     std::atomic_int pull_result = 0;
     const auto num_branches = branch_cursors_.size();
     const auto num_branches_without_main = num_branches - 1;
@@ -14756,6 +14796,11 @@ class ParallelBranchCursor : public Cursor {
         });
 
         try {
+          // Per-branch yield/handle slot: each branch runs on its own (possibly concurrent) worker
+          // with a by-value COPY of `context`. Give it its OWN slot so concurrent branch sub-cursor
+          // coroutines (the cloned serial Aggregate/Scan etc.) never share a suspended_task_handle_ptr
+          // (which would corrupt coroutine resume state). Suppressed also pins yield_requested=nullptr.
+          PullDriverScope const branch_suppress{context, YieldMode::Suppressed};
           pre_pull_func(cursor.get());
           pull_result.fetch_add((int)cursor->Pull(frame_local, context));
           post_pull_func(cursor.get(), &frame_local);
@@ -15195,7 +15240,18 @@ class AggregateParallelCursor : public ParallelBranchCursor {
                           metrics::DatabaseMetricHandles &metric_handles)
       : ParallelBranchCursor(self.input_, self.num_threads_, mem, metric_handles), self_(self) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  // Approach A (P3.2 parallel-cursor seam): driven synchronously, and for the shared parallel
+  // producers (e.g. the ScanParallel reused across branches via plan_creation_helper_) CONCURRENTLY
+  // by multiple branch workers. A persistent gen_ coroutine cannot be Resumed concurrently, so do
+  // NOT use the MG_COROUTINE_CURSOR_PULLCO/gen_ pattern. Immediate-wrap the synchronous PullLegacy
+  // each call -- no shared coroutine frame, fully re-entrant (PullLegacy is mutex-guarded where the
+  // cursor is shared). Yield is suppressed for branch sub-cursors at the ExecuteBranchesInParallel
+  // level (branch-0) and per-branch. Flag-OFF calls PullLegacy directly (byte-identical to master).
+  PullAwaitable::ResumeAwaitable PullCo(Frame &f, ExecutionContext &ctx) override {
+    return PullAwaitable::ResumeAwaitable::Immediate(PullLegacy(f, ctx));
+  }
+
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
@@ -15346,7 +15402,18 @@ class OrderByParallelCursor : public ParallelBranchCursor {
                         metrics::DatabaseMetricHandles &metric_handles)
       : ParallelBranchCursor(self.input_, self.num_threads_, mem, metric_handles), self_(self) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  // Approach A (P3.2 parallel-cursor seam): driven synchronously, and for the shared parallel
+  // producers (e.g. the ScanParallel reused across branches via plan_creation_helper_) CONCURRENTLY
+  // by multiple branch workers. A persistent gen_ coroutine cannot be Resumed concurrently, so do
+  // NOT use the MG_COROUTINE_CURSOR_PULLCO/gen_ pattern. Immediate-wrap the synchronous PullLegacy
+  // each call -- no shared coroutine frame, fully re-entrant (PullLegacy is mutex-guarded where the
+  // cursor is shared). Yield is suppressed for branch sub-cursors at the ExecuteBranchesInParallel
+  // level (branch-0) and per-branch. Flag-OFF calls PullLegacy directly (byte-identical to master).
+  PullAwaitable::ResumeAwaitable PullCo(Frame &f, ExecutionContext &ctx) override {
+    return PullAwaitable::ResumeAwaitable::Immediate(PullLegacy(f, ctx));
+  }
+
+  bool PullLegacy(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
