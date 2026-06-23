@@ -17,13 +17,14 @@
 // interpreter query-seam caller is wired in the same commit but verified via the e2e suite later.
 //
 // Coverage:
-//   ResumeNonExistentRejected           — resuming an absent tenant returns NON_EXISTENT
-//   ResumeAlreadyHotReturnsAccessor     — resuming a HOT tenant is a no-op that shares its accessor
-//   SuspendResumeRoundTripRecoversData  — data survives a HOT -> COLD -> HOT cycle (WAL replay)
-//   ColdAccessThrowsSuspendedError      — Get() on a COLD tenant throws the suspended-seam message
-//   OnResumePrePublishArmRuns           — the pre-publish arm fires exactly once on a real resume
-//   OnResumeFailureStaysColdRetriable   — a throwing pre-publish arm rolls back to COLD; retriable
-//   ConcurrentResumeSingleFlight        — concurrent resumers rebuild once; all observe HOT
+//   ResumeNonExistentRejected             — resuming an absent tenant returns NON_EXISTENT
+//   ResumeAlreadyHotReturnsAccessor       — resuming a HOT tenant is a no-op that shares its accessor
+//   SuspendResumeRoundTripRecoversData    — data survives a HOT -> COLD -> HOT cycle (WAL replay)
+//   ColdAccessThrowsSuspendedError        — Get() on a COLD tenant throws the suspended-seam message
+//   OnResumePrePublishArmRuns             — the pre-publish arm fires exactly once on a real resume
+//   OnResumeFailureStaysColdRetriable     — a throwing pre-publish arm rolls back to COLD; retriable
+//   ConcurrentResumeSingleFlight          — concurrent resumers rebuild once; all observe HOT
+//   WrongTypedColdMetadataBootsDegraded   — valid JSON but wrong-typed metadata field boots degraded, not abort
 
 #ifdef MG_ENTERPRISE
 
@@ -682,6 +683,71 @@ TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
 
   // Querying DATA on the cold (recovery-failed) tenant still errors (cold access is an error).
   EXPECT_THROW(handler_->Get(bad), std::exception);
+}
+
+// Regression: a durable cold entry that is VALID JSON but has a WRONG-TYPED optional metadata field
+// (e.g. last_durable_timestamp stored as a string) must NOT abort the boot. nlohmann's j.value() only
+// provides the default for MISSING keys; a present-but-wrong-typed value throws type_error (302), which
+// previously escaped the parse guard and propagated out of the DbmsHandler ctor → std::terminate.
+//
+// After the fix, make_cold_entry is wrapped in its own nlohmann::json::exception catch so:
+//   (a) the instance boots (no terminate, no throw from the ctor),
+//   (b) a healthy sibling tenant still recovers HOT with its data,
+//   (c) the corrupt tenant's data directory is NOT deleted (durability_view_incomplete → skip cleanup).
+TEST_F(HotColdResume, WrongTypedColdMetadataBootsDegraded) {
+  constexpr int kSiblingNodes = 4;
+  constexpr int kVictimNodes = 7;
+  auto sibling = CreateAndPopulate("sibling_tenant", kSiblingNodes);
+  auto victim = CreateAndPopulate("victim_cold", kVictimNodes);
+
+  // Capture the victim's UUID + data dir before suspending.
+  std::string victim_uuid_str;
+  {
+    auto acc = handler_->Get(victim);
+    victim_uuid_str = static_cast<std::string>(acc->storage()->uuid());
+  }
+  const auto victim_dir = test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / victim_uuid_str;
+  ASSERT_TRUE(fs::exists(victim_dir));
+
+  // Suspend the victim so a real cold durable entry (valid JSON) is written.
+  ASSERT_TRUE(handler_->Suspend(victim).has_value());
+  EXPECT_FALSE(InAll(victim));
+
+  // Tear down (flushes/closes all storage).
+  handler_.reset();
+
+  // Overwrite the victim's durable KVStore value with VALID JSON that has a wrong-typed field:
+  // last_durable_timestamp stored as a string instead of uint64. This is the exact class of error that
+  // j.value("last_durable_timestamp", uint64_t{0}) will throw type_error(302) for. The uuid and
+  // rel_dir fields remain correct so the entry passes the outer parse guard — only make_cold_entry
+  // sees the bad type. Constructed as a raw string to avoid an nlohmann include in the test TU.
+  {
+    // clang-format off
+    const std::string bad_json =
+        std::string(R"({"uuid":")") + victim_uuid_str +
+        R"(","rel_dir":")" + victim_uuid_str +
+        R"(","cold":true,"last_durable_timestamp":"not_a_number","num_committed_txns":0})";
+    // clang-format on
+    memgraph::kvstore::KVStore kv(test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / ".durability");
+    ASSERT_TRUE(kv.Put(std::string("database:") + victim, bad_json));
+  }
+
+  // Reconstruct — must not throw or terminate.
+  ASSERT_NO_THROW(handler_ = std::make_unique<DbmsHandler>(conf_))
+      << "DbmsHandler ctor must survive a cold entry with a wrong-typed metadata field (boot must not abort)";
+
+  // (b) The healthy sibling recovered HOT with its data.
+  EXPECT_TRUE(InAll(sibling)) << "the intact sibling must recover HOT despite the victim's wrong-typed entry";
+  auto sibling_acc = handler_->Get(sibling);
+  EXPECT_EQ(CountNodes(sibling_acc), kSiblingNodes);
+
+  // (a) The corrupt entry was skipped — tenant is neither HOT nor suspended.
+  EXPECT_FALSE(InAll(victim)) << "the wrong-typed cold entry is skipped, so its tenant is not recovered";
+  EXPECT_FALSE(handler_->IsSuspended(victim)) << "a skipped entry must not appear as a cold shell";
+
+  // (c) The victim's data directory was NOT deleted (cleanup skipped when view is incomplete).
+  EXPECT_TRUE(fs::exists(victim_dir))
+      << "the victim's data dir must be preserved — cleanup is skipped when durability_view_incomplete";
 }
 
 // A corrupt/truncated durable entry must leave the instance starting DEGRADED — the entry is

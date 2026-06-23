@@ -321,10 +321,26 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
     const bool is_cold = json.value("cold", false);
     if (is_cold) {
       // COLD: metadata-only shell, no storage build.
+      // make_cold_entry reads optional cold-metadata fields (cold_stats, epoch fields,
+      // last_durable_timestamp) via j.value() / j.at(). nlohmann's j.value() throws
+      // nlohmann::json::type_error (302) when a key is PRESENT BUT WRONG-TYPED (the default only
+      // covers MISSING keys). Guard here with the same degradation pattern as the parse guard above:
+      // a wrong-typed sub-field must leave the instance booting DEGRADED, not abort it. We catch
+      // only nlohmann::json::exception so std::bad_alloc / OOM keep their existing propagation.
       spdlog::info("Restoring suspended (cold) database {} at {}.", name, rel_dir);
-      db_handler_.EmplaceColdShell(name);
-      suspended_.insert_or_assign(std::string{name}, make_cold_entry(name, uuid, rel_dir, json));
-      spdlog::info("Suspended (cold) database {} restored.", name);
+      try {
+        db_handler_.EmplaceColdShell(name);
+        suspended_.insert_or_assign(std::string{name}, make_cold_entry(name, uuid, rel_dir, json));
+        spdlog::info("Suspended (cold) database {} restored.", name);
+      } catch (const nlohmann::json::exception &e) {
+        durability_view_incomplete = true;
+        db_handler_.EraseColdShell(name);
+        spdlog::warn(
+            "Durable cold entry '{}' has a wrong-typed metadata field ({}); skipping it. "
+            "Its on-disk data is left untouched and directory cleanup is SKIPPED this boot.",
+            name,
+            e.what());
+      }
       continue;
     }
 
@@ -375,10 +391,26 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
       // so a future restart retries HOT recovery; the metadata is rebuilt from defaults (no
       // heartbeat/cold_stats for a failed recovery). Tag the in-memory entry with WHY it is cold so SHOW
       // surfaces the degraded marker.
+      //
+      // make_cold_entry can throw nlohmann::json::type_error when an optional metadata field is
+      // present but wrong-typed. Guard it: if it throws, erase the shell we just emplaced (no
+      // orphan), mark the view incomplete, and continue — the same degradation pattern as the
+      // parse guard above. std::bad_alloc / OOM are not caught here so they keep their propagation.
       db_handler_.EmplaceColdShell(name);
-      auto entry = make_cold_entry(name, uuid, rel_dir, json);
-      entry.cold_reason = reason;
-      suspended_.insert_or_assign(std::string{name}, std::move(entry));
+      try {
+        auto entry = make_cold_entry(name, uuid, rel_dir, json);
+        entry.cold_reason = reason;
+        suspended_.insert_or_assign(std::string{name}, std::move(entry));
+      } catch (const nlohmann::json::exception &e) {
+        durability_view_incomplete = true;
+        db_handler_.EraseColdShell(name);
+        spdlog::warn(
+            "HOT-recovery-failed tenant '{}' has a wrong-typed metadata field ({}); skipping cold-shell "
+            "registration. Its on-disk data is left untouched and directory cleanup is SKIPPED this boot.",
+            name,
+            e.what());
+        continue;
+      }
       // Surface tenants left cold by a failed hot recovery; the OOM split mirrors the degraded marker
       // so ops can alert on a degraded boot.
       if (reason == SuspendedEntry::ColdReason::kRecoveryFailedOom) {
