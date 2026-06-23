@@ -3372,7 +3372,7 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
   }
 }
 
-// Emits plan hints as notifications + session-trace events; the counter is bumped only by the regular path.
+// Emits plan hints as notifications + session-trace events (no metric side effects).
 void EmitPlanHints(const plan::PlanHintsResult &hints, std::vector<Notification> *notifications) {
   for (const auto &hint : hints.hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);

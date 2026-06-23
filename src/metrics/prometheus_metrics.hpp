@@ -248,8 +248,7 @@ struct DatabaseMetricHandles {
   CounterHandle write_query;
   CounterHandle read_write_query;
 
-  // Planner-level signal. Exposed via OpenMetrics + SHOW METRICS INFO; not aggregated into the
-  // deprecated global JSON endpoint (see GetGlobalMetricsInfoForJson).
+  // Planner-level signal; per-DB only, not aggregated into the global JSON endpoint (see GetGlobalMetricsInfoForJson).
   CounterHandle unindexed_scan_queries;
 
   // TTL

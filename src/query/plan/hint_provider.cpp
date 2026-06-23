@@ -18,15 +18,17 @@ namespace {
 // map back to the sequential scan type whose hint logic applies (see parallel_rewrite.hpp).
 const utils::TypeInfo &EffectiveScanType(const ScanAll &scan) {
   const auto &type = scan.GetTypeInfo();
-  // Sequential plans (incl. ScanChunkByEdge, whose type differs) use their own scan type directly.
+  // Non-ScanChunk scans (incl. ScanChunkByEdge, the edge parallel rewrite, whose type differs) use
+  // their own scan type directly.
   if (type != ScanChunk::kType) {
     return type;
   }
-  // ScanChunk/ParallelMerge ctors guarantee this chain; assert rather than silently misclassify.
+  // Guard each hop; on an unexpected shape fall back to `type` (matches no hint branch) rather than
+  // misclassify or null-deref in release.
   const auto *parallel_merge = scan.input().get();
-  DMG_ASSERT(parallel_merge != nullptr, "ScanChunk input must be a ParallelMerge");
+  if (parallel_merge == nullptr || parallel_merge->GetTypeInfo() != ParallelMerge::kType) return type;
   const auto *parallel_scan = parallel_merge->input().get();
-  DMG_ASSERT(parallel_scan != nullptr, "ParallelMerge input must be a ScanParallel");
+  if (parallel_scan == nullptr) return type;
 
   const auto &parallel_type = parallel_scan->GetTypeInfo();
   if (parallel_type == ScanParallel::kType) return ScanAll::kType;
