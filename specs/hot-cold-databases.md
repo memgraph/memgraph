@@ -2,7 +2,7 @@
 
 **Status:** Enterprise feature (on by default; no flag)
 **Author:** Andreja Tonev (https://github.com/andrejtonev)
-**Last updated:** 2026-06-18
+**Last updated:** 2026-06-23
 
 > Let an idle database in a multi-tenant instance be **suspended** — its in-memory
 > storage dropped to reclaim RAM, leaving a durable on-disk shell — and later
@@ -128,7 +128,13 @@ decide what to resume.
   idle.
 - `SUSPEND` requires the database to have durable storage (periodic snapshots + WAL) and
   to be an in-memory transactional database. Analytical/on-disk databases cannot be
-  suspended (suspending them could lose data — that would violate the core principle).
+  suspended. The reason is the resume contract: resume reconstructs a database losslessly
+  by reloading its snapshot and replaying its WAL, and that is exactly what makes dropping
+  the in-memory copy safe. Analytical mode keeps no WAL, so suspending it could drop every
+  write made since the last snapshot — the data loss the core principle forbids. On-disk
+  databases already hold their working set on disk rather than in RAM, so there is no
+  in-memory footprint for suspend to reclaim, and they sit outside the snapshot+WAL
+  recovery model the resume path is built on.
 - States are surfaced to operators via the `status` column of `SHOW DATABASES` (present
   only when the feature is enabled).
 
@@ -136,27 +142,24 @@ decide what to resume.
 
 ## 6. Product decisions and rationale
 
-This feature went through two iterations. The first ("v1") was broad: it included
-automatic, memory-pressure-driven eviction, an idle-session reaper, transparent
-reheat-on-access, and a budgeted/async resume path. After review, the scope was
-deliberately **inverted** to a smaller, sharper feature ("v2", described by this spec).
-The decisions below are the *why* behind that shape.
+The decisions below are the *why* behind the feature's shape: a small, explicit mechanism
+(suspend/resume) with the eviction policy left to the operator rather than baked into the
+engine.
 
 ### D1 — Only explicit `SUSPEND` / `RESUME` change state. No automatic logic.
 
 Hot/cold state changes **only** when an operator runs `SUSPEND` or `RESUME`. There is no
 automatic eviction under memory pressure, no idle-database reaper, no background policy.
 
-*Rationale.* Automatic eviction was the largest and riskiest part of v1: a watermark
-scheduler picking "the coldest idle tenant" introduced thrash risk, hard-to-reason-about
-timing, and the single most complex concurrency surface in the system (the idle-session
-reaper's claim protocol). It also made behavior non-deterministic from the operator's
-point of view — a database could vanish from memory without anyone asking. The product
-decision was that **the operator knows their workload better than a watermark heuristic
-does.** Memgraph provides the mechanism (suspend/resume) and the visibility (`SHOW
-DATABASES`, stats, metrics); the policy belongs to the operator or an external control
-plane. Removing the automatic machinery also removed an entire class of races and made
-the feature small enough to reason about and ship with confidence.
+*Rationale.* Automatic, memory-pressure-driven eviction sounds attractive, but a watermark
+scheduler picking "the coldest idle tenant" brings thrash risk, hard-to-reason-about
+timing, and a large concurrency surface (the idle-session reaper's claim protocol), and it
+makes behavior non-deterministic — a database could vanish from memory without anyone
+asking. The product decision is that **the operator knows their workload better than a
+watermark heuristic does.** Memgraph provides the mechanism (suspend/resume) and the
+visibility (`SHOW DATABASES`, stats, metrics); the policy belongs to the operator or an
+external control plane. Keeping every state change explicit also keeps the feature small
+enough to reason about and free of an entire class of eviction races.
 
 ### D2 — Suspending fully destroys the in-memory representation.
 
@@ -179,9 +182,9 @@ defined comes back defined and firing; the TTL scheduler restarts.
 *Rationale.* These features are part of the database's behavior, and the core principle
 says suspend/resume is data-preserving. An operator should be able to suspend a database
 with a live Kafka stream and a TTL policy, resume it later, and find both working exactly
-as before — without re-creating them. (In v1, streams *pinned* a database hot and blocked
-suspension entirely; the v2 stop-and-restore model is strictly more useful and also
-removed a latent data race in the teardown path.)
+as before — without re-creating them. (An alternative where a live stream simply *pinned*
+a database hot and blocked suspension was rejected: stop-and-restore is strictly more
+useful and avoids a latent data race in the teardown path.)
 
 ### D4 — Hot/cold state is replicated. MAIN and all replicas hold the identical set.
 
@@ -199,6 +202,14 @@ makes the behavior predictable: the cluster has one hot/cold map, and it is the 
 A consequence, accepted deliberately: suspending a database on the MAIN also tears it
 down on replicas, evicting any reader connected to a replica's copy. That is the price of
 a single coherent cluster-wide state, and it is consistent with how other DDL behaves.
+
+This is also why hot/cold is the MAIN's decision rather than a per-node or consensus one.
+A database that is idle on the MAIN but actively read on a replica still follows the MAIN
+when the MAIN suspends it — the replica's readers are evicted. A node-local or quorum
+decision would let the cluster hold divergent hot/cold maps (a replica believing a
+database is queryable while the MAIN considers it cold), which is exactly the operational
+ambiguity this design rules out. An operator who needs a tenant resident for replica-side
+reads keeps it HOT.
 
 ### D5 — Hot/cold state is durable. On restart, only HOT databases are recovered.
 
@@ -250,7 +261,10 @@ failures. Attempt-and-roll-back is simpler, and it degrades gracefully: a failed
 is a clean, retriable error, never a half-built database or a downed instance. The same
 philosophy extends to startup: if recovering a hot database at boot would exhaust memory,
 that database is left cold (with a clear marker in `SHOW DATABASES`) and the instance
-comes up degraded-but-alive rather than failing to boot.
+comes up degraded-but-alive rather than failing to boot. (Whether a hot database that
+fails to recover at boot should instead abort startup may become a configurable policy in
+a future release; today the safe default is to keep the instance alive and surface the
+per-database failure.)
 
 ---
 
@@ -282,8 +296,10 @@ Five **global** Prometheus metrics expose hot/cold activity (also visible via
 | `memgraph_database_boot_recovery_failures_total` | counter | Databases left cold at boot due to a recovery failure. |
 | `memgraph_database_boot_recovery_oom_failures_total` | counter | Subset of the above where the cause was out-of-memory. |
 
-Metrics are global rather than per-database because a cold database has no live storage
-to attach per-database metrics to. Per-database labelling is a possible future addition.
+Metrics are global rather than per-database because a cold database has no live storage to
+attach per-database metrics to. Per-database visibility — so an operator can see exactly
+which tenant is frequently cold or repeatedly fails to resume, and decide whether to move
+it elsewhere — is a recognized gap; see §10.
 
 In addition, `SHOW DATABASES` shows each database's `HOT`/`COLD` state, and
 `SHOW STORAGE INFO ON DATABASE <cold>` shows its frozen as-of-suspend stats.
@@ -302,8 +318,8 @@ In addition, `SHOW DATABASES` shows each database's `HOT`/`COLD` state, and
 
 **Non-goals (explicitly out of scope for this release)**
 
-- **Automatic eviction / idle reaping** — removed by D1. Policy lives with the operator.
-- **Transparent reheat on access** — removed; cold access is an error by D1/§4.
+- **Automatic eviction / idle reaping** — out of scope; policy lives with the operator (D1).
+- **Transparent reheat on access** — out of scope; accessing a cold database is an error (§4).
 - **Asynchronous resume** — resume blocks the issuing query for now (§4, §10).
 - **Killing in-flight queries to force a suspend** — never (D6).
 - **Suspending analytical or on-disk databases** — rejected; could risk data (§5).
