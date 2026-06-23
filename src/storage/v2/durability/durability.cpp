@@ -643,7 +643,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     if (!recovered_snapshot) {
       if (config.durability.allow_recovery_failure) {
         throw RecoveryFailure(
-            "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database.");
+            "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database. The "
+            "database is now in the defunct state.");
       }
       LOG_FATAL(
           "The database is configured to recover on startup, but couldn't "
