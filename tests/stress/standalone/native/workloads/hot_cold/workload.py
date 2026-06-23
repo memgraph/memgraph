@@ -76,7 +76,9 @@ from hot_cold_common import (
     ClientError,
     ServiceUnavailable,
     TransientError,
+    assert_server_alive,
     build_base_arg_parser,
+    collect_worker_results,
     count_nodes_on_tenant,
     create_tenants,
     is_transient,
@@ -84,6 +86,7 @@ from hot_cold_common import (
     reader_worker,
     resume_tenant_blocking,
     run_query,
+    staggered_stop,
     wait_for_server,
 )
 
@@ -390,34 +393,10 @@ def main() -> None:
         # contention-free tail so its SUSPENDs land deterministically (see
         # SUSPENDER_TAIL_SEC). The contended window above still exercises the
         # concurrent suspend-vs-write path; the tail only guarantees non-vacuity.
-        time.sleep(duration_sec)
-        stop_flag[0] = True
-        print(
-            f"  antagonists stopped; giving the suspender a {SUSPENDER_TAIL_SEC}s " "quiescent tail window...",
-            flush=True,
-        )
-        time.sleep(SUSPENDER_TAIL_SEC)
-        suspender_stop_flag[0] = True
-        print("  stop signal sent, waiting for workers...", flush=True)
+        staggered_stop(stop_flag, suspender_stop_flag, duration_sec)
 
         # Collect any exceptions from workers (non-transient = real bug).
-        suspends_ok: int = 0
-        resumes_ok: int = 0
-        worker_failures = []
-        for role, wid, f in futures:
-            try:
-                result = f.result(timeout=60.0)
-                if role == "suspender":
-                    suspends_ok = result if result is not None else 0
-                elif role == "resumer":
-                    resumes_ok = result if result is not None else 0
-            except Exception as exc:
-                worker_failures.append((role, wid, exc))
-
-    if worker_failures:
-        for role, wid, exc in worker_failures:
-            print(f"  WORKER FAILURE [{role}-{wid}]: {exc}", file=sys.stderr, flush=True)
-        sys.exit("FAIL: one or more workers raised a non-transient exception")
+        suspends_ok, resumes_ok = collect_worker_results(futures, timeout=60.0)
 
     # Phase 3: compute expected counts per tenant.
     print("\n==> Phase 3: computing expected node counts", flush=True)
@@ -461,15 +440,7 @@ def main() -> None:
 
     # Phase 5: server liveness check.
     print("\n==> Phase 5: server liveness check", flush=True)
-    try:
-        drv = make_driver(endpoint, username, password)
-        with drv.session() as sess:
-            rows = run_query(sess, "RETURN 1 AS alive")
-            assert rows[0]["alive"] == 1
-        drv.close()
-        print("  server alive: OK", flush=True)
-    except Exception as exc:
-        sys.exit(f"FAIL: server liveness check failed — possible crash: {exc}")
+    assert_server_alive(endpoint, username, password)
 
     # Phase 6: non-vacuity check.
     # If neither the suspender nor the resumer managed a single successful op,

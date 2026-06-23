@@ -99,18 +99,21 @@ if _STRESS_ROOT not in sys.path:
 from hot_cold_common import (
     MAX_RETRIES,
     RETRY_SLEEP,
-    SUSPENDER_TAIL_SEC,
     ClientError,
     ErrorCollector,
     ServiceUnavailable,
     TransientError,
+    assert_server_alive,
     build_base_arg_parser,
+    collect_worker_results,
     create_tenants,
+    fail_on_unexpected_errors,
     is_transient,
     make_driver,
     resume_tenant_blocking,
     resumer_worker,
     run_query,
+    staggered_stop,
     suspend_tenant,
     suspender_worker,
     wait_for_server,
@@ -585,49 +588,15 @@ def main() -> None:
         # SUSPENDs deterministically land. The full-contention window above still
         # exercises the concurrent suspend-vs-write path (the actual coverage); the tail
         # only guarantees the non-vacuity gate is satisfied deterministically.
-        time.sleep(duration_sec)
-        stop_flag[0] = True
-        print(
-            f"  antagonists stopped; giving the suspender a {SUSPENDER_TAIL_SEC}s " "quiescent tail window...",
-            flush=True,
-        )
-        time.sleep(SUSPENDER_TAIL_SEC)
-        suspender_stop_flag[0] = True
-        print("  stop signal sent, waiting for workers...", flush=True)
+        staggered_stop(stop_flag, suspender_stop_flag, duration_sec)
 
-        # Collect results / exceptions.
-        suspends_ok: int = 0
-        resumes_ok: int = 0
-        worker_failures = []
-        for role, wid, f in futures:
-            try:
-                result = f.result(timeout=120.0)
-                if role == "suspender":
-                    suspends_ok = result if result is not None else 0
-                elif role == "resumer":
-                    resumes_ok = result if result is not None else 0
-            except Exception as exc:
-                worker_failures.append((role, wid, exc))
-
-    if worker_failures:
-        for role, wid, exc in worker_failures:
-            print(f"  WORKER FAILURE [{role}-{wid}]: {exc}", file=sys.stderr, flush=True)
-        sys.exit("FAIL: one or more workers raised a non-transient exception")
+    suspends_ok, resumes_ok = collect_worker_results(futures, timeout=120.0)
 
     # -----------------------------------------------------------------------
     # Phase 3: unexpected-error check.
     # -----------------------------------------------------------------------
     print("\n==> Phase 3: unexpected-error check", flush=True)
-    unexpected_errors = error_collector.errors()
-    if unexpected_errors:
-        print("  UNEXPECTED ERRORS detected:", file=sys.stderr, flush=True)
-        for e in unexpected_errors:
-            print(f"    {e}", file=sys.stderr, flush=True)
-        sys.exit(
-            f"FAIL: {len(unexpected_errors)} unexpected error(s) observed during the stress run. "
-            "All client errors must match a known v2 marker."
-        )
-    print("  all client errors matched a known v2 marker: OK", flush=True)
+    fail_on_unexpected_errors(error_collector, suffix="All client errors must match a known v2 marker.")
 
     # -----------------------------------------------------------------------
     # Phase 4: compute expected counts.
@@ -751,15 +720,7 @@ def main() -> None:
     # Phase 6: server liveness check.
     # -----------------------------------------------------------------------
     print("\n==> Phase 6: server liveness check", flush=True)
-    try:
-        drv_live = make_driver(endpoint, username, password)
-        with drv_live.session() as sess:
-            rows = run_query(sess, "RETURN 1 AS alive")
-            assert rows[0]["alive"] == 1
-        drv_live.close()
-        print("  server alive: OK", flush=True)
-    except Exception as exc:
-        sys.exit(f"FAIL: server liveness check failed — possible crash: {exc}")
+    assert_server_alive(endpoint, username, password)
 
     # -----------------------------------------------------------------------
     # Phase 7: non-vacuity check.

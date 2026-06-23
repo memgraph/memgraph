@@ -392,6 +392,120 @@ def resumer_worker(
 
 
 # ---------------------------------------------------------------------------
+# Phase orchestration helpers (shared across all five hot/cold workloads)
+# ---------------------------------------------------------------------------
+
+
+def staggered_stop(
+    stop_flag: list[bool],
+    suspender_stop_flag: list[bool],
+    duration_sec: float,
+    tail_sec: float = SUSPENDER_TAIL_SEC,
+) -> None:
+    """
+    Sleep for *duration_sec*, set stop_flag[0]=True (draining antagonists),
+    print the quiescent-tail message, sleep for *tail_sec*, then set
+    suspender_stop_flag[0]=True and print the final "waiting for workers" line.
+
+    Must be called from INSIDE the ThreadPoolExecutor ``with`` block so that
+    the pool is still alive when the flags are read by the worker threads.
+
+    The *tail_sec* parameter defaults to SUSPENDER_TAIL_SEC so callers that
+    rely on the module constant do not need to pass it explicitly.
+    """
+    time.sleep(duration_sec)
+    stop_flag[0] = True
+    print(
+        f"  antagonists stopped; giving the suspender a {tail_sec}s quiescent tail window...",
+        flush=True,
+    )
+    time.sleep(tail_sec)
+    suspender_stop_flag[0] = True
+    print("  stop signal sent, waiting for workers...", flush=True)
+
+
+def collect_worker_results(
+    futures: list[tuple[str, object, object]],
+    timeout: float,
+) -> tuple[int, int]:
+    """
+    Drain *futures* (a list of ``(role, wid, future)`` triples), collect
+    ``suspends_ok`` and ``resumes_ok`` tallies, and call ``sys.exit`` with a
+    descriptive message on any worker exception.
+
+    Returns ``(suspends_ok, resumes_ok)``.
+
+    The ``sys.exit`` message is:
+      "FAIL: one or more workers raised a non-transient exception"
+    matching the message used across all five workloads.
+    """
+    suspends_ok: int = 0
+    resumes_ok: int = 0
+    worker_failures: list[tuple[str, object, Exception]] = []
+
+    for role, wid, f in futures:
+        try:
+            result = f.result(timeout=timeout)
+            if role == "suspender":
+                suspends_ok = result if result is not None else 0
+            elif role == "resumer":
+                resumes_ok = result if result is not None else 0
+        except Exception as exc:
+            worker_failures.append((role, wid, exc))
+
+    if worker_failures:
+        for role, wid, exc in worker_failures:
+            print(f"  WORKER FAILURE [{role}-{wid}]: {exc}", file=sys.stderr, flush=True)
+        sys.exit("FAIL: one or more workers raised a non-transient exception")
+
+    return suspends_ok, resumes_ok
+
+
+def assert_server_alive(endpoint: str, username: str, password: str) -> None:
+    """
+    Open a fresh driver, run ``RETURN 1 AS alive``, assert the result, then
+    close the driver.  On any exception calls ``sys.exit`` with the message:
+      "FAIL: server liveness check failed — possible crash: <exc>"
+
+    Mirrors the Phase N "server liveness check" block present in every workload.
+    """
+    try:
+        drv = make_driver(endpoint, username, password)
+        with drv.session() as sess:
+            rows = run_query(sess, "RETURN 1 AS alive")
+            assert rows[0]["alive"] == 1
+        drv.close()
+        print("  server alive: OK", flush=True)
+    except Exception as exc:
+        sys.exit(f"FAIL: server liveness check failed — possible crash: {exc}")
+
+
+def fail_on_unexpected_errors(error_collector: "ErrorCollector", suffix: str = "") -> None:
+    """
+    Call ``error_collector.errors()``.  If any errors are present, print each
+    one to stderr and call ``sys.exit`` with:
+      "FAIL: <N> unexpected error(s) observed during the stress run. <suffix>"
+
+    The *suffix* is workload-specific (e.g. "All client errors must match a
+    known v2 marker.").  Pass an empty string (the default) when the workload
+    uses no suffix.
+
+    On success (no errors) prints:
+      "  all client errors matched a known v2 marker: OK"
+    """
+    unexpected_errors = error_collector.errors()
+    if unexpected_errors:
+        print("  UNEXPECTED ERRORS detected:", file=sys.stderr, flush=True)
+        for e in unexpected_errors:
+            print(f"    {e}", file=sys.stderr, flush=True)
+        msg = f"FAIL: {len(unexpected_errors)} unexpected error(s) observed during the stress run."
+        if suffix:
+            msg = f"{msg} {suffix}"
+        sys.exit(msg)
+    print("  all client errors matched a known v2 marker: OK", flush=True)
+
+
+# ---------------------------------------------------------------------------
 # Argument parser factory
 # ---------------------------------------------------------------------------
 
