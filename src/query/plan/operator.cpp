@@ -50,6 +50,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/parallel_state.hpp"
 #include "query/path.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
@@ -6470,7 +6471,11 @@ PullAwaitable Produce::ProduceCursor::DoPull(Frame &frame, ExecutionContext &con
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP_BY_REF(self_);
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       if (co_await PullChild(*input_cursor_, frame, context)) {
         // Produce should always yield the latest results.

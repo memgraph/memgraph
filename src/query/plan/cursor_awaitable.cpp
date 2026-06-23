@@ -16,10 +16,6 @@
 
 namespace memgraph::query::plan {
 
-// thread_local definition for PullDriverScope's Enabled-nesting guard (declared in cursor_awaitable.hpp).
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-thread_local int PullDriverScope::enabled_depth_ = 0;
-
 // Base Cursor seam definitions (kept out-of-line: the ctor needs the flags header, Pull() needs
 // ResumePullStep, and Reset() matches the rest of the cursor cpp).
 

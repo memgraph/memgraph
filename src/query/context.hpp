@@ -189,6 +189,12 @@ struct ExecutionContext {
   /// wires it yet), so this is a pure no-op until Phase 3.
   std::coroutine_handle<> *suspended_task_handle_ptr{nullptr};
 
+  /// Phase-3 yield: true while an Enabled PullDriverScope is active on THIS context. Guards against
+  /// two Enabled drivers fighting over suspended_task_handle_ptr on the same context. Per-context
+  /// (NOT thread_local) so a parked query that yielded with its driver alive does not false-trip the
+  /// guard when another query runs on the same worker. Suppressed scopes do not touch it.
+  bool enabled_driver_active{false};
+
   auto commit_args() -> storage::CommitArgs;
 };
 

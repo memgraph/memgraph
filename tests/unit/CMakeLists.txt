@@ -144,6 +144,14 @@ add_unit_test(cursor_yield
     LINK_TARGETS mg-query
 )
 
+# Phase-3 real-cursor yield gate: drives a REAL Produce cursor over an InMemoryStorage,
+# forces cooperative yields via yield_requested, and asserts result parity + OOM-counter
+# rebalance (TLS-hazard gate for the in-scope OOMExceptionEnabler on the coroutine frame).
+add_unit_test(cursor_yield_real
+    SOURCES cursor_yield_real.cpp
+    LINK_TARGETS mg-query mg-glue disk_test_utils
+)
+
 add_unit_test(query_plan_orderby_index
     SOURCES query_plan_orderby_index.cpp
     LINK_TARGETS mg-query
