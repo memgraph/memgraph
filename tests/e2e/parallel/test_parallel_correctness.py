@@ -486,5 +486,56 @@ class TestParallelIsolation:
             session1.close()
 
 
+class TestSubqueryArmParallelism:
+    """
+    Regression (P3.2 C1): a parallel section must NEVER be planned inside a subquery arm
+    (Apply.subquery_ / PeriodicSubquery.subquery_ / Optional.optional_). Parallelizing an
+    Aggregate/OrderBy inside a CALL {} subquery corrupted the enclosing Apply -- it dropped the
+    Apply's main-branch rows, producing silently wrong results (e.g. count(n) collapsed to 0)
+    even at a single parallel level. The fix is the InsideSubqueryArm guard in
+    src/query/plan/rewrite/parallel_rewrite.hpp. These queries must return identical results
+    under serial and USING PARALLEL EXECUTION.
+    """
+
+    @pytest.fixture
+    def populated_db(self, memgraph):
+        # 100x (:A{p:i})-[:E]->(:B{p:i}) plus a few :Person nodes for the outer match.
+        setup_thread_count_db(memgraph, thread_count=100)
+        memgraph.execute_query("CREATE (:Person {name: 'Alice'})")
+        memgraph.execute_query("CREATE (:Person {name: 'Bob'})")
+        memgraph.execute_query("CREATE (:Person {name: 'Charlie'})")
+        return memgraph
+
+    def test_call_aggregate_subquery_then_cross(self, populated_db):
+        # Outer count(n) is parallelizable over the :B scan; the inner count(p) lives in the
+        # CALL {} subquery arm. Pre-fix, the parallel result collapsed count(n) to 0.
+        verify_parallel_matches_serial(
+            populated_db,
+            "MATCH (n:Person) CALL { MATCH (p:A) RETURN count(p) AS c } "
+            "WITH n, c MATCH (q:B) RETURN count(n) AS cnt, c",
+        )
+
+    def test_call_aggregate_subquery_no_cross(self, populated_db):
+        verify_parallel_matches_serial(
+            populated_db,
+            "MATCH (n:Person) CALL { MATCH (p:A) RETURN count(p) AS c } RETURN count(n) AS cnt, c",
+        )
+
+    def test_call_orderby_limit_subquery(self, populated_db):
+        verify_parallel_matches_serial(
+            populated_db,
+            "MATCH (n:Person) CALL { MATCH (p:A) RETURN p.p AS pid ORDER BY pid LIMIT 1 } "
+            "WITH n, pid MATCH (q:B) RETURN count(n) AS cnt",
+        )
+
+    def test_aggregate_in_apply_main_input_remains_correct(self, populated_db):
+        # Control: an aggregate in the Apply MAIN input (not a subquery arm) must stay correct
+        # (and is still allowed to parallelize). Guards against the fix over-rejecting.
+        verify_parallel_matches_serial(
+            populated_db,
+            "MATCH (n:A) WITH count(n) AS c CALL { MATCH (p:B) RETURN p LIMIT 1 } RETURN c",
+        )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA", "-v"]))
