@@ -2246,7 +2246,11 @@ PullAwaitable Expand::ExpandCursor::DoPull(Frame &frame, ExecutionContext &conte
       };
 
       while (true) {
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
         // attempt to get a value from the incoming edges
         if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
           auto edge = *(*in_edges_it_)++;
@@ -2669,7 +2673,11 @@ class ExpandVariableCursor : public Cursor {
         OOMExceptionEnabler oom_exception;
         SCOPED_PROFILE_OP_BY_REF(self_);
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         while (true) {
           if (Expand(frame, context)) {
@@ -5979,7 +5987,11 @@ class ConstructNamedPathCursor : public Cursor {
 
         auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         if (co_await PullChild(*input_cursor_, frame, context)) {
           [&] {
