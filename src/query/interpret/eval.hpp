@@ -162,7 +162,8 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
                                  .memory = ctx_->memory,
                                  .timestamp = ctx_->timestamp,
                                  .counters = &ctx_->counters,
-                                 .view = storage::View::OLD};
+                                 .view = storage::View::OLD,
+                                 .synthetic_id_mapper = ctx_->synthetic_id_mapper.get()};
     TypedValue res(ctx_->memory);
     if (function.arguments_.size() <= 8) {
       utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
@@ -790,7 +791,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 #else
                                  nullptr,
 #endif
-                                 ctx_->graph_view};
+                                 ctx_->graph_view,
+                                 ctx_->synthetic_id_mapper.get()};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
@@ -1110,9 +1112,18 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 #ifdef MG_ENTERPRISE
   bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const;
   bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const;
+
+  // A projected element mints no real-graph privileges of its own: a synthetic node/edge has no
+  // origin, and an overlay node's real-graph visibility is already enforced at the scan (label-level,
+  // issue 30). A read through a projected element is therefore allowed. Per-property READ permission
+  // over an overlay's origin is a tracked follow-up (see rebase auth-glue notes).
+  bool IsPropertyAllowed(VirtualNode const &, storage::PropertyId) const { return true; }
+
+  bool IsPropertyAllowed(VirtualEdge const &, storage::PropertyId) const { return true; }
 #else
   template <typename T>
-    requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor>
+    requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor> || std::same_as<T, VirtualNode> ||
+             std::same_as<T, VirtualEdge>
   bool IsPropertyAllowed(T const &, storage::PropertyId) const {
     return true;
   }

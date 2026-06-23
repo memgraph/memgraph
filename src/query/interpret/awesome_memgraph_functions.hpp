@@ -16,6 +16,7 @@
 #include <unordered_map>
 
 #include "query/procedure/module_fwd.hpp"
+#include "query/synthetic_gid.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
 
@@ -32,6 +33,7 @@ const char kStartsWith[] = "STARTSWITH";
 const char kEndsWith[] = "ENDSWITH";
 const char kContains[] = "CONTAINS";
 const char kId[] = "ID";
+const char kVirtualId[] = "VIRTUAL_ID";
 const char kElementId[] = "ELEMENTID";
 }  // namespace
 
@@ -48,6 +50,9 @@ struct FunctionContext {
   // The ambient graph view, bound inside a `CALL { USE ... }` scope. The topology
   // functions resolve over it; null outside the operator path.
   GraphView *graph_view{nullptr};
+  // Projects a virtual entity's synthetic Gid onto its query-local external id for id()/virtual_id().
+  // Null on paths with no query context, where the raw synthetic id is used instead.
+  SyntheticIdMapper *synthetic_id_mapper{nullptr};
 };
 
 using func_impl =

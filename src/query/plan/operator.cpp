@@ -9188,15 +9188,8 @@ class BindGraphViewCursor : public Cursor {
 
  private:
   void BindView(Frame &frame, ExecutionContext &context) {
-    ExpressionEvaluator evaluator(&frame,
-                                  context.symbol_table,
-                                  context.evaluation_context,
-                                  context.db_accessor,
-                                  storage::View::NEW,
-                                  context.frame_change_collector,
-                                  &context.number_of_hops,
-                                  context.user_or_role,
-                                  context.triggering_user);
+    ExpressionEvaluator evaluator(
+        &frame, context, storage::View::NEW, context.frame_change_collector, &context.number_of_hops);
     graph_value_.emplace(self_.use_graph_->Accept(evaluator));
     switch (graph_value_->type()) {
       case TypedValue::Type::VirtualGraph:

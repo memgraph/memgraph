@@ -143,6 +143,32 @@ class TestVirtualNodeConstructor:
         assert score == 42
         assert name == "A"
 
+    def test_property_size_matches_real_node(self, connection):
+        """propertySize over a synthetic node reports the value's encoded size, the
+        same metric as a real node carrying that property (transparency); an absent
+        key reports 0."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(cursor, "CREATE (:Ref {name: 'hello', score: 42});")
+
+        real_name, real_score = execute_and_fetch_all(
+            cursor,
+            "MATCH (n:Ref) RETURN propertySize(n, 'name') AS name, propertySize(n, 'score') AS score;",
+        )[0]
+        virtual_name, virtual_score, virtual_absent = execute_and_fetch_all(
+            cursor,
+            """
+            WITH virtualNode(1, ['Ref'], {name: 'hello', score: 42}) AS n
+            RETURN propertySize(n, 'name') AS name,
+                   propertySize(n, 'score') AS score,
+                   propertySize(n, 'absent') AS absent;
+            """,
+        )[0]
+
+        assert virtual_name == real_name > 0
+        assert virtual_score == real_score > 0
+        assert virtual_absent == 0
+
     def test_construct_with_single_label(self, connection):
         """The single-label form virtualNode(gid, 'Label', props) is accepted and
         yields a node with that one label."""

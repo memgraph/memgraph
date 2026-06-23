@@ -41,6 +41,7 @@
 #include "query/virtual_graph_view.hpp"
 #include "query/virtual_node.hpp"
 #include "storage/v2/point_functions.hpp"
+#include "storage/v2/property_store.hpp"
 #include "utils/case_insensitve_set.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/string.hpp"
@@ -454,14 +455,67 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 
 constexpr auto allow_all_properties = [](storage::PropertyId) { return true; };
 
-// Returned by value: a virtual node's Properties() merges its origin's properties with its overlay
-// and is not a stored map.
-auto VirtualProperties(const TypedValue &value) -> VirtualNode::property_map {
-  if (value.IsVirtualNode()) return value.ValueVirtualNode().Properties();
-  const auto &edge_properties = value.ValueVirtualEdge().Properties();
-  VirtualNode::property_map result{edge_properties.get_allocator()};
-  for (const auto &[id, property_value] : edge_properties) result.insert_or_assign(id, property_value);
-  return result;
+// One binding-aware, view-honoring, auth-filtered pass over a graph element's properties, shared by
+// properties()/keys()/values(). Invokes `f(PropertyId, const PropertyValue &, bool allowed)` for each
+// property, where `allowed` is the fine-grained READ permission for that property (always true when
+// no auth checker is bound, and for virtual nodes/edges, which mint no real-graph privileges of their
+// own). `count_hint(size_t)` is invoked once with the property count so a list-building caller can
+// reserve (a map-building caller passes a no-op). A real accessor is iterated in its stored PropertyId
+// order at `view`; a virtual node merges its origin (lazy read-through at `view`) with its overlay,
+// hidden keys omitted; a virtual edge yields its overlay (no origin, so `view` is irrelevant). `fn`
+// names the caller for error wording. Beyond the accessor's own result the helper makes no further
+// copy of the property set, so the stored order is preserved and keys() never copies a value it
+// discards. (propertySize() reads a single key lazily instead so an unread embedding is never
+// materialized; see VirtualPropertySize.)
+template <typename CountFn, typename F>
+void ForEachElementProperty(const TypedValue &value, storage::View view, std::string_view fn,
+                            FineGrainedAuthChecker const *checker, CountFn &&count_hint, F &&f) {
+  auto emit = [&](const auto &props, auto &&is_allowed) {
+    count_hint(props.size());
+    for (const auto &[id, property_value] : props) f(id, property_value, is_allowed(id));
+  };
+  auto absorb = [&](auto &&maybe_props, auto &&is_allowed) {
+    if (!maybe_props) {
+      switch (maybe_props.error()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to get {} from a deleted object.", fn);
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw QueryRuntimeException("Trying to get {} from an object that doesn't exist.", fn);
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Unexpected error when getting {}.", fn);
+      }
+    }
+    emit(*maybe_props, is_allowed);
+  };
+  if (value.IsVertex()) {
+    auto const &vertex = value.ValueVertex();
+    if (!checker) {
+      absorb(vertex.Properties(view), allow_all_properties);
+      return;
+    }
+    auto maybe_labels = vertex.Labels(view);
+    if (!maybe_labels) ThrowVertexLabelsReadFailure(maybe_labels.error());
+    absorb(vertex.Properties(view), [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+    });
+  } else if (value.IsEdge()) {
+    auto const &edge = value.ValueEdge();
+    if (!checker) {
+      absorb(edge.Properties(view), allow_all_properties);
+      return;
+    }
+    absorb(edge.Properties(view), [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+    });
+  } else if (value.IsVirtualNode()) {
+    auto maybe_props = value.ValueVirtualNode().Properties(view);
+    if (!maybe_props) throw QueryRuntimeException("Reading {} of a projected node's origin failed.", fn);
+    emit(*maybe_props, allow_all_properties);
+  } else {
+    emit(value.ValueVirtualEdge().Properties(), allow_all_properties);
+  }
 }
 
 // NOTE: Denied properties appear as keys with null values. This differs from
@@ -470,71 +524,22 @@ auto VirtualProperties(const TypedValue &value) -> VirtualNode::property_map {
 TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
   auto *dba = ctx.db_accessor;
-  auto get_properties = [&](const auto &record_accessor, auto const &is_allowed) {
-    TypedValue::TMap properties(ctx.memory);
-    auto maybe_props = record_accessor.Properties(ctx.view);
-    if (!maybe_props) {
-      switch (maybe_props.error()) {
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to get properties from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Unexpected error when getting properties.");
-      }
-    }
-    for (const auto &property : *maybe_props) {
-      auto key = TypedValue::TString(dba->PropertyToName(property.first), ctx.memory);
-      if (is_allowed(property.first)) {
-        auto typed_value =
-            TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-        properties.emplace(std::move(key), std::move(typed_value));
-      } else {
-        properties.emplace(std::move(key), TypedValue(ctx.memory));
-      }
-    }
-    return TypedValue(std::move(properties));
-  };
-  auto const *checker = ctx.auth_checker;
-
   const auto &value = args[0];
-  if (value.IsNull()) {
-    return TypedValue(ctx.memory);
-  } else if (value.IsVirtualNode()) {
-    auto const &vn = value.ValueVirtualNode();
-    TypedValue::TMap properties(ctx.memory);
-    for (auto const &[prop_id, prop_value] : vn.Properties()) {
-      properties.emplace(TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory),
-                         TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
-    }
-    return TypedValue(std::move(properties));
-  } else if (value.IsVirtualEdge()) {
-    auto const &ve = value.ValueVirtualEdge();
-    TypedValue::TMap properties(ctx.memory);
-    for (auto const &[prop_id, prop_value] : ve.Properties()) {
-      properties.emplace(TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory),
-                         TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
-    }
-    return TypedValue(std::move(properties));
-  }
-  if (value.IsVertex()) {
-    auto const &vertex = value.ValueVertex();
-    if (!checker) return get_properties(vertex, allow_all_properties);
-    auto maybe_labels = vertex.Labels(ctx.view);
-    if (!maybe_labels) {
-      ThrowVertexLabelsReadFailure(maybe_labels.error());
-    }
-    return get_properties(vertex, [&](storage::PropertyId prop) {
-      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
-    });
-  }
-  auto const &edge = value.ValueEdge();
-  if (!checker) return get_properties(edge, allow_all_properties);
-  return get_properties(edge, [&](storage::PropertyId prop) {
-    return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
-  });
+  if (value.IsNull()) return TypedValue(ctx.memory);
+  TypedValue::TMap properties(ctx.memory);
+  // Denied properties appear as keys with null values (see the NOTE above); keys()/values() omit them.
+  ForEachElementProperty(
+      value, ctx.view, "properties", ctx.auth_checker, [](size_t) {},
+      [&](storage::PropertyId id, const storage::PropertyValue &pv, bool allowed) {
+        auto key = TypedValue::TString(dba->PropertyToName(id), ctx.memory);
+        if (allowed) {
+          properties.emplace(std::move(key),
+                             TypedValue(pv, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+        } else {
+          properties.emplace(std::move(key), TypedValue(ctx.memory));
+        }
+      });
+  return TypedValue(std::move(properties));
 }
 
 TypedValue RandomUuid(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
@@ -559,6 +564,26 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   }
 }
 
+namespace {
+
+// The encoded byte size of a virtual element's property value, matching the metric
+// storage::*::GetPropertySize reports for a real accessor: the value's footprint once encoded
+// into a PropertyStore. The binding-aware read is the seam - an overlay node reads through to
+// its origin for an origin-bound key, a hidden or absent key returns null and so contributes 0.
+template <typename VirtualElement>
+uint64_t VirtualPropertySize(const VirtualElement &element, storage::PropertyId key, storage::View view) {
+  auto maybe_value = element.GetProperty(view, key);
+  if (!maybe_value) {
+    throw QueryRuntimeException("Reading a property of a projected element's origin failed.");
+  }
+  if (maybe_value->IsNull()) return 0;
+  storage::PropertyStore store;
+  store.SetProperty(key, *maybe_value);
+  return store.PropertySize(key);
+}
+
+}  // namespace
+
 TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>, Or<String>>("propertySize", args, nargs);
 
@@ -577,6 +602,10 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
     property_size = graph_entity.ValueVertex().GetPropertySize(*maybe_property_id, ctx.view).value();
   } else if (graph_entity.IsEdge()) {
     property_size = graph_entity.ValueEdge().GetPropertySize(*maybe_property_id, ctx.view).value();
+  } else if (graph_entity.IsVirtualNode()) {
+    property_size = VirtualPropertySize(graph_entity.ValueVirtualNode(), *maybe_property_id, ctx.view);
+  } else if (graph_entity.IsVirtualEdge()) {
+    property_size = VirtualPropertySize(graph_entity.ValueVirtualEdge(), *maybe_property_id, ctx.view);
   }
 
   return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
@@ -889,151 +918,43 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
   }
 }
 
-// TODO: How is Keys different from Properties function?
 TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
   auto *dba = ctx.db_accessor;
-  auto get_keys = [&](const auto &record_accessor, auto const &is_allowed) {
-    TypedValue::TVector keys(ctx.memory);
-    auto maybe_props = record_accessor.Properties(ctx.view);
-    if (!maybe_props) {
-      switch (maybe_props.error()) {
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to get keys from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Unexpected error when getting keys.");
-      }
-    }
-    for (const auto &property : *maybe_props) {
-      if (is_allowed(property.first)) keys.emplace_back(dba->PropertyToName(property.first));
-    }
-    return TypedValue(std::move(keys));
-  };
-  auto const *checker = ctx.auth_checker;
-
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
-  if (value.IsVertex()) {
-    auto const &vertex = value.ValueVertex();
-    if (!checker) return get_keys(vertex, allow_all_properties);
-    auto maybe_labels = vertex.Labels(ctx.view);
-    if (!maybe_labels) {
-      ThrowVertexLabelsReadFailure(maybe_labels.error());
-    }
-    return get_keys(vertex, [&](storage::PropertyId prop) {
-      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
-    });
-  }
-  if (value.IsEdge()) {
-    auto const &edge = value.ValueEdge();
-    if (!checker) return get_keys(edge, allow_all_properties);
-    return get_keys(edge, [&](storage::PropertyId prop) {
-      return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
-    });
-  }
-  if (value.IsVirtualNode()) {
-    TypedValue::TVector keys(ctx.memory);
-    for (auto const &[prop_id, prop_value] : value.ValueVirtualNode().Properties()) {
-      keys.emplace_back(dba->PropertyToName(prop_id));
-    }
-    return TypedValue(std::move(keys));
-  }
-  if (value.IsVirtualEdge()) {
-    TypedValue::TVector keys(ctx.memory);
-    for (auto const &[prop_id, prop_value] : value.ValueVirtualEdge().Properties()) {
-      keys.emplace_back(dba->PropertyToName(prop_id));
-    }
-    return TypedValue(std::move(keys));
-  }
-
-  // map
   TypedValue::TVector keys(ctx.memory);
-  for (const auto &[string_key, value] : value.ValueMap()) {
-    keys.emplace_back(string_key);
+  if (value.IsMap()) {
+    for (const auto &[string_key, map_value] : value.ValueMap()) keys.emplace_back(string_key);
+    return TypedValue(std::move(keys));
   }
+  ForEachElementProperty(
+      value, ctx.view, "keys", ctx.auth_checker, [&](size_t n) { keys.reserve(n); },
+      [&](storage::PropertyId id, const storage::PropertyValue &, bool allowed) {
+        if (allowed) keys.emplace_back(TypedValue(dba->PropertyToName(id), ctx.memory));
+      });
   return TypedValue(std::move(keys));
 }
 
 TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge, Map>>("values", args, nargs);
-
-  auto get_values = [&](const auto &record_accessor, auto const &is_allowed) {
-    TypedValue::TVector values(ctx.memory);
-    auto maybe_props = record_accessor.Properties(ctx.view);
-    if (!maybe_props) {
-      switch (maybe_props.error()) {
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to get keys from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Unexpected error when getting keys.");
-      }
-    }
-    for (const auto &[key, value] : *maybe_props) {
-      if (is_allowed(key)) {
-        values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
-      }
-    }
-    return TypedValue(std::move(values));
-  };
-
-  auto const *checker = ctx.auth_checker;
-
+  auto *dba = ctx.db_accessor;
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
-  if (value.IsVertex()) {
-    auto const &vertex = value.ValueVertex();
-    if (!checker) return get_values(vertex, allow_all_properties);
-    auto maybe_labels = vertex.Labels(ctx.view);
-    if (!maybe_labels) {
-      ThrowVertexLabelsReadFailure(maybe_labels.error());
-    }
-    return get_values(vertex, [&](storage::PropertyId prop) {
-      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
-    });
-  }
-  if (value.IsEdge()) {
-    auto const &edge = value.ValueEdge();
-    if (!checker) return get_values(edge, allow_all_properties);
-    return get_values(edge, [&](storage::PropertyId prop) {
-      return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
-    });
-  }
-  auto *dba = ctx.db_accessor;
-  if (value.IsVirtualNode()) {
-    TypedValue::TVector values(ctx.memory);
-    for (auto const &[prop_id, prop_value] : value.ValueVirtualNode().Properties()) {
-      // NOLINTNEXTLINE(modernize-use-emplace)
-      values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
-    }
-    return TypedValue(std::move(values));
-  }
-  if (value.IsVirtualEdge()) {
-    TypedValue::TVector values(ctx.memory);
-    for (auto const &[prop_id, prop_value] : value.ValueVirtualEdge().Properties()) {
-      // NOLINTNEXTLINE(modernize-use-emplace)
-      values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
-    }
-    return TypedValue(std::move(values));
-  }
-
-  // map
   TypedValue::TVector values(ctx.memory);
-  for (const auto &[string_key, value] : value.ValueMap()) {
-    values.emplace_back(value);
+  if (value.IsMap()) {
+    for (const auto &[string_key, map_value] : value.ValueMap()) values.emplace_back(map_value);
+    return TypedValue(std::move(values));
   }
-
+  ForEachElementProperty(
+      value, ctx.view, "values", ctx.auth_checker, [&](size_t n) { values.reserve(n); },
+      [&](storage::PropertyId, const storage::PropertyValue &pv, bool allowed) {
+        if (allowed) values.emplace_back(TypedValue(pv, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+      });
   return TypedValue(std::move(values));
 }
 
@@ -1307,15 +1228,27 @@ TypedValue Counter(const TypedValue *args, int64_t nargs, const FunctionContext 
   return TypedValue(value, context.memory);
 }
 
+// The query-local external id for a synthetic Gid, or the raw synthetic id when there is no mapper
+// (a path with no query context).
+int64_t ExternalSyntheticId(storage::Gid gid, const FunctionContext &ctx) {
+  if (ctx.synthetic_id_mapper) return ctx.synthetic_id_mapper->ExternalId(gid);
+  return gid.AsInt();
+}
+
 TypedValue IdOf(const TypedValue &arg, const FunctionContext &ctx) {
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (arg.IsVirtualNode()) {
-    return TypedValue(arg.ValueVirtualNode().CypherId(), ctx.memory);
+    const auto &vnode = arg.ValueVirtualNode();
+    // An overlay node (one derived over a real vertex) reports its origin's real id, so id() is the
+    // entity's identity in the real graph. A synthetic node has no origin and reports its query-local
+    // external id.
+    if (vnode.HasOrigin()) return TypedValue(vnode.Origin()->CypherId(), ctx.memory);
+    return TypedValue(ExternalSyntheticId(vnode.Gid(), ctx), ctx.memory);
   } else if (arg.IsVertex()) {
     return TypedValue(arg.ValueVertex().CypherId(), ctx.memory);
   } else if (arg.IsVirtualEdge()) {
-    return TypedValue(arg.ValueVirtualEdge().Gid().AsInt(), ctx.memory);
+    return TypedValue(ExternalSyntheticId(arg.ValueVirtualEdge().Gid(), ctx), ctx.memory);
   } else {
     return TypedValue(arg.ValueEdge().CypherId(), ctx.memory);
   }
@@ -1324,6 +1257,22 @@ TypedValue IdOf(const TypedValue &arg, const FunctionContext &ctx) {
 TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("id", args, nargs);
   return IdOf(args[0], ctx);
+}
+
+// The overlay-local id: the query-local external id for a virtual node or edge (whether synthetic or
+// an overlay over a real entity), and null for a real entity that has no overlay identity.
+TypedValue VirtualIdOf(const TypedValue &arg, const FunctionContext &ctx) {
+  if (arg.IsVirtualNode()) {
+    return TypedValue(ExternalSyntheticId(arg.ValueVirtualNode().Gid(), ctx), ctx.memory);
+  } else if (arg.IsVirtualEdge()) {
+    return TypedValue(ExternalSyntheticId(arg.ValueVirtualEdge().Gid(), ctx), ctx.memory);
+  }
+  return TypedValue(ctx.memory);
+}
+
+TypedValue VirtualId(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Vertex, Edge>>("virtual_id", args, nargs);
+  return VirtualIdOf(args[0], ctx);
 }
 
 // Returns the id as a string for compatibility with external integrations.
@@ -2219,6 +2168,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"ENDNODE", func_info{.func_ = EndNode, .is_pure_ = true}},
     {"HEAD", func_info{.func_ = Head, .is_pure_ = true}},
     {kId, func_info{.func_ = Id, .is_pure_ = true}},
+    {kVirtualId, func_info{.func_ = VirtualId, .is_pure_ = true}},
     {kElementId, func_info{.func_ = ElementId, .is_pure_ = true}},
     {"LAST", func_info{.func_ = Last, .is_pure_ = true}},
     {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true}},
