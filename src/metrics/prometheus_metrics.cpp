@@ -168,8 +168,9 @@ PrometheusMetrics::PrometheusMetrics()
       unindexed_scan_queries_family_{
           prometheus::BuildCounter()
               .Name("memgraph_unindexed_scan_queries_total")
-              .Help("Planned queries whose plan had a ScanAll+Filter an index could have served (counts once "
-                    "per query)")
+              .Help("Queries planned with a sequential node scan (ScanAll) whose label or label+property filter a "
+                    "label or label-property index could have served. Counts once per query, not per scan; "
+                    "excludes scans already using a label index and label-less property filters")
               .Register(registry_)},
       // Operators
       once_operator_family_{prometheus::BuildCounter()

@@ -30,16 +30,14 @@ namespace memgraph::query::plan {
 
 struct PlanHintsResult {
   std::vector<std::string> hints;
-  // True if the plan has any ScanAll+Filter an index could have served.
-  // NOTE: add more boolean signals sparingly; beyond a handful, switch to a bitset/enum-flag field.
+  // True if the plan has a ScanAll+Filter a label or label-property index could have served.
   bool has_unindexed_scan{false};
 };
 
 [[nodiscard]] PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
 
 class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
-  // Result accessors are only valid after a full traversal; expose them solely through
-  // ProvidePlanHints, which owns the construct -> Accept -> read lifecycle.
+  // Accessors are valid only post-traversal; ProvidePlanHints owns the construct -> Accept -> read lifecycle.
   friend PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
 
  public:
@@ -389,9 +387,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool DefaultPreVisit() override { LOG_FATAL("Operator not implemented for providing plan hints!"); }
 
-  // Records a missing-/suboptimal-index hint for a Filter and flags has_unindexed_scan_.
-  // Defined out-of-line in hint_provider.cpp. See EffectiveScanType there for the
-  // parallel-execution plan handling.
+  // Records a missing-/suboptimal-index hint for a Filter and sets has_unindexed_scan_ accordingly.
   void HintIndexUsage(Filter &op);
 
   template <typename Func>

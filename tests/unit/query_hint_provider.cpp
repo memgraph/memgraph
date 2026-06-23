@@ -224,6 +224,29 @@ TEST_F(HintProviderSuite, DontCountParallelLabelScanWithPropertyFilter) {
   VerifyHintMessages(filter.get(), expected_messages, false);
 }
 
+TEST_F(HintProviderSuite, DontHintOrCountParallelLabelPropertyScanWithPropertyFilter) {
+  // Parallel-execution rewrite of a `ScanAllByLabelProperties`: a label-property index is already in
+  // use, so EffectiveScanType returns its own type and HintIndexUsage emits no hint and no count.
+  auto scan_all = MakeScanAll(storage, symbol_table, "n");
+  auto state_symbol = NextSymbol();
+  auto parallel_scan =
+      std::make_shared<ScanParallelByLabelProperties>(std::make_shared<Once>(),
+                                                      view,
+                                                      2,
+                                                      state_symbol,
+                                                      label,
+                                                      std::vector{memgraph::storage::PropertyPath{property}},
+                                                      std::vector{ExpressionRange::Equal(LITERAL(42))});
+  auto scan_chunk = WrapInParallelChunk(parallel_scan, scan_all.sym_, state_symbol);
+
+  auto *filter_expr = EQ(PROPERTY_LOOKUP(*dba, scan_all.node_->identifier_, property), LITERAL(42));
+  auto filter = std::make_shared<Filter>(scan_chunk, pattern_filters_, filter_expr);
+
+  const std::vector<std::string> expected_messages{};
+
+  VerifyHintMessages(filter.get(), expected_messages, false);
+}
+
 TEST_F(HintProviderSuite, DontHintOrCountWhenFilteringByPropertyOnlyOnParallelScan) {
   // Parallel-execution rewrite of an unindexed `ScanAll` with a label-less property filter:
   // no node index can serve it, so (like the sequential case) no hint and no count.

@@ -3372,8 +3372,7 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
   }
 }
 
-// Emits plan hints as notifications and session-trace events. Shared by the regular/EXPLAIN/PROFILE
-// paths; the unindexed-scan counter is bumped only by the regular path, at its call site.
+// Emits plan hints as notifications + session-trace events; the counter is bumped only by the regular path.
 void EmitPlanHints(const plan::PlanHintsResult &hints, std::vector<Notification> *notifications) {
   for (const auto &hint : hints.hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
@@ -3600,8 +3599,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
   EmitPlanHints(hints, notifications);
-  // Count once per planned query (not per scan), before AccessorCompliance below, so a query the
-  // planner left unindexed is counted even if later rejected for a read-only-tx mismatch.
+  // Count once per planned query (not per scan), before AccessorCompliance so a read-only-tx
+  // rejection still counts the unindexed plan.
   if (hints.has_unindexed_scan) {
     (*current_db.db_acc_)->metric_handles()->unindexed_scan_queries.Increment();
   }

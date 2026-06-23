@@ -14,26 +14,24 @@
 namespace memgraph::query::plan {
 
 namespace {
-// Maps a scan to the sequential scan type whose hint logic applies. Parallel-execution plans
-// rewrite `Filter -> Scan*` into `Filter -> ScanChunk -> ParallelMerge -> ScanParallel*`, so the
-// real scan semantics live in the `ScanParallel*` below the chunk (see parallel_rewrite.hpp).
+// Parallel execution rewrites `Filter -> Scan*` into `Filter -> ScanChunk -> ParallelMerge -> ScanParallel*`;
+// map back to the sequential scan type whose hint logic applies (see parallel_rewrite.hpp).
 const utils::TypeInfo &EffectiveScanType(const ScanAll &scan) {
   const auto &type = scan.GetTypeInfo();
   // Sequential plans (incl. ScanChunkByEdge, whose type differs) use their own scan type directly.
   if (type != ScanChunk::kType) {
     return type;
   }
+  // ScanChunk/ParallelMerge ctors guarantee this chain; assert rather than silently misclassify.
   const auto *parallel_merge = scan.input().get();
-  if (parallel_merge == nullptr) return type;
+  DMG_ASSERT(parallel_merge != nullptr, "ScanChunk input must be a ParallelMerge");
   const auto *parallel_scan = parallel_merge->input().get();
-  if (parallel_scan == nullptr) return type;
+  DMG_ASSERT(parallel_scan != nullptr, "ParallelMerge input must be a ScanParallel");
 
   const auto &parallel_type = parallel_scan->GetTypeInfo();
   if (parallel_type == ScanParallel::kType) return ScanAll::kType;
   if (parallel_type == ScanParallelByLabel::kType) return ScanAllByLabel::kType;
-  // Anything else (index-backed scans like ScanParallelByLabelProperties, and full edge scans
-  // like ScanParallelByEdge whose hints are out of scope) keeps its own type, so the logic below
-  // emits no missing-index hint or count for it.
+  // Anything else is an index-backed scan (e.g. ScanParallelByLabelProperties): keep its type, no hint/count.
   return parallel_type;
 }
 }  // namespace
@@ -79,13 +77,11 @@ void PlanHintsProvider::HintIndexUsage(Filter &op) {
       has_unindexed_scan_ = true;
       return;
     }
-    // Property-only filter with no label: no node index can serve a label-less filter,
-    // so there is nothing to suggest and nothing to count.
+    // Label-less property filter: no node index can serve it, so no hint and no count.
     return;
   }
 
-  // Label index already used; suboptimal-index hint, not a missing-index scan -> does not
-  // increment the unindexed-scan counter.
+  // Label index already used: suboptimal-index hint only, not an unindexed scan -> no count.
   if (scan_type == ScanAllByLabel::kType && !filtered_properties.empty()) {
     hints_.push_back(fmt::format(
         "Label index will be used on symbol `{0}` although there is also a filter on properties {1}. Consider "
