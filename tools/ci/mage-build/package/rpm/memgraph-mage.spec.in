@@ -4,10 +4,10 @@
 # counterpart of the DEB packaging under ../debian/ and is rendered + driven by
 # ../build-rpm.sh (the analogue of build-deb.sh).
 #
-# build-rpm.sh pre-stages the payload into %{stage_root} (and, when split-debug
-# sidecars exist, into %{debug_stage_root}); this spec only re-homes those trees
-# into the buildroot and declares file ownership. The @TOKEN@ placeholders are
-# filled in by sed in build-rpm.sh before rpmbuild runs.
+# build-rpm.sh pre-stages the payload into the stage_root macro (and, when
+# split-debug sidecars exist, into debug_stage_root); this spec only re-homes
+# those trees into the buildroot and declares file ownership. The @TOKEN@
+# placeholders are filled in by sed in build-rpm.sh before rpmbuild runs.
 
 # Ship the query-module .so files exactly as build-mage produced them. With
 # --split-debug they are already stripped and accompanied by .debug sidecars
@@ -19,6 +19,12 @@
 %global __os_install_post %{nil}
 %define __strip /bin/true
 %global _build_id_links none
+# rpm reserves the "<name>-debuginfo" subpackage name for its own automatic
+# debuginfo machinery: a manually-declared `%package debuginfo` is silently
+# dropped (its files then fail the unpackaged-files check) even with
+# debug_package disabled. Turning off _debuginfo_subpackages releases the name
+# so our hand-rolled subpackage below is actually built.
+%global _debuginfo_subpackages 0
 
 # Set to 1 by build-rpm.sh when mage-debug.tar.gz carried .debug sidecars.
 %global with_debuginfo @WITH_DEBUGINFO@
@@ -109,5 +115,5 @@ exit 0
 %endif
 
 %changelog
-* Thu Jun 01 2025 Matt James <matthew.james@memgraph.io> - @VERSION@-1
+* Sun Jun 01 2025 Matt James <matthew.james@memgraph.io> - @VERSION@-1
 - Release v@VERSION@.
