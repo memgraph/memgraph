@@ -89,7 +89,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
       // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
 #ifdef MG_ENTERPRISE
       // Snapshot the COLD set inside the same system-transaction guard as the HOT ForEach so the two
-      // are coherent as-of last_committed_timestamp (SR-1).
+      // are coherent as-of last_committed_timestamp.
       auto cold_databases = dbms_handler.SuspendedConfigsForRecovery();
       return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), std::move(cold_databases)};
 #else

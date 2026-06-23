@@ -328,7 +328,7 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
 }
 
 namespace {
-// SR-1′(2): force-suspend a tenant on the replica during recovery. On a replica the only transient
+// Force-suspend a tenant on the replica during recovery. On a replica the only transient
 // suspend failure is ACTIVE_CONNECTIONS (a background accessor — GC/periodic-snapshot — still live;
 // no client write conns exist, and a data-delta accessor cannot be in flight because the same
 // single-threaded RPC server is currently running this recovery). The other SuspendError reasons are
@@ -408,7 +408,7 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   // Check/create the incoming HOT dbs.
   for (const auto &config : database_configs) {
     const auto name = std::string{*config.name.str_view()};
-    // SR-1′(1): MAIN lists this name HOT but the replica holds it COLD. Update() would throw
+    // MAIN lists this name HOT but the replica holds it COLD. Update() would throw
     // UnknownDatabaseException on the COLD shell, so resume it (rewire=false) first.
     if (dbms_handler.IsSuspended(name)) {
       if (!dbms_handler.ResumeForRecovery(name).has_value()) {
@@ -433,7 +433,7 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   for (const auto &cold : cold_databases) {
     const auto &config = cold.salient;
     const auto name = std::string{*config.name.str_view()};
-    // SR-1: exempt COLD names from the leftover-delete loop below — a replica-HOT tenant that MAIN
+    // Exempt COLD names from the leftover-delete loop below — a replica-HOT tenant that MAIN
     // now lists COLD must be reconciled to COLD, not dropped.
     std::erase(old, name);
 

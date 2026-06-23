@@ -120,8 +120,10 @@ struct Durability {
   // storage::ToJson (a lossy SHOW-presentation form): this stores every field by struct name so the
   // exact StorageInfo survives a restart. Enums are persisted as their underlying integer (the data
   // is self-produced by the same binary version, so a direct read-back is safe).
-  // F3: serialize via the single StorageInfoForEachField field list (storage.hpp) so adding a field
+  // Serialize via the single StorageInfoForEachField field list (storage.hpp) so adding a field
   // updates this path AND the V3 SLK wire at once. Enums are stored as their underlying integer.
+  // NOTE: NLOHMANN_JSON_SERIALIZE_ENUM is intentionally NOT used — it serializes enums as strings,
+  // whereas existing durable cold entries carry integers; switching would break backward compat.
   static nlohmann::json StatsToJson(const storage::StorageInfo &s) {
     nlohmann::json j;
     storage::StorageInfoForEachField(s, [&](const char *key, const auto &v) {

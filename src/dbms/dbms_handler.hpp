@@ -430,7 +430,7 @@ class DbmsHandler {
    * @brief True iff @p name currently holds a COLD shell (is in the suspended-set).
    *
    * Replica SystemRecovery reconcile uses this to branch: a name MAIN lists HOT that this replica
-   * holds COLD must be resumed before Update() (SR-1′(1)); a name MAIN lists COLD that is already
+   * holds COLD must be resumed before Update() can proceed; a name MAIN lists COLD that is already
    * suspended here is already converged.
    */
   bool IsSuspended(std::string_view name) const {
@@ -494,18 +494,17 @@ class DbmsHandler {
     // a failed boot recovery ("COLD (recovery failed[: out of memory])") — the degraded-but-alive
     // marker so the instance never silently drops a tenant.
     for (const auto &[name, entry] : suspended_) {
-      std::string_view st = "COLD";
-      switch (entry.cold_reason) {
-        case SuspendedEntry::ColdReason::kRecoveryFailed:
-          st = "COLD (recovery failed)";
-          break;
-        case SuspendedEntry::ColdReason::kRecoveryFailedOom:
-          st = "COLD (recovery failed: out of memory)";
-          break;
-        case SuspendedEntry::ColdReason::kSuspended:
-          st = "COLD";
-          break;
-      }
+      const std::string_view st = [&]() -> std::string_view {
+        switch (entry.cold_reason) {
+          case SuspendedEntry::ColdReason::kRecoveryFailed:
+            return "COLD (recovery failed)";
+          case SuspendedEntry::ColdReason::kRecoveryFailedOom:
+            return "COLD (recovery failed: out of memory)";
+          case SuspendedEntry::ColdReason::kSuspended:
+            return "COLD";
+        }
+        return "COLD";  // unreachable; silences -Wreturn-type
+      }();
       out.emplace_back(name, std::string{st});
     }
     for (auto &name : db_handler_.All()) {  // HOT names only (Handler::All() skips no-value shells)
@@ -532,18 +531,17 @@ class DbmsHandler {
   std::optional<ColdShowInfo> GetColdShowInfo(std::string_view name) const {
     auto rd = std::shared_lock{lock_};
     if (auto it = suspended_.find(name); it != suspended_.end()) {
-      std::string_view st = "COLD (as-of-suspend snapshot)";
-      switch (it->second.cold_reason) {
-        case SuspendedEntry::ColdReason::kRecoveryFailed:
-          st = "COLD (recovery failed); stats unavailable";
-          break;
-        case SuspendedEntry::ColdReason::kRecoveryFailedOom:
-          st = "COLD (recovery failed: out of memory); stats unavailable";
-          break;
-        case SuspendedEntry::ColdReason::kSuspended:
-          st = "COLD (as-of-suspend snapshot)";
-          break;
-      }
+      const std::string_view st = [&]() -> std::string_view {
+        switch (it->second.cold_reason) {
+          case SuspendedEntry::ColdReason::kRecoveryFailed:
+            return "COLD (recovery failed); stats unavailable";
+          case SuspendedEntry::ColdReason::kRecoveryFailedOom:
+            return "COLD (recovery failed: out of memory); stats unavailable";
+          case SuspendedEntry::ColdReason::kSuspended:
+            return "COLD (as-of-suspend snapshot)";
+        }
+        return "COLD (as-of-suspend snapshot)";  // unreachable
+      }();
       return ColdShowInfo{.uuid = it->second.salient.uuid, .stats = it->second.cold_stats, .status = std::string{st}};
     }
     return std::nullopt;
@@ -552,18 +550,18 @@ class DbmsHandler {
   /**
    * @brief Resume a COLD tenant during replica SystemRecovery (rewire_replication=false).
    *
-   * SR-1′(1): when MAIN's incoming HOT config names a tenant this replica holds COLD, Update() would
-   * throw UnknownDatabaseException on the COLD shell. Resume it first. rewire=false because recovery
-   * runs in the replica apply context (on_resume_repl_ would re-take the repl_state lock).
+   * Called during SystemRecovery when MAIN's incoming HOT config names a tenant this replica holds
+   * COLD: Update() would throw on the COLD shell, so it must be resumed first. rewire=false because
+   * recovery runs in the replica apply context (on_resume_repl_ would re-take the repl_state lock).
    */
   ResumeResult ResumeForRecovery(std::string_view name) { return Resume_(name, /*rewire_replication=*/false); }
 
   /**
-   * @brief Force-suspend a tenant during replica recovery (SR-1′(2)), bypassing the
-   * durability-complete gate. The gate protects a USER-initiated SUSPEND; in recovery the tenant is
-   * already COLD on MAIN (authoritative) and suspend's consolidating snapshot is written
-   * unconditionally, so it stays recoverable. Bypassing avoids a BEHIND retry loop on a replica whose
-   * durability config differs from MAIN's.
+   * @brief Force-suspend a tenant during replica recovery, bypassing the durability-complete gate.
+   * The gate protects a USER-initiated SUSPEND; in recovery the tenant is already COLD on MAIN
+   * (authoritative) and suspend's consolidating snapshot is written unconditionally, so it stays
+   * recoverable. Bypassing avoids a BEHIND retry loop on a replica whose durability config differs
+   * from MAIN's.
    */
   SuspendResult SuspendForRecovery(std::string_view name) {
     return Suspend_(name, /*txn=*/nullptr, /*for_recovery=*/true);
@@ -601,7 +599,7 @@ class DbmsHandler {
    * @brief Snapshot the COLD set for the SystemRecovery payload: one ColdTenantRecovery per suspended
    *        tenant (salient + cold_stats + epoch metadata), built from suspended_. Called on MAIN inside
    *        the system-transaction guard so the COLD set is coherent with the HOT ForEach as-of
-   *        forced_group_timestamp (SR-1).
+   *        forced_group_timestamp, ensuring the snapshot is coherent with the HOT ForEach.
    */
   std::vector<storage::ColdTenantRecovery> SuspendedConfigsForRecovery() const {
     auto rd = std::shared_lock{lock_};
@@ -882,6 +880,9 @@ class DbmsHandler {
     // The FULL replication epoch state captured at suspend, so a promotion can rewrite it
     // and a resume can restore it verbatim (a single epoch string is insufficient — the replica
     // continuous-history check needs the whole deque; see PromoteColdTenants + Resume_).
+    // Cached here because a COLD tenant has no live storage and therefore no live repl_storage_state_
+    // to read from; these values must survive in the durable cold entry so Resume_ can restore epoch
+    // continuity and PromoteColdTenants can append the correct boundary while the tenant remains cold.
     std::string current_epoch;            //!< repl_storage_state_.epoch_.id() at suspend (post-promotion: new epoch)
     storage::EpochHistory epoch_history;  //!< copy of repl_storage_state_.history at suspend
     bool has_epoch_meta{false};           //!< false for older V2 cold entries (no epoch fields) — skip override
@@ -1087,7 +1088,7 @@ class DbmsHandler {
     // UnknownDatabaseException so existing fallback catch sites (SetupDefault_, RestoreTenantProfiles_)
     // keep treating a COLD tenant as not-currently-usable; the message is what the user sees.
     if (suspended_.contains(name)) {
-      throw UnknownDatabaseException(
+      throw SuspendedDatabaseException(
           "Database \"{}\" is suspended (cold); run RESUME DATABASE {} before using it.", name, name);
     }
     throw UnknownDatabaseException("Tried to retrieve an unknown database \"{}\".", name);
