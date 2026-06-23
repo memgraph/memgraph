@@ -1245,6 +1245,7 @@ dependencies = [
  "cxx-build",
  "env_logger",
  "log",
+ "lru",
  "serde_json",
  "tantivy",
  "tantivy-fst",

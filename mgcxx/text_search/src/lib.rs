@@ -13,6 +13,8 @@ use log::debug;
 use serde_json::{to_string, Value};
 use std::collections::HashSet;
 use std::io::{Error, ErrorKind};
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex};
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::AggregationCollector;
@@ -242,6 +244,47 @@ mod tests {
             json!({"name": "test", "count": -3, "tags": [true, 42u64], "nested": {"x": 1.5}, "empty": null})
         );
     }
+
+    #[test]
+    fn regex_search_cache_returns_consistent_results() {
+        let dir = std::env::temp_dir().join(format!("mgcxx_regex_cache_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.to_str().unwrap().to_string();
+        let mappings = r#"{"properties":{
+            "data":{"type":"json","fast":true,"stored":true,"text":true},
+            "all":{"type":"text","fast":true,"stored":true,"text":true},
+            "gid":{"type":"u64","fast":true,"stored":true,"indexed":true}}}"#
+            .to_string();
+        let mut ctx = create_index(&path, &ffi::IndexConfig { mappings }).unwrap();
+        for (gid, name) in [(1u64, "alpha"), (2, "alpine"), (3, "beta")] {
+            let data = format!(r#"{{"data":{{"name":"{name}"}},"all":"{name}","gid":{gid}}}"#);
+            add_document(&mut ctx, &ffi::DocumentInput { data }, true).unwrap();
+        }
+        commit(&mut ctx).unwrap();
+        let searcher = acquire_searcher(&ctx).unwrap();
+        let input = |q: &str| ffi::SearchInput {
+            search_fields: vec!["all".to_string()],
+            search_query: q.to_string(),
+            return_fields: vec![],
+            aggregation_query: String::new(),
+            limit: 10,
+            fuzzy_distance: 0,
+            fuzzy_prefix: false,
+            fuzzy_transpositions: false,
+            fuzzy_field: String::new(),
+        };
+        let gids = |out: ffi::GidScoreOutput| {
+            let mut g: Vec<u64> = out.docs.iter().map(|d| d.gid).collect();
+            g.sort_unstable();
+            g
+        };
+        let miss = gids(regex_search_gids_pinned(&ctx, &searcher, &input("alp.*")).unwrap());
+        let hit = gids(regex_search_gids_pinned(&ctx, &searcher, &input("alp.*")).unwrap());
+        assert_eq!(miss, vec![1, 2]);
+        assert_eq!(miss, hit);
+        assert_eq!(gids(regex_search_gids_pinned(&ctx, &searcher, &input("bet.*")).unwrap()), vec![3]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 // Field order is load-bearing: Rust drops fields in declaration order;
@@ -252,6 +295,8 @@ pub struct TantivyContext {
     pub index_writer: Option<IndexWriter>,
     pub index_reader: IndexReader,
     pub index: Index,
+    // compiled-regex automaton cache, keyed by pattern string; see compiled_regex()
+    pub regex_cache: Mutex<lru::LruCache<String, Arc<Regex>>>,
 }
 
 impl TantivyContext {
@@ -524,6 +569,9 @@ fn create_index(path: &String, config: &ffi::IndexConfig) -> Result<ffi::Context
             index_writer: Some(index_writer),
             index_reader,
             index,
+            regex_cache: Mutex::new(lru::LruCache::new(
+                NonZeroUsize::new(REGEX_CACHE_CAPACITY).expect("REGEX_CACHE_CAPACITY must be non-zero"),
+            )),
         }),
     })
 }
@@ -908,6 +956,34 @@ fn search_gids_pinned(
     Ok(ffi::GidScoreOutput { docs })
 }
 
+const REGEX_CACHE_CAPACITY: usize = 256;
+
+// Compiling a regex into an FST automaton is a pure function of the pattern but costs ~18% of a
+// regex query at high throughput. Cache compiled automata by pattern string (bounded LRU);
+// autocomplete reuses patterns heavily. On a miss we compile off-lock and only hold the lock for
+// the small get/put. The automaton is independent of index/searcher, so caching by pattern is exact.
+fn compiled_regex(context: &ffi::Context, pattern: &str) -> Result<Arc<Regex>, std::io::Error> {
+    if let Some(regex) = context.tantivyContext.regex_cache.lock().unwrap().get(pattern) {
+        return Ok(regex.clone());
+    }
+    let regex = Arc::new(Regex::new(pattern).map_err(|e| {
+        Error::new(
+            ErrorKind::Other,
+            format!(
+                "Unable to create regex search query for {:?} -> {}",
+                context.tantivyContext.index_path, e
+            ),
+        )
+    })?);
+    context
+        .tantivyContext
+        .regex_cache
+        .lock()
+        .unwrap()
+        .put(pattern.to_string(), regex.clone());
+    Ok(regex)
+}
+
 fn regex_search_gids_pinned(
     context: &ffi::Context,
     searcher_ctx: &SearcherContext,
@@ -923,12 +999,7 @@ fn regex_search_gids_pinned(
     let schema = &context.tantivyContext.schema;
 
     let search_field = search_get_fields(&input.search_fields, schema, index_path)?[0];
-    let regex = Regex::new(&input.search_query).map_err(|e| {
-        Error::new(
-            ErrorKind::Other,
-            format!("Unable to create regex search query for {:?} -> {}", index_path, e),
-        )
-    })?;
+    let regex = compiled_regex(context, &input.search_query)?;
 
     let limit = input.effective_limit();
     let mut docs: Vec<ffi::GidScore> = Vec::with_capacity(limit);
@@ -947,7 +1018,7 @@ fn regex_search_gids_pinned(
         // searcher.search() would via the alive bitset.
         let alive_bitset = segment_reader.alive_bitset();
 
-        let mut term_stream = inverted_index.terms().search(&regex).into_stream()?;
+        let mut term_stream = inverted_index.terms().search(regex.as_ref()).into_stream()?;
         while term_stream.advance() {
             let term_info = term_stream.value();
             let mut postings =
@@ -1047,12 +1118,7 @@ fn regex_search_edge_gids_pinned(
     let schema = &context.tantivyContext.schema;
 
     let search_field = search_get_fields(&input.search_fields, schema, index_path)?[0];
-    let regex = Regex::new(&input.search_query).map_err(|e| {
-        Error::new(
-            ErrorKind::Other,
-            format!("Unable to create regex search query for {:?} -> {}", index_path, e),
-        )
-    })?;
+    let regex = compiled_regex(context, &input.search_query)?;
 
     let limit = input.effective_limit();
     let mut docs: Vec<ffi::EdgeGidScore> = Vec::with_capacity(limit);
@@ -1075,7 +1141,7 @@ fn regex_search_edge_gids_pinned(
         // searcher.search() would via the alive bitset.
         let alive_bitset = segment_reader.alive_bitset();
 
-        let mut term_stream = inverted_index.terms().search(&regex).into_stream()?;
+        let mut term_stream = inverted_index.terms().search(regex.as_ref()).into_stream()?;
         while term_stream.advance() {
             let term_info = term_stream.value();
             let mut postings =
