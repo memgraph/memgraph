@@ -418,13 +418,13 @@ class CollectionScheduler {
   CollectionScheduler(PriorityThreadPool *pool, std::shared_ptr<TaskCollection> collection)
       : pool_{pool}, collection_{std::move(collection)} {}
 
-  void SetPool(PriorityThreadPool *pool) { pool_ = pool; }
+  void SetPool(PriorityThreadPool *pool) { pool_.store(pool, std::memory_order_release); }
 
   void SetCollection(std::shared_ptr<TaskCollection> collection) { collection_ = std::move(collection); }
 
   void Trigger() {
-    if (pool_ && collection_) pool_->ScheduledCollection(*collection_);
-    pool_ = nullptr;
+    if (auto *p = pool_.load(std::memory_order_relaxed); p && collection_) p->ScheduledCollection(*collection_);
+    pool_.store(nullptr, std::memory_order_release);
   }
 
   void WaitOrSteal() {
@@ -432,7 +432,9 @@ class CollectionScheduler {
     collection_.reset();
   }
 
-  bool TryExecuteOneIdleTask() const { return collection_ && collection_->TryExecuteOneIdleTask(pool_); }
+  bool TryExecuteOneIdleTask() const {
+    return collection_ && collection_->TryExecuteOneIdleTask(pool_.load(std::memory_order_relaxed));
+  }
 
   bool WaitForProgress(std::chrono::milliseconds timeout) const {
     return collection_ && collection_->WaitForProgress(timeout);
@@ -466,7 +468,7 @@ class CollectionScheduler {
   bool RegisterProgressWaiter(uint64_t observed_epoch) const;
   uint64_t ProgressEpoch() const;
 
-  PriorityThreadPool *pool_;
+  std::atomic<PriorityThreadPool *> pool_{nullptr};
   std::shared_ptr<TaskCollection> collection_;
 };
 

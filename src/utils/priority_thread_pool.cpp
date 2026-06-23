@@ -779,7 +779,8 @@ void TaskCollection::NotifyProgress() {
 }
 
 bool CollectionScheduler::RegisterProgressWaiter(uint64_t observed_epoch) const {
-  if (!collection_ || !pool_) return false;
+  auto *p = pool_.load(std::memory_order_acquire);
+  if (!collection_ || !p) return false;
   const auto worker_id = WorkerYieldRegistry::GetCurrentWorkerId();
   if (!worker_id) return false;  // EC-2: stolen task -> busy-spin
   const auto task_state = CurrentResumableTask::GetCurrentTaskState();
@@ -788,7 +789,7 @@ bool CollectionScheduler::RegisterProgressWaiter(uint64_t observed_epoch) const 
   if (!resume_fn || !(*resume_fn)) return false;
   TaskSignature resume_task = [fn = *resume_fn]() mutable { fn(); };
   const bool registered =
-      collection_->RegisterProgressWaiter(std::move(resume_task), pool_, *worker_id, observed_epoch, task_state);
+      collection_->RegisterProgressWaiter(std::move(resume_task), p, *worker_id, observed_epoch, task_state);
   if (registered) CurrentResumableTask::SetParked();  // WrapTask's WasParked() -> true -> suspends
   return registered;
 }
