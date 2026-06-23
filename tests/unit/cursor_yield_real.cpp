@@ -57,6 +57,7 @@
 #include "flags/experimental.hpp"
 #include "license/license.hpp"
 #include "query/context.hpp"
+#include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/cursor_awaitable.hpp"
@@ -349,4 +350,506 @@ TEST_F(RealProduceYieldTest, RealProduceAbandonMidYieldNoLeak) {
       << "OOMExceptionEnabler counter must be 0 after cursor destruction "
          "(coroutine frame dtor must have run the in-scope OOMExceptionEnabler dtor). "
          "If this fails, the coroutine frame leaked (frame dtor did not run on cursor.reset()).";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 3 — ScanFilterProduceYieldParity (deep chain, key yield-trigger gate).
+//
+// Plan: ScanAll("n") -> Filter(LITERAL(true)) -> Produce(n).
+//
+// Filter predicate: LITERAL(true) — always-true.
+// Rationale: property plumbing in a TEST_F body (vertices already inserted in
+// SetUp) would require opening a second write accessor, careful AdvanceCommand
+// sequencing, and TLS-scope ownership, all orthogonal to the yield-trigger
+// correctness under test.  An always-true Filter still exercises
+// Filter::FilterCursor::DoPull's cooperative-yield point (the co_await
+// YieldPointAwaitable that replaced AbortCheck in the DoPull body), which is
+// the actual gate.
+//
+// Assertions:
+//   - Baseline (flag OFF) and yield run (flag ON) produce identical row counts
+//     (kVertexCount) and identical vertex GIDs (order-stable InMemoryStorage).
+//   - Yield run yields >= 1 times (ScanAll + Filter + Produce each hold a
+//     throttle slot; with 50 vertices and period=20 the combined count is >= 2).
+//   - OOM counter rebalanced to 0 after complete drive (ScanAll + Filter +
+//     Produce each hold an OOMExceptionEnabler; all must be released at Done).
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_F(RealProduceYieldTest, ScanFilterProduceYieldParity) {
+  // ── Build deep chain plan in test body (separate from fixture's scan/produce). ──
+  //
+  // We reuse the fixture's storage, symbol_table, and dba.  The 50 vertices are
+  // already inserted and committed by SetUp.  We build a fresh symbol + ScanAll
+  // -> Filter -> Produce triple so this test is self-contained.
+  AstStorage local_ast;
+
+  // ScanAll("m") — separate symbol to avoid colliding with the fixture's "n".
+  auto local_scan = MakeScanAll(local_ast, symbol_table, "m");
+
+  // Filter(LITERAL(true)): always passes all rows; exercises FilterCursor::DoPull.
+  auto *always_true = local_ast.Create<PrimitiveLiteral>(true);
+  auto filter_op =
+      std::make_shared<Filter>(local_scan.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, always_true);
+
+  // Produce("m"): wire the output symbol.
+  auto *local_output =
+      local_ast.Create<NamedExpression>("m", local_ast.Create<Identifier>("m")->MapTo(local_scan.sym_));
+  auto out_sym = symbol_table.CreateSymbol("named_expression_m", true);
+  local_output->MapTo(out_sym);
+  auto local_produce = MakeProduce(filter_op, local_output);
+
+  // ── Baseline: legacy path (COROUTINE_CURSORS OFF). ──────────────────────
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+
+  std::vector<memgraph::storage::Gid> baseline_gids;
+  {
+    auto ctx = MakeContext(local_ast, symbol_table, &dba);
+    auto baseline = CollectProduce(*local_produce, &ctx);
+    ASSERT_EQ(static_cast<int>(baseline.size()), kVertexCount)
+        << "Legacy path must produce exactly " << kVertexCount << " rows through Filter(LITERAL(true))";
+
+    baseline_gids.reserve(baseline.size());
+    for (const auto &row : baseline) {
+      ASSERT_EQ(row.size(), 1u);
+      ASSERT_TRUE(row[0].IsVertex());
+      baseline_gids.push_back(row[0].ValueVertex().Gid());
+    }
+  }
+
+  // ── Yield run: coroutine path (COROUTINE_CURSORS ON). ──────────────────
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::COROUTINE_CURSORS);
+
+  std::atomic<bool> yield_sig{true};
+  auto ctx = MakeContext(local_ast, symbol_table, &dba);
+
+  auto result = DriveWithYield(*local_produce, &ctx, &yield_sig);
+
+  ASSERT_EQ(static_cast<int>(result.rows.size()), kVertexCount)
+      << "Coroutine path must produce exactly " << kVertexCount << " rows through Filter(LITERAL(true))";
+
+  // GID parity: ScanAll over InMemoryStorage is deterministic for a fixed insertion order.
+  // Compare ordered — same ordering is guaranteed across both runs for the same storage.
+  for (int i = 0; i < kVertexCount; ++i) {
+    ASSERT_EQ(result.rows[i].size(), 1u) << "Row " << i << " must have exactly one value";
+    ASSERT_TRUE(result.rows[i][0].IsVertex()) << "Row " << i << " value must be a vertex";
+    EXPECT_EQ(result.rows[i][0].ValueVertex().Gid(), baseline_gids[i])
+        << "Row " << i << ": GID mismatch between legacy and coroutine paths (ScanAll+Filter+Produce)";
+  }
+
+  // Yield count: ScanAll, Filter, and Produce each have an independent throttle
+  // slot (maybe_check_abort is shared thread_local with period=20).  With 50
+  // vertices the combined throttle fires at least 2 times; ">=1" is conservative.
+  EXPECT_GE(result.yields, 1) << "Deep chain (ScanAll+Filter+Produce) must yield at least once "
+                                 "with yield_requested=true and 50 vertices";
+
+  // OOM counter: all three cursors hold OOMExceptionEnabler inside DoPull;
+  // all must release it on normal completion.
+  EXPECT_FALSE(memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow())
+      << "OOM counter must be rebalanced to 0 after a complete ScanAll+Filter+Produce drive";
+
+  // Safety: reset flag for TearDown.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 4 — YieldEnabledAbortStillThrows.
+//
+// Both yield_requested (always-true) and transaction_status (TERMINATED) are
+// set simultaneously.  The CheckAbortOrYield contract mandates that Abort is
+// evaluated BEFORE Yield, so the cursor must throw HintedAbortError rather than
+// quietly suspending.
+//
+// This proves the yield-wiring did not break transaction-abort priority.
+//
+// Protocol:
+//   1. flag ON.
+//   2. Set transaction_status = TERMINATED and yield_requested = true.
+//   3. Drive PullRootStep in a loop inside EXPECT_THROW.
+//   4. Expect HintedAbortError to be thrown on the first throttle-fire (row 20).
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_F(RealProduceYieldTest, YieldEnabledAbortStillThrows) {
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::COROUTINE_CURSORS);
+
+  std::atomic<bool> yield_sig{true};  // yield armed
+  std::atomic<memgraph::query::TransactionStatus> tx_status{memgraph::query::TransactionStatus::TERMINATED};
+
+  auto ctx = MakeContext(storage, symbol_table, &dba);
+  ctx.stopping_context.yield_requested = &yield_sig;
+  ctx.stopping_context.transaction_status = &tx_status;
+
+  Frame frame(ctx.symbol_table.max_position());
+
+  // MakeCursor captures use_coroutine_=true (flag is ON).
+  auto cursor = produce->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+
+  // PullDriverScope: wires the leaf-handle channel (required by YieldPointAwaitable).
+  memgraph::query::plan::PullDriverScope driver(ctx, memgraph::query::plan::YieldMode::Enabled);
+
+  // Drive until HintedAbortError is thrown (expected at first throttle-fire,
+  // i.e., row 20).  The lambda captures by reference; EXPECT_THROW evaluates it.
+  EXPECT_THROW(
+      {
+        for (int step = 0; step < kVertexCount + 100; ++step) {
+          // PullRootStep throws HintedAbortError when abort precedes yield.
+          [[maybe_unused]] auto r = cursor->PullRootStep(frame, ctx);
+        }
+      },
+      memgraph::query::HintedAbortError)
+      << "With transaction_status=TERMINATED and yield_requested=true, "
+         "PullRootStep must throw HintedAbortError (abort precedes yield). "
+         "If this fails, the yield path incorrectly swallowed the abort signal.";
+
+  // Safety: reset flag for TearDown.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 5 — DeepChainAbandonMidYieldNoLeak (TLS-hazard gate, deep chain).
+//
+// Plan: ScanAll("p") -> Filter(LITERAL(true)) -> Produce(p).
+//
+// All three cursors (ScanAll, Filter, Produce) hold an OOMExceptionEnabler on
+// their suspended coroutine frame when the chain is parked mid-yield.
+// Destroying the cursor without resuming must run all three dtors via the
+// coroutine frame destruction cascade.
+//
+// If any frame's dtor does NOT run, counter_ stays elevated after cursor.reset()
+// and CanThrow() returns true — exposing a TLS-side-effect leak that could fire
+// a spurious OOM on an unrelated allocation in a future query.
+//
+// Protocol:
+//   1. Assert CanThrow()==false at entry (precondition).
+//   2. Drive until the FIRST Yielded step.
+//   3. Assert CanThrow()==true (>=1 enabler alive on suspended frames).
+//   4. cursor.reset() — destroy without resuming.
+//   5. Assert CanThrow()==false (all frame dtors ran).
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_F(RealProduceYieldTest, DeepChainAbandonMidYieldNoLeak) {
+  using OOMEnabler = memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler;
+
+  // Precondition: no stale enabler from a prior test.
+  ASSERT_FALSE(OOMEnabler::CanThrow()) << "Precondition violated: OOM counter must be 0 at test entry.";
+
+  // Build deep chain plan: ScanAll("p") -> Filter(LITERAL(true)) -> Produce(p).
+  AstStorage local_ast;
+
+  auto local_scan = MakeScanAll(local_ast, symbol_table, "p");
+
+  auto *always_true = local_ast.Create<PrimitiveLiteral>(true);
+  auto filter_op =
+      std::make_shared<Filter>(local_scan.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, always_true);
+
+  auto *local_output =
+      local_ast.Create<NamedExpression>("p", local_ast.Create<Identifier>("p")->MapTo(local_scan.sym_));
+  auto out_sym = symbol_table.CreateSymbol("named_expression_p", true);
+  local_output->MapTo(out_sym);
+  auto local_produce = MakeProduce(filter_op, local_output);
+
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::COROUTINE_CURSORS);
+
+  std::atomic<bool> yield_sig{true};
+  auto ctx = MakeContext(local_ast, symbol_table, &dba);
+  ctx.stopping_context.yield_requested = &yield_sig;
+
+  Frame frame(ctx.symbol_table.max_position());
+
+  auto cursor = local_produce->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+
+  memgraph::query::plan::PullDriverScope driver(ctx, memgraph::query::plan::YieldMode::Enabled);
+
+  // Drive until the FIRST Yielded step.
+  bool found_yield = false;
+  for (int step = 0; step < kVertexCount + 100; ++step) {
+    auto r = cursor->PullRootStep(frame, ctx);
+    using S = memgraph::query::plan::PullRunResult::Status;
+
+    if (r.status == S::Yielded) {
+      found_yield = true;
+      break;
+    }
+    if (r.status == S::Done) {
+      break;
+    }
+    // S::HasRow: continue to reach first yield.
+  }
+
+  ASSERT_TRUE(found_yield) << "Deep chain (ScanAll+Filter+Produce) must yield at least once "
+                              "(yield_requested=true always, throttle period=20, "
+                           << kVertexCount
+                           << " vertices). "
+                              "If this fails, the yield trigger is not wired in one of the DoPull bodies.";
+
+  // At least one OOMExceptionEnabler is alive on a suspended frame in the chain
+  // (Produce, Filter, or ScanAll — whichever was inside DoPull's while-body
+  // when the co_await fired).
+  EXPECT_TRUE(OOMEnabler::CanThrow())
+      << "OOMExceptionEnabler must be alive on a suspended coroutine frame in the chain "
+         "(CanThrow() must be true while the deep chain is parked mid-yield).";
+
+  // ABANDON: destroy all cursors via the top-level unique_ptr.
+  // The cursor dtor cascade calls ~ProduceCursor -> ~Cursor -> destroys gen_,
+  // which calls coroutine_handle::destroy on the suspended frames,
+  // running all in-scope dtors including OOMExceptionEnabler instances.
+  cursor.reset();
+
+  // All OOMExceptionEnabler dtors must have run.
+  EXPECT_FALSE(OOMEnabler::CanThrow())
+      << "OOM counter must be 0 after deep-chain cursor destruction "
+         "(all suspended-frame OOMExceptionEnabler dtors must have run on cursor.reset()). "
+         "If this fails, a coroutine frame in the chain leaked its OOMExceptionEnabler.";
+
+  // Safety: reset flag for TearDown.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 6 — ManyVerticesMultiYieldParity.
+//
+// Uses a LOCAL storage with 100 vertices (built entirely in the test body,
+// not the fixture's 50-vertex db) to guarantee >= 2 Yielded steps.
+//
+// Throttle period=20, 100 vertices: Produce's throttle fires at rows 20, 40, 60,
+// 80 — that alone gives 4 fires. With ScanAll also having a throttle slot the
+// combined count is higher. ">=2" is a conservative lower bound.
+//
+// GID ordering: InMemoryStorage is deterministic for a fixed insertion order;
+// we compare GIDs in order between baseline and yield run.
+//
+// Assertions:
+//   - 100 rows, same GIDs in same order, between flag-OFF and flag-ON.
+//   - yields >= 2.
+//   - OOM counter rebalanced to 0 after complete drive.
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_F(RealProduceYieldTest, ManyVerticesMultiYieldParity) {
+  static constexpr int kLocalVertexCount = 100;
+
+  // Build a completely local storage/dba to avoid disturbing the fixture's db.
+  std::unique_ptr<memgraph::storage::Storage> local_db{
+      new memgraph::storage::InMemoryStorage(memgraph::storage::Config{})};
+  auto local_storage_dba = local_db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor local_dba(local_storage_dba.get());
+
+  for (int i = 0; i < kLocalVertexCount; ++i) {
+    local_dba.InsertVertex();
+  }
+  local_dba.AdvanceCommand();
+
+  // Build ScanAll("q") -> Produce(q) plan using a local AstStorage and a fresh
+  // SymbolTable (independent from the fixture's symbol_table).
+  AstStorage local_ast;
+  SymbolTable local_sym_table;
+
+  auto local_scan = MakeScanAll(local_ast, local_sym_table, "q");
+  auto *local_output =
+      local_ast.Create<NamedExpression>("q", local_ast.Create<Identifier>("q")->MapTo(local_scan.sym_));
+  local_output->MapTo(local_sym_table.CreateSymbol("named_expression_q", true));
+  auto local_produce = MakeProduce(local_scan.op_, local_output);
+
+  // ── Baseline: legacy path (COROUTINE_CURSORS OFF). ──────────────────────
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+
+  std::vector<memgraph::storage::Gid> baseline_gids;
+  {
+    auto ctx = MakeContext(local_ast, local_sym_table, &local_dba);
+    auto baseline = CollectProduce(*local_produce, &ctx);
+    ASSERT_EQ(static_cast<int>(baseline.size()), kLocalVertexCount)
+        << "Legacy path must produce exactly " << kLocalVertexCount << " rows";
+
+    baseline_gids.reserve(baseline.size());
+    for (const auto &row : baseline) {
+      ASSERT_EQ(row.size(), 1u);
+      ASSERT_TRUE(row[0].IsVertex());
+      baseline_gids.push_back(row[0].ValueVertex().Gid());
+    }
+  }
+
+  // ── Yield run: coroutine path (COROUTINE_CURSORS ON). ──────────────────
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::COROUTINE_CURSORS);
+
+  std::atomic<bool> yield_sig{true};
+  auto ctx = MakeContext(local_ast, local_sym_table, &local_dba);
+
+  auto result = DriveWithYield(*local_produce, &ctx, &yield_sig);
+
+  ASSERT_EQ(static_cast<int>(result.rows.size()), kLocalVertexCount)
+      << "Coroutine path must produce exactly " << kLocalVertexCount << " rows";
+
+  // GID parity in order.
+  for (int i = 0; i < kLocalVertexCount; ++i) {
+    ASSERT_EQ(result.rows[i].size(), 1u) << "Row " << i << " must have exactly one value";
+    ASSERT_TRUE(result.rows[i][0].IsVertex()) << "Row " << i << " value must be a vertex";
+    EXPECT_EQ(result.rows[i][0].ValueVertex().Gid(), baseline_gids[i])
+        << "Row " << i << ": GID mismatch between legacy and coroutine paths (100-vertex run)";
+  }
+
+  // Multi-yield: with 100 vertices and period=20 the throttle fires at rows
+  // 20/40/60/80 in Produce alone → 4 yields minimum.  ">=2" is conservative.
+  EXPECT_GE(result.yields, 2) << "100-vertex run must produce >= 2 Yielded steps "
+                                 "(throttle period=20, 100 rows → 4 Produce fires alone)";
+
+  // OOM counter rebalance.
+  EXPECT_FALSE(memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow())
+      << "OOM counter must be rebalanced to 0 after a complete 100-vertex coroutine drive";
+
+  // Safety: reset flag for TearDown.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 7 — SuppressedScopePreventsSynchronousPullCollapse (EXISTS-island gate).
+//
+// MOTIVATION (EXISTS callback scenario):
+//   EvaluatePatternFilterCursor::DoPull invokes a synchronous bool Cursor::Pull()
+//   on a yield-capable subtree — exactly the same call as `cursor->Pull(frame, ctx)`
+//   in this test.  Cursor::Pull() collapses Yielded → false (line 36 of
+//   cursor_awaitable.cpp): `return ResumePullStep(ra, ctx).status == HasRow;`.
+//   A Yielded step from ScanAll's co_await YieldPointAwaitable therefore appears
+//   as "no row found" to the EXISTS callback, corrupting the EXISTS result.
+//
+//   The fix wraps the EXISTS callback in PullDriverScope(Suppressed).
+//   Suppressed sets ctx.stopping_context.yield_requested = nullptr, so
+//   YieldPointAwaitable can only ever Continue — it never writes the stash slot —
+//   so ResumePullStep never returns Yielded, so Pull() never collapses.
+//
+// STRUCTURE:
+//   Outer context: COROUTINE_CURSORS flag ON, yield_sig armed (always true),
+//   outer PullDriverScope(Enabled) — models the running query's driver that
+//   already armed the yield channel.
+//
+//   PART A (with the fix):
+//     A fresh ScanAll("s") cursor + Frame + ExecutionContext.
+//     Inside PullDriverScope(Suppressed) — the fix.
+//     50 synchronous Pull() calls; expects exactly 50 trues.
+//     Rationale: Suppressed nullifies yield_requested → no throttle-fire ever
+//     becomes Yielded → all 50 rows surface as true.
+//
+//   PART B (without the fix — demonstrates the bug):
+//     A separate ScanAll("sb") cursor + Frame + ExecutionContext.
+//     NO Suppressed scope; the outer Enabled scope + armed sig remain.
+//     50 synchronous Pull() calls; expects fewer than 50 trues.
+//     Rationale: throttle period=20, sig always true → at least 2 throttle fires
+//     in 50 iterations → >=2 Yielded collapses → trues_b <= 48 < 50.
+//
+// INDEPENDENCE:
+//   Part A and Part B use entirely separate AstStorage, ScanAllTuple, Frame,
+//   and ExecutionContext instances — Part A's cursor is destroyed before Part B
+//   constructs anything.
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_F(RealProduceYieldTest, SuppressedScopePreventsSynchronousPullCollapse) {
+  // ── Common setup: flag ON and a shared yield signal. ──────────────────────
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::COROUTINE_CURSORS);
+
+  // yield_sig is always true: every throttle-fire (period=20) would trigger a
+  // yield in an unsuppressed context.  Both parts share the same atomic because
+  // they share the flag; the signal is never reset between parts.
+  std::atomic<bool> yield_sig{true};
+
+  // ── PART A: with PullDriverScope(Suppressed) — the EXISTS fix. ───────────
+  //
+  // Goal: prove that 50 synchronous Pull() calls over a yield-capable ScanAll
+  // cursor ALL return true when the EXISTS callback is correctly wrapped in a
+  // Suppressed scope.
+  {
+    // Independent AstStorage and ScanAll("s") — distinct identifier from the
+    // fixture's "n" and from Part B's "sb" to avoid symbol_table collisions.
+    AstStorage ast_a;
+    auto scan_a = MakeScanAll(ast_a, symbol_table, "s");
+
+    auto ctx_a = MakeContext(ast_a, symbol_table, &dba);
+
+    // Wire yield_sig on the context — this models the scheduler having armed
+    // the yield channel on the worker thread.
+    ctx_a.stopping_context.yield_requested = &yield_sig;
+
+    // Outer Enabled scope: models the running query's top-level driver region.
+    // It sets ctx_a.enabled_driver_active = true and wires the handle channel.
+    memgraph::query::plan::PullDriverScope outer_a{ctx_a, memgraph::query::plan::YieldMode::Enabled};
+
+    Frame frame_a(ctx_a.symbol_table.max_position());
+
+    // MakeCursor captures use_coroutine_=true because COROUTINE_CURSORS is ON.
+    auto cursor_a = scan_a.op_->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+
+    int trues_a = 0;
+    {
+      // PullDriverScope(Suppressed): the EXISTS fix.
+      //   - Sets ctx_a.stopping_context.yield_requested = nullptr for this scope.
+      //   - YieldPointAwaitable therefore always continues (never stashes the handle).
+      //   - ResumePullStep never sees a stashed handle → never returns Yielded.
+      //   - Cursor::Pull() therefore never collapses a Yielded to false.
+      memgraph::query::plan::PullDriverScope suppress_a{ctx_a, memgraph::query::plan::YieldMode::Suppressed};
+
+      for (int i = 0; i < kVertexCount; ++i) {
+        if (cursor_a->Pull(frame_a, ctx_a)) ++trues_a;
+      }
+    }  // Suppressed scope exits; yield_requested is restored to &yield_sig.
+
+    EXPECT_EQ(trues_a, kVertexCount)
+        << "PART A (Suppressed scope / EXISTS fix): every one of the " << kVertexCount
+        << " synchronous Pull() calls must return true. "
+           "Under PullDriverScope(Suppressed), yield_requested is set to nullptr, so "
+           "YieldPointAwaitable can only Continue — no throttle-fire ever becomes Yielded — "
+           "so Cursor::Pull() (which collapses Yielded→false) sees only HasRow or Done. "
+           "All "
+        << kVertexCount << " ScanAll rows must surface as true in " << kVertexCount << " pulls.";
+
+    cursor_a->Shutdown();
+  }  // cursor_a, frame_a, ctx_a, outer_a all destroyed here — completely independent from Part B.
+
+  // ── PART B: WITHOUT Suppressed scope — demonstrates the bug. ──────────────
+  //
+  // Goal: prove that without the fix, the armed yield signal causes at least one
+  // synchronous Pull() to collapse a Yielded to false, so trues_b < kVertexCount.
+  //
+  // Throttle analysis: maybe_check_abort has period=20.  With kVertexCount=50
+  // and yield_sig always true:
+  //   - Throttle fires at iterations 20 and 40 (0-indexed) inside ScanAll's
+  //     DoPull while-loop → 2 Yielded returns from ResumePullStep.
+  //   - Cursor::Pull() collapses each to false → trues_b <= 48.
+  //   - Starting phase is deterministic (fresh cursor, counter starts at 0).
+  //   - EXPECT_LT(trues_b, 50) is guaranteed non-flaky.
+  {
+    // Fully separate AstStorage and ScanAll("sb") — different identifier string
+    // to avoid any symbol collision with Part A's "s" in the shared symbol_table.
+    AstStorage ast_b;
+    auto scan_b = MakeScanAll(ast_b, symbol_table, "sb");
+
+    auto ctx_b = MakeContext(ast_b, symbol_table, &dba);
+
+    // Arm yield_sig on the context — same as Part A, modelling the running query.
+    ctx_b.stopping_context.yield_requested = &yield_sig;
+
+    // Outer Enabled scope only — NO Suppressed inner scope.
+    // This models calling cursor->Pull() from an EXISTS callback without the fix.
+    memgraph::query::plan::PullDriverScope outer_b{ctx_b, memgraph::query::plan::YieldMode::Enabled};
+
+    Frame frame_b(ctx_b.symbol_table.max_position());
+
+    // MakeCursor captures use_coroutine_=true (flag still ON from Part A).
+    auto cursor_b = scan_b.op_->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+
+    int trues_b = 0;
+    // No Suppressed scope here — yield_requested remains &yield_sig.
+    // ScanAll's DoPull co_await YieldPointAwaitable fires at each throttle tick,
+    // stashing the leaf handle.  ResumePullStep returns Yielded.
+    // Cursor::Pull() returns (Yielded == HasRow) == false — a spurious "no row".
+    for (int i = 0; i < kVertexCount; ++i) {
+      if (cursor_b->Pull(frame_b, ctx_b)) ++trues_b;
+    }
+
+    EXPECT_LT(trues_b, kVertexCount)
+        << "PART B (no Suppressed scope / bug reproduction): with yield_requested=true always "
+           "and throttle period=20, at least 2 of the "
+        << kVertexCount
+        << " synchronous Pull() calls must collapse a Yielded to false (returning false). "
+           "Specifically: throttle fires at ScanAll iterations 20 and 40, each producing "
+           "Yielded from ResumePullStep, which Cursor::Pull() collapses to false — exactly "
+           "the EXISTS corruption this fix prevents. "
+           "Expected: trues_b <= "
+        << (kVertexCount - 2) << "; got: " << trues_b << ".";
+
+    cursor_b->Shutdown();
+  }  // cursor_b, frame_b, ctx_b, outer_b all destroyed here.
+
+  // TearDown also calls SetExperimental(NONE); explicit reset here for clarity.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
 }

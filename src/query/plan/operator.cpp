@@ -1064,7 +1064,10 @@ class ScanAllCursor : public Cursor {
         OOMExceptionEnabler oom_exception;
         SCOPED_PROFILE_OP_BY_REF(self_);
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         bool ok = true;
         while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
@@ -1209,7 +1212,10 @@ class ScanAllByEdgeCursor : public Cursor {
         OOMExceptionEnabler oom_exception;
         SCOPED_PROFILE_OP_BY_REF(self_);
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         bool ok = true;
         while (!edges_ || edges_it_.value() == edges_end_it_.value()) {
@@ -6281,7 +6287,10 @@ PullAwaitable Filter::FilterCursor::DoPull(Frame &frame, ExecutionContext &conte
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP_BY_REF(self_);
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       // Like all filters, newly set values should not affect filtering of old
       // nodes and edges.
@@ -6375,6 +6384,11 @@ PullAwaitable EvaluatePatternFilter::EvaluatePatternFilterCursor::DoPull(Frame &
 
       std::function<void(TypedValue *)> function =
           [&frame, self = this->self_, input_cursor = this->input_cursor_.get(), &context](TypedValue *return_value) {
+            // Phase-3 EXISTS-island yield suppression: the synchronous sub-pull for EXISTS must not
+            // be preempted. Setting YieldMode::Suppressed pins yield_requested=nullptr for the
+            // duration of this synchronous descent so CheckAbortOrYield never suspends the coroutine.
+            memgraph::query::plan::PullDriverScope const yield_suppress{context,
+                                                                        memgraph::query::plan::YieldMode::Suppressed};
             OOMExceptionEnabler const oom_exception;
             input_cursor->Reset();
 

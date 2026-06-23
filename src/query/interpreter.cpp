@@ -3188,7 +3188,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   // this PullPlan.  Constructed AFTER ctx_ is fully populated.  Flag-OFF:
   // driver_scope_ stays nullopt and ctx_.suspended_task_handle_ptr stays null
   // → ResumePullStep never takes the yield branch → byte-identical.
-  if (flags::AreExperimentsEnabled(flags::Experiments::COROUTINE_CURSORS)) {
+  // H11: profile PullPlans run as a one-shot with no resume machinery — they
+  // must never enable yield (the caller MG_ASSERTs the returned optional).
+  if (flags::AreExperimentsEnabled(flags::Experiments::COROUTINE_CURSORS) && !is_profile_query) {
     driver_scope_.emplace(ctx_, plan::YieldMode::Enabled);
   }
 }
@@ -3200,7 +3202,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // Both are gated so that the flag-OFF call graph is byte-identical: neither
   // ctx_.stopping_context.yield_requested nor yielded_ are touched on the
   // legacy path.
-  if (flags::AreExperimentsEnabled(flags::Experiments::COROUTINE_CURSORS)) {
+  // H11: profile PullPlans must not enable yield (one-shot, no resume machinery).
+  if (flags::AreExperimentsEnabled(flags::Experiments::COROUTINE_CURSORS) && !ctx_.is_profile_query) {
     // Re-fetch per-worker signal each call: the worker is stable for the
     // duration of one Pull call; a pinned reschedule preserves the worker id.
     // Null when not on a registered pool worker → no yield, legacy behaviour.
