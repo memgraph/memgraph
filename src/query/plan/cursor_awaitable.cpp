@@ -16,6 +16,10 @@
 
 namespace memgraph::query::plan {
 
+// thread_local definition for PullDriverScope's Enabled-nesting guard (declared in cursor_awaitable.hpp).
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+thread_local int PullDriverScope::enabled_depth_ = 0;
+
 // Base Cursor seam definitions (kept out-of-line: the ctor needs the flags header, Pull() needs
 // ResumePullStep, and Reset() matches the rest of the cursor cpp).
 
@@ -34,6 +38,14 @@ bool Cursor::Pull(Frame &f, ExecutionContext &ctx) {
   // Converted cursors override PullCo() to drive gen_.
   auto ra = PullCo(f, ctx);
   return ResumePullStep(ra, ctx).status == PullRunResult::Status::HasRow;
+}
+
+// Status-preserving root entry — does NOT collapse Yielded to false.
+// The interpreter root driver will use this in Phase 3 so it can park and resume leaf frames.
+// Zero callers today; purely an additive seam.
+PullRunResult Cursor::PullRootStep(Frame &f, ExecutionContext &ctx) {
+  auto ra = PullCo(f, ctx);
+  return ResumePullStep(ra, ctx);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

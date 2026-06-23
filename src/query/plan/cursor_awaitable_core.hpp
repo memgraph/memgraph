@@ -121,10 +121,14 @@ class PullAwaitable {
     // in both cases so await_suspend is never reached with a null handle.
     bool await_ready() const noexcept { return immediate_ready_ || !handle_; }
 
-    // This cursor is not ready, transfer to the child and execute it's logic.
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> parent) const noexcept {
+    // This cursor is not ready, transfer to the child and execute its logic.
+    // Relinquish ownership here (rvalue co_await path): once the parent suspends
+    // over this child co_await, the Awaiter's dtor must NOT destroy the still-live
+    // child frame.  The driver's slot becomes the sole non-owning observer.
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> parent) noexcept {
       handle_.promise().parent_ = parent;
-      return handle_;  // symmetric transfer into child
+      owns_handle_ = false;  // #6 fix: leaf now owned by the coroutine chain, not us
+      return handle_;        // symmetric transfer into child
     }
 
     bool await_resume() const {
@@ -135,13 +139,10 @@ class PullAwaitable {
     }
   };
 
-  // PHASE-2 NOTE (cooperative yield not yet wired). ~Awaiter() destroys its handle whenever
-  // owns_handle_ is set; it does NOT inspect handle_.done(). So once yield lands and a parent frame can
-  // be parked over a co_await with its child leaf still suspended, YieldPointAwaitable::await_suspend
-  // MUST transfer the handle out of the Awaiter (clear owns_handle_ / null handle_) before the parent
-  // suspends -- otherwise tearing down the parent's Awaiter would destroy a child frame the scheduler
-  // still holds (double-free). Today nothing yields, so no Awaiter is ever live across a real suspension.
-  // ~PullPlan calls cursor_->Reset(), which destroys the root generator and unwinds the coroutine chain.
+  // PHASE-2 NOTE (cooperative yield). ~Awaiter() destroys its handle whenever owns_handle_ is set.
+  // The #6 fix in await_suspend clears owns_handle_ before the symmetric transfer, so that once a
+  // parent frame parks over a child co_await the Awaiter no longer owns the leaf — the leaf is owned
+  // by the live coroutine chain. The driver's slot is a non-owning observer. Double-free hazard closed.
 
   PullAwaitable() = default;
 

@@ -135,8 +135,18 @@ class PullDriverScope {
   /// both saved pointers unconditionally.
   explicit PullDriverScope(ExecutionContext &ctx, YieldMode mode = YieldMode::Enabled) noexcept
       : ctx_(ctx),
+        mode_(mode),
         saved_handle_ptr_(ctx.suspended_task_handle_ptr),
         saved_yield_requested_(ctx.stopping_context.yield_requested) {
+    if (mode == YieldMode::Enabled) {
+      // Guard: nested Enabled scopes fight over the single suspended_task_handle_ptr slot.
+      // A Suppressed scope is intentionally allowed to nest inside an Enabled one.
+      DMG_ASSERT(enabled_depth_ == 0,
+                 "PullDriverScope(Enabled): nested Enabled yield scope detected on this thread. "
+                 "Only one Enabled scope may be active at a time; use Suppressed for inner pulls.");
+      ++enabled_depth_;
+    }
+
     // Always wire the handle-channel to our owned slot.
     ctx_.suspended_task_handle_ptr = &slot_;
 
@@ -152,6 +162,11 @@ class PullDriverScope {
     // Restore both pointers so the outer scope sees the previous state.
     ctx_.suspended_task_handle_ptr = saved_handle_ptr_;
     ctx_.stopping_context.yield_requested = saved_yield_requested_;
+
+    // Decrement only for the mode we incremented (Suppressed scopes never touch enabled_depth_).
+    if (mode_ == YieldMode::Enabled) {
+      --enabled_depth_;
+    }
   }
 
   // Non-copyable, non-movable (our address stability is the contract).
@@ -166,7 +181,13 @@ class PullDriverScope {
   [[nodiscard]] std::coroutine_handle<> StashedHandle() const noexcept { return slot_; }
 
  private:
+  /// Per-thread nesting depth of Enabled scopes.  Asserted to be 0 on Enabled ctor entry.
+  /// Suppressed scopes do not touch this counter.
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+  static thread_local int enabled_depth_;
+
   ExecutionContext &ctx_;
+  YieldMode mode_;
   std::coroutine_handle<> slot_{};
   /// Saved prior suspended_task_handle_ptr (restored in dtor).
   std::coroutine_handle<> *saved_handle_ptr_;

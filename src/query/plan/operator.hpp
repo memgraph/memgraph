@@ -118,6 +118,14 @@ class Cursor {
     return PullAwaitable::ResumeAwaitable::Immediate(Pull(f, ctx));
   }
 
+  /// Status-preserving root entry for the interpreter driver.  Unlike Pull(), which collapses
+  /// Yielded into false (same as Done), this method returns the raw PullRunResult — including
+  /// PullRunResult::Yielded — so the scheduler can park and resume the leaf frame.
+  ///
+  /// This is the entry point the interpreter root driver will use in Phase 3.  It has zero
+  /// callers today (additive seam); only the coroutine path is meaningful here.
+  PullRunResult PullRootStep(Frame &f, ExecutionContext &ctx);
+
   /// Resets the Cursor to its initial state. Base destroys the live generator frame (gen_);
   /// converted cursors call Cursor::Reset() FIRST, then clear their retained members.
   virtual void Reset();
