@@ -161,6 +161,14 @@ add_unit_test(cursor_yield_interpreter
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
+# Phase-3 multi-worker pool integration test (B7): drives REAL coroutine cursors
+# inside REAL PriorityThreadPool workers with an external yield-request racer.
+# Also serves as the TSan gate for cross-worker yield/reschedule correctness.
+add_unit_test(cursor_yield_pool
+    SOURCES cursor_yield_pool.cpp
+    LINK_TARGETS mg-query mg-glue disk_test_utils
+)
+
 add_unit_test(query_plan_orderby_index
     SOURCES query_plan_orderby_index.cpp
     LINK_TARGETS mg-query
