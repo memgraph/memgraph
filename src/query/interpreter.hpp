@@ -121,7 +121,20 @@ struct InterpreterContext;
 inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
 inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
 
-enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
+enum class QueryHandlerResult { COMMIT, ABORT, NOTHING, YIELD };
+
+// Marker key returned by Interpreter::Pull when the coroutine drive loop
+// intercepted a cooperative yield (COROUTINE_CURSORS ON).  The Bolt session
+// layer (Batch B5 — HandlePullDiscard) intercepts this key and reschedules
+// the resumable DoWork task without sending any response to the client.
+//
+// yield: resume-in-worker, NOT a client round-trip; B5's HandlePullDiscard
+// intercepts kYieldReschedule and reschedules the resumable DoWork task
+// without responding to the client.
+//
+// Under flag-OFF this key is never produced, so the session layer never
+// sees it and the flag-OFF path is byte-identical.
+inline constexpr std::string_view kYieldReschedule = "__yield_reschedule__";
 
 #ifdef MG_ENTERPRISE
 class CoordinatorQueryHandler {
@@ -681,6 +694,21 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // can be deleted after its execution so the stream should be cleared
     // first.
     stream.~AnyStream();
+
+    // Batch Ib — YIELD early-return (guards H8/H9/H10).
+    // Intercept BEFORE the if(maybe_res) finalization block so that the
+    // slow-query gate (H8), notifications (H9), and the exhaustive switch (H10)
+    // never see QueryHandlerResult::YIELD.
+    //
+    // yield: resume-in-worker, NOT a client round-trip; B5's HandlePullDiscard
+    // intercepts kYieldReschedule and reschedules the resumable DoWork task
+    // without responding to the client.
+    //
+    // Flag-OFF: yielded_ is never set → the Cypher handler never returns YIELD
+    // → this branch is dead code on the flag-OFF path → byte-identical.
+    if (maybe_res && *maybe_res == QueryHandlerResult::YIELD) {
+      return {{std::string(kYieldReschedule), TypedValue(true)}};
+    }
 
     // If the query finished executing, we have received a value which tells
     // us what to do after.

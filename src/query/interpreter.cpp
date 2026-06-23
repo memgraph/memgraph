@@ -3288,7 +3288,26 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
       }
 
       // Look-ahead probe (mirrors the legacy path; only reached when not yielded).
-      has_unsent_results_ = i == n && cursor_->PullRootStep(frame_, ctx_).status == plan::PullRunResult::Status::HasRow;
+      // Batch Ib — fix look-ahead-probe-yields hazard:
+      // The probe itself can return Yielded (the leaf suspended before producing a
+      // row).  In that case we must NOT set has_unsent_results_, must NOT fall
+      // through to summary finalization / cursor_->Shutdown(), and must signal the
+      // yielded_ discriminator so the caller (Cypher handler → Interpreter::Pull)
+      // returns the YIELD early-return path instead of committing.
+      // On resume, the next Pull's first PullRootStep resumes the suspended probe
+      // and streams its row in the resumed batch — the row is NOT lost.
+      if (i == n) {
+        auto probe_result = cursor_->PullRootStep(frame_, ctx_);
+        if (probe_result.status == plan::PullRunResult::Status::Yielded) {
+          yielded_ = true;
+          execution_time_ += timer.Elapsed();
+          // Cursor suspended in the probe — do NOT finalize, do NOT Shutdown.
+          return std::nullopt;
+        }
+        has_unsent_results_ = (probe_result.status == plan::PullRunResult::Status::HasRow);
+      } else {
+        has_unsent_results_ = false;
+      }
     } else {
       // Legacy drive path (flag OFF) — BYTE-IDENTICAL to the pre-B3 code.
       for (; !n || i < n; ++i) {
@@ -3667,6 +3686,15 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->Pull(stream, n, output_symbols, summary)) {
           return QueryHandlerResult::COMMIT;
+        }
+        // Batch Ib: distinguish a cooperative yield (yielded_=true, flag ON) from
+        // a normal partial-PULL (has_unsent_results_, flag ON or OFF).
+        // yielded_ is reset at the top of every PullPlan::Pull, so it is true only
+        // when the drive loop intercepted a Yielded result in the just-finished call.
+        // Flag-OFF: yielded_ is never set → this branch is never taken → nullopt
+        // propagates as before → byte-identical.
+        if (flags::AreExperimentsEnabled(flags::Experiments::COROUTINE_CURSORS) && pull_plan->yielded_) {
+          return QueryHandlerResult::YIELD;
         }
         return std::nullopt;
       },
