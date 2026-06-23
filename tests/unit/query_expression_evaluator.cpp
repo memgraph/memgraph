@@ -2589,6 +2589,49 @@ TYPED_TEST(FunctionTest, ElementId) {
   EXPECT_THROW(this->EvaluateFunction("ELEMENTID", va, *ea), QueryRuntimeException);
 }
 
+TYPED_TEST(FunctionTest, IdOnVirtualAndOverlayNodes) {
+  auto real = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+  const auto real_id = this->EvaluateFunction("ID", real).ValueInt();
+
+  // A synthetic node (no origin) reports its own negative id.
+  VirtualNode synthetic({"L"}, {});
+  ASSERT_LT(synthetic.CypherId(), 0);
+  EXPECT_EQ(this->EvaluateFunction("ID", synthetic).ValueInt(), synthetic.CypherId());
+
+  // An overlay node reports its origin's real id, so id() is the entity's identity in the real graph.
+  VirtualNode overlay({"L"}, {}, {}, std::optional<VertexAccessor>{real});
+  ASSERT_NE(overlay.CypherId(), real_id);
+  EXPECT_EQ(this->EvaluateFunction("ID", overlay).ValueInt(), real_id);
+}
+
+TYPED_TEST(FunctionTest, VirtualId) {
+  auto real = this->dba.InsertVertex();
+  auto real_edge = this->dba.InsertEdge(&real, &real, this->dba.NameToEdgeType("edge"));
+  ASSERT_TRUE(real_edge.has_value());
+  this->dba.AdvanceCommand();
+
+  // A real vertex or edge has no overlay-local id.
+  EXPECT_TRUE(this->EvaluateFunction("VIRTUAL_ID", TypedValue()).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction("VIRTUAL_ID", real).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction("VIRTUAL_ID", *real_edge).IsNull());
+
+  // A synthetic node and an overlay node both report their negative synthetic id.
+  VirtualNode synthetic({"L"}, {});
+  EXPECT_EQ(this->EvaluateFunction("VIRTUAL_ID", synthetic).ValueInt(), synthetic.CypherId());
+  VirtualNode overlay({"L"}, {}, {}, std::optional<VertexAccessor>{real});
+  EXPECT_EQ(this->EvaluateFunction("VIRTUAL_ID", overlay).ValueInt(), overlay.CypherId());
+
+  // A virtual edge reports its negative synthetic id.
+  auto from = std::make_shared<const VirtualNode>(VirtualNode({"L"}, {}));
+  auto to = std::make_shared<const VirtualNode>(VirtualNode({"L"}, {}));
+  VirtualEdge vedge(from, to, "T");
+  EXPECT_EQ(this->EvaluateFunction("VIRTUAL_ID", vedge).ValueInt(), vedge.Gid().AsInt());
+
+  EXPECT_THROW(this->EvaluateFunction("VIRTUAL_ID"), QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("VIRTUAL_ID", 0), QueryRuntimeException);
+}
+
 TYPED_TEST(FunctionTest, ElementIdVirtual) {
   auto vn1 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L1"}, {}));
   auto vn2 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L2"}, {}));

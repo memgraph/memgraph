@@ -31,6 +31,7 @@ const char kStartsWith[] = "STARTSWITH";
 const char kEndsWith[] = "ENDSWITH";
 const char kContains[] = "CONTAINS";
 const char kId[] = "ID";
+const char kVirtualId[] = "VIRTUAL_ID";
 const char kElementId[] = "ELEMENTID";
 }  // namespace
 

@@ -1243,7 +1243,12 @@ TypedValue IdOf(const TypedValue &arg, const FunctionContext &ctx) {
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (arg.IsVirtualNode()) {
-    return TypedValue(arg.ValueVirtualNode().CypherId(), ctx.memory);
+    const auto &vnode = arg.ValueVirtualNode();
+    // An overlay node (one derived over a real vertex) reports its origin's real id, so id() is the
+    // entity's identity in the real graph. A synthetic node has no origin and reports its own
+    // negative id.
+    if (vnode.HasOrigin()) return TypedValue(vnode.Origin()->CypherId(), ctx.memory);
+    return TypedValue(vnode.CypherId(), ctx.memory);
   } else if (arg.IsVertex()) {
     return TypedValue(arg.ValueVertex().CypherId(), ctx.memory);
   } else if (arg.IsVirtualEdge()) {
@@ -1256,6 +1261,22 @@ TypedValue IdOf(const TypedValue &arg, const FunctionContext &ctx) {
 TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("id", args, nargs);
   return IdOf(args[0], ctx);
+}
+
+// The overlay-local id: the negative synthetic id for a virtual node or edge (whether synthetic or
+// an overlay over a real entity), and null for a real entity that has no overlay identity.
+TypedValue VirtualIdOf(const TypedValue &arg, const FunctionContext &ctx) {
+  if (arg.IsVirtualNode()) {
+    return TypedValue(arg.ValueVirtualNode().CypherId(), ctx.memory);
+  } else if (arg.IsVirtualEdge()) {
+    return TypedValue(arg.ValueVirtualEdge().Gid().AsInt(), ctx.memory);
+  }
+  return TypedValue(ctx.memory);
+}
+
+TypedValue VirtualId(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Vertex, Edge>>("virtual_id", args, nargs);
+  return VirtualIdOf(args[0], ctx);
 }
 
 // Returns the id as a string for compatibility with external integrations.
@@ -2151,6 +2172,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"ENDNODE", func_info{.func_ = EndNode, .is_pure_ = true}},
     {"HEAD", func_info{.func_ = Head, .is_pure_ = true}},
     {kId, func_info{.func_ = Id, .is_pure_ = true}},
+    {kVirtualId, func_info{.func_ = VirtualId, .is_pure_ = true}},
     {kElementId, func_info{.func_ = ElementId, .is_pure_ = true}},
     {"LAST", func_info{.func_ = Last, .is_pure_ = true}},
     {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true}},
