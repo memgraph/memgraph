@@ -266,6 +266,18 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       return true;
     };
 
+    // Parallel sections are valid only in the MAIN plan chain, never inside a subquery arm
+    // (Apply.subquery_ / PeriodicSubquery.subquery_ / Optional.optional_). A parallel
+    // Aggregate/OrderBy inside a subquery arm corrupts the enclosing Apply -- it drops the Apply's
+    // main-branch rows, giving silently wrong results (e.g. count(n) collapses to 0) even at a
+    // single level. This also subsumes the nested-parallel deadlock risk (R6): the inner section of
+    // a nested parallel plan always lives in a subquery arm, so refusing to parallelize there
+    // guarantees at most one parallel section per plan. Parallelism in an Apply's MAIN input is
+    // unaffected -- only the subquery_/optional_ arm is forbidden.
+    if (InsideSubqueryArm(&op)) {
+      return failure("operator is inside a subquery arm -- parallel sections only in the main chain");
+    }
+
     // Find the Scan operator that produces the required symbols
     LogicalOperator *target_scan = nullptr;
     LogicalOperator *scan_parent = &op;
@@ -662,6 +674,27 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   static constexpr auto conflicting_types =
       std::array{Aggregate::kType, AggregateParallel::kType, OrderBy::kType, OrderByParallel::kType};
 
+  // True if `op` lies inside a subquery arm of some ancestor (Apply.subquery_ /
+  // PeriodicSubquery.subquery_ / Optional.optional_). prev_ops_ is the complete contiguous
+  // ancestor chain -- EVERY operator type uses DEFAULT_VISITS to push/pop -- so the child of
+  // prev_ops_[i] on the path to `op` is prev_ops_[i+1] (or `op` itself for the deepest ancestor).
+  // If that child equals the subquery/optional arm pointer of an Apply/PeriodicSubquery/Optional
+  // ancestor, `op` is inside that subquery arm. An operator in an Apply's MAIN input is NOT flagged.
+  bool InsideSubqueryArm(const LogicalOperator *op) const {
+    for (size_t i = 0; i < prev_ops_.size(); ++i) {
+      const LogicalOperator *child = (i + 1 < prev_ops_.size()) ? prev_ops_[i + 1] : op;
+      const auto *ancestor = prev_ops_[i];
+      if (const auto *apply_op = dynamic_cast<const Apply *>(ancestor)) {
+        if (apply_op->subquery_.get() == child) return true;
+      } else if (const auto *periodic_subquery_op = dynamic_cast<const PeriodicSubquery *>(ancestor)) {
+        if (periodic_subquery_op->subquery_.get() == child) return true;
+      } else if (const auto *optional_op = dynamic_cast<const Optional *>(ancestor)) {
+        if (optional_op->optional_.get() == child) return true;
+      }
+    }
+    return false;
+  }
+
   bool ConflictingOperators(LogicalOperator *start) {
     if (!start) {
       return false;
@@ -708,6 +741,11 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current)) {
         if (ConflictingOperators(indexed_join_op->main_branch_.get()) ||
             ConflictingOperators(indexed_join_op->sub_branch_.get())) {
+          return true;
+        }
+        break;
+      } else if (auto *union_op = dynamic_cast<Union *>(current)) {
+        if (ConflictingOperators(union_op->left_op_.get()) || ConflictingOperators(union_op->right_op_.get())) {
           return true;
         }
         break;
