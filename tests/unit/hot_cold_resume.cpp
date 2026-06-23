@@ -377,7 +377,7 @@ TEST_F(HotColdResume, CrossRestartColdTenantStaysColdHotTenantRecovers) {
 
   Restart();
 
-  // F2: after restart the new handler sets the gauge to its own cold-tenant count (1).
+  // After restart the new handler sets the gauge to its own cold-tenant count (1).
   // The delta vs. the pre-suspend baseline is exactly 1 (one tenant restored COLD on boot).
   EXPECT_DOUBLE_EQ(memgraph::metrics::Metrics().global.cold_databases->Value() - cold_gauge_before_suspend, 1.0)
       << "the cold-tenant gauge must increase by 1 (net vs. pre-suspend baseline) after restart with one COLD tenant";
@@ -602,7 +602,7 @@ TEST_F(HotColdResume, AppliedWireEpochDrivesColdPromotionBoundary) {
   ASSERT_TRUE(found);
 }
 
-// F2 (observability): a successful SUSPEND/RESUME pair moves the global hot/cold Prometheus metrics — the
+// Observability: a successful SUSPEND/RESUME pair moves the global hot/cold Prometheus metrics — the
 // suspends/resumes counters and the cold-tenant gauge.
 //   - The counters are process-global monotonic singletons shared across every test in this binary, so
 //     assert on DELTAS captured around the operation.
@@ -649,7 +649,7 @@ TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
     bad_uuid = static_cast<std::string>(acc->storage()->uuid());
   }
 
-  // F2: a non-OOM recovery failure increments the generic boot-recovery-failure counter (delta, since
+  // A non-OOM recovery failure increments the generic boot-recovery-failure counter (delta, since
   // the counter is a process-global monotonic singleton shared across tests in this binary).
   const double boot_fail0 = memgraph::metrics::Metrics().global.database_boot_recovery_failures->Value();
 
@@ -684,7 +684,7 @@ TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
   EXPECT_THROW(handler_->Get(bad), std::exception);
 }
 
-// F1: a corrupt/truncated durable entry must leave the instance starting DEGRADED — the entry is
+// A corrupt/truncated durable entry must leave the instance starting DEGRADED — the entry is
 // skipped, the rest of the tenants recover, and (crucially) NO data directory is deleted, because a
 // corrupt entry whose rel_dir we cannot read would otherwise be reaped by the unused-directory cleanup.
 TEST_F(HotColdResume, CorruptDurableEntrySkippedAndDataPreserved) {

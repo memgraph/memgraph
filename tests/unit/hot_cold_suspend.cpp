@@ -246,7 +246,7 @@ TEST_F(HotColdSuspend, ResumeInvokesOnResumeArm) {
   }  // release the resumed accessor before TearDown resets the handler (~Gatekeeper waits for count==0)
 }
 
-// H1: DROP DATABASE on a COLD (suspended) tenant must clean up (suspended_ entry, durable cold
+// DROP DATABASE on a COLD (suspended) tenant must clean up (suspended_ entry, durable cold
 // marker, data dir, cold shell) and succeed — not bail with NON_EXISTENT and leak the tenant (which
 // then re-materializes on restart). After the drop the name must be reusable.
 TEST_F(HotColdSuspend, DropColdTenantCleansUp) {
@@ -267,7 +267,7 @@ TEST_F(HotColdSuspend, DropColdTenantCleansUp) {
   EXPECT_TRUE(recreate.has_value()) << "name must be reusable after dropping the cold tenant";
 }
 
-// H2: RENAME DATABASE on a COLD tenant must be rejected with RenameError::SUSPENDED, NOT abort the
+// RENAME DATABASE on a COLD tenant must be rejected with RenameError::SUSPENDED, NOT abort the
 // process (pre-fix it tripped MG_ASSERT after moving the no-value shell).
 TEST_F(HotColdSuspend, RenameColdTenantRejected) {
   auto name = CreateTenant("rename_cold");
@@ -296,7 +296,7 @@ TEST_F(HotColdSuspend, SuspendMultipleTenants) {
   EXPECT_THROW(handler_->Get(b), std::exception);
 }
 
-// H1-concurrency / deadlock regression: a concurrent DROP DATABASE while a Resume is parked in its
+// Deadlock regression: a concurrent DROP DATABASE while a Resume is parked in its
 // on_resume_ arm (state == RESUMING, suspended_ still holds the entry) must be rejected with
 // DeleteError::USING and must NOT deadlock. The resumer must complete to HOT after the rejected DROP.
 //

@@ -1132,16 +1132,16 @@ def test_ttl_restarts_after_resume(connection, test_name):
 
 
 def test_drop_cold_tenant_converges(connection, test_name):
-    # H1 (replica DropDatabaseRpc → cold-aware Delete(uuid)):
+    # Replica DropDatabaseRpc path uses cold-aware Delete(uuid):
     #   Before the fix, a replica that held tenant A COLD would never process a DropDatabaseRpc issued
     #   while A was suspended, because the delete path only walked the HOT set. The replica was left
     #   with a cold ghost that tenant_probe returned as "COLD" forever rather than "MISSING".
     #   After the fix, DropDatabaseRpc calls a cold-aware Delete(uuid) that also reaps the cold shell.
     #
-    # H4 (SystemRecovery leftover-delete sees COLD):
-    #   This path is exercised by the companion test below; see test_drop_cold_tenant_while_replica_down_converges.
+    # The SystemRecovery leftover-delete path (replica offline during drop) is exercised by the
+    #   companion test below; see test_drop_cold_tenant_while_replica_down_converges.
     #
-    # Phase 1 — online drop (H1 replica apply path):
+    # Phase 1 — online drop (replica apply path):
     #   MAIN suspends A then drops it while the replica is online. The DropDatabaseRpc must cause the
     #   replica to remove the cold ghost; tenant_probe must transition from "COLD" to "MISSING".
     instances = {
@@ -1169,8 +1169,8 @@ def test_drop_cold_tenant_converges(connection, test_name):
     # MAIN's own copy is COLD too.
     assert tenant_probe(main_cursor, "A")() == "COLD"
 
-    # DROP A on MAIN while it is COLD. This must succeed locally (H1 local cold-aware drop), and the
-    # DropDatabaseRpc sent to the replica must remove the cold ghost there too (H1 replica apply path).
+    # DROP A on MAIN while it is COLD. This must succeed locally via the cold-aware drop path, and the
+    # DropDatabaseRpc sent to the replica must remove the cold ghost there too.
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
     execute_and_fetch_all(main_cursor, "DROP DATABASE A;")
 
@@ -1181,7 +1181,7 @@ def test_drop_cold_tenant_converges(connection, test_name):
 
 
 def test_drop_cold_tenant_while_replica_down_converges(connection, test_name):
-    # H4 (SystemRecovery leftover-delete sees COLD):
+    # SystemRecovery leftover-delete must seed from HOT∪COLD, not just HOT:
     #   Before the fix, the V3 SystemRecovery leftover-delete loop only walked MAIN's HOT set when
     #   seeding the "tenants MAIN no longer has" set. A tenant dropped while it was COLD was absent from
     #   both MAIN's HOT set and MAIN's COLD set at reconnect time (it had already been destroyed), so the
@@ -1196,7 +1196,7 @@ def test_drop_cold_tenant_while_replica_down_converges(connection, test_name):
     #   4. Kill the replica (keep its data dir so it recovers B COLD on restart via --data-recovery-on-startup).
     #   5. DROP B on MAIN while the replica is offline (DropDatabaseRpc lost).
     #   6. Restart the replica; it recovers B as a COLD shell from its own disk.
-    #   7. On reconnect MAIN runs SystemRecovery (V3); the H4 leftover-delete seeds from HOT∪COLD and
+    #   7. On reconnect MAIN runs SystemRecovery (V3); the leftover-delete seeds from HOT∪COLD and
     #      includes B (which MAIN no longer holds at all) -> the replica reaps the cold ghost.
     #   8. tenant_probe must converge to "MISSING".
     instances = {
@@ -1225,7 +1225,7 @@ def test_drop_cold_tenant_while_replica_down_converges(connection, test_name):
     interactive_mg_runner.kill(instances, "replica_1", keep_directories=True)
 
     # DROP B on MAIN while the replica is offline. The DropDatabaseRpc is lost; only the V3
-    # SystemRecovery leftover-delete can reap the cold ghost on the next reconnect (H4).
+    # SystemRecovery leftover-delete can reap the cold ghost on the next reconnect.
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
     execute_and_fetch_all(main_cursor, "DROP DATABASE B;")
     assert tenant_probe(main_cursor, "B")() == "MISSING"
@@ -1236,14 +1236,14 @@ def test_drop_cold_tenant_while_replica_down_converges(connection, test_name):
     interactive_mg_runner.start(instances, "replica_1")
     replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
 
-    # H4: the SystemRecovery leftover-delete now seeds from HOT∪COLD. MAIN holds neither a HOT nor a
+    # The SystemRecovery leftover-delete now seeds from HOT∪COLD. MAIN holds neither a HOT nor a
     # COLD copy of B (it was dropped), so B is in the leftover set, and the replica reaps the cold ghost.
     # Pre-fix: the ghost survived as "COLD" forever because the leftover-delete only walked the HOT set.
     mg_sleep_and_assert("MISSING", tenant_probe(replica_cursor, "B"))
 
 
 def test_main_crash_in_suspend_gap_converges(connection, test_name):
-    # T4 / L4 (crash window between finish_suspend() and the SuspendDatabase replication action):
+    # Crash window between finish_suspend() and the SuspendDatabase replication action:
     #   Suspend_ flips the tenant durably COLD (finish_suspend writes the cold marker) BEFORE the
     #   SuspendDatabase action is appended to the replication stream. If MAIN crashes in that gap, the
     #   suspend is durable locally but was NEVER replicated as an action — neither delivered to the
@@ -1326,7 +1326,7 @@ def test_main_crash_in_suspend_gap_converges(connection, test_name):
 
 
 def test_suspend_resume_requires_multi_database_edit(connection, test_name):
-    # R2: SUSPEND/RESUME DATABASE are gated on the MULTI_DATABASE_EDIT privilege (same as
+    # SUSPEND/RESUME DATABASE are gated on the MULTI_DATABASE_EDIT privilege (same as
     # CREATE/DROP/RENAME DATABASE; required_privileges.cpp). This is the negative control the unit
     # suite lacks: a user WITHOUT MULTI_DATABASE_EDIT must be denied, and granting it must flip the
     # query to allowed (so the privilege is the actual gate, not some other check).
@@ -1397,7 +1397,7 @@ def test_default_database_cannot_be_suspended(connection, test_name):
 
 
 def test_suspend_is_isolated_from_other_databases(connection, test_name):
-    # R7: suspending database A must not disturb a concurrently-active database B. A live writer hammers
+    # Suspending database A must not disturb a concurrently-active database B. A live writer hammers
     # B with committed transactions while A is suspended (and resumed) underneath it; B must see zero
     # disruption — every write commits, B stays HOT, and its final count equals the committed total.
     instances = {"main": main_args(test_name)}
@@ -1455,7 +1455,7 @@ def test_suspend_is_isolated_from_other_databases(connection, test_name):
 
 
 def test_drop_recreate_cold_tenant_uuid_fix_converges(connection, test_name):
-    # F1 (SystemRecovery COLD loop stale-UUID regression):
+    # SystemRecovery COLD loop stale-UUID regression:
     #   Before the fix, the replica's SystemRecovery COLD loop refreshed a cold tenant's stats but never
     #   its UUID. When a tenant was dropped and recreated under the same name while the replica was down,
     #   the replica's COLD shell still carried the OLD uuid. On reconnect, SystemRecovery would match the

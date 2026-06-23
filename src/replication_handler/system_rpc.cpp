@@ -34,11 +34,11 @@ void Load(memgraph::parameters::ParameterInfo *self, memgraph::slk::Reader *read
 }
 
 // Serialize code for storage::StorageInfo (flat POD; carried in SystemRecoveryReq V3 for COLD tenants).
-// F3: driven by the single storage::StorageInfoForEachField list (storage.hpp) so adding a field updates
+// Driven by the single storage::StorageInfoForEachField list (storage.hpp) so adding a field updates
 // this wire path AND the durability cold_stats JSON at once. Enums go over the wire as their underlying
 // integer (each enum's base is uint8_t), exactly as before.
 //
-// F3 wire-contract tripwire: the StorageInfo SLK Save/Load below write/read each enum as
+// Wire-contract tripwire: the StorageInfo SLK Save/Load below write/read each enum as
 // std::underlying_type_t<T>, and a peer must agree on that width. The encoding has always assumed a
 // 1-byte base; widening any of these enums would silently change the wire width and desync a same-version
 // peer. Make that a COMPILE error instead of a runtime corruption.

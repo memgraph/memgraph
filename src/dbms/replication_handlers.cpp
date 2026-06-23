@@ -393,7 +393,7 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   // The COLD set arrives as one ColdTenantRecovery per tenant (salient + stats + epoch), so the
   // salient<->stats pairing is structural — the earlier mismatched-length guard is gone.
 
-  // H4: seed the leftover-delete set from HOT *and* COLD tenants. All() skips COLD shells, so a
+  // Seed the leftover-delete set from HOT *and* COLD tenants. All() skips COLD shells, so a
   // tenant MAIN has dropped while this replica holds it COLD would otherwise be in neither the
   // incoming sets nor `old` and would never be reconciled away (permanent divergence). The DROP of
   // a COLD tenant is handled cold-aware by Delete() (see DeleteCold_). AllWithHotColdStatus() is

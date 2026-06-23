@@ -253,8 +253,8 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
   auto directories = std::set{std::string{kDefaultDB}};
 
   // Reconstruct a COLD tenant's rebuild metadata from a durable entry. The salient is rebuilt from
-  // the instance defaults (per-tenant salient persistence is out of scope, D10) with the durable name
-  // + uuid overlaid — identical to how New_(name, uuid, ...) builds it for a HOT tenant.
+  // the instance defaults (per-tenant salient persistence is out of scope for now) with the durable
+  // name + uuid overlaid — identical to how New_(name, uuid, ...) builds it for a HOT tenant.
   auto make_cold_entry =
       [&](std::string_view nm, utils::UUID id, std::filesystem::path rel_dir, const nlohmann::json &json) {
         SuspendedEntry entry;
@@ -388,7 +388,7 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
       }
     }
   }
-  // F2: set the cold-tenant gauge ONCE after the restore loop (a per-iteration Set would be repeatedly
+  // Set the cold-tenant gauge ONCE after the restore loop (a per-iteration Set would be repeatedly
   // overwritten; no scrape endpoint is live during construction anyway). Covers both the cold-shell and
   // failed-recovery leave-cold paths above.
   metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
@@ -616,7 +616,7 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
     return std::unexpected{RenameError::SAME_NAME};
   }
 
-  // H2: a COLD (suspended) tenant cannot be renamed. Its gatekeeper is a no-value shell, so
+  // A COLD (suspended) tenant cannot be renamed. Its gatekeeper is a no-value shell, so
   // db_handler_.Rename would move the shell and the subsequent Get(new_name) MG_ASSERT would abort
   // the process. Renaming a suspended tenant is not supported — RESUME it first.
   if (suspended_.contains(old_name)) {
@@ -1229,7 +1229,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   {
     auto wr = std::lock_guard{lock_};
     suspended_.insert_or_assign(std::string{name}, std::move(entry));
-    // F2: the tenant is now COLD. Counts every successful Suspend_ (user SUSPEND, replica RPC apply, and
+    // The tenant is now COLD. Counts every successful Suspend_ (user SUSPEND, replica RPC apply, and
     // recovery force-suspend all funnel through here); the gauge tracks the live cold-set size.
     metrics::Metrics().global.database_suspends->Increment();
     metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
@@ -1288,10 +1288,10 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
   int cold_fallback_restarts = 0;
   while (true) {
     utils::Gatekeeper<Database> *gk = nullptr;
-    // F5: copy only the two fields the off-lock build needs (salient + rel_dir) instead of the full
+    // Copy only the two fields the off-lock build needs (salient + rel_dir) instead of the full
     // SuspendedEntry (which includes epoch_history — a deque up to kEpochHistoryRetention≈1000
     // entries — and cold_stats). The epoch fields are re-read from a fresh suspended_.find under
-    // the exclusive publish lock below (~line 1376), so the Phase-A copy of them is never used.
+    // the exclusive publish lock below, so the Phase-A copy of them is never used.
     storage::SalientConfig salient;
     std::filesystem::path rel_dir;
     bool won_resume = false;
@@ -1350,7 +1350,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           return std::unexpected{ResumeError::RECOVERY_FAILED};
         }
       }
-      // F6: bound the retry — a single transient abort is retried; a persistent on_resume_ failure
+      // Bound the retry — a single transient abort is retried; a persistent on_resume_ failure
       // (e.g. corrupt trigger metadata) is surfaced as RECOVERY_FAILED instead of looping forever.
       if (++cold_fallback_restarts > kMaxColdFallbackRestarts) return std::unexpected{ResumeError::RECOVERY_FAILED};
       continue;  // COLD-fallback confirmed (lock released): restart Phase A
@@ -1398,7 +1398,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           // the load-bearing note on Gatekeeper::operator=(Gatekeeper&&) in utils/gatekeeper.hpp.
           *gk = std::move(fresh);
           if (it != suspended_.end()) suspended_.erase(it);
-          // F2: the tenant is now HOT. Counter increment + gauge set are atomic/non-throwing, so they
+          // The tenant is now HOT. Counter increment + gauge set are atomic/non-throwing, so they
           // do not break the publish block's no-throw guarantee; done under lock_ so the gauge reads a
           // consistent suspended_ size.
           metrics::Metrics().global.database_resumes->Increment();

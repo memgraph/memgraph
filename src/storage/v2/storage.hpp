@@ -134,7 +134,7 @@ struct StorageInfo {
   uint64_t schema_edge_count;
 };
 
-// F3: the single ordered list of StorageInfo's (de)serializable fields. Every persistence/wire path —
+// Single ordered list of StorageInfo's (de)serializable fields. Every persistence/wire path —
 // the durability cold_stats JSON (Durability::StatsToJson/StatsFromJson) and the V3 SystemRecovery SLK
 // (system_rpc.cpp Save/Load) — drives serialization through this one visitor, so adding a field to
 // StorageInfo extends all of them at once instead of silently drifting (the field-drift hazard flagged
@@ -175,7 +175,7 @@ void StorageInfoForEachField(Self &s, Visit &&visit) {
 // SystemRecovery-converged-then-promoted replica appends the right continuous-history boundary.
 // Composed of storage:: types only, so it can sit in both the dbms and replication_handler signatures
 // without a layer cycle. `has_epoch_meta` is false for an older cold entry (no epoch recorded) — the
-// replica then leaves its disk-recovered epoch intact (R15 tolerant).
+// replica then tolerantly leaves its disk-recovered epoch intact.
 struct ColdTenantRecovery {
   SalientConfig salient;
   StorageInfo stats{};                 // value-init: a default-constructed recovery must not carry
