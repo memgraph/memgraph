@@ -10,11 +10,12 @@
 # licenses/APL.txt.
 
 import os
+import random
 import sys
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -22,6 +23,8 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 )
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
+
+file = "recovery_failure_defunct"
 
 DEFUNCT_ERROR = "Database is in the defunct state because the recovery process failed."
 
@@ -32,21 +35,19 @@ def test_name(request):
 
 
 def corrupt_snapshots(full_data_directory):
-    """Corrupt the data (vertex/edge/index) region of every snapshot while preserving the
-    offsets block at the start and the metadata section at the end. This keeps the file
-    readable by ReadSnapshotInfo (so it is selected for recovery) but makes LoadSnapshot
-    fail, which is the "no usable snapshot" path that yields a defunct database."""
+    """Corrupts random section of the snapshot."""
     snapshot_dir = os.path.join(full_data_directory, "snapshots")
     files = [
         os.path.join(snapshot_dir, f) for f in os.listdir(snapshot_dir) if os.path.isfile(os.path.join(snapshot_dir, f))
     ]
     assert files, "Expected at least one snapshot to corrupt"
-    head_keep = 1024  # magic + version + SECTION_OFFSETS
-    tail_keep = 4096  # SECTION_METADATA (uuid/epoch/counts) lives near the end
+
     for path in files:
         size = os.path.getsize(path)
-        start = min(head_keep, size)
-        end = max(start, size - tail_keep)
+        a = random.randint(0, size - 1)
+        b = random.randint(0, size - 1)
+        start = min(a, b)
+        end = max(a, b)
         assert end > start, f"Snapshot {path} too small ({size} bytes) to corrupt safely"
         with open(path, "r+b") as fh:
             fh.seek(start)
@@ -55,16 +56,15 @@ def corrupt_snapshots(full_data_directory):
 
 
 def test_defunct_on_corrupt_snapshot(test_name):
-    data_directory = get_data_path("recovery_failure_defunct", test_name)
+    data_directory = get_data_path(file, test_name)
     full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
 
     instances = {
         "default": {
             "args": [
                 "--log-level=TRACE",
-                "--data-recovery-on-startup=true",
             ],
-            "log_file": "recovery_failure_defunct.log",
+            "log_file": f"{get_logs_path(file, test_name)}/default.log",
             "data_directory": data_directory,
         }
     }
