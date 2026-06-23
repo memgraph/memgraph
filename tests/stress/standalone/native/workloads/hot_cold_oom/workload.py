@@ -100,7 +100,6 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Shared scaffolding bootstrap: resolve the stress-tests root and pull in
@@ -111,16 +110,11 @@ if _STRESS_ROOT not in sys.path:
     sys.path.insert(0, _STRESS_ROOT)
 
 from hot_cold_common import (  # noqa: E402
-    DEFAULT_ENDPOINT,
-    DEFAULT_PASSWORD,
-    DEFAULT_USERNAME,
     MAX_RETRIES,
     RETRY_SLEEP,
     SUSPENDER_TAIL_SEC,
-    TRANSITIONAL_MARKERS,
     ClientError,
     ErrorCollector,
-    GraphDatabase,
     ServiceUnavailable,
     TransientError,
     build_base_arg_parser,
@@ -130,7 +124,6 @@ from hot_cold_common import (  # noqa: E402
     make_driver,
     resume_tenant_blocking,
     run_query,
-    run_with_retry,
     suspend_tenant,
     suspender_worker,
     wait_for_server,

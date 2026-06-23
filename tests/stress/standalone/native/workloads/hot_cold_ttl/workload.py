@@ -64,8 +64,8 @@ budget):
 
 Non-vacuity gates:
   - suspends_ok > 0              INFORMATIONAL only — busy TTL tenants legitimately
-                                 lose the 100 ms fail-fast SUSPEND race (by design,
-                                 R5); baseline/triggers/indexes workloads cover
+                                 lose the 100 ms fail-fast SUSPEND race by design;
+                                 baseline/triggers/indexes workloads cover
                                  "suspend-lands-under-churn".
   - ttl_deletions_observed > 0   HARD FAIL if 0 — requires a full
                                  suspend→resume→TTL-restart→delete cycle.
@@ -91,7 +91,6 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Driver import: mirror hot_cold_oom/workload.py — fall back to direct neo4j import.
@@ -103,21 +102,17 @@ if _STRESS_ROOT not in sys.path:
 from hot_cold_common import (
     MAX_RETRIES,
     RETRY_SLEEP,
-    TRANSITIONAL_MARKERS,
     ClientError,
     ErrorCollector,
-    GraphDatabase,
     ServiceUnavailable,
     TransientError,
     build_base_arg_parser,
-    count_nodes_on_tenant,
     create_tenants,
     is_transient,
     make_driver,
     resume_tenant_blocking,
     resumer_worker,
     run_query,
-    run_with_retry,
     suspend_tenant,
     wait_for_server,
 )
@@ -129,9 +124,6 @@ from hot_cold_common import (
 # Nodes per PERM-WRITER / EPHEMERAL-WRITER transaction.  Kept small so one
 # write never trips a transient error mid-commit (makes committed-count exact).
 _NODES_PER_TX = 10
-
-# Per-tenant maximum COUNTED batches for PERM-WRITER.
-_PERM_WRITER_CAP = 1000
 
 # How far in the PAST to set the :TTL node's ttl epoch (microseconds).
 # 1 second in the past ensures TTL fires immediately on the next scheduler tick.
@@ -236,7 +228,6 @@ def _perm_writer_worker(
     committed_counts: dict[str, int],
     counts_lock: threading.Lock,
     error_collector: ErrorCollector,
-    rng_seed: int,
 ) -> None:
     """
     Continuously commit small batches of (:Perm{seq:...}) nodes.
@@ -248,14 +239,11 @@ def _perm_writer_worker(
 
     An inter-batch sleep (150–300 ms) keeps the tenant idle most of the time
     so the SUSPENDER can reliably reach sole-accessor and land a SUSPEND.
-    _PERM_WRITER_CAP is retained for the startup summary only; the actual
-    bound comes from --duration-sec.
+    The actual bound comes from --duration-sec.
 
     A "is suspended (cold)" error means the tenant is mid-suspend cycle —
     tolerated and NOT counted (committed_counts stays exact).
     """
-    rng = random.Random(rng_seed)
-    _ = rng  # reserved for future per-batch randomisation
     local_committed: int = 0
     drv = make_driver(endpoint, username, password)
 
@@ -653,7 +641,6 @@ def main() -> None:
     print(f"    tenants          : {tenant_names}", flush=True)
     print(f"    duration         : {duration_sec}s", flush=True)
     print(f"    nodes_per_tx     : {_NODES_PER_TX}", flush=True)
-    print(f"    perm_writer_cap  : {_PERM_WRITER_CAP} batches/tenant", flush=True)
     print(f"    total_workers    : {total_workers}", flush=True)
     print(f"    parallelism_hint : {args.parallelism}", flush=True)
 
@@ -692,7 +679,6 @@ def main() -> None:
                 committed_counts,
                 counts_lock,
                 error_collector,
-                base_seed + i,
             )
             futures.append(("perm_writer", tname, f))
 
@@ -904,7 +890,7 @@ def main() -> None:
     # A TTL-enabled tenant under sustained write churn almost never wins the
     # 100 ms fail-fast ACTIVE_CONNECTIONS window that SUSPEND DATABASE waits
     # for: each SUSPEND attempt blocks ~100 ms then fails "has active
-    # connections; cannot suspend while in use" (R5 — SUSPEND does not kill
+    # connections; cannot suspend while in use" (SUSPEND does not kill
     # in-flight queries; it is fail-fast and retriable by design).  The TTL
     # background deletion transaction (~1/s) alone is enough to keep a tenant
     # continuously "active" from SUSPEND's perspective during the churn window.

@@ -108,36 +108,6 @@ def is_transient(exc: Exception) -> bool:
     return any(marker.lower() in msg for marker in TRANSITIONAL_MARKERS)
 
 
-def run_with_retry(session, query: str, max_retries: int = MAX_RETRIES, **params) -> Optional[list[dict]]:
-    """
-    Execute a query on an already-open session, retrying on transient hot/cold
-    errors (tenant suspended/cold, active-connections on suspend, etc.).
-
-    Returns the data rows on success, or None if we exhausted retries on a
-    *skippable* transient (like SUSPEND failing because of active connections).
-    Raises on any non-transient error.
-    """
-    for _attempt in range(max_retries):
-        try:
-            return run_query(session, query, **params)
-        except (ClientError, TransientError) as exc:
-            if is_transient(exc):
-                time.sleep(RETRY_SLEEP)
-                continue
-            raise
-        except Exception as exc:
-            if is_transient(exc):
-                time.sleep(RETRY_SLEEP)
-                continue
-            raise
-    # Exhausted retries on transient — log and return None (caller decides).
-    print(
-        f"  [warn] query exhausted {max_retries} retries on transient error, skipping: {query[:80]}",
-        flush=True,
-    )
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Tenant lifecycle helpers
 # ---------------------------------------------------------------------------

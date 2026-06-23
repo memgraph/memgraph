@@ -97,16 +97,11 @@ if _STRESS_ROOT not in sys.path:
     sys.path.insert(0, _STRESS_ROOT)
 
 from hot_cold_common import (
-    DEFAULT_ENDPOINT,
-    DEFAULT_PASSWORD,
-    DEFAULT_USERNAME,
     MAX_RETRIES,
     RETRY_SLEEP,
     SUSPENDER_TAIL_SEC,
-    TRANSITIONAL_MARKERS,
     ClientError,
     ErrorCollector,
-    GraphDatabase,
     ServiceUnavailable,
     TransientError,
     build_base_arg_parser,
@@ -118,7 +113,6 @@ from hot_cold_common import (
     resume_tenant_blocking,
     resumer_worker,
     run_query,
-    run_with_retry,
     suspend_tenant,
     suspender_worker,
     wait_for_server,
@@ -468,7 +462,6 @@ def main() -> None:
     expected: dict[str, int] = {}
     for tname in tenant_names:
         batches = committed_counts.get(tname, 0)
-        # +1 for the probe node added during per-tenant verification below.
         expected[tname] = batches * nodes_per_tx
         print(
             f"    expected[{tname}] = {expected[tname]} nodes ({batches} batches, "

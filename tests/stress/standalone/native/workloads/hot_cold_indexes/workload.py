@@ -34,7 +34,7 @@ Three correctness axes are probed simultaneously:
       index, not a stale or partial one.
 
   (c) ASYNC-INDEXER × SUSPEND INTERACTION — the INDEX-CHURNER thread
-      continuously creates and drops a secondary index (:Data(churn_prop))
+      continuously creates and drops a secondary index (:ChurnProbe(churn_prop))
       on random tenants while the suspender/resumer threads are cycling them
       COLD/HOT.  This exercises the race window where an async-indexer
       background job lands while a suspend or resume is in flight.  The goal
@@ -48,7 +48,7 @@ Thread roles:
      batch counts are tracked; key==7 sentinel hits are tracked separately.
 
   2. INDEX-CHURNER thread (one, all tenants): picks a random tenant, creates
-     CREATE INDEX ON :Data(churn_prop), then later drops it.  Counts
+     CREATE INDEX ON :ChurnProbe(churn_prop), then later drops it.  Counts
      successful create operations as index_ops_ok.
 
   3. SUSPENDER thread: issues SUSPEND DATABASE on random tenants.
@@ -97,27 +97,20 @@ if _STRESS_ROOT not in sys.path:
     sys.path.insert(0, _STRESS_ROOT)
 
 from hot_cold_common import (
-    DEFAULT_ENDPOINT,
-    DEFAULT_PASSWORD,
-    DEFAULT_USERNAME,
     MAX_RETRIES,
     RETRY_SLEEP,
     SUSPENDER_TAIL_SEC,
-    TRANSITIONAL_MARKERS,
     ClientError,
     ErrorCollector,
-    GraphDatabase,
     ServiceUnavailable,
     TransientError,
     build_base_arg_parser,
-    count_nodes_on_tenant,
     create_tenants,
     is_transient,
     make_driver,
     resume_tenant_blocking,
     resumer_worker,
     run_query,
-    run_with_retry,
     suspend_tenant,
     suspender_worker,
     wait_for_server,
@@ -364,7 +357,7 @@ def _index_churner_worker(
         while not stop_flag[0]:
             tenant = rng.choice(tenant_names)
 
-            # Step 1: CREATE INDEX ON :Data(churn_prop)
+            # Step 1: CREATE INDEX ON :ChurnProbe(churn_prop)
             created = False
             try:
                 with drv.session() as sess:
@@ -383,7 +376,7 @@ def _index_churner_worker(
                 if not _is_index_tolerated(exc):
                     error_collector.record(f"index_churner:create:{tenant}", exc)
 
-            # Step 2: DROP INDEX ON :Data(churn_prop)  (only attempt if we created it)
+            # Step 2: DROP INDEX ON :ChurnProbe(churn_prop)  (only attempt if we created it)
             if created:
                 try:
                     with drv.session() as sess:

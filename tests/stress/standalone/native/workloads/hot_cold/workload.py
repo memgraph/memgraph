@@ -59,7 +59,6 @@ import sys
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Driver import: mirror ring/workload.py — use the neo4j driver via common.py
@@ -71,13 +70,9 @@ if _STRESS_ROOT not in sys.path:
     sys.path.insert(0, _STRESS_ROOT)
 
 from hot_cold_common import (
-    DEFAULT_ENDPOINT,
-    DEFAULT_PASSWORD,
-    DEFAULT_USERNAME,
     MAX_RETRIES,
     RETRY_SLEEP,
     SUSPENDER_TAIL_SEC,
-    TRANSITIONAL_MARKERS,
     ClientError,
     ServiceUnavailable,
     TransientError,
@@ -89,7 +84,6 @@ from hot_cold_common import (
     reader_worker,
     resume_tenant_blocking,
     run_query,
-    run_with_retry,
     wait_for_server,
 )
 
