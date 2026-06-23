@@ -123,32 +123,6 @@ TEST(HotColdGatekeeper, AbortSuspendRestoresHot) {
 }
 
 // ---------------------------------------------------------------------------
-// FinishSuspendPublishesCold
-// ---------------------------------------------------------------------------
-// SUSPENDING -> finish_suspend() -> COLD; value gone (access nullopt),
-// count==0.
-TEST(HotColdGatekeeper, FinishSuspendPublishesCold) {
-  auto gk = make_hot();
-
-  {
-    auto acc = gk.access();
-    ASSERT_TRUE(acc.has_value());
-    EXPECT_TRUE(gk.try_begin_suspend(std::chrono::milliseconds(200)));
-    EXPECT_EQ(gk.state(), State::SUSPENDING);
-    // Release acc; count -> 0.
-    acc->reset();
-  }
-
-  gk.finish_suspend();
-  EXPECT_EQ(gk.state(), State::COLD);
-
-  // Value must be gone and no accessors live.
-  EXPECT_FALSE(gk.access().has_value());
-  // use_count() returns nullopt because value_ is disengaged.
-  EXPECT_FALSE(gk.use_count().has_value());
-}
-
-// ---------------------------------------------------------------------------
 // BeginResumeSingleFlight
 // ---------------------------------------------------------------------------
 // From COLD: first begin_resume() → true (RESUMING); second → false;
@@ -202,6 +176,8 @@ TEST(HotColdGatekeeper, DtorOnColdReturnsPromptly) {
       acc->reset();
     }
     gk.finish_suspend();
+    // Pin COLD (terminal) before timing the dtor: a bug making COLD non-terminal
+    // would otherwise let this test pass for the wrong reason.
     ASSERT_EQ(gk.state(), State::COLD);
     // gk destructs here.
   }

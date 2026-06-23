@@ -159,12 +159,6 @@ class Handler {
     return &itr->second;
   }
 
-  const utils::Gatekeeper<T> *GetGatekeeper(std::string_view name) const {
-    auto itr = items_.find(name);
-    if (itr == items_.end()) return nullptr;
-    return &itr->second;
-  }
-
   /**
    * @brief Delete the context associated with the name.
    *
