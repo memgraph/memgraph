@@ -280,6 +280,7 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Apply & /*unused*/) override;
   bool PreVisit(HashJoin & /*unused*/) override;
   bool PreVisit(IndexedJoin & /*unused*/) override;
+  bool PreVisit(BindGraphView & /*unused*/) override;
 
   bool PreVisit(ScanAll & /*unused*/) override;
   bool PreVisit(ScanAllByLabel & /*unused*/) override;
@@ -582,6 +583,16 @@ bool PlanPrinter::PreVisit(query::plan::IndexedJoin &op) {
   WithPrintLn([this](auto &out) { out << StartSymbol() << " IndexedJoin"; });
   Branch(*op.sub_branch_);
   op.main_branch_->Accept(*this);
+  return false;
+}
+
+bool PlanPrinter::PreVisit(query::plan::BindGraphView &op) {
+  WithPrintLn([this, &op](auto &out) {
+    out << StartSymbol() << " BindGraphView (USE ";
+    PrintExpression(op.use_graph_, &out, *dba_);
+    out << ")";
+  });
+  op.input_->Accept(*this);
   return false;
 }
 
@@ -1585,6 +1596,18 @@ bool PlanToJsonVisitor::PreVisit(Apply &op) {
 
   op.subquery_->Accept(*this);
   self["subquery"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(BindGraphView &op) {
+  json self;
+  self["name"] = "BindGraphView";
+  self["use_graph"] = ToJson(op.use_graph_, *dba_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
 
   output_ = std::move(self);
   return false;

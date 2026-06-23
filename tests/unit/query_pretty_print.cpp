@@ -18,6 +18,8 @@
 #include "disk_test_utils.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
+#include "query/plan/operator.hpp"
+#include "query/plan/pretty_print.hpp"
 #include "query_common.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -49,6 +51,22 @@ class ExpressionPrettyPrinterTest : public ::testing::Test {
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(ExpressionPrettyPrinterTest, StorageTypes);
+
+TYPED_TEST(ExpressionPrettyPrinterTest, BindGraphViewPlanIsNamed) {
+  // A USE scope (CALL { USE <graph> ... }) plans to a BindGraphView wrapping the
+  // subquery. The printer must name it and render the USE target rather than
+  // falling through to the "Unknown operator!" default.
+  auto once = std::make_shared<memgraph::query::plan::Once>();
+  auto bind = std::make_shared<memgraph::query::plan::BindGraphView>(once, IDENT("sg"));
+
+  std::stringstream ss;
+  memgraph::query::plan::PrettyPrint(this->dba, bind.get(), &ss);
+  const auto output = ss.str();
+
+  EXPECT_THAT(output, testing::HasSubstr("BindGraphView"));
+  EXPECT_THAT(output, testing::HasSubstr("USE"));
+  EXPECT_THAT(output, testing::Not(testing::HasSubstr("Unknown operator")));
+}
 
 TYPED_TEST(ExpressionPrettyPrinterTest, Literals) {
   // 1
