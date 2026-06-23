@@ -73,23 +73,29 @@ auto ReplicationStorageClient::ReplicaMetrics(Storage const *storage) const -> m
   return *metrics_handles_;
 }
 
+auto ReplicationStorageClient::SampleLag(std::deque<LagSample> &samples, uint64_t const main_ts,
+                                         uint64_t const replica_ts, std::chrono::steady_clock::time_point const now,
+                                         std::size_t const max_samples) -> double {
+  // Record a sample only when the main has advanced, so an idle main doesn't grow the buffer.
+  if (samples.empty() || main_ts > samples.back().main_ts) {
+    samples.push_back({.main_ts = main_ts, .at = now});
+    if (samples.size() > max_samples) samples.pop_front();
+  }
+  // Drop samples the replica has already caught up to; the front then marks the oldest main commit the
+  // replica is still missing. NB: on reconnect / snapshot recovery the replica_ts can jump forward and
+  // drain the whole buffer, so lag reads 0 even while the state series may still show RECOVERY.
+  while (!samples.empty() && samples.front().main_ts <= replica_ts) samples.pop_front();
+  if (samples.empty()) return 0.0;  // replica caught up (or ahead, e.g. after a snapshot)
+  return std::chrono::duration<double>(now - samples.front().at).count();
+}
+
 auto ReplicationStorageClient::SampleLagSeconds(uint64_t const main_ts, uint64_t const replica_ts) const -> double {
   // Bounds the retained history; beyond this, a hopelessly-behind replica's lag is under-reported
   // rather than growing memory without limit (its state series already flags it as unhealthy).
   constexpr std::size_t kMaxSamples = 1024;
   auto const now = std::chrono::steady_clock::now();
-  return lag_samples_.WithLock([&](auto &samples) -> double {
-    // Record a sample only when the main has advanced, so an idle main doesn't grow the buffer.
-    if (samples.empty() || main_ts > samples.back().main_ts) {
-      samples.push_back({.main_ts = main_ts, .at = now});
-      if (samples.size() > kMaxSamples) samples.pop_front();
-    }
-    // Drop samples the replica has already caught up to; the front then marks the oldest main commit
-    // the replica is still missing.
-    while (!samples.empty() && samples.front().main_ts <= replica_ts) samples.pop_front();
-    if (samples.empty()) return 0.0;  // replica caught up (or ahead, e.g. after a snapshot)
-    return std::chrono::duration<double>(now - samples.front().at).count();
-  });
+  return lag_samples_.WithLock(
+      [&](auto &samples) -> double { return SampleLag(samples, main_ts, replica_ts, now, kMaxSamples); });
 }
 
 void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseProtector const &protector) {
@@ -375,6 +381,10 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
   utils::Timer const start_txn_timer;
   utils::OnScopeExit const observe_start_txn{
       [&] { ReplicaMetrics(storage).ObserveStartTxn(start_txn_timer.Elapsed().count()); }};
+  // Resolve the metric handles before taking the spinlock below: the first call registers the series
+  // under a std::mutex, and the observe-on-scope-exit lambdas (incl. ObserveReplicaStream) would
+  // otherwise trigger that registration while replica_state_ is held.
+  ReplicaMetrics(storage);
   auto locked_state = replica_state_.Lock();
   spdlog::trace(
       "Starting transaction replication for replica {} in state {}", client_.name_, StateToString(*locked_state));

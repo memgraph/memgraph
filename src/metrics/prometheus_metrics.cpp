@@ -798,7 +798,8 @@ PrometheusMetrics::PrometheusMetrics()
           prometheus::BuildGauge()
               .Name("memgraph_replica_timestamp_lag")
               .Help("Logical timestamp delta main minus replica, per (replica, database). Positive means the "
-                    "replica is behind (negation of SHOW REPLICAS' behind count)")
+                    "replica is behind; negative means it is ahead (e.g. right after a snapshot restore). "
+                    "Negation of SHOW REPLICAS' behind count")
               .Register(registry_)},
       replica_lag_seconds_family_{
           prometheus::BuildGauge()
@@ -808,7 +809,8 @@ PrometheusMetrics::PrometheusMetrics()
               .Register(registry_)},
       replica_state_family_{prometheus::BuildGauge()
                                 .Name("memgraph_replica_state")
-                                .Help("Per-(replica, database) state. One series per ReplicaState; exactly one is 1")
+                                .Help("Per-(replica, database) state. One series per ReplicaState; eventually "
+                                      "exactly one is 1 (updates are not atomic across the series)")
                                 .Register(registry_)},
       main_commit_timestamp_family_{
           prometheus::BuildGauge()
@@ -1193,6 +1195,12 @@ constexpr std::array<ReplicaState, kNumReplicaStates> kReplicaStates{ReplicaStat
                                                                      ReplicaState::MAYBE_BEHIND,
                                                                      ReplicaState::DIVERGED_FROM_MAIN};
 
+// ReplicaStateLabel's switch above is -Wswitch-checked, so adding/reordering a ReplicaState fails the
+// build until handled there. This assert additionally pins kNumReplicaStates (the one-hot array size in
+// the .hpp) to the enum's enumerator count, catching a stale constant before it can truncate the array.
+static_assert(static_cast<std::size_t>(ReplicaState::DIVERGED_FROM_MAIN) + 1 == kNumReplicaStates,
+              "kNumReplicaStates is out of sync with the ReplicaState enum");
+
 constexpr std::string_view ReplicaStateLabel(ReplicaState s) {
   using enum ReplicaState;
   switch (s) {
@@ -1234,9 +1242,19 @@ prometheus::Labels MakeReplicaDbLabels(std::string_view instance, std::string co
 
 void ReplicaMetricHandles::SetState(storage::replication::ReplicaState new_state) const {
   if (state[0] == nullptr) return;  // metrics not registered (e.g. coordinator / metrics disabled)
+  // The five Set() calls are individually atomic but not atomic as a group, so the one-hot invariant is
+  // eventually-consistent, not instantaneous. Zero every other state before raising the new one: a scrape
+  // racing this update may transiently observe zero series at 1, but never two (which would briefly
+  // double-count in ReplicasNotReady / max-by-state alerts).
+  std::size_t active = kReplicaStates.size();
   for (std::size_t i = 0; i < kReplicaStates.size(); ++i) {
-    state[i]->Set(kReplicaStates[i] == new_state ? 1.0 : 0.0);
+    if (kReplicaStates[i] == new_state) {
+      active = i;
+      continue;
+    }
+    state[i]->Set(0.0);
   }
+  if (active < kReplicaStates.size()) state[active]->Set(1.0);
 }
 
 ReplicaMetricHandles &PrometheusMetrics::EnsureReplicaHandles(std::string_view instance, utils::UUID const &db_uuid,
@@ -2165,7 +2183,8 @@ void PrometheusMetrics::AppendReplicaLagSummaries(std::vector<MetricInfo> &out) 
   out.push_back({"MaxReplicaLagSeconds", "HighAvailability", "Gauge", MaxGaugeValue(replica_lag_seconds_family_)});
 
   // Number of (replica, database) pairs whose current state is not READY. Each pair has exactly one
-  // one-hot `state` series set to 1.
+  // one-hot `state` series set to 1 once SetState has run; a freshly-registered replica whose series
+  // are all still 0 (before its first heartbeat) is therefore not counted here.
   int64_t not_ready = 0;
   for (auto const &mf : replica_state_family_.Collect()) {
     for (auto const &cm : mf.metric) {

@@ -18,6 +18,7 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "parameters/parameters.hpp"
 #include "replication/include/replication/state.hpp"
@@ -214,6 +215,14 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     });
 
     spdlog::trace("Replication storage clients destroyed.");
+
+    // The clients that wrote the per-(replica, db) series are gone, so drop those series too. After
+    // demotion this node no longer tracks these replicas; leaving the series would expose frozen values
+    // that double-count against the new MAIN's live series (and make SHOW METRICS INFO's lag summaries
+    // report replicas this node no longer owns). Mirrors the DROP REPLICA cleanup in UnregisterReplica.
+    for (auto const &client : repl_clients) {
+      metrics::Metrics().RemoveReplicaInstanceMetrics(client.name_);
+    }
   }
 
   template <bool SendSwapUUID>

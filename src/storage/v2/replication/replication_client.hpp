@@ -224,6 +224,19 @@ class ReplicationStorageClient {
 
   auto GetNumCommittedTxns() const -> uint64_t;
 
+  // Bounded (main_ts, observed_at) history used to derive wall-clock replica lag.
+  struct LagSample {
+    uint64_t main_ts;
+    std::chrono::steady_clock::time_point at;
+  };
+
+  // Pure ring-buffer step behind SampleLagSeconds: records a sample when the main has advanced (buffer
+  // bounded to `max_samples`), drops samples the replica has already caught up to, and returns the
+  // wall-clock age of the oldest main commit the replica is still missing (>= 0; 0 when caught up or
+  // ahead). `now` is injected so the time-based behaviour is deterministically testable.
+  static auto SampleLag(std::deque<LagSample> &samples, uint64_t main_ts, uint64_t replica_ts,
+                        std::chrono::steady_clock::time_point now, std::size_t max_samples) -> double;
+
  private:
   /**
    * @brief Get necessary recovery steps and execute them.
@@ -282,13 +295,8 @@ class ReplicationStorageClient {
   mutable std::once_flag metrics_handles_once_;
   mutable metrics::ReplicaMetricHandles *metrics_handles_{nullptr};
 
-  // Bounded (main_ts, observed_at) history for deriving wall-clock replica lag. Touched only on the
-  // heartbeat path (UpdateReplicaState), never on the commit hot path.
-  struct LagSample {
-    uint64_t main_ts;
-    std::chrono::steady_clock::time_point at;
-  };
-
+  // Bounded (main_ts, observed_at) history for deriving wall-clock replica lag (see SampleLag). Touched
+  // only on the heartbeat path (UpdateReplicaState), never on the commit hot path.
   mutable utils::Synchronized<std::deque<LagSample>, utils::SpinLock> lag_samples_;
 };
 
