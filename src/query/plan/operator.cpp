@@ -505,7 +505,11 @@ PullAwaitable Once::OnceCursor::DoPull(Frame &, ExecutionContext &context) {
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("Once");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       if (!did_pull_) {
         did_pull_ = true;
@@ -670,7 +674,11 @@ PullAwaitable CreateNode::CreateNodeCursor::DoPull(Frame &frame, ExecutionContex
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("CreateNode");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       ExpressionEvaluator evaluator(&frame,
                                     context.symbol_table,
@@ -907,7 +915,11 @@ PullAwaitable CreateExpand::CreateExpandCursor::DoPull(Frame &frame, ExecutionCo
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP_BY_REF(self_);
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       if (co_await PullChild(*input_cursor_, frame, context)) {
         ExpressionEvaluator evaluator(&frame,
@@ -3086,7 +3098,11 @@ class STShortestPathCursor : public query::plan::Cursor {
         OOMExceptionEnabler oom_exception;
         SCOPED_PROFILE_OP("STShortestPath");
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         ExpressionEvaluator evaluator(&frame,
                                       context.symbol_table,
@@ -6735,7 +6751,11 @@ PullAwaitable Delete::DeleteCursor::DoPull(Frame &frame, ExecutionContext &conte
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("Delete");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       if (self_.buffer_size_ != nullptr && !buffer_size_.has_value()) [[unlikely]] {
         ExpressionEvaluator evaluator(&frame,
@@ -6933,7 +6953,11 @@ PullAwaitable SetProperty::SetPropertyCursor::DoPull(Frame &frame, ExecutionCont
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("SetProperty");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       if (co_await PullChild(*input_cursor_, frame, context)) {
         // Set, just like Create needs to see the latest changes.
@@ -7214,7 +7238,11 @@ PullAwaitable SetNestedProperty::SetNestedPropertyCursor::DoPull(Frame &frame, E
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("SetNestedProperty");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       if (co_await PullChild(*input_cursor_, frame, context)) {
         // Set, just like Create needs to see the latest changes.
@@ -7621,7 +7649,11 @@ PullAwaitable SetProperties::SetPropertiesCursor::DoPull(Frame &frame, Execution
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("SetProperties");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       if (co_await PullChild(*input_cursor_, frame, context)) {
         TypedValue const &lhs = frame[self_.input_symbol_];
@@ -7806,7 +7838,11 @@ PullAwaitable SetLabels::SetLabelsCursor::DoPull(Frame &frame, ExecutionContext 
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("SetLabels");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       ExpressionEvaluator evaluator(&frame,
                                     context.symbol_table,
@@ -8002,7 +8038,11 @@ PullAwaitable RemoveProperty::RemovePropertyCursor::DoPull(Frame &frame, Executi
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("RemoveProperty");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       if (co_await PullChild(*input_cursor_, frame, context)) {
         // Remove, just like Delete needs to see the latest changes.
@@ -8232,7 +8272,11 @@ PullAwaitable RemoveNestedProperty::RemoveNestedPropertyCursor::DoPull(Frame &fr
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("RemoveNestedProperty");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       if (co_await PullChild(*input_cursor_, frame, context)) {
         ExpressionEvaluator evaluator(&frame,
@@ -8456,7 +8500,11 @@ PullAwaitable RemoveLabels::RemoveLabelsCursor::DoPull(Frame &frame, ExecutionCo
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("RemoveLabels");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       ExpressionEvaluator evaluator(&frame,
                                     context.symbol_table,
@@ -8624,7 +8672,11 @@ PullAwaitable EdgeUniquenessFilter::EdgeUniquenessFilterCursor::DoPull(Frame &fr
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("EdgeUniquenessFilter");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       auto expansion_ok = [&]() {
         const auto &expand_value = frame[self_.expand_symbol_];
@@ -8697,7 +8749,11 @@ class EmptyResultCursor : public Cursor {
 
     if (!pulled_all_input_) {
       while (co_await PullChild(*input_cursor_, frame, context)) {
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
       }
       pulled_all_input_ = true;
     }
@@ -8801,7 +8857,11 @@ class AccumulateCursor : public Cursor {
           if (self_.advance_command_) dba.AdvanceCommand();
         }
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
         if (cache_it_ != cache_.end()) {
           auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
           auto row_it = (cache_it_++)->begin();
@@ -8965,7 +9025,11 @@ class AggregateCursor : public Cursor {
       {
         OOMExceptionEnabler oom_exception;
         SCOPED_PROFILE_OP_BY_REF(self_);
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
         auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
         if (!pulled_all_input_) {
           if (!(co_await ProcessAllCo(&frame, &context)) && !self_.group_by_.empty()) co_return false;
@@ -9890,7 +9954,11 @@ class OrderByCursor : public Cursor {
         }
 
         if (cache_it_ != cache_.end()) {
-          AbortCheck(context);
+          // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+          // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+          // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+          // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+          co_await YieldPointAwaitable{context, maybe_check_abort};
 
           // Parallel execution will extract the cache and handle the output values in OrderByParallelCursor
           if (!parallel_execution_) {
@@ -10063,7 +10131,11 @@ PullAwaitable Merge::MergeCursor::DoPull(Frame &frame, ExecutionContext &context
       memgraph::utils::OnScopeExit merge_exit([&] { context.evaluation_context.scope.in_merge = false; });
 
       while (true) {
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
         if (pull_input_) {
           if (co_await PullChild(*input_cursor_, frame, context)) {
             // after a successful input from the input
@@ -10218,7 +10290,11 @@ PullAwaitable Optional::OptionalCursor::DoPull(Frame &frame, ExecutionContext &c
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
       while (true) {
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
         if (pull_input_) {
           if (co_await PullChild(*input_cursor_, frame, context)) {
             // after a successful input from the input
@@ -10346,7 +10422,11 @@ class UnwindCursor : public Cursor {
         auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
         while (true) {
-          AbortCheck(context);
+          // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+          // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+          // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+          // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+          co_await YieldPointAwaitable{context, maybe_check_abort};
           // if we reached the end of our list of values
           // pull from the input
           if (input_value_it_ == input_value_.end()) {
@@ -10459,7 +10539,11 @@ class DistinctCursor : public Cursor {
         OOMExceptionEnabler oom_exception;
         SCOPED_PROFILE_OP("Distinct");
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         while (co_await PullChild(*input_cursor_, frame, context)) {
           utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().resource());
@@ -10777,7 +10861,11 @@ PullAwaitable Union::UnionCursor::DoPull(Frame &frame, ExecutionContext &context
       OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP_BY_REF(self_);
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       utils::pmr::unordered_map<std::string, TypedValue> results(context.evaluation_context.memory);
       bool have_row = false;
@@ -10952,7 +11040,11 @@ class CartesianCursor : public Cursor {
         }
 
         if (!advance_exhausted) {
-          AbortCheck(context);
+          // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+          // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+          // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+          // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+          co_await YieldPointAwaitable{context, maybe_check_abort};
 
           restore_frame(self_.left_symbols_, *left_op_frames_it_);
           left_op_frames_it_++;
@@ -11056,7 +11148,11 @@ class OutputTableCursor : public Cursor {
       {
         OOMExceptionEnabler oom_exception;
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         if (!pulled_) {
           rows_ = self_.callback_(&frame, &context);
@@ -11148,7 +11244,11 @@ class OutputTableStreamCursor : public Cursor {
       {
         OOMExceptionEnabler oom_exception;
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -11511,7 +11611,11 @@ class CallProcedureCursor : public Cursor {
         OOMExceptionEnabler oom_exception;
         SCOPED_PROFILE_OP_BY_REF(*self_);
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -11835,7 +11939,11 @@ class LoadCsvCursor : public Cursor {
         OOMExceptionEnabler oom_exception;
         SCOPED_PROFILE_OP_BY_REF(*self_);
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -12058,7 +12166,11 @@ class LoadParquetCursor : public Cursor {
       {
         OOMExceptionEnabler const oom_exception;
         SCOPED_PROFILE_OP_BY_REF(*self_);
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -12244,7 +12356,11 @@ class LoadJsonlCursor : public Cursor {
       {
         OOMExceptionEnabler const oom_exception;
         SCOPED_PROFILE_OP_BY_REF(*self_);
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         auto *mem = context.evaluation_context.memory;
         auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
@@ -12411,7 +12527,11 @@ class ForeachCursor : public Cursor {
             for (const auto &index : cache_) {
               frame_writer.Write(loop_variable_symbol_, index);
               while (co_await PullChild(*updates_, frame, context)) {
-                AbortCheck(context);
+                // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+                // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+                // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+                // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+                co_await YieldPointAwaitable{context, maybe_check_abort};
               }
               ResetUpdates();
             }
@@ -12560,7 +12680,11 @@ PullAwaitable Apply::ApplyCursor::DoPull(Frame &frame, ExecutionContext &context
       SCOPED_PROFILE_OP("Apply");
 
       while (true) {
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
         if (pull_input_ && !co_await PullChild(*input_, frame, context)) {
           break;  // input exhausted -> produced stays false -> co_return false
         }
@@ -12675,7 +12799,11 @@ PullAwaitable IndexedJoin::IndexedJoinCursor::DoPull(Frame &frame, ExecutionCont
       SCOPED_PROFILE_OP("IndexedJoin");
 
       while (true) {
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
         if (pull_input_ && !co_await PullChild(*main_branch_, frame, context)) {
           break;  // input exhausted -> produced stays false -> co_return false
         }
@@ -12818,7 +12946,11 @@ class HashJoinCursor : public Cursor {
       {
         SCOPED_PROFILE_OP("HashJoin");
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         if (!hash_join_initialized_) {
           // Pull all left_op_ frames (inlined InitializeHashJoin).
@@ -13057,7 +13189,11 @@ class RollUpApplyCursor : public Cursor {
         OOMExceptionEnabler oom_exception;
         SCOPED_PROFILE_OP_BY_REF(self_);
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
@@ -13199,7 +13335,11 @@ class PeriodicCommitCursor : public Cursor {
         // NOLINTNEXTLINE(misc-const-correctness)
         SCOPED_PROFILE_OP_BY_REF(self_);
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         if (!commit_frequency_) [[unlikely]] {
           ExpressionEvaluator evaluator(&frame,
@@ -13382,7 +13522,11 @@ class PeriodicSubqueryCursor : public Cursor {
         // NOLINTNEXTLINE(misc-const-correctness)
         SCOPED_PROFILE_OP("PeriodicSubquery");
 
-        AbortCheck(context);
+        // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+        // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+        // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+        // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+        co_await YieldPointAwaitable{context, maybe_check_abort};
 
         if (!commit_frequency_) [[unlikely]] {
           ExpressionEvaluator evaluator(&frame,
@@ -15417,7 +15561,11 @@ PullAwaitable Skip::SkipCursor::DoPull(Frame &frame, ExecutionContext &context) 
       const OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("Skip");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       while (co_await PullChild(*input_cursor_, frame, context)) {
         if (to_skip_ == -1) {
@@ -15572,7 +15720,11 @@ PullAwaitable Limit::LimitCursor::DoPull(Frame &frame, ExecutionContext &context
       const OOMExceptionEnabler oom_exception;
       SCOPED_PROFILE_OP("Limit");
 
-      AbortCheck(context);
+      // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+      // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+      // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+      // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
 
       // We need to evaluate the limit expression before the first input Pull
       // because it might be 0 and thereby we shouldn't Pull from input at all.
