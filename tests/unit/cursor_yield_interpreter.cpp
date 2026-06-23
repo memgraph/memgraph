@@ -626,4 +626,237 @@ TEST_F(InterpreterYieldTest, NamedPathForcedYieldRoundTrip) {
          "it must be intercepted by DrivePullToCompletion and never forwarded to the client.";
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 8 — CreateReturnForcedYieldRoundTrip
+//
+// Proves that the CreateNode cursor yields correctly through the real interpreter
+// pipeline and that write side-effects are applied exactly once across yield+resume
+// (i.e., the CREATE is not re-executed after each yield).
+//
+// Query: "UNWIND range(1, 200) AS x CREATE (n:M {id: x}) RETURN n.id AS id ORDER BY id"
+// 200 iterations -> floor(200/20) = 10 throttle fires -> >= 1 yield with an
+// always-armed signal. The query creates 200 nodes and returns their ids 1..200.
+//
+// WRITE-QUERY BASELINE NOTE:
+//   Running this CREATE query twice in the same test against the same fixture db
+//   would produce 400 nodes and return ids in a non-deterministic multi-duplicate
+//   sequence, making parity comparison impossible. We therefore do NOT run a
+//   flag-OFF baseline execution. Instead, the expected result is constructed
+//   programmatically: ids 1..200 in ascending order, one per row, matching the
+//   exact format produced by Render(). The yield run must reproduce this exactly,
+//   proving that no row was duplicated or dropped across yield+resume boundaries.
+//
+// Asserts:
+//   - yields >= 1     (CreateNode yield path was actually exercised)
+//   - result == constructed expected (ids 1..200, exactly once each, in order)
+//   - kYieldReschedule is NOT present in the final completion summary
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_F(InterpreterYieldTest, CreateReturnForcedYieldRoundTrip) {
+  // Build the expected rendered string programmatically (ids 1..200 ascending).
+  // This avoids running the CREATE query twice (which would create 400 nodes and
+  // corrupt the result). Render() format: "HEADER: <col>\nROW: | <val>\n...".
+  std::string expected;
+  {
+    std::ostringstream os;
+    os << "HEADER: id\n";
+    for (int i = 1; i <= 200; ++i) {
+      os << "ROW: | " << i << '\n';
+    }
+    expected = os.str();
+  }
+
+  const std::string query = "UNWIND range(1, 200) AS x CREATE (n:M {id: x}) RETURN n.id AS id ORDER BY id";
+
+  // --- Yield run: flag ON, always-armed signal, pull-all via DrivePullToCompletion.
+  // The flag starts at NONE (fixture default); switch to COROUTINE_CURSORS now.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::COROUTINE_CURSORS);
+
+  memgraph::utils::WorkerYieldRegistry registry(1);
+  registry.SetCurrentWorker(0);
+  auto *sig = memgraph::utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+  ASSERT_NE(sig, nullptr) << "WorkerYieldRegistry::GetCurrentYieldSignal() returned nullptr; "
+                             "SetCurrentWorker(0) must have registered a TLS signal";
+  // Arm the signal: every throttle-period check will see yield requested.
+  sig->store(true, std::memory_order_release);
+
+  auto [stream, qid] = interpreter.Prepare(query);
+  const int yields = DrivePullToCompletion(stream, qid);
+
+  // Unregister before any assertion that might throw (TearDown also resets the flag).
+  memgraph::utils::WorkerYieldRegistry::ClearCurrentWorker();
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+
+  // Yield count: >= 1 required to prove the CreateNode yield path fired.
+  EXPECT_GE(yields, 1) << "Expected >= 1 cooperative yield for a 200-iteration UNWIND+CREATE with an "
+                          "always-armed yield signal; got 0. Either the flag gate or the "
+                          "WorkerYieldRegistry TLS wiring inside CreateNode DoPull is broken.";
+
+  // Exact-once write check: ids 1..200 must appear exactly once each in order.
+  // A duplicated CREATE on resume would produce extra rows; a skipped row would
+  // produce a gap. Both are caught by the exact-equality comparison.
+  const std::string yield_render = Render(stream);
+  EXPECT_EQ(yield_render, expected) << "WRITE SIDE-EFFECT MISMATCH for query: " << query
+                                    << "\n  expected (ids 1..200, each exactly once):\n"
+                                    << expected << "\n  yield_run:\n"
+                                    << yield_render
+                                    << "\nA mismatch here indicates that CREATE was re-executed after a yield "
+                                       "resume (duplicate rows) or that a row was lost across a yield boundary (gap).";
+
+  // Regression gate: kYieldReschedule must NOT leak into the final completion summary.
+  const auto &final_summary = stream.GetSummary();
+  EXPECT_EQ(final_summary.find(std::string(memgraph::query::kYieldReschedule)), final_summary.end())
+      << "kYieldReschedule key leaked into the final completion summary; "
+         "it must be intercepted by DrivePullToCompletion and never forwarded to the client.";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 9 — AggregateForcedYieldRoundTrip
+//
+// Proves that the Aggregate cursor (COUNT) yields correctly through the real
+// interpreter pipeline and that the aggregated result is correct under forced yield.
+//
+// The Aggregate cursor drains its entire input (ScanAll over 300 nodes) before
+// emitting a single result row. ScanAll yields inside that drain loop; each yield
+// propagates up through Aggregate's co_await PullChild back to the interpreter
+// driver. 300 nodes -> floor(300/20) = 15 throttle fires -> >= 1 yield with an
+// always-armed signal.
+//
+// Setup (flag OFF): create 300 (:N) nodes. The COUNT query is read-only, so it
+// is safe to run it twice: once for the flag-OFF baseline and once for the
+// flag-ON yield run. Parity assertion proves the aggregate is not double-counted
+// or reset across yield+resume.
+//
+// Asserts:
+//   - yields >= 1     (ScanAll feeding Aggregate yields at least once)
+//   - identical rows  (count == 300 in both baseline and yield run)
+//   - kYieldReschedule is NOT present in the final completion summary
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_F(InterpreterYieldTest, AggregateForcedYieldRoundTrip) {
+  // Setup: create 300 nodes flag-OFF so the graph is stable before any yield run.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+  interpreter.Interpret("UNWIND range(1, 300) AS x CREATE (:N {id: x})");
+
+  const std::string query = "MATCH (n:N) RETURN count(n) AS c";
+
+  // --- Baseline: flag OFF, pull-all (read-only query, safe to run twice).
+  const std::string baseline = Render(interpreter.Interpret(query));
+
+  // --- Yield run: flag ON, always-armed signal, pull-all via DrivePullToCompletion.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::COROUTINE_CURSORS);
+
+  memgraph::utils::WorkerYieldRegistry registry(1);
+  registry.SetCurrentWorker(0);
+  auto *sig = memgraph::utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+  ASSERT_NE(sig, nullptr) << "WorkerYieldRegistry::GetCurrentYieldSignal() returned nullptr; "
+                             "SetCurrentWorker(0) must have registered a TLS signal";
+  // Arm the signal: every throttle-period check will see yield requested.
+  sig->store(true, std::memory_order_release);
+
+  auto [stream, qid] = interpreter.Prepare(query);
+  const int yields = DrivePullToCompletion(stream, qid);
+
+  // Unregister before any assertion that might throw.
+  memgraph::utils::WorkerYieldRegistry::ClearCurrentWorker();
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+
+  // Yield count: 300 nodes -> floor(300/20) = 15 fires -> >= 1 yield is non-flaky.
+  EXPECT_GE(yields, 1) << "Expected >= 1 cooperative yield for a MATCH (ScanAll feeding Aggregate) "
+                          "over 300 nodes with an always-armed yield signal; got 0. Either the flag "
+                          "gate or the WorkerYieldRegistry TLS wiring inside the Aggregate drain loop "
+                          "is broken.";
+
+  // Result parity: count must equal the baseline (300). Proves the aggregate is
+  // not double-counted on resume or reset to zero by a yield boundary.
+  const std::string yield_render = Render(stream);
+  EXPECT_EQ(yield_render, baseline) << "AGGREGATE YIELD-RUN RESULT MISMATCH for query: " << query
+                                    << "\n  baseline (flag-OFF):\n"
+                                    << baseline << "\n  yield_run (flag-ON):\n"
+                                    << yield_render
+                                    << "\nA count > 300 suggests double-accumulation on resume; "
+                                       "count < 300 suggests input was truncated at a yield boundary.";
+
+  // Regression gate: kYieldReschedule must NOT leak into the final completion summary.
+  const auto &final_summary = stream.GetSummary();
+  EXPECT_EQ(final_summary.find(std::string(memgraph::query::kYieldReschedule)), final_summary.end())
+      << "kYieldReschedule key leaked into the final completion summary; "
+         "it must be intercepted by DrivePullToCompletion and never forwarded to the client.";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 10 — AggregateForcedYieldAcrossPullBatches
+//
+// Batched-pull variant for ScanAll -> OrderBy -> Produce over 300 nodes.
+// This is the bug-catching sibling of TEST 9: it proves that yield interleaves
+// correctly with client-driven batched PULLs (n=7), closing the same bug class
+// as B6.3 (has_unsent_results_ duplication) but for a larger 300-row scan that
+// crosses many batch+yield boundaries.
+//
+// Query: "MATCH (n:N) RETURN n.id AS id ORDER BY id"
+// 300 rows / 7 per batch = ~43 batch calls + interleaved yield round-trips.
+// 300 nodes -> floor(300/20) = 15 throttle fires -> >= 1 yield is non-flaky.
+//
+// Setup (flag OFF): create 300 (:N) nodes. The read query is safe to run twice
+// (baseline + yield run).
+//
+// ResultStreamFaker::GetResults() accumulates across all Pull calls, so
+// Render(stream) sees the complete 300-row result after DrivePullToCompletion.
+//
+// Asserts:
+//   - yields >= 1     (yield path exercised during batched drive)
+//   - full accumulated 300-row result == flag-OFF pull-all baseline
+//   - kYieldReschedule not in final summary
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_F(InterpreterYieldTest, AggregateForcedYieldAcrossPullBatches) {
+  // Setup: create 300 nodes flag-OFF so the graph is stable before any yield run.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+  interpreter.Interpret("UNWIND range(1, 300) AS x CREATE (:N {id: x})");
+
+  const std::string query = "MATCH (n:N) RETURN n.id AS id ORDER BY id";
+
+  // --- Baseline: flag OFF, pull-all (read-only query, safe to run twice).
+  const std::string baseline = Render(interpreter.Interpret(query));
+
+  // --- Batched yield run: flag ON, n=7 per Pull, always-armed signal.
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::COROUTINE_CURSORS);
+
+  memgraph::utils::WorkerYieldRegistry registry(1);
+  registry.SetCurrentWorker(0);
+  auto *sig = memgraph::utils::WorkerYieldRegistry::GetCurrentYieldSignal();
+  ASSERT_NE(sig, nullptr) << "WorkerYieldRegistry::GetCurrentYieldSignal() returned nullptr; "
+                             "SetCurrentWorker(0) must have registered a TLS signal";
+  // Arm the signal: every throttle-period check will see yield requested.
+  sig->store(true, std::memory_order_release);
+
+  auto [stream, qid] = interpreter.Prepare(query);
+  // Drive with batch size 7: ~43 batch calls plus interleaved yield round-trips.
+  // DrivePullToCompletion handles both yield round-trips and normal batch
+  // boundaries (has_more=true) transparently until query exhaustion.
+  const int yields = DrivePullToCompletion(stream, qid, 7);
+
+  // Unregister before any assertion that might throw.
+  memgraph::utils::WorkerYieldRegistry::ClearCurrentWorker();
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+
+  // Yield count: 300 nodes -> floor(300/20) = 15 fires -> >= 1 yield is non-flaky.
+  EXPECT_GE(yields, 1) << "Expected >= 1 cooperative yield during batched Pull(n=7) for a 300-node "
+                          "MATCH with ORDER BY and an always-armed yield signal; got 0.";
+
+  // Full accumulated 300-row result must equal the pull-all flag-OFF baseline.
+  // A row-duplication bug (B6.3 class) produces > 300 rows; a truncation produces < 300.
+  const std::string yield_render = Render(stream);
+  EXPECT_EQ(yield_render, baseline) << "BATCHED AGGREGATE YIELD-RUN RESULT MISMATCH for query: " << query
+                                    << "\n  baseline (pull-all, flag-OFF):\n"
+                                    << baseline << "\n  batched_yield_run (n=7, flag-ON):\n"
+                                    << yield_render
+                                    << "\nA row count mismatch signals either a B6.3-class duplication "
+                                       "(has_unsent_results_ not cleared before yield) or a truncation "
+                                       "across a batch+yield boundary.";
+
+  // Regression gate: kYieldReschedule must NOT leak into the final completion summary.
+  const auto &final_summary = stream.GetSummary();
+  EXPECT_EQ(final_summary.find(std::string(memgraph::query::kYieldReschedule)), final_summary.end())
+      << "kYieldReschedule key leaked into the final completion summary; "
+         "it must be intercepted by DrivePullToCompletion and never forwarded to the client.";
+}
+
 }  // namespace
