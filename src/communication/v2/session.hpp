@@ -43,10 +43,12 @@
 #include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
 
+#include "communication/bolt/v1/state.hpp"
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
 #include "communication/fmt.hpp"
+#include "flags/experimental.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/priority_thread_pool.hpp"
@@ -377,8 +379,19 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     input_buffer_.write_end()->Written(bytes_transferred);
 
     try {
-      // Execute until all data has been read
-      while (session_.Execute()) {
+      // Execute until all data has been read.
+      // Batch B5 asio gating: OnReadAsio runs inline on the strand (not a
+      // pool worker), so a coroutine yield cannot trigger a pinned-worker
+      // reschedule here.  Treat ExecuteResult::Yielding as MoreData — the
+      // loop re-enters Execute_() which resets State::Yielding → State::Result
+      // and drives the resumed PULL on the same strand call.  This is safe:
+      // no concurrent Execute_() can race because the strand serialises all
+      // callbacks, and the yield path only arises under COROUTINE_CURSORS which
+      // requires the PRIORITY_QUEUE scheduler; ASIO clients therefore never
+      // enable COROUTINE_CURSORS in practice.  The re-loop is a harmless
+      // no-op for them.
+      using ExecuteResult = memgraph::communication::bolt::ExecuteResult;
+      while (session_.Execute() != ExecuteResult::NoMoreData) {
       }
       // Handled all data,  async wait for new incoming data
       DoReadAsio();
@@ -391,11 +404,63 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     // Schedule using the session's approximate query priority so high-priority
     // tasks are placed ahead of low-priority ones in the shared worker queue.
     const auto task_priority = session_.ApproximateQueryPriority();
+
+    // Batch B5 — COROUTINE_CURSORS: resumable task path.
+    // When the flag is ON we submit a bool() resumable closure so that the
+    // priority thread pool can reschedule the task pinned to the same worker
+    // when the query yields cooperatively.  The closure is its OWN exception
+    // boundary (GAP 2): ResumableWrapper::Run has no try/catch, so an
+    // escaping exception would call std::terminate.
+    //
+    // Loop semantics:
+    //   - ExecuteResult::MoreData  → continue the loop (State::Parsed, reprioritise).
+    //   - ExecuteResult::Yielding  → return true (reschedule same worker;
+    //                                do NOT call DoRead — that would race).
+    //   - ExecuteResult::NoMoreData → call DoRead() then return false (done).
+    //
+    // Flag-OFF: the existing non-resumable AddTask void closure is unchanged.
+    if (flags::AreExperimentsEnabled(flags::Experiments::COROUTINE_CURSORS)) {
+      session_context_->AddResumableTask(
+          [shared_this = shared_from_this()]() -> bool {
+            try {
+              using ExecuteResult = memgraph::communication::bolt::ExecuteResult;
+              while (true) {
+                switch (shared_this->session_.Execute()) {
+                  case ExecuteResult::MoreData:
+                    // State::Parsed: query priority now known, continue loop.
+                    // Uniform-worker pool: priority enforced by yield-preemption.
+                    break;
+                  case ExecuteResult::Yielding:
+                    // Coroutine yielded: reschedule pinned to the same worker.
+                    // Do NOT call DoRead — the query is still alive.
+                    return true;
+                  case ExecuteResult::NoMoreData:
+                    // All data processed: arm the next async read and finish.
+                    shared_this->DoRead();
+                    return false;
+                }
+              }
+            } catch (...) {
+              // GAP 2: catch-all exception boundary — post HandleException to
+              // the strand and signal completion (return false) so the pool
+              // does not reschedule a broken task.
+              boost::asio::post(shared_this->strand_, [shared_this, eptr = std::current_exception()]() {
+                shared_this->HandleException(eptr);
+              });
+              return false;
+            }
+          },
+          task_priority);
+      return;
+    }
+
+    // Flag-OFF path: original non-resumable void closure, byte-identical.
     session_context_->AddTask(
         [shared_this = shared_from_this()]() {
           try {
+            using ExecuteResult = memgraph::communication::bolt::ExecuteResult;
             while (true) {
-              if (shared_this->session_.Execute()) {
+              if (shared_this->session_.Execute() == ExecuteResult::MoreData) {
                 // Uniform-worker pool: there is no dedicated-HP-worker tier to
                 // hand lower-priority work back to, so master's priority-rebalance
                 // reschedule is gone by design. Priority is instead enforced by

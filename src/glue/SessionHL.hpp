@@ -115,7 +115,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   utils::Priority ApproximateQueryPriority() const;
 
-  inline bool Execute() { return Execute_(*this); }
+  inline communication::bolt::ExecuteResult Execute() { return Execute_(*this); }
 
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return interpreter_.GetLogContext(); }
 

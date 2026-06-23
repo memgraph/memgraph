@@ -25,6 +25,7 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
+#include "flags/experimental.hpp"
 #include "license/license_sender.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/property_value.hpp"
@@ -112,6 +113,39 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
       summary = session.Pull(n, qid);
     } else {
       summary = session.Discard(n, qid);
+    }
+
+    // Batch B5 — COROUTINE_CURSORS yield intercept.
+    // When Interpreter::Pull returns a map containing kYieldReschedule the
+    // coroutine cursor yielded cooperatively.  We must NOT send a client
+    // response (the query is still running), NOT advance to Idle, and NOT
+    // check has_more.  Instead we signal State::Yielding so Execute_ can
+    // reschedule the resumable worker task.
+    //
+    // The key is stripped from the map before any further processing so that
+    // it never leaks to the client on any accidental fall-through.
+    //
+    // Flag-OFF: kYieldReschedule is never in the summary → this branch is
+    // never entered on the flag-OFF path → byte-identical.
+    if (flags::AreExperimentsEnabled(flags::Experiments::COROUTINE_CURSORS)) {
+      // The marker key is the canonical string defined by
+      // query::kYieldReschedule == "__yield_reschedule__" (interpreter.hpp:137).
+      // We use the literal here to avoid pulling the full interpreter.hpp into
+      // this template-heavy header.  A static_assert in interpreter.cpp guards
+      // the contract (B6 follow-up); for now the comment is the contract.
+      static constexpr std::string_view kYieldKey = "__yield_reschedule__";
+      auto yield_it = summary.find(std::string(kYieldKey));
+      if (yield_it != summary.end()) {
+        // Strip the marker so it cannot accidentally reach the encoder.
+        summary.erase(yield_it);
+        // Save n/qid so Execute_() can re-enter HandlePullDiscard<true> directly
+        // on the next resumable-task invocation, bypassing StateExecutingRun
+        // (which would otherwise re-read the Bolt message header from an empty
+        // decoder buffer and return State::Close).
+        session.pending_yield_n_ = n;
+        session.pending_yield_qid_ = qid;
+        return State::Yielding;
+      }
     }
 
     if (!session.encoder_.MessageSuccess(summary)) {

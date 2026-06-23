@@ -155,10 +155,15 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   void TestHook_ShouldAbort() { should_abort_ = true; }
 
   void Execute() {
-    while (Execute_(*this)) {
-      // Execute now exists on result, so it can be schduled again.
-      // No scheduler here, just loop until done
-    }
+    using ExecuteResult = memgraph::communication::bolt::ExecuteResult;
+    // Loop until no more data (NoMoreData) or a yield (Yielding is treated as
+    // MoreData here — the test harness has no resumable scheduler, so we simply
+    // continue; under test conditions COROUTINE_CURSORS is OFF so Yielding is
+    // never returned in practice).
+    ExecuteResult result;
+    do {
+      result = Execute_(*this);
+    } while (result != ExecuteResult::NoMoreData);
   }
 
  private:

@@ -32,6 +32,7 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::communication::bolt {
+
 /**
  * Bolt Session Exception
  *
@@ -84,7 +85,7 @@ class Session {
     requires requires(TImpl &impl) {
       { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
     }
-  bool Execute_(TImpl &impl) {
+  ExecuteResult Execute_(TImpl &impl) {
     // nullptr is the explicit no-op opt-out (test fakes, pre-auth).
     memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
     if (state_ == State::Handshake) [[unlikely]] {
@@ -95,17 +96,47 @@ class Session {
       // Receive the handshake.
       if (input_stream_.size() < kHandshakeSize) {
         spdlog::trace("Received partial handshake of size {}", input_stream_.size());
-        return false;  // no more data
+        return ExecuteResult::NoMoreData;
       }
       state_ = StateHandshakeRun(impl);
       if (state_ == State::Close) [[unlikely]] {
         ClientFailureInvalidData();
-        return false;  // no more data
+        return ExecuteResult::NoMoreData;
       }
       // Update the decoder's Bolt version (v5 has changed the undelying structure)
       decoder_.UpdateVersion(version_.major);
       encoder_.UpdateVersion(version_.major);
       // Fallthrough as there could be more data to process
+    }
+
+    // Batch B5: re-entry from a yielded PULL (COROUTINE_CURSORS ON only).
+    // HandlePullDiscard returned State::Yielding; the DoWork resumable task
+    // returned true (same-worker pinned reschedule) and called Execute_() again.
+    //
+    // The PULL Bolt chunk was already consumed from the decoder buffer before
+    // the yield (StateExecutingRun read the header; HandlePullDiscardV4 read
+    // the n/qid parameters).  We CANNOT call StateExecutingRun again — it would
+    // attempt ReadMessageHeader on an empty buffer and return State::Close.
+    //
+    // Instead, bypass StateExecutingRun and call HandlePullDiscard<true> directly
+    // with the n/qid we saved in pending_yield_n_ / pending_yield_qid_ when the
+    // yield was first signalled.  This mirrors how the State::Parsed path calls
+    // HandlePrepare() outside the GetChunk() loop.
+    //
+    // Flag-OFF: State::Yielding is never set → this block is dead code.
+    if (state_ == State::Yielding) [[unlikely]] {
+      state_ = details::HandlePullDiscard<true>(impl, pending_yield_n_, pending_yield_qid_);
+
+      if (state_ == State::Yielding) [[unlikely]] {
+        // Cursor yielded again; signal the resumable task to reschedule.
+        // pending_yield_n_ / qid_ are refreshed by HandlePullDiscard itself.
+        return ExecuteResult::Yielding;
+      }
+      if (state_ == State::Close) [[unlikely]] {
+        ClientFailureInvalidData();
+      }
+      // Fell through to Idle (PULL exhausted) or another state — fall down
+      // to the GetChunk() loop to handle any remaining client messages.
     }
 
     // Re-entering while in the Parsed state. Query has been parsed, execution has yielded to check the priority, we are
@@ -143,6 +174,7 @@ class Session {
         default:
           // State::Handshake is handled above
           // State::Parsed is handled below
+          // State::Yielding is handled above
           // State::Close is handled below
           break;
       }
@@ -154,7 +186,17 @@ class Session {
         // After Parsed, we do a Prepare (state::Result) and the Pull/Discard (state::Result)
         // Try to not break from Prepare till the end of the execution as this will lead to worse performance.
         // Last pull will set the state to State::Idle
-        return true;  // more data to process
+        return ExecuteResult::MoreData;
+      }
+
+      // Batch B5: Yielding returned by HandlePullDiscard (flag-ON only).
+      // Do NOT reset state_ here — Execute_ was called to process a Bolt
+      // chunk and StateExecutingRun already set state_ = State::Yielding.
+      // The DoWork resumable loop will call Execute_() again; the Yielding
+      // guard at the top of Execute_ will reset state_ → State::Result and
+      // return Yielding so the loop can reschedule.
+      if (state_ == State::Yielding) [[unlikely]] {
+        return ExecuteResult::Yielding;
       }
 
       if (state_ == State::Close) [[unlikely]] {
@@ -164,7 +206,7 @@ class Session {
         ClientFailureInvalidData();
       }
     }
-    return false;  // no more data
+    return ExecuteResult::NoMoreData;
   }
 
   void HandleError() {
@@ -185,6 +227,15 @@ class Session {
 
   State state_{State::Handshake};
   bool at_least_one_run_{false};
+
+  // Batch B5 — COROUTINE_CURSORS yield re-entry context.
+  // When HandlePullDiscard signals State::Yielding it first stores the n/qid
+  // parameters here so that Execute_() can re-enter HandlePullDiscard directly
+  // (bypassing StateExecutingRun) without re-reading from the decoder buffer.
+  // Under COROUTINE_CURSORS OFF these fields are never written, so the flag-OFF
+  // path is byte-identical to the pre-B5 code.
+  std::optional<int> pending_yield_n_{};
+  std::optional<int> pending_yield_qid_{};
 
   struct Version {
     uint8_t major;

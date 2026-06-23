@@ -49,5 +49,14 @@ struct Context {
     MG_ASSERT(worker_pool_, "Trying to add task to a non-existent worker pool");
     return worker_pool_->ScheduledAddTask(std::forward<decltype(task)>(task), priority);
   }
+
+  // Batch B5 — COROUTINE_CURSORS: schedule a resumable bool() task.
+  // The task returns true to be rescheduled pinned to the same worker (yield),
+  // or false when done.  Mirrors AddTask but forwards to ScheduleResumableTask.
+  // Only called from DoWork when COROUTINE_CURSORS is ON.
+  auto AddResumableTask(utils::ResumableTaskSignature task, utils::Priority priority) {
+    MG_ASSERT(worker_pool_, "Trying to add resumable task to a non-existent worker pool");
+    return worker_pool_->ScheduleResumableTask(std::move(task), priority);
+  }
 };
 }  // namespace memgraph::glue
