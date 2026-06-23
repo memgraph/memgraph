@@ -477,5 +477,255 @@ TEST(CursorYield, DeepChainAbortPropagates) {
       << "a leaf abort must propagate up through the parent hop to the driver";
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FrameSentinel — counts live coroutine frames.
+//
+// Each fake coroutine declares a FrameSentinel as its FIRST local.  The
+// sentinel is part of the coroutine frame (it lives from the first suspension
+// point onward).  Its destructor fires exactly when the C++ runtime destroys
+// the coroutine frame (via coroutine_handle::destroy()).
+//
+// Interpretation of FrameSentinel::alive after chain teardown:
+//   alive == 0  : every frame destroyed exactly once   (correct)
+//   alive  > 0  : some frames not destroyed            (leak)
+//   alive  < 0  : some frames destroyed more than once (double-free / UB)
+// ─────────────────────────────────────────────────────────────────────────────
+struct FrameSentinel {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+  static inline std::atomic<int> alive{0};
+
+  FrameSentinel() { alive.fetch_add(1, std::memory_order_relaxed); }
+
+  ~FrameSentinel() { alive.fetch_sub(1, std::memory_order_relaxed); }
+
+  // Non-copyable / non-movable (frame locals are never copied).
+  FrameSentinel(const FrameSentinel &) = delete;
+  FrameSentinel &operator=(const FrameSentinel &) = delete;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sentinel-aware leaf: same as LeafPull but owns a FrameSentinel so we can
+// detect frame leaks.  Yields at the YieldPointAwaitable on every row.
+// ─────────────────────────────────────────────────────────────────────────────
+PullAwaitable SentinelLeafPull(Frame & /*f*/, ExecutionContext &ctx, int row_count) {
+  FrameSentinel sentinel;  // alive for the entire frame lifetime
+  utils::ResettableCounter counter{1};
+  for (int i = 0; i < row_count; ++i) {
+    co_await YieldPointAwaitable(ctx, counter);
+    co_yield true;
+  }
+  co_return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATH A (ResumeAwaitable / lvalue-borrow path) — the parent holds a
+// PullAwaitable& and drives it via child.Resume().  This is the pattern used
+// by tests 8-10 (ParentPull).  The child PA is externally owned; the parent
+// frame borrows it.  When the parent is abandoned while the child is suspended
+// mid-yield, the child frame must be destroyed by the externally-owned PA's
+// destructor — NOT by the parent's Awaiter — so there is no ownership
+// ambiguity here regardless of owns_handle_ semantics.
+// ─────────────────────────────────────────────────────────────────────────────
+PullAwaitable SentinelParentResumeAwaitable(Frame & /*f*/, ExecutionContext & /*ctx*/, PullAwaitable &child) {
+  FrameSentinel sentinel;
+  while (true) {
+    const bool has = co_await child.Resume();
+    if (!has) co_return false;
+    co_yield true;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATH B (PullAwaitable::Awaiter / rvalue-move path) — the parent creates the
+// child as a temporary and co_awaits it directly.  This exercises the path
+// that #6 fix touches: Awaiter::await_suspend sets owns_handle_=false just
+// before symmetric-transferring into the child.  If the child then yields
+// (via YieldPointAwaitable), the child handle is stashed in the driver slot.
+// When the parent is then abandoned (destroyed without resuming), the Awaiter
+// dtor fires with owns_handle_=false → it does NOT destroy the child frame.
+// The driver slot is cleared (PullDriverScope dtor) without destroy.
+// → If owns_handle_=false, child frame is leaked (alive > 0 after teardown).
+// → If owns_handle_=true (pre-fix), Awaiter dtor destroys child frame on
+//   parent teardown.  But the child handle is ALSO in the driver slot at that
+//   point (stashed by YieldPointAwaitable::await_suspend).  PullDriverScope
+//   slot is then just a dangling handle that was already destroyed → UB /
+//   double-free (alive goes negative when slot is re-destroyed, or crash).
+//
+// NOTE: The child is created as a LOCAL coroutine (not referenced from
+// outside), so the parent frame is the only non-slot reference path.
+// ─────────────────────────────────────────────────────────────────────────────
+PullAwaitable SentinelParentRvalueAwaiter(Frame &f, ExecutionContext &ctx, int child_rows) {
+  FrameSentinel sentinel;
+  // Create child as a temporary → rvalue co_await → PullAwaitable::operator co_await() &&
+  // → Awaiter{handle, owns_handle_=true} → await_suspend sets owns_handle_=false (#6 fix).
+  const bool has = co_await SentinelLeafPull(f, ctx, child_rows);
+  if (!has) co_return false;
+  co_yield true;
+  co_return false;  // exhausted after one row
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GrandParent for a ≥3-level chain (PATH A, 3 frames deep):
+//   GrandParent → [ResumeAwaitable] → Parent → [ResumeAwaitable] → Leaf
+// Each hop uses the borrowing path.  Teardown must destroy all 3 frames
+// exactly once after abandon-mid-yield.
+// ─────────────────────────────────────────────────────────────────────────────
+PullAwaitable SentinelGrandParentResumeAwaitable(Frame & /*f*/, ExecutionContext & /*ctx*/, PullAwaitable &child) {
+  FrameSentinel sentinel;
+  while (true) {
+    const bool has = co_await child.Resume();
+    if (!has) co_return false;
+    co_yield true;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 11 — ABANDON MID-YIELD: PATH A (3-level ResumeAwaitable chain).
+//
+// Build grandparent → parent → leaf (each holding a FrameSentinel).
+// Drive until the leaf yields (alive == 3, all suspended mid-yield).
+// Abandon: drop all three PullAwaitables without resuming to completion.
+// Assert alive == 0: every frame destroyed exactly once, no leak, no
+// double-free.
+//
+// This tests the existing externally-owned-PA path which is not affected by
+// the #6 fix.  It should pass under both owns_handle_=true and =false.
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(CursorYield, AbandonMidYieldPathA_ResumeAwaitable) {
+  FrameSentinel::alive.store(0, std::memory_order_seq_cst);
+
+  ExecutionContext ctx;
+  Frame frame{0};
+  std::atomic<bool> yield_flag{true};  // always armed
+  ctx.stopping_context.yield_requested = &yield_flag;
+
+  PullRunResult result{};
+
+  {
+    // Build 3-level chain: grandparent → parent → leaf
+    auto leaf = SentinelLeafPull(frame, ctx, /*row_count=*/5);
+    auto parent = SentinelParentResumeAwaitable(frame, ctx, leaf);
+    auto grandparent = SentinelGrandParentResumeAwaitable(frame, ctx, parent);
+
+    ASSERT_FALSE(grandparent.Done()) << "chain must not be vacuously empty";
+
+    // Drive ONCE under Enabled scope — leaf should yield (alive == 3, all mid-yield suspended).
+    {
+      PullDriverScope scope{ctx, YieldMode::Enabled};
+      auto ra = grandparent.Resume();
+      result = ResumePullStep(ra, ctx);
+    }  // scope exits here: slot cleared, NOT destroying the stashed handle
+
+    ASSERT_EQ(result.status, PullRunResult::Status::Yielded)
+        << "leaf must have yielded on step 0 (yield_flag always armed)";
+    EXPECT_GT(FrameSentinel::alive.load(std::memory_order_seq_cst), 0) << "sanity: frames still alive mid-yield";
+
+    // ABANDON: let leaf, parent, grandparent go out of scope here.
+    // ~PullAwaitable destroys each frame in turn (grandparent→parent→leaf).
+    // Each parent's Awaiter (ResumeAwaitable) is non-owning → no double-free.
+    // The leaf frame is owned by the leaf PA.
+  }
+
+  EXPECT_EQ(FrameSentinel::alive.load(std::memory_order_seq_cst), 0)
+      << "PATH A (ResumeAwaitable): all frames must be destroyed exactly once after abandon-mid-yield.\n"
+         "alive > 0 = leak (frame not destroyed), alive < 0 = double-free / UB";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 12 — ABANDON MID-YIELD: PATH B (rvalue Awaiter, the #6-fix path).
+//
+// Build a parent that co_awaits a TEMPORARY child (rvalue PullAwaitable).
+// This exercises PullAwaitable::operator co_await() && →
+//   Awaiter{handle, owns_handle_=true initially}
+// Then Awaiter::await_suspend sets owns_handle_=false (#6 fix) just before
+// symmetric-transferring to the child.
+// The child (leaf) hits YieldPointAwaitable → stashes own handle in driver
+// slot → terminates resume() → driver reports Yielded.
+//
+// At this point: parent frame is suspended at the Awaiter; Awaiter holds
+// child handle with owns_handle_=false; driver slot holds leaf handle.
+//
+// ABANDON: drop the parent PullAwaitable.  ~PullAwaitable(parent) calls
+// parent_frame.destroy().  The parent frame's Awaiter dtor fires with
+// owns_handle_=false → does NOT destroy child frame.
+// PullDriverScope has already exited (slot cleared with {}, no destroy).
+// → child frame is leaked → alive > 0 (BUG with #6 fix).
+//
+// With owns_handle_=true (pre-fix): Awaiter dtor destroys child frame →
+// alive goes to 0 from child.  But child handle was also in driver slot;
+// since PullDriverScope already exited the slot was just cleared (assigned
+// {}, NOT destroyed).  So child frame is destroyed exactly once → alive==0.
+// No double-free in that case because the scope's slot is cleared before
+// the parent PA is destroyed.
+//
+// EXPECTED RESULT TABLE:
+//   Config A (owns_handle_=false, #6 fix): alive > 0 after teardown → LEAK
+//   Config B (owns_handle_=true, pre-fix): alive == 0 after teardown → CLEAN
+//
+// NOTE: The 3-level requirement is met by nesting inside SentinelParentRvalueAwaiter
+// which itself creates a 2-level chain (parent + leaf), both with FrameSentinels.
+// ─────────────────────────────────────────────────────────────────────────────
+TEST(CursorYield, AbandonMidYieldPathB_RvalueAwaiter) {
+  FrameSentinel::alive.store(0, std::memory_order_seq_cst);
+
+  ExecutionContext ctx;
+  Frame frame{0};
+  std::atomic<bool> yield_flag{true};  // always armed → leaf will yield on first step
+  ctx.stopping_context.yield_requested = &yield_flag;
+
+  PullRunResult result{};
+
+  {
+    // SentinelParentRvalueAwaiter internally creates a temporary SentinelLeafPull
+    // and co_awaits it directly (rvalue → Awaiter path).  Both parent and leaf
+    // hold FrameSentinels.  alive should reach 2 once both frames are created.
+    auto parent = SentinelParentRvalueAwaiter(frame, ctx, /*child_rows=*/3);
+
+    ASSERT_FALSE(parent.Done()) << "chain must not be vacuously empty";
+
+    {
+      PullDriverScope scope{ctx, YieldMode::Enabled};
+      auto ra = parent.Resume();
+
+      // Step 1: drive — parent frame starts, creates leaf frame (alive=2), leaf hits
+      // YieldPointAwaitable → stashes leaf handle in slot → returns Yielded.
+      result = ResumePullStep(ra, ctx);
+    }  // scope exits: slot = {}  (handle cleared but NOT destroyed)
+
+    ASSERT_EQ(result.status, PullRunResult::Status::Yielded)
+        << "leaf must have yielded on the first step (yield_flag always armed)";
+    EXPECT_GT(FrameSentinel::alive.load(std::memory_order_seq_cst), 0)
+        << "sanity: parent + leaf frames alive while suspended mid-yield";
+
+    // ABANDON: drop parent PullAwaitable without resuming to completion.
+    // ~PullAwaitable(parent) → parent_handle.destroy() → parent frame dtor runs.
+    // Parent frame had an Awaiter (child handle, owns_handle_=false with #6 fix).
+    // Awaiter dtor fires with owns_handle_=false → child frame NOT destroyed.
+    // Driver slot was already cleared (scope exited) → child frame leaks.
+  }
+
+  // Measurement: record alive count post-teardown.
+  const int alive_after = FrameSentinel::alive.load(std::memory_order_seq_cst);
+
+  // This assertion DOCUMENTS the expected behaviour per config:
+  //   Config A (owns_handle_=false, #6 fix): EXPECT alive_after == 1 (leaf leaked)
+  //   Config B (owns_handle_=true,  pre-fix): EXPECT alive_after == 0 (both destroyed)
+  //
+  // We assert alive >= 0 to catch double-free regardless of config.
+  EXPECT_GE(alive_after, 0) << "alive < 0 means a frame was destroyed more than once (double-free / UB).\n"
+                               "Config A (owns_handle_=false): expect alive==1 (leaf leaked).\n"
+                               "Config B (owns_handle_=true):  expect alive==0 (clean teardown).";
+
+  // The key assertion: alive==0 means no leak AND no double-free.
+  // This WILL FAIL under Config A (owns_handle_=false, #6 fix) with alive==1.
+  // This WILL PASS under Config B (owns_handle_=true, pre-fix) with alive==0.
+  EXPECT_EQ(alive_after, 0)
+      << "AbandonMidYield PATH B: alive=" << alive_after
+      << " after teardown.\n"
+         "  alive == 0 → CLEAN (correct teardown: no leak, no double-free).\n"
+         "  alive >  0 → LEAK  (child frame not destroyed; owns_handle_=false dropped the handle).\n"
+         "  alive <  0 → DOUBLE-FREE (frame destroyed more than once; UB).";
+}
+
 }  // namespace
 }  // namespace memgraph::query::plan

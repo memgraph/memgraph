@@ -122,13 +122,13 @@ class PullAwaitable {
     bool await_ready() const noexcept { return immediate_ready_ || !handle_; }
 
     // This cursor is not ready, transfer to the child and execute its logic.
-    // Relinquish ownership here (rvalue co_await path): once the parent suspends
-    // over this child co_await, the Awaiter's dtor must NOT destroy the still-live
-    // child frame.  The driver's slot becomes the sole non-owning observer.
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> parent) noexcept {
+    // The Awaiter RETAINS ownership of the child handle (owns_handle_ stays true).
+    // ~Awaiter() is what destroys a suspended child when the parent frame is torn
+    // down: coroutine_handle::destroy() is NOT recursive, so the parent's
+    // destruction will NOT reach into the suspended child unless the Awaiter does it.
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> parent) const noexcept {
       handle_.promise().parent_ = parent;
-      owns_handle_ = false;  // #6 fix: leaf now owned by the coroutine chain, not us
-      return handle_;        // symmetric transfer into child
+      return handle_;  // symmetric transfer into child
     }
 
     bool await_resume() const {
@@ -139,10 +139,14 @@ class PullAwaitable {
     }
   };
 
-  // PHASE-2 NOTE (cooperative yield). ~Awaiter() destroys its handle whenever owns_handle_ is set.
-  // The #6 fix in await_suspend clears owns_handle_ before the symmetric transfer, so that once a
-  // parent frame parks over a child co_await the Awaiter no longer owns the leaf — the leaf is owned
-  // by the live coroutine chain. The driver's slot is a non-owning observer. Double-free hazard closed.
+  // PHASE-2 NOTE (cooperative yield). The Awaiter MUST retain ownership of the child handle
+  // (owns_handle_ stays true throughout await_suspend and beyond).  coroutine_handle::destroy() is
+  // NOT recursive: destroying a parent frame does NOT cascade into any suspended child.  The Awaiter's
+  // destructor is therefore the SOLE mechanism that destroys a suspended child when the parent is
+  // torn down on abandon-mid-yield.  ExecutionContext::suspended_task_handle_ptr is a NON-OWNING
+  // observer slot (only ever does `*slot = {}`, never `.destroy()`), so there is no double-free.
+  // Empirically verified: owns_handle_=false → child frame leaked (alive==1 in AbandonMidYieldPathB);
+  // owns_handle_=true → clean teardown (alive==0, no double-free).
 
   PullAwaitable() = default;
 
