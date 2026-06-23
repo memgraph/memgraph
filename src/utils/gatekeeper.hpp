@@ -200,6 +200,7 @@ struct Gatekeeper {
       if (owner_) {
         auto guard = std::unique_lock{owner_->mutex_};
         --owner_->count_;
+        owner_->cv_.notify_all();
       }
 
       // correct owner
@@ -215,6 +216,7 @@ struct Gatekeeper {
       if (owner_) {
         auto guard = std::unique_lock{owner_->mutex_};
         --owner_->count_;
+        owner_->cv_.notify_all();
       }
 
       // correct owners
