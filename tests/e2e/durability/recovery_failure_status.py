@@ -15,7 +15,7 @@ import sys
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path
+from common import connect, corrupt_snapshots, execute_and_fetch_all, get_data_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -37,28 +37,6 @@ def cleanup_instances():
     interactive_mg_runner.kill_all()
 
 
-def corrupt_snapshots(base_directory):
-    """Corrupt a chunk inside the vertex-data region of every snapshot under
-    base_directory/snapshots, leaving the offsets header (start) and the metadata
-    section (end) intact. ReadSnapshotInfo still recognizes the file (so it is
-    selected for recovery) but LoadSnapshot fails reading vertices -> the "no usable
-    snapshot" path, which yields a defunct database."""
-    snapshot_dir = os.path.join(base_directory, "snapshots")
-    files = [
-        os.path.join(snapshot_dir, f) for f in os.listdir(snapshot_dir) if os.path.isfile(os.path.join(snapshot_dir, f))
-    ]
-    assert files, "Expected at least one snapshot to corrupt"
-    for path in files:
-        size = os.path.getsize(path)
-        start = min(1024, size // 4)
-        end = min(start + 16384, max(start + 1, size // 2))
-        assert end > start, f"Snapshot {path} too small ({size} bytes) to corrupt safely"
-        with open(path, "r+b") as fh:
-            fh.seek(start)
-            fh.write(b"\xff" * (end - start))
-    return files
-
-
 def storage_info(cursor):
     rows = execute_and_fetch_all(cursor, "SHOW STORAGE INFO ON CURRENT DATABASE")
     return {row[0]: row[1] for row in rows}
@@ -66,7 +44,7 @@ def storage_info(cursor):
 
 def test_storage_info_reports_ready_then_defunct(test_name):
     """SHOW STORAGE INFO reports status=ready for a healthy database and status=defunct
-    after recovery fails (Community-compatible: uses only the default database)."""
+    after recovery fails."""
     data_directory = get_data_path("recovery_failure_status", test_name)
     full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
     shutil.rmtree(full_data_directory, ignore_errors=True)
@@ -100,7 +78,7 @@ def test_storage_info_reports_ready_then_defunct(test_name):
 
 
 def test_show_databases_reports_status(test_name):
-    """SHOW DATABASES (Enterprise) shows a Status column: defunct for a tenant whose
+    """SHOW DATABASES shows a Status column: defunct for a tenant whose
     recovery failed, ready for a healthy tenant."""
     data_directory = get_data_path("recovery_failure_status", test_name)
     full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
@@ -117,13 +95,7 @@ def test_show_databases_reports_status(test_name):
     interactive_mg_runner.start(instances, "default")
     connection = connect(host="localhost", port=7687)
     cursor = connection.cursor()
-    try:
-        execute_and_fetch_all(cursor, "CREATE DATABASE broken_db")
-    except Exception as e:
-        if "enterprise" in str(e).lower() or "not supported" in str(e).lower():
-            interactive_mg_runner.kill_all()
-            pytest.skip("SHOW DATABASES / multitenancy requires an enterprise license")
-        raise
+    execute_and_fetch_all(cursor, "CREATE DATABASE broken_db")
 
     # Populate and snapshot the tenant so it has durability to corrupt.
     execute_and_fetch_all(cursor, "USE DATABASE broken_db")

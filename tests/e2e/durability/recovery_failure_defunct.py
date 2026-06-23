@@ -10,12 +10,11 @@
 # licenses/APL.txt.
 
 import os
-import random
 import sys
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
+from common import connect, corrupt_snapshots, execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -32,29 +31,6 @@ DEFUNCT_ERROR = "Database is in the defunct state because the recovery process f
 @pytest.fixture
 def test_name(request):
     return request.node.name
-
-
-def corrupt_snapshots(full_data_directory):
-    """Corrupts each snapshot from a random offset through the end of the file.
-
-    Overwriting through EOF always destroys the trailing section-offset table that
-    snapshot recovery reads first, so recovery is guaranteed to fail. (A bounded
-    random span could land on payload bytes - e.g. an integer property value - and
-    still parse, since the snapshot format has no whole-file checksum.)
-    """
-    snapshot_dir = os.path.join(full_data_directory, "snapshots")
-    files = [
-        os.path.join(snapshot_dir, f) for f in os.listdir(snapshot_dir) if os.path.isfile(os.path.join(snapshot_dir, f))
-    ]
-    assert files, "Expected at least one snapshot to corrupt"
-
-    for path in files:
-        size = os.path.getsize(path)
-        start = random.randint(0, size - 1)
-        with open(path, "r+b") as fh:
-            fh.seek(start)
-            fh.write(b"\xff" * (size - start))
-    return files
 
 
 def test_defunct_on_corrupt_snapshot(test_name):
