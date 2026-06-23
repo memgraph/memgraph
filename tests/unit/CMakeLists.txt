@@ -152,6 +152,15 @@ add_unit_test(cursor_yield_real
     LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
+# Phase-3 interpreter-level yield integration test (B6.2): drives REAL Cypher queries
+# through the full interpreter glue (cursor yield -> PullPlan::Pull nullopt+yielded ->
+# QueryHandlerResult::YIELD -> Interpreter::Pull kYieldReschedule -> resume -> identical
+# result), using WorkerYieldRegistry to force yield on every throttle period.
+add_unit_test(cursor_yield_interpreter
+    SOURCES cursor_yield_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+)
+
 add_unit_test(query_plan_orderby_index
     SOURCES query_plan_orderby_index.cpp
     LINK_TARGETS mg-query

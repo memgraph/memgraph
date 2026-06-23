@@ -3258,6 +3258,13 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
       stream_values();
       ++i;
     }
+    // The buffered row (if any) has now been streamed. Clear the flag here so that a flag-ON
+    // cooperative YIELD early-return (which returns before the look-ahead probe that would
+    // otherwise recompute has_unsent_results_) cannot leave it STALE-true and cause the resumed
+    // Pull to re-stream the frame's already-sent row (row-duplication under batched PULLs).
+    // Byte-identical for the legacy path: it unconditionally recomputes has_unsent_results_ at the
+    // end of the call, so clearing it here is overwritten there.
+    has_unsent_results_ = false;
 
     // B3 — dual-path drive loop.
     //
