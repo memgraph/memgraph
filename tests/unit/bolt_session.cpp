@@ -17,6 +17,7 @@
 #include "bolt_common.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/exceptions.hpp"
+#include "flags/experimental.hpp"
 #include "query/exceptions.hpp"
 #include "utils/logging.hpp"
 
@@ -34,6 +35,7 @@ static const char *kQueryReturn42 = "RETURN 42";
 static const char *kQueryReturnMultiple = "UNWIND [1,2,3] as n RETURN n";
 static const char *kQueryShowTx = "SHOW TRANSACTIONS";
 static const char *kQueryEmpty = "no results";
+static const char *kQueryYieldThenComplete = "YIELD THEN COMPLETE";
 
 class TestSessionContext {};
 
@@ -54,7 +56,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
     }
-    if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple) {
+    if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple ||
+        query == kQueryYieldThenComplete) {
       query_ = query;
       return;
     }
@@ -70,7 +73,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   }
 
   std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare() {
-    if (query_ == kQueryReturn42 || query_ == kQueryEmpty || query_ == kQueryReturnMultiple) {
+    if (query_ == kQueryReturn42 || query_ == kQueryEmpty || query_ == kQueryReturnMultiple ||
+        query_ == kQueryYieldThenComplete) {
       return {{"result_name"}, {}};
     }
     if (query_ == kQueryShowTx) {
@@ -107,6 +111,19 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     } else if (query_ == kQueryShowTx) {
       encoder_.MessageRecord({"", 1'234'567'890, query_, md_});
       return {};
+    } else if (query_ == kQueryYieldThenComplete) {
+      if (yield_pull_count_ < yield_target_) {
+        ++yield_pull_count_;
+        // Simulate a coroutine cursor yielding: the interpreter would return a
+        // summary containing kYieldReschedule.  We use the literal marker string
+        // (== query::kYieldReschedule, the contract documented in handlers.hpp).
+        return {std::pair(std::string("__yield_reschedule__"), Value(true))};
+      }
+      // Resume completes: emit the single record exactly once, finish.
+      encoder_.MessageRecord(std::vector<Value>{Value(42)});
+      ++records_emitted_;
+      yield_pull_count_ = 0;
+      return {std::pair("has_more", false)};
     } else {
       throw ClientError("client sent invalid query");
     }
@@ -154,6 +171,12 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
 
+  void TestHook_SetYieldTarget(int n) { yield_target_ = n; }
+
+  memgraph::communication::bolt::ExecuteResult ExecuteOnce() { return Execute_(*this); }
+
+  int RecordsEmitted() const { return records_emitted_; }
+
   void Execute() {
     using ExecuteResult = memgraph::communication::bolt::ExecuteResult;
     // Loop until no more data (NoMoreData) or a yield (Yielding is treated as
@@ -170,6 +193,9 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   std::string query_;
   bolt_map_t md_;
   bool should_abort_ = false;
+  int yield_target_ = 0;      // number of cooperative yields before the pull completes
+  int yield_pull_count_ = 0;  // yields emitted so far for the current pull
+  int records_emitted_ = 0;   // real records encoded (proves exactly-once delivery)
 };
 
 // TODO: This could be done in fixture.
@@ -1314,4 +1340,80 @@ TEST(BoltSession, PartialStream) {
     auto const find_msg = std::search(cbegin(output), cend(output), cbegin(error_msg), cend(error_msg));
     EXPECT_NE(find_msg, cend(output));
   }
+}
+
+// B6.5: bolt-layer cooperative-yield resume — single yield then completion.
+// Exercises the State::Yielding stash/resume path in session.hpp Execute_()
+// (lines 127-140) and the yield intercept in handlers.hpp HandlePullDiscard
+// (lines 130-148).  The mock Pull() returns the __yield_reschedule__ marker
+// on the first call, then emits a real record and returns has_more=false on
+// the second.  We drive Execute_() one call at a time via ExecuteOnce() so
+// the Yielding early-return is observable (the looping Execute() wrapper
+// would hide it).
+TEST(BoltSession, CoroutineYieldOnceThenResumes) {
+  INIT_VARS;
+  ExecuteHandshake(input_stream, session, output);
+  ExecuteInit(input_stream, session, output);
+
+  // RUN the yieldable query (flag-OFF for RUN; only PULL inspects the flag).
+  WriteRunRequest(input_stream, kQueryYieldThenComplete);
+  session.Execute();
+  ASSERT_EQ(session.state_, State::Result);
+  output.clear();
+
+  // Arm: cursor yields exactly once before completing.
+  session.TestHook_SetYieldTarget(1);
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::COROUTINE_CURSORS);
+
+  using ExecuteResult = memgraph::communication::bolt::ExecuteResult;
+  // Write the PULL chunk (v1 pullall_req = {0xb0, 0x3f}), then drive Execute_
+  // directly to observe the result the looping TestSession::Execute() hides.
+  WriteChunkHeader(input_stream, sizeof(pullall_req));
+  input_stream.Write(pullall_req, sizeof(pullall_req));
+  WriteChunkTail(input_stream);
+
+  // 1st drive: cursor yields -> bolt returns Yielding, no client response yet.
+  EXPECT_EQ(session.ExecuteOnce(), ExecuteResult::Yielding);
+  EXPECT_EQ(session.state_, State::Yielding);
+  EXPECT_EQ(session.RecordsEmitted(), 0) << "no record may be emitted on the yield turn";
+
+  // 2nd drive: resume re-enters HandlePullDiscard with the stashed n/qid -> completes.
+  EXPECT_EQ(session.ExecuteOnce(), ExecuteResult::NoMoreData);
+  EXPECT_EQ(session.state_, State::Idle);
+  EXPECT_EQ(session.RecordsEmitted(), 1) << "the single record must be delivered exactly once across yield+resume";
+
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+}
+
+// B6.5: cursor yields on TWO consecutive turns before completing — exercises the
+// top-of-Execute_ re-yield branch (session.hpp lines 130-133) where state_ is
+// already Yielding on entry and HandlePullDiscard returns Yielding again.
+// pending_yield_n_ / pending_yield_qid_ are refreshed by HandlePullDiscard on
+// each yield so the stash is always fresh for the next re-entry.
+TEST(BoltSession, CoroutineYieldTwiceThenResumes) {
+  INIT_VARS;
+  ExecuteHandshake(input_stream, session, output);
+  ExecuteInit(input_stream, session, output);
+
+  WriteRunRequest(input_stream, kQueryYieldThenComplete);
+  session.Execute();
+  ASSERT_EQ(session.state_, State::Result);
+  output.clear();
+
+  session.TestHook_SetYieldTarget(2);
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::COROUTINE_CURSORS);
+
+  using ExecuteResult = memgraph::communication::bolt::ExecuteResult;
+  WriteChunkHeader(input_stream, sizeof(pullall_req));
+  input_stream.Write(pullall_req, sizeof(pullall_req));
+  WriteChunkTail(input_stream);
+
+  EXPECT_EQ(session.ExecuteOnce(), ExecuteResult::Yielding);  // first yield (in-loop, session.hpp line 198)
+  EXPECT_EQ(session.ExecuteOnce(), ExecuteResult::Yielding);  // second yield (re-entry, session.hpp lines 130-133)
+  EXPECT_EQ(session.RecordsEmitted(), 0);
+  EXPECT_EQ(session.ExecuteOnce(), ExecuteResult::NoMoreData);  // resume completes
+  EXPECT_EQ(session.state_, State::Idle);
+  EXPECT_EQ(session.RecordsEmitted(), 1);
+
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
 }
