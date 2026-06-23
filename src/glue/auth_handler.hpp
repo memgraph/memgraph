@@ -150,6 +150,19 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name) override;
   std::optional<std::string> GetProfileForRole(const std::string &user_or_role) override;
   std::vector<std::string> GetRolenamesForProfile(const std::string &profile_name) override;
+
+  void GrantPropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
+                               const std::vector<std::string> &entity_names, auth::PropertyEntityKind entity_kind,
+                               auth::MatchingMode matching_mode, auth::UserOrRoleType type,
+                               auth::PropertyPermissionType perm_type, system::Transaction *system_tx) override;
+  void DenyPropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
+                              const std::vector<std::string> &entity_names, auth::PropertyEntityKind entity_kind,
+                              auth::MatchingMode matching_mode, auth::UserOrRoleType type,
+                              auth::PropertyPermissionType perm_type, system::Transaction *system_tx) override;
+  void RevokePropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
+                                const std::vector<std::string> &entity_names, auth::PropertyEntityKind entity_kind,
+                                auth::MatchingMode matching_mode, auth::UserOrRoleType type,
+                                auth::PropertyPermissionType perm_type, system::Transaction *system_tx) override;
 #endif
 
  private:
@@ -177,6 +190,14 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 #endif
       ,
       auth::UserOrRoleType type, system::Transaction *system_tx);
+
+#ifdef MG_ENTERPRISE
+  template <typename EditFn>
+  void EditPropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
+                              const std::vector<std::string> &entity_names, auth::PropertyEntityKind entity_kind,
+                              auth::MatchingMode matching_mode, auth::UserOrRoleType type,
+                              system::Transaction *system_tx, EditFn const &edit_fn);
+#endif
 
 #ifdef MG_ENTERPRISE
   void GrantImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,

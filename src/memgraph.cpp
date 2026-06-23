@@ -1086,7 +1086,7 @@ int main(int argc, char **argv) {
     // Don't replicate on shutdown anymore
     {
       // Read lock is fine because we are only shutting down all the state which should be concurrently safe to do with
-      // other operations This allow terminating current commit that is taking place
+      // other operations. This allows terminating current commit that is taking place
       if (!is_coordinator_instance) {
         auto locked_repl_state = repl_state->ReadLock();
         spdlog::trace("Closing repl state");

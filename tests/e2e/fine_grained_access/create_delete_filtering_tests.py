@@ -540,6 +540,10 @@ def test_merge_nodes_pass_when_having_read(switch):
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE ON NODES CONTAINING LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGES OF TYPE * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ {*} ON NODES CONTAINING LABELS * TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT SET PROPERTY {*} ON NODES CONTAINING LABELS * TO user;"
+    )
     user_connection = common.connect(username="user", password="test")
 
     if switch:

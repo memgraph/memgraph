@@ -49,6 +49,11 @@ void GrantAllPrivileges(mg::Client &client, std::string_view username) {
   // Grant all label-based privileges
   client.Execute(fmt::format("GRANT * ON NODES CONTAINING LABELS * TO {};", username));
   client.DiscardAll();
+  // Grant all property-based privileges
+  client.Execute(fmt::format("GRANT READ, SET PROPERTY {{*}} ON NODES CONTAINING LABELS * TO {};", username));
+  client.DiscardAll();
+  client.Execute(fmt::format("GRANT READ, SET PROPERTY {{*}} ON EDGES OF TYPE * TO {};", username));
+  client.DiscardAll();
 }
 
 void GrantAllRoleBasedPrivileges(mg::Client &client, std::string_view username) {
@@ -75,7 +80,10 @@ void CreateTrigger(mg::Client &client, std::string_view trigger_name, const std:
                   "{} COMMIT EXECUTE "
                   "UNWIND createdVertices as createdVertex "
                   "SET createdVertex.{} = true",
-                  trigger_name, security_clause, phase, kTriggerProperty));
+                  trigger_name,
+                  security_clause,
+                  phase,
+                  kTriggerProperty));
   client.DiscardAll();
 }
 
@@ -142,6 +150,14 @@ class PrivilegeCheckTest : public ::testing::TestWithParam<std::string> {
     GrantFineGrainedPrivileges(*admin_client_, kInvokerWithoutFineGrainedSet, "READ, CREATE", kVertexLabel);
     GrantFineGrainedPrivileges(*admin_client_, kDefinerWithFineGrainedSet, "*", kVertexLabel);
     GrantFineGrainedPrivileges(*admin_client_, kDefinerWithoutFineGrainedSet, "READ, CREATE", kVertexLabel);
+
+    for (auto user : {kInvokerWithFineGrainedSet,
+                      kInvokerWithoutFineGrainedSet,
+                      kDefinerWithFineGrainedSet,
+                      kDefinerWithoutFineGrainedSet}) {
+      admin_client_->Execute(fmt::format("GRANT READ, SET PROPERTY {{*}} ON NODES CONTAINING LABELS * TO {};", user));
+      admin_client_->DiscardAll();
+    }
   }
 
   static void TearDownTestSuite() {
@@ -227,7 +243,8 @@ TEST_P(PrivilegeCheckTest, ExplicitInvoker) {
   // invoker without SET can't trigger successfully
   if (!is_after) {
     // BEFORE COMMIT: transaction should fail
-    EXPECT_THROW({ CreateVertex(*invoker_without_set_client, kVertexId); }, mg::TransientException)
+    EXPECT_THROW(
+        { CreateVertex(*invoker_without_set_client, kVertexId); }, mg::TransientException)
         << "BEFORE COMMIT trigger should fail transaction when invoker lacks SET privilege";
     CheckNumberOfAllVertices(*invoker_without_set_client, 0);
   } else {
@@ -285,7 +302,8 @@ TEST_P(PrivilegeCheckTest, DefinerCreationFails) {
   auto definer_without_set_client = ConnectWithUser(kDefinerWithoutSet);
 
   // definer without SET cannot create trigger with DEFINER mode
-  EXPECT_THROW({ CreateTrigger(*definer_without_set_client, "DefinerFail", phase, "DEFINER"); }, mg::TransientException)
+  EXPECT_THROW(
+      { CreateTrigger(*definer_without_set_client, "DefinerFail", phase, "DEFINER"); }, mg::TransientException)
       << "Creating DEFINER trigger without SET privilege should fail";
 }
 
@@ -325,7 +343,8 @@ TEST_P(PrivilegeCheckTest, InvokerFineGrainedNoSet) {
   // invoker without SET on label can't trigger successfully
   if (!is_after) {
     // BEFORE COMMIT: transaction should fail
-    EXPECT_THROW({ CreateVertex(*invoker_fg_no_set_client, kVertexId); }, mg::TransientException)
+    EXPECT_THROW(
+        { CreateVertex(*invoker_fg_no_set_client, kVertexId); }, mg::TransientException)
         << "BEFORE COMMIT trigger should fail transaction when invoker lacks SET privilege";
     CheckNumberOfAllVertices(*invoker_fg_no_set_client, 0);
   } else {
@@ -379,7 +398,8 @@ TEST_P(PrivilegeCheckTest, DefinerFineGrainedNoSet) {
   // Trigger execution fails because definer lacks SET privilege
   if (!is_after) {
     // BEFORE COMMIT: transaction should fail
-    EXPECT_THROW({ CreateVertex(*invoker_client, kVertexId); }, mg::TransientException)
+    EXPECT_THROW(
+        { CreateVertex(*invoker_client, kVertexId); }, mg::TransientException)
         << "BEFORE COMMIT trigger should fail transaction when definer lacks SET privilege";
     CheckNumberOfAllVertices(*invoker_client, 0);
   } else {

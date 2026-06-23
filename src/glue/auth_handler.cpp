@@ -34,6 +34,10 @@
 #include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
 
+#ifdef MG_ENTERPRISE
+namespace r = std::ranges;
+#endif
+
 namespace {
 
 struct PermissionForPrivilegeResult {
@@ -342,6 +346,109 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
 
+void EmitPropertyMap(std::unordered_map<std::string, memgraph::auth::PropertyPermission> const &prop_map,
+                     std::string_view scope, bool is_global, std::string_view user_or_role_str,
+                     std::vector<std::vector<memgraph::query::TypedValue>> &result) {
+  using PPT = memgraph::auth::PropertyPermissionType;
+
+  std::vector<std::string> read_granted;
+  std::vector<std::string> read_denied;
+  std::vector<std::string> write_granted;
+  std::vector<std::string> write_denied;
+  for (auto const &[prop, perm] : prop_map) {
+    if ((perm.grants & PPT::READ) != PPT::NONE)
+      read_granted.push_back(prop);
+    else if ((perm.denies & PPT::READ) != PPT::NONE)
+      read_denied.push_back(prop);
+    if ((perm.grants & PPT::WRITE) != PPT::NONE)
+      write_granted.push_back(prop);
+    else if ((perm.denies & PPT::WRITE) != PPT::NONE)
+      write_denied.push_back(prop);
+  }
+  r::sort(read_granted);
+  r::sort(read_denied);
+  r::sort(write_granted);
+  r::sort(write_denied);
+
+  auto emit_row = [&](std::string_view type_label,
+                      std::vector<std::string> const &props,
+                      std::string_view level,
+                      std::string_view verb) {
+    auto prop_list = memgraph::utils::Join(props, ", ");
+    auto privilege = fmt::format("{} {{{}}} ON {}", type_label, prop_list, scope);
+    auto description =
+        fmt::format("{}PROPERTY PERMISSION {} TO {}", is_global ? "GLOBAL " : "", verb, user_or_role_str);
+    result.push_back({memgraph::query::TypedValue(privilege),
+                      memgraph::query::TypedValue(std::string(level)),
+                      memgraph::query::TypedValue(description)});
+  };
+
+  auto emit_level = [&](std::vector<std::string> const &read_props,
+                        std::vector<std::string> const &write_props,
+                        std::string_view level,
+                        std::string_view verb) {
+    if (read_props.empty() && write_props.empty()) return;
+    if (!read_props.empty() && read_props == write_props) {
+      emit_row("READ, SET PROPERTY", read_props, level, verb);
+    } else {
+      if (!read_props.empty()) emit_row("READ", read_props, level, verb);
+      if (!write_props.empty()) emit_row("SET PROPERTY", write_props, level, verb);
+    }
+  };
+
+  emit_level(read_granted, write_granted, "GRANT", "GRANTED");
+  emit_level(read_denied, write_denied, "DENY", "DENIED");
+}
+
+void DeduplicatePermissionRows(std::vector<std::vector<memgraph::query::TypedValue>> &rows) {
+  std::map<std::pair<std::string, std::string>, size_t> seen;
+  std::vector<std::vector<memgraph::query::TypedValue>> result;
+  for (auto &row : rows) {
+    auto key = std::make_pair(std::string(row[0].ValueString()), std::string(row[1].ValueString()));
+    if (auto it = seen.find(key); it != seen.end()) {
+      auto &existing_desc = result[it->second][2];
+      auto combined = std::string(existing_desc.ValueString()) + ", " + std::string(row[2].ValueString());
+      existing_desc = memgraph::query::TypedValue(combined);
+    } else {
+      seen.emplace(std::move(key), result.size());
+      result.push_back(std::move(row));
+    }
+  }
+  rows = std::move(result);
+}
+
+void EmitPropertyPermissions(memgraph::auth::PropertyAccessPermissions const &perms,
+                             memgraph::auth::PropertyEntityKind kind, std::string_view user_or_role_str,
+                             std::vector<std::vector<memgraph::query::TypedValue>> &result) {
+  auto const is_node = kind == memgraph::auth::PropertyEntityKind::NODE;
+  auto const *entity_kind = is_node ? "NODES CONTAINING LABELS" : "EDGES OF TYPE";
+  auto const *global_entity_kind = is_node ? "ALL LABELS" : "ALL EDGE_TYPES";
+
+  if (!perms.GetGlobalRules().empty()) {
+    EmitPropertyMap(perms.GetGlobalRules(), global_entity_kind, true, user_or_role_str, result);
+  }
+  for (auto const &rule : perms.GetRules()) {
+    std::vector<std::string> sorted_entities(rule.entities.begin(), rule.entities.end());
+    r::sort(sorted_entities);
+    auto formatted = sorted_entities | std::views::transform([](auto const &e) { return fmt::format(":{}", e); });
+    auto entity_str = memgraph::utils::Join(formatted, ", ");
+    if (is_node) {
+      entity_str += rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY ? " MATCHING EXACTLY" : " MATCHING ANY";
+    }
+    EmitPropertyMap(rule.properties, fmt::format("{} {}", entity_kind, entity_str), false, user_or_role_str, result);
+  }
+}
+
+std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
+    memgraph::auth::PropertyAccessHandler const &handler, std::string_view user_or_role_str) {
+  std::vector<std::vector<memgraph::query::TypedValue>> result;
+  EmitPropertyPermissions(
+      handler.label_properties(), memgraph::auth::PropertyEntityKind::NODE, user_or_role_str, result);
+  EmitPropertyPermissions(
+      handler.edge_type_properties(), memgraph::auth::PropertyEntityKind::EDGE, user_or_role_str, result);
+  return result;
+}
+
 // Converting values from query to user profile framework
 memgraph::auth::UserProfiles::Limits name_to_limit(const auto &name) {
   auto it = std::find(memgraph::auth::UserProfiles::kLimits.begin(), memgraph::auth::UserProfiles::kLimits.end(), name);
@@ -540,8 +647,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatab
     auto locked_auth = auth_->ReadLock();
     auto local_user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user) : std::nullopt;
     auto has_role = [&](const std::vector<std::string> &role_names) {
-      return std::ranges::any_of(role_names,
-                                 [&](const auto &role_name) { return locked_auth->GetRole(role_name).has_value(); });
+      return r::any_of(role_names, [&](const auto &role_name) { return locked_auth->GetRole(role_name).has_value(); });
     };
 
     if (type == auth::UserOrRoleType::UNSPECIFIED && local_user && has_role(roles)) {
@@ -931,6 +1037,13 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedUserPrivileges(user, db_name);
+        DeduplicatePermissionRows(fine_grained_grants);
+        auto property_rows = ShowPropertyPermissions(user->property_access_handler(), "USER");
+        for (auto const &role : user->roles()) {
+          property_rows.append_range(ShowPropertyPermissions(role.property_access_handler(), "ROLE"));
+        }
+        DeduplicatePermissionRows(property_rows);
+        fine_grained_grants.append_range(std::move(property_rows));
       }
 #endif
     } else if (role) {
@@ -938,6 +1051,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedRolePrivileges(role, db_name);
+        fine_grained_grants.append_range(ShowPropertyPermissions(role->property_access_handler(), "ROLE"));
       }
 #endif
     } else {
@@ -1292,6 +1406,120 @@ void AuthQueryHandler::DenyImpersonateUser(const std::string &user_or_role, cons
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
+}
+
+namespace {
+auto &SelectPropertyPermissions(auth::PropertyAccessHandler &handler, auth::PropertyEntityKind entity_kind) {
+  return entity_kind == auth::PropertyEntityKind::NODE ? handler.label_properties() : handler.edge_type_properties();
+}
+}  // namespace
+
+template <typename EditFn>
+void AuthQueryHandler::EditPropertyPermission(const std::string &user_or_role,
+                                              const std::vector<std::string> &properties,
+                                              const std::vector<std::string> &entity_names,
+                                              auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
+                                              auth::UserOrRoleType type, system::Transaction *system_tx,
+                                              EditFn const &edit_fn) {
+  try {
+    auto locked_auth = auth_->Lock();
+
+    auto user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user_or_role) : std::nullopt;
+    auto role = (type != auth::UserOrRoleType::USER) ? locked_auth->GetRole(user_or_role) : std::nullopt;
+    if (user && role)
+      throw query::QueryRuntimeException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.",
+                                         user_or_role);
+
+    if (user) {
+      auto &perms = SelectPropertyPermissions(user->property_access_handler(), entity_kind);
+      for (auto const &prop : properties) {
+        edit_fn(perms, entity_names, matching_mode, prop);
+      }
+      locked_auth->SaveUser(*user, system_tx);
+    } else if (role) {
+      auto &perms = SelectPropertyPermissions(role->property_access_handler(), entity_kind);
+      for (auto const &prop : properties) {
+        edit_fn(perms, entity_names, matching_mode, prop);
+      }
+      locked_auth->SaveRole(*role, system_tx);
+    } else {
+      throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
+    }
+  } catch (const auth::AuthException &e) {
+    throw query::QueryRuntimeException(e.what());
+  }
+}
+
+namespace {
+using GlobalFn = void (auth::PropertyAccessPermissions::*)(std::string const &, auth::PropertyPermissionType);
+using PerEntityFn = void (auth::PropertyAccessPermissions::*)(std::unordered_set<std::string> const &,
+                                                              std::string const &, auth::PropertyPermissionType,
+                                                              auth::MatchingMode);
+
+auto MakePropertyEditFn(GlobalFn global_fn, PerEntityFn per_entity_fn, auth::PropertyPermissionType perm_type) {
+  return [=](auth::PropertyAccessPermissions &perms, auto const &entities, auto mm, auto const &prop) {
+    bool const is_global = entities.size() == 1 && entities[0] == "*";
+    if (is_global) {
+      (perms.*global_fn)(prop, perm_type);
+    } else {
+      (perms.*per_entity_fn)({entities.begin(), entities.end()}, prop, perm_type, mm);
+    }
+  };
+}
+}  // namespace
+
+void AuthQueryHandler::GrantPropertyPermission(const std::string &user_or_role,
+                                               const std::vector<std::string> &properties,
+                                               const std::vector<std::string> &entity_names,
+                                               auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
+                                               auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
+                                               system::Transaction *system_tx) {
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_names,
+      entity_kind,
+      matching_mode,
+      type,
+      system_tx,
+      MakePropertyEditFn(
+          &auth::PropertyAccessPermissions::GrantGlobal, &auth::PropertyAccessPermissions::Grant, perm_type));
+}
+
+void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
+                                              const std::vector<std::string> &properties,
+                                              const std::vector<std::string> &entity_names,
+                                              auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
+                                              auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
+                                              system::Transaction *system_tx) {
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_names,
+      entity_kind,
+      matching_mode,
+      type,
+      system_tx,
+      MakePropertyEditFn(
+          &auth::PropertyAccessPermissions::DenyGlobal, &auth::PropertyAccessPermissions::Deny, perm_type));
+}
+
+void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
+                                                const std::vector<std::string> &properties,
+                                                const std::vector<std::string> &entity_names,
+                                                auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
+                                                auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
+                                                system::Transaction *system_tx) {
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_names,
+      entity_kind,
+      matching_mode,
+      type,
+      system_tx,
+      MakePropertyEditFn(
+          &auth::PropertyAccessPermissions::RevokeGlobal, &auth::PropertyAccessPermissions::Revoke, perm_type));
 }
 
 void AuthQueryHandler::CreateProfile(const std::string &profile_name,

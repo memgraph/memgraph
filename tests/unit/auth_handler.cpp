@@ -2860,6 +2860,154 @@ TEST_F(AuthQueryHandlerFixture, FirstUserWhenNonBuiltinAdminExistsGetsPermission
   ASSERT_TRUE(admin_role.has_value());
   EXPECT_FALSE(admin_role->IsBuiltIn());
 }
+
+TEST_F(AuthQueryHandlerFixture, FirstUserFallbackHasFullGrants) {
+  using memgraph::auth::FineGrainedPermission;
+  using memgraph::auth::kAllEdgeTypePermissions;
+  using memgraph::auth::kAllLabelPermissions;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyPermissionType;
+
+  // Pre-existing role prevents builtin role creation; first user gets direct grants
+  ASSERT_TRUE(auth_handler.CreateRole("somerole", nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr).created);
+
+  auto locked = auth->ReadLock();
+  auto user = locked->GetUser("alice");
+  ASSERT_TRUE(user.has_value());
+  EXPECT_TRUE(user->roles().GetRoles().empty());
+
+  for (auto perm : memgraph::auth::kPermissionsAll) {
+    EXPECT_EQ(user->permissions().Has(perm), PermissionLevel::GRANT);
+  }
+
+  EXPECT_EQ(user->fine_grained_access_handler().label_permissions().HasGlobal(kAllLabelPermissions),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(user->fine_grained_access_handler().edge_type_permissions().HasGlobal(kAllEdgeTypePermissions),
+            PermissionLevel::GRANT);
+
+  EXPECT_EQ(user->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::READ),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(user->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(user->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::READ),
+            PermissionLevel::GRANT);
+  EXPECT_EQ(user->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+            PermissionLevel::GRANT);
+
+  EXPECT_TRUE(user->db_access().GetAllowAll());
+}
+
+TEST_F(AuthQueryHandlerFixture, BuiltinRolesHaveCorrectGrants) {
+  using memgraph::auth::FineGrainedPermission;
+  using memgraph::auth::kAllEdgeTypePermissions;
+  using memgraph::auth::kAllLabelPermissions;
+  using memgraph::auth::Permission;
+  using memgraph::auth::PermissionLevel;
+  using memgraph::auth::PropertyPermissionType;
+
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr).created);
+  auto locked = auth->ReadLock();
+
+  // admin
+  {
+    auto role = locked->GetRole("admin");
+    ASSERT_TRUE(role.has_value());
+    EXPECT_TRUE(role->IsBuiltIn());
+
+    for (auto perm : memgraph::auth::kPermissionsAll) {
+      EXPECT_EQ(role->permissions().Has(perm), PermissionLevel::GRANT);
+    }
+
+    EXPECT_EQ(role->fine_grained_access_handler().label_permissions().HasGlobal(kAllLabelPermissions),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->fine_grained_access_handler().edge_type_permissions().HasGlobal(kAllEdgeTypePermissions),
+              PermissionLevel::GRANT);
+
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::GRANT);
+
+    EXPECT_TRUE(role->db_access().GetAllowAll());
+  }
+
+  // readwrite
+  {
+    auto role = locked->GetRole("readwrite");
+    ASSERT_TRUE(role.has_value());
+    EXPECT_TRUE(role->IsBuiltIn());
+
+    for (auto perm : {Permission::CREATE,
+                      Permission::DELETE,
+                      Permission::MERGE,
+                      Permission::SET,
+                      Permission::REMOVE,
+                      Permission::INDEX,
+                      Permission::MATCH}) {
+      EXPECT_EQ(role->permissions().Has(perm), PermissionLevel::GRANT);
+    }
+    for (auto perm : {Permission::AUTH,
+                      Permission::REPLICATION,
+                      Permission::DUMP,
+                      Permission::CONFIG,
+                      Permission::MULTI_DATABASE_EDIT}) {
+      EXPECT_EQ(role->permissions().Has(perm), PermissionLevel::NEUTRAL);
+    }
+
+    EXPECT_EQ(role->fine_grained_access_handler().label_permissions().HasGlobal(kAllLabelPermissions),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->fine_grained_access_handler().edge_type_permissions().HasGlobal(kAllEdgeTypePermissions),
+              PermissionLevel::GRANT);
+
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::GRANT);
+
+    EXPECT_FALSE(role->db_access().GetAllowAll());
+  }
+
+  // readonly
+  {
+    auto role = locked->GetRole("readonly");
+    ASSERT_TRUE(role.has_value());
+    EXPECT_TRUE(role->IsBuiltIn());
+
+    EXPECT_EQ(role->permissions().Has(Permission::MATCH), PermissionLevel::GRANT);
+    EXPECT_EQ(role->permissions().Has(Permission::STATS), PermissionLevel::GRANT);
+    EXPECT_EQ(role->permissions().Has(Permission::CREATE), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(role->permissions().Has(Permission::SET), PermissionLevel::NEUTRAL);
+
+    EXPECT_EQ(role->fine_grained_access_handler().label_permissions().HasGlobal(FineGrainedPermission::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->fine_grained_access_handler().label_permissions().HasGlobal(FineGrainedPermission::CREATE),
+              PermissionLevel::DENY);
+    EXPECT_EQ(role->fine_grained_access_handler().edge_type_permissions().HasGlobal(FineGrainedPermission::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->fine_grained_access_handler().edge_type_permissions().HasGlobal(FineGrainedPermission::CREATE),
+              PermissionLevel::DENY);
+
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().label_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::NEUTRAL);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::READ),
+              PermissionLevel::GRANT);
+    EXPECT_EQ(role->property_access_handler().edge_type_properties().HasGlobal("any", PropertyPermissionType::WRITE),
+              PermissionLevel::NEUTRAL);
+
+    EXPECT_FALSE(role->db_access().GetAllowAll());
+  }
+}
 #endif
 
 TEST_F(AuthQueryHandlerFixture, CreateRoleWhenUserWithSameNameExists) {
@@ -3117,5 +3265,347 @@ TEST_F(AuthQueryHandlerFixture, DropRoleFailsIfAssignedToUserOnDatabase) {
   auth.value()->SaveUser(user);
 
   ASSERT_THROW(auth_handler.DropRole("role1", nullptr), memgraph::query::QueryRuntimeException);
+}
+#endif
+
+#ifdef MG_ENTERPRISE
+// Property Permission Tests
+
+TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"ssn", "salary"},
+                                       {"Employee"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr);
+
+  auto user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  auto const &props = user->property_access_handler().label_properties();
+  std::vector<std::string> emp = {"Employee"};
+  EXPECT_EQ(props.Has(emp, "ssn", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::GRANT);
+  EXPECT_EQ(props.Has(emp, "salary", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::GRANT);
+  EXPECT_EQ(props.Has(emp, "name", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::NEUTRAL);
+}
+
+TEST_F(AuthQueryHandlerFixture, DenyPropertyPermissionOnUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.DenyPropertyPermission(user_name,
+                                      {"ssn"},
+                                      {"Employee"},
+                                      memgraph::auth::PropertyEntityKind::NODE,
+                                      memgraph::auth::MatchingMode::ANY,
+                                      memgraph::auth::UserOrRoleType::USER,
+                                      memgraph::auth::PropertyPermissionType::READ,
+                                      nullptr);
+
+  auto user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  auto const &props = user->property_access_handler().label_properties();
+  std::vector<std::string> emp = {"Employee"};
+  EXPECT_EQ(props.Has(emp, "ssn", memgraph::auth::PropertyPermissionType::READ), memgraph::auth::PermissionLevel::DENY);
+}
+
+TEST_F(AuthQueryHandlerFixture, RevokePropertyPermissionOnUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"ssn"},
+                                       {"Employee"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr);
+  auth_handler.RevokePropertyPermission(user_name,
+                                        {"ssn"},
+                                        {"Employee"},
+                                        memgraph::auth::PropertyEntityKind::NODE,
+                                        memgraph::auth::MatchingMode::ANY,
+                                        memgraph::auth::UserOrRoleType::USER,
+                                        memgraph::auth::PropertyPermissionType::READ,
+                                        nullptr);
+
+  auto user = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(user.has_value());
+  std::vector<std::string> emp = {"Employee"};
+  EXPECT_EQ(
+      user->property_access_handler().label_properties().Has(emp, "ssn", memgraph::auth::PropertyPermissionType::READ),
+      memgraph::auth::PermissionLevel::NEUTRAL);
+}
+
+TEST_F(AuthQueryHandlerFixture, GrantPropertyPermissionOnRole) {
+  auth_handler.CreateRole("analyst", nullptr);
+
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"amount"},
+                                       {"PAID"},
+                                       memgraph::auth::PropertyEntityKind::EDGE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr);
+
+  auto role = auth->ReadLock()->GetRole("analyst");
+  ASSERT_TRUE(role.has_value());
+  auto const &props = role->property_access_handler().edge_type_properties();
+  std::vector<std::string> paid = {"PAID"};
+  EXPECT_EQ(props.Has(paid, "amount", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::GRANT);
+  EXPECT_EQ(props.Has(paid, "currency", memgraph::auth::PropertyPermissionType::READ),
+            memgraph::auth::PermissionLevel::NEUTRAL);
+}
+
+TEST_F(AuthQueryHandlerFixture, PropertyPermissionOnNonexistentUserThrows) {
+  EXPECT_THROW(auth_handler.GrantPropertyPermission("nobody",
+                                                    {"ssn"},
+                                                    {"Employee"},
+                                                    memgraph::auth::PropertyEntityKind::NODE,
+                                                    memgraph::auth::MatchingMode::ANY,
+                                                    memgraph::auth::UserOrRoleType::USER,
+                                                    memgraph::auth::PropertyPermissionType::READ,
+                                                    nullptr),
+               memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForUser) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"ssn", "salary"},
+                                       {"Employee"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr);
+  auth_handler.DenyPropertyPermission(user_name,
+                                      {"dob"},
+                                      {"Employee"},
+                                      memgraph::auth::PropertyEntityKind::NODE,
+                                      memgraph::auth::MatchingMode::ANY,
+                                      memgraph::auth::UserOrRoleType::USER,
+                                      memgraph::auth::PropertyPermissionType::READ,
+                                      nullptr);
+
+  auto privileges =
+      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+
+  // Find property permission rows
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 2);
+
+  // Sort by effective column for deterministic checking (DENY before GRANT)
+  std::sort(prop_rows.begin(), prop_rows.end(), [](auto const &a, auto const &b) {
+    return a[1].ValueString() < b[1].ValueString();
+  });
+
+  // denied row
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {dob} ON NODES CONTAINING LABELS :Employee MATCHING ANY");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "DENY");
+  EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION DENIED TO USER");
+
+  // granted row (collapsed)
+  EXPECT_EQ(prop_rows[1][0].ValueString(), "READ {salary, ssn} ON NODES CONTAINING LABELS :Employee MATCHING ANY");
+  EXPECT_EQ(prop_rows[1][1].ValueString(), "GRANT");
+  EXPECT_EQ(prop_rows[1][2].ValueString(), "PROPERTY PERMISSION GRANTED TO USER");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesIncludesPropertyPermissionsForRole) {
+  auth_handler.CreateRole("analyst", nullptr);
+
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"amount"},
+                                       {"PAID"},
+                                       memgraph::auth::PropertyEntityKind::EDGE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr);
+
+  auto privileges = auth_handler.GetPrivileges("analyst",
+                                               std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}},
+                                               memgraph::auth::UserOrRoleType::ROLE);
+
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 1);
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {amount} ON EDGES OF TYPE :PAID");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO ROLE");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesWildcardPropertyPermission) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"*"},
+                                       {"Employee"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr);
+
+  auto privileges =
+      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 1);
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {*} ON NODES CONTAINING LABELS :Employee MATCHING ANY");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO USER");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesForUserIncludesRolePropertyPermissions) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+  auth_handler.CreateRole("analyst", nullptr);
+
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"ssn"},
+                                       {"Employee"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr);
+
+  auth_handler.AddRoles(user_name, {"analyst"}, {}, nullptr);
+
+  auto privileges =
+      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 1);
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ {ssn} ON NODES CONTAINING LABELS :Employee MATCHING ANY");
+  EXPECT_EQ(prop_rows[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(prop_rows[0][2].ValueString(), "PROPERTY PERMISSION GRANTED TO ROLE");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesDeduplicatesUserAndRoleLbacPermissions) {
+  using FGP = memgraph::auth::FineGrainedPermission;
+
+  auto user_label_perms = memgraph::auth::FineGrainedAccessPermissions{};
+  user_label_perms.GrantGlobal(FGP::READ);
+
+  auto role_label_perms = memgraph::auth::FineGrainedAccessPermissions{};
+  role_label_perms.GrantGlobal(FGP::READ);
+
+  memgraph::auth::User user{user_name};
+  user.fine_grained_access_handler() = memgraph::auth::FineGrainedAccessHandler{
+      std::move(user_label_perms), memgraph::auth::FineGrainedAccessPermissions{}};
+  auth.value()->SaveUser(user);
+
+  memgraph::auth::Role role{"analyst"};
+  role.fine_grained_access_handler() = memgraph::auth::FineGrainedAccessHandler{
+      std::move(role_label_perms), memgraph::auth::FineGrainedAccessPermissions{}};
+  auth.value()->SaveRole(role);
+
+  auth_handler.AddRoles(user_name, {"analyst"}, {}, nullptr);
+
+  auto privileges =
+      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+
+  std::vector<std::vector<memgraph::query::TypedValue>> lbac_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("LABEL") != std::string::npos &&
+        row[0].ValueString().find("ALL LABELS") != std::string::npos) {
+      lbac_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(lbac_rows.size(), 1);
+  EXPECT_EQ(lbac_rows[0][0].ValueString(), "READ ON ALL LABELS");
+  EXPECT_EQ(lbac_rows[0][1].ValueString(), "GRANT");
+  EXPECT_EQ(lbac_rows[0][2].ValueString(),
+            "GLOBAL LABEL PERMISSION GRANTED TO USER, GLOBAL LABEL PERMISSION GRANTED TO ROLE");
+}
+
+TEST_F(AuthQueryHandlerFixture, ShowPrivilegesDeduplicatesUserAndRolePbacPermissions) {
+  auth.value()->SaveUser(memgraph::auth::User{user_name});
+  auth_handler.CreateRole("analyst", nullptr);
+
+  // Grant global {*} READ and WRITE to both user and role
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"*"},
+                                       {"*"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr);
+  auth_handler.GrantPropertyPermission(user_name,
+                                       {"*"},
+                                       {"*"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::USER,
+                                       memgraph::auth::PropertyPermissionType::WRITE,
+                                       nullptr);
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"*"},
+                                       {"*"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::READ,
+                                       nullptr);
+  auth_handler.GrantPropertyPermission("analyst",
+                                       {"*"},
+                                       {"*"},
+                                       memgraph::auth::PropertyEntityKind::NODE,
+                                       memgraph::auth::MatchingMode::ANY,
+                                       memgraph::auth::UserOrRoleType::ROLE,
+                                       memgraph::auth::PropertyPermissionType::WRITE,
+                                       nullptr);
+
+  auth_handler.AddRoles(user_name, {"analyst"}, {}, nullptr);
+
+  auto privileges =
+      auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}});
+
+  std::vector<std::vector<memgraph::query::TypedValue>> prop_rows;
+  for (auto &row : privileges) {
+    if (row[2].ValueString().find("PROPERTY") != std::string::npos &&
+        row[0].ValueString().find("ALL LABELS") != std::string::npos) {
+      prop_rows.push_back(std::move(row));
+    }
+  }
+
+  ASSERT_EQ(prop_rows.size(), 1);
+  EXPECT_EQ(prop_rows[0][0].ValueString(), "READ, SET PROPERTY {*} ON ALL LABELS");
+  EXPECT_EQ(prop_rows[0][2].ValueString(),
+            "GLOBAL PROPERTY PERMISSION GRANTED TO USER, GLOBAL PROPERTY PERMISSION GRANTED TO ROLE");
 }
 #endif

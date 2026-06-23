@@ -24,6 +24,14 @@ def assert_exception(func):
     assert False, "Expected exception not raised"
 
 
+def grant_all_property_access(session, target):
+    """Grant full PBAC property access (READ + SET PROPERTY) to a user or role."""
+    session.run(f"GRANT READ {{*}} ON NODES CONTAINING LABELS * TO {target};").consume()
+    session.run(f"GRANT READ {{*}} ON EDGES OF TYPE * TO {target};").consume()
+    session.run(f"GRANT SET PROPERTY {{*}} ON NODES CONTAINING LABELS * TO {target};").consume()
+    session.run(f"GRANT SET PROPERTY {{*}} ON EDGES OF TYPE * TO {target};").consume()
+
+
 def assert_no_exception(func):
     try:
         func()
@@ -55,6 +63,7 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) a
         session.run("GRANT IMPERSONATE_USER * TO USER admin;").consume()
         session.run("CREATE USER user;").consume()
         session.run("GRANT MATCH, SET, DELETE TO user;").consume()
+        grant_all_property_access(session, "user")
         session.run("CREATE USER user2;").consume()
         session.run("GRANT AUTH TO user2;").consume()
         session.run("CREATE USER user3;").consume()
@@ -302,6 +311,9 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
         session.run("GRANT CREATE, MATCH, SET TO db1_role;").consume()
         session.run("GRANT CREATE, MATCH, SET TO db2_role;").consume()
         session.run("GRANT CREATE, MATCH, SET TO memgraph_role;").consume()
+        grant_all_property_access(session, "db1_role")
+        grant_all_property_access(session, "db2_role")
+        grant_all_property_access(session, "memgraph_role")
 
         # Grant impersonation permissions to roles
         session.run("GRANT IMPERSONATE_USER user TO db1_role;").consume()
@@ -446,6 +458,8 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
         session.run("CREATE ROLE db1_role2;").consume()
         session.run("GRANT CREATE, MATCH, SET TO db1_role;").consume()
         session.run("GRANT CREATE, MATCH, SET TO db1_role2;").consume()
+        grant_all_property_access(session, "db1_role")
+        grant_all_property_access(session, "db1_role2")
         session.run("GRANT DATABASE db1 TO db1_role;").consume()
         session.run("REVOKE DATABASE memgraph FROM db1_role;").consume()
         session.run("GRANT DATABASE db1 TO db1_role2;").consume()
@@ -457,6 +471,9 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
         session.run("GRANT MATCH, SET TO db2_role;").consume()
         session.run("GRANT MATCH TO db2_role2;").consume()
         session.run("GRANT CREATE, MATCH, SET TO db2_role3;").consume()
+        grant_all_property_access(session, "db2_role")
+        grant_all_property_access(session, "db2_role2")
+        grant_all_property_access(session, "db2_role3")
         session.run("GRANT DATABASE db2 TO db2_role;").consume()
         session.run("REVOKE DATABASE memgraph FROM db2_role;").consume()
         session.run("GRANT DATABASE db2 TO db2_role2;").consume()
@@ -604,8 +621,10 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
         # Create users for limit testing
         session.run("CREATE USER limit_user1;").consume()
         session.run("GRANT MATCH, CREATE, PROFILE_RESTRICTION TO limit_user1;").consume()
+        grant_all_property_access(session, "limit_user1")
         session.run("CREATE USER limit_user2;").consume()
         session.run("GRANT MATCH, CREATE, PROFILE_RESTRICTION TO limit_user2;").consume()
+        grant_all_property_access(session, "limit_user2")
 
         # Create profiles with different limits
         session.run("CREATE PROFILE limit_profile1 LIMIT SESSIONS 2, TRANSACTIONS_MEMORY 100MB;").consume()

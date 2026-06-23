@@ -80,7 +80,6 @@ TYPED_TEST(DecoderEncoderTest, ReadMarker) {
     ASSERT_FALSE(decoder.ReadMarker());
     ASSERT_FALSE(decoder.ReadMarker());
     auto pos = decoder.GetPosition();
-    ASSERT_TRUE(pos);
     ASSERT_EQ(pos, decoder.GetSize());
   }
 }
@@ -114,7 +113,6 @@ TYPED_TEST(DecoderEncoderTest, ReadMarker) {
       ASSERT_FALSE(decoder.Read##name());                                \
       ASSERT_FALSE(decoder.Read##name());                                \
       auto pos = decoder.GetPosition();                                  \
-      ASSERT_TRUE(pos);                                                  \
       ASSERT_EQ(pos, decoder.GetSize());                                 \
     }                                                                    \
   }
@@ -190,7 +188,6 @@ GENERATE_READ_TEST(
       ASSERT_FALSE(decoder.Skip##name());                                \
       ASSERT_FALSE(decoder.Skip##name());                                \
       auto pos = decoder.GetPosition();                                  \
-      ASSERT_TRUE(pos);                                                  \
       ASSERT_EQ(pos, decoder.GetSize());                                 \
     }                                                                    \
   }
@@ -550,7 +547,6 @@ TYPED_TEST(DecoderEncoderTest, DecoderPosition) {
       ASSERT_TRUE(decoded);
       ASSERT_TRUE(*decoded);
       auto pos = decoder.GetPosition();
-      ASSERT_TRUE(pos);
       ASSERT_EQ(pos, decoder.GetSize());
     }
   }
@@ -576,7 +572,6 @@ TYPED_TEST(DecoderEncoderTest, EncoderPosition) {
     ASSERT_TRUE(decoded);
     ASSERT_TRUE(*decoded);
     auto pos = decoder.GetPosition();
-    ASSERT_TRUE(pos);
     ASSERT_EQ(pos, decoder.GetSize());
   }
 }

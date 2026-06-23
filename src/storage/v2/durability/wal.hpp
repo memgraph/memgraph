@@ -236,7 +236,8 @@ struct WalTransactionStart {
 
 struct WalTransactionEnd {
   friend bool operator==(const WalTransactionEnd &, const WalTransactionEnd &) = default;
-  using ctr_types = std::tuple<>;
+  using ctr_types = std::tuple<VersionDependant<kCrcProtection, uint32_t>>;
+  std::optional<uint32_t> txn_crc;  // Started protecting txns with CRC summary since kCrcProtection version
 };
 
 struct WalLabelIndexCreate : LabelOpInfo {};
@@ -490,17 +491,25 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
 void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp,
                  Gid in_vertex_gid, EdgeTypeId edge_type_id);
 
-/// Function used to encode the transaction start
-/// Returns the position in the WAL where the flag 'commit' is about to be written
-uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t timestamp, bool commit,
-                                StorageAccessType access_type);
+struct WalTxnDataPos {
+  uint64_t commit_flag_wal_position_{0};  // position of the commit flag inside the transaction-start frame
+  uint64_t crc_wal_pos_{0};               // position of the stored CRC value inside the transaction-end frame
+  uint32_t stored_crc_{0};                // the CRC value written at crc_wal_pos_ (kept in memory to patch in place)
+};
 
-/// Function use to encode the transaction start
-/// Used for replication
-void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
+/// Positions filled in when encoding the transaction end.
+struct WalTxnEndPos {
+  uint64_t crc_wal_pos_{0};  // position where the CRC value is written
+  uint32_t stored_crc_{0};   // the CRC value written at crc_wal_pos_
+};
+
+/// Function used to encode the transaction start
+/// Returns the position where the flag 'commit' is about to be written
+uint64_t EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
 
 /// Function used to encode the transaction end.
-void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
+/// Returns the end of the CRC-protected region and the position where the CRC value is written.
+WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
 // Common to WAL & replication
 void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type);
@@ -578,14 +587,12 @@ class WalFile {
 
   // True means storage should use deltas associated with this txn, false means skip until
   // you find the next txn.
-  // Returns the position in the WAL where the flag 'commit' is about to be written
   uint64_t AppendTransactionStart(uint64_t timestamp, bool commit, StorageAccessType access_type);
 
-  // Updates the commit flag in the WAL file with the new decision whether deltas should be read or skipped upon the
-  // recovery
-  void UpdateCommitStatus(uint64_t flag_pos, bool new_decision);
+  // Updates the commit flag in the WAL file by setting it to treu
+  void UpdateCommitStatus(WalTxnDataPos const &wal_positions);
 
-  void AppendTransactionEnd(uint64_t timestamp);
+  WalTxnEndPos AppendTransactionEnd(uint64_t timestamp);
 
   void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
                        LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,

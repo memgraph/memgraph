@@ -25,9 +25,8 @@
 
 namespace memgraph::query {
 
-class FineGrainedAuthChecker;
-
 class DbAccessor;
+class FineGrainedAuthChecker;
 
 class AuthChecker {
  public:
@@ -38,10 +37,8 @@ class AuthChecker {
 
   virtual std::shared_ptr<QueryUserOrRole> GenEmptyUser() const = 0;
 
-#ifdef MG_ENTERPRISE
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
       const QueryUserOrRole &user, const DbAccessor *db_accessor) const = 0;
-#endif
 
  protected:
   AuthChecker() = default;
@@ -50,7 +47,7 @@ class AuthChecker {
   AuthChecker &operator=(const AuthChecker &) = default;
   AuthChecker &operator=(AuthChecker &&) noexcept = default;
 };
-#ifdef MG_ENTERPRISE
+
 class FineGrainedAuthChecker {
  public:
   virtual ~FineGrainedAuthChecker() = default;
@@ -80,6 +77,24 @@ class FineGrainedAuthChecker {
   [[nodiscard]] virtual bool HasUnrestrictedAccessToVertices() const = 0;
 
   [[nodiscard]] virtual bool HasUnrestrictedAccessToEdges() const = 0;
+
+  [[nodiscard]] virtual bool HasUnrestrictedAccessToVertexProperties() const = 0;
+
+  [[nodiscard]] virtual bool HasUnrestrictedAccessToEdgeTypeProperties() const = 0;
+
+  /// True when a FineGrainedAuthChecker must be attached for correct
+  /// authorization, defined by either per-Label/per-Edge rules, or per-Property
+  /// rules. When false, the checker is redundant as no restrictions to labels,
+  /// edges, or properties are defined for the current user.
+  [[nodiscard]] virtual bool NeedsFineGrainedAuthChecker() const = 0;
+
+  [[nodiscard]] virtual bool HasPropertyPermission(std::span<memgraph::storage::LabelId const> labels,
+                                                   memgraph::storage::PropertyId property,
+                                                   AuthQuery::PropertyPermissionType type) const = 0;
+
+  [[nodiscard]] virtual bool HasPropertyPermission(memgraph::storage::EdgeTypeId const &edge_type,
+                                                   memgraph::storage::PropertyId property,
+                                                   AuthQuery::PropertyPermissionType type) const = 0;
 
   // Used to make the auth checker thread safe
   // throw if not possible
@@ -132,13 +147,30 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
 
   bool HasUnrestrictedAccessToEdges() const override { return true; }
 
+  bool HasUnrestrictedAccessToVertexProperties() const override { return true; }
+
+  bool HasUnrestrictedAccessToEdgeTypeProperties() const override { return true; }
+
+  bool NeedsFineGrainedAuthChecker() const override { return false; }
+
+  bool HasPropertyPermission(std::span<memgraph::storage::LabelId const> /*labels*/,
+                             memgraph::storage::PropertyId /*property*/,
+                             AuthQuery::PropertyPermissionType /*type*/) const override {
+    return true;
+  }
+
+  bool HasPropertyPermission(memgraph::storage::EdgeTypeId const & /*edge_type*/,
+                             memgraph::storage::PropertyId /*property*/,
+                             AuthQuery::PropertyPermissionType /*type*/) const override {
+    return true;
+  }
+
   void MakeThreadSafe() const override {
     // No-op
   }
 
   bool IsThreadSafe() const override { return true; }
 };
-#endif
 
 class AllowEverythingAuthChecker final : public AuthChecker {
  public:
@@ -173,12 +205,10 @@ class AllowEverythingAuthChecker final : public AuthChecker {
 
   std::shared_ptr<QueryUserOrRole> GenEmptyUser() const override { return std::make_shared<User>(); }
 
-#ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const QueryUserOrRole & /*user*/,
                                                                     const DbAccessor * /*dba*/) const override {
     return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
   }
-#endif
 };
 
 }  // namespace memgraph::query

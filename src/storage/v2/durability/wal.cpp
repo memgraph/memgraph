@@ -14,6 +14,7 @@
 #include <range/v3/all.hpp>
 #include <type_traits>
 #include <unordered_map>
+#include <vector>
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -38,6 +39,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/crc_accumulator.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 #include "utils/tag.hpp"
@@ -286,6 +288,16 @@ auto Decode(utils::tag_type<bool> /*unused*/, BaseDecoder *decoder, const uint64
   if (!flag) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
     return *flag;
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<uint32_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, uint32_t, void> {
+  const auto val = decoder->ReadUint();
+  if (!val) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    return *val;
   }
 }
 
@@ -908,7 +920,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
   Decoder wal;
   auto version = wal.Initialize(path, kWalMagic);
   if (!version) throw RecoveryFailure("Couldn't read WAL magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid WAL version!");
+  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid WAL version {}!", *version);
 
   // Prepare return value.
   WalInfo info;
@@ -925,7 +937,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
       auto maybe_offset = wal.ReadUint();
       if (!maybe_offset) throw RecoveryFailure("Invalid WAL format!");
       auto offset = *maybe_offset;
-      if (offset > *wal_size) throw RecoveryFailure("Invalid WAL format!");
+      if (offset > wal_size) throw RecoveryFailure("Invalid WAL format!");
       return offset;
     };
 
@@ -935,8 +947,6 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
 
   // Read metadata.
   {
-    wal.SetPosition(info.offset_metadata);
-
     auto marker = wal.ReadMarker();
     if (!marker || *marker != Marker::SECTION_METADATA) throw RecoveryFailure(kInvalidWalErrorMessage);
 
@@ -953,12 +963,27 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     info.seq_num = *maybe_seq_num;
   }
 
+  if (version >= kCrcProtection) {
+    wal.ReadUint();
+    if (!utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+      throw RecoveryFailure("Durability mismatch in WAL header");
+    }
+  }
+
   // Read deltas.
   info.num_deltas = 0;
   auto validate_delta = [&wal, version = *version]() -> std::optional<std::pair<uint64_t, bool>> {
     try {
       auto timestamp = ReadWalDeltaHeader(&wal);
       auto is_transaction_end = SkipWalDeltaData(&wal, version);
+      if (is_transaction_end) {
+        if (version >= kCrcProtection && !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+          spdlog::error("Durability CRC mismatch");
+          return std::nullopt;
+        }
+        wal.ResetCrcAcc();
+      }
+
       return {{timestamp, is_transaction_end}};
     } catch (const RecoveryFailure &e) {
       spdlog::error("Error occurred while reading WAL info: {}", e.what());
@@ -966,9 +991,15 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     }
   };
   auto size = wal.GetSize();
+  // CRC verification mirrors LoadWal. Parsing the magic, version, offsets and metadata sections above folded those
+  // bytes into the decoder's CRC accumulator; the position is now at the first delta, so reset the accumulator here.
+  // Each transaction's CRC is then computed over exactly its own byte range (txn start + deltas + transaction-end frame
+  // + CRC trailer), matching EncodeTransactionStart on the write side, and the accumulator is reset again after every
+  // verified transaction end below.
+  wal.ResetCrcAcc();
   std::optional<uint64_t> current_timestamp;
   uint64_t num_deltas_in_txn = 0;
-  while (wal.GetPosition() != size) {
+  while (wal.GetPosition() < size) {
     auto ret = validate_delta();
     if (!ret) break;
     auto [timestamp, is_end_of_transaction] = *ret;
@@ -1205,32 +1236,28 @@ auto convert_to_transaction_access_type(StorageAccessType access_type) -> Transa
 }
 }  // namespace
 
-uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t const timestamp, bool const commit,
+uint64_t EncodeTransactionStart(BaseEncoder *encoder, uint64_t const timestamp, bool const commit,
                                 StorageAccessType access_type) {
+  encoder->ResetCrcAcc();
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
-  auto const flag_pos = encoder->GetPosition();
+  auto const commit_flag_wal_position = encoder->GetPosition();
   encoder->WriteBool(commit);
   encoder->WriteUint(static_cast<uint8_t>(convert_to_transaction_access_type(access_type)));
-  return flag_pos;
+  return commit_flag_wal_position;
 }
 
-void EncodeTransactionStart(BaseEncoder *encoder, uint64_t const timestamp, bool const commit,
-                            StorageAccessType access_type) {
-  encoder->WriteMarker(Marker::SECTION_DELTA);
-  encoder->WriteUint(timestamp);
-  encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
-  encoder->WriteBool(commit);
-  encoder->WriteUint(static_cast<uint8_t>(convert_to_transaction_access_type(access_type)));
-}
-
-void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
+WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_END);
+  auto const crc_wal_pos = encoder->GetPosition();  // position where the CRC value is stored
+  auto const txn_crc = encoder->WriteCrc();
+  return {.crc_wal_pos_ = crc_wal_pos, .stored_crc_ = txn_crc};
 }
 
+// CRC verification is done in ReadWalInfo and is not needed later on
 std::optional<RecoveryInfo> LoadWal(
     const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
     const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipListDb<Vertex> *vertices,
@@ -1922,7 +1949,6 @@ std::optional<RecoveryInfo> LoadWal(
         (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, *version);
-
       // We should always check if the delta is WalTransactionStart to update should_commit
       if (auto *txn_start = std::get_if<WalTransactionStart>(&delta.data_)) {
         should_commit = txn_start->commit.value_or(true);
@@ -1944,7 +1970,6 @@ std::optional<RecoveryInfo> LoadWal(
       }
 
     } else {
-      // This delta should be skipped.
       SkipWalDeltaData(&wal, *version);
     }
   }
@@ -1975,27 +2000,45 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   // Initialize the WAL file.
   MG_ASSERT(wal_.Initialize(path_, kWalMagic, kVersion), "Failed to open WAL file {}", path_);
 
-  // Write placeholder offsets.
   wal_.WriteMarker(Marker::SECTION_OFFSETS);
+  auto const crc_header_prefix = wal_.CrcAccValue();
   uint64_t const offset_offsets = wal_.GetPosition();
   uint64_t offset_metadata{0};
   wal_.WriteUint(offset_metadata);
   uint64_t offset_deltas{0};
   wal_.WriteUint(offset_deltas);
 
-  // Write metadata.
+  // Write metadata with a clean accumulator so it captures exactly the metadata bytes.
   offset_metadata = wal_.GetPosition();
+  wal_.ResetCrcAcc();
   wal_.WriteMarker(Marker::SECTION_METADATA);
   wal_.WriteString(std::string{uuid});
   wal_.WriteString(epoch_id);
   wal_.WriteUint(seq_num);
 
-  // Write final offsets.
-  offset_deltas = wal_.GetPosition();
+  uint64_t const offset_header_crc = wal_.GetPosition();
+  wal_.WriteMarker(Marker::TYPE_INT);
+  auto const crc_metadata = wal_.CrcAccValue();  // crc(metadata + trailer TYPE_INT marker)
+  uint64_t const crc_metadata_len = wal_.GetPosition() - offset_metadata;
+  offset_deltas = offset_header_crc + sizeof(Marker) + sizeof(uint64_t);
+
+  // Back-patch the offsets with their final values, capturing crc(offsets) from a clean accumulator.
   wal_.SetPosition(offset_offsets);
+  wal_.ResetCrcAcc();
   wal_.WriteUint(offset_metadata);
   wal_.WriteUint(offset_deltas);
+  static constexpr uint64_t kOffsetsBytes = 2 * (sizeof(Marker) + sizeof(uint64_t));
+  auto const crc_offsets = wal_.CrcAccValue();
+
+  // Stitch the pieces in file order: prefix ++ offsets ++ (metadata ++ trailer marker).
+  auto const crc_prefix_offsets = utils::CrcAccumulator::Combine(crc_header_prefix, crc_offsets, kOffsetsBytes);
+  auto const header_crc = utils::CrcAccumulator::Combine(crc_prefix_offsets, crc_metadata, crc_metadata_len);
+
+  // Patch the reserved trailer with the final header CRC.
+  wal_.WriteCrcAt(offset_header_crc, header_crc);
+
   wal_.SetPosition(offset_deltas);
+  wal_.ResetCrcAcc();
 
   // Sync the initial data.
   wal_.Sync();
@@ -2050,21 +2093,43 @@ void WalFile::AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, St
 }
 
 uint64_t WalFile::AppendTransactionStart(uint64_t const timestamp, bool const commit, StorageAccessType access_type) {
-  auto const flag_pos = EncodeTransactionStart(&wal_, timestamp, commit, access_type);
+  auto const commit_txn_wal_pos = EncodeTransactionStart(&wal_, timestamp, commit, access_type);
   UpdateStats(timestamp);
-  return flag_pos;
+  return commit_txn_wal_pos;
 }
 
-void WalFile::UpdateCommitStatus(uint64_t const flag_pos, bool const new_decision) {
-  auto const curr_pos = wal_.GetPosition();
-  wal_.SetPosition(flag_pos);
-  wal_.WriteBool(new_decision);
-  wal_.SetPosition(curr_pos);
+void WalFile::UpdateCommitStatus(WalTxnDataPos const &wal_positions) {
+  // Remember where appending should resume. GetPosition() also flushes the buffer to disk.
+  auto const end_pos = wal_.GetPosition();
+
+  // Flip the commit flag inside the already-written transaction-start frame.
+  wal_.SetPosition(wal_positions.commit_flag_wal_position_);
+  wal_.WriteBool(true);
+
+  constexpr auto old_value_byte = static_cast<uint8_t>(Marker::VALUE_FALSE);
+  constexpr auto new_value_byte = static_cast<uint8_t>(Marker::VALUE_TRUE);
+  constexpr auto delta = static_cast<unsigned char>(old_value_byte ^ new_value_byte);
+  constexpr unsigned char zero = 0;
+  const auto t_delta = static_cast<uint32_t>(crc32(0, &delta, 1) ^ crc32(0, &zero, 1));
+
+  // The TYPE_BOOL marker precedes the actual value byte, which is the only byte that changes.
+  auto const changed_byte_pos = wal_positions.commit_flag_wal_position_ + sizeof(Marker);
+  // The stored CRC covers everything up to and including the TYPE_INT marker that introduces the CRC trailer;
+  // crc_wal_pos_ points at that marker. bytes_after = bytes following the flipped value byte within that region.
+  auto const bytes_after = wal_positions.crc_wal_pos_ - changed_byte_pos;
+  auto const new_crc = utils::CrcAccumulator::PatchByte(wal_positions.stored_crc_, t_delta, bytes_after);
+
+  // Overwrite the stored CRC value in place.
+  wal_.WriteCrcAt(wal_positions.crc_wal_pos_, new_crc);
+
+  // Restore the append position; seeking flushes the rewritten CRC to disk.
+  wal_.SetPosition(end_pos);
 }
 
-void WalFile::AppendTransactionEnd(uint64_t timestamp) {
-  EncodeTransactionEnd(&wal_, timestamp);
+WalTxnEndPos WalFile::AppendTransactionEnd(uint64_t timestamp) {
+  auto const txn_end_pos = EncodeTransactionEnd(&wal_, timestamp);
   UpdateStats(timestamp);
+  return txn_end_pos;
 }
 
 void WalFile::Sync() { wal_.Sync(); }

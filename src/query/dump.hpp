@@ -19,10 +19,14 @@
 
 namespace memgraph::query {
 
-void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc);
+class FineGrainedAuthChecker;
+
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc,
+                                 FineGrainedAuthChecker const *auth_checker = nullptr);
 
 struct PullPlanDump {
-  explicit PullPlanDump(query::DbAccessor *dba, dbms::DatabaseAccess db_acc);
+  explicit PullPlanDump(query::DbAccessor *dba, dbms::DatabaseAccess db_acc,
+                        FineGrainedAuthChecker const *auth_checker = nullptr);
 
   /// Pull the dump results lazily
   /// @return true if all results were returned, false otherwise
@@ -30,6 +34,7 @@ struct PullPlanDump {
 
  private:
   query::DbAccessor *dba_ = nullptr;
+  FineGrainedAuthChecker const *auth_checker_ = nullptr;
   dbms::DatabaseAccess db_acc_;
 
   std::optional<storage::IndicesInfo> indices_info_ = std::nullopt;

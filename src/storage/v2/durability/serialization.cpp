@@ -67,6 +67,7 @@ void Encoder<FileType>::Close() {
 template <typename FileType>
 void Encoder<FileType>::Write(const uint8_t *data, uint64_t size) {
   file_.Write(data, size);
+  crc_acc.Update(data, size);
 }
 
 template <typename FileType>
@@ -90,6 +91,24 @@ void Encoder<FileType>::WriteUint(uint64_t value) {
   value = utils::HostToLittleEndian(value);
   WriteMarker(Marker::TYPE_INT);
   Write(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
+}
+
+template <typename FileType>
+uint32_t Encoder<FileType>::WriteCrc() {
+  WriteMarker(Marker::TYPE_INT);
+
+  auto const value = CrcAccValue();
+  auto const wire = utils::HostToLittleEndian(static_cast<uint64_t>(value));
+  Write(reinterpret_cast<const uint8_t *>(&wire), sizeof(wire));
+  return value;
+}
+
+template <typename FileType>
+void Encoder<FileType>::WriteCrcAt(uint64_t position, uint32_t crc) {
+  SetPosition(position);
+  WriteMarker(Marker::TYPE_INT);
+  auto const wire = utils::HostToLittleEndian(static_cast<uint64_t>(crc));
+  Write(reinterpret_cast<const uint8_t *>(&wire), sizeof(wire));
 }
 
 template <typename FileType>
@@ -343,6 +362,10 @@ std::optional<uint64_t> ReadSize(Decoder *decoder) {
   uint64_t size;
   if (!decoder->Read(reinterpret_cast<uint8_t *>(&size), sizeof(size))) return std::nullopt;
   size = utils::LittleEndianToHost(size);
+  // Bound check
+  if (auto const file_size = decoder->GetSize(); size >= file_size) {
+    return std::nullopt;
+  }
   return size;
 }
 }  // namespace
@@ -862,9 +885,9 @@ bool Decoder::SkipExternalPropertyValue() {
   }
 }
 
-std::optional<uint64_t> Decoder::GetSize() { return file_.GetSize(); }
+uint64_t Decoder::GetSize() { return file_.GetSize(); }
 
-std::optional<uint64_t> Decoder::GetPosition() { return file_.GetPosition(); }
+uint64_t Decoder::GetPosition() { return file_.GetPosition(); }
 
 bool Decoder::SetPosition(uint64_t position) { return !!file_.SetPosition(utils::InputFile::Position::SET, position); }
 

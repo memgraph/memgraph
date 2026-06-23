@@ -18,6 +18,7 @@
 #include "glue/query_user.hpp"
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
+#include "query/common.hpp"
 #include "query/constants.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -28,6 +29,7 @@
 #include "utils/variant_helpers.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <span>
 
 #ifdef MG_ENTERPRISE
@@ -116,9 +118,9 @@ std::shared_ptr<query::QueryUserOrRole> AuthChecker::GenEmptyUser() const {
   return std::make_shared<QueryUserOrRole>(auth_);
 }
 
-#ifdef MG_ENTERPRISE
 std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
     const query::QueryUserOrRole &user_or_role, const memgraph::query::DbAccessor *dba) const {
+#ifdef MG_ENTERPRISE
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
@@ -143,11 +145,11 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
   } catch (std::bad_cast &) {
     DMG_ASSERT(false, "Using a non-glue user in glue...");
   }
+#endif
 
-  // Should never get here
+  // Should never get here (enterprise) / always returns null (community)
   return {};
 }
-#endif
 
 bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
@@ -232,18 +234,10 @@ auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedEdgeP
 
 bool FineGrainedAuthChecker::Has(const memgraph::query::VertexAccessor &vertex, const memgraph::storage::View view,
                                  const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
+  if (HasUnrestrictedAccessToVertices()) return true;
   auto maybe_labels = vertex.Labels(view);
   if (!maybe_labels) {
-    switch (maybe_labels.error()) {
-      case memgraph::storage::Error::DELETED_OBJECT:
-        throw memgraph::query::QueryRuntimeException("Trying to get labels from a deleted node.");
-      case memgraph::storage::Error::NONEXISTENT_OBJECT:
-        throw memgraph::query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
-      case memgraph::storage::Error::SERIALIZATION_ERROR:
-      case memgraph::storage::Error::VERTEX_HAS_EDGES:
-      case memgraph::storage::Error::PROPERTIES_DISABLED:
-        throw memgraph::query::QueryRuntimeException("Unexpected error when getting labels.");
-    }
+    memgraph::query::ThrowVertexLabelsReadFailure(maybe_labels.error());
   }
 
   return IsAuthorizedLabels(GetCachedLabelPermissions(), dba_, *maybe_labels, fine_grained_privilege);
@@ -251,16 +245,19 @@ bool FineGrainedAuthChecker::Has(const memgraph::query::VertexAccessor &vertex, 
 
 bool FineGrainedAuthChecker::Has(const memgraph::query::EdgeAccessor &edge,
                                  const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
+  if (HasUnrestrictedAccessToEdges()) return true;
   return IsAuthorizedEdgeType(GetCachedEdgePermissions(), dba_, edge.EdgeType(), fine_grained_privilege);
 }
 
 bool FineGrainedAuthChecker::Has(std::span<memgraph::storage::LabelId const> labels,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
+  if (HasUnrestrictedAccessToVertices()) return true;
   return IsAuthorizedLabels(GetCachedLabelPermissions(), dba_, labels, fine_grained_privilege);
 }
 
 bool FineGrainedAuthChecker::Has(const memgraph::storage::EdgeTypeId &edge_type,
                                  const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
+  if (HasUnrestrictedAccessToEdges()) return true;
   return IsAuthorizedEdgeType(GetCachedEdgePermissions(), dba_, edge_type, fine_grained_privilege);
 }
 
@@ -311,13 +308,102 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
 }
 
 bool FineGrainedAuthChecker::HasUnrestrictedAccessToVertices() const {
-  auto const &permissions = GetCachedLabelPermissions();
-  return HasAllGlobalPrivilegesOnVertices() && permissions.GetRules().empty();
+  if (!unrestricted_vertices_) {
+    auto const &permissions = GetCachedLabelPermissions();
+    unrestricted_vertices_ = HasAllGlobalPrivilegesOnVertices() && permissions.GetRules().empty();
+  }
+  return *unrestricted_vertices_;
 }
 
 bool FineGrainedAuthChecker::HasUnrestrictedAccessToEdges() const {
-  auto const &permissions = GetCachedEdgePermissions();
-  return HasAllGlobalPrivilegesOnEdges() && permissions.GetRules().empty();
+  if (!unrestricted_edges_) {
+    auto const &permissions = GetCachedEdgePermissions();
+    unrestricted_edges_ = HasAllGlobalPrivilegesOnEdges() && permissions.GetRules().empty();
+  }
+  return *unrestricted_edges_;
+}
+
+bool FineGrainedAuthChecker::HasUnrestrictedAccessToVertexProperties() const {
+  if (!unrestricted_vertex_properties_) {
+    unrestricted_vertex_properties_ = GetCachedPropertyLabelPermissions().HasUnrestrictedAccess();
+  }
+  return *unrestricted_vertex_properties_;
+}
+
+bool FineGrainedAuthChecker::HasUnrestrictedAccessToEdgeTypeProperties() const {
+  if (!unrestricted_edge_properties_) {
+    unrestricted_edge_properties_ = GetCachedPropertyEdgeTypePermissions().HasUnrestrictedAccess();
+  }
+  return *unrestricted_edge_properties_;
+}
+
+bool FineGrainedAuthChecker::NeedsFineGrainedAuthChecker() const {
+  auto const is_unconfigured = [](auth::PropertyAccessPermissions const &perms) {
+    return perms.GetRules().empty() && perms.GetGlobalRules().empty();
+  };
+  auto const vertex_props_ok =
+      HasUnrestrictedAccessToVertexProperties() || is_unconfigured(GetCachedPropertyLabelPermissions());
+  auto const edge_props_ok =
+      HasUnrestrictedAccessToEdgeTypeProperties() || is_unconfigured(GetCachedPropertyEdgeTypePermissions());
+  return !(HasUnrestrictedAccessToVertices() && HasUnrestrictedAccessToEdges() && vertex_props_ok && edge_props_ok);
+}
+
+auth::PropertyAccessPermissions const &FineGrainedAuthChecker::GetCachedPropertyLabelPermissions() const {
+  if (!cached_property_label_permissions_) {
+    cached_property_label_permissions_ = std::visit(memgraph::utils::Overloaded{[this](auto const &user_or_role) {
+                                                      return user_or_role.GetPropertyLabelPermissions(db_name_);
+                                                    }},
+                                                    user_or_role_);
+  }
+  return *cached_property_label_permissions_;
+}
+
+auth::PropertyAccessPermissions const &FineGrainedAuthChecker::GetCachedPropertyEdgeTypePermissions() const {
+  if (!cached_property_edge_type_permissions_) {
+    cached_property_edge_type_permissions_ = std::visit(memgraph::utils::Overloaded{[this](auto const &user_or_role) {
+                                                          return user_or_role.GetPropertyEdgeTypePermissions(db_name_);
+                                                        }},
+                                                        user_or_role_);
+  }
+  return *cached_property_edge_type_permissions_;
+}
+
+bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId const> labels,
+                                                   storage::PropertyId property,
+                                                   query::AuthQuery::PropertyPermissionType type) const {
+  if (HasUnrestrictedAccessToVertexProperties()) return true;
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return true;
+  }
+  auto const perm_type = type == query::AuthQuery::PropertyPermissionType::WRITE ? auth::PropertyPermissionType::WRITE
+                                                                                 : auth::PropertyPermissionType::READ;
+  auto const &permissions = GetCachedPropertyLabelPermissions();
+  auto const &prop_name = dba_->PropertyToName(property);
+  if (labels.empty()) {
+    return permissions.HasGlobal(prop_name, perm_type) == auth::PermissionLevel::GRANT;
+  }
+  std::vector<std::string> label_names;
+  label_names.reserve(labels.size());
+  for (auto label : labels) {
+    label_names.push_back(dba_->LabelToName(label));
+  }
+  auto level = permissions.Has(label_names, prop_name, perm_type);
+  return level == auth::PermissionLevel::GRANT;
+}
+
+bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &edge_type, storage::PropertyId property,
+                                                   query::AuthQuery::PropertyPermissionType type) const {
+  if (HasUnrestrictedAccessToEdgeTypeProperties()) return true;
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return true;
+  }
+  auto const perm_type = type == query::AuthQuery::PropertyPermissionType::WRITE ? auth::PropertyPermissionType::WRITE
+                                                                                 : auth::PropertyPermissionType::READ;
+  auto const &permissions = GetCachedPropertyEdgeTypePermissions();
+  auto const &edge_type_name = dba_->EdgeTypeToName(edge_type);
+  auto const &prop_name = dba_->PropertyToName(property);
+  auto level = permissions.Has(std::span{&edge_type_name, 1}, prop_name, perm_type);
+  return level == auth::PermissionLevel::GRANT;
 }
 
 void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
@@ -327,10 +413,19 @@ bool FineGrainedAuthChecker::IsThreadSafe() const { return IsCachedPermissionsPo
 void FineGrainedAuthChecker::PopulateCachedPermissions() const {
   GetCachedLabelPermissions();
   GetCachedEdgePermissions();
+  GetCachedPropertyLabelPermissions();
+  GetCachedPropertyEdgeTypePermissions();
+  HasUnrestrictedAccessToVertices();
+  HasUnrestrictedAccessToEdges();
+  HasUnrestrictedAccessToVertexProperties();
+  HasUnrestrictedAccessToEdgeTypeProperties();
 }
 
 bool FineGrainedAuthChecker::IsCachedPermissionsPopulated() const {
-  return cached_label_permissions_.has_value() && cached_edge_permissions_.has_value();
+  return cached_label_permissions_.has_value() && cached_edge_permissions_.has_value() &&
+         cached_property_label_permissions_.has_value() && cached_property_edge_type_permissions_.has_value() &&
+         unrestricted_vertices_.has_value() && unrestricted_edges_.has_value() &&
+         unrestricted_vertex_properties_.has_value() && unrestricted_edge_properties_.has_value();
 }
 #endif
 }  // namespace memgraph::glue

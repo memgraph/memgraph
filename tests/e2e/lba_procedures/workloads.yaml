@@ -12,6 +12,8 @@ query_modules_setup_queries: &query_modules_setup_queries
   - "CREATE USER user IDENTIFIED BY 'test';"
   - "GRANT ALL PRIVILEGES TO user"
   - "GRANT DATABASE * TO user"
+  - "GRANT READ, SET PROPERTY {*} ON NODES CONTAINING LABELS * TO user;"
+  - "GRANT READ, SET PROPERTY {*} ON EDGES OF TYPE * TO user;"
 
 show_privileges_setup_queries: &show_privileges_setup_queries
   # Create a role before the first user so builtin role creation (admin/readwrite/readonly) is suppressed.
