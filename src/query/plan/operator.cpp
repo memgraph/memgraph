@@ -3678,7 +3678,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
         // do it all in a loop because we skip some elements
         while (true) {
-          AbortCheck(context);
+          // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+          // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+          // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+          // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+          co_await YieldPointAwaitable{context, maybe_check_abort};
           // if we have nothing to visit on the current depth, switch to next
           if (to_visit_current_.empty()) to_visit_current_.swap(to_visit_next_);
 
@@ -4206,7 +4210,11 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         };
 
         while (true) {
-          AbortCheck(context);
+          // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+          // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+          // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+          // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+          co_await YieldPointAwaitable{context, maybe_check_abort};
           if (pq_.empty()) {
             if (!co_await PullChild(*input_cursor_, frame, context)) break;
             const auto &vertex_value = frame[self_.input_symbol_];
@@ -5030,7 +5038,11 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         // On each subsequent Pull run, paths are created from the traversal stack and returned.
         while (true) {
           // Check if there is an external error.
-          AbortCheck(context);
+          // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+          // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+          // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+          // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+          co_await YieldPointAwaitable{context, maybe_check_abort};
 
           // The algorithm is run all at once by create_DFS_traversal_tree, after which we
           // traverse the tree iteratively by preserving the traversal state on stack.
@@ -5338,7 +5350,11 @@ class KShortestPathsCursor : public Cursor {
         } else {
           // Need to pull new input
           while (co_await PullChild(*input_cursor_, frame, context)) {
-            AbortCheck(context);
+            // Phase-3 cooperative yield trigger: CheckAbortOrYield subsumes the abort check AND
+            // honours a scheduler-requested yield. Reuses the same throttle counter as AbortCheck.
+            // On the flag-OFF path PullLegacy still calls plain AbortCheck(), so OFF is byte-identical.
+            // yield_requested is null off a pool worker, so this is a no-op (abort-only) there.
+            co_await YieldPointAwaitable{context, maybe_check_abort};
             // Master `return false` here; under the coroutine seam this break leaves produced==false,
             // so DoPull co_returns false and the cursor is permanently done. That is faithful to
             // master ONLY because (a) HopsLimit::is_limit_reached is sticky-monotonic (never reset
