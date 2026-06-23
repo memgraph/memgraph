@@ -336,6 +336,9 @@ authQuery : createRole
           | setMainDatabase
           | grantImpersonateUser
           | denyImpersonateUser
+          | grantPropertyPermission
+          | denyPropertyPermission
+          | revokePropertyPermission
           ;
 
 replicationQuery : setReplicationRole
@@ -527,6 +530,18 @@ wildcardListOfSymbolicNames : '*' | listOfSymbolicNames ;
 grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO target=userOrRole ;
 
 denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO target=userOrRole ;
+
+propertyPermissionList : '{' ( ASTERISK | listOfSymbolicNames ) '}' ;
+
+propertyPermissionType : READ | SET PROPERTY ;
+
+propertyPermissionTypeList : propertyPermissionType ( ',' propertyPermissionType )* ;
+
+grantPropertyPermission : GRANT permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
+
+denyPropertyPermission : DENY permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
+
+revokePropertyPermission : REVOKE permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec FROM target=userOrRole ;
 
 grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO target=userOrRole ;
 

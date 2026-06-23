@@ -20,12 +20,15 @@
 #include <iterator>
 #include <optional>
 #include <random>
+#include <ranges>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <variant>
 
+#include "query/auth_checker.hpp"
+#include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
@@ -444,14 +447,15 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   return TypedValue(list.back(), ctx.memory);
 }
 
-const auto &VirtualProperties(const TypedValue &value) {
-  return value.IsVirtualNode() ? value.ValueVirtualNode().Properties() : value.ValueVirtualEdge().Properties();
-}
+constexpr auto allow_all_properties = [](storage::PropertyId) { return true; };
 
+// NOTE: Denied properties appear as keys with null values. This differs from
+// keys() and values(), which omit denied properties entirely. This divergence
+// is by design.
 TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
   auto *dba = ctx.db_accessor;
-  auto get_properties = [&](const auto &record_accessor) {
+  auto get_properties = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TMap properties(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (!maybe_props) {
@@ -467,27 +471,55 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
       }
     }
     for (const auto &property : *maybe_props) {
-      auto typed_value =
-          TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-      properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory), std::move(typed_value));
+      auto key = TypedValue::TString(dba->PropertyToName(property.first), ctx.memory);
+      if (is_allowed(property.first)) {
+        auto typed_value =
+            TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
+        properties.emplace(std::move(key), std::move(typed_value));
+      } else {
+        properties.emplace(std::move(key), TypedValue(ctx.memory));
+      }
     }
     return TypedValue(std::move(properties));
   };
+  auto const *checker = ctx.auth_checker;
+
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
-  } else if (value.IsVirtualNode() || value.IsVirtualEdge()) {
+  } else if (value.IsVirtualNode()) {
+    auto const &vn = value.ValueVirtualNode();
     TypedValue::TMap properties(ctx.memory);
-    for (const auto &[prop_id, prop_value] : VirtualProperties(value)) {
+    for (auto const &[prop_id, prop_value] : vn.Properties()) {
       properties.emplace(TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory),
                          TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
     }
     return TypedValue(std::move(properties));
-  } else if (value.IsVertex()) {
-    return get_properties(value.ValueVertex());
-  } else {
-    return get_properties(value.ValueEdge());
+  } else if (value.IsVirtualEdge()) {
+    auto const &ve = value.ValueVirtualEdge();
+    TypedValue::TMap properties(ctx.memory);
+    for (auto const &[prop_id, prop_value] : ve.Properties()) {
+      properties.emplace(TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory),
+                         TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+    }
+    return TypedValue(std::move(properties));
   }
+  if (value.IsVertex()) {
+    auto const &vertex = value.ValueVertex();
+    if (!checker) return get_properties(vertex, allow_all_properties);
+    auto maybe_labels = vertex.Labels(ctx.view);
+    if (!maybe_labels) {
+      ThrowVertexLabelsReadFailure(maybe_labels.error());
+    }
+    return get_properties(vertex, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+    });
+  }
+  auto const &edge = value.ValueEdge();
+  if (!checker) return get_properties(edge, allow_all_properties);
+  return get_properties(edge, [&](storage::PropertyId prop) {
+    return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+  });
 }
 
 TypedValue RandomUuid(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
@@ -814,7 +846,7 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
 TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
   auto *dba = ctx.db_accessor;
-  auto get_keys = [&](const auto &record_accessor) {
+  auto get_keys = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector keys(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (!maybe_props) {
@@ -830,27 +862,46 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
       }
     }
     for (const auto &property : *maybe_props) {
-      keys.emplace_back(dba->PropertyToName(property.first));
+      if (is_allowed(property.first)) keys.emplace_back(dba->PropertyToName(property.first));
     }
     return TypedValue(std::move(keys));
   };
+  auto const *checker = ctx.auth_checker;
+
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
   if (value.IsVertex()) {
-    return get_keys(value.ValueVertex());
+    auto const &vertex = value.ValueVertex();
+    if (!checker) return get_keys(vertex, allow_all_properties);
+    auto maybe_labels = vertex.Labels(ctx.view);
+    if (!maybe_labels) {
+      ThrowVertexLabelsReadFailure(maybe_labels.error());
+    }
+    return get_keys(vertex, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (value.IsEdge()) {
-    return get_keys(value.ValueEdge());
-  }
-  if (value.IsVirtualNode() || value.IsVirtualEdge()) {
-    const auto &props = VirtualProperties(value);
-    TypedValue::TVector keys(ctx.memory);
-    keys.reserve(props.size());
-    std::ranges::transform(props, std::back_inserter(keys), [&](const auto &kv) {
-      return TypedValue(dba->PropertyToName(kv.first), ctx.memory);
+    auto const &edge = value.ValueEdge();
+    if (!checker) return get_keys(edge, allow_all_properties);
+    return get_keys(edge, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
     });
+  }
+  if (value.IsVirtualNode()) {
+    TypedValue::TVector keys(ctx.memory);
+    for (auto const &[prop_id, prop_value] : value.ValueVirtualNode().Properties()) {
+      keys.emplace_back(dba->PropertyToName(prop_id));
+    }
+    return TypedValue(std::move(keys));
+  }
+  if (value.IsVirtualEdge()) {
+    TypedValue::TVector keys(ctx.memory);
+    for (auto const &[prop_id, prop_value] : value.ValueVirtualEdge().Properties()) {
+      keys.emplace_back(dba->PropertyToName(prop_id));
+    }
     return TypedValue(std::move(keys));
   }
 
@@ -863,9 +914,9 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
+  FType<Or<Null, Vertex, Edge, Map>>("values", args, nargs);
 
-  auto get_values = [&](const auto &record_accessor) {
+  auto get_values = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector values(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (!maybe_props) {
@@ -881,29 +932,51 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
       }
     }
     for (const auto &[key, value] : *maybe_props) {
-      auto typed_value = TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-      values.emplace_back(std::move(typed_value));
+      if (is_allowed(key)) {
+        values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+      }
     }
     return TypedValue(std::move(values));
   };
+
+  auto const *checker = ctx.auth_checker;
 
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
   if (value.IsVertex()) {
-    return get_values(value.ValueVertex());
+    auto const &vertex = value.ValueVertex();
+    if (!checker) return get_values(vertex, allow_all_properties);
+    auto maybe_labels = vertex.Labels(ctx.view);
+    if (!maybe_labels) {
+      ThrowVertexLabelsReadFailure(maybe_labels.error());
+    }
+    return get_values(vertex, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (value.IsEdge()) {
-    return get_values(value.ValueEdge());
+    auto const &edge = value.ValueEdge();
+    if (!checker) return get_values(edge, allow_all_properties);
+    return get_values(edge, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+    });
   }
-  if (value.IsVirtualNode() || value.IsVirtualEdge()) {
-    const auto &props = VirtualProperties(value);
+  auto *dba = ctx.db_accessor;
+  if (value.IsVirtualNode()) {
     TypedValue::TVector values(ctx.memory);
-    values.reserve(props.size());
-    for (const auto &[prop_id, prop_value] : props) {
-      auto typed_value = TypedValue(prop_value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-      values.emplace_back(std::move(typed_value));
+    for (auto const &[prop_id, prop_value] : value.ValueVirtualNode().Properties()) {
+      // NOLINTNEXTLINE(modernize-use-emplace)
+      values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+    }
+    return TypedValue(std::move(values));
+  }
+  if (value.IsVirtualEdge()) {
+    TypedValue::TVector values(ctx.memory);
+    for (auto const &[prop_id, prop_value] : value.ValueVirtualEdge().Properties()) {
+      // NOLINTNEXTLINE(modernize-use-emplace)
+      values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
     }
     return TypedValue(std::move(values));
   }
@@ -932,16 +1005,7 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
   TypedValue::TVector labels(ctx.memory);
   auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
   if (!maybe_labels) {
-    switch (maybe_labels.error()) {
-      case storage::Error::DELETED_OBJECT:
-        throw QueryRuntimeException("Trying to get labels from a deleted node.");
-      case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
-      case storage::Error::SERIALIZATION_ERROR:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::PROPERTIES_DISABLED:
-        throw QueryRuntimeException("Unexpected error when getting labels.");
-    }
+    ThrowVertexLabelsReadFailure(maybe_labels.error());
   }
   for (const auto &label : *maybe_labels) {
     labels.emplace_back(dba->LabelToName(label));

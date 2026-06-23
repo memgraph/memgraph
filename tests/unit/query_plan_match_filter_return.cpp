@@ -35,7 +35,10 @@
 #include "license/license.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
+#include "query/interpret/eval.hpp"
 #include "query/plan/operator.hpp"
+#include "query/virtual_edge.hpp"
+#include "query/virtual_node.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -1971,6 +1974,13 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
 
   Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
 
+  static void GrantAllPropertyAccess([[maybe_unused]] memgraph::auth::User &user) {
+#ifdef MG_ENTERPRISE
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+#endif
+  }
+
   void SetUp() override {
     memgraph::license::global_license_checker.EnableTesting();
 
@@ -2294,6 +2304,7 @@ TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // All edge_types and labels allowed
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2320,6 +2331,7 @@ TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // Denied all labels
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().DenyGlobal(memgraph::auth::kAllLabelPermissions);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2329,6 +2341,7 @@ TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // Denied all edge types
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().DenyGlobal(memgraph::auth::kAllEdgeTypePermissions);
     auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2338,6 +2351,7 @@ TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // Denied first vertex label
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().Deny({"l0"}, memgraph::auth::kAllLabelPermissions);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
 
@@ -2348,6 +2362,7 @@ TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // Denied vertex label 2
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().Grant({"l0"}, memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant({"l2"}, memgraph::auth::FineGrainedPermission::READ);
@@ -2376,6 +2391,7 @@ TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     this->dba.AdvanceCommand();
 
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2427,6 +2443,13 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   Symbol weight_node = symbol_table.CreateSymbol("w_node", true);
 
   Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
+
+  static void GrantAllPropertyAccess([[maybe_unused]] memgraph::auth::User &user) {
+#ifdef MG_ENTERPRISE
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+#endif
+  }
 
   void SetUp() override {
     memgraph::license::global_license_checker.EnableTesting();
@@ -2789,6 +2812,7 @@ TYPED_TEST(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // All edge_types and labels allowed
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
@@ -2803,6 +2827,7 @@ TYPED_TEST(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // Denied all labels
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().DenyGlobal(memgraph::auth::kAllEdgeTypePermissions);
     auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2812,6 +2837,7 @@ TYPED_TEST(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // Denied first vertex label
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().Deny({"l0"}, memgraph::auth::kAllLabelPermissions);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2822,6 +2848,7 @@ TYPED_TEST(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // Denied vertex label 2
   {
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().Grant({"l0"}, memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant({"l2"}, memgraph::auth::FineGrainedPermission::READ);
@@ -2850,6 +2877,7 @@ TYPED_TEST(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
     this->dba.AdvanceCommand();
 
     memgraph::auth::User user{"test"};
+    this->GrantAllPropertyAccess(user);
     user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
     auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -4370,3 +4398,55 @@ TYPED_TEST(SubqueriesFeature, SubqueriesWithForeach) {
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
 }
+
+#ifdef MG_ENTERPRISE
+TYPED_TEST(MatchReturnFixture, PropertyFGANoPropertyRulesMeansAccessDenied) {
+  auto v = this->dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("Employee")).has_value());
+  ASSERT_TRUE(v.SetProperty(this->dba.NameToProperty("name"), memgraph::storage::PropertyValue("Alice")).has_value());
+  this->dba.AdvanceCommand();
+
+  // User has LBAC read access but no PBAC rules at all — property should be denied
+  auto user = memgraph::auth::User{"test_user"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+
+  auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "name");
+  auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
+  auto produce = MakeProduce(scan_all.op_, output);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+  auto results = CollectProduce(*produce, &context);
+
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_TRUE(results[0][0].IsNull());
+}
+
+TYPED_TEST(MatchReturnFixture, PropertyFGALicenseDisabledMeansNoRestriction) {
+  memgraph::license::global_license_checker.DisableTesting();
+
+  auto v = this->dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("Employee")).has_value());
+  ASSERT_TRUE(v.SetProperty(this->dba.NameToProperty("ssn"), memgraph::storage::PropertyValue("123")).has_value());
+  this->dba.AdvanceCommand();
+
+  auto user = memgraph::auth::User{"test_user"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  user.property_access_handler().label_properties().Deny(
+      {"Employee"}, "ssn", memgraph::auth::PropertyPermissionType::READ);
+
+  auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto *prop_lookup = PROPERTY_LOOKUP(this->dba, IDENT("n")->MapTo(scan_all.sym_), "ssn");
+  auto output = NEXPR("result", prop_lookup)->MapTo(this->symbol_table.CreateSymbol("result", true));
+  auto produce = MakeProduce(scan_all.op_, output);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+  auto results = CollectProduce(*produce, &context);
+
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0][0].ValueString(), "123");
+}
+
+#endif

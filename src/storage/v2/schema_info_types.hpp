@@ -182,10 +182,16 @@ struct TrackingInfo {
   TContainer<PropertyId, PropertyInfo<TContainer>> properties;  //!< Property statistics defined by the tracked object
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
+    return ToJson(name_id_mapper, enum_store, [](PropertyId) { return true; });
+  }
+
+  nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
+                        const std::function<bool(PropertyId)> &property_predicate) const {
     nlohmann::json::object_t tracking_info;
     tracking_info.emplace("count", n.load());
     const auto &[prop_itr, _] = tracking_info.emplace("properties", nlohmann::json::array_t{});
     for (const auto &[p, info] : properties) {
+      if (!property_predicate(p)) continue;
       prop_itr->second.emplace_back(
           info.ToJson(enum_store, name_id_mapper.IdToName(p.AsUint()), std::max(n.load(), 1)));
     }

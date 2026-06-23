@@ -398,6 +398,21 @@ template <template <class...> class TContainer>
 nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
                                                   const std::function<bool(VertexKey const &)> &node_predicate,
                                                   const std::function<bool(EdgeTypeId)> &edge_predicate) const {
+  return ToJson(
+      name_id_mapper,
+      enum_store,
+      node_predicate,
+      edge_predicate,
+      [](VertexKey const &, PropertyId) { return true; },
+      [](EdgeTypeId, PropertyId) { return true; });
+}
+
+template <template <class...> class TContainer>
+nlohmann::json SchemaTracking<TContainer>::ToJson(
+    NameIdMapper &name_id_mapper, const EnumStore &enum_store,
+    const std::function<bool(VertexKey const &)> &node_predicate, const std::function<bool(EdgeTypeId)> &edge_predicate,
+    const std::function<bool(VertexKey const &, PropertyId)> &node_property_predicate,
+    const std::function<bool(EdgeTypeId, PropertyId)> &edge_property_predicate) const {
   auto json = nlohmann::json::object();
 
   // Handle NODES
@@ -411,7 +426,9 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, 
       labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
     }
     std::sort(labels_itr->begin(), labels_itr->end());
-    node.update(info.ToJson(name_id_mapper, enum_store));
+    node.update(info.ToJson(name_id_mapper, enum_store, [&](PropertyId prop) {
+      return node_property_predicate(labels, prop);  // NOLINT(clang-analyzer-core.CallAndMessage)
+    }));
     nodes.emplace_back(std::move(node));
   }
 
@@ -434,7 +451,9 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, 
       in_labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
     }
     std::sort(in_labels_itr->begin(), in_labels_itr->end());
-    edge.update(info.ToJson(name_id_mapper, enum_store));
+    edge.update(info.ToJson(name_id_mapper, enum_store, [&](PropertyId prop) {
+      return edge_property_predicate(edge_type.type, prop);  // NOLINT(clang-analyzer-core.CallAndMessage)
+    }));
     edges.emplace_back(std::move(edge));
   }
 

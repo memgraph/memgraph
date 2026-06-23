@@ -13,6 +13,7 @@
 #pragma once
 
 #include <algorithm>
+#include <concepts>
 #include <cstddef>
 #include <limits>
 #include <map>
@@ -36,6 +37,11 @@
 #include "utils/logging.hpp"
 
 namespace memgraph::query {
+
+class VirtualNode;
+class VirtualEdge;
+
+class FineGrainedAuthChecker;
 
 class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *> {
  public:
@@ -238,20 +244,23 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
 
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
-  ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
-                      storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
-                      const int64_t *hops_counter = nullptr,
-		      const std::shared_ptr<QueryUserOrRole> &user_or_role = {},
-                      const std::shared_ptr<QueryUserOrRole> &triggering_user = {})
+  ExpressionEvaluator(Frame *frame, ExecutionContext const &context, storage::View view,
+                      FrameChangeCollector *frame_change_collector = nullptr, int64_t const *hops_counter = nullptr)
       : frame_(frame),
-        symbol_table_(&symbol_table),
-        ctx_(&ctx),
-        dba_(dba),
+        symbol_table_(&context.symbol_table),
+        ctx_(&context.evaluation_context),
+        dba_(context.db_accessor),
         view_(view),
         frame_change_collector_(frame_change_collector),
         hops_counter_(hops_counter),
-        user_or_role_(user_or_role.get()),
-        triggering_user_(triggering_user.get()) {}
+        user_or_role_(context.user_or_role.get()),
+        triggering_user_(context.triggering_user.get())
+#ifdef MG_ENTERPRISE
+        ,
+        auth_checker_(context.auth_checker.get())
+#endif
+  {
+  }
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -736,8 +745,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
-    FunctionContext function_ctx{
-        dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, GetHopsCounter(), user_or_role_, triggering_user_};
+    FunctionContext function_ctx{dba_,
+                                 ctx_->memory,
+                                 ctx_->timestamp,
+                                 &ctx_->counters,
+                                 view_,
+                                 GetHopsCounter(),
+                                 user_or_role_,
+                                 triggering_user_,
+#ifdef MG_ENTERPRISE
+                                 auth_checker_
+#else
+                                 nullptr
+#endif
+    };
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
@@ -1054,8 +1075,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(*maybe_enum, ctx_->memory);
   }
 
+#ifdef MG_ENTERPRISE
+  bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const;
+  bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const;
+#else
+  template <typename T>
+    requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor>
+  bool IsPropertyAllowed(T const &, storage::PropertyId) const {
+    return true;
+  }
+#endif
+
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
+    if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
@@ -1083,7 +1116,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
-    auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
+    auto prop_id = dba_->NameToProperty(name);
+    if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
+    auto maybe_prop = record_accessor.GetProperty(view_, prop_id);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1091,7 +1126,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
+      maybe_prop = record_accessor.GetProperty(view_, prop_id);
     }
     if (!maybe_prop) {
       switch (maybe_prop.error()) {
@@ -1133,6 +1168,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           throw QueryRuntimeException("Unexpected error when getting properties.");
       }
     }
+#ifdef MG_ENTERPRISE
+    auto &props = *maybe_props;
+    for (auto &[prop_id, value] : props) {
+      if (!IsPropertyAllowed(record_accessor, prop_id)) {
+        value = storage::PropertyValue{};
+      }
+    }
+#endif
     return *std::move(maybe_props);
   }
 
@@ -1154,6 +1197,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   const int64_t *hops_counter_;
   const QueryUserOrRole *user_or_role_;
   const QueryUserOrRole *triggering_user_;
+#ifdef MG_ENTERPRISE
+  FineGrainedAuthChecker *auth_checker_{nullptr};
+#endif
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.

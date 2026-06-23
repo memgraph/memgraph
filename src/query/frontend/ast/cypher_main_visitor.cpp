@@ -2522,8 +2522,8 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
 
 /**
  * @return std::tuple<std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
-                      std::vector<AuthQuery::LabelMatchingMode>,
-                      std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>
+ *                    std::vector<AuthQuery::LabelMatchingMode>,
+ *                    std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>
  */
 antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::EntityPrivilegeListContext *ctx) {
   std::vector<std::pair<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges;
@@ -2589,6 +2589,84 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
     }
   }
   return std::make_tuple(label_privileges, label_matching_modes, edge_type_privileges);
+}
+
+namespace {
+AuthQuery *BuildPropertyPermissionQuery(AstStorage *storage, AuthQuery::Action action,
+                                        MemgraphCypher::PropertyPermissionTypeListContext *perm_types,
+                                        MemgraphCypher::PropertyPermissionListContext *props,
+                                        MemgraphCypher::EntityTypeSpecContext *type_spec,
+                                        MemgraphCypher::UserOrRoleContext *target, CypherMainVisitor *visitor) {
+  auto *auth = storage->Create<AuthQuery>();
+  auth->action_ = action;
+
+  for (auto *perm_type : perm_types->propertyPermissionType()) {
+    auth->property_permission_types_ |=
+        perm_type->READ() ? AuthQuery::PropertyPermissionType::READ : AuthQuery::PropertyPermissionType::WRITE;
+  }
+
+  if (props->ASTERISK()) {
+    auth->property_permissions_ = {"*"};
+  } else {
+    auth->property_permissions_ =
+        std::any_cast<std::vector<std::string>>(props->listOfSymbolicNames()->accept(visitor));
+  }
+
+  if (type_spec->labelEntitiesList()) {
+    auth->property_entity_kind_ = query::AuthQuery::PropertyEntityKind::NODE;
+    auth->property_entity_names_ =
+        std::any_cast<std::vector<std::string>>(type_spec->labelEntitiesList()->accept(visitor));
+
+    if (auth->property_entity_names_.size() == 1 && auth->property_entity_names_[0] == "*" &&
+        type_spec->matchingClause()) {
+      throw SemanticException("Cannot use MATCHING clause with wildcard '*'");
+    }
+
+    if (type_spec->matchingClause() && type_spec->matchingClause()->EXACTLY()) {
+      auth->property_matching_mode_ = AuthQuery::LabelMatchingMode::EXACTLY;
+    } else {
+      auth->property_matching_mode_ = AuthQuery::LabelMatchingMode::ANY;
+    }
+  } else {
+    auth->property_entity_kind_ = query::AuthQuery::PropertyEntityKind::EDGE;
+    auth->property_entity_names_ = std::any_cast<std::vector<std::string>>(type_spec->edgeType->accept(visitor));
+  }
+
+  std::tie(auth->user_or_role_, auth->entity_type_) =
+      std::any_cast<std::pair<std::string, AuthQuery::UserOrRoleType>>(target->accept(visitor));
+
+  return auth;
+}
+}  // namespace
+
+antlrcpp::Any CypherMainVisitor::visitGrantPropertyPermission(MemgraphCypher::GrantPropertyPermissionContext *ctx) {
+  return BuildPropertyPermissionQuery(storage_,
+                                      AuthQuery::Action::GRANT_PROPERTY_PERMISSION,
+                                      ctx->permTypes,
+                                      ctx->propList,
+                                      ctx->entityTypeSpec(),
+                                      ctx->target,
+                                      this);
+}
+
+antlrcpp::Any CypherMainVisitor::visitDenyPropertyPermission(MemgraphCypher::DenyPropertyPermissionContext *ctx) {
+  return BuildPropertyPermissionQuery(storage_,
+                                      AuthQuery::Action::DENY_PROPERTY_PERMISSION,
+                                      ctx->permTypes,
+                                      ctx->propList,
+                                      ctx->entityTypeSpec(),
+                                      ctx->target,
+                                      this);
+}
+
+antlrcpp::Any CypherMainVisitor::visitRevokePropertyPermission(MemgraphCypher::RevokePropertyPermissionContext *ctx) {
+  return BuildPropertyPermissionQuery(storage_,
+                                      AuthQuery::Action::REVOKE_PROPERTY_PERMISSION,
+                                      ctx->permTypes,
+                                      ctx->propList,
+                                      ctx->entityTypeSpec(),
+                                      ctx->target,
+                                      this);
 }
 
 antlrcpp::Any CypherMainVisitor::visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) {

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -40,6 +41,7 @@ struct DatabaseMetricHandles;
 namespace memgraph::query {
 
 struct ExecutionContext;
+class DbAccessor;
 class ExpressionEvaluator;
 class Frame;
 class SymbolTable;

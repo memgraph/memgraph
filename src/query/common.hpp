@@ -27,6 +27,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/logging.hpp"
 
@@ -179,6 +180,20 @@ class TypedValueVectorCompare final {
 inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue::Type expected) {
   if (value.type() != expected) [[unlikely]] {
     throw QueryRuntimeException("Expected a {} for '{}', but got {}.", expected, symbol.name(), value.type());
+  }
+}
+
+/// Map `storage::Error` from `VertexAccessor::Labels(...)` failures to `QueryRuntimeException`
+[[noreturn]] inline void ThrowVertexLabelsReadFailure(storage::Error error) {
+  switch (error) {
+    case storage::Error::DELETED_OBJECT:
+      throw QueryRuntimeException("Trying to get labels from a deleted node.");
+    case storage::Error::NONEXISTENT_OBJECT:
+      throw QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
+    case storage::Error::SERIALIZATION_ERROR:
+    case storage::Error::VERTEX_HAS_EDGES:
+    case storage::Error::PROPERTIES_DISABLED:
+      throw QueryRuntimeException("Unexpected error when getting labels.");
   }
 }
 

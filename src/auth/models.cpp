@@ -54,6 +54,9 @@ constexpr auto kSymbols = "symbols";
 constexpr auto kGranted = "granted";
 constexpr auto kDenied = "denied";
 constexpr auto kMatching = "matching";
+constexpr auto kPropertyAccessPermissions = "property_access_permissions";
+constexpr auto kLabelPropertyPermissions = "label_property_permissions";
+constexpr auto kEdgeTypePropertyPermissions = "edge_type_property_permissions";
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -660,6 +663,299 @@ bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 bool operator!=(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second) {
   return !(first == second);
 }
+
+// PropertyAccessPermissions
+
+namespace {
+PermissionLevel CheckBit(PropertyPermission const &perm, PropertyPermissionType bit) {
+  if ((perm.denies & bit) != PropertyPermissionType::NONE) return PermissionLevel::DENY;
+  if ((perm.grants & bit) != PropertyPermissionType::NONE) return PermissionLevel::GRANT;
+  return PermissionLevel::NEUTRAL;
+}
+}  // namespace
+
+PropertyAccessRule &PropertyAccessPermissions::FindOrCreateRule(std::unordered_set<std::string> const &entities,
+                                                                MatchingMode matching_mode) {
+  auto it = r::find_if(
+      rules_, [&](auto const &rule) { return rule.entities == entities && rule.matching_mode == matching_mode; });
+  if (it != rules_.end()) return *it;
+  return rules_.emplace_back(
+      PropertyAccessRule{.entities = entities, .matching_mode = matching_mode, .properties = {}});
+}
+
+void PropertyAccessPermissions::Grant(std::unordered_set<std::string> const &entities, std::string const &property,
+                                      PropertyPermissionType type, MatchingMode matching_mode) {
+  auto &rule = FindOrCreateRule(entities, matching_mode);
+  auto &perm = rule.properties[property];
+  perm.grants |= type;
+  perm.denies &= ~type;
+  if (property == "*") {
+    for (auto &[key, p] : rule.properties) {
+      if (key != "*") p.grants &= ~type;
+    }
+    std::erase_if(rule.properties, [](auto const &kv) {
+      return kv.first != "*" && kv.second.grants == PropertyPermissionType::NONE &&
+             kv.second.denies == PropertyPermissionType::NONE;
+    });
+  }
+}
+
+void PropertyAccessPermissions::Deny(std::unordered_set<std::string> const &entities, std::string const &property,
+                                     PropertyPermissionType type, MatchingMode matching_mode) {
+  auto &rule = FindOrCreateRule(entities, matching_mode);
+  auto &perm = rule.properties[property];
+  perm.denies |= type;
+  perm.grants &= ~type;
+  if (property == "*") {
+    for (auto &[key, p] : rule.properties) {
+      if (key != "*") p.denies &= ~type;
+    }
+    std::erase_if(rule.properties, [](auto const &kv) {
+      return kv.first != "*" && kv.second.grants == PropertyPermissionType::NONE &&
+             kv.second.denies == PropertyPermissionType::NONE;
+    });
+  }
+}
+
+void PropertyAccessPermissions::Revoke(std::unordered_set<std::string> const &entities, std::string const &property,
+                                       PropertyPermissionType type, MatchingMode matching_mode) {
+  auto it = r::find_if(
+      rules_, [&](auto const &rule) { return rule.entities == entities && rule.matching_mode == matching_mode; });
+  if (it == rules_.end()) return;
+  if (property == "*") {
+    for (auto &[key, perm] : it->properties) {
+      perm.grants &= ~type;
+      perm.denies &= ~type;
+    }
+    std::erase_if(it->properties, [](auto const &kv) {
+      return kv.second.grants == PropertyPermissionType::NONE && kv.second.denies == PropertyPermissionType::NONE;
+    });
+  } else {
+    auto prop_it = it->properties.find(property);
+    if (prop_it == it->properties.end()) return;
+    prop_it->second.grants &= ~type;
+    prop_it->second.denies &= ~type;
+    if (prop_it->second.grants == PropertyPermissionType::NONE &&
+        prop_it->second.denies == PropertyPermissionType::NONE) {
+      it->properties.erase(prop_it);
+    }
+  }
+  if (it->properties.empty()) {
+    rules_.erase(it);
+  }
+}
+
+void PropertyAccessPermissions::GrantGlobal(std::string const &property, PropertyPermissionType type) {
+  auto &perm = global_[property];
+  perm.grants |= type;
+  perm.denies &= ~type;
+}
+
+void PropertyAccessPermissions::DenyGlobal(std::string const &property, PropertyPermissionType type) {
+  auto &perm = global_[property];
+  perm.denies |= type;
+  perm.grants &= ~type;
+}
+
+void PropertyAccessPermissions::RevokeGlobal(std::string const &property, PropertyPermissionType type) {
+  auto prop_it = global_.find(property);
+  if (prop_it == global_.end()) return;
+  prop_it->second.grants &= ~type;
+  prop_it->second.denies &= ~type;
+  if (prop_it->second.grants == PropertyPermissionType::NONE &&
+      prop_it->second.denies == PropertyPermissionType::NONE) {
+    global_.erase(prop_it);
+  }
+}
+
+namespace {
+PermissionLevel CheckPropertyMap(std::unordered_map<std::string, PropertyPermission> const &props,
+                                 std::string const &property, PropertyPermissionType bit) {
+  auto prop_it = props.find(property);
+  if (prop_it != props.end()) {
+    auto level = CheckBit(prop_it->second, bit);
+    if (level != PermissionLevel::NEUTRAL) return level;
+  }
+  auto wildcard_it = props.find("*");
+  if (wildcard_it != props.end()) {
+    return CheckBit(wildcard_it->second, bit);
+  }
+  return PermissionLevel::NEUTRAL;
+}
+}  // namespace
+
+PermissionLevel PropertyAccessPermissions::Has(std::span<std::string const> entities, std::string const &property,
+                                               PropertyPermissionType type) const {
+  auto const rule_matches = [&](auto const &rule) -> bool {
+    if (rule.matching_mode == MatchingMode::EXACTLY) {
+      return rule.entities.size() == entities.size() &&
+             r::all_of(entities, [&](auto const &e) { return rule.entities.contains(e); });
+    }
+    return r::any_of(entities, [&](auto const &e) { return rule.entities.contains(e); });
+  };
+
+  bool any_grant = false;
+
+  for (auto const &rule : rules_) {
+    if (rule_matches(rule)) {
+      auto level = CheckPropertyMap(rule.properties, property, type);
+      if (level == PermissionLevel::DENY) return PermissionLevel::DENY;
+      if (level == PermissionLevel::GRANT) any_grant = true;
+    }
+  }
+
+  if (any_grant) return PermissionLevel::GRANT;
+
+  if (!global_.empty()) {
+    return CheckPropertyMap(global_, property, type);
+  }
+
+  return PermissionLevel::NEUTRAL;
+}
+
+PermissionLevel PropertyAccessPermissions::HasGlobal(std::string const &property, PropertyPermissionType type) const {
+  if (global_.empty()) return PermissionLevel::NEUTRAL;
+  return CheckPropertyMap(global_, property, type);
+}
+
+namespace {
+nlohmann::json SerializePropertyMap(std::unordered_map<std::string, PropertyPermission> const &props) {
+  nlohmann::json props_json = nlohmann::json::object();
+  for (auto const &[prop, perm] : props) {
+    props_json[prop] = {{"grants", std::to_underlying(perm.grants)}, {"denies", std::to_underlying(perm.denies)}};
+  }
+  return props_json;
+}
+
+void DeserializePropertyMap(nlohmann::json const &props_json,
+                            std::unordered_map<std::string, PropertyPermission> &out) {
+  for (auto const &[prop, perm_json] : props_json.items()) {
+    if (!perm_json.is_object()) continue;
+    auto &perm = out[prop];
+    perm.grants = static_cast<PropertyPermissionType>(perm_json.value("grants", uint8_t{0}));
+    perm.denies = static_cast<PropertyPermissionType>(perm_json.value("denies", uint8_t{0}));
+  }
+}
+}  // namespace
+
+bool PropertyAccessPermissions::HasUnrestrictedAccess() const {
+  if (!rules_.empty()) return false;
+  if (global_.size() != 1) return false;
+  auto it = global_.find("*");
+  if (it == global_.end()) return false;
+  return it->second.grants == kAllPropertyPermissionTypes && it->second.denies == PropertyPermissionType::NONE;
+}
+
+nlohmann::json PropertyAccessPermissions::Serialize() const {
+  nlohmann::json data = nlohmann::json::object();
+  if (!global_.empty()) {
+    data["global"] = SerializePropertyMap(global_);
+  }
+  if (!rules_.empty()) {
+    nlohmann::json rules_json = nlohmann::json::array();
+    for (auto const &rule : rules_) {
+      nlohmann::json rule_json;
+      rule_json[kSymbols] = nlohmann::json::array();
+      for (auto const &e : rule.entities) {
+        rule_json[kSymbols].push_back(e);
+      }
+      rule_json[kMatching] = rule.matching_mode == MatchingMode::EXACTLY ? "EXACTLY" : "ANY";
+      rule_json["properties"] = SerializePropertyMap(rule.properties);
+      rules_json.push_back(std::move(rule_json));
+    }
+    data["rules"] = std::move(rules_json);
+  }
+  return data;
+}
+
+PropertyAccessPermissions PropertyAccessPermissions::Deserialize(nlohmann::json const &data) {
+  PropertyAccessPermissions result;
+  if (!data.is_object()) return result;
+
+  if (data.contains("global") && data["global"].is_object()) {
+    DeserializePropertyMap(data["global"], result.global_);
+  }
+
+  if (data.contains("rules") && data["rules"].is_array()) {
+    for (auto const &rule_json : data["rules"]) {
+      if (!rule_json.is_object()) {
+        throw AuthException("Couldn't load property access rule data!");
+      }
+      PropertyAccessRule rule;
+      if (rule_json.contains(kSymbols)) {
+        for (auto const &e : rule_json[kSymbols]) {
+          rule.entities.insert(e.get<std::string>());
+        }
+      }
+      if (rule_json.contains(kMatching)) {
+        rule.matching_mode = rule_json[kMatching] == "EXACTLY" ? MatchingMode::EXACTLY : MatchingMode::ANY;
+      }
+      if (rule_json.contains("properties") && rule_json["properties"].is_object()) {
+        DeserializePropertyMap(rule_json["properties"], rule.properties);
+      }
+      result.rules_.push_back(std::move(rule));
+    }
+  }
+  return result;
+}
+
+// PropertyAccessHandler
+
+PropertyAccessPermissions const &PropertyAccessHandler::label_properties() const { return label_properties_; }
+
+PropertyAccessPermissions &PropertyAccessHandler::label_properties() { return label_properties_; }
+
+PropertyAccessPermissions const &PropertyAccessHandler::edge_type_properties() const { return edge_type_properties_; }
+
+PropertyAccessPermissions &PropertyAccessHandler::edge_type_properties() { return edge_type_properties_; }
+
+nlohmann::json PropertyAccessHandler::Serialize() const {
+  nlohmann::json data = nlohmann::json::object();
+  data[kLabelPropertyPermissions] = label_properties_.Serialize();
+  data[kEdgeTypePropertyPermissions] = edge_type_properties_.Serialize();
+  return data;
+}
+
+PropertyAccessHandler PropertyAccessHandler::Deserialize(nlohmann::json const &data) {
+  PropertyAccessHandler handler;
+  if (!data.is_object()) return handler;
+  if (data.contains(kLabelPropertyPermissions) && data[kLabelPropertyPermissions].is_object()) {
+    handler.label_properties_ = PropertyAccessPermissions::Deserialize(data[kLabelPropertyPermissions]);
+  }
+  if (data.contains(kEdgeTypePropertyPermissions) && data[kEdgeTypePropertyPermissions].is_object()) {
+    handler.edge_type_properties_ = PropertyAccessPermissions::Deserialize(data[kEdgeTypePropertyPermissions]);
+  }
+  return handler;
+}
+
+PropertyAccessPermissions Merge(PropertyAccessPermissions const &first, PropertyAccessPermissions const &second) {
+  auto const merge_props = [](std::unordered_map<std::string, PropertyPermission> &dst,
+                              std::unordered_map<std::string, PropertyPermission> const &src) {
+    for (auto const &[prop, perm] : src) {
+      auto &d = dst[prop];
+      d.grants |= perm.grants;
+      d.denies |= perm.denies;
+    }
+  };
+
+  auto merged_rules = first.GetRules();
+  for (auto const &rule : second.GetRules()) {
+    auto it = r::find_if(merged_rules, [&](auto const &r) {
+      return r.entities == rule.entities && r.matching_mode == rule.matching_mode;
+    });
+    if (it != merged_rules.end()) {
+      merge_props(it->properties, rule.properties);
+    } else {
+      merged_rules.push_back(rule);
+    }
+  }
+
+  auto merged_global = first.GetGlobalRules();
+  merge_props(merged_global, second.GetGlobalRules());
+
+  return {std::move(merged_rules), std::move(merged_global)};
+}
+
 #endif
 
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
@@ -669,10 +965,11 @@ Role::Role(const std::string &rolename, const Permissions &permissions)
 #ifdef MG_ENTERPRISE
 Role::Role(const std::string &rolename, const Permissions &permissions,
            FineGrainedAccessHandler fine_grained_access_handler, Databases db_access,
-           std::optional<UserImpersonation> usr_imp)
+           std::optional<UserImpersonation> usr_imp, PropertyAccessHandler property_access_handler)
     : rolename_(utils::ToLowerCase(rolename)),
       permissions_(permissions),
       fine_grained_access_handler_(std::move(fine_grained_access_handler)),
+      property_access_handler_(std::move(property_access_handler)),
       db_access_(std::move(db_access)),
       user_impersonation_{std::move(usr_imp)} {}
 #endif
@@ -686,6 +983,10 @@ Permissions &Role::permissions() { return permissions_; }
 const FineGrainedAccessHandler &Role::fine_grained_access_handler() const { return fine_grained_access_handler_; }
 
 FineGrainedAccessHandler &Role::fine_grained_access_handler() { return fine_grained_access_handler_; }
+
+PropertyAccessHandler const &Role::property_access_handler() const { return property_access_handler_; }
+
+PropertyAccessHandler &Role::property_access_handler() { return property_access_handler_; }
 
 const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions(
     std::optional<std::string_view> db_name) const {
@@ -723,11 +1024,21 @@ nlohmann::json Role::Serialize() const {
   data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
   data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
+  data[kPropertyAccessPermissions] = property_access_handler_.Serialize();
   data[kDatabases] = db_access_.Serialize();
   data[kUserImp] = user_impersonation_;
 #endif
   return data;
 }
+
+#ifdef MG_ENTERPRISE
+namespace {
+void MigratePropertyAccessDefaults(PropertyAccessHandler &handler) {
+  handler.label_properties().GrantGlobal("*", kAllPropertyPermissionTypes);
+  handler.edge_type_properties().GrantGlobal("*", kAllPropertyPermissionTypes);
+}
+}  // namespace
+#endif
 
 Role Role::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
@@ -773,8 +1084,20 @@ Role Role::Deserialize(const nlohmann::json &data) {
   } else {
     spdlog::warn("Role without impersonation information; defaulting to no impersonation ability.");
   }
-  auto role = Role{
-      *role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access), std::move(usr_imp)};
+  PropertyAccessHandler property_access_handler{};
+  auto property_it = data.find(kPropertyAccessPermissions);
+  if (property_it != data.end() && property_it->is_object()) {
+    property_access_handler = PropertyAccessHandler::Deserialize(*property_it);
+  } else {
+    MigratePropertyAccessDefaults(property_access_handler);
+  }
+
+  auto role = Role{*role_name_it,
+                   permissions,
+                   std::move(fine_grained_access_handler),
+                   std::move(db_access),
+                   std::move(usr_imp),
+                   std::move(property_access_handler)};
 #else
   auto role = Role{*role_name_it, permissions};
 #endif
@@ -786,7 +1109,8 @@ bool operator==(const Role &first, const Role &second) {
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_ &&
-           first.fine_grained_access_handler_ == second.fine_grained_access_handler_;
+           first.fine_grained_access_handler_ == second.fine_grained_access_handler_ &&
+           first.property_access_handler_ == second.property_access_handler_;
   }
 #endif
   return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_;
@@ -896,11 +1220,12 @@ User::User(const std::string &username, std::optional<HashedPassword> password_h
 #ifdef MG_ENTERPRISE
 User::User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
            FineGrainedAccessHandler fine_grained_access_handler, Databases db_access, utils::UUID uuid,
-           std::optional<UserImpersonation> usr_imp)
+           std::optional<UserImpersonation> usr_imp, PropertyAccessHandler property_access_handler)
     : username_(utils::ToLowerCase(username)),
       password_hash_(std::move(password_hash)),
       permissions_(permissions),
       fine_grained_access_handler_(std::move(fine_grained_access_handler)),
+      property_access_handler_(std::move(property_access_handler)),
       database_access_(std::move(db_access)),
       user_impersonation_{std::move(usr_imp)},
       uuid_(uuid) {}
@@ -1110,6 +1435,36 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions(
   }
   return combined_permissions;
 }
+
+PropertyAccessPermissions User::GetPropertyLabelPermissions(std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return PropertyAccessPermissions{};
+  }
+  if (db_name && !HasAccess(*db_name)) return PropertyAccessPermissions{};
+
+  auto result = property_access_handler_.label_properties();
+  for (auto const &role : roles_) {
+    if (!db_name || role.HasAccess(*db_name)) {
+      result = Merge(result, role.property_access_handler().label_properties());
+    }
+  }
+  return result;
+}
+
+PropertyAccessPermissions User::GetPropertyEdgeTypePermissions(std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return PropertyAccessPermissions{};
+  }
+  if (db_name && !HasAccess(*db_name)) return PropertyAccessPermissions{};
+
+  auto result = property_access_handler_.edge_type_properties();
+  for (auto const &role : roles_) {
+    if (!db_name || role.HasAccess(*db_name)) {
+      result = Merge(result, role.property_access_handler().edge_type_properties());
+    }
+  }
+  return result;
+}
 #endif
 
 const std::string &User::username() const { return username_; }
@@ -1121,6 +1476,10 @@ Permissions &User::permissions() { return permissions_; }
 const FineGrainedAccessHandler &User::fine_grained_access_handler() const { return fine_grained_access_handler_; }
 
 FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grained_access_handler_; }
+
+PropertyAccessHandler const &User::property_access_handler() const { return property_access_handler_; }
+
+PropertyAccessHandler &User::property_access_handler() { return property_access_handler_; }
 #endif
 
 nlohmann::json User::Serialize() const {
@@ -1136,6 +1495,7 @@ nlohmann::json User::Serialize() const {
   data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
   data[kFineGrainedPermissions] = fine_grained_access_handler_.Serialize();
+  data[kPropertyAccessPermissions] = property_access_handler_.Serialize();
   data[kDatabases] = database_access_.Serialize();
   data[kUserImp] = user_impersonation_;
 #endif
@@ -1200,13 +1560,23 @@ User User::Deserialize(const nlohmann::json &data) {
     spdlog::warn("User without impersonation information; defaulting to no impersonation ability.");
   }
 
-  return {*username_it,
-          std::move(password_hash),
-          permissions,
-          std::move(fine_grained_access_handler),
-          std::move(db_access),
-          uuid,
-          std::move(usr_imp)};
+  PropertyAccessHandler property_access_handler{};
+  auto property_it = data.find(kPropertyAccessPermissions);
+  if (property_it != data.end() && property_it->is_object()) {
+    property_access_handler = PropertyAccessHandler::Deserialize(*property_it);
+  } else {
+    MigratePropertyAccessDefaults(property_access_handler);
+  }
+
+  auto user = User{*username_it,
+                   std::move(password_hash),
+                   permissions,
+                   std::move(fine_grained_access_handler),
+                   std::move(db_access),
+                   uuid,
+                   std::move(usr_imp),
+                   std::move(property_access_handler)};
+  return user;
 #else
   return {*username_it, std::move(password_hash), permissions, uuid};
 #endif
@@ -1217,7 +1587,8 @@ bool operator==(const User &first, const User &second) {
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
            first.permissions_ == second.permissions_ && first.roles_ == second.roles_ &&
-           first.fine_grained_access_handler_ == second.fine_grained_access_handler_;
+           first.fine_grained_access_handler_ == second.fine_grained_access_handler_ &&
+           first.property_access_handler_ == second.property_access_handler_;
   }
 #endif
   return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
@@ -1430,6 +1801,26 @@ FineGrainedAccessPermissions Roles::GetFineGrainedAccessEdgeTypePermissions(
     }
   }
   return combined_permissions;
+}
+
+PropertyAccessPermissions Roles::GetPropertyLabelPermissions(std::optional<std::string_view> db_name) const {
+  PropertyAccessPermissions combined;
+  for (auto const &role : roles_) {
+    if (!db_name || role.HasAccess(*db_name)) {
+      combined = Merge(combined, role.property_access_handler().label_properties());
+    }
+  }
+  return combined;
+}
+
+PropertyAccessPermissions Roles::GetPropertyEdgeTypePermissions(std::optional<std::string_view> db_name) const {
+  PropertyAccessPermissions combined;
+  for (auto const &role : roles_) {
+    if (!db_name || role.HasAccess(*db_name)) {
+      combined = Merge(combined, role.property_access_handler().edge_type_properties());
+    }
+  }
+  return combined;
 }
 #endif  // MG_ENTERPRISE
 

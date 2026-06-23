@@ -11,6 +11,7 @@
 
 #include <benchmark/benchmark.h>
 
+#include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpreter.hpp"
@@ -47,10 +48,12 @@ static void MapLiteral(benchmark::State &state) {
     elements.emplace(ast.GetPropertyIx("prop" + std::to_string(i)), ast.Create<memgraph::query::PrimitiveLiteral>(i));
   }
   auto *expr = ast.Create<memgraph::query::MapLiteral>(elements);
-  memgraph::query::EvaluationContext evaluation_context{memory.get()};
-  evaluation_context.properties = memgraph::query::NamesToProperties(ast.properties_, &dba);
-  memgraph::query::ExpressionEvaluator evaluator(
-      &frame, symbol_table, evaluation_context, &dba, memgraph::storage::View::NEW);
+  memgraph::query::ExecutionContext ctx;
+  ctx.db_accessor = &dba;
+  ctx.symbol_table = symbol_table;
+  ctx.evaluation_context = memgraph::query::EvaluationContext{memory.get()};
+  ctx.evaluation_context.properties = memgraph::query::NamesToProperties(ast.properties_, &dba);
+  memgraph::query::ExpressionEvaluator evaluator(&frame, ctx, memgraph::storage::View::NEW);
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(expr->Accept(evaluator));
   }
@@ -77,9 +80,11 @@ static void AdditionOperator(benchmark::State &state) {
   for (int64_t i = 0; i < state.range(0); ++i) {
     expr = ast.Create<memgraph::query::AdditionOperator>(expr, ast.Create<memgraph::query::PrimitiveLiteral>(i));
   }
-  memgraph::query::EvaluationContext evaluation_context{memory.get()};
-  memgraph::query::ExpressionEvaluator evaluator(
-      &frame, symbol_table, evaluation_context, &dba, memgraph::storage::View::NEW);
+  memgraph::query::ExecutionContext ctx;
+  ctx.db_accessor = &dba;
+  ctx.symbol_table = symbol_table;
+  ctx.evaluation_context = memgraph::query::EvaluationContext{memory.get()};
+  memgraph::query::ExpressionEvaluator evaluator(&frame, ctx, memgraph::storage::View::NEW);
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(expr->Accept(evaluator));
   }

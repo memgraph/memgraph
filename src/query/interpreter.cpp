@@ -1002,6 +1002,15 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   auto label_matching_modes = auth_query->label_matching_modes_;
   auto edge_type_privileges = auth_query->edge_type_privileges_;
   auto impersonation_targets = auth_query->impersonation_targets_;
+  auto property_permissions = auth_query->property_permissions_;
+  auto property_entity_names = auth_query->property_entity_names_;
+  auto property_entity_kind = auth_query->property_entity_kind_ == AuthQuery::PropertyEntityKind::NODE
+                                  ? auth::PropertyEntityKind::NODE
+                                  : auth::PropertyEntityKind::EDGE;
+  auto property_matching_mode = auth_query->property_matching_mode_ == AuthQuery::LabelMatchingMode::EXACTLY
+                                    ? auth::MatchingMode::EXACTLY
+                                    : auth::MatchingMode::ANY;
+  auto property_permission_types = auth_query->property_permission_types_;
 #endif
   auto password = EvaluateOptionalExpression(auth_query->password_, evaluator);
 
@@ -1811,6 +1820,82 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #endif
         return std::vector<std::vector<TypedValue>>();
       };
+      return callback;
+    case AuthQuery::Action::GRANT_PROPERTY_PERMISSION:
+    case AuthQuery::Action::DENY_PROPERTY_PERMISSION:
+    case AuthQuery::Action::REVOKE_PROPERTY_PERMISSION:
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryRuntimeException(license::LicenseCheckErrorToString(
+            license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "property permissions"));
+      }
+      forbid_on_replica();
+#ifdef MG_ENTERPRISE
+      callback.fn = [auth,
+                     action = auth_query->action_,
+                     user_or_role = std::move(user_or_role),
+                     properties = std::move(property_permissions),
+                     entity_names = std::move(property_entity_names),
+                     property_entity_kind,
+                     property_matching_mode,
+                     property_permission_types,
+                     entity_type,
+                     interpreter = &interpreter] {
+        if (!interpreter->system_transaction_) {
+          throw QueryException("Expected to be in a system transaction");
+        }
+        auto *system_tx = &*interpreter->system_transaction_;
+
+        auto dispatch = [&](auth::PropertyPermissionType perm_type) {
+          switch (action) {
+            case AuthQuery::Action::GRANT_PROPERTY_PERMISSION:
+              auth->GrantPropertyPermission(user_or_role,
+                                            properties,
+                                            entity_names,
+                                            property_entity_kind,
+                                            property_matching_mode,
+                                            entity_type,
+                                            perm_type,
+                                            system_tx);
+              break;
+            case AuthQuery::Action::DENY_PROPERTY_PERMISSION:
+              auth->DenyPropertyPermission(user_or_role,
+                                           properties,
+                                           entity_names,
+                                           property_entity_kind,
+                                           property_matching_mode,
+                                           entity_type,
+                                           perm_type,
+                                           system_tx);
+              break;
+            case AuthQuery::Action::REVOKE_PROPERTY_PERMISSION:
+              auth->RevokePropertyPermission(user_or_role,
+                                             properties,
+                                             entity_names,
+                                             property_entity_kind,
+                                             property_matching_mode,
+                                             entity_type,
+                                             perm_type,
+                                             system_tx);
+              break;
+            default:
+              LOG_FATAL("Unexpected property permission action");
+          }
+        };
+
+        if ((property_permission_types & AuthQuery::PropertyPermissionType::READ) !=
+            AuthQuery::PropertyPermissionType::NONE) {
+          dispatch(auth::PropertyPermissionType::READ);
+        }
+        if ((property_permission_types & AuthQuery::PropertyPermissionType::WRITE) !=
+            AuthQuery::PropertyPermissionType::NONE) {
+          dispatch(auth::PropertyPermissionType::WRITE);
+        }
+
+        return std::vector<std::vector<TypedValue>>();
+      };
+#else
+      callback.fn = [] { return std::vector<std::vector<TypedValue>>(); };
+#endif
       return callback;
     default:
       break;
@@ -3147,9 +3232,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
     // Create only if an explicit user is defined
     auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
     DMG_ASSERT(auth_checker, "Auth checker should not be null");
-    // if the user has unrestricted access to all labels and edge types, we don't need to perform authorization
-    // otherwise, we do assign the auth checker to check for label access control
-    if (!auth_checker->HasUnrestrictedAccessToVertices() || !auth_checker->HasUnrestrictedAccessToEdges()) {
+    if (auth_checker->NeedsFineGrainedAuthChecker()) {
       ctx_.auth_checker = std::move(auth_checker);
     }
   }
@@ -3827,14 +3910,28 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                        .rw_type = rw_type};
 }
 
-PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
+                               [[maybe_unused]] InterpreterContext *interpreter_context,
+                               [[maybe_unused]] std::shared_ptr<QueryUserOrRole> user_or_role) {
   MG_ASSERT(current_db.execution_db_accessor_, "Dump query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
-  auto plan = std::make_shared<PullPlanDump>(dba, *current_db.db_acc_);
+
+  std::unique_ptr<FineGrainedAuthChecker> auth_checker;
+#ifdef MG_ENTERPRISE
+  if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context->auth_checker && user_or_role &&
+      *user_or_role) {
+    auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
+    DMG_ASSERT(auth_checker, "Auth checker should not be null");
+    if (!auth_checker->NeedsFineGrainedAuthChecker()) {
+      auth_checker = nullptr;
+    }
+  }
+#endif
+  auto plan = std::make_shared<PullPlanDump>(dba, *current_db.db_acc_, auth_checker.get());
   return PreparedQuery{
       .header = {"QUERY"},
       .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [pull_plan = std::move(plan)](
+      .query_handler = [pull_plan = std::move(plan), auth = std::move(auth_checker)](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (pull_plan->Pull(stream, n)) {
           return QueryHandlerResult::COMMIT;
@@ -8378,8 +8475,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           interpreter_context->auth_checker && has_user_or_role && db_acc) {
         auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, &*db_acc);
         DMG_ASSERT(auth_checker, "Auth checker should not be null");
-        // if the user has unrestricted access to all labels and edge types, we don't need to perform authorization
-        if (auth_checker->HasUnrestrictedAccessToVertices() && auth_checker->HasUnrestrictedAccessToEdges()) {
+        if (!auth_checker->NeedsFineGrainedAuthChecker()) {
           auth_checker = nullptr;
         }
       }
@@ -8392,9 +8488,24 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         return auth_checker && auth_checker->Has(edge_type_id, AuthQuery::FineGrainedPrivilege::READ);
       };
 
+      const auto node_property_predicate = [&auth_checker](auto const &labels, storage::PropertyId prop) {
+        return auth_checker &&
+               auth_checker->HasPropertyPermission(std::span<storage::LabelId const>{labels.data(), labels.size()},
+                                                   prop,
+                                                   AuthQuery::PropertyPermissionType::READ);
+      };
+      const auto edge_property_predicate = [&auth_checker](storage::EdgeTypeId edge_type, storage::PropertyId prop) {
+        return auth_checker &&
+               auth_checker->HasPropertyPermission(edge_type, prop, AuthQuery::PropertyPermissionType::READ);
+      };
+
       auto json = auth_checker != nullptr
-                      ? storage->schema_info_.ToJson(
-                            *storage->name_id_mapper_, storage->enum_store_, node_predicate, edge_predicate)
+                      ? storage->schema_info_.ToJson(*storage->name_id_mapper_,
+                                                     storage->enum_store_,
+                                                     node_predicate,
+                                                     edge_predicate,
+                                                     node_property_predicate,
+                                                     edge_property_predicate)
                       : storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
 #else
       auto json = storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
@@ -9708,7 +9819,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
       );
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
-      prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_);
+      prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_, interpreter_context_, user_or_role_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query),
                                          in_explicit_transaction_,

@@ -25,6 +25,7 @@
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
 #include "flags/experimental.hpp"
+#include "helpers/stub_property_fga_checker.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/dump.hpp"
@@ -2151,3 +2152,79 @@ TYPED_TEST(DumpTest, DumpTypeConstraints) {
                 "CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS TYPED INTEGER;",
                 "CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`surname` IS TYPED STRING;");
 }
+
+#ifdef MG_ENTERPRISE
+
+using StubPropertyFGAChecker = memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor>;
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(DumpTest, PropertyFGAEdgeDeniedPropertyOmitted) {
+  {
+    auto dba = this->db->Access(memgraph::storage::WRITE);
+    auto amount_prop = dba->NameToProperty("amount");
+    auto secret_prop = dba->NameToProperty("secret");
+    auto u = CreateVertex(dba.get(), {}, {}, false);
+    auto v = CreateVertex(dba.get(), {}, {}, false);
+    CreateEdge(dba.get(),
+               &u,
+               &v,
+               "PAID",
+               {{amount_prop, memgraph::storage::PropertyValue(100)},
+                {secret_prop, memgraph::storage::PropertyValue("hidden")}},
+               false);
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access(memgraph::storage::WRITE);
+      memgraph::query::DbAccessor dba(acc.get());
+      StubPropertyFGAChecker checker(&dba, {{"PAID", "secret"}});
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db, &checker);
+    }
+    VerifyQueries(stream.GetResults(),
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__ {__mg_id__: 0});",
+                  "CREATE (:__mg_vertex__ {__mg_id__: 1});",
+                  "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
+                  "v.__mg_id__ = 1 CREATE (u)-[:`PAID` {`amount`: 100}]->(v);",
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(DumpTest, PropertyFGAMultiLabelDenyOnAnyLabelDenies) {
+  {
+    auto dba = this->db->Access(memgraph::storage::WRITE);
+    auto ssn_prop = dba->NameToProperty("ssn");
+    auto name_prop = dba->NameToProperty("name");
+    CreateVertex(
+        dba.get(),
+        {"Person", "Employee"},
+        {{name_prop, memgraph::storage::PropertyValue("Bob")}, {ssn_prop, memgraph::storage::PropertyValue("999")}},
+        false);
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access(memgraph::storage::WRITE);
+      memgraph::query::DbAccessor dba(acc.get());
+      // Deny ssn on Employee only — should still deny because node has Employee label
+      StubPropertyFGAChecker checker(&dba, {{"Employee", "ssn"}});
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db, &checker);
+    }
+    VerifyQueries(stream.GetResults(),
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:`Person`:`Employee` {__mg_id__: 0, `name`: \"Bob\"});",
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
+  }
+}
+
+#endif
