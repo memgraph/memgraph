@@ -156,7 +156,8 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
                                  .memory = ctx_->memory,
                                  .timestamp = ctx_->timestamp,
                                  .counters = &ctx_->counters,
-                                 .view = storage::View::OLD};
+                                 .view = storage::View::OLD,
+                                 .synthetic_id_mapper = ctx_->synthetic_id_mapper.get()};
     TypedValue res(ctx_->memory);
     if (function.arguments_.size() <= 8) {
       utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
@@ -775,7 +776,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                                  GetHopsCounter(),
                                  user_or_role_,
                                  triggering_user_,
-                                 ctx_->graph_view};
+                                 ctx_->graph_view,
+                                 ctx_->synthetic_id_mapper.get()};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.

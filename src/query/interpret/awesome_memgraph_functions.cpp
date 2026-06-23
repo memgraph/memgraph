@@ -1239,20 +1239,27 @@ TypedValue Counter(const TypedValue *args, int64_t nargs, const FunctionContext 
   return TypedValue(value, context.memory);
 }
 
+// The query-local external id for a synthetic Gid, or the raw synthetic id when there is no mapper
+// (a path with no query context).
+int64_t ExternalSyntheticId(storage::Gid gid, const FunctionContext &ctx) {
+  if (ctx.synthetic_id_mapper) return ctx.synthetic_id_mapper->ExternalId(gid);
+  return gid.AsInt();
+}
+
 TypedValue IdOf(const TypedValue &arg, const FunctionContext &ctx) {
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (arg.IsVirtualNode()) {
     const auto &vnode = arg.ValueVirtualNode();
     // An overlay node (one derived over a real vertex) reports its origin's real id, so id() is the
-    // entity's identity in the real graph. A synthetic node has no origin and reports its own
-    // negative id.
+    // entity's identity in the real graph. A synthetic node has no origin and reports its query-local
+    // external id.
     if (vnode.HasOrigin()) return TypedValue(vnode.Origin()->CypherId(), ctx.memory);
-    return TypedValue(vnode.CypherId(), ctx.memory);
+    return TypedValue(ExternalSyntheticId(vnode.Gid(), ctx), ctx.memory);
   } else if (arg.IsVertex()) {
     return TypedValue(arg.ValueVertex().CypherId(), ctx.memory);
   } else if (arg.IsVirtualEdge()) {
-    return TypedValue(arg.ValueVirtualEdge().Gid().AsInt(), ctx.memory);
+    return TypedValue(ExternalSyntheticId(arg.ValueVirtualEdge().Gid(), ctx), ctx.memory);
   } else {
     return TypedValue(arg.ValueEdge().CypherId(), ctx.memory);
   }
@@ -1263,13 +1270,13 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
   return IdOf(args[0], ctx);
 }
 
-// The overlay-local id: the negative synthetic id for a virtual node or edge (whether synthetic or
+// The overlay-local id: the query-local external id for a virtual node or edge (whether synthetic or
 // an overlay over a real entity), and null for a real entity that has no overlay identity.
 TypedValue VirtualIdOf(const TypedValue &arg, const FunctionContext &ctx) {
   if (arg.IsVirtualNode()) {
-    return TypedValue(arg.ValueVirtualNode().CypherId(), ctx.memory);
+    return TypedValue(ExternalSyntheticId(arg.ValueVirtualNode().Gid(), ctx), ctx.memory);
   } else if (arg.IsVirtualEdge()) {
-    return TypedValue(arg.ValueVirtualEdge().Gid().AsInt(), ctx.memory);
+    return TypedValue(ExternalSyntheticId(arg.ValueVirtualEdge().Gid(), ctx), ctx.memory);
   }
   return TypedValue(ctx.memory);
 }

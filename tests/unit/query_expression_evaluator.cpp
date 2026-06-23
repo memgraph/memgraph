@@ -2594,14 +2594,17 @@ TYPED_TEST(FunctionTest, IdOnVirtualAndOverlayNodes) {
   this->dba.AdvanceCommand();
   const auto real_id = this->EvaluateFunction("ID", real).ValueInt();
 
-  // A synthetic node (no origin) reports its own negative id.
+  // A synthetic node (no origin) reports a dense query-local external id, not its raw synthetic gid.
+  // It is the first virtual entity seen in this query, so it maps to -1, and repeat references and
+  // virtual_id() correlate to the same value.
   VirtualNode synthetic({"L"}, {});
-  ASSERT_LT(synthetic.CypherId(), 0);
-  EXPECT_EQ(this->EvaluateFunction("ID", synthetic).ValueInt(), synthetic.CypherId());
+  const auto external = this->EvaluateFunction("ID", synthetic).ValueInt();
+  EXPECT_EQ(external, -1);
+  EXPECT_EQ(this->EvaluateFunction("ID", synthetic).ValueInt(), external);
+  EXPECT_EQ(this->EvaluateFunction("VIRTUAL_ID", synthetic).ValueInt(), external);
 
   // An overlay node reports its origin's real id, so id() is the entity's identity in the real graph.
   VirtualNode overlay({"L"}, {}, {}, std::optional<VertexAccessor>{real});
-  ASSERT_NE(overlay.CypherId(), real_id);
   EXPECT_EQ(this->EvaluateFunction("ID", overlay).ValueInt(), real_id);
 }
 
@@ -2616,17 +2619,22 @@ TYPED_TEST(FunctionTest, VirtualId) {
   EXPECT_TRUE(this->EvaluateFunction("VIRTUAL_ID", real).IsNull());
   EXPECT_TRUE(this->EvaluateFunction("VIRTUAL_ID", *real_edge).IsNull());
 
-  // A synthetic node and an overlay node both report their negative synthetic id.
+  // A synthetic node, an overlay node, and a virtual edge each get a distinct negative external id.
   VirtualNode synthetic({"L"}, {});
-  EXPECT_EQ(this->EvaluateFunction("VIRTUAL_ID", synthetic).ValueInt(), synthetic.CypherId());
   VirtualNode overlay({"L"}, {}, {}, std::optional<VertexAccessor>{real});
-  EXPECT_EQ(this->EvaluateFunction("VIRTUAL_ID", overlay).ValueInt(), overlay.CypherId());
-
-  // A virtual edge reports its negative synthetic id.
   auto from = std::make_shared<const VirtualNode>(VirtualNode({"L"}, {}));
   auto to = std::make_shared<const VirtualNode>(VirtualNode({"L"}, {}));
   VirtualEdge vedge(from, to, "T");
-  EXPECT_EQ(this->EvaluateFunction("VIRTUAL_ID", vedge).ValueInt(), vedge.Gid().AsInt());
+
+  const auto synthetic_id = this->EvaluateFunction("VIRTUAL_ID", synthetic).ValueInt();
+  const auto overlay_id = this->EvaluateFunction("VIRTUAL_ID", overlay).ValueInt();
+  const auto edge_id = this->EvaluateFunction("VIRTUAL_ID", vedge).ValueInt();
+  EXPECT_LT(synthetic_id, 0);
+  EXPECT_LT(overlay_id, 0);
+  EXPECT_LT(edge_id, 0);
+  EXPECT_NE(synthetic_id, overlay_id);
+  EXPECT_NE(synthetic_id, edge_id);
+  EXPECT_NE(overlay_id, edge_id);
 
   EXPECT_THROW(this->EvaluateFunction("VIRTUAL_ID"), QueryRuntimeException);
   EXPECT_THROW(this->EvaluateFunction("VIRTUAL_ID", 0), QueryRuntimeException);
@@ -2636,15 +2644,17 @@ TYPED_TEST(FunctionTest, ElementIdVirtual) {
   auto vn1 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L1"}, {}));
   auto vn2 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L2"}, {}));
   auto ve = memgraph::query::VirtualEdge(vn1, vn2, "ET");
-  // Virtual elements return their own (synthetic) gids, consistent with id().
-  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(*vn1)).ValueString(),
-            std::to_string(vn1->CypherId()).c_str());
-  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(*vn2)).ValueString(),
-            std::to_string(vn2->CypherId()).c_str());
-  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(ve)).ValueString(),
-            std::to_string(ve.Gid().AsInt()).c_str());
-  EXPECT_EQ(this->EvaluateFunction("ID", TypedValue(*vn1)).ValueInt(), vn1->CypherId());
-  EXPECT_EQ(this->EvaluateFunction("ID", TypedValue(ve)).ValueInt(), ve.Gid().AsInt());
+  // Virtual elements expose their query-local external id; elementId() is its string form, consistent
+  // with id(), and distinct elements get distinct ids.
+  const auto vn1_id = this->EvaluateFunction("ID", TypedValue(*vn1)).ValueInt();
+  const auto ve_id = this->EvaluateFunction("ID", TypedValue(ve)).ValueInt();
+  EXPECT_LT(vn1_id, 0);
+  EXPECT_LT(ve_id, 0);
+  EXPECT_NE(vn1_id, ve_id);
+  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(*vn1)).ValueString(), std::to_string(vn1_id).c_str());
+  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(ve)).ValueString(), std::to_string(ve_id).c_str());
+  EXPECT_NE(this->EvaluateFunction("ELEMENTID", TypedValue(*vn2)).ValueString(),
+            this->EvaluateFunction("ELEMENTID", TypedValue(*vn1)).ValueString());
 }
 
 TYPED_TEST(FunctionTest, ToStringNull) { EXPECT_TRUE(this->EvaluateFunction("TOSTRING", TypedValue()).IsNull()); }

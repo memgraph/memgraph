@@ -19,6 +19,7 @@
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
+#include "query/synthetic_gid.hpp"
 #include "storage/v2/commit_args.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/counter.hpp"
@@ -77,6 +78,10 @@ struct EvaluationContext {
   // over. Bound to the identity view (the real graph) by default; a
   // `CALL { USE ... }` scope rebinds a projection or subgraph view for the block.
   GraphView *graph_view{nullptr};
+  // Query-local projection of synthetic Gids onto dense external ids. Shared (not deep-copied) so
+  // parallel workers agree on a virtual entity's external id; a fresh one per query gives the
+  // per-query reset that id()/virtual_id() expose.
+  std::shared_ptr<SyntheticIdMapper> synthetic_id_mapper{std::make_shared<SyntheticIdMapper>()};
 };
 
 std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string> &property_names, DbAccessor *dba);
