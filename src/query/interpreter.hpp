@@ -764,6 +764,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             MG_ASSERT(!current_db_.db_transactional_accessor_);
             break;
           }
+          case QueryHandlerResult::YIELD:
+            // YIELD is intercepted by the early-return above; unreachable here (case required for -Werror=switch).
+            break;
         }
         // As the transaction is done we can clear all the executions
         // NOTE: we cannot clear query_execution inside the Abort and Commit

@@ -3076,6 +3076,8 @@ struct PullPlan {
                                                         const std::vector<Symbol> &output_symbols,
                                                         std::map<std::string, TypedValue> *summary);
 
+  bool Yielded() const noexcept { return yielded_; }
+
  private:
   std::shared_ptr<PlanWrapper> plan_ = nullptr;
   plan::UniqueCursorPtr cursor_ = nullptr;
@@ -3693,7 +3695,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         // when the drive loop intercepted a Yielded result in the just-finished call.
         // Flag-OFF: yielded_ is never set → this branch is never taken → nullopt
         // propagates as before → byte-identical.
-        if (flags::AreExperimentsEnabled(flags::Experiments::COROUTINE_CURSORS) && pull_plan->yielded_) {
+        if (flags::AreExperimentsEnabled(flags::Experiments::COROUTINE_CURSORS) && pull_plan->Yielded()) {
           return QueryHandlerResult::YIELD;
         }
         return std::nullopt;
