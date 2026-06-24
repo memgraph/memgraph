@@ -33,6 +33,7 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -1290,6 +1291,9 @@ std::optional<RecoveryInfo> LoadWal(
   auto edge_acc = edges->access();
   auto vertex_acc = vertices->access();
   spdlog::info("WAL file contains {} deltas.", info.num_deltas);
+  spdlog::info("WAL recovery: properties_on_edges={}, storage_light_edge={}",
+               items.properties_on_edges,
+               items.storage_light_edge);
 
   // In 2PC, we can have deltas stored on disk which shouldn't be applied when recovering
   bool should_commit{true};
@@ -1379,6 +1383,13 @@ std::optional<RecoveryInfo> LoadWal(
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
+            if (items.storage_light_edge) {
+              auto *edge_ptr = InMemoryStorage::LightEdgePool::Create(data.gid, nullptr);
+              if (!edge_ptr)
+                throw RecoveryFailure("Failed to allocate a light edge! Current ldt is: {}",
+                                      ret->last_durable_timestamp);
+              return EdgeRef{edge_ptr};
+            }
             auto [edge, inserted] = edge_acc.insert(Edge{(data.gid), nullptr});
             if (!inserted)
               throw RecoveryFailure("The edge must be inserted here! Current ldt is: {}", ret->last_durable_timestamp);
@@ -1387,9 +1398,14 @@ std::optional<RecoveryInfo> LoadWal(
           return EdgeRef{data.gid};
         });
         auto out_link = std::tuple{edge_type_id, &*to_vertex, edge_ref};
-        if (r::contains(from_vertex->out_edges, out_link))
+        if (r::contains(from_vertex->out_edges, out_link)) {
+          // The light edge is not yet wired into any vertex adjacency, so the constructor's
+          // ClearLightEdges() catch-net (which walks out_edges/graveyard/deleted_edges_) cannot
+          // reach it — free it here to avoid leaking the pool Edge* on this corrupt-WAL path.
+          if (items.storage_light_edge) InMemoryStorage::LightEdgePool::Destroy(edge_ref.ptr);
           throw RecoveryFailure("The from vertex already has this edge! Current ldt is: {}",
                                 ret->last_durable_timestamp);
+        }
         from_vertex->out_edges.push_back(out_link);
         auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
         if (r::contains(to_vertex->in_edges, in_link))
@@ -1401,13 +1417,15 @@ std::optional<RecoveryInfo> LoadWal(
         // Increment edge count.
         edge_count->fetch_add(1, std::memory_order_acq_rel);
 
+        // Always populate the cache regardless of schema_info: prevents O(V) fallback
+        // per subsequent SetProperty delta on the same edge (correctness-neutral, perf-critical).
+        edge_recovery_cache.insert_or_assign(data.gid,
+                                             EdgeRecoveryCacheEntry{.edge_ref = edge_ref,
+                                                                    .edge_type = edge_type_id,
+                                                                    .from_vertex = &*from_vertex,
+                                                                    .to_vertex = &*to_vertex});
         if (schema_info) {
           schema_info->CreateEdge(&*from_vertex, &*to_vertex, edge_type_id);
-          edge_recovery_cache.insert_or_assign(data.gid,
-                                               EdgeRecoveryCacheEntry{.edge_ref = edge_ref,
-                                                                      .edge_type = edge_type_id,
-                                                                      .from_vertex = &*from_vertex,
-                                                                      .to_vertex = &*to_vertex});
         }
       },
       [&](WalEdgeDelete const &data) {
@@ -1419,6 +1437,42 @@ std::optional<RecoveryInfo> LoadWal(
           throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
 
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
+
+        // Light-edge path: locate the out_edge entry once and reuse the iterator for both
+        // the EdgeRef extraction and the swap-and-pop removal (avoids a second O(degree) scan).
+        if (items.properties_on_edges && items.storage_light_edge) {
+          auto it = r::find_if(from_vertex->out_edges,
+                               [&data](const auto &e) { return std::get<2>(e).ptr->gid == data.gid; });
+          if (it == from_vertex->out_edges.end())
+            throw RecoveryFailure("The edge doesn't exist in out_edges! Current ldt is: {}",
+                                  ret->last_durable_timestamp);
+          auto edge_ref = std::get<2>(*it);
+          std::swap(*it, from_vertex->out_edges.back());
+          from_vertex->out_edges.pop_back();
+
+          {
+            auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
+            auto in_it = r::find(to_vertex->in_edges, in_link);
+            if (in_it == to_vertex->in_edges.end())
+              throw RecoveryFailure("The to vertex doesn't have this edge! Current ldt is: {}",
+                                    ret->last_durable_timestamp);
+            std::swap(*in_it, to_vertex->in_edges.back());
+            to_vertex->in_edges.pop_back();
+          }
+          // Update schema info before edge deallocation (it reads edge properties).
+          if (schema_info) {
+            schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
+          }
+          // Erase from the recovery cache UNCONDITIONALLY (the cache is populated
+          // unconditionally at create time): the Edge* is about to be freed, so a
+          // stale cache entry would dangle and a later SET_PROPERTY for a reused
+          // gid would read freed memory (UAF). Must not be gated on schema_info.
+          edge_recovery_cache.erase(data.gid);
+          InMemoryStorage::LightEdgePool::Destroy(edge_ref.ptr);
+          edge_count->fetch_sub(1, std::memory_order_acq_rel);
+          return;
+        }
+
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
             auto edge = edge_acc.find(data.gid);
@@ -1447,18 +1501,21 @@ std::optional<RecoveryInfo> LoadWal(
           std::swap(*it, to_vertex->in_edges.back());
           to_vertex->in_edges.pop_back();
         }
+        // Update schema info before any edge deallocation (it reads edge properties).
+        if (schema_info) {
+          schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
+        }
+        // Erase from the recovery cache unconditionally (populated unconditionally at
+        // create time): the edge is about to be removed/freed, so a stale entry would
+        // dangle. Must not be gated on schema_info.
+        edge_recovery_cache.erase(data.gid);
+        // Light-edge path returns early above; here items.storage_light_edge is always false.
         if (items.properties_on_edges) {
           if (!edge_acc.remove(data.gid))
             throw RecoveryFailure("The edge must be removed here! Current ldt is: {}", ret->last_durable_timestamp);
         }
-
         // Decrement edge count.
         edge_count->fetch_add(-1, std::memory_order_acq_rel);
-
-        if (schema_info) {
-          schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
-          edge_recovery_cache.erase(data.gid);
-        }
       },
       [&](WalEdgeSetProperty const &data) {
         if (!items.properties_on_edges)
@@ -1466,6 +1523,69 @@ std::optional<RecoveryInfo> LoadWal(
               "The WAL has properties on edges, but the storage is "
               "configured without properties on edges! Current ldt is: {}",
               ret->last_durable_timestamp);
+
+        if (items.storage_light_edge) {
+          const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+          const auto property_value = ToPropertyValue(data.value, name_id_mapper);
+
+          // Light edges are not in edge_acc; resolve via cache (O(1)), then out_edges scan, then find_edge.
+          EdgeRef edge_ref{data.gid};
+          EdgeTypeId edge_type_id{};
+          Vertex *from_v = nullptr;
+          Vertex *to_v = nullptr;
+
+          if (auto cit = edge_recovery_cache.find(data.gid); cit != edge_recovery_cache.end()) {
+            const auto &[cached_ref, cached_type, cached_from, cached_to] = cit->second;
+            edge_ref = cached_ref;
+            edge_type_id = cached_type;
+            from_v = cached_from;
+            to_v = cached_to;
+          } else if (data.from_gid.has_value()) {
+            const auto from_vertex = vertex_acc.find(*data.from_gid);
+            if (from_vertex == vertex_acc.end())
+              throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+            const auto found = r::find_if(from_vertex->out_edges,
+                                          [&data](const auto &e) { return std::get<2>(e).ptr->gid == data.gid; });
+            if (found == from_vertex->out_edges.end())
+              throw RecoveryFailure("Edge not found in out_edges! Current ldt is: {}", ret->last_durable_timestamp);
+            const auto &[found_type, found_to, found_ref] = *found;
+            edge_ref = found_ref;
+            edge_type_id = found_type;
+            from_v = &*from_vertex;
+            to_v = found_to;
+          } else {
+            const auto maybe_edge = find_edge(data.gid);
+            if (!maybe_edge)
+              throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}", ret->last_durable_timestamp);
+            const auto &[e_ref, e_type, e_from, e_to] = *maybe_edge;
+            edge_ref = e_ref;
+            edge_type_id = e_type;
+            from_v = e_from;
+            to_v = e_to;
+          }
+
+          Edge *edge_raw = edge_ref.ptr;
+          // Always populate the cache: prevents O(degree)/O(V) fallback per subsequent
+          // SetProperty delta on the same edge (correctness-neutral, perf-critical).
+          edge_recovery_cache.insert_or_assign(
+              data.gid,
+              EdgeRecoveryCacheEntry{
+                  .edge_ref = edge_ref, .edge_type = edge_type_id, .from_vertex = from_v, .to_vertex = to_v});
+          if (schema_info) {
+            const auto old_type = edge_raw->properties.GetExtendedPropertyType(property_id);
+            schema_info->SetProperty(edge_type_id,
+                                     from_v,
+                                     to_v,
+                                     property_id,
+                                     ExtendedPropertyType{property_value},
+                                     old_type,
+                                     items.properties_on_edges);
+          }
+          edge_raw->properties.SetProperty(property_id, property_value);
+          VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(
+              property_id, property_value, edge_raw, indices_constraints->indices.vector_edge_indices);
+          return;
+        }
 
         auto edge = edge_acc.find(data.gid);
         if (edge == edge_acc.end())

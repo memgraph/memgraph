@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <future>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <queue>
@@ -26,6 +27,7 @@
 #include <string>
 #include <thread>
 
+#include <absl/container/flat_hash_map.h>
 #include "memory/db_arena_fwd.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "spdlog/spdlog.h"
@@ -44,6 +46,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
@@ -172,12 +175,12 @@ class SafeTaskQueue {
 
   // Add a task to the queue.
   void AddTask(task_t task) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<std::mutex> const lock(mtx_);
     tasks_.push(std::move(task));
   }
 
   std::optional<task_t> PopTask() {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<std::mutex> const lock(mtx_);
     if (tasks_.empty()) {
       return std::nullopt;
     }
@@ -187,7 +190,7 @@ class SafeTaskQueue {
   }
 
   auto size() const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<std::mutex> const lock(mtx_);
     return tasks_.size();
   }
 
@@ -761,7 +764,8 @@ template <typename TFunc>
 void LoadPartialEdges(const std::filesystem::path &path, utils::SkipListDb<Edge> &edges, const uint64_t from_offset,
                       const uint64_t edges_count, const SalientConfig::Items items, TFunc get_property_from_id,
                       NameIdMapper *name_id_mapper,
-                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
+                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                      absl::flat_hash_map<uint64_t, Edge *> *light_edge_output = nullptr) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
 
@@ -803,14 +807,33 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipListDb<Edge>
     last_edge_gid = *gid;
 
     if (items.properties_on_edges) {
-      auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
-      if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
+      Edge *edge_ptr = nullptr;
+      if (items.storage_light_edge) {
+        // LIGHT EDGES: allocate via helper (routes to thread-local DB arena)
+        edge_ptr = InMemoryStorage::LightEdgePool::Create(Gid::FromUint(*gid), nullptr);
+        if (!edge_ptr) throw RecoveryFailure("Failed to allocate a light edge!");
+        // Track immediately so cleanup can deallocate if property recovery throws. Guard the
+        // emplace itself: if it throws (e.g. rehash bad_alloc) the just-created edge is not yet
+        // tracked, so free it here rather than leak it.
+        if (light_edge_output) {
+          try {
+            light_edge_output->emplace(*gid, edge_ptr);
+          } catch (...) {
+            InMemoryStorage::LightEdgePool::Destroy(edge_ptr);
+            throw;
+          }
+        }
+      } else {
+        auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
+        if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
+        edge_ptr = &*it;
+      }
 
       // Recover properties.
       {
         auto props_size = snapshot.ReadUint();
         if (!props_size) throw RecoveryFailure("Couldn't read the size of edge properties!");
-        auto &props = it->properties;
+        auto &props = edge_ptr->properties;
         read_properties.clear();
         read_properties.reserve(*props_size);
         for (uint64_t j = 0; j < *props_size; ++j) {
@@ -972,7 +995,8 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
     const std::filesystem::path &path, utils::SkipListDb<Vertex> &vertices, utils::SkipListDb<Edge> &edges,
     SharedSchemaTracking *schema_info, const uint64_t from_offset, const uint64_t vertices_count,
     const SalientConfig::Items items, const bool snapshot_has_edges, TEdgeTypeFromIdFunc get_edge_type_from_id,
-    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
+    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+    const absl::flat_hash_map<uint64_t, Edge *> *light_edge_map = nullptr) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
   if (!snapshot.SetPosition(from_offset))
@@ -1080,7 +1104,11 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
           // The snapshot contains the individiual edges only if it was created with a config where properties are
           // allowed on edges. That means the snapshots that were created without edge properties will only contain the
           // edges in the in/out edges list of vertices, therefore the edges has to be created here.
-          if (snapshot_has_edges) {
+          if (light_edge_map) {
+            auto it = light_edge_map->find(*edge_gid);
+            if (it == light_edge_map->end()) throw RecoveryFailure("Couldn't find light edge!");
+            edge_ref = EdgeRef(it->second);
+          } else if (snapshot_has_edges) {
             auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
             if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
             edge_ref = EdgeRef(&*edge);
@@ -1118,7 +1146,11 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
           // The snapshot contains the individual edges only if it was created with a config where properties are
           // allowed on edges. That means the snapshots that were created without edge properties will only contain the
           // edges in the in/out edges list of vertices, therefore the edges has to be created here.
-          if (snapshot_has_edges) {
+          if (light_edge_map) {
+            auto it = light_edge_map->find(*edge_gid);
+            if (it == light_edge_map->end()) throw RecoveryFailure("Couldn't find light edge!");
+            edge_ref = EdgeRef(it->second);
+          } else if (snapshot_has_edges) {
             auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
             if (edge == edge_acc.end()) throw RecoveryFailure("Couldn't find edge in the loaded edges!");
             edge_ref = EdgeRef(&*edge);
@@ -1180,6 +1212,95 @@ void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std:
   }
 }
 
+struct LightEdgeLoader {
+  // Mirrors items.storage_light_edge (fixed at construction). Kept as an explicit member so
+  // FreeAll()/MapPtr() are clean no-ops in heavy mode without re-reading the config at every site.
+  bool use_light_edges{false};
+  absl::flat_hash_map<uint64_t, Edge *> all_edges;
+  std::vector<absl::flat_hash_map<uint64_t, Edge *>> per_batch;
+  bool committed_{false};
+
+  explicit LightEdgeLoader(bool use_light) : use_light_edges{use_light} {}
+
+  // RAII: on a non-committed scope exit (i.e. recovery threw) free every
+  // pool-allocated light edge so they are not leaked. On the success path the
+  // loader is Commit()ed and the edges live on in the storage. This mirrors the
+  // tip's RecoveryRollbackGuard idiom (which clears the skiplists/metadata but
+  // knows nothing about the light-edge pool). Heavy mode frees nothing.
+  ~LightEdgeLoader() {
+    if (!committed_) FreeAll();
+  }
+
+  LightEdgeLoader(LightEdgeLoader const &) = delete;
+  LightEdgeLoader &operator=(LightEdgeLoader const &) = delete;
+  LightEdgeLoader(LightEdgeLoader &&) = delete;
+  LightEdgeLoader &operator=(LightEdgeLoader &&) = delete;
+
+  void Commit() noexcept { committed_ = true; }
+
+  // Free all light edges; safe to call on any partially-populated state.
+  void FreeAll() noexcept {
+    if (!use_light_edges) return;
+    for (auto &[g, p] : all_edges) {
+      InMemoryStorage::LightEdgePool::Destroy(p);
+    }
+    all_edges.clear();
+    for (auto &m : per_batch) {
+      for (auto &[g, p] : m) {
+        InMemoryStorage::LightEdgePool::Destroy(p);
+      }
+    }
+    per_batch.clear();
+  }
+
+  const absl::flat_hash_map<uint64_t, Edge *> *MapPtr() const noexcept {
+    return use_light_edges ? &all_edges : nullptr;
+  }
+
+  template <typename TPropertyFromIdFunc>
+  void RecoverEdges(const std::filesystem::path &path, utils::SkipListDb<Edge> &edges,
+                    const std::vector<BatchInfo> &edge_batches, const SalientConfig::Items &items,
+                    TPropertyFromIdFunc get_property_from_id, NameIdMapper *name_id_mapper, size_t thread_count,
+                    uint64_t total_edges, std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
+    if (use_light_edges) {
+      all_edges.reserve(total_edges);
+      per_batch.resize(edge_batches.size());
+      RecoverOnMultipleThreads(
+          thread_count,
+          [this, &path, &edges, items, &get_property_from_id, name_id_mapper, &snapshot_info](const size_t batch_index,
+                                                                                              const BatchInfo &batch) {
+            LoadPartialEdges(path,
+                             edges,
+                             batch.offset,
+                             batch.count,
+                             items,
+                             get_property_from_id,
+                             name_id_mapper,
+                             snapshot_info,
+                             &per_batch[batch_index]);
+          },
+          edge_batches);
+      // Merge per-batch maps into all_edges (already reserved). After this loop
+      // every per_batch[i] is empty, so FreeAll() won't double-free.
+      for (auto &m : per_batch) {
+        all_edges.merge(m);
+        // If m is non-empty after merge, a GID appeared in two batches — corrupt snapshot.
+        MG_ASSERT(m.empty(), "Duplicate light-edge GID in snapshot — corrupt file");
+      }
+      per_batch.clear();
+    } else {
+      RecoverOnMultipleThreads(
+          thread_count,
+          [&path, &edges, items, &get_property_from_id, name_id_mapper, &snapshot_info](const size_t,
+                                                                                        const BatchInfo &batch) {
+            LoadPartialEdges(
+                path, edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
+          },
+          edge_batches);
+    }
+  }
+};
+
 RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem::path &path,
                                         utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
                                         EdgeMetadataIndex *edges_metadata,
@@ -1190,6 +1311,15 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history};
+  // Light-edge mode (v14): pool-allocate edges in the single-threaded recovery loop and
+  // track gid->Edge* for the connectivity phase. Freed on a non-committed scope exit.
+  absl::flat_hash_map<uint64_t, Edge *> light_edge_map;
+  bool light_committed = false;
+  const utils::OnScopeExit light_cleanup{[&] {
+    if (!light_committed && items.storage_light_edge) {
+      for (auto &[_, ptr] : light_edge_map) InMemoryStorage::LightEdgePool::Destroy(ptr);
+    }
+  }};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -1258,14 +1388,29 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
           if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid edge gid read!");
           last_edge_gid = *gid;
           spdlog::debug("Recovering edge {} with properties.", *gid);
-          auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
-          if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
+          Edge *edge_ptr = nullptr;
+          if (items.storage_light_edge) {
+            edge_ptr = InMemoryStorage::LightEdgePool::Create(Gid::FromUint(*gid), nullptr);
+            if (!edge_ptr) throw RecoveryFailure("Failed to allocate a light edge!");
+            // Guard the emplace: if it throws (e.g. rehash bad_alloc) the edge is not yet tracked
+            // in light_edge_map, so light_cleanup would miss it. Free it here rather than leak it.
+            try {
+              light_edge_map.emplace(*gid, edge_ptr);
+            } catch (...) {
+              InMemoryStorage::LightEdgePool::Destroy(edge_ptr);
+              throw;
+            }
+          } else {
+            auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
+            if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
+            edge_ptr = &*it;
+          }
 
           // Recover properties.
           {
             auto props_size = snapshot.ReadUint();
             if (!props_size) throw RecoveryFailure("Couldn't read the size of properties!");
-            auto &props = it->properties;
+            auto &props = edge_ptr->properties;
             for (uint64_t j = 0; j < *props_size; ++j) {
               auto key = snapshot.ReadUint();
               if (!key) throw RecoveryFailure("Couldn't read edge property id!");
@@ -1446,7 +1591,11 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
 
           EdgeRef edge_ref(Gid::FromUint(*edge_gid));
           if (items.properties_on_edges) {
-            if (snapshot_has_edges) {
+            if (items.storage_light_edge) {
+              auto it = light_edge_map.find(*edge_gid);
+              if (it == light_edge_map.end()) throw RecoveryFailure("Invalid edge!");
+              edge_ref = EdgeRef(it->second);
+            } else if (snapshot_has_edges) {
               auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
               if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
               edge_ref = EdgeRef(&*edge);
@@ -1484,7 +1633,11 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
 
           EdgeRef edge_ref(Gid::FromUint(*edge_gid));
           if (items.properties_on_edges) {
-            if (snapshot_has_edges) {
+            if (items.storage_light_edge) {
+              auto it = light_edge_map.find(*edge_gid);
+              if (it == light_edge_map.end()) throw RecoveryFailure("Invalid edge!");
+              edge_ref = EdgeRef(it->second);
+            } else if (snapshot_has_edges) {
               auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
               if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
               edge_ref = EdgeRef(&*edge);
@@ -1651,6 +1804,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
   // Recover timestamp.
   ret.next_timestamp = info.start_timestamp + 1;
 
+  light_committed = true;
   rollback.Commit();
 
   return {info, ret, std::move(indices_constraints)};
@@ -1666,6 +1820,7 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -1763,13 +1918,14 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, name_id_mapper](
-              const size_t /*batch_index*/, const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
-          },
-          edge_batches);
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count);
     }
     spdlog::info("Edges are recovered.");
 
@@ -1781,6 +1937,7 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
+    const auto *light_edge_map_ptr = loader.MapPtr();
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path,
@@ -1792,7 +1949,8 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
          snapshot_has_edges,
          &get_edge_type_from_id,
          &highest_edge_gid,
-         &recovery_info](const size_t batch_index, const BatchInfo &batch) {
+         &recovery_info,
+         light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
           const auto result = LoadPartialConnectivity(path,
                                                       *vertices,
                                                       *edges,
@@ -1801,7 +1959,9 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
                                                       batch.count,
                                                       items,
                                                       snapshot_has_edges,
-                                                      get_edge_type_from_id);
+                                                      get_edge_type_from_id,
+                                                      std::nullopt,
+                                                      light_edge_map_ptr);
           edge_count->fetch_add(result.edge_count);
           atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
           recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -1951,6 +2111,7 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -1966,6 +2127,7 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -2063,13 +2225,14 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, name_id_mapper](
-              const size_t /*batch_index*/, const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
-          },
-          edge_batches);
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count);
     }
     spdlog::info("Edges are recovered.");
 
@@ -2081,6 +2244,7 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
+    const auto *light_edge_map_ptr = loader.MapPtr();
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path,
@@ -2092,7 +2256,8 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
          snapshot_has_edges,
          &get_edge_type_from_id,
          &highest_edge_gid,
-         &recovery_info](const size_t batch_index, const BatchInfo &batch) {
+         &recovery_info,
+         light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
           const auto result = LoadPartialConnectivity(path,
                                                       *vertices,
                                                       *edges,
@@ -2101,7 +2266,9 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
                                                       batch.count,
                                                       items,
                                                       snapshot_has_edges,
-                                                      get_edge_type_from_id);
+                                                      get_edge_type_from_id,
+                                                      std::nullopt,
+                                                      light_edge_map_ptr);
           edge_count->fetch_add(result.edge_count);
           atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
           recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -2313,6 +2480,7 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -2328,6 +2496,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -2425,13 +2594,14 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, name_id_mapper](
-              const size_t /*batch_index*/, const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
-          },
-          edge_batches);
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count);
     }
     spdlog::info("Edges are recovered.");
 
@@ -2443,6 +2613,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
+    const auto *light_edge_map_ptr = loader.MapPtr();
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path,
@@ -2454,7 +2625,8 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
          snapshot_has_edges,
          &get_edge_type_from_id,
          &highest_edge_gid,
-         &recovery_info](const size_t batch_index, const BatchInfo &batch) {
+         &recovery_info,
+         light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
           const auto result = LoadPartialConnectivity(path,
                                                       *vertices,
                                                       *edges,
@@ -2463,7 +2635,9 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
                                                       batch.count,
                                                       items,
                                                       snapshot_has_edges,
-                                                      get_edge_type_from_id);
+                                                      get_edge_type_from_id,
+                                                      std::nullopt,
+                                                      light_edge_map_ptr);
           edge_count->fetch_add(result.edge_count);
           atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
           recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -2720,6 +2894,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -2738,6 +2913,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -2873,13 +3049,14 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, name_id_mapper](
-              const size_t /*batch_index*/, const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
-          },
-          edge_batches);
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count);
     }
     spdlog::info("Edges are recovered.");
 
@@ -2891,6 +3068,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
+    const auto *light_edge_map_ptr = loader.MapPtr();
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path,
@@ -2902,7 +3080,8 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
          &get_edge_type_from_id,
          &highest_edge_gid,
          &recovery_info,
-         schema_info](const size_t batch_index, const BatchInfo &batch) {
+         schema_info,
+         light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
           const auto result = LoadPartialConnectivity(path,
                                                       *vertices,
                                                       *edges,
@@ -2911,7 +3090,9 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
                                                       batch.count,
                                                       items,
                                                       snapshot_has_edges,
-                                                      get_edge_type_from_id);
+                                                      get_edge_type_from_id,
+                                                      std::nullopt,
+                                                      light_edge_map_ptr);
           edge_count->fetch_add(result.edge_count);
           atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
           recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -3187,6 +3368,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -3203,6 +3385,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -3338,13 +3521,14 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, name_id_mapper](
-              const size_t /*batch_index*/, const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
-          },
-          edge_batches);
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count);
     }
     spdlog::info("Edges are recovered.");
 
@@ -3356,6 +3540,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
+    const auto *light_edge_map_ptr = loader.MapPtr();
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path,
@@ -3367,7 +3552,8 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
          snapshot_has_edges,
          &get_edge_type_from_id,
          &highest_edge_gid,
-         &recovery_info](const size_t batch_index, const BatchInfo &batch) {
+         &recovery_info,
+         light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
           const auto result = LoadPartialConnectivity(path,
                                                       *vertices,
                                                       *edges,
@@ -3376,7 +3562,9 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
                                                       batch.count,
                                                       items,
                                                       snapshot_has_edges,
-                                                      get_edge_type_from_id);
+                                                      get_edge_type_from_id,
+                                                      std::nullopt,
+                                                      light_edge_map_ptr);
           edge_count->fetch_add(result.edge_count);
           atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
           recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -3701,6 +3889,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -3718,6 +3907,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -3855,14 +4045,15 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-              const size_t /*batch_index*/, const BatchInfo &batch) {
-            LoadPartialEdges(
-                path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
-          },
-          edge_batches);
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count,
+                          snapshot_info);
     }
     spdlog::info("Edges are recovered.");
 
@@ -3874,6 +4065,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
+    const auto *light_edge_map_ptr = loader.MapPtr();
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path,
@@ -3886,7 +4078,8 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
          &get_edge_type_from_id,
          &highest_edge_gid,
          &recovery_info,
-         &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+         &snapshot_info,
+         light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
           const auto result = LoadPartialConnectivity(path,
                                                       *vertices,
                                                       *edges,
@@ -3896,7 +4089,8 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
                                                       items,
                                                       snapshot_has_edges,
                                                       get_edge_type_from_id,
-                                                      snapshot_info);
+                                                      snapshot_info,
+                                                      light_edge_map_ptr);
           edge_count->fetch_add(result.edge_count);
           atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
           recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -4268,6 +4462,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -4286,6 +4481,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -4425,16 +4621,15 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(
-                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
-            },
-            edge_batches);
-      }
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count,
+                          snapshot_info);
     }
     spdlog::info("Edges are recovered.");
 
@@ -4446,36 +4641,37 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
-    {
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path,
-           vertices,
-           edges,
-           schema_info,
-           edge_count,
-           items = config.salient.items,
-           snapshot_has_edges,
-           &get_edge_type_from_id,
-           &highest_edge_gid,
-           &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
-            const auto result = LoadPartialConnectivity(path,
-                                                        *vertices,
-                                                        *edges,
-                                                        schema_info,
-                                                        batch.offset,
-                                                        batch.count,
-                                                        items,
-                                                        snapshot_has_edges,
-                                                        get_edge_type_from_id,
-                                                        snapshot_info);
-            edge_count->fetch_add(result.edge_count);
-            atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
-            recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
-          },
-          vertex_batches);
-    }
+    const auto *light_edge_map_ptr = loader.MapPtr();
+    RecoverOnMultipleThreads(
+        config.durability.recovery_thread_count,
+        [path,
+         vertices,
+         edges,
+         schema_info,
+         edge_count,
+         items = config.salient.items,
+         snapshot_has_edges,
+         &get_edge_type_from_id,
+         &highest_edge_gid,
+         &recovery_info,
+         &snapshot_info,
+         light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
+          const auto result = LoadPartialConnectivity(path,
+                                                      *vertices,
+                                                      *edges,
+                                                      schema_info,
+                                                      batch.offset,
+                                                      batch.count,
+                                                      items,
+                                                      snapshot_has_edges,
+                                                      get_edge_type_from_id,
+                                                      snapshot_info,
+                                                      light_edge_map_ptr);
+          edge_count->fetch_add(result.edge_count);
+          atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
+          recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
+        },
+        vertex_batches);
     spdlog::info("Connectivity is recovered.");
 
     // Set initial values for edge/vertex ID generators.
@@ -4886,6 +5082,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -4904,6 +5101,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -5062,16 +5260,15 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(
-                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
-            },
-            edge_batches);
-      }
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count,
+                          snapshot_info);
     }
     spdlog::info("Edges are recovered.");
 
@@ -5083,36 +5280,37 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
-    {
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path,
-           vertices,
-           edges,
-           schema_info,
-           edge_count,
-           items = config.salient.items,
-           snapshot_has_edges,
-           &get_edge_type_from_id,
-           &highest_edge_gid,
-           &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
-            const auto result = LoadPartialConnectivity(path,
-                                                        *vertices,
-                                                        *edges,
-                                                        schema_info,
-                                                        batch.offset,
-                                                        batch.count,
-                                                        items,
-                                                        snapshot_has_edges,
-                                                        get_edge_type_from_id,
-                                                        snapshot_info);
-            edge_count->fetch_add(result.edge_count);
-            atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
-            recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
-          },
-          vertex_batches);
-    }
+    const auto *light_edge_map_ptr = loader.MapPtr();
+    RecoverOnMultipleThreads(
+        config.durability.recovery_thread_count,
+        [path,
+         vertices,
+         edges,
+         schema_info,
+         edge_count,
+         items = config.salient.items,
+         snapshot_has_edges,
+         &get_edge_type_from_id,
+         &highest_edge_gid,
+         &recovery_info,
+         &snapshot_info,
+         light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
+          const auto result = LoadPartialConnectivity(path,
+                                                      *vertices,
+                                                      *edges,
+                                                      schema_info,
+                                                      batch.offset,
+                                                      batch.count,
+                                                      items,
+                                                      snapshot_has_edges,
+                                                      get_edge_type_from_id,
+                                                      snapshot_info,
+                                                      light_edge_map_ptr);
+          edge_count->fetch_add(result.edge_count);
+          atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
+          recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
+        },
+        vertex_batches);
     spdlog::info("Connectivity is recovered.");
 
     // Set initial values for edge/vertex ID generators.
@@ -5496,6 +5694,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -5514,6 +5713,8 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -5672,16 +5873,15 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(
-                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
-            },
-            edge_batches);
-      }
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count,
+                          snapshot_info);
     }
     spdlog::info("Edges are recovered.");
 
@@ -5693,36 +5893,37 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
-    {
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path,
-           vertices,
-           edges,
-           schema_info,
-           edge_count,
-           items = config.salient.items,
-           snapshot_has_edges,
-           &get_edge_type_from_id,
-           &highest_edge_gid,
-           &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
-            const auto result = LoadPartialConnectivity(path,
-                                                        *vertices,
-                                                        *edges,
-                                                        schema_info,
-                                                        batch.offset,
-                                                        batch.count,
-                                                        items,
-                                                        snapshot_has_edges,
-                                                        get_edge_type_from_id,
-                                                        snapshot_info);
-            edge_count->fetch_add(result.edge_count);
-            atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
-            recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
-          },
-          vertex_batches);
-    }
+    const auto *light_edge_map_ptr = loader.MapPtr();
+    RecoverOnMultipleThreads(
+        config.durability.recovery_thread_count,
+        [path,
+         vertices,
+         edges,
+         schema_info,
+         edge_count,
+         items = config.salient.items,
+         snapshot_has_edges,
+         &get_edge_type_from_id,
+         &highest_edge_gid,
+         &recovery_info,
+         &snapshot_info,
+         light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
+          const auto result = LoadPartialConnectivity(path,
+                                                      *vertices,
+                                                      *edges,
+                                                      schema_info,
+                                                      batch.offset,
+                                                      batch.count,
+                                                      items,
+                                                      snapshot_has_edges,
+                                                      get_edge_type_from_id,
+                                                      snapshot_info,
+                                                      light_edge_map_ptr);
+          edge_count->fetch_add(result.edge_count);
+          atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
+          recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
+        },
+        vertex_batches);
     spdlog::info("Connectivity is recovered.");
 
     // Set initial values for edge/vertex ID generators.
@@ -6108,6 +6309,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -6126,6 +6328,8 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -6284,16 +6488,15 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(
-                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
-            },
-            edge_batches);
-      }
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count,
+                          snapshot_info);
     }
     spdlog::info("Edges are recovered.");
 
@@ -6305,36 +6508,37 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
-    {
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path,
-           vertices,
-           edges,
-           schema_info,
-           edge_count,
-           items = config.salient.items,
-           snapshot_has_edges,
-           &get_edge_type_from_id,
-           &highest_edge_gid,
-           &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
-            const auto result = LoadPartialConnectivity(path,
-                                                        *vertices,
-                                                        *edges,
-                                                        schema_info,
-                                                        batch.offset,
-                                                        batch.count,
-                                                        items,
-                                                        snapshot_has_edges,
-                                                        get_edge_type_from_id,
-                                                        snapshot_info);
-            edge_count->fetch_add(result.edge_count);
-            atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
-            recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
-          },
-          vertex_batches);
-    }
+    const auto *light_edge_map_ptr = loader.MapPtr();
+    RecoverOnMultipleThreads(
+        config.durability.recovery_thread_count,
+        [path,
+         vertices,
+         edges,
+         schema_info,
+         edge_count,
+         items = config.salient.items,
+         snapshot_has_edges,
+         &get_edge_type_from_id,
+         &highest_edge_gid,
+         &recovery_info,
+         &snapshot_info,
+         light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
+          const auto result = LoadPartialConnectivity(path,
+                                                      *vertices,
+                                                      *edges,
+                                                      schema_info,
+                                                      batch.offset,
+                                                      batch.count,
+                                                      items,
+                                                      snapshot_has_edges,
+                                                      get_edge_type_from_id,
+                                                      snapshot_info,
+                                                      light_edge_map_ptr);
+          edge_count->fetch_add(result.edge_count);
+          atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
+          recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
+        },
+        vertex_batches);
     spdlog::info("Connectivity is recovered.");
 
     // Set initial values for edge/vertex ID generators.
@@ -6774,6 +6978,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -6792,6 +6997,8 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -6950,16 +7157,15 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(
-                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
-            },
-            edge_batches);
-      }
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count,
+                          snapshot_info);
     }
     spdlog::info("Edges are recovered.");
 
@@ -6971,36 +7177,37 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
-    {
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path,
-           vertices,
-           edges,
-           schema_info,
-           edge_count,
-           items = config.salient.items,
-           snapshot_has_edges,
-           &get_edge_type_from_id,
-           &highest_edge_gid,
-           &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
-            const auto result = LoadPartialConnectivity(path,
-                                                        *vertices,
-                                                        *edges,
-                                                        schema_info,
-                                                        batch.offset,
-                                                        batch.count,
-                                                        items,
-                                                        snapshot_has_edges,
-                                                        get_edge_type_from_id,
-                                                        snapshot_info);
-            edge_count->fetch_add(result.edge_count);
-            atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
-            recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
-          },
-          vertex_batches);
-    }
+    const auto *light_edge_map_ptr = loader.MapPtr();
+    RecoverOnMultipleThreads(
+        config.durability.recovery_thread_count,
+        [path,
+         vertices,
+         edges,
+         schema_info,
+         edge_count,
+         items = config.salient.items,
+         snapshot_has_edges,
+         &get_edge_type_from_id,
+         &highest_edge_gid,
+         &recovery_info,
+         &snapshot_info,
+         light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
+          const auto result = LoadPartialConnectivity(path,
+                                                      *vertices,
+                                                      *edges,
+                                                      schema_info,
+                                                      batch.offset,
+                                                      batch.count,
+                                                      items,
+                                                      snapshot_has_edges,
+                                                      get_edge_type_from_id,
+                                                      snapshot_info,
+                                                      light_edge_map_ptr);
+          edge_count->fetch_add(result.edge_count);
+          atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
+          recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
+        },
+        vertex_batches);
     spdlog::info("Connectivity is recovered.");
 
     // Set initial values for edge/vertex ID generators.
@@ -7450,6 +7657,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -7469,6 +7677,8 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -7627,16 +7837,15 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(
-                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
-            },
-            edge_batches);
-      }
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count,
+                          snapshot_info);
     }
     spdlog::info("Edges are recovered.");
 
@@ -7648,36 +7857,37 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
-    {
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path,
-           vertices,
-           edges,
-           schema_info,
-           edge_count,
-           items = config.salient.items,
-           snapshot_has_edges,
-           &get_edge_type_from_id,
-           &highest_edge_gid,
-           &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
-            const auto result = LoadPartialConnectivity(path,
-                                                        *vertices,
-                                                        *edges,
-                                                        schema_info,
-                                                        batch.offset,
-                                                        batch.count,
-                                                        items,
-                                                        snapshot_has_edges,
-                                                        get_edge_type_from_id,
-                                                        snapshot_info);
-            edge_count->fetch_add(result.edge_count);
-            atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
-            recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
-          },
-          vertex_batches);
-    }
+    const auto *light_edge_map_ptr = loader.MapPtr();
+    RecoverOnMultipleThreads(
+        config.durability.recovery_thread_count,
+        [path,
+         vertices,
+         edges,
+         schema_info,
+         edge_count,
+         items = config.salient.items,
+         snapshot_has_edges,
+         &get_edge_type_from_id,
+         &highest_edge_gid,
+         &recovery_info,
+         &snapshot_info,
+         light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
+          const auto result = LoadPartialConnectivity(path,
+                                                      *vertices,
+                                                      *edges,
+                                                      schema_info,
+                                                      batch.offset,
+                                                      batch.count,
+                                                      items,
+                                                      snapshot_has_edges,
+                                                      get_edge_type_from_id,
+                                                      snapshot_info,
+                                                      light_edge_map_ptr);
+          edge_count->fetch_add(result.edge_count);
+          atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
+          recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
+        },
+        vertex_batches);
     spdlog::info("Connectivity is recovered.");
 
     // Set initial values for edge/vertex ID generators.
@@ -8191,6 +8401,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
   recovery_info.next_timestamp = info.start_timestamp + 1;
   recovery_info.num_committed_txns = info.num_committed_txns;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -8210,6 +8421,7 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -8368,16 +8580,15 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(
-                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
-            },
-            edge_batches);
-      }
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count,
+                          snapshot_info);
     }
     spdlog::info("Edges are recovered.");
 
@@ -8389,6 +8600,7 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
+    const auto *light_edge_map_ptr = loader.MapPtr();
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
@@ -8402,7 +8614,8 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
            &get_edge_type_from_id,
            &highest_edge_gid,
            &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+           &snapshot_info,
+           light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
@@ -8412,7 +8625,8 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
                                                         items,
                                                         snapshot_has_edges,
                                                         get_edge_type_from_id,
-                                                        snapshot_info);
+                                                        snapshot_info,
+                                                        light_edge_map_ptr);
             edge_count->fetch_add(result.edge_count);
             atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
             recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -8970,6 +9184,7 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
   recovery_info.next_timestamp = info.start_timestamp + 1;
   recovery_info.num_committed_txns = info.num_committed_txns;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -8990,6 +9205,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -9148,16 +9364,15 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(
-                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
-            },
-            edge_batches);
-      }
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count,
+                          snapshot_info);
     }
     spdlog::info("Edges are recovered.");
 
@@ -9169,6 +9384,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
+    const auto *light_edge_map_ptr = loader.MapPtr();
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
@@ -9182,7 +9398,8 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
            &get_edge_type_from_id,
            &highest_edge_gid,
            &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+           &snapshot_info,
+           light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
@@ -9192,7 +9409,8 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
                                                         items,
                                                         snapshot_has_edges,
                                                         get_edge_type_from_id,
-                                                        snapshot_info);
+                                                        snapshot_info,
+                                                        light_edge_map_ptr);
             edge_count->fetch_add(result.edge_count);
             atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
             recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -9757,6 +9975,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
   recovery_info.next_timestamp = info.start_timestamp + 1;
   recovery_info.num_committed_txns = info.num_committed_txns;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -9863,6 +10082,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -10021,16 +10241,15 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(
-                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
-            },
-            edge_batches);
-      }
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count,
+                          snapshot_info);
     }
     spdlog::info("Edges are recovered.");
 
@@ -10042,6 +10261,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
+    const auto *light_edge_map_ptr = loader.MapPtr();
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
@@ -10055,7 +10275,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(
            &get_edge_type_from_id,
            &highest_edge_gid,
            &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+           &snapshot_info,
+           light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
@@ -10065,7 +10286,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(
                                                         items,
                                                         snapshot_has_edges,
                                                         get_edge_type_from_id,
-                                                        snapshot_info);
+                                                        snapshot_info,
+                                                        light_edge_map_ptr);
             edge_count->fetch_add(result.edge_count);
             atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
             recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -10699,6 +10921,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(
   recovery_info.next_timestamp = info.start_timestamp + 1;
   recovery_info.num_committed_txns = info.num_committed_txns;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -10719,6 +10942,7 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -10877,16 +11101,15 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(
-                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
-            },
-            edge_batches);
-      }
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count,
+                          snapshot_info);
     }
     spdlog::info("Edges are recovered.");
 
@@ -10898,6 +11121,7 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
+    const auto *light_edge_map_ptr = loader.MapPtr();
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
@@ -10911,7 +11135,8 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
            &get_edge_type_from_id,
            &highest_edge_gid,
            &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+           &snapshot_info,
+           light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
@@ -10921,7 +11146,8 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
                                                         items,
                                                         snapshot_has_edges,
                                                         get_edge_type_from_id,
-                                                        snapshot_info);
+                                                        snapshot_info,
+                                                        light_edge_map_ptr);
             edge_count->fetch_add(result.edge_count);
             atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
             recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -11525,6 +11751,7 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
   recovery_info.next_timestamp = info.start_timestamp + 1;
   recovery_info.num_committed_txns = info.num_committed_txns;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -11545,6 +11772,7 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
   RecoveredIndicesAndConstraints indices_constraints;
 
   RecoveryRollbackGuard rollback{vertices, edges, edges_metadata, epoch_history, enum_store};
+  LightEdgeLoader loader{config.salient.items.storage_light_edge};
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
@@ -11703,16 +11931,15 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(
-                  path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper, snapshot_info);
-            },
-            edge_batches);
-      }
+      loader.RecoverEdges(path,
+                          *edges,
+                          edge_batches,
+                          config.salient.items,
+                          get_property_from_id,
+                          name_id_mapper,
+                          config.durability.recovery_thread_count,
+                          info.edges_count,
+                          snapshot_info);
     }
     spdlog::info("Edges are recovered.");
 
@@ -11724,6 +11951,7 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
+    const auto *light_edge_map_ptr = loader.MapPtr();
     {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
@@ -11737,7 +11965,8 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
            &get_edge_type_from_id,
            &highest_edge_gid,
            &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+           &snapshot_info,
+           light_edge_map_ptr](const size_t batch_index, const BatchInfo &batch) {
             const auto result = LoadPartialConnectivity(path,
                                                         *vertices,
                                                         *edges,
@@ -11747,7 +11976,8 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
                                                         items,
                                                         snapshot_has_edges,
                                                         get_edge_type_from_id,
-                                                        snapshot_info);
+                                                        snapshot_info,
+                                                        light_edge_map_ptr);
             edge_count->fetch_add(result.edge_count);
             atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
             recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
@@ -12381,6 +12611,7 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
   recovery_info.next_timestamp = info.start_timestamp + 1;
   recovery_info.num_committed_txns = info.num_committed_txns;
 
+  loader.Commit();
   rollback.Commit();
 
   return {.snapshot_info = info, .recovery_info = recovery_info, .indices_constraints = std::move(indices_constraints)};
@@ -12795,6 +13026,185 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
   old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
 }
 
+namespace {
+
+struct CollectedEdge {
+  uint64_t gid;
+  std::map<PropertyId, PropertyValue> props;
+};
+
+template <typename AbortFn, typename WriteEdgeFn, typename WriteMappingFn>
+void WriteLightEdgesSection(Storage *storage, Transaction *transaction, utils::SkipListDb<Vertex> *vertices,
+                            SnapshotEncoder &snapshot, AbortFn &&snapshot_aborted, uint64_t &offset_edges,
+                            uint64_t &edges_count, std::vector<BatchInfo> &edge_batch_infos,
+                            WriteEdgeFn &&write_edge_record, WriteMappingFn &&write_mapping,
+                            SnapshotProgress *progress) {
+  const bool parallel = storage->config_.durability.allow_parallel_snapshot_creation;
+  const auto items_per_batch = storage->config_.durability.items_per_batch;
+
+  if (!parallel) {
+    // ---------- Single-threaded path ----------
+    std::vector<CollectedEdge> collected;
+    BatchedProgressCounter progress_counter(progress);
+
+    auto vacc = vertices->access();
+
+    for (auto &vertex : vacc) {
+      if (snapshot_aborted()) return;
+      auto va = VertexAccessor::Create(&vertex, storage, transaction, View::OLD);
+      if (!va) continue;
+      auto maybe_out = va->OutEdges(View::OLD);
+      if (!maybe_out.has_value()) continue;
+      for (auto &ea : maybe_out->edges) {
+        auto gid = ea.Gid().AsUint();
+        auto maybe_props = ea.Properties(View::OLD);
+        MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
+        collected.push_back({gid, std::move(*maybe_props)});
+      }
+    }
+
+    std::ranges::sort(collected, [](auto &a, auto &b) { return a.gid < b.gid; });
+
+    offset_edges = snapshot.GetPosition();
+    uint64_t items_in_batch = 0;
+    auto batch_start_offset = snapshot.GetPosition();
+
+    for (auto &entry : collected) {
+      if (snapshot_aborted()) return;
+      write_edge_record(snapshot, entry.gid, entry.props, write_mapping);
+      ++edges_count;
+      progress_counter.Increment();
+      ++items_in_batch;
+      if (items_in_batch == items_per_batch) {
+        edge_batch_infos.push_back(BatchInfo{.offset = batch_start_offset, .count = items_in_batch});
+        batch_start_offset = snapshot.GetPosition();
+        items_in_batch = 0;
+      }
+    }
+    if (items_in_batch > 0) {
+      edge_batch_infos.push_back(BatchInfo{.offset = batch_start_offset, .count = items_in_batch});
+    }
+    progress_counter.Flush();
+    return;
+  }
+
+  // ---------- Parallel path ----------
+  if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, vertices->size());
+
+  auto vacc = vertices->access();
+  auto vertex_batches = Batch(vacc, items_per_batch);
+  const auto n_batches = vertex_batches.size() - 1;  // last entry is kEnd sentinel
+
+  struct WorkerResult {
+    std::vector<CollectedEdge> edges;
+  };
+
+  std::vector<WorkerResult> worker_results(n_batches);
+
+  SafeTaskQueue tasks;
+  std::atomic<bool> worker_failed{false};
+  std::exception_ptr worker_exception;
+  std::mutex exception_mutex;
+
+  for (size_t id = 0; id < n_batches; ++id) {
+    tasks.AddTask([&worker_results,
+                   id,
+                   start_gid = vertex_batches[id],
+                   end_gid = vertex_batches[id + 1],
+                   &vertices,
+                   storage,
+                   transaction,
+                   &snapshot_aborted,
+                   &worker_failed,
+                   &worker_exception,
+                   &exception_mutex] {
+      if (worker_failed.load(std::memory_order_relaxed)) return;
+      try {
+        auto &result = worker_results[id];
+        auto vacc_local = vertices->access();
+        auto it = vacc_local.find_equal_or_greater(Gid::FromInt(start_gid));
+        for (; it != vacc_local.end() && it->gid.AsInt() < end_gid; ++it) {
+          if (worker_failed.load(std::memory_order_relaxed) || snapshot_aborted()) return;
+          auto va = VertexAccessor::Create(&*it, storage, transaction, View::OLD);
+          if (!va) continue;
+          auto maybe_out = va->OutEdges(View::OLD);
+          if (!maybe_out.has_value()) continue;
+          for (auto &ea : maybe_out->edges) {
+            auto gid = ea.Gid().AsUint();
+            auto maybe_props = ea.Properties(View::OLD);
+            MG_ASSERT(maybe_props.has_value(), "Invalid database state!");
+            result.edges.push_back({gid, std::move(*maybe_props)});
+          }
+        }
+        std::ranges::sort(result.edges, [](auto &a, auto &b) { return a.gid < b.gid; });
+      } catch (...) {
+        worker_failed.store(true, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> const lock(exception_mutex);
+        if (!worker_exception) worker_exception = std::current_exception();
+      }
+    });
+  }
+
+  const auto n_workers = std::min(static_cast<size_t>(storage->config_.durability.snapshot_thread_count), tasks.size());
+  std::vector<memory::DbAwareThread> workers;
+  workers.reserve(n_workers);
+  for (size_t i = 0; i < n_workers; ++i) {
+    workers.emplace_back([&tasks, i] {
+      utils::ThreadSetName("snap_light" + std::to_string(i));
+      while (true) {
+        auto task = tasks.PopTask();
+        if (!task) break;
+        (*task)();
+      }
+    });
+  }
+  for (auto &w : workers) w.join();
+
+  if (worker_exception) std::rethrow_exception(worker_exception);
+
+  // k-way merge: write edges in strictly increasing GID order.
+  offset_edges = snapshot.GetPosition();
+  uint64_t items_in_batch = 0;
+  auto batch_start_offset = snapshot.GetPosition();
+  BatchedProgressCounter progress_counter(progress);
+
+  using Iter = std::vector<CollectedEdge>::const_iterator;
+
+  struct HeapEntry {
+    uint64_t gid;
+    Iter current;
+    Iter end;
+  };
+
+  auto cmp = [](const HeapEntry &a, const HeapEntry &b) { return a.gid > b.gid; };
+  std::priority_queue<HeapEntry, std::vector<HeapEntry>, decltype(cmp)> heap{cmp};
+  for (auto &wr : worker_results) {
+    if (!wr.edges.empty()) heap.push({wr.edges.front().gid, wr.edges.begin(), wr.edges.end()});
+  }
+  while (!heap.empty()) {
+    if (snapshot_aborted()) return;
+    auto entry = heap.top();
+    heap.pop();
+    write_edge_record(snapshot, entry.current->gid, entry.current->props, write_mapping);
+    ++edges_count;
+    progress_counter.Increment();
+    ++items_in_batch;
+    if (items_in_batch == items_per_batch) {
+      edge_batch_infos.push_back(BatchInfo{.offset = batch_start_offset, .count = items_in_batch});
+      batch_start_offset = snapshot.GetPosition();
+      items_in_batch = 0;
+    }
+    auto next = entry.current + 1;
+    if (next != entry.end) heap.push({next->gid, next, entry.end});
+  }
+  if (items_in_batch > 0) {
+    edge_batch_infos.push_back(BatchInfo{.offset = batch_start_offset, .count = items_in_batch});
+  }
+  progress_counter.Flush();
+}
+
+}  // namespace
+
 std::optional<std::filesystem::path> CreateSnapshot(
     Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
@@ -12811,12 +13221,28 @@ std::optional<std::filesystem::path> CreateSnapshot(
   auto path = snapshot_directory / MakeSnapshotName(transaction->last_durable_ts_ ? *transaction->last_durable_ts_
                                                                                   : transaction->start_timestamp);
 
-  auto const snapshot_aborted = [abort_snapshot, &timer, &path, file_retainer]() -> bool {
+  // Tracks whether snapshot file cleanup has already been handled (by snapshot_aborted or by the
+  // MultiThreadedWorkflow failure path). The OnScopeExit guard below uses this to avoid double-
+  // closing the file encoder or issuing a redundant remove on an already-deleted path.
+  // Must be std::atomic<bool>: snapshot_aborted() is called from worker threads
+  // (WriteLightEdgesSection workers, MultiThreadedWorkflow batch handlers), so plain bool would
+  // be a data race. The OnScopeExit guard reads it only after all workers are joined, so
+  // memory_order_relaxed suffices for both store and load sites.
+  std::atomic<bool> snapshot_file_cleanup_done{false};
+
+  auto const snapshot_aborted = [abort_snapshot, &timer, &path, file_retainer, &snapshot_file_cleanup_done]() -> bool {
     if (!abort_snapshot || timer.Elapsed() < kCheckIfSnapshotAborted) return false;
     if (!abort_snapshot->load(std::memory_order_acquire)) {
       timer.ResetStartTime();
       return false;
     }
+    // file_retainer->DeleteFile unlinks (or queues unlinking of) the path. The fd is still open
+    // here; it will be released by ~SnapshotEncoder after we return std::nullopt. Mark cleanup
+    // as done so the OnScopeExit guard below is a no-op and does not double-close the encoder.
+    // Note: snapshot_aborted() may race with itself across worker threads; DeleteFile is
+    // idempotent (exists-guarded), so a double call is safe. store is relaxed — the worker
+    // join below provides the necessary happens-before for the OnScopeExit load.
+    snapshot_file_cleanup_done.store(true, std::memory_order_relaxed);
     file_retainer->DeleteFile(path);
     spdlog::info("snapshot aborted");
     return true;
@@ -12831,6 +13257,23 @@ std::optional<std::filesystem::path> CreateSnapshot(
         path);
     return std::nullopt;
   }
+
+  // Guard: if an exception escapes CreateSnapshot after the file is opened, remove the partial
+  // snapshot so stale files do not accumulate.
+  // Invariant: no partial snapshot file survives an exception escaping CreateSnapshot.
+  // Normal early returns (snapshot_aborted() → true, MultiThreadedWorkflow failure) set
+  // snapshot_file_cleanup_done = true before returning, so the guard is a no-op for those paths.
+  // This guard fires only on unexpected exception propagation (e.g. OOM).
+  const utils::OnScopeExit partial_file_cleanup{[&snapshot, &path, &snapshot_file_cleanup_done] {
+    // Relaxed load: all workers are joined before CreateSnapshot returns (or throws),
+    // so the join provides the necessary happens-before for visibility of stores.
+    if (!snapshot_file_cleanup_done.load(std::memory_order_relaxed)) {
+      snapshot.Close();
+      std::error_code ec;
+      std::filesystem::remove(path, ec);
+      if (ec) spdlog::warn("Couldn't remove partial snapshot file {}: {}", path, ec.message());
+    }
+  }};
 
   // Write placeholder offsets.
   uint64_t offset_offsets = 0;
@@ -12886,6 +13329,19 @@ std::optional<std::filesystem::path> CreateSnapshot(
   auto write_mapping_to = [](auto &snapshot, auto &used_ids, auto mapping) {
     used_ids.insert(mapping.AsUint());
     snapshot.WriteUint(mapping.AsUint());
+  };
+
+  // Write a single edge record: marker, gid, prop count, then each (prop_id, value) pair.
+  // write_prop_id is a callable void(PropertyId) that handles name mapping + encoder writes.
+  auto write_edge_record = [name_id_mapper = storage->name_id_mapper_.get()](
+                               auto &encoder, uint64_t gid, const auto &props, auto write_prop_id) {
+    encoder.WriteMarker(Marker::SECTION_EDGE);
+    encoder.WriteUint(gid);
+    encoder.WriteUint(props.size());
+    for (auto const &[pid, val] : props) {
+      write_prop_id(pid);
+      encoder.WriteExternalPropertyValue(ToExternalPropertyValue(val, name_id_mapper));
+    }
   };
 
   // Store edges.
@@ -13114,10 +13570,34 @@ std::optional<std::filesystem::path> CreateSnapshot(
   std::vector<BatchInfo> edge_batch_infos;
   std::vector<BatchInfo> vertex_batch_infos;
 
+  bool const light_edges = storage->config_.salient.items.storage_light_edge;
+
   if (storage->config_.durability.allow_parallel_snapshot_creation) {
     spdlog::trace("snapshot writing edges and vertices (parallel, {} threads)",
                   storage->config_.durability.snapshot_thread_count);
-    auto *edge_ptr = storage->config_.salient.items.properties_on_edges ? edges : nullptr;
+    if (light_edges) {
+      WriteLightEdgesSection(storage,
+                             transaction,
+                             vertices,
+                             snapshot,
+                             snapshot_aborted,
+                             offset_edges,
+                             edges_count,
+                             edge_batch_infos,
+                             write_edge_record,
+                             write_mapping,
+                             progress);
+      // Mirror the serial-branch guard at ~:12712: if the abort flag fired during the
+      // light-edge section, bail now rather than burning through the full multi-threaded
+      // vertex pass. snapshot_aborted() calls file_retainer->DeleteFile(path) internally;
+      // if it raced with another worker's call the delete runs twice, which is safe
+      // (file_retainer guards against double-unlink). No extra cleanup is needed here
+      // because snapshot_file_cleanup_done was already stored to true by that call.
+      if (snapshot_aborted()) {
+        return std::nullopt;
+      }
+    }
+    auto *edge_ptr = (!light_edges && storage->config_.salient.items.properties_on_edges) ? edges : nullptr;
     if (!MultiThreadedWorkflow(edge_ptr,
                                vertices,
                                partial_edge_handler,
@@ -13137,6 +13617,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
       spdlog::warn(
           "Failed to execute some tasks when doing a multi-threaded snapshot, snapshot will be aborted and snapshot "
           "creation will be retried on the next scheduled interval");
+      snapshot_file_cleanup_done.store(true, std::memory_order_relaxed);  // Prevent OnScopeExit double-close.
       snapshot.Close();
       // Clean up the partial main snapshot file
       std::error_code ec;
@@ -13144,7 +13625,21 @@ std::optional<std::filesystem::path> CreateSnapshot(
       return std::nullopt;
     }
   } else {
-    if (storage->config_.salient.items.properties_on_edges) {
+    if (light_edges) {
+      spdlog::trace("snapshot writing light edges");
+      if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, vertices->size());
+      WriteLightEdgesSection(storage,
+                             transaction,
+                             vertices,
+                             snapshot,
+                             snapshot_aborted,
+                             offset_edges,
+                             edges_count,
+                             edge_batch_infos,
+                             write_edge_record,
+                             write_mapping,
+                             progress);
+    } else if (storage->config_.salient.items.properties_on_edges) {
       spdlog::trace("snapshot writing edges");
       if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
       offset_edges = snapshot.GetPosition();  // Global edge offset
@@ -13676,6 +14171,10 @@ std::optional<std::filesystem::path> CreateSnapshot(
   }
 
   snapshot.Finalize();
+  // The snapshot file is now complete and valid on disk. Mark cleanup as done BEFORE any
+  // post-finalize housekeeping (file_size / retention / WAL-ensure below) so that a throw from
+  // those steps cannot trip partial_file_cleanup into deleting a finalized, valid snapshot.
+  snapshot_file_cleanup_done.store(true, std::memory_order_relaxed);
   auto const snapshot_size = std::filesystem::file_size(path);
   spdlog::info("snapshot complete: {} ({} vertices, {} edges, {:.1f} MiB, {:.2f}s)",
                path,

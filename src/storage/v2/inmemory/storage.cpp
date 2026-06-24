@@ -440,43 +440,83 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   if (config_.durability.recover_on_startup) {
     // Disable ttl until after recovery and role switch / write enabled
     ttl_.SetUserCheck([]() -> bool { return false; });
-    try {
-      // Recover data
-      utils::Timer const recovery_timer;
-      auto info = recovery_.RecoverData(
-          uuid(),
-          repl_storage_state_,
-          &vertices_,
-          &edges_,
-          edges_metadata_index_ ? &*edges_metadata_index_ : nullptr,
-          &edge_count_,
-          name_id_mapper_.get(),
-          &indices_,
-          &constraints_,
-          config_,
-          db_arena_,
-          &wal_seq_num_,
-          &enum_store_,
-          config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-          [this](Gid edge_gid) { return FindEdge(edge_gid); },
-          name(),
-          &ttl_,
-          &description_store_);
-      metric_handles_.snapshot_recovery_latency_seconds.Observe(
-          std::chrono::duration<double>(recovery_timer.Elapsed()).count());
-      if (info) {
-        vertex_id_.store(info->next_vertex_id, std::memory_order_release);
-        edge_id_.store(info->next_edge_id, std::memory_order_release);
-        timestamp_ = std::max(timestamp_, info->next_timestamp);
-        CommitTsInfo const new_info{.ldt_ = info->last_durable_timestamp,
-                                    .num_committed_txns_ = info->num_committed_txns};
-        repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
-        spdlog::trace(
-            "Recovering last durable timestamp {}. Timestamp recovered to {}. Num committed txns recovered to {}.",
-            info->last_durable_timestamp,
-            timestamp_,
-            info->num_committed_txns);
+    // Recover data
+    utils::Timer const recovery_timer;
+    // Exception-safety for light edges: if RecoverData throws after wiring one
+    // or more pool-allocated light Edge* into vertex adjacency, the exception
+    // escapes the InMemoryStorage constructor.  C++ runs member destructors but
+    // never the ~InMemoryStorage body, so the ClearLightEdges() teardown in the
+    // dtor would be skipped — orphaning every live light Edge* (the vertices_
+    // SkipList dtor frees its Vertex nodes without touching the adjacency
+    // Edge*).  Heavy edges are unaffected (freed by the edges_ SkipList dtor).
+    // The catch below gates on the flag so the heavy path remains byte-identical
+    // and delegates to ClearLightEdges() which is noexcept-safe (LightEdgePool::
+    // Destroy is noexcept; deleted_edges_/graveyard are empty at recovery time
+    // because the WAL edge-delete replay arm calls LightEdgePool::Destroy
+    // directly without queuing).
+    auto info = std::invoke([&] {
+      try {
+        return recovery_.RecoverData(
+            uuid(),
+            repl_storage_state_,
+            &vertices_,
+            &edges_,
+            edges_metadata_index_ ? &*edges_metadata_index_ : nullptr,
+            &edge_count_,
+            name_id_mapper_.get(),
+            &indices_,
+            &constraints_,
+            config_,
+            db_arena_,
+            &wal_seq_num_,
+            &enum_store_,
+            config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
+            [this](Gid edge_gid) { return FindEdge(edge_gid); },
+            name(),
+            &ttl_,
+            &description_store_);
+      } catch (const durability::RecoveryFailure &e) {
+      // --storage-allow-recovery-failure: instead of crashing the process, bring this
+      // database up empty and defunct. RecoverData only reads durability files, so the
+      // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT,
+      // REPAIR DATABASE, or restore the whole data directory from a backup.
+      if (!config_.durability.allow_recovery_failure) throw;
+      spdlog::warn("Database '{}' failed to recover ({}); bringing it up in the defunct state.", name(), e.what());
+      Clear();
+      name_id_mapper_->Clear();
+      description_store_.Clear();
+      SetDefunct(true);
+    } catch (...) {
+        // Free any pool-allocated light Edge* already wired into vertex
+        // adjacency before the exception propagates out of the constructor.
+        // Heavy mode: no-op (edges_ SkipList dtor handles cleanup).
+        // No double-free with the per-loader cleanup: on a pre-Commit failure the
+        // snapshot loader's RAII (LightEdgeLoader::FreeAll / v14 light_cleanup) has
+        // already freed the pool edges AND RecoveryRollbackGuard has cleared
+        // vertices_, so this walk sees empty adjacency. On a post-Commit failure
+        // (e.g. RecoverDerivedState) those guards are no-ops, so this is the sole
+        // owner that frees the still-live light edges — exactly once.
+        if (config_.salient.items.storage_light_edge) {
+          ClearLightEdges();
+        }
+        throw;
       }
+    });
+    metric_handles_.snapshot_recovery_latency_seconds.Observe(
+        std::chrono::duration<double>(recovery_timer.Elapsed()).count());
+    if (info) {
+      vertex_id_.store(info->next_vertex_id, std::memory_order_release);
+      edge_id_.store(info->next_edge_id, std::memory_order_release);
+      timestamp_ = std::max(timestamp_, info->next_timestamp);
+      CommitTsInfo const new_info{.ldt_ = info->last_durable_timestamp,
+                                  .num_committed_txns_ = info->num_committed_txns};
+      repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
+      spdlog::trace(
+          "Recovering last durable timestamp {}. Timestamp recovered to {}. Num committed txns recovered to {}.",
+          info->last_durable_timestamp,
+          timestamp_,
+          info->num_committed_txns);
+    }
 
       if (config_.track_label_counts) {
         auto label_counts_acc = label_counts_.Lock();

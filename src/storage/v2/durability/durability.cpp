@@ -538,9 +538,20 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] u
   // other derived structure observes it.
   if (edges_metadata) {
     edges_metadata->RebuildFrom(*vertices, GetParallelExecInfo(recovery_info, config, db_arena_pool));
-    // Every recovered edge must have an edge-metadata entry; fail at recovery rather
-    // than later in GC or via lookups.
-    if (edges_metadata->size() != edges->size()) {
+    if (config.salient.items.storage_light_edge) {
+      // Light edges live only in the vertex adjacency (pool-allocated); the edges_
+      // skiplist is intentionally empty after recovery. RebuildFrom derives metadata
+      // directly from the adjacency, so its count is correct by construction.
+      if (edges->size() != 0) {
+        if (config.durability.allow_recovery_failure) {
+          throw RecoveryFailure("Edge skiplist must be empty after light-edge recovery!");
+        }
+        LOG_FATAL("Edge skiplist must be empty after light-edge recovery!");
+      }
+    } else if (edges_metadata->size() != edges->size()) {
+      // Every recovered edge must have an edge - metadata entry;
+      //  fail at recovery rather
+      //  than later in GC or via lookups.
       if (config.durability.allow_recovery_failure) {
         throw RecoveryFailure("Edge metadata count does not match edge count after recovery!");
       }
