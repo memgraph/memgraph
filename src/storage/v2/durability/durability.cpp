@@ -540,8 +540,12 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] u
     edges_metadata->RebuildFrom(*vertices, GetParallelExecInfo(recovery_info, config, db_arena_pool));
     // Every recovered edge must have an edge-metadata entry; fail at recovery rather
     // than later in GC or via lookups.
-    DMG_ASSERT(edges_metadata->size() == edges->size(),
-               "Edge metadata count does not match edge count after recovery!");
+    if (edges_metadata->size() != edges->size()) {
+      if (config.durability.allow_recovery_failure) {
+        throw RecoveryFailure("Edge metadata count does not match edge count after recovery!");
+      }
+      LOG_FATAL("Edge metadata count does not match edge count after recovery!");
+    }
   }
 
   RecoverIndicesAndStats(indices_constraints.indices,
@@ -590,7 +594,12 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   auto *const epoch_history = &repl_storage_state.history;
 
   auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_);
-  MG_ASSERT(maybe_snapshot_files.has_value(), "Couldn't recover data because of the failure to read snapshot files");
+  if (!maybe_snapshot_files.has_value()) {
+    if (config.durability.allow_recovery_failure) {
+      throw RecoveryFailure("Couldn't recover data because of the failure to read snapshot files");
+    }
+    LOG_FATAL("Couldn't recover data because of the failure to read snapshot files");
+  }
   auto const &snapshot_files = *maybe_snapshot_files;
 
   RecoveryInfo recovery_info;
@@ -683,7 +692,13 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         spdlog::error("Recovery failure while reading wal file: {}", e.what());
       }
     }
-    MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
+    if (error_code) {
+      if (config.durability.allow_recovery_failure) {
+        throw RecoveryFailure(
+            fmt::format("Couldn't recover data because an error occurred: {}!", error_code.message()));
+      }
+      LOG_FATAL("Couldn't recover data because an error occurred: {}!", error_code.message());
+    }
 
     if (wal_files.empty()) {
       spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
@@ -702,7 +717,12 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                   repl_storage_state.epoch_.id());
   }
   auto const maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
-  MG_ASSERT(maybe_wal_files.has_value(), "Couldn't recover data because of the failure to read wal files");
+  if (!maybe_wal_files.has_value()) {
+    if (config.durability.allow_recovery_failure) {
+      throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
+    }
+    LOG_FATAL("Couldn't recover data because of the failure to read wal files");
+  }
 
   if (auto const &wal_files = *maybe_wal_files; !wal_files.empty()) {
     spdlog::info("Checking WAL files.");
@@ -718,6 +738,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           // We didn't recover from a snapshot, and we must have all WAL files
           // starting from the first one (seq_num == 0) to be able to recover
           // data from them.
+          if (config.durability.allow_recovery_failure) {
+            throw RecoveryFailure("There are missing prefix WAL files and data can't be recovered without them!");
+          }
           LOG_FATAL(
               "There are missing prefix WAL files and data can't be "
               "recovered without them!");
@@ -725,6 +748,11 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           // We recovered from a snapshot and we must have at least one WAL file
           // that has at least one delta that was created before the snapshot in order to
           // verify that nothing is missing from the beginning of the WAL chain.
+          if (config.durability.allow_recovery_failure) {
+            throw RecoveryFailure(
+                "You must have at least one WAL file that contains at least one delta that was created before the "
+                "snapshot file!");
+          }
           LOG_FATAL(
               "You must have at least one WAL file that contains at least one "
               "delta that was created before the snapshot file!");
@@ -737,6 +765,10 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
     for (const auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
+        if (config.durability.allow_recovery_failure) {
+          throw RecoveryFailure(
+              fmt::format("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1));
+        }
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
       }
       previous_seq_num = wal_file.seq_num;
@@ -784,6 +816,10 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         }
 
       } catch (const RecoveryFailure &e) {
+        if (config.durability.allow_recovery_failure) {
+          throw RecoveryFailure(
+              fmt::format("Couldn't recover WAL deltas from {} because of: {}", wal_file.path.string(), e.what()));
+        }
         LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
       }
     }
