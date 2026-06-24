@@ -454,7 +454,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Destroy is noexcept; deleted_edges_/graveyard are empty at recovery time
     // because the WAL edge-delete replay arm calls LightEdgePool::Destroy
     // directly without queuing).
-    auto info = std::invoke([&] {
+    auto info = std::invoke([&] -> std::optional<durability::RecoveryInfo> {
       try {
         return recovery_.RecoverData(
             uuid(),
@@ -486,6 +486,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         name_id_mapper_->Clear();
         description_store_.Clear();
         SetDefunct(true);
+        return std::nullopt;
       } catch (...) {
         // Free any pool-allocated light Edge* already wired into vertex
         // adjacency before the exception propagates out of the constructor.
