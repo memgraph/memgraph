@@ -7404,6 +7404,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                TypedValue(tenant_limit > 0 ? utils::GetReadableSize(static_cast<double>(tenant_limit))
                                            : std::string("unlimited"))},
               {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
+              {TypedValue("status"), TypedValue(storage->IsDefunct() ? "defunct" : "ready")},
           };
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
@@ -8247,23 +8248,33 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  // SHOW DATABASES carries a "state" column (HOT/COLD) and lists COLD tenants (which are excluded from
-  // All() as no-value shells, so they would otherwise vanish).
-  callback.header = std::vector<std::string>{"Name", "state"};
+  // SHOW DATABASES carries a "state" column (HOT/COLD) and a "Status" column (ready/defunct), and lists
+  // COLD tenants (which are excluded from All() as no-value shells, so they would otherwise vanish).
+  callback.header = std::vector<std::string>{"Name", "state", "Status"};
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
 
     // One atomic, de-duplicated read of the HOT ∪ COLD set. The name list (unrestricted paths) and the
-    // name->status map (tagging any path, incl. the auth allowed-list) both derive from this single
+    // name->state map (tagging any path, incl. the auth allowed-list) both derive from this single
     // snapshot — no per-row locks, and no duplicate row for a tenant caught mid-suspend
     // (AllWithHotColdStatus de-dups: suspended_ wins).
     std::vector<std::string> all_names;
-    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD"
+    std::unordered_map<std::string, std::string> state_of;  // name -> "HOT" | "COLD"
     for (auto &[name, st] : db_handler->AllWithHotColdStatus()) {
       all_names.push_back(name);
-      status_of.emplace(std::move(name), std::move(st));
+      state_of.emplace(std::move(name), std::move(st));
     }
+
+    // A database that failed durability recovery comes up defunct (see
+    // --storage-allow-recovery-failure); report that so operators can spot it.
+    auto status_of = [db_handler](std::string_view name) -> std::string {
+      try {
+        return db_handler->Get(name)->storage()->IsDefunct() ? "defunct" : "ready";
+      } catch (...) {
+        return "ready";
+      }
+    };
 
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
       Sort(all);
@@ -8272,10 +8283,12 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       for (const auto &name : all) {
         // `name` is a std::string (all_names) or a TypedValue (auth allowed-list); normalize.
         const std::string ns{TypedValue(name).ValueString()};
-        // status_of carries the HOT/COLD string. A granted name not in the
+        // state_of carries the HOT/COLD string. A granted name not in the
         // snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
-        auto it = status_of.find(ns);
-        status.push_back({TypedValue(ns), TypedValue(it != status_of.end() ? it->second : std::string{"HOT"})});
+        auto it = state_of.find(ns);
+        status.push_back({TypedValue(ns),
+                          TypedValue(it != state_of.end() ? it->second : std::string{"HOT"}),
+                          TypedValue(status_of(ns))});
       }
 
       std::erase_if(status, [&](auto const &row) {
