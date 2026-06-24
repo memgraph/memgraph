@@ -416,3 +416,44 @@ are regular → ~flag-OFF speed where it matters.
 
 **This is the recommended direction if in-memory pull-dense perf must be recovered while keeping
 stackless, the planner untouched, and mid-pull yield for slow cursors.**
+
+---
+
+## EXP-9 — what EXACTLY is one crossing? (loads/stores vs misses vs unavoidable work)
+
+Rich counters at depth 0 vs 8, per-crossing delta (÷ 8 × 2e8 = 1.6e9 crossings):
+
+| per crossing        | value     | note                                   |
+|---------------------|-----------|----------------------------------------|
+| instructions        | 60.9      |                                        |
+| — loads             | 25.5      | frame reload + promise fields + protocol |
+| — stores            | 13.8      | frame spill + parent_ link + suspend index |
+| — branches          | 13.8      | ~all predicted                         |
+| — arithmetic/moves  | ~8        |                                        |
+| branch-misses       | 0.0002    | **~zero**                              |
+| L1-dcache-load-miss | 0.0016    | **~zero (frames are L1-hot)**          |
+| cycles              | 24.4      | IPC 2.5 (healthy — NOT stalled)        |
+
+**The crossing is ~65% memory traffic (~26 loads + ~14 stores), and it all HITS L1.** Branch
+misprediction and cache misses are both ~0; IPC is healthy. So the cost is **instruction
+throughput** — the *count* of loads/stores executed, not memory latency, not misprediction, not
+cache misses. It is the **stackless resumability tax**: a coroutine persists its live state +
+suspend-point index to the heap frame and reloads it in *software* (explicit compiler-emitted
+loads/stores), plus the await protocol (parent_ linking, has_more_, done()/flag checks), plus two
+transfers per row (descend at co_await, ascend at co_yield → two suspend/resume pairs). A normal
+`Pull()` call does the equivalent state save/restore in *hardware* (call/ret + register ABU,
+~1–2 cycles).
+
+### Consequences for the proposed mitigations
+- **Locality allocator (pack frames):** ~no benefit for the crossing cost. The frames are already
+  L1-hot in a tight pull loop (dcache-miss ~0.0016/crossing); packing cannot reduce the *number* of
+  loads/stores, which is the actual cost. It only helps cache *footprint* under heavy concurrency
+  (many queries evicting each other's frames) — and it cannot allocate away the instruction count.
+- **Prefetch the next coroutine:** wrong lever. Prefetch hides memory *latency* (misses); we have
+  ~0 misses and healthy IPC — we are throughput-bound, not latency-bound. A prefetch would ADD
+  instructions to already instruction-bound code.
+- **What actually reduces it:** (1) fewer crossings — fusion / the EXP-8 hybrid (removes whole
+  ~61-instr units); (2) fewer loads/stores per crossing — shrink live-across-suspend state and trim
+  the await protocol/promise (attacks the ~40 mem-ops directly; bounded ~20–40% upside, hand-tuned);
+  (3) escape stackless → stackful fibers (state stays in registers/hardware-stack via call/ret;
+  removes the ~40 software mem-ops entirely, at a stack-per-parked-task memory cost).
