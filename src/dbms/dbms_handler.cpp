@@ -118,44 +118,25 @@ struct Durability {
 
   // Round-trippable JSON for a captured StorageInfo (hot/cold cold_stats). Distinct from
   // storage::ToJson (a lossy SHOW-presentation form): this stores every field by struct name so the
-  // exact StorageInfo survives a restart. Enums are persisted as their underlying integer (the data
-  // is self-produced by the same binary version, so a direct read-back is safe).
-  // Serialize via the single StorageInfoForEachField field list (storage.hpp) so adding a field
-  // updates this path AND the V3 SLK wire at once. Enums are stored as their underlying integer.
-  // NOTE: NLOHMANN_JSON_SERIALIZE_ENUM is intentionally NOT used — it serializes enums as strings,
-  // whereas existing durable cold entries carry integers; switching would break backward compat.
+  // exact StorageInfo survives a restart. Driven by the single StorageInfoForEachField field list
+  // (storage.hpp) so adding a field updates this path AND the V3 SLK wire at once. Enums persist as
+  // their underlying integer: nlohmann's built-in enum (de)serialization is integer-based, and
+  // storage::StorageMode's own to_json/from_json (storage_mode.hpp) keep that integer encoding while
+  // range-checking the value on read. The human-readable string form lives only in storage::ToJson.
   static nlohmann::json StatsToJson(const storage::StorageInfo &s) {
     nlohmann::json j;
-    storage::StorageInfoForEachField(s, [&](const char *key, const auto &v) {
-      using T = std::remove_cvref_t<decltype(v)>;
-      if constexpr (std::is_enum_v<T>) {
-        j[key] = std::to_underlying(v);
-      } else {
-        j[key] = v;
-      }
-    });
+    storage::StorageInfoForEachField(s, [&](const char *key, const auto &v) { j[key] = v; });
     return j;
   }
 
-  // Reads back a StatsToJson object. Tolerant of missing keys (defaults to 0/false): a V1 COLD entry
-  // never existed, but a forward-compatible read of a partial object must not throw.
+  // Reads back a StatsToJson object. Tolerant of missing keys (defaults to a value-initialized field):
+  // a V1 COLD entry never existed, but a forward-compatible read of a partial object must not throw.
+  // A present-but-out-of-range storage_mode is range-checked by storage::from_json (falls back to
+  // IN_MEMORY_TRANSACTIONAL); isolation/compression direct-cast via nlohmann's default enum from_json.
   static storage::StorageInfo StatsFromJson(const nlohmann::json &j) {
     storage::StorageInfo s{};
-    storage::StorageInfoForEachField(s, [&](const char *key, auto &v) {
-      using T = std::remove_cvref_t<decltype(v)>;
-      if constexpr (std::is_enum_v<T>) {
-        const auto raw = j.value(key, std::underlying_type_t<T>{0});
-        // storage_mode has an Enum::N sentinel (NumToEnum-validatable); isolation/compression do not, so
-        // direct-cast their underlying integer (mirrors the StorageInfo SLK Load in system_rpc.cpp).
-        if constexpr (std::is_same_v<T, storage::StorageMode>) {
-          if (!utils::NumToEnum(raw, v)) v = storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
-        } else {
-          v = static_cast<T>(raw);
-        }
-      } else {
-        v = j.value(key, T{});
-      }
-    });
+    storage::StorageInfoForEachField(
+        s, [&](const char *key, auto &v) { v = j.value(key, std::remove_cvref_t<decltype(v)>{}); });
     return s;
   }
 
