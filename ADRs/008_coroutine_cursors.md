@@ -265,11 +265,23 @@ persistent `DoPull` `gen_` — the child pull stays `co_await PullChild` (child'
 (Corpus + MutationCorpus, flag-OFF ≡ flag-ON). Re-measured on the same bare-metal box (HW
 counters, instr/query):
 
-| query (pull-dominated) | before fix | **after fix** |
-|------------------------|-----------:|--------------:|
-| expand_count (1-hop)   | +20.0%     | **+10.0%**    |
-| expand2_count (2-hop)  | +34.2%     | **+13.7%**    |
-| project / sum-agg      | +3–10%     | +0.3–3.5%     |
+| query (pull-dominated) | before fix | helper inline | + lean await_resume |
+|------------------------|-----------:|--------------:|--------------------:|
+| expand_count (1-hop)   | +20.0%     | +10.0%        | **+8.5%**           |
+| expand2_count (2-hop)  | +34.2%     | +13.7%        | (~12%)              |
+| project / sum-agg      | +3–10%     | +0.3–3.5%     | ~same               |
+
+Two landed reductions: (1) inline `InitEdgesCo`/`PullInputCo` (kill per-call helper frames), (2) a
+safe lean of `ResumeAwaitable::await_resume` (drop a redundant `done()` branch). A full
+microarchitectural study (`tests/mgbench/coroutine_perf/INVESTIGATION.md`, EXP-5…11) established the
+residual root cause: a **per-cursor-boundary crossing costs ~60 instr (~65% L1-hot loads/stores)** —
+the stackless resumability tax (frame state save/restore + await protocol), NOT misprediction
+(branch-miss ~0%), NOT cache misses, NOT the yield check (free). It is linear in plan depth. Levers:
+**fewer crossings** (a hybrid that confines coroutines to pipeline breakers + on-disk/blocking leaves,
+recovering ~flag-OFF for the regular pipeline — no planner change, reuses the dual-path seam) or
+**stackful fibers**; further framework leaning is load-bearing-bounded. Crucially, EXP-7 showed the
+dispatch tax is **moot for the on-disk direction** (I/O-bound: +0.3–3.6% at NVMe/SSD latencies), so
+the stackless design is already correct there.
 
 The remaining ~10% on `count(*)`-over-expansion is the **structural per-pull resume floor**
 (intrinsic to the per-cursor coroutine model); its impact is inversely proportional to per-row
