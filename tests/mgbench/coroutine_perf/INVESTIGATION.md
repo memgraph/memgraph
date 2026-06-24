@@ -320,3 +320,43 @@ steady-state dispatch (~2×), parked-task memory (~D×), and it preserves mid-ro
 (a single fused coroutine just `co_await`s at the internal blocking point; its one frame captures
 all live state). Row-boundary-only yield is NOT achievable for on-disk (an I/O wait is inherently
 mid-row), and fusion does not require it.
+
+---
+
+## EXP-7 — does dispatch matter once there is real I/O? (decisive for on-disk)
+
+Same external-yield model, but each park now burns a simulated I/O latency before resuming
+(`g_io_work` do_work iterations). period=1 (every access parks = on-disk worst case). ns/row:
+
+| simulated I/O / park | allcoroEY ns/row | fusedEY ns/row | gap (dispatch significance) |
+|----------------------|------------------|----------------|------------------------------|
+| 0 (in-memory)        | 21.4             | 11.2           | fused ~2× — dispatch matters |
+| ~0.1 µs              | 36.3             | 27.3           | +33%                         |
+| ~1 µs (NVMe read)    | 420              | 406            | **+3.6%**                    |
+| ~10 µs (SSD seek)    | 4382             | 4368           | **+0.3%**                    |
+
+The dispatch difference is a FIXED ~8.6 ns/row; once a row costs microseconds of I/O it is noise.
+**For the on-disk future the coroutine dispatch design is essentially irrelevant** — I/O latency
+dominates by 1–2 orders of magnitude. The stackless per-cursor design is already the right choice
+there (cheap small-frame parking, yield-anywhere, mid-row suspension), and shaving dispatch buys
+nothing once queries are I/O-bound.
+
+### Final synthesis (decision-ready)
+
+The per-crossing dispatch tax (~77 instr × plan depth per row) is INTRINSIC to "stackless coroutine
+per cursor, one row per crossing." Within the stated constraints (keep stackless; no fused-cursor
+library; no planner changes; must yield mid-pull for slow cursors and I/O), only two things can cut
+it, both large: **amortize** (batch/vectorize → N rows per crossing; big Frame/expr change) or
+**eliminate** (stackful fibers → legacy-speed calls, yield by stack-swap; costs a stack per parked
+task). A static fused-cursor library is ruled out (combinatorial / needs the planner / row-boundary
+yield is useless for slow cursors).
+
+But the tax only bites **in-memory, CPU-bound, pull-dense, ~zero-per-row-work** queries (~10% on
+bare `count(*)`-over-expand; ~0–3% on realistic queries after the helper-frame fix). It is moot for
+the on-disk direction (EXP-7) and a modest constant factor under parallel execution (which still
+nets the Nx core speedup). Recommendation: **accept the residual, keep stackless, proceed with
+parallel/scheduling + on-disk.** Revisit dispatch ONLY if in-memory pull-dense throughput becomes a
+hard requirement — and then batched/vectorized pulls is the only constraint-compatible lever, as a
+dedicated project. A cheap, constraint-compatible micro-win remains available regardless: shrink the
+live-across-suspend frame state (hoist frame_writer/oom/profile out of the co_await scope) for a few
+instr/crossing.

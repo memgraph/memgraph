@@ -438,6 +438,7 @@ static uint64_t run_depth(uint64_t N, uint64_t D, int W) {
 static uint64_t g_yield_period = 0;
 static uint64_t g_yield_cnt = 0;
 static std::coroutine_handle<> g_yield_slot{};
+static int g_io_work = 0;  // simulated I/O latency per park (do_work iterations); ~2000 ~= ~1us
 
 struct ExternalYield {
   bool await_ready() noexcept {
@@ -461,6 +462,7 @@ static inline Status ResumePullStepY(PullAwaitable::ResumeAwaitable &ra) {
     if (g_yield_slot) {
       t = g_yield_slot;
       g_yield_slot = {};
+      if (g_io_work) g_sink ^= do_work(g_yield_cnt + 1, g_io_work);  // simulate the I/O wait before resuming
     }
     t.resume();
     if (g_yield_slot) continue;  // parked again (would return to scheduler; here resume immediately)
@@ -532,6 +534,7 @@ int main(int argc, char **argv) {
   int W = std::atoi(argv[4]);
   uint64_t reps = std::strtoull(argv[5], nullptr, 10);
   g_yield_period = (argc > 6) ? std::strtoull(argv[6], nullptr, 10) : 0;  // external-yield period (EY designs)
+  g_io_work = (argc > 7) ? std::atoi(argv[7]) : 0;                        // simulated I/O latency per park
 
   uint64_t (*fn)(uint64_t, uint64_t, int) = nullptr;
   if (design == "legacy")
