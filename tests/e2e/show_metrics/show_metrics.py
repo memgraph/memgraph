@@ -57,6 +57,10 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "UnregisterReplicaRpcSuccess", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "UpdateDataInstanceConfigRpcFail", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "UpdateDataInstanceConfigRpcSuccess", "type": "HighAvailability", "metric type": "Counter"},
+        # HighAvailability gauges (replication-lag summaries, alphabetical)
+        {"name": "MaxReplicaLagSeconds", "type": "HighAvailability", "metric type": "Gauge"},
+        {"name": "MaxReplicaTimestampLag", "type": "HighAvailability", "metric type": "Gauge"},
+        {"name": "ReplicasNotReady", "type": "HighAvailability", "metric type": "Gauge"},
         # HighAvailability histograms (alphabetical by base name)
         {"name": "ChooseMostUpToDateInstance_us_50p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "ChooseMostUpToDateInstance_us_90p", "type": "HighAvailability", "metric type": "Histogram"},

@@ -26,6 +26,8 @@
 #include "dbms/constants.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
+#include "replication_coordination_glue/mode.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "utils/logging.hpp"
 #include "utils/stat.hpp"
 #ifdef MG_ENTERPRISE
@@ -784,7 +786,38 @@ PrometheusMetrics::PrometheusMetrics()
       wal_throughput_family_{prometheus::BuildHistogram()
                                  .Name("memgraph_wal_throughput_bytes_per_second")
                                  .Help("Throughput of WAL files sent to each replica during recovery, in bytes/s")
-                                 .Register(registry_)}
+                                 .Register(registry_)},
+
+      replica_commit_timestamp_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_replica_commit_timestamp")
+              .Help("Last durable commit timestamp (logical commit counter, not unix time) observed on the "
+                    "replica, per (replica, database)")
+              .Register(registry_)},
+      replica_timestamp_lag_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_replica_timestamp_lag")
+              .Help("Logical timestamp delta main minus replica, per (replica, database). Positive means the "
+                    "replica is behind; negative means it is ahead (e.g. right after a snapshot restore). "
+                    "Negation of SHOW REPLICAS' behind count")
+              .Register(registry_)},
+      replica_lag_seconds_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_replica_lag_seconds")
+              .Help("Wall-clock seconds the replica is behind the main, per (replica, database). 0 when caught "
+                    "up. Sampled at heartbeat granularity from the main's clock")
+              .Register(registry_)},
+      replica_state_family_{prometheus::BuildGauge()
+                                .Name("memgraph_replica_state")
+                                .Help("Per-(replica, database) state. One series per ReplicaState; eventually "
+                                      "exactly one is 1 (updates are not atomic across the series)")
+                                .Register(registry_)},
+      main_commit_timestamp_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_main_commit_timestamp")
+              .Help("Last durable commit timestamp (logical commit counter, not unix time) of this database on "
+                    "the local instance")
+              .Register(registry_)}
 #ifdef MG_ENTERPRISE
       ,
       instance_up_family_{prometheus::BuildGauge()
@@ -865,10 +898,8 @@ PrometheusMetrics::PrometheusMetrics()
   global.choose_most_up_to_date_instance_seconds =
       &choose_most_up_to_date_instance_family_.Add(no_labels, kLatencyBuckets);
   global.socket_connect_seconds = &socket_connect_family_.Add(no_labels, kLatencyBuckets);
-  global.replica_stream_seconds = &replica_stream_family_.Add(no_labels, kLatencyBuckets);
+  // replica_stream / start_txn_replication / finalize_txn_replication: per-(replica, db) labels only.
   global.data_failover_seconds = &data_failover_family_.Add(no_labels, kLatencyBuckets);
-  global.start_txn_replication_seconds = &start_txn_replication_family_.Add(no_labels, kLatencyBuckets);
-  global.finalize_txn_replication_seconds = &finalize_txn_replication_family_.Add(no_labels, kLatencyBuckets);
   global.promote_to_main_rpc_seconds = &promote_to_main_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.demote_main_to_replica_rpc_seconds =
       &demote_main_to_replica_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
@@ -1032,6 +1063,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .gc_latency_seconds = {&gc_latency_family_.Add(labels, kLatencyBuckets)},
                   .gc_skiplist_cleanup_latency_seconds = {&gc_skiplist_cleanup_latency_family_.Add(labels,
                                                                                                    kLatencyBuckets)},
+                  .main_commit_timestamp = {&main_commit_timestamp_family_.Add(labels)},
               },
       });
   return databases_.entries.back().handles;
@@ -1142,10 +1174,139 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   snapshot_recovery_latency_family_.Remove(h.snapshot_recovery_latency_seconds.get());
   gc_latency_family_.Remove(h.gc_latency_seconds.get());
   gc_skiplist_cleanup_latency_family_.Remove(h.gc_skiplist_cleanup_latency_seconds.get());
+  main_commit_timestamp_family_.Remove(h.main_commit_timestamp.get());
   if (default_db_uuid_ && *default_db_uuid_ == uuid) {
     default_db_uuid_.reset();
   }
   databases_.entries.erase(it);
+
+  // Per-(replica instance, db) replication series for this db must also go.
+  auto const db_uuid_str = std::string{uuid};
+  RemoveReplicaSeriesIf([&db_uuid_str](auto const &key) { return key.second == db_uuid_str; });
+}
+
+namespace {
+// State enumerators in a fixed order. The per-(replica, db) one-hot `state` series are created in this
+// order and ReplicaMetricHandles::state is indexed by it, so EnsureReplicaHandles and SetState agree.
+using storage::replication::ReplicaState;
+constexpr std::array<ReplicaState, kNumReplicaStates> kReplicaStates{ReplicaState::READY,
+                                                                     ReplicaState::REPLICATING,
+                                                                     ReplicaState::RECOVERY,
+                                                                     ReplicaState::MAYBE_BEHIND,
+                                                                     ReplicaState::DIVERGED_FROM_MAIN};
+
+// ReplicaStateLabel's switch above is -Wswitch-checked, so adding/reordering a ReplicaState fails the
+// build until handled there. This assert additionally pins kNumReplicaStates (the one-hot array size in
+// the .hpp) to the enum's enumerator count, catching a stale constant before it can truncate the array.
+static_assert(static_cast<std::size_t>(ReplicaState::DIVERGED_FROM_MAIN) + 1 == kNumReplicaStates,
+              "kNumReplicaStates is out of sync with the ReplicaState enum");
+
+constexpr std::string_view ReplicaStateLabel(ReplicaState s) {
+  using enum ReplicaState;
+  switch (s) {
+    case READY:
+      return "READY";
+    case REPLICATING:
+      return "REPLICATING";
+    case RECOVERY:
+      return "RECOVERY";
+    case MAYBE_BEHIND:
+      return "MAYBE_BEHIND";
+    case DIVERGED_FROM_MAIN:
+      return "DIVERGED_FROM_MAIN";
+  }
+  return "UNKNOWN";
+}
+
+std::string_view ModeLabel(replication_coordination_glue::ReplicationMode mode) {
+  using enum replication_coordination_glue::ReplicationMode;
+  switch (mode) {
+    case SYNC:
+      return "sync";
+    case ASYNC:
+      return "async";
+    case STRICT_SYNC:
+      return "strict_sync";
+  }
+  return "unknown";
+}
+
+prometheus::Labels MakeReplicaDbLabels(std::string_view instance, std::string const &db_uuid_str,
+                                       std::string_view db_name, replication_coordination_glue::ReplicationMode mode) {
+  return {{"mg_instance", std::string{instance}},
+          {"database", std::string{db_name}},
+          {"uuid", db_uuid_str},
+          {"sync_mode", std::string{ModeLabel(mode)}}};
+}
+}  // namespace
+
+void ReplicaMetricHandles::SetState(storage::replication::ReplicaState new_state) const {
+  if (state[0] == nullptr) return;  // metrics not registered (e.g. coordinator / metrics disabled)
+  // The five Set() calls are individually atomic but not atomic as a group, so the one-hot invariant is
+  // eventually-consistent, not instantaneous. Zero every other state before raising the new one: a scrape
+  // racing this update may transiently observe zero series at 1, but never two (which would briefly
+  // double-count in ReplicasNotReady / max-by-state alerts).
+  std::size_t active = kReplicaStates.size();
+  for (std::size_t i = 0; i < kReplicaStates.size(); ++i) {
+    if (kReplicaStates[i] == new_state) {
+      active = i;
+      continue;
+    }
+    state[i]->Set(0.0);
+  }
+  if (active < kReplicaStates.size()) state[active]->Set(1.0);
+}
+
+ReplicaMetricHandles &PrometheusMetrics::EnsureReplicaHandles(std::string_view instance, utils::UUID const &db_uuid,
+                                                              std::string_view db_name,
+                                                              replication_coordination_glue::ReplicationMode mode) {
+  auto db_uuid_str = std::string{db_uuid};
+  auto key = std::pair{std::string{instance}, db_uuid_str};
+  std::lock_guard const lock{replica_handles_.mutex};
+  if (auto it = replica_handles_.entries.find(key); it != replica_handles_.entries.end()) return it->second;
+
+  auto const labels = MakeReplicaDbLabels(instance, db_uuid_str, db_name, mode);
+  ReplicaMetricHandles handles;
+  handles.replica_stream_seconds = {&replica_stream_family_.Add(labels, kLatencyBuckets)};
+  handles.start_txn_replication_seconds = {&start_txn_replication_family_.Add(labels, kLatencyBuckets)};
+  handles.finalize_txn_replication_seconds = {&finalize_txn_replication_family_.Add(labels, kLatencyBuckets)};
+  handles.commit_timestamp = {&replica_commit_timestamp_family_.Add(labels)};
+  handles.timestamp_lag = {&replica_timestamp_lag_family_.Add(labels)};
+  handles.lag_seconds = {&replica_lag_seconds_family_.Add(labels)};
+  for (std::size_t i = 0; i < kReplicaStates.size(); ++i) {
+    auto state_labels = labels;
+    state_labels.emplace("state", std::string{ReplicaStateLabel(kReplicaStates[i])});
+    handles.state[i] = &replica_state_family_.Add(state_labels);
+  }
+  auto const it = replica_handles_.entries.emplace(std::move(key), handles).first;
+  return it->second;
+}
+
+void PrometheusMetrics::RemoveReplicaSeriesIf(
+    std::function<bool(std::pair<std::string, std::string> const &)> const &pred) {
+  std::lock_guard const lock{replica_handles_.mutex};
+  for (auto it = replica_handles_.entries.begin(); it != replica_handles_.entries.end();) {
+    if (!pred(it->first)) {
+      ++it;
+      continue;
+    }
+    auto const &h = it->second;
+    replica_stream_family_.Remove(h.replica_stream_seconds.get());
+    start_txn_replication_family_.Remove(h.start_txn_replication_seconds.get());
+    finalize_txn_replication_family_.Remove(h.finalize_txn_replication_seconds.get());
+    replica_commit_timestamp_family_.Remove(h.commit_timestamp.get());
+    replica_timestamp_lag_family_.Remove(h.timestamp_lag.get());
+    replica_lag_seconds_family_.Remove(h.lag_seconds.get());
+    for (auto *g : h.state) {
+      if (g != nullptr) replica_state_family_.Remove(g);
+    }
+    it = replica_handles_.entries.erase(it);
+  }
+}
+
+void PrometheusMetrics::RemoveReplicaInstanceMetrics(std::string_view instance) {
+  std::string const instance_str{instance};
+  RemoveReplicaSeriesIf([&instance_str](auto const &key) { return key.first == instance_str; });
 }
 
 void PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID const &new_uuid) {
@@ -1335,6 +1496,26 @@ void AppendMergedHistogramPercentiles(std::vector<MetricInfo> &out, std::string 
        {std::pair{0.50, "_us_50p"}, std::pair{0.90, "_us_90p"}, std::pair{0.99, "_us_99p"}}) {
     out.push_back({name + label, type, "Histogram", MergedHistogramPercentile(hdatas, quantile) * 1e6});
   }
+}
+
+// Gathers every labeled child histogram in `family` so its series can be merged into a single global
+// percentile for the flat SHOW METRICS INFO / JSON output (OpenMetrics keeps the labeled series).
+std::vector<prometheus::ClientMetric::Histogram> CollectFamilyHistograms(
+    prometheus::Family<prometheus::Histogram> const &family) {
+  std::vector<prometheus::ClientMetric::Histogram> hdatas;
+  for (auto const &mf : family.Collect()) {
+    for (auto const &cm : mf.metric) hdatas.push_back(cm.histogram);
+  }
+  return hdatas;
+}
+
+// Largest gauge value across all labeled series of `family` (0 if there are none).
+double MaxGaugeValue(prometheus::Family<prometheus::Gauge> const &family) {
+  double max_value = 0.0;
+  for (auto const &mf : family.Collect()) {
+    for (auto const &cm : mf.metric) max_value = std::max(max_value, cm.gauge.value);
+  }
+  return max_value;
 }
 
 // Appends per-instance throughput percentiles (bytes/second) for every replica tracked in `throughput`. Unlike the
@@ -1991,6 +2172,30 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   return out;
 }
 
+void PrometheusMetrics::AppendReplicaLagSummaries(std::vector<MetricInfo> &out) const {
+  // Worst logical lag (transactions behind) across all replicas; floored at 0 (a replica that is
+  // ahead due to a snapshot is not "behind").
+  out.push_back({"MaxReplicaTimestampLag",
+                 "HighAvailability",
+                 "Gauge",
+                 static_cast<int64_t>(MaxGaugeValue(replica_timestamp_lag_family_))});
+  // Worst wall-clock lag (seconds behind) across all replicas.
+  out.push_back({"MaxReplicaLagSeconds", "HighAvailability", "Gauge", MaxGaugeValue(replica_lag_seconds_family_)});
+
+  // Number of (replica, database) pairs whose current state is not READY. Each pair has exactly one
+  // one-hot `state` series set to 1 once SetState has run; a freshly-registered replica whose series
+  // are all still 0 (before its first heartbeat) is therefore not counted here.
+  int64_t not_ready = 0;
+  for (auto const &mf : replica_state_family_.Collect()) {
+    for (auto const &cm : mf.metric) {
+      if (cm.gauge.value != 1.0) continue;
+      auto const state_it = r::find_if(cm.label, [](auto const &label) { return label.name == "state"; });
+      if (state_it != cm.label.end() && state_it->value != "READY") ++not_ready;
+    }
+  }
+  out.push_back({"ReplicasNotReady", "HighAvailability", "Gauge", not_ready});
+}
+
 std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   std::vector<MetricInfo> out;
 
@@ -2129,11 +2334,15 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(
       out, "ChooseMostUpToDateInstance", "HighAvailability", *global.choose_most_up_to_date_instance_seconds);
   AppendHistogramPercentiles(out, "SocketConnect", "HighAvailability", *global.socket_connect_seconds);
-  AppendHistogramPercentiles(out, "ReplicaStream", "HighAvailability", *global.replica_stream_seconds);
+  // ReplicaStream / StartTxnReplication / FinalizeTxnReplication are per-(replica, db) labeled series in
+  // OpenMetrics; the flat SHOW METRICS INFO / JSON percentiles are recovered by merging those series.
+  AppendMergedHistogramPercentiles(
+      out, "ReplicaStream", "HighAvailability", CollectFamilyHistograms(replica_stream_family_));
+  AppendMergedHistogramPercentiles(
+      out, "StartTxnReplication", "HighAvailability", CollectFamilyHistograms(start_txn_replication_family_));
+  AppendMergedHistogramPercentiles(
+      out, "FinalizeTxnReplication", "HighAvailability", CollectFamilyHistograms(finalize_txn_replication_family_));
   AppendHistogramPercentiles(out, "DataFailover", "HighAvailability", *global.data_failover_seconds);
-  AppendHistogramPercentiles(out, "StartTxnReplication", "HighAvailability", *global.start_txn_replication_seconds);
-  AppendHistogramPercentiles(
-      out, "FinalizeTxnReplication", "HighAvailability", *global.finalize_txn_replication_seconds);
   AppendHistogramPercentiles(out, "PromoteToMainRpc", "HighAvailability", *global.promote_to_main_rpc_seconds);
   AppendHistogramPercentiles(
       out, "DemoteMainToReplicaRpc", "HighAvailability", *global.demote_main_to_replica_rpc_seconds);
@@ -2159,6 +2368,11 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   // Per-instance replication transfer throughput (bytes/s)
   AppendThroughputPercentiles(out, "SnapshotThroughput", "HighAvailability", snapshot_throughput_);
   AppendThroughputPercentiles(out, "WalThroughput", "HighAvailability", wal_throughput_);
+
+  // Worst-case replication-lag/health summaries. The per-(replica, db) detail is OpenMetrics-only
+  // (it has a label dimension this flat view can't carry); these scalars give SHOW METRICS INFO a
+  // single number to alert on.
+  AppendReplicaLagSummaries(out);
 
   // StorageInfo global/system level (no-db SHOW STORAGE INFO)
   out.push_back({"ShowStorageInfo", "StorageInfo", "Counter", static_cast<int64_t>(global.show_storage_info->Value())});

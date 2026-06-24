@@ -11,6 +11,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <thread>
@@ -36,6 +37,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/replication/recovery.hpp"
+#include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -1974,4 +1976,71 @@ TEST_F(ReplicationTest, EdgeMetadataRecoveredOnReplicaSnapshotTransfer) {
     ASSERT_FALSE(acc->FindEdge(e0_gid, View::OLD).has_value());
     ASSERT_TRUE(acc->FindEdge(e1_gid, View::OLD).has_value());
   }
+}
+
+// Unit tests for the pure wall-clock lag ring buffer behind memgraph_replica_lag_seconds. SampleLag is
+// a static helper taking an injected `now`, so the time-based behaviour is deterministic here.
+namespace {
+using memgraph::storage::ReplicationStorageClient;
+using LagSample = ReplicationStorageClient::LagSample;
+using namespace std::chrono_literals;
+constexpr std::chrono::steady_clock::time_point kT0{};
+}  // namespace
+
+TEST(ReplicationLagSeconds, CaughtUpReportsZeroAndDrains) {
+  std::deque<LagSample> samples;
+  // Main and replica both at 10: the sample is recorded then immediately dropped as already-applied.
+  EXPECT_EQ(ReplicationStorageClient::SampleLag(samples, 10, 10, kT0, 1024), 0.0);
+  EXPECT_TRUE(samples.empty());
+}
+
+TEST(ReplicationLagSeconds, LagGrowsWhileReplicaStuckThenClearsOnCatchUp) {
+  std::deque<LagSample> samples;
+  // Main advances to 100 at kT0 (just recorded -> 0); replica stuck at 50.
+  EXPECT_EQ(ReplicationStorageClient::SampleLag(samples, 100, 50, kT0, 1024), 0.0);
+  // 3s later the main has not advanced (no new sample) and the replica is still behind -> 3s of lag.
+  EXPECT_DOUBLE_EQ(ReplicationStorageClient::SampleLag(samples, 100, 50, kT0 + 3s, 1024), 3.0);
+  // Replica catches up to 100 -> buffer drains, lag back to 0.
+  EXPECT_EQ(ReplicationStorageClient::SampleLag(samples, 100, 100, kT0 + 5s, 1024), 0.0);
+  EXPECT_TRUE(samples.empty());
+}
+
+TEST(ReplicationLagSeconds, CommitAtReplicaTsIsTreatedAsAppliedNotMissing) {
+  // Pins the `<= replica_ts` boundary: a commit whose ts equals the replica's position is applied, so
+  // lag is measured from the next still-missing commit, not from the already-applied one.
+  std::deque<LagSample> samples;
+  ReplicationStorageClient::SampleLag(samples, 80, 0, kT0, 1024);        // record 80 @ kT0
+  ReplicationStorageClient::SampleLag(samples, 100, 0, kT0 + 2s, 1024);  // record 100 @ kT0+2s
+  ASSERT_EQ(samples.size(), 2u);
+  // Replica now at exactly 80: drop the 80 sample, lag = age of commit 100 (recorded at kT0+2s).
+  EXPECT_DOUBLE_EQ(ReplicationStorageClient::SampleLag(samples, 100, 80, kT0 + 5s, 1024), 3.0);
+}
+
+TEST(ReplicationLagSeconds, IdleMainDoesNotGrowBuffer) {
+  std::deque<LagSample> samples;
+  for (int i = 0; i < 10; ++i) {
+    ReplicationStorageClient::SampleLag(samples, 100, 50, kT0 + std::chrono::seconds{i}, 1024);
+  }
+  // Main never advanced past 100, so only a single sample is ever retained.
+  EXPECT_EQ(samples.size(), 1u);
+}
+
+TEST(ReplicationLagSeconds, BufferSaturatesAtMaxSamples) {
+  std::deque<LagSample> samples;
+  constexpr std::size_t kMax = 4;
+  // 10 advancing main commits with the replica stuck at 0: never drained, capped at kMax (oldest evicted).
+  for (uint64_t ts = 1; ts <= 10; ++ts) {
+    ReplicationStorageClient::SampleLag(samples, ts, 0, kT0 + std::chrono::seconds{static_cast<long>(ts)}, kMax);
+  }
+  EXPECT_EQ(samples.size(), kMax);
+  EXPECT_EQ(samples.front().main_ts, 7u);  // newest kMax retained: 7,8,9,10
+  EXPECT_EQ(samples.back().main_ts, 10u);
+}
+
+TEST(ReplicationLagSeconds, ReplicaAheadAfterSnapshotDrainsToZero) {
+  std::deque<LagSample> samples;
+  ReplicationStorageClient::SampleLag(samples, 100, 50, kT0, 1024);  // behind
+  // Snapshot recovery jumps the replica ahead of every recorded main commit -> drains to 0.
+  EXPECT_EQ(ReplicationStorageClient::SampleLag(samples, 100, 200, kT0 + 1s, 1024), 0.0);
+  EXPECT_TRUE(samples.empty());
 }

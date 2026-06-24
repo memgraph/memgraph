@@ -29,6 +29,10 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 file = "instance_metrics"
 
 METRICS_URL = "http://localhost:9095/metrics"
+# Per-data-instance metrics ports — used to scrape the main (instance_3) for replica info.
+DATA_METRICS_URLS = {
+    "instance_3": "http://localhost:9096/metrics",
+}
 INSTANCES = ["instance_1", "instance_2", "instance_3"]
 
 
@@ -74,6 +78,8 @@ def get_memgraph_instances_description(test_name: str):
                 "10013",
                 "--replication-restore-state-on-startup=true",
                 "--data-recovery-on-startup=false",
+                "--metrics-port=9096",
+                "--metrics-format=OpenMetrics",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_3.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_3",
@@ -145,6 +151,101 @@ def test_instance_metrics_present(test_name):
         assert f'memgraph_instance_last_response_seconds{{mg_instance="{instance}"}}' in metrics
 
     assert 'memgraph_instance_is_leader{mg_instance="coordinator_1"}' in metrics
+
+
+def _scrape(url):
+    with urllib.request.urlopen(url) as response:
+        return response.read().decode("utf-8")
+
+
+def test_replica_info_metrics_on_main(test_name):
+    """Tasks 1 + 3: per-(instance, db) replication latency histograms and replica info gauges."""
+    setup_test(test_name)
+
+    expected_instances = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
+    ]
+    coord = connect(host="localhost", port=7690).cursor()
+    mg_sleep_and_assert(expected_instances, partial(show_instances, coord))
+
+    # Drive write traffic to the main so replication observations fire.
+    main = connect(host="localhost", port=7687).cursor()
+    for _ in range(5):
+        execute_and_fetch_all(main, "CREATE (:Node {v: 1})")
+
+    def all_replica_info_present():
+        body = _scrape(DATA_METRICS_URLS["instance_3"])
+        for replica in ("instance_1", "instance_2"):
+            # Histogram bucket entries carry all labels; checking for the shared prefix is enough
+            # (OpenMetrics emits labels alphabetically: database, mg_instance, sync_mode, uuid).
+            prefix_replica_stream = (
+                f'memgraph_replica_stream_seconds_bucket{{database="memgraph",mg_instance="{replica}"'
+            )
+            prefix_start = f'memgraph_start_txn_replication_seconds_bucket{{database="memgraph",mg_instance="{replica}"'
+            prefix_finalize = (
+                f'memgraph_finalize_txn_replication_seconds_bucket{{database="memgraph",mg_instance="{replica}"'
+            )
+            # Time-based lag gauge (Gap 1) and the sync_mode label (Gap 5). instance_3 registers its
+            # replicas as SYNC, so the series carry sync_mode="sync".
+            lag_seconds = f'memgraph_replica_lag_seconds{{database="memgraph",mg_instance="{replica}",sync_mode="sync"'
+            # mg_instance < state < sync_mode alphabetically, so this substring is order-stable.
+            ready_line = f'memgraph_replica_state{{database="memgraph",mg_instance="{replica}",state="READY"'
+            if not all(
+                p in body for p in (prefix_replica_stream, prefix_start, prefix_finalize, lag_seconds, ready_line)
+            ):
+                return False
+        return 'memgraph_main_commit_timestamp{database="memgraph"' in body
+
+    mg_sleep_and_assert(True, all_replica_info_present)
+
+
+# All four instances up, instance_3 as main — shared by the cleanup tests below.
+EXPECTED_INSTANCES_UP = [
+    ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+    ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
+    ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
+    ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
+]
+
+
+def _main_metrics():
+    return _scrape(DATA_METRICS_URLS["instance_3"])
+
+
+def _replica_series_present(body, replica):
+    # OpenMetrics emits labels alphabetically: database, mg_instance, uuid.
+    return f'memgraph_replica_commit_timestamp{{database="memgraph",mg_instance="{replica}"' in body
+
+
+def test_replica_metrics_removed_on_unregister(test_name):
+    """DROP REPLICA path: UNREGISTER INSTANCE drops that replica's series via RemoveReplicaInstanceMetrics."""
+    coord = setup_test(test_name)
+    mg_sleep_and_assert(EXPECTED_INSTANCES_UP, partial(show_instances, coord))
+
+    main = connect(host="localhost", port=7687).cursor()
+    for _ in range(5):
+        execute_and_fetch_all(main, "CREATE (:Node {v: 1})")
+
+    # Both replicas have series on the main's scrape.
+    def both_present():
+        body = _main_metrics()
+        return _replica_series_present(body, "instance_1") and _replica_series_present(body, "instance_2")
+
+    mg_sleep_and_assert(True, both_present)
+
+    # Kill then unregister instance_1 (mirrors coord_cluster_registration.py).
+    interactive_mg_runner.kill(get_memgraph_instances_description(test_name), "instance_1")
+    execute_and_fetch_all(coord, "UNREGISTER INSTANCE instance_1")
+
+    # instance_1's series are dropped from the main; instance_2's remain.
+    def only_instance_2():
+        body = _main_metrics()
+        return not _replica_series_present(body, "instance_1") and _replica_series_present(body, "instance_2")
+
+    mg_sleep_and_assert(True, only_instance_2)
 
 
 if __name__ == "__main__":
