@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <coroutine>
 #include <memory>
 #include <type_traits>
 
@@ -80,12 +81,27 @@ std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string> &labe
 
 std::vector<storage::EdgeTypeId> NamesToEdgeTypes(const std::vector<std::string> &edgetype_names, DbAccessor *dba);
 
+/// Result of a throttled stop-check: continue executing, abort (with reason), or yield the worker.
+/// Used by StoppingContext::CheckAbortOrYield at the same call sites as AbortCheck so the execution
+/// layer can honour both transaction abort AND scheduler-driven cooperative yield in one check.
+struct StopOrYieldResult {
+  enum class Action { Continue, Abort, Yield };
+  Action action{Action::Continue};
+  AbortReason abort_reason{AbortReason::NO_ABORT};  // meaningful only when action == Abort
+};
+
 struct StoppingContext {
   // Even though this is called `StoppingContext`. TransactionStatus is used for more
   std::atomic<TransactionStatus> *transaction_status{nullptr};
   std::atomic<bool> *is_shutting_down{nullptr};
   std::shared_ptr<utils::AsyncTimer> timer{};
   std::shared_ptr<std::atomic<uint8_t>> exception_occurred{nullptr};  // Used only for parallel execution
+
+  /// Per-worker cooperative-yield flag (points into WorkerYieldRegistry's signal block; nullptr when not
+  /// running on a scheduler worker). The scheduler sets it to ask the running task to yield its worker at
+  /// the next check point; the task suspends there and the pool reschedules it. nullptr => never yields,
+  /// i.e. legacy behaviour. Wired by the runner in a later PR; null here so this is a pure no-op now.
+  std::atomic<bool> *yield_requested{nullptr};
 
   auto MustAbort() const noexcept -> AbortReason {
     if (transaction_status && transaction_status->load(std::memory_order_acquire) == TransactionStatus::TERMINATED)
@@ -102,6 +118,29 @@ struct StoppingContext {
       return AbortReason::EXCEPTION;
     }
     return AbortReason::NO_ABORT;
+  }
+
+  /// True if the scheduler has asked the running task to yield its worker. Cheap atomic load; only
+  /// consulted when the throttling counter allows (see CheckAbortOrYield). nullptr => never yields.
+  auto ShouldYield() const noexcept -> bool {
+    return yield_requested && yield_requested->load(std::memory_order_acquire);
+  }
+
+  /// Combined throttled check for the execution layer. When maybe_check() fires, returns Abort (with
+  /// reason) if the query must stop, else Yield if the scheduler requested it, else Continue. Abort
+  /// strictly precedes Yield (a terminated/timed-out query must not be politely rescheduled). Off the
+  /// throttle it returns Continue without touching the abort/yield state. Not thread-safe wrt maybe_check.
+  auto CheckAbortOrYield(utils::ResettableCounter &maybe_check) const noexcept -> StopOrYieldResult {
+    if (!maybe_check()) {
+      return {StopOrYieldResult::Action::Continue, AbortReason::NO_ABORT};
+    }
+    if (auto const reason = MustAbort(); reason != AbortReason::NO_ABORT) [[unlikely]] {
+      return {StopOrYieldResult::Action::Abort, reason};
+    }
+    if (ShouldYield()) [[unlikely]] {
+      return {StopOrYieldResult::Action::Yield, AbortReason::NO_ABORT};
+    }
+    return {StopOrYieldResult::Action::Continue, AbortReason::NO_ABORT};
   }
 
   auto MakeMaybeAborter(std::size_t n = 20) const noexcept {
@@ -139,6 +178,20 @@ struct ExecutionContext {
   // allocations still attribute to the parent DB.
   memgraph::memory::ArenaPool *db_arena_pool{nullptr};
   metrics::DatabaseMetricHandles *metric_handles{nullptr};
+
+  /// Cooperative-yield channel (the IRREDUCIBLE leaf->driver link). When a coroutine yields at a
+  /// YieldPointAwaitable deep in the pull chain, await_suspend stores the suspended LEAF handle here so
+  /// the seam driver can resume that exact frame on the next step. Points at a slot OWNED by the active
+  /// pull driver (set/cleared by the driver's RAII scope, not by callers) — nullptr when no driver is
+  /// active or yield is suppressed (e.g. a synchronous nested sub-pull). nullptr here (no driver wires
+  /// it yet), so this is a pure no-op until the scheduler/driver PR lands.
+  std::coroutine_handle<> *suspended_task_handle_ptr{nullptr};
+
+  /// True while an Enabled PullDriverScope is active on THIS context. Guards against two Enabled drivers
+  /// fighting over suspended_task_handle_ptr on the same context. Per-context (NOT thread_local) so a
+  /// parked query that yielded with its driver alive does not false-trip the guard when another query
+  /// runs on the same worker. Suppressed scopes do not touch it.
+  bool enabled_driver_active{false};
 
   auto commit_args() -> storage::CommitArgs;
 };

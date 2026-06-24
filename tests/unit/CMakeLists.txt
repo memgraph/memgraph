@@ -136,6 +136,14 @@ add_unit_test(query_plan
     LINK_TARGETS mg-query
 )
 
+# Coroutine pull runtime (dormant): YieldPointAwaitable, ResumePullStep (yield path), and
+# PullDriverScope exercised in isolation via a hand-written fake coroutine chain. No
+# DB/storage/interpreter/Cursor-seam deps — mg-query provides cursor_awaitable.cpp + context.cpp.
+add_unit_test(cursor_yield
+    SOURCES cursor_yield.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_plan_orderby_index
     SOURCES query_plan_orderby_index.cpp
     LINK_TARGETS mg-query
