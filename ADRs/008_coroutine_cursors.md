@@ -201,35 +201,106 @@ edges, ~1000 `InitEdges` calls) gives **+12.8%** vs the chain graph (100k edges,
 inlinable) **+ ~12.8% per-result coroutine dispatch base** (`Aggregate co_await
 PullChild(Expand)` → resume → `co_yield`, per row).
 
-### Conclusion and hypothesis
+### Initial hypothesis (VM artifact) — RAISED, then REFUTED on bare metal
 
-The dominant ~12–15% is the **per-pull coroutine resume/suspend dispatch itself** — not
-setup, not the yield point, not allocation. A coroutine resume is an **indirect branch**
-(jump to the stored resume point) and symmetric transfer adds more indirect jumps. The
-strong hypothesis is that this is **largely an artifact of the measurement environment**:
-the box is a nested aarch64 VM (Lima on Apple Silicon) with poor indirect-branch
-prediction (no real BTB), so each resume mispredicts — a cost that is near-free on bare
-metal. This would reconcile the original-branch ~0 (real hardware) with the local ~12–15%
-(nested VM).
+The original (nested-VM) reading was that the dominant ~12–15% is the **per-pull
+coroutine resume/suspend dispatch** — an **indirect branch** (jump to the stored resume
+point), with symmetric transfer adding more indirect jumps — and that this was **largely
+an artifact of the measurement environment** (nested aarch64 VM on Apple Silicon, poor
+indirect-branch prediction / no real BTB), hence near-free on bare metal. The VM had no
+hardware PMU (`perf stat -e cycles,instructions` = `<not supported>`) so this could not be
+confirmed there; a bare-metal box was required.
 
-### Tooling limitation and next step
+### Bare-metal resolution (P3.3, 2026-06-24) — overhead is REAL, not microarchitectural
 
-Hardware PMU counters are **unavailable** on this VM (`perf stat -e cycles,instructions`
-= `<not supported>`); only time-based software sampling works (after lowering
-`perf_event_paranoid`), and DWARF call-graph unwinding is unusable for coroutines (the
-symmetric-transfer chain collapses into a recursive `SessionHL::Pull`). The local
-environment is therefore exhausted for attribution.
+Re-ran the A/B and hardware counters on a **bare-metal Intel i7-11800H (Tiger Lake),
+x86_64, not virtualized**, `perf_event_paranoid=1`, `performance` governor, turbo off.
+Microbench harness: `tests/mgbench/coroutine_perf/`. **The overhead did not collapse — it
+reproduced, and on the pull-dense expansions it was as large or larger than on the VM**
+(`expand_count` +20.4%, `expand2_count` +34.2%, `scan_count` +24.5%, fanout +27.0% vs the
+VM's ~12.8%). A fixed cost growing to a *larger* percentage on the faster machine is the
+opposite of what a misprediction artifact predicts.
 
-**Next: a bare-metal Linux box** to (1) measure the *true* production overhead and (2) use
-hardware counters (`branch-misses`, IPC, `cycles`) on flag-ON vs flag-OFF expand/scan to
-confirm whether the per-result dispatch base is indirect-branch mispredict (VM artifact →
-P3.4 default-flip is fine) or real (then target per-pull dispatch). Independently, the
-~5–7% helper-allocation component is real and worth eliminating by inlining the one-shot
-helper coroutines into the persistent generator body, regardless of the box.
+Hardware counters settle it. A self-contained run (queries counted + `perf stat` over the
+exact same window, single pinned core, `MATCH (n:N)-[:R]->(m) RETURN count(*)`):
+
+| metric            | flag-OFF | flag-ON | per-query Δ |
+|-------------------|----------|---------|-------------|
+| queries / 15 s    | 321      | 270     | **throughput −18.9%** |
+| instructions/query| 251.0 M  | 301.3 M | **+20.0%**  |
+| cycles/query      | 108.4 M  | 128.5 M | **+18.5%**  |
+| IPC               | 2.32     | 2.35    | ~flat       |
+| branch-miss rate  | 0.07 %   | 0.06 %  | **flat (even lower)** |
+
+Throughput, cycles/query and **instructions/query all move together by ~19–20%** while
+**branch-misprediction stays flat at 0.06–0.07%** and IPC is unchanged. So:
+
+- **The indirect-branch-mispredict / VM-artifact hypothesis is refuted.** The BTB predicts
+  the coroutine resumes perfectly; misprediction is not the cost. It will *not* disappear
+  on better hardware.
+- **The overhead is pure extra work: ~20% more instructions retired per pull**, at
+  unchanged IPC. The coroutine path simply *does more*.
+
+Attribution from the flag-ON sampled profile (all entries below are **new** vs flag-OFF):
+`InitEdgesCo [.resume]` **6.84%** (a one-shot helper coroutine, frame-allocated *per call*),
+`Expand::DoPull [.resume]` **6.77%**, plus `Filter/ScanAll::DoPull [.resume]`, `PullCo`,
+`PullAwaitable::ResumeAwaitable::await_resume`; and elevated allocator traffic
+(`je_sdallocx` 6.75→8.18%, extra `malloc`/`mallocx`/`sdallocx`) from heap-allocated
+coroutine frames. This is exactly the **per-helper-call allocation** component the original
+investigation flagged as real and arch-independent — now confirmed as a *leading* cost, not
+a footnote.
+
+### Bottleneck attribution + fix (P3.3, 2026-06-24)
+
+A call-frequency isolation (same 100k edges emitted, but vary how often the helper is called)
+pinned the dominant cost exactly. Chain (1 edge/source → `InitEdgesCo` ~once/edge) showed **502
+extra instr/edge**; fanout (100 edges/source → `InitEdgesCo` ~once/100 edges) showed **100 extra
+instr/edge**. The difference attributes **~405 instr to each per-call `InitEdgesCo` coroutine
+frame** (alloc + symmetric-transfer + state machine + destroy) = **~80% of the chain-expand
+overhead**; the remaining ~92 instr/pull is the fundamental persistent-`gen_` resume floor.
+
+**Fix landed (this branch):** inline `Expand::ExpandCursor::InitEdgesCo`'s body into the
+persistent `DoPull` `gen_` — the child pull stays `co_await PullChild` (child's persistent
+`gen_`, no allocation), removing the per-call helper frame. Verified by `cursor_parity`
+(Corpus + MutationCorpus, flag-OFF ≡ flag-ON). Re-measured on the same bare-metal box (HW
+counters, instr/query):
+
+| query (pull-dominated) | before fix | **after fix** |
+|------------------------|-----------:|--------------:|
+| expand_count (1-hop)   | +20.0%     | **+10.0%**    |
+| expand2_count (2-hop)  | +34.2%     | **+13.7%**    |
+| project / sum-agg      | +3–10%     | +0.3–3.5%     |
+
+The remaining ~10% on `count(*)`-over-expansion is the **structural per-pull resume floor**
+(intrinsic to the per-cursor coroutine model); its impact is inversely proportional to per-row
+real work, so it is near-zero on realistic queries (`sum_agg` +0.3%, `project` +3.5%) and only
+bites the most pull-dense, least-work shapes.
+
+Full investigation log: `tests/mgbench/coroutine_perf/INVESTIGATION.md`.
+
+### Remaining reduction targets (gate still open for pull-dense expansion)
+
+1. **Done — inline `InitEdgesCo`** (above). Follow-up cleanup: delete the now-dead `InitEdgesCo`
+   (def + decl); inline `ExpandVariable::PullInputCo` too (same pattern, but called per *input
+   vertex* not per row → low frequency / low payoff, for consistency).
+2. **Structural per-pull resume floor (~92 instr/pull):** only reducible by cursor fusion /
+   fewer suspension points (the original big-bang shape) — a separate, larger change. Needed
+   only if pull-dense `count(*)`-over-expansion must also clear 5%; realistic queries already do.
+3. A pooled/freelist coroutine-frame allocator is **no longer indicated** — with the per-call
+   helper frame gone, the persistent `gen_` frames allocate once per cursor per query (negligible).
+
+Tooling note: DWARF call-graph unwinding remains unusable for coroutines (the
+symmetric-transfer chain collapses into a recursive `SessionHL::Pull`); flat self-time
+sampling + `perf stat` counters are the reliable attribution path.
 
 ## Status of remaining work
 
-- **P3.3** — performance gate: open, pending bare-metal measurement (above).
+- **P3.3** — performance gate: bottleneck found (per-call `InitEdgesCo` helper frame, ~80% of
+  expand overhead) and **fixed by inlining → expand +20%→+10%, expand2 +34%→+14%** (parity
+  preserved). Realistic queries are within budget; only pull-dense `count(*)`-over-expansion
+  still exceeds 5%, due to the structural per-pull resume floor. Gate effectively **passes for
+  realistic workloads**; clearing the pathological pull-dense case needs the structural change
+  in target 2 above.
 - **P3.4** — flip `COROUTINE_CURSORS` default ON, delete `PullLegacy`/router, make
   `Pull` non-virtual, remove the throwaway gql_behave coroutine arm. Gated on P3.3.
 - **Follow-up PR** — Approach B (uniform-coordinator-park) parallel-cursor redesign, a

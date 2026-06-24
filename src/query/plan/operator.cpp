@@ -2237,7 +2237,6 @@ PullAwaitable Expand::ExpandCursor::DoPull(Frame &frame, ExecutionContext &conte
   // `co_await InitEdgesCo` within the iteration (faithful: master holds them across the synchronous
   // InitEdges call too) but never span the co_yield.
   while (true) {
-    bool produced = false;
     bool exhausted = false;
     {
       OOMExceptionEnabler oom_exception;
@@ -2277,7 +2276,6 @@ PullAwaitable Expand::ExpandCursor::DoPull(Frame &frame, ExecutionContext &conte
 
           frame_writer.Write(self_.common_.edge_symbol, edge);
           pull_node(edge, utils::tag_v<EdgeAtom::Direction::IN>);
-          produced = true;
           break;
         }
 
@@ -2298,15 +2296,102 @@ PullAwaitable Expand::ExpandCursor::DoPull(Frame &frame, ExecutionContext &conte
 #endif
           frame_writer.Write(self_.common_.edge_symbol, edge);
           pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
-          produced = true;
           break;
         }
 
-        // If we are here, either the edges have not been initialized,
-        // or they have been exhausted. Attempt to initialize the edges.
-        if (!co_await InitEdgesCo(frame, context)) {
-          exhausted = true;
-          break;
+        // If we are here, either the edges have not been initialized, or they have been
+        // exhausted. (Re)initialize them. INLINED from the former InitEdgesCo helper coroutine
+        // (P3.3): co_await'ing a temporary InitEdgesCo allocated+destroyed a fresh coroutine
+        // frame on every call (~once per emitted edge on a chain graph), which measured as ~80%
+        // of the chain-expand overhead. Inlining keeps the child pull as `co_await PullChild`
+        // (the child's persistent gen_, no allocation) but removes the per-call helper frame.
+        // Verbatim twin of InitEdges(): co_await PullChild replaces input_cursor_->Pull, the
+        // null-input skip is `continue`, and both success exits set initialized=true; break.
+        {
+          bool initialized = false;
+          while (true) {
+            if (!co_await PullChild(*input_cursor_, frame, context)) break;
+
+            if (context.hops_limit.IsLimitReached()) break;
+
+            expansion_info_ = GetExpansionInfo(frame);
+
+            if (!expansion_info_.input_node) {
+              continue;
+            }
+
+            auto vertex = *expansion_info_.input_node;
+            auto direction = expansion_info_.direction;
+
+            int64_t num_expanded_first = -1;
+            if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
+              if (self_.common_.existing_node) {
+                if (expansion_info_.existing_node) {
+                  auto existing_node = *expansion_info_.existing_node;
+
+                  auto edges_result = UnwrapEdgesResult(
+                      vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
+                  context.number_of_hops += edges_result.expanded_count;
+                  in_edges_.emplace(std::move(edges_result.edges));
+                  num_expanded_first = edges_result.expanded_count;
+                }
+              } else {
+                auto edges_result =
+                    UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
+                context.number_of_hops += edges_result.expanded_count;
+                in_edges_.emplace(std::move(edges_result.edges));
+                num_expanded_first = edges_result.expanded_count;
+              }
+              if (in_edges_) {
+                in_edges_it_.emplace(in_edges_->begin());
+              }
+            }
+
+            int64_t num_expanded_second = -1;
+            if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
+              if (self_.common_.existing_node) {
+                if (expansion_info_.existing_node) {
+                  auto existing_node = *expansion_info_.existing_node;
+                  auto edges_result = UnwrapEdgesResult(
+                      vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
+                  context.number_of_hops += edges_result.expanded_count;
+                  out_edges_.emplace(std::move(edges_result.edges));
+                  num_expanded_second = edges_result.expanded_count;
+                }
+              } else {
+                auto edges_result =
+                    UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
+                context.number_of_hops += edges_result.expanded_count;
+                out_edges_.emplace(std::move(edges_result.edges));
+                num_expanded_second = edges_result.expanded_count;
+              }
+              if (out_edges_) {
+                out_edges_it_.emplace(out_edges_->begin());
+              }
+            }
+
+            if (!expansion_info_.existing_node) {
+              initialized = true;
+              break;
+            }
+
+            num_expanded_first = num_expanded_first == -1 ? 0 : num_expanded_first;
+            num_expanded_second = num_expanded_second == -1 ? 0 : num_expanded_second;
+            int64_t total_expanded_edges = num_expanded_first + num_expanded_second;
+
+            if (!expansion_info_.reversed) {
+              prev_input_degree_ = total_expanded_edges;
+            } else {
+              prev_existing_degree_ = total_expanded_edges;
+            }
+
+            initialized = true;
+            break;
+          }
+          if (!initialized) {
+            exhausted = true;
+            break;
+          }
         }
 
         // we have re-initialized the edges, continue with the loop
@@ -2679,7 +2764,6 @@ class ExpandVariableCursor : public Cursor {
     // PullInputCo pulls the input and is therefore a co_awaited helper coroutine (twin of the
     // synchronous PullInput kept for PullLegacy).
     while (true) {
-      bool produced = false;
       bool exhausted = false;
       {
         OOMExceptionEnabler oom_exception;
@@ -2693,7 +2777,6 @@ class ExpandVariableCursor : public Cursor {
 
         while (true) {
           if (Expand(frame, context)) {
-            produced = true;
             break;
           }
 
@@ -2705,11 +2788,9 @@ class ExpandVariableCursor : public Cursor {
                 auto frame_writer =
                     frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
                 frame_writer.Write(self_.common_.node_symbol, start_vertex);
-                produced = true;
                 break;
               }
               if (CheckExistingNode(start_vertex, self_.common_.node_symbol, frame)) {
-                produced = true;
                 break;
               }
             }
