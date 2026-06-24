@@ -514,3 +514,32 @@ thrown-then-done case). Applied to `src/query/plan/cursor_awaitable_core.hpp`, p
 the LIMIT of safe framework-leaning in the kernel — the rest of the per-crossing cost is the
 load-bearing protocol + the irreducible mem-op floor. Cumulative chain-expand: original
 all-coroutine +20.0% → helper-frame inline +10.0% → lean await_resume +8.5%.
+
+---
+
+## EXP-12 — can the hybrid avoid maintaining two pull bodies per cursor?
+
+Hard constraint: `co_await`/`co_yield`/`co_return` are keywords that MAKE a function a coroutine;
+they cannot be templated / `if constexpr`'d away. A fast (non-coroutine) cursor therefore needs a
+`co_*`-free body. No single function compiles to both a coroutine and a plain function.
+
+But the two bodies need not be hand-maintained — write the logic ONCE, generate both:
+- **Single-source via control-point hooks (validated, `single_source_poc.cpp`):** the operator body
+  lives once in a macro/`.inc`; the sync `bool Pull()` and the coroutine `Body()` are thin
+  instantiations differing only in 3 hooks — `PULL_EXPR` (`child->Pull()` vs `co_await
+  PullChild(...)`), `EMIT` (`return true` vs `co_yield true`), `DONE` (`return false` vs
+  `co_return false`). PoC: one `FILTER_BODY` → a sync filter and a coroutine filter, byte-identical
+  results. Parity becomes STRUCTURAL (same source text), not a hoped-for test. Cost: macro/`.inc`
+  ergonomics + debugger line-info on the hottest code.
+- **Codegen step:** a build-time generator emits both from one description — cleaner call sites, new
+  build dependency.
+
+**Better: question whether the dual body is needed at all.** The duplication is forced ONLY because
+non-breaker cursors (filter/produce/scan/expand) must have a coroutine mode to RELAY an on-disk leaf
+PARK up the stackless chain (ancestor-closure). If the on-disk design instead avoids per-access
+blocking — async read-ahead / prefetch at the storage layer so leaf scans rarely block — then leaves
+do not park mid-pull, nothing needs to relay, and ONLY pipeline breakers are coroutines (written once,
+as coroutines; they are always coroutines). Every other cursor stays a plain sync `Pull()` — ONE body,
+no macros, no codegen. This aligns with EXP-7 (dispatch is moot on-disk anyway) and is how many disk
+engines handle I/O. Net: the cleanest path to the hybrid with NO dual-body burden is "prefetch, don't
+park, at the storage layer" + coroutines confined to breakers — not a code-generation trick.
