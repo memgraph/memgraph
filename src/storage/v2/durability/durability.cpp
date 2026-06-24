@@ -34,6 +34,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
@@ -47,6 +48,7 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 #include "utils/startup_failure.hpp"
+#include "utils/timer.hpp"
 
 #include "fmt/format.h"
 
@@ -257,18 +259,141 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
+  auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
+  auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
+  auto *mem_edge_type_property_index =
+      static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
+  auto *mem_edge_property_index = static_cast<InMemoryEdgePropertyIndex *>(indices->edge_property_index_.get());
   auto updater = indices->MakeUpdater();
-  // Recover label indices.
-  {
-    spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
-    for (const auto &item : indices_metadata.label) {
-      if (!mem_label_index->CreateIndexOnePass(item, vertices->access(), parallel_exec_info, updater, snapshot_info)) {
-        throw RecoveryFailure("The label index must be created here!");
-      }
-      spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+
+  MG_ASSERT(indices_metadata.edge.empty() || properties_on_edges,
+            "Trying to recover edge type indices while properties on edges are disabled.");
+  MG_ASSERT(indices_metadata.edge_type_property.empty() || properties_on_edges,
+            "Trying to recover edge type+property indices while properties on edges are disabled.");
+  MG_ASSERT(indices_metadata.edge_property.empty() || properties_on_edges,
+            "Trying to recover global edge property indices while properties on edges are disabled.");
+
+  // Phase 1: register every vertex-walking index and collect a per-index inserter factory. All of
+  // these indices (label, label+property, edge-type, edge-type+property, global edge-property) are
+  // populated by walking the vertices, so they are filled in a single shared pass below instead of
+  // one pass per index.
+  std::vector<IndexInserterFactory> inserter_factories;
+  inserter_factories.reserve(indices_metadata.label.size() + indices_metadata.label_properties.size() +
+                             indices_metadata.label_properties_desc.size() + indices_metadata.edge.size() +
+                             indices_metadata.edge_type_property.size() + indices_metadata.edge_property.size());
+
+  spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
+  for (const auto &item : indices_metadata.label) {
+    if (!mem_label_index->RegisterIndex(item, updater)) {
+      throw RecoveryFailure("The label index must be created here!");
     }
-    spdlog::info("Label indices are recreated.");
+    inserter_factories.emplace_back(mem_label_index->GetPopulateInserter(item, snapshot_info));
   }
+
+  spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
+  for (auto const &[label, properties] : indices_metadata.label_properties) {
+    if (!mem_label_property_index->RegisterIndex(label, properties, updater)) {
+      throw RecoveryFailure("The label+property index must be created here!");
+    }
+    inserter_factories.emplace_back(
+        mem_label_property_index->GetPopulateInserter(label, properties, IndexOrder::ASC, snapshot_info));
+  }
+
+  spdlog::info("Recreating {} DESC label+property indices from metadata.",
+               indices_metadata.label_properties_desc.size());
+  for (auto const &[label, properties] : indices_metadata.label_properties_desc) {
+    if (!mem_label_property_index->RegisterIndex(label, properties, updater, IndexOrder::DESC)) {
+      throw RecoveryFailure("The DESC label+property index must be created here!");
+    }
+    inserter_factories.emplace_back(
+        mem_label_property_index->GetPopulateInserter(label, properties, IndexOrder::DESC, snapshot_info));
+  }
+
+  spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
+  for (const auto &item : indices_metadata.edge) {
+    if (!mem_edge_type_index->RegisterIndex(item, updater)) {
+      throw RecoveryFailure("The edge-type index must be created here!");
+    }
+    inserter_factories.emplace_back(mem_edge_type_index->GetPopulateInserter(item, snapshot_info));
+  }
+
+  spdlog::info("Recreating {} edge-type + property indices from metadata.", indices_metadata.edge_type_property.size());
+  for (const auto &item : indices_metadata.edge_type_property) {
+    if (!mem_edge_type_property_index->RegisterIndex(item.first, item.second, updater)) {
+      throw RecoveryFailure("The edge-type property index must be created here!");
+    }
+    inserter_factories.emplace_back(
+        mem_edge_type_property_index->GetPopulateInserter(item.first, item.second, snapshot_info));
+  }
+
+  spdlog::info("Recreating {} global edge property indices from metadata.", indices_metadata.edge_property.size());
+  for (const auto &property : indices_metadata.edge_property) {
+    if (!mem_edge_property_index->RegisterIndex(property, updater)) {
+      throw RecoveryFailure("The global edge property index must be created here!");
+    }
+    inserter_factories.emplace_back(mem_edge_property_index->GetPopulateInserter(property, snapshot_info));
+  }
+
+  // Phase 2: populate all registered indices in a single (optionally parallel) pass over the
+  // vertices. Each vertex - and, for edge indices, each out-edge - is visited exactly once.
+  spdlog::info("Populating {} indices in a single pass over the vertices.", inserter_factories.size());
+  PopulateIndicesSinglePass(vertices->access(), inserter_factories, parallel_exec_info);
+
+  // Phase 3: publish every populated index so it becomes visible to all transactions.
+  for (const auto &item : indices_metadata.label) {
+    if (!mem_label_index->PublishIndex(item, 0)) {
+      throw RecoveryFailure("The label index must be created here!");
+    }
+    spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+  }
+  spdlog::info("Label indices are recreated.");
+
+  for (auto const &[label, properties] : indices_metadata.label_properties) {
+    if (!mem_label_property_index->PublishIndex(label, properties, 0)) {
+      throw RecoveryFailure("The label+property index must be created here!");
+    }
+    spdlog::info("Index on :{}({}) is recreated from metadata",
+                 name_id_mapper->IdToName(label.AsUint()),
+                 PropertyPathFormatter{properties, name_id_mapper});
+  }
+  spdlog::info("Label+property indices are recreated.");
+
+  for (auto const &[label, properties] : indices_metadata.label_properties_desc) {
+    if (!mem_label_property_index->PublishIndex(label, properties, 0, IndexOrder::DESC)) {
+      throw RecoveryFailure("The DESC label+property index must be created here!");
+    }
+    spdlog::info("DESC index on :{}({}) is recreated from metadata",
+                 name_id_mapper->IdToName(label.AsUint()),
+                 PropertyPathFormatter{.data = properties, .name_mapper = name_id_mapper});
+  }
+  spdlog::info("DESC label+property indices are recreated.");
+
+  for (const auto &item : indices_metadata.edge) {
+    if (!mem_edge_type_index->PublishIndex(item, 0)) {
+      throw RecoveryFailure("The edge-type index must be created here!");
+    }
+    spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+  }
+  spdlog::info("Edge-type indices are recreated.");
+
+  for (const auto &item : indices_metadata.edge_type_property) {
+    if (!mem_edge_type_property_index->PublishIndex(item.first, item.second, 0)) {
+      throw RecoveryFailure("The edge-type property index must be created here!");
+    }
+    spdlog::info("Index on :{} + {} is recreated from metadata",
+                 name_id_mapper->IdToName(item.first.AsUint()),
+                 name_id_mapper->IdToName(item.second.AsUint()));
+  }
+  spdlog::info("Edge-type + property indices are recreated.");
+
+  for (const auto &property : indices_metadata.edge_property) {
+    if (!mem_edge_property_index->PublishIndex(property, 0)) {
+      throw RecoveryFailure("The global edge property index must be created here!");
+    }
+    spdlog::info("Edge index on property {} is recreated from metadata", name_id_mapper->IdToName(property.AsUint()));
+  }
+  spdlog::info("Global edge property indices are recreated.");
+
   // Recover label indices statistics.
   {
     spdlog::info("Recreating {} label index statistics from metadata.", indices_metadata.label_stats.size());
@@ -278,36 +403,6 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
                    name_id_mapper->IdToName(item.first.AsUint()));
     }
     spdlog::info("Label indices statistics are recreated.");
-  }
-
-  // Recover label+property indices.
-  auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
-  {
-    spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
-    for (auto const &[label, properties] : indices_metadata.label_properties) {
-      if (!mem_label_property_index->CreateIndexOnePass(
-              label, properties, vertices->access(), parallel_exec_info, updater, snapshot_info))
-        throw RecoveryFailure("The label+property index must be created here!");
-      spdlog::info("Index on :{}({}) is recreated from metadata",
-                   name_id_mapper->IdToName(label.AsUint()),
-                   PropertyPathFormatter{properties, name_id_mapper});
-    }
-    spdlog::info("Label+property indices are recreated.");
-  }
-
-  // Recover DESC label+property indices.
-  {
-    spdlog::info("Recreating {} DESC label+property indices from metadata.",
-                 indices_metadata.label_properties_desc.size());
-    for (auto const &[label, properties] : indices_metadata.label_properties_desc) {
-      if (!mem_label_property_index->CreateIndexOnePass(
-              label, properties, vertices->access(), parallel_exec_info, updater, snapshot_info, IndexOrder::DESC))
-        throw RecoveryFailure("The DESC label+property index must be created here!");
-      spdlog::info("DESC index on :{}({}) is recreated from metadata",
-                   name_id_mapper->IdToName(label.AsUint()),
-                   PropertyPathFormatter{.data = properties, .name_mapper = name_id_mapper});
-    }
-    spdlog::info("DESC label+property indices are recreated.");
   }
 
   // Recover label+property indices statistics.
@@ -324,74 +419,54 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Label+property indices statistics are recreated.");
   }
 
-  // Recover edge-type indices.
-  {
-    spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
-    auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
-    MG_ASSERT(indices_metadata.edge.empty() || properties_on_edges,
-              "Trying to recover edge type indices while properties on edges are disabled.");
-
-    for (const auto &item : indices_metadata.edge) {
-      // TODO: parallel execution
-      if (!mem_edge_type_index->CreateIndexOnePass(item, vertices->access(), updater, snapshot_info)) {
-        throw RecoveryFailure("The edge-type index must be created here!");
-      }
-      spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
-    }
-    spdlog::info("Edge-type indices are recreated.");
-  }
-
-  // Recover edge-type + property indices.
-  spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge_type_property.size());
-  MG_ASSERT(indices_metadata.edge_type_property.empty() || properties_on_edges,
-            "Trying to recover edge type+property indices while properties on edges are disabled.");
-  auto *mem_edge_type_property_index =
-      static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
-  for (const auto &item : indices_metadata.edge_type_property) {
-    // TODO: parallel execution
-    if (!mem_edge_type_property_index->CreateIndexOnePass(
-            item.first, item.second, vertices->access(), updater, snapshot_info)) {
-      throw RecoveryFailure("The edge-type property index must be created here!");
-    }
-    spdlog::info("Index on :{} + {} is recreated from metadata",
-                 name_id_mapper->IdToName(item.first.AsUint()),
-                 name_id_mapper->IdToName(item.second.AsUint()));
-  }
-  spdlog::info("Edge-type + property indices are recreated.");
-
-  // Recover global edge property indices.
-  spdlog::info("Recreating {} global edge property indices from metadata.", indices_metadata.edge_property.size());
-  MG_ASSERT(indices_metadata.edge_property.empty() || properties_on_edges,
-            "Trying to recover global edge property indices while properties on edges are disabled.");
-  auto *mem_edge_property_index = static_cast<InMemoryEdgePropertyIndex *>(indices->edge_property_index_.get());
-  for (const auto &property : indices_metadata.edge_property) {
-    // TODO: parallel execution
-    if (!mem_edge_property_index->CreateIndexOnePass(property, vertices->access(), updater, snapshot_info)) {
-      throw RecoveryFailure("The global edge property index must be created here!");
-    }
-    spdlog::info("Edge index on property {} is recreated from metadata", name_id_mapper->IdToName(property.AsUint()));
-  }
-  spdlog::info("Global edge property indices are recreated.");
-
-  // Text idx
+  // Text idx. A text index cannot be populated by multiple threads (tantivy is single-writer), but
+  // distinct text indices are fully independent (separate context + on-disk directory), so we
+  // parallelize across indices: register all serially (mutates the copy-on-write container), then
+  // rebuild them concurrently, then publish once.
   auto recover_text_indices = [&](auto &text_index,
                                   const auto &index_metadata,
                                   std::string_view index_type,
                                   std::string_view plural_type,
                                   auto id_extractor) {
     spdlog::info("Recreating {} {} from metadata.", index_metadata.size(), plural_type);
+
+    // Phase 1 (serial): register/load every text index and remember which ones need a rebuild.
+    std::vector<std::remove_reference_t<decltype(*index_metadata.begin())> const *> to_populate;
     for (const auto &index_info : index_metadata) {
       try {
-        // TODO: parallel execution
-        text_index.RecoverIndex(index_info, vertices->access(), name_id_mapper, updater, snapshot_info);
+        if (text_index.PrepareForRecovery(index_info)) {
+          to_populate.push_back(&index_info);
+        }
       } catch (...) {
         throw RecoveryFailure(fmt::format("The {} must be created here!", index_type).c_str());
+      }
+    }
+
+    // Phase 2 (parallel across indices): repopulate each index that needs a rebuild.
+    std::vector<std::function<void()>> populate_tasks;
+    populate_tasks.reserve(to_populate.size());
+    for (auto const *index_info : to_populate) {
+      populate_tasks.emplace_back([&text_index, index_info, vertices, name_id_mapper]() {
+        text_index.PopulateRecoveredIndex(*index_info, vertices->access(), name_id_mapper);
+      });
+    }
+    try {
+      RecoverIndicesInParallel(std::move(populate_tasks), parallel_exec_info);
+    } catch (...) {
+      throw RecoveryFailure(fmt::format("The {} must be created here!", index_type).c_str());
+    }
+
+    // Phase 3 (serial): publish once and report.
+    for (const auto &index_info : index_metadata) {
+      if (snapshot_info) {
+        snapshot_info->Update(UpdateType::TEXT_IDX);
       }
       spdlog::info("{} {} on :{} is recreated from metadata",
                    index_type,
                    index_info.index_name,
                    name_id_mapper->IdToName(id_extractor(index_info).AsUint()));
     }
+    text_index.PublishActiveIndices(updater);
     spdlog::info("{} are recreated.", plural_type);
   };
   recover_text_indices(
@@ -550,6 +625,7 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] u
     }
   }
 
+  utils::Timer index_recovery_timer;
   RecoverIndicesAndStats(indices_constraints.indices,
                          indices,
                          vertices,
@@ -557,6 +633,8 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] u
                          properties_on_edges,
                          GetParallelExecInfo(recovery_info, config, db_arena_pool),
                          snapshot_info);
+  spdlog::info("Indices recreated in {:.3f} seconds!",
+               index_recovery_timer.Elapsed<std::chrono::duration<double>>().count());
   RecoverConstraints(indices_constraints.constraints,
                      constraints,
                      vertices,
@@ -585,6 +663,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
     memgraph::storage::DescriptionStore *description_store) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  utils::Timer recovery_timer;
   spdlog::info(
       "Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_, wal_directory_);
   if (!utils::DirExists(snapshot_directory_) && !utils::DirExists(wal_directory_)) {
@@ -621,6 +700,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       }
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
+        utils::Timer snapshot_recovery_timer;
         recovered_snapshot = LoadSnapshot(path,
                                           vertices,
                                           edges,
@@ -633,7 +713,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                                           schema_info,
                                           ttl,
                                           description_store);
-        spdlog::info("Snapshot recovery successful!");
+        spdlog::info("Snapshot recovery successful in {:.3f} seconds!",
+                     snapshot_recovery_timer.Elapsed<std::chrono::duration<double>>().count());
         break;
       } catch (const RecoveryFailure &e) {
         spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path, e.what());
@@ -732,6 +813,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     }
     std::optional<uint64_t> previous_seq_num;
     auto last_loaded_timestamp = snapshot_durable_timestamp;
+    utils::Timer wal_recovery_timer;
     spdlog::info("Trying to load WAL files.");
 
     for (const auto &wal_file : wal_files) {
@@ -790,7 +872,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     // load any deltas from that file.
     *wal_seq_num = *previous_seq_num + 1;
 
-    spdlog::info("All necessary WAL files are loaded successfully.");
+    spdlog::info("All necessary WAL files are loaded successfully in {:.3f} seconds!",
+                 wal_recovery_timer.Elapsed<std::chrono::duration<double>>().count());
 
     // Regenerate the vertex batches
     // TODO edges?
@@ -833,6 +916,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   r::for_each(repl_storage_state.history, [](auto &&history) {
     spdlog::trace("Epoch id: {}. Commit timestamp: {}.", std::string(history.first), history.second);
   });
+
+  spdlog::info("Recovery of persisted data finished in {:.3f} seconds!",
+               recovery_timer.Elapsed<std::chrono::duration<double>>().count());
   return recovery_info;
 }
 
