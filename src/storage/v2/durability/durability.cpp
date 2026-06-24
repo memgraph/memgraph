@@ -538,310 +538,359 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] u
   // other derived structure observes it.
   if (edges_metadata) {
     edges_metadata->RebuildFrom(*vertices, GetParallelExecInfo(recovery_info, config, db_arena_pool));
-    if (config.salient.items.storage_light_edge) {
-      // Light edges live only in the vertex adjacency (pool-allocated); the edges_
-      // skiplist is intentionally empty after recovery. RebuildFrom derives metadata
-      // directly from the adjacency, so its count is correct by construction.
-      DMG_ASSERT(edges->size() == 0, "Edge skiplist must be empty after light-edge recovery!");
-    } else {
-      // Every recovered edge must have an edge-metadata entry; fail at recovery rather
-      // than later in GC or via lookups.
-      DMG_ASSERT(edges_metadata->size() == edges->size(),
-                 "Edge metadata count does not match edge count after recovery!");
-    }
-  }
 
-  RecoverIndicesAndStats(indices_constraints.indices,
-                         indices,
-                         vertices,
-                         name_id_mapper,
-                         properties_on_edges,
-                         GetParallelExecInfo(recovery_info, config, db_arena_pool),
-                         snapshot_info);
-  RecoverConstraints(indices_constraints.constraints,
-                     constraints,
-                     vertices,
-                     name_id_mapper,
-                     GetParallelExecInfo(recovery_info, config, db_arena_pool),
-                     snapshot_info);
-}
-
-std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
-                                                                  const Config &config,
-                                                                  memory::ArenaPool *db_arena_pool) {
-  return (config.durability.allow_parallel_schema_creation && recovery_info.vertex_batches.size() > 1)
-             ? std::make_optional(
-                   ParallelizedSchemaCreationInfo{.vertex_recovery_info = recovery_info.vertex_batches,
-                                                  .thread_count = config.durability.recovery_thread_count,
-                                                  .arena_pool = db_arena_pool})
-             : std::nullopt;
-}
-
-std::optional<RecoveryInfo> Recovery::RecoverData(
-    utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipListDb<Vertex> *vertices,
-    utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata, std::atomic<uint64_t> *edge_count,
-    NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
-    memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
-    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
-    memgraph::storage::DescriptionStore *description_store) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  spdlog::info(
-      "Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_, wal_directory_);
-  if (!utils::DirExists(snapshot_directory_) && !utils::DirExists(wal_directory_)) {
-    spdlog::warn(utils::MessageWithLink("Snapshot or WAL directory don't exist, there is nothing to recover.",
-                                        "https://memgr.ph/durability"));
-    return std::nullopt;
-  }
-
-  auto *const epoch_history = &repl_storage_state.history;
-
-  auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_);
-  MG_ASSERT(maybe_snapshot_files.has_value(), "Couldn't recover data because of the failure to read snapshot files");
-  auto const &snapshot_files = *maybe_snapshot_files;
-
-  RecoveryInfo recovery_info;
-  RecoveredIndicesAndConstraints indices_constraints;
-  std::optional<uint64_t> snapshot_durable_timestamp;
-  if (!snapshot_files.empty()) {
-    spdlog::info("Try recovering from snapshot directory {}.", snapshot_directory_);
-
-    // UUID used for durability is the UUID of the last snapshot file.
-    uuid.set(snapshot_files.back().uuid);
-    auto const last_snapshot_uuid_str = std::string{uuid};
-
-    spdlog::trace("UUID of the last snapshot file: {}", last_snapshot_uuid_str);
-    std::optional<RecoveredSnapshot> recovered_snapshot;
-
-    for (const auto &snapshot_file : std::ranges::reverse_view(snapshot_files)) {
-      auto const &path = snapshot_file.path;
-      auto const &file_uuid = snapshot_file.uuid;
-      if (file_uuid != last_snapshot_uuid_str) {
-        spdlog::warn("The snapshot file {} isn't related to the latest snapshot file!", path);
-        continue;
-      }
-      spdlog::info("Starting snapshot recovery from {}.", path);
-      try {
-        recovered_snapshot = LoadSnapshot(path,
-                                          vertices,
-                                          edges,
-                                          edges_metadata,
-                                          epoch_history,
-                                          name_id_mapper,
-                                          edge_count,
-                                          config,
-                                          enum_store,
-                                          schema_info,
-                                          ttl,
-                                          description_store);
-        spdlog::info("Snapshot recovery successful!");
-        break;
-      } catch (const RecoveryFailure &e) {
-        spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path, e.what());
-      }
-    }
-    if (!recovered_snapshot) {
+    if (edges->size() != 0) {
       if (config.durability.allow_recovery_failure) {
-        throw RecoveryFailure(
-            "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database. The "
-            "database is now in the defunct state.");
+        throw RecoveryFailure("Edge skiplist must be empty after light-edge recovery!");
       }
-      LOG_FATAL(
-          "The database is configured to recover on startup, but couldn't "
-          "recover using any of the specified snapshots! Please inspect them "
-          "and restart the database.");
+      LOG_FATAL("Edge skiplist must be empty after light-edge recovery!");
+    } else if (edges_metadata->size() != edges->size()) {
+      // Every recovered edge must have an edge - metadata entry;
+      //  fail at recovery rather
+      //  than later in GC or via lookups.
+      if (config.durability.allow_recovery_failure) {
+        throw RecoveryFailure("Edge metadata count does not match edge count after recovery!");
+      }
+      LOG_FATAL("Edge metadata count does not match edge count after recovery!");
     }
-    recovery_info = recovered_snapshot->recovery_info;
-    indices_constraints = std::move(recovered_snapshot->indices_constraints);
-    snapshot_durable_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
-    spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
-    repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
-    recovery_info.last_durable_timestamp = *snapshot_durable_timestamp;
-  } else {
-    // UUID couldn't be recovered from the snapshot; recovering it from WALs
-    spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
-    std::error_code error_code;
-    if (!utils::DirExists(wal_directory_)) return std::nullopt;
 
-    // We use this smaller struct that contains only a subset of information
-    // necessary for the rest of the recovery function.
-    // Also, the struct is sorted primarily on the path it contains.
-    struct WalFileInfo {
-      explicit WalFileInfo(std::filesystem::path path, std::string uuid, std::string epoch_id)
-          : path(std::move(path)), uuid(std::move(uuid)), epoch_id(std::move(epoch_id)) {}
+    RecoverIndicesAndStats(indices_constraints.indices,
+                           indices,
+                           vertices,
+                           name_id_mapper,
+                           properties_on_edges,
+                           GetParallelExecInfo(recovery_info, config, db_arena_pool),
+                           snapshot_info);
+    RecoverConstraints(indices_constraints.constraints,
+                       constraints,
+                       vertices,
+                       name_id_mapper,
+                       GetParallelExecInfo(recovery_info, config, db_arena_pool),
+                       snapshot_info);
+  }
 
-      std::filesystem::path path;
-      std::string uuid;
-      std::string epoch_id;
+  std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(
+      const RecoveryInfo &recovery_info, const Config &config, memory::ArenaPool *db_arena_pool) {
+    return (config.durability.allow_parallel_schema_creation && recovery_info.vertex_batches.size() > 1)
+               ? std::make_optional(
+                     ParallelizedSchemaCreationInfo{.vertex_recovery_info = recovery_info.vertex_batches,
+                                                    .thread_count = config.durability.recovery_thread_count,
+                                                    .arena_pool = db_arena_pool})
+               : std::nullopt;
+  }
 
-      auto operator<=>(const WalFileInfo &) const = default;
-    };
-
-    std::vector<WalFileInfo> wal_files;
-    for (const auto &item : std::filesystem::directory_iterator(wal_directory_, error_code)) {
-      if (!item.is_regular_file()) {
-        spdlog::trace("Non-regular WAL file {} found in the wal directory. Skipping it.", item.path());
-        continue;
-      }
-      try {
-        auto info = ReadWalInfo(item.path());
-        wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
-      } catch (const RecoveryFailure &e) {
-        spdlog::error("Recovery failure while reading wal file: {}", e.what());
-      }
-    }
-    MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
-
-    if (wal_files.empty()) {
-      spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
+  std::optional<RecoveryInfo> Recovery::RecoverData(
+      utils::UUID & uuid,
+      ReplicationStorageState & repl_storage_state,
+      utils::SkipListDb<Vertex> * vertices,
+      utils::SkipListDb<Edge> * edges,
+      EdgeMetadataIndex * edges_metadata,
+      std::atomic<uint64_t> * edge_count,
+      NameIdMapper * name_id_mapper,
+      Indices * indices,
+      Constraints * constraints,
+      Config const &config,
+      memory::ArenaPool *db_arena_pool,
+      uint64_t *wal_seq_num,
+      EnumStore *enum_store,
+      SharedSchemaTracking *schema_info,
+      std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)>
+          find_edge,
+      std::string const &db_name,
+      memgraph::storage::ttl::TTL *ttl,
+      memgraph::storage::DescriptionStore *description_store) {
+    utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+    spdlog::info(
+        "Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_, wal_directory_);
+    if (!utils::DirExists(snapshot_directory_) && !utils::DirExists(wal_directory_)) {
+      spdlog::warn(utils::MessageWithLink("Snapshot or WAL directory don't exist, there is nothing to recover.",
+                                          "https://memgr.ph/durability"));
       return std::nullopt;
     }
 
-    // sort by path
-    std::ranges::sort(wal_files);
+    auto *const epoch_history = &repl_storage_state.history;
 
-    // UUID used for durability is the UUID of the last WAL file.
-    // Same for the epoch id.
-    uuid.set(wal_files.back().uuid);
-    repl_storage_state.epoch_.SetEpoch(std::move(wal_files.back().epoch_id));
-    spdlog::trace("UUID of the last WAL file: {}. Epoch id from the last WAL file: {}.",
-                  std::string{uuid},
-                  repl_storage_state.epoch_.id());
-  }
-  auto const maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
-  MG_ASSERT(maybe_wal_files.has_value(), "Couldn't recover data because of the failure to read wal files");
-
-  if (auto const &wal_files = *maybe_wal_files; !wal_files.empty()) {
-    spdlog::info("Checking WAL files.");
-    r::for_each(wal_files,
-                [](auto &&wal_file) { spdlog::trace("Wal file: {}. Seq num: {}.", wal_file.path, wal_file.seq_num); });
-    {
-      const auto &first_wal = wal_files[0];
-      spdlog::trace("Checking 1st wal file: {}.", first_wal.path);
-      if (first_wal.seq_num != 0) {
-        spdlog::trace("1st wal file {} has sequence number {} which is != 0.", first_wal.path, first_wal.seq_num);
-        // We don't have all WAL files. We need to see whether we need them all.
-        if (!snapshot_durable_timestamp) {
-          // We didn't recover from a snapshot, and we must have all WAL files
-          // starting from the first one (seq_num == 0) to be able to recover
-          // data from them.
-          LOG_FATAL(
-              "There are missing prefix WAL files and data can't be "
-              "recovered without them!");
-        } else if (first_wal.from_timestamp > *snapshot_durable_timestamp) {
-          // We recovered from a snapshot and we must have at least one WAL file
-          // that has at least one delta that was created before the snapshot in order to
-          // verify that nothing is missing from the beginning of the WAL chain.
-          LOG_FATAL(
-              "You must have at least one WAL file that contains at least one "
-              "delta that was created before the snapshot file!");
-        }
+    auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_);
+    if (!maybe_snapshot_files.has_value()) {
+      if (config.durability.allow_recovery_failure) {
+        throw RecoveryFailure("Couldn't recover data because of the failure to read snapshot files");
       }
+      LOG_FATAL("Couldn't recover data because of the failure to read snapshot files");
     }
-    std::optional<uint64_t> previous_seq_num;
-    auto last_loaded_timestamp = snapshot_durable_timestamp;
-    spdlog::info("Trying to load WAL files.");
+    auto const &snapshot_files = *maybe_snapshot_files;
 
-    for (const auto &wal_file : wal_files) {
-      if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
-        LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
-      }
-      previous_seq_num = wal_file.seq_num;
+    RecoveryInfo recovery_info;
+    RecoveredIndicesAndConstraints indices_constraints;
+    std::optional<uint64_t> snapshot_durable_timestamp;
+    if (!snapshot_files.empty()) {
+      spdlog::info("Try recovering from snapshot directory {}.", snapshot_directory_);
 
-      try {
-        auto info = LoadWal(wal_file.path,
-                            &indices_constraints,
-                            last_loaded_timestamp,
-                            vertices,
-                            edges,
-                            name_id_mapper,
-                            edge_count,
-                            config.salient.items,
-                            enum_store,
-                            schema_info,
-                            find_edge,
-                            ttl,
-                            description_store);
-        // Update recovery info data only if WAL file was used and its deltas loaded
+      // UUID used for durability is the UUID of the last snapshot file.
+      uuid.set(snapshot_files.back().uuid);
+      auto const last_snapshot_uuid_str = std::string{uuid};
 
-        bool wal_contains_changes{false};
-        if (info) {
-          recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
-          recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
-          recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
-          // WAL file is interesting only if it has a new (different) ldt
-          wal_contains_changes = recovery_info.last_durable_timestamp != info->last_durable_timestamp;
-          recovery_info.last_durable_timestamp = info->last_durable_timestamp;
-          last_loaded_timestamp.emplace(info->last_durable_timestamp);
-          spdlog::trace("Set ldt to {} after loading from WAL", info->last_durable_timestamp);
-          recovery_info.num_committed_txns += info->num_committed_txns;
+      spdlog::trace("UUID of the last snapshot file: {}", last_snapshot_uuid_str);
+      std::optional<RecoveredSnapshot> recovered_snapshot;
+
+      for (const auto &snapshot_file : std::ranges::reverse_view(snapshot_files)) {
+        auto const &path = snapshot_file.path;
+        auto const &file_uuid = snapshot_file.uuid;
+        if (file_uuid != last_snapshot_uuid_str) {
+          spdlog::warn("The snapshot file {} isn't related to the latest snapshot file!", path);
+          continue;
         }
+        spdlog::info("Starting snapshot recovery from {}.", path);
+        try {
+          recovered_snapshot = LoadSnapshot(path,
+                                            vertices,
+                                            edges,
+                                            edges_metadata,
+                                            epoch_history,
+                                            name_id_mapper,
+                                            edge_count,
+                                            config,
+                                            enum_store,
+                                            schema_info,
+                                            ttl,
+                                            description_store);
+          spdlog::info("Snapshot recovery successful!");
+          break;
+        } catch (const RecoveryFailure &e) {
+          spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path, e.what());
+        }
+      }
+      if (!recovered_snapshot) {
+        if (config.durability.allow_recovery_failure) {
+          throw RecoveryFailure(
+              "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database. "
+              "The "
+              "database is now in the defunct state.");
+        }
+        LOG_FATAL(
+            "The database is configured to recover on startup, but couldn't "
+            "recover using any of the specified snapshots! Please inspect them "
+            "and restart the database.");
+      }
+      recovery_info = recovered_snapshot->recovery_info;
+      indices_constraints = std::move(recovered_snapshot->indices_constraints);
+      snapshot_durable_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
+      spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
+      repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
+      recovery_info.last_durable_timestamp = *snapshot_durable_timestamp;
+    } else {
+      // UUID couldn't be recovered from the snapshot; recovering it from WALs
+      spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
+      std::error_code error_code;
+      if (!utils::DirExists(wal_directory_)) return std::nullopt;
 
-        if (wal_contains_changes) {
-          if (!epoch_history->empty() && epoch_history->back().first == wal_file.epoch_id) {
-            epoch_history->back().second = *last_loaded_timestamp;
-            spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.",
-                          wal_file.epoch_id,
-                          *last_loaded_timestamp);
-          } else {  // Update history with new epoch that contains new timestamp
-            epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
-            repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
-            spdlog::trace("Set epoch to {} for db {} with ldt {}", wal_file.epoch_id, db_name, *last_loaded_timestamp);
+      // We use this smaller struct that contains only a subset of information
+      // necessary for the rest of the recovery function.
+      // Also, the struct is sorted primarily on the path it contains.
+      struct WalFileInfo {
+        explicit WalFileInfo(std::filesystem::path path, std::string uuid, std::string epoch_id)
+            : path(std::move(path)), uuid(std::move(uuid)), epoch_id(std::move(epoch_id)) {}
+
+        std::filesystem::path path;
+        std::string uuid;
+        std::string epoch_id;
+
+        auto operator<=>(const WalFileInfo &) const = default;
+      };
+
+      std::vector<WalFileInfo> wal_files;
+      for (const auto &item : std::filesystem::directory_iterator(wal_directory_, error_code)) {
+        if (!item.is_regular_file()) {
+          spdlog::trace("Non-regular WAL file {} found in the wal directory. Skipping it.", item.path());
+          continue;
+        }
+        try {
+          auto info = ReadWalInfo(item.path());
+          wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
+        } catch (const RecoveryFailure &e) {
+          spdlog::error("Recovery failure while reading wal file: {}", e.what());
+        }
+      }
+      if (error_code) {
+        if (config.durability.allow_recovery_failure) {
+          throw RecoveryFailure(
+              fmt::format("Couldn't recover data because an error occurred: {}!", error_code.message()));
+        }
+        LOG_FATAL("Couldn't recover data because an error occurred: {}!", error_code.message());
+      }
+
+      if (wal_files.empty()) {
+        spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
+        return std::nullopt;
+      }
+
+      // sort by path
+      std::ranges::sort(wal_files);
+
+      // UUID used for durability is the UUID of the last WAL file.
+      // Same for the epoch id.
+      uuid.set(wal_files.back().uuid);
+      repl_storage_state.epoch_.SetEpoch(std::move(wal_files.back().epoch_id));
+      spdlog::trace("UUID of the last WAL file: {}. Epoch id from the last WAL file: {}.",
+                    std::string{uuid},
+                    repl_storage_state.epoch_.id());
+    }
+    auto const maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
+    if (!maybe_wal_files.has_value()) {
+      if (config.durability.allow_recovery_failure) {
+        throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
+      }
+      LOG_FATAL("Couldn't recover data because of the failure to read wal files");
+    }
+
+    if (auto const &wal_files = *maybe_wal_files; !wal_files.empty()) {
+      spdlog::info("Checking WAL files.");
+      r::for_each(wal_files, [](auto &&wal_file) {
+        spdlog::trace("Wal file: {}. Seq num: {}.", wal_file.path, wal_file.seq_num);
+      });
+      {
+        const auto &first_wal = wal_files[0];
+        spdlog::trace("Checking 1st wal file: {}.", first_wal.path);
+        if (first_wal.seq_num != 0) {
+          spdlog::trace("1st wal file {} has sequence number {} which is != 0.", first_wal.path, first_wal.seq_num);
+          // We don't have all WAL files. We need to see whether we need them all.
+          if (!snapshot_durable_timestamp) {
+            // We didn't recover from a snapshot, and we must have all WAL files
+            // starting from the first one (seq_num == 0) to be able to recover
+            // data from them.
+            if (config.durability.allow_recovery_failure) {
+              throw RecoveryFailure("There are missing prefix WAL files and data can't be recovered without them!");
+            }
+            LOG_FATAL(
+                "There are missing prefix WAL files and data can't be "
+                "recovered without them!");
+          } else if (first_wal.from_timestamp > *snapshot_durable_timestamp) {
+            // We recovered from a snapshot and we must have at least one WAL file
+            // that has at least one delta that was created before the snapshot in order to
+            // verify that nothing is missing from the beginning of the WAL chain.
+            if (config.durability.allow_recovery_failure) {
+              throw RecoveryFailure(
+                  "You must have at least one WAL file that contains at least one delta that was created before the "
+                  "snapshot file!");
+            }
+            LOG_FATAL(
+                "You must have at least one WAL file that contains at least one "
+                "delta that was created before the snapshot file!");
           }
         }
-
-      } catch (const RecoveryFailure &e) {
-        LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
       }
-    }
-    // The sequence number needs to be recovered even though `LoadWal` didn't
-    // load any deltas from that file.
-    *wal_seq_num = *previous_seq_num + 1;
+      std::optional<uint64_t> previous_seq_num;
+      auto last_loaded_timestamp = snapshot_durable_timestamp;
+      spdlog::info("Trying to load WAL files.");
 
-    spdlog::info("All necessary WAL files are loaded successfully.");
-
-    // Regenerate the vertex batches
-    // TODO edges?
-    size_t pos = 0;
-    size_t batched = 0;
-    recovery_info.vertex_batches.clear();
-    auto v_acc = vertices->access();
-    const auto size = v_acc.size();
-    for (auto v_itr = v_acc.begin(); v_itr != v_acc.end(); ++v_itr, ++pos) {
-      if (pos == batched) {
-        const auto left = size - pos;
-        if (left <= config.durability.items_per_batch) {
-          recovery_info.vertex_batches.emplace_back(v_itr->gid, left);
-          break;
+      for (const auto &wal_file : wal_files) {
+        if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
+          if (config.durability.allow_recovery_failure) {
+            throw RecoveryFailure(
+                fmt::format("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1));
+          }
+          LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
         }
-        recovery_info.vertex_batches.emplace_back(v_itr->gid, config.durability.items_per_batch);
-        batched += config.durability.items_per_batch;
+        previous_seq_num = wal_file.seq_num;
+
+        try {
+          auto info = LoadWal(wal_file.path,
+                              &indices_constraints,
+                              last_loaded_timestamp,
+                              vertices,
+                              edges,
+                              name_id_mapper,
+                              edge_count,
+                              config.salient.items,
+                              enum_store,
+                              schema_info,
+                              find_edge,
+                              ttl,
+                              description_store);
+          // Update recovery info data only if WAL file was used and its deltas loaded
+
+          bool wal_contains_changes{false};
+          if (info) {
+            recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
+            recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
+            recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
+            // WAL file is interesting only if it has a new (different) ldt
+            wal_contains_changes = recovery_info.last_durable_timestamp != info->last_durable_timestamp;
+            recovery_info.last_durable_timestamp = info->last_durable_timestamp;
+            last_loaded_timestamp.emplace(info->last_durable_timestamp);
+            spdlog::trace("Set ldt to {} after loading from WAL", info->last_durable_timestamp);
+            recovery_info.num_committed_txns += info->num_committed_txns;
+          }
+
+          if (wal_contains_changes) {
+            if (!epoch_history->empty() && epoch_history->back().first == wal_file.epoch_id) {
+              epoch_history->back().second = *last_loaded_timestamp;
+              spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.",
+                            wal_file.epoch_id,
+                            *last_loaded_timestamp);
+            } else {  // Update history with new epoch that contains new timestamp
+              epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
+              repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
+              spdlog::trace(
+                  "Set epoch to {} for db {} with ldt {}", wal_file.epoch_id, db_name, *last_loaded_timestamp);
+            }
+          }
+
+        } catch (const RecoveryFailure &e) {
+          if (config.durability.allow_recovery_failure) {
+            throw RecoveryFailure(
+                fmt::format("Couldn't recover WAL deltas from {} because of: {}", wal_file.path.string(), e.what()));
+          }
+          LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
+        }
+      }
+      // The sequence number needs to be recovered even though `LoadWal` didn't
+      // load any deltas from that file.
+      *wal_seq_num = *previous_seq_num + 1;
+
+      spdlog::info("All necessary WAL files are loaded successfully.");
+
+      // Regenerate the vertex batches
+      // TODO edges?
+      size_t pos = 0;
+      size_t batched = 0;
+      recovery_info.vertex_batches.clear();
+      auto v_acc = vertices->access();
+      const auto size = v_acc.size();
+      for (auto v_itr = v_acc.begin(); v_itr != v_acc.end(); ++v_itr, ++pos) {
+        if (pos == batched) {
+          const auto left = size - pos;
+          if (left <= config.durability.items_per_batch) {
+            recovery_info.vertex_batches.emplace_back(v_itr->gid, left);
+            break;
+          }
+          recovery_info.vertex_batches.emplace_back(v_itr->gid, config.durability.items_per_batch);
+          batched += config.durability.items_per_batch;
+        }
       }
     }
+
+    // Apply meta structures now after all graph data has been loaded
+    RecoverDerivedState(vertices,
+                        edges,
+                        name_id_mapper,
+                        indices,
+                        constraints,
+                        config,
+                        recovery_info,
+                        db_arena_pool,
+                        indices_constraints,
+                        edges_metadata,
+                        config.salient.items.properties_on_edges);
+
+    spdlog::trace("Epoch id: {}. Last durable commit timestamp: {}.",
+                  std::string(repl_storage_state.epoch_.id()),
+                  repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
+
+    spdlog::trace("History with its epochs and attached commit timestamps.");
+    r::for_each(repl_storage_state.history, [](auto &&history) {
+      spdlog::trace("Epoch id: {}. Commit timestamp: {}.", std::string(history.first), history.second);
+    });
+    return recovery_info;
   }
-
-  // Apply meta structures now after all graph data has been loaded
-  RecoverDerivedState(vertices,
-                      edges,
-                      name_id_mapper,
-                      indices,
-                      constraints,
-                      config,
-                      recovery_info,
-                      db_arena_pool,
-                      indices_constraints,
-                      edges_metadata,
-                      config.salient.items.properties_on_edges);
-
-  spdlog::trace("Epoch id: {}. Last durable commit timestamp: {}.",
-                std::string(repl_storage_state.epoch_.id()),
-                repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
-
-  spdlog::trace("History with its epochs and attached commit timestamps.");
-  r::for_each(repl_storage_state.history, [](auto &&history) {
-    spdlog::trace("Epoch id: {}. Commit timestamp: {}.", std::string(history.first), history.second);
-  });
-  return recovery_info;
-}
 
 }  // namespace memgraph::storage::durability
