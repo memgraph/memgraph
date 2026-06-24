@@ -1598,20 +1598,36 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
     };
 
-    // For any IN filters, we need to unwind
+    // Lower an `x IN list` filter to a per-element index scan: chain
+    // Unwind(toSet(coalesce(list_expr, []))) onto op_input and return the
+    // anonymous identifier bound to each unwound element for the caller's scan.
+    // coalesce turns a null list into zero rows instead of throwing in Unwind
+    // (matching the membership Filter; a non-list scalar still throws), and
+    // toSet dedups so a value repeated in the list drives a single scan. The
+    // dedup collapses whole-number doubles onto their int, safe only because the
+    // downstream scan unifies them too: ScanAllById coerces to an int64 id, and
+    // the label+property index compares numerics cross-type, so a collapsed
+    // value still matches what the raw list would.
+    auto unwind_membership_list = [&](std::shared_ptr<LogicalOperator> &op_input,
+                                      Expression *list_expr) -> Identifier * {
+      auto const &symbol = symbol_table_->CreateAnonymousSymbol();
+      auto *element = ast_storage_->Create<Identifier>(symbol.name());
+      element->MapTo(symbol);
+      auto *empty_list = ast_storage_->Create<ListLiteral>(std::vector<Expression *>{});
+      auto *guarded = ast_storage_->Create<Coalesce>(std::vector<Expression *>{list_expr, empty_list});
+      auto *deduped = ast_storage_->Create<Function>("TOSET", std::vector<Expression *>{guarded});
+      op_input = std::make_shared<Unwind>(op_input, deduped, symbol);
+      return element;
+    };
+
     // TODO(buda): ScanAllByLabelProperty + Filter should be considered
     // here once the operator and the right cardinality estimation exist.
     // TODO: Currently IN uses unwind, this means multiple scans, this could be better
     //  performance if we use single scan
-    // NOTE: make_unwinds has side-effectm changes input to include new unwind stage
     auto make_unwinds = [&](FilterInfo const &filter_info) -> FilterInfo {
       if (filter_info.property_filter->type_ == PropertyFilter::Type::IN) {
-        auto const &symbol = symbol_table_->CreateAnonymousSymbol();
-        auto *expression = ast_storage_->Create<Identifier>(symbol.name());
-        expression->MapTo(symbol);
-        input = std::make_unique<Unwind>(input, filter_info.property_filter->value_, symbol);
         FilterInfo cpy = filter_info;
-        cpy.property_filter->value_ = expression;
+        cpy.property_filter->value_ = unwind_membership_list(input, filter_info.property_filter->value_);
         return cpy;
       }
       return filter_info;
@@ -1627,6 +1643,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto *value = filter.id_filter->value_;
         metadata.filters_to_erase.push_back(filter);
         metadata.expressions_to_mark_for_removal.push_back(filter.expression);
+        if (filter.id_filter->type_ == IdFilter::Type::IN) {
+          // has_in_filter is set below so order-by elimination is disabled and
+          // an ORDER BY id(n) over the unwound scan is not wrongly elided.
+          auto *element = unwind_membership_list(input, value);
+          return ScanByIndexResult{
+              std::make_shared<ScanAllById>(input, node_symbol, element, view, /*expects_string_id=*/false),
+              std::move(metadata),
+              /*has_in_filter=*/true};
+        }
         return ScanByIndexResult{
             std::make_shared<ScanAllById>(input, node_symbol, value, view, filter.id_filter->expects_string_id_),
             std::move(metadata)};

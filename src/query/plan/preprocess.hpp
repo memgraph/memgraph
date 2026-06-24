@@ -349,17 +349,23 @@ struct PointFilter {
 /// Filtering by ID, for example `MATCH (n) WHERE id(n) = 42 ...`
 class IdFilter {
  public:
+  /// EQUAL is `id(n) = <expr>`; IN is `id(n) IN <list expr>`. The IN form is
+  /// lowered to an Unwind + per-element id scan during the index rewrite.
+  enum class Type : uint8_t { EQUAL, IN };
+
   /// Construct with Expression being the required value for ID.
-  IdFilter(const SymbolTable &, const Symbol &, Expression *, bool expects_string_id = false);
+  IdFilter(const SymbolTable &, const Symbol &, Expression *, bool expects_string_id = false, Type type = Type::EQUAL);
 
   /// Symbol whose id is looked up.
   Symbol symbol_;
   /// Expression which when evaluted produces the value an ID must satisfy.
+  /// For Type::IN this is the list whose elements the id must be one of.
   Expression *value_;
   /// True if the same symbol is used in expressions for value.
   bool is_symbol_in_value_{false};
   /// True if the filter comes from elementId(), which compares against a string id.
   bool expects_string_id_{false};
+  Type type_{Type::EQUAL};
 };
 
 /// Stores additional information for a filter expression.
