@@ -7361,6 +7361,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                TypedValue(tenant_limit > 0 ? utils::GetReadableSize(static_cast<double>(tenant_limit))
                                            : std::string("unlimited"))},
               {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
+              {TypedValue("status"), TypedValue(storage->IsDefunct() ? "defunct" : "ready")},
           };
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
@@ -8110,16 +8111,27 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  callback.header = {"Name"};
+  callback.header = {"Name", "Status"};
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
+    // A database that failed durability recovery comes up defunct (see
+    // --storage-allow-recovery-failure); report that so operators can spot it.
+    auto status_of = [db_handler](std::string_view name) -> std::string {
+      try {
+        return db_handler->Get(name)->storage()->IsDefunct() ? "defunct" : "ready";
+      } catch (...) {
+        return "ready";
+      }
+    };
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
       Sort(all);
 
       status.reserve(all.size());
       for (const auto &name : all) {
-        status.push_back({TypedValue(name)});
+        auto db_name = TypedValue(name);
+        auto st = status_of(db_name.ValueString());
+        status.push_back({std::move(db_name), TypedValue(st)});
       }
 
       std::erase_if(status, [&](auto const &row) {

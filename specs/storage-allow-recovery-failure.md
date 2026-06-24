@@ -185,9 +185,17 @@ keeps today's fatal behavior.
   path).
 - The thrown error is exactly:
   > `Database is in the defunct state because the recovery process failed. Please recover your database using the RECOVER SNAPSHOT query or REPAIR DATABASE query + run your import queries. If you have a backup of the whole data directory, please replace the current data directory with the backup one and restart the process.`
-- **Allowlist** (permitted against a defunct current database): `RECOVER SNAPSHOT`,
-  `REPAIR DATABASE`, and meta queries that do not touch the tenant graph
-  (`USE DATABASE`, `SHOW DATABASES`, `SHOW DATABASE`, `SHOW STORAGE INFO`).
+- **Allowlist** (permitted against a defunct current database): the cure queries
+  `RECOVER SNAPSHOT` and `REPAIR DATABASE`, plus read-only meta / session / info
+  queries that never touch the tenant graph. The implemented set is the union of:
+  `RecoverSnapshotQuery`, `DatabaseInfoQuery`, `SystemInfoQuery`,
+  `ReplicationInfoQuery`, `ShowConfigQuery`, `ShowQueryCallableMappingsQuery`,
+  `SettingQuery`, `VersionQuery`, `UseDatabaseQuery`, `MultiDatabaseQuery`,
+  `ShowDatabaseQuery`, `ShowDatabasesQuery`, `ShowMemoryInfoQuery`,
+  `SessionTraceQuery`, `SessionSettingQuery`. (`REPAIR DATABASE` joins this list
+  when that query is added in a later slice.) Everything else — Cypher, DDL,
+  `CREATE SNAPSHOT` — is rejected. The gate is fail-closed: a query type not on
+  the allowlist is rejected by default.
 - Note: `RECOVER SNAPSHOT` requires `UNIQUE` storage access, so it is explicitly
   exempted rather than relying on "no accessor ⇒ allowed".
 
