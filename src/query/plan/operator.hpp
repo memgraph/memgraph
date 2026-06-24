@@ -1152,11 +1152,10 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     int64_t prev_input_degree_{-1};
     int64_t prev_existing_degree_{-1};
 
+    // InitEdges (flag-off) is the synchronous body used by PullLegacy. The flag-on DoPull inlines
+    // the same logic directly (P3.3: avoids a per-call coroutine frame); there is no InitEdgesCo
+    // helper coroutine. Phase 3 deletes InitEdges + PullLegacy.
     bool InitEdges(Frame &, ExecutionContext &);
-    // Coroutine twin of InitEdges used by the DoPull (flag-on) path; co_awaits the input pull so the
-    // chain can cooperatively yield. PullLegacy (flag-off) keeps the synchronous InitEdges above.
-    // Phase 3 deletes InitEdges + PullLegacy and renames this back to InitEdges.
-    PullAwaitable InitEdgesCo(Frame &, ExecutionContext &);
   };
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;

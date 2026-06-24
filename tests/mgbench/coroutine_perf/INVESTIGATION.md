@@ -139,11 +139,22 @@ near-zero per-row work; **near-zero on realistic queries**: `sum_agg` +0.3%, `pr
 property/aggregation work dominates and dilutes it). Cutting it further needs a structural change
 (cursor fusion / fewer suspension points), not a local tweak — separate follow-up.
 
-**Follow-ups (not done here):**
-1. Delete the now-dead `Expand::ExpandCursor::InitEdgesCo` (def + decl in operator.hpp) — kept
-   temporarily to minimize this experiment's diff.
-2. `ExpandVariable::PullInputCo` is the same per-call-frame pattern, but it is called ~once per
-   *input vertex* (not per output row), so the frame amortizes over many path rows → low payoff;
-   inline it for consistency in the final PR, not for the gate.
-3. Structural per-pull resume floor (above) — own investigation if pull-dense expansion must also
-   clear 5%.
+**Follow-ups:**
+1. DONE — deleted the now-dead `Expand::ExpandCursor::InitEdgesCo` (def + header decl).
+2. DONE — inlined `ExpandVariable::PullInputCo` into its `DoPull` and deleted the helper. It is
+   called ~once per *input vertex* (not per output row), so low frequency / low payoff, but done
+   for consistency. Both helper coroutines are now gone; 0 per-call coroutine frames remain in the
+   expand family.
+3. Structural per-pull resume floor (~92 instr/pull) — own investigation if pull-dense expansion
+   must also clear 5%; realistic queries already do.
+
+### EXP-3 — verify cleanup + PullInputCo inline (clean binary, parity green)
+
+| query                          | OFF Minstr/q | ON Minstr/q | ovhd  |
+|--------------------------------|--------------|-------------|-------|
+| chain expand (regression check)| 250.88       | 275.81      | +9.9% |
+| variable expand `*1..3`        | 771.91       | 816.54      | +5.8% |
+
+chain unchanged (+9.9%) — deleting the dead helper did not regress. Variable expand +5.8%
+(more per-row work — DFS stack/path building — dilutes the per-pull coroutine floor).
+`cursor_parity` Corpus + MutationCorpus PASS; clean build, no warnings.

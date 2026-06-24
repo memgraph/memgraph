@@ -2234,8 +2234,8 @@ PullAwaitable Expand::ExpandCursor::DoPull(Frame &frame, ExecutionContext &conte
   // FIDELITY: each emitted edge reproduces one master Expand::Pull(). oom/profile/frame_writer/
   // pull_node are scoped per emitted edge -- recreated each outer iteration and destroyed before
   // the co_yield, exactly as master recreates them every Pull. They remain alive across the
-  // `co_await InitEdgesCo` within the iteration (faithful: master holds them across the synchronous
-  // InitEdges call too) but never span the co_yield.
+  // inlined (re)initialization within the iteration (faithful: master holds them across the
+  // synchronous InitEdges call too) but never span the co_yield.
   while (true) {
     bool exhausted = false;
     {
@@ -2545,91 +2545,6 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
   }
 }
 
-PullAwaitable Expand::ExpandCursor::InitEdgesCo(Frame &frame, ExecutionContext &context) {
-  // Coroutine twin of InitEdges (verbatim, with the input pull as co_await PullChild + co_return).
-  // No oom/profile here -- the caller (DoPull) holds them across this co_await, as master holds
-  // them across the synchronous InitEdges call.
-  // Input Vertex could be null if it is created by a failed optional match. In
-  // those cases we skip that input pull and continue with the next.
-  while (true) {
-    if (!co_await PullChild(*input_cursor_, frame, context)) co_return false;
-
-    if (context.hops_limit.IsLimitReached()) co_return false;
-
-    expansion_info_ = GetExpansionInfo(frame);
-
-    if (!expansion_info_.input_node) {
-      continue;
-    }
-
-    auto vertex = *expansion_info_.input_node;
-    auto direction = expansion_info_.direction;
-
-    int64_t num_expanded_first = -1;
-    if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
-      if (self_.common_.existing_node) {
-        if (expansion_info_.existing_node) {
-          auto existing_node = *expansion_info_.existing_node;
-
-          auto edges_result = UnwrapEdgesResult(
-              vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
-          context.number_of_hops += edges_result.expanded_count;
-          in_edges_.emplace(std::move(edges_result.edges));
-          num_expanded_first = edges_result.expanded_count;
-        }
-      } else {
-        auto edges_result =
-            UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
-        context.number_of_hops += edges_result.expanded_count;
-        in_edges_.emplace(std::move(edges_result.edges));
-        num_expanded_first = edges_result.expanded_count;
-      }
-      if (in_edges_) {
-        in_edges_it_.emplace(in_edges_->begin());
-      }
-    }
-
-    int64_t num_expanded_second = -1;
-    if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
-      if (self_.common_.existing_node) {
-        if (expansion_info_.existing_node) {
-          auto existing_node = *expansion_info_.existing_node;
-          auto edges_result = UnwrapEdgesResult(
-              vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
-          context.number_of_hops += edges_result.expanded_count;
-          out_edges_.emplace(std::move(edges_result.edges));
-          num_expanded_second = edges_result.expanded_count;
-        }
-      } else {
-        auto edges_result =
-            UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
-        context.number_of_hops += edges_result.expanded_count;
-        out_edges_.emplace(std::move(edges_result.edges));
-        num_expanded_second = edges_result.expanded_count;
-      }
-      if (out_edges_) {
-        out_edges_it_.emplace(out_edges_->begin());
-      }
-    }
-
-    if (!expansion_info_.existing_node) {
-      co_return true;
-    }
-
-    num_expanded_first = num_expanded_first == -1 ? 0 : num_expanded_first;
-    num_expanded_second = num_expanded_second == -1 ? 0 : num_expanded_second;
-    int64_t total_expanded_edges = num_expanded_first + num_expanded_second;
-
-    if (!expansion_info_.reversed) {
-      prev_input_degree_ = total_expanded_edges;
-    } else {
-      prev_existing_degree_ = total_expanded_edges;
-    }
-
-    co_return true;
-  }
-}
-
 ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,
                                Symbol edge_symbol, EdgeAtom::Type type, EdgeAtom::Direction direction,
                                const std::vector<storage::EdgeTypeId> &edge_types, bool is_reverse,
@@ -2759,10 +2674,10 @@ class ExpandVariableCursor : public Cursor {
 
   PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
     // FIDELITY: each while-iteration reproduces one master ExpandVariable::Pull(). oom/profile are
-    // per-iteration and stay alive across co_await PullInputCo (as master holds them across the
-    // PullInput call). Expand() stays SYNCHRONOUS (pure DFS-stack logic, no input pull); only
-    // PullInputCo pulls the input and is therefore a co_awaited helper coroutine (twin of the
-    // synchronous PullInput kept for PullLegacy).
+    // per-iteration and stay alive across the inlined input pull (as master holds them across the
+    // PullInput call). Expand() stays SYNCHRONOUS (pure DFS-stack logic, no input pull); the input
+    // pull is inlined below as `co_await PullChild` (twin of the synchronous PullInput kept for
+    // PullLegacy) -- no per-call helper coroutine frame (P3.3).
     while (true) {
       bool exhausted = false;
       {
@@ -2780,7 +2695,73 @@ class ExpandVariableCursor : public Cursor {
             break;
           }
 
-          if (co_await PullInputCo(frame, context)) {
+          // (Re)pull the input. INLINED from the former PullInputCo helper coroutine (P3.3):
+          // co_await'ing a temporary PullInputCo allocated+destroyed a fresh coroutine frame on
+          // every call. The input pull stays `co_await PullChild` (child's persistent gen_, no
+          // allocation). Verbatim twin of PullInput(): co_return true -> pulled=true; break,
+          // co_return false -> break (pulled stays false), the null-input skip is `continue`.
+          // oom/profile are held by DoPull across this, as master holds them across PullInput.
+          bool pulled = false;
+          while (true) {
+            AbortCheck(context);
+            if (!co_await PullChild(*input_cursor_, frame, context)) break;
+
+            if (context.hops_limit.IsLimitReached()) break;
+
+            TypedValue const &vertex_value = frame[self_.input_symbol_];
+
+            // Null check due to possible failed optional match.
+            if (vertex_value.IsNull()) continue;
+
+            ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+            auto &vertex = vertex_value.ValueVertex();
+
+            // Evaluate the upper and lower bounds.
+            ExpressionEvaluator evaluator(&frame,
+                                          context.symbol_table,
+                                          context.evaluation_context,
+                                          context.db_accessor,
+                                          storage::View::OLD,
+                                          nullptr,
+                                          &context.number_of_hops,
+                                          context.user_or_role,
+                                          context.triggering_user);
+            auto calc_bound = [&evaluator](auto &bound) {
+              auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
+              if (value < 0) throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
+              return value;
+            };
+
+            lower_bound_ = self_.lower_bound_ ? calc_bound(self_.lower_bound_) : 1;
+            upper_bound_ = self_.upper_bound_ ? calc_bound(self_.upper_bound_) : std::numeric_limits<int64_t>::max();
+
+            if (upper_bound_ > 0) {
+              auto *memory = edges_.get_allocator().resource();
+              edges_.emplace_back(
+                  ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
+              edges_it_.emplace_back(edges_.back().begin());
+            }
+
+            auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+            if (self_.filter_lambda_.accumulated_path_symbol) {
+              // Add initial vertex of path to the accumulated path
+              frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(vertex));
+            }
+
+            // reset the frame value to an empty edge list
+            if (frame[self_.common_.edge_symbol].IsList()) {
+              // Preserve the list capacity if possible
+              frame_writer.Modify(self_.common_.edge_symbol, [](TypedValue &value) { value.ValueList().clear(); });
+            } else {
+              auto *pull_memory = context.evaluation_context.memory;
+              frame_writer.Write(self_.common_.edge_symbol, TypedValue::TVector(pull_memory));
+            }
+
+            pulled = true;
+            break;
+          }
+
+          if (pulled) {
             // if lower bound is zero we also yield empty paths
             if (lower_bound_ == 0) {
               auto &start_vertex = frame[self_.input_symbol_].ValueVertex();
@@ -2909,68 +2890,6 @@ class ExpandVariableCursor : public Cursor {
   // used by DoPull. No oom/profile here -- the caller (DoPull) holds them across this co_await, as
   // master holds them across the synchronous PullInput call. Phase 3 deletes PullInput + PullLegacy
   // and renames this back to PullInput.
-  PullAwaitable PullInputCo(Frame &frame, ExecutionContext &context) {
-    // Input Vertex could be null if it is created by a failed optional match.
-    // In those cases we skip that input pull and continue with the next.
-    while (true) {
-      AbortCheck(context);
-      if (!co_await PullChild(*input_cursor_, frame, context)) co_return false;
-
-      if (context.hops_limit.IsLimitReached()) co_return false;
-
-      TypedValue const &vertex_value = frame[self_.input_symbol_];
-
-      // Null check due to possible failed optional match.
-      if (vertex_value.IsNull()) continue;
-
-      ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-      auto &vertex = vertex_value.ValueVertex();
-
-      // Evaluate the upper and lower bounds.
-      ExpressionEvaluator evaluator(&frame,
-                                    context.symbol_table,
-                                    context.evaluation_context,
-                                    context.db_accessor,
-                                    storage::View::OLD,
-                                    nullptr,
-                                    &context.number_of_hops,
-                                    context.user_or_role,
-                                    context.triggering_user);
-      auto calc_bound = [&evaluator](auto &bound) {
-        auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
-        if (value < 0) throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
-        return value;
-      };
-
-      lower_bound_ = self_.lower_bound_ ? calc_bound(self_.lower_bound_) : 1;
-      upper_bound_ = self_.upper_bound_ ? calc_bound(self_.upper_bound_) : std::numeric_limits<int64_t>::max();
-
-      if (upper_bound_ > 0) {
-        auto *memory = edges_.get_allocator().resource();
-        edges_.emplace_back(
-            ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
-        edges_it_.emplace_back(edges_.back().begin());
-      }
-
-      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-      if (self_.filter_lambda_.accumulated_path_symbol) {
-        // Add initial vertex of path to the accumulated path
-        frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(vertex));
-      }
-
-      // reset the frame value to an empty edge list
-      if (frame[self_.common_.edge_symbol].IsList()) {
-        // Preserve the list capacity if possible
-        frame_writer.Modify(self_.common_.edge_symbol, [](TypedValue &value) { value.ValueList().clear(); });
-      } else {
-        auto *pull_memory = context.evaluation_context.memory;
-        frame_writer.Write(self_.common_.edge_symbol, TypedValue::TVector(pull_memory));
-      }
-
-      co_return true;
-    }
-  }
-
   // Helper function for appending an edge to the list on the frame.
   void AppendEdge(const EdgeAccessor &new_edge, utils::pmr::vector<TypedValue> *edges_on_frame) {
     // We are placing an edge on the frame. It is possible that there already
