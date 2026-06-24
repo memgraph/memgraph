@@ -476,17 +476,17 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
             &ttl_,
             &description_store_);
       } catch (const durability::RecoveryFailure &e) {
-      // --storage-allow-recovery-failure: instead of crashing the process, bring this
-      // database up empty and defunct. RecoverData only reads durability files, so the
-      // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT,
-      // REPAIR DATABASE, or restore the whole data directory from a backup.
-      if (!config_.durability.allow_recovery_failure) throw;
-      spdlog::warn("Database '{}' failed to recover ({}); bringing it up in the defunct state.", name(), e.what());
-      Clear();
-      name_id_mapper_->Clear();
-      description_store_.Clear();
-      SetDefunct(true);
-    } catch (...) {
+        // --storage-allow-recovery-failure: instead of crashing the process, bring this
+        // database up empty and defunct. RecoverData only reads durability files, so the
+        // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT,
+        // REPAIR DATABASE, or restore the whole data directory from a backup.
+        if (!config_.durability.allow_recovery_failure) throw;
+        spdlog::warn("Database '{}' failed to recover ({}); bringing it up in the defunct state.", name(), e.what());
+        Clear();
+        name_id_mapper_->Clear();
+        description_store_.Clear();
+        SetDefunct(true);
+      } catch (...) {
         // Free any pool-allocated light Edge* already wired into vertex
         // adjacency before the exception propagates out of the constructor.
         // Heavy mode: no-op (edges_ SkipList dtor handles cleanup).
@@ -518,27 +518,16 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
           info->num_committed_txns);
     }
 
-      if (config_.track_label_counts) {
-        auto label_counts_acc = label_counts_.Lock();
-        for (auto const &vertex : vertices_.access()) {
-          if (vertex.deleted()) continue;
-          for (auto const label : vertex.labels) {
-            ++(*label_counts_acc)[label];
-          }
+    if (config_.track_label_counts) {
+      auto label_counts_acc = label_counts_.Lock();
+      for (auto const &vertex : vertices_.access()) {
+        if (vertex.deleted()) continue;
+        for (auto const label : vertex.labels) {
+          ++(*label_counts_acc)[label];
         }
       }
-    } catch (const durability::RecoveryFailure &e) {
-      // --storage-allow-recovery-failure: instead of crashing the process, bring this
-      // database up empty and defunct. RecoverData only reads durability files, so the
-      // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT,
-      // REPAIR DATABASE, or restore the whole data directory from a backup.
-      if (!config_.durability.allow_recovery_failure) throw;
-      spdlog::warn("Database '{}' failed to recover ({}); bringing it up in the defunct state.", name(), e.what());
-      Clear();
-      name_id_mapper_->Clear();
-      description_store_.Clear();
-      SetDefunct(true);
     }
+
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {
     bool files_moved = false;
