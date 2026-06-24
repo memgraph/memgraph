@@ -207,3 +207,82 @@ not a symmetric-transfer failure. Levers, by cost/benefit:
 Untested-on-bare-metal: removing the per-iteration `co_await YieldPointAwaitable` (one fewer
 suspend point per inner iteration → possible frame de-pessimization). The original investigation
 saw "no change" on the VM; could differ here. Lower priority than (1).
+
+---
+
+## EXP-5 — standalone dispatch-model study (unbiased root-cause, free of kernel confounds)
+
+`cursor_models.cpp` (+ `cursor_models_run.sh`): a standalone binary that mirrors the kernel's exact
+coroutine core (symmetric transfer, persistent `gen_`, the `ResumeAwaitable`/`Awaiter` protocol)
+on a Source→Expand→driver topology with tunable fan-out F and per-row work W, compiled with the
+SAME toolchain (clang 20.1, `-O2 -g -DNDEBUG -std=c++23`). Strips away storage / jemalloc /
+profiling so we measure ONLY dispatch. Designs: `legacy` (virtual Pull), `fused` (whole pipeline =
+one coroutine), `allcoro` (current kernel: per-cursor persistent-`gen_` coroutines), `mixed` (leaf
+on the frame-less immediate path), `helper` (allcoro + a one-shot helper coroutine per input pull =
+the InitEdgesCo anti-pattern), `allcoroY` (allcoro + a per-iteration no-op yield co_await).
+
+### Results — instructions/row (deterministic; primary signal)
+
+chain pull-dense (F=1, W≈0 — worst case):
+
+| design   | instr/row | vs legacy | note |
+|----------|-----------|-----------|------|
+| fused    | 30.0      | **−21%**  | one coroutine beats virtual-call legacy |
+| legacy   | 38.0      | —         | virtual `bool Pull()` baseline |
+| mixed    | 119.1     | +213%     | leaf immediate saves one crossing/row |
+| allcoro  | 165.1     | +334%     | current kernel design |
+| allcoroY | 165.1     | +334%     | **identical to allcoro → yield co_await is FREE** |
+| helper   | 381.3     | +902%     | per-call helper frame ≈ +216 instr/row over allcoro |
+
+(% is huge only because W≈0; the ABSOLUTE instr/row is what transfers to the kernel, where real
+per-row work is ~2500 instr so the same ~127–230 instr tax reads as ~10–20%.)
+
+### Depth sweep — D pass-through coroutine cursors over an immediate leaf (W=0)
+
+| depth D (crossings/row) | 0 | 1 | 2 | 4 | 8 | 16 |
+|-------------------------|---|---|---|---|---|----|
+| instr/row               | 34 | 99 | 176 | 330 | 639 | 1256 |
+| IPC                     | 3.55 | 3.23 | 3.31 | 2.88 | 2.67 | 2.28 |
+
+**Perfectly linear: ~77 instr/row per coroutine boundary crossing.** IPC also degrades with depth
+(each frame reload depends on the previous → less ILP), so deep pipelines pay twice.
+
+### Root cause — settled
+
+The coroutine penalty is a **fixed per-cursor-boundary-crossing cost (~60–77 retired instr/row per
+boundary)**, paid every time a parent coroutine resumes a child coroutine. It is **frame
+save/restore of live state + the await protocol** — exactly what symmetric transfer does NOT remove
+(it removes only the trampoline / stack-growth / scheduler round-trip). It is NOT branch
+misprediction (br-miss ≈ 0% across designs), NOT per-pull allocation (persistent `gen_` allocates
+once per cursor per query), and NOT the yield check (free). Corollaries, all measured:
+- **Coroutines are not the problem; per-cursor boundaries are.** A *fused* single coroutine is
+  *faster* than the virtual-call pipeline (−21%). The cost scales with the NUMBER of coroutine
+  frames the pull traverses per row (≈ plan depth), and inversely with per-row real work (% terms).
+- **The one-shot helper frame** (InitEdgesCo/PullInputCo) was an extra ~216 instr/row on top — the
+  worst offender, already eliminated (EXP-2/cleanup commits).
+
+### Cross-check vs the kernel (model is validated)
+
+- kernel chain expand residual ≈ 250 instr/edge ≈ 3 crossings (Aggregate→Expand→ScanAll, +Aggregate
+  driven) × ~77 ≈ 230. ✓
+- kernel fanout floor ≈ 92 instr/edge ≈ 1 crossing (input pull amortized) × ~77 + overhead. ✓
+- EXP-4b "ScanAll immediate" saved ~61 instr/edge = one crossing removed. ✓
+
+### What this means for "lowest possible penalty"
+
+The only way to materially cut the penalty is to **reduce the number of coroutine boundaries
+crossed per row**, in order of impact:
+1. **Fuse linear cursor chains into one coroutine** (toward `fused`). A run of 1:1 / linear cursors
+   (e.g. ScanAll→Filter→Produce, or ScanAll+Expand) compiled into a single coroutine body pays ONE
+   crossing instead of N. This is the big win (fused beat legacy outright) and the principled
+   long-term shape; it is also the largest redesign (breaks the one-frame-per-cursor model and the
+   per-cursor yield granularity).
+2. **Selective conversion** (`mixed`): keep cursors that return one row per pull with no unbounded
+   internal loop (leaves like ScanAll/Once) on the frame-less immediate path; only convert cursors
+   that must suspend mid-pull. Saves ~1 crossing/row where a leaf is pulled per row (measured
+   +334% → +213% in the model; +9.9% → +7.5% in the kernel). Partial, lower-risk, but reopens
+   "keep some PullLegacy" vs P3.4's "delete the dual path".
+3. **Accept**: realistic queries (per-row work present) are already in budget; only deep,
+   pull-dense, ~zero-work shapes (bare `count(*)`-over-expansion) exceed 5%.
+
+Repro: `tests/mgbench/coroutine_perf/cursor_models_run.sh`.
