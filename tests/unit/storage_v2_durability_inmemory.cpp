@@ -1995,9 +1995,9 @@ TEST_P(DurabilityTest, WalByteFlipDefunctRobustness) {
       f.close();
     }
 
-    // Recover with the flag on: this must never abort/crash the process. A flipped byte can make a
-    // delta decode an absurd allocation size, which surfaces as a thrown std::bad_alloc rather than
-    // a RecoveryFailure; that still leaves the process alive, which is what this test guards. When
+    // Recover with the flag on: this must never abort/crash the process. A flipped length byte can
+    // make a delta request an absurd allocation; the ReadSize bound turns that into a RecoveryFailure
+    // (-> defunct) instead of an escaping std::bad_alloc, so bad_alloc must never escape here. When
     // construction succeeds, a failed recovery must yield a defunct + empty DB.
     memgraph::storage::Config config{
         .durability = {.storage_directory = storage_directory,
@@ -2011,8 +2011,12 @@ TEST_P(DurabilityTest, WalByteFlipDefunctRobustness) {
       if (db.storage()->IsDefunct()) {
         EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0) << "defunct DB at byte offset " << offset;
       }
+    } catch (const std::bad_alloc &) {
+      ADD_FAILURE() << "std::bad_alloc escaped recovery at byte offset " << offset
+                    << "; a corrupt length field must surface as RecoveryFailure (defunct), not bad_alloc";
     } catch (const std::exception &) {
-      // Tolerated: corruption detected via a thrown exception during construction; no crash.
+      // Other corruption shapes may still be reported via a thrown exception during construction;
+      // the guarantee tested here is process survival plus no bad_alloc from length fields.
     }
   }
 
