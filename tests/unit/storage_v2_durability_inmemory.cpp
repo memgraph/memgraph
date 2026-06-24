@@ -1809,9 +1809,9 @@ inline void CreateMultiWalChain(const std::filesystem::path &storage_directory, 
 // With the flag on, a corrupt WAL delta brings the database up defunct + empty instead of
 // crashing, leaving the on-disk WAL files untouched.
 TEST_P(DurabilityTest, WalDeltaCorruptDefunctWhenRecoveryFailureAllowed) {
-  CreateMultiWalChain(storage_directory, GetParam(), 1000);
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
   ASSERT_EQ(GetSnapshotsList().size(), 0);
-  ASSERT_GE(GetWalsList().size(), 2);
+  ASSERT_EQ(GetWalsList().size(), 6);
 
   // Corrupt the deltas of a non-first WAL file so the structural chain checks pass but the
   // delta-level LoadWal fails.
@@ -1849,8 +1849,8 @@ TEST_P(DurabilityTest, WalDeltaCorruptDefunctWhenRecoveryFailureAllowed) {
 
 // With the flag off (default), a corrupt WAL delta still aborts startup.
 TEST_P(DurabilityTest, WalDeltaCorruptCrashesWhenRecoveryFailureNotAllowed) {
-  CreateMultiWalChain(storage_directory, GetParam(), 1000);
-  ASSERT_GE(GetWalsList().size(), 2);
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
+  ASSERT_EQ(GetWalsList().size(), 6);
   {
     auto wals = GetWalsList();
     DestroyWalFirstDelta(wals[wals.size() - 2]);
@@ -1870,9 +1870,9 @@ TEST_P(DurabilityTest, WalDeltaCorruptCrashesWhenRecoveryFailureNotAllowed) {
 // A WAL-only set whose first (seq_num == 0) file is missing must produce a defunct tenant with
 // the flag on (missing prefix WAL), and remain fatal with the flag off.
 TEST_P(DurabilityTest, WalMissingPrefixDefunctWhenRecoveryFailureAllowed) {
-  CreateMultiWalChain(storage_directory, GetParam(), 1000);
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
   ASSERT_EQ(GetSnapshotsList().size(), 0);
-  ASSERT_GE(GetWalsList().size(), 2);
+  ASSERT_EQ(GetWalsList().size(), 6);
 
   // Remove the oldest WAL file (the one with seq_num == 0). GetWalsList() is sorted newest-first.
   {
@@ -1894,8 +1894,8 @@ TEST_P(DurabilityTest, WalMissingPrefixDefunctWhenRecoveryFailureAllowed) {
 }
 
 TEST_P(DurabilityTest, WalMissingPrefixCrashesWhenRecoveryFailureNotAllowed) {
-  CreateMultiWalChain(storage_directory, GetParam(), 1000);
-  ASSERT_GE(GetWalsList().size(), 2);
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
+  ASSERT_EQ(GetWalsList().size(), 6);
   {
     auto wals = GetWalsList();
     ASSERT_TRUE(std::filesystem::remove(wals.back()));
@@ -1915,9 +1915,9 @@ TEST_P(DurabilityTest, WalMissingPrefixCrashesWhenRecoveryFailureNotAllowed) {
 // A WAL chain with a sequence-number gap (a middle WAL removed) must produce a defunct tenant
 // with the flag on, and remain fatal with the flag off.
 TEST_P(DurabilityTest, WalSeqNumGapDefunctWhenRecoveryFailureAllowed) {
-  CreateMultiWalChain(storage_directory, GetParam(), 1000);
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
   ASSERT_EQ(GetSnapshotsList().size(), 0);
-  ASSERT_GE(GetWalsList().size(), 3);
+  ASSERT_EQ(GetWalsList().size(), 6);
 
   // Remove a middle WAL file to introduce a sequence-number gap while keeping the prefix
   // (seq_num == 0) file present. GetWalsList() is sorted newest-first, so back() is the prefix.
