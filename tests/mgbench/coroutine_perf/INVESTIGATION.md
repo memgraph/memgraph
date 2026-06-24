@@ -457,3 +457,40 @@ transfers per row (descend at co_await, ascend at co_yield → two suspend/resum
   the await protocol/promise (attacks the ~40 mem-ops directly; bounded ~20–40% upside, hand-tuned);
   (3) escape stackless → stackful fibers (state stays in registers/hardware-stack via call/ret;
   removes the ~40 software mem-ops entirely, at a stack-per-parked-task memory cost).
+
+---
+
+## EXP-10 — lean the framework: is it cursor "stack" locals or the coroutine framework?
+
+`leandepth` = the same persistent-gen + symmetric-transfer model with the hot await path stripped:
+no immediate-mode fields/branches, no `done()` checks, no exception plumbing (promise = {has_more_,
+parent_}). Per-crossing delta (D8−D0)/8, on a PASSTHROUGH (≈zero cursor logic):
+
+| framework            | instr/crossing | loads | stores | mem-ops |
+|----------------------|---------------:|------:|-------:|--------:|
+| full (depth)         | 60.9           | 25.5  | 13.8   | 39.3    |
+| **lean (leandepth)** | **50.1**       | 23.0  | 17.0   | 40.0    |
+
+Answer to "is it cursor locals or the framework?":
+- **It is the FRAMEWORK.** A passthrough carries essentially no cursor state, yet pays ~61
+  instr/crossing; trimming framework checks alone removes ~18% (→50). Cursor "stack" locals are NOT
+  the floor. (And in real cursors the persistent state — iterators — is ALREADY in member variables;
+  only transient temporaries ever spill. Moving more locals to members doesn't dent this floor and
+  can add `this`-indirection.)
+- **The ~40 mem-ops are irreducible** even in the lean version (loads 23 + stores 17 ≈ 40, vs 39
+  full — the trim removed ~11 *non-memory* instructions, i.e. the imm/done branch+arith, not the
+  memory traffic). Those ~40 loads/stores are the protocol core: per-row state save/restore for the
+  two suspends (co_await descend + co_yield ascend), the `parent_` link store, and the `has_more_`
+  read — the stackless resumability tax.
+
+Implications:
+- Leaning the awaitable/promise is a real but **bounded ~15–20%** win, low-risk, no architecture
+  change. The KERNEL awaitable is fatter than this lean profile (it carries `local_exception_` +
+  `RethrowIfException`, full immediate-mode, and `done()` checks on the hot path), so its trimmable
+  fraction is likely ≥ 18% — worth doing (would nudge expand residual ~+10% → ~+8%), but it does NOT
+  reach legacy.
+- A further framework micro-win not yet measured: `parent_` is re-stored on EVERY co_await, but for a
+  persistent gen the parent in the ascent is FIXED (topology is static) → set it once at wiring,
+  skip the per-crossing store (~1 store/crossing).
+- The ~40-mem-op floor only goes away with **fewer crossings** (hybrid/fusion) or **stackful** (state
+  in registers/hardware-stack). Leaning the framework cannot remove it.

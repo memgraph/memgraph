@@ -578,6 +578,147 @@ static uint64_t run_fusedEY(uint64_t N, uint64_t F, int W) {
   return rows;
 }
 
+// ───────────────────────── DESIGN: leandepth (trimmed framework) ─────────────────────────
+// Same persistent-gen + symmetric-transfer model, but the hot await path is stripped to the bone:
+// no immediate-mode fields/branches, no done() checks, no exception plumbing. Promise = {has_more_,
+// parent_}. Isolates how much of the per-crossing cost is FRAMEWORK overhead (vs cursor logic).
+struct LeanGen {
+  struct promise_type {
+    bool has_more_{false};
+    std::coroutine_handle<> parent_{std::noop_coroutine()};
+
+    LeanGen get_return_object() noexcept { return LeanGen{std::coroutine_handle<promise_type>::from_promise(*this)}; }
+
+    static constexpr std::suspend_always initial_suspend() noexcept { return {}; }
+
+    struct ST {
+      std::coroutine_handle<> c;
+
+      bool await_ready() const noexcept { return false; }
+
+      std::coroutine_handle<> await_suspend(std::coroutine_handle<>) const noexcept { return c; }
+
+      void await_resume() const noexcept {}
+    };
+
+    auto final_suspend() noexcept { return ST{parent_}; }
+
+    void return_value(bool h) noexcept { has_more_ = h; }
+
+    auto yield_value(bool h) noexcept {
+      has_more_ = h;
+      return ST{parent_};
+    }
+
+    void unhandled_exception() noexcept { std::abort(); }
+  };
+
+  std::coroutine_handle<promise_type> h_{};
+  LeanGen() = default;
+
+  explicit LeanGen(std::coroutine_handle<promise_type> h) noexcept : h_(h) {}
+
+  LeanGen(LeanGen &&o) noexcept : h_(std::exchange(o.h_, {})) {}
+
+  LeanGen &operator=(LeanGen &&o) noexcept {
+    if (this != &o) {
+      if (h_) h_.destroy();
+      h_ = std::exchange(o.h_, {});
+    }
+    return *this;
+  }
+
+  LeanGen(const LeanGen &) = delete;
+  LeanGen &operator=(const LeanGen &) = delete;
+
+  ~LeanGen() {
+    if (h_) h_.destroy();
+  }
+
+  struct Resume {  // LEAN awaiter: no imm-mode, no done() check on the hot path
+    std::coroutine_handle<promise_type> h_;
+
+    bool await_ready() const noexcept { return false; }
+
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> p) const noexcept {
+      h_.promise().parent_ = p;
+      return h_;
+    }
+
+    bool await_resume() const noexcept { return h_.promise().has_more_; }
+  };
+
+  Resume ResumeA() noexcept { return Resume{h_}; }
+
+  bool has_more() const noexcept { return h_.promise().has_more_; }
+
+  bool done() const noexcept { return h_.done(); }
+};
+
+struct LeanCursor {
+  uint64_t out_{0};
+  std::optional<LeanGen> gen_;
+  virtual LeanGen DoPull() = 0;
+
+  LeanGen::Resume Pull_() {
+    if (!gen_) gen_ = DoPull();
+    return gen_->ResumeA();
+  }
+
+  virtual ~LeanCursor() = default;
+};
+
+static inline LeanGen::Resume LeanPullChild(LeanCursor &c) { return c.Pull_(); }
+
+struct LeanSource : LeanCursor {
+  uint64_t N;
+
+  explicit LeanSource(uint64_t n) : N(n) {}
+
+  LeanGen DoPull() override {
+    for (uint64_t k = 0; k < N; ++k) {
+      out_ = k;
+      co_yield true;
+    }
+    co_return false;
+  }
+};
+
+struct LeanPass : LeanCursor {
+  LeanCursor *in;
+
+  explicit LeanPass(LeanCursor *i) : in(i) {}
+
+  LeanGen DoPull() override {
+    for (;;) {
+      if (!co_await LeanPullChild(*in)) co_return false;
+      out_ = in->out_;
+      co_yield true;
+    }
+  }
+};
+
+static uint64_t run_leandepth(uint64_t N, uint64_t D, int W) {
+  LeanSource s(N);
+  std::vector<std::unique_ptr<LeanPass>> st;
+  LeanCursor *cur = &s;
+  for (uint64_t i = 0; i < D; ++i) {
+    st.push_back(std::make_unique<LeanPass>(cur));
+    cur = st.back().get();
+  }
+  uint64_t rows = 0;
+  // prime the generator
+  (void)cur->Pull_();
+  for (;;) {
+    if (cur->gen_->done()) break;
+    cur->gen_->h_.resume();
+    if (!cur->gen_->has_more()) break;
+    g_sink ^= do_work(cur->out_, W);
+    ++rows;
+  }
+  return rows;
+}
+
 // ───────────────────────── main ─────────────────────────
 int main(int argc, char **argv) {
   if (argc < 6) {
@@ -616,6 +757,8 @@ int main(int argc, char **argv) {
     fn = run_breaker;  // coroutine breaker over a REGULAR input pipeline (the proposed hybrid)
   else if (design == "breakerB")
     fn = run_breakerB;  // breaker with yield-check amortized every K rows
+  else if (design == "leandepth")
+    fn = run_leandepth;  // trimmed-framework depth sweep (F slot == depth D)
   else {
     std::fprintf(stderr, "unknown design: %s\n", design.c_str());
     return 2;
