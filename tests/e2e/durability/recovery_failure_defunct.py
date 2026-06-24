@@ -10,12 +10,11 @@
 # licenses/APL.txt.
 
 import os
-import random
 import sys
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
+from common import connect, corrupt_snapshots, execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -32,27 +31,6 @@ DEFUNCT_ERROR = "Database is in the defunct state because the recovery process f
 @pytest.fixture
 def test_name(request):
     return request.node.name
-
-
-def corrupt_snapshots(full_data_directory):
-    """Corrupts random section of the snapshot."""
-    snapshot_dir = os.path.join(full_data_directory, "snapshots")
-    files = [
-        os.path.join(snapshot_dir, f) for f in os.listdir(snapshot_dir) if os.path.isfile(os.path.join(snapshot_dir, f))
-    ]
-    assert files, "Expected at least one snapshot to corrupt"
-
-    for path in files:
-        size = os.path.getsize(path)
-        a = random.randint(0, size - 1)
-        b = random.randint(0, size - 1)
-        start = min(a, b)
-        end = max(a, b)
-        assert end > start, f"Snapshot {path} too small ({size} bytes) to corrupt safely"
-        with open(path, "r+b") as fh:
-            fh.seek(start)
-            fh.write(b"\xff" * (end - start))
-    return files
 
 
 def test_defunct_on_corrupt_snapshot(test_name):

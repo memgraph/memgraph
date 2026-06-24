@@ -31,10 +31,16 @@ The end-to-end spine of the feature, exercised through the single
   overwrites the corrupt files). WAL is never written because commits are
   rejected.
 - A broad, fail-closed query gate: any query that would operate on a defunct
-  current database throws the verbatim exception below. Allowlist: `RECOVER
-  SNAPSHOT`, `REPAIR DATABASE`, and meta queries (`USE DATABASE`, `SHOW
-  DATABASES`, `SHOW DATABASE`, `SHOW STORAGE INFO`). `RECOVER SNAPSHOT` requires
-  UNIQUE access and must be explicitly exempted.
+  current database throws the verbatim exception below. Allowlist: the cure query
+  `RECOVER SNAPSHOT` plus read-only meta / session / info queries that never touch
+  the tenant graph — `RecoverSnapshotQuery`, `DatabaseInfoQuery`,
+  `SystemInfoQuery`, `ReplicationInfoQuery`, `ShowConfigQuery`,
+  `ShowQueryCallableMappingsQuery`, `SettingQuery`, `VersionQuery`,
+  `UseDatabaseQuery`, `MultiDatabaseQuery`, `ShowDatabaseQuery`,
+  `ShowDatabasesQuery`, `ShowMemoryInfoQuery`, `SessionTraceQuery`,
+  `SessionSettingQuery`. (`REPAIR DATABASE` joins the allowlist when that query
+  lands in a later slice.) `RECOVER SNAPSHOT` requires UNIQUE access and must be
+  explicitly exempted.
 
 Exception text (exact):
 > Database is in the defunct state because the recovery process failed. Please recover your database using the RECOVER SNAPSHOT query or REPAIR DATABASE query + run your import queries. If you have a backup of the whole data directory, please replace the current data directory with the backup one and restart the process.
