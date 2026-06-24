@@ -66,11 +66,17 @@ we will tear down.
 
 ## Independent bug fixes — land FIRST, off master, regardless of this effort
 
-These are not coroutine-coupled; they fix real issues in code that ships today.
-- **PR-0a — `CollectionScheduler::pool_` atomic** (TSan data race). Salvage `2d8f63e40`. ~30 lines.
-- **PR-0b — forbid parallel sections inside subquery arms** + `Union` in `ConflictingOperators`
-  (fixes silent data loss in parallel `Aggregate`/`OrderBy` under `Apply`/`CALL{}`). Salvage `8539b17dd`
-  + its regression test `TestSubqueryArmParallelism`. ~150 lines.
+VERIFIED 2026-06-24 by test-cherry-pick onto master:
+- **PR-0 — forbid parallel sections inside subquery arms** + `Union` in `ConflictingOperators`
+  (silent data loss in parallel `Aggregate`/`OrderBy` under `Apply`/`CALL{}`). Salvage `8539b17dd` +
+  its regression test `TestSubqueryArmParallelism`. **Confirmed independent**: master has the parallel
+  rewrite (`parallel_rewrite.hpp` lines 136–235) so the bug is real on master, and the commit
+  cherry-picks **clean**. Landed on branch `fix/parallel-subquery-arm-guard` (89 lines). *(run the
+  e2e `tests/e2e/parallel` suite before merging.)*
+- **~~C0 — `CollectionScheduler::pool_` atomic~~ — NOT an independent fix.** The race it fixes is
+  between `Trigger()` and `RegisterProgressWaiter()`, but `RegisterProgressWaiter` does **not exist on
+  master** — it was added by the stack (P2/P3). So the race is **stack-introduced**, not pre-existing;
+  the cherry-pick conflicts. C0 **folds into the rebuilt scheduler layer (PR-10/PR-11)**, not a PR-0.
 
 ## The PR stack (each < 500 lines, non-breaking under all-Sync default)
 
@@ -124,7 +130,8 @@ dormant. Suggested grouping to stay < 500 lines:
 - **Knob shape:** global default (Sync) + per-operator/per-storage override; final surface TBD in PR-9.
 
 ## Net
-Land PR-0a/0b immediately (independent fixes). Then PR-1…PR-9 deliver a complete, dormant, all-Sync hybrid
+Land PR-0 immediately (the one verified-independent fix; C0 is not independent and folds into PR-10/11).
+Then PR-1…PR-9 deliver a complete, dormant, all-Sync hybrid
 that is identical to master in behavior but fully coro-capable per cursor; PR-10/11 light up fairness-yield
 and parallel-park; PR-12 lights up on-disk. Each PR is reviewable (< 500 lines), useful on its own, and
 ignorable — stop anywhere and the engine is still master.
