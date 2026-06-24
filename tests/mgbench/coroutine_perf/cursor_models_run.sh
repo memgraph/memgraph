@@ -64,5 +64,24 @@ print(f"{D:<7} {ins/rows:14.1f} {nspr:12.3f} {ins/cyc:10.3f}")
 PY
 done
 echo
+echo "############ EXTERNAL-YIELD (I/O park) SWEEP: allcoroEY vs fusedEY, chain F=1 W=0 ############"
+echo "(period P = park every P-th access; models on-disk cold-page frequency. instr/row incl. park+resume)"
+printf "%-10s %8s %14s %12s %10s\n" design period instr/row "ns/row" "IPC"
+for P in 0 64 8 1; do
+  for d in allcoroEY fusedEY; do
+    perf stat -e instructions,cycles "$BIN" "$d" 1000000 1 0 200 "$P" >"$SCR/cm_out_ey.txt" 2>"$SCR/cm_perf_ey.txt"
+    rows=$(grep -oE 'rows=[0-9]+' "$SCR/cm_out_ey.txt" | cut -d= -f2)
+    nspr=$(grep -oE 'ns/row=[0-9.]+' "$SCR/cm_out_ey.txt" | cut -d= -f2)
+    ins=$(grep -E '\binstructions\b' "$SCR/cm_perf_ey.txt" | grep -oE '^[ ]*[0-9.]+' | tr -d ' .')
+    cyc=$(grep -E '\bcycles\b' "$SCR/cm_perf_ey.txt" | grep -oE '^[ ]*[0-9.]+' | tr -d ' .')
+    python3 - "$d" "$P" "$ins" "$rows" "$cyc" "$nspr" <<'PY'
+import sys
+d,P,ins,rows,cyc,nspr=sys.argv[1:7]
+ins=float(ins);rows=float(rows);cyc=float(cyc);nspr=float(nspr)
+print(f"{d:<10} {P:>8} {ins/rows:14.1f} {nspr:12.3f} {ins/cyc:10.3f}")
+PY
+  done
+done
+echo
 echo "instr/row = retired instructions per emitted row (deterministic; the primary signal)."
 echo "vs-legacy = extra instr/row over the virtual-Pull baseline."

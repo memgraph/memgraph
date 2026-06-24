@@ -429,6 +429,96 @@ static uint64_t run_depth(uint64_t N, uint64_t D, int W) {
   return rows;
 }
 
+// ───────────────────────── EXTERNAL-YIELD (I/O park) model ─────────────────────────
+// Models the on-disk future: a cold-page access deep in the scan parks the task; the scheduler
+// runs something else; the task resumes when I/O completes. Here the "I/O" completes instantly so
+// we measure ONLY the park+resume machinery cost. g_yield_period = yield every Nth access (1 =
+// every pull = every access cold; 0 = never). Mirrors YieldPointAwaitable + ResumePullStep's
+// stash-the-leaf-handle / resume-the-leaf protocol.
+static uint64_t g_yield_period = 0;
+static uint64_t g_yield_cnt = 0;
+static std::coroutine_handle<> g_yield_slot{};
+
+struct ExternalYield {
+  bool await_ready() noexcept {
+    if (!g_yield_period) return true;
+    if (++g_yield_cnt < g_yield_period) return true;
+    g_yield_cnt = 0;
+    return false;  // suspend: park
+  }
+
+  void await_suspend(std::coroutine_handle<> h) noexcept { g_yield_slot = h; }  // stash leaf (void: unwind to driver)
+
+  void await_resume() noexcept {}
+};
+
+// root driver that honours parks: on a park, resume the stashed leaf directly (== scheduler resuming
+// the parked task after I/O). The leaf symmetric-transfers back up to the root on completion.
+static inline Status ResumePullStepY(PullAwaitable::ResumeAwaitable &ra) {
+  if (ra.Done()) return ra.Result() ? Status::Row : Status::Done;
+  std::coroutine_handle<> t = ra.handle_;
+  for (;;) {
+    if (g_yield_slot) {
+      t = g_yield_slot;
+      g_yield_slot = {};
+    }
+    t.resume();
+    if (g_yield_slot) continue;  // parked again (would return to scheduler; here resume immediately)
+    break;
+  }
+  return ra.Result() ? Status::Row : Status::Done;
+}
+
+struct SourceEY : CursorC {  // leaf with an I/O-yield point inside the scan
+  uint64_t N;
+
+  explicit SourceEY(uint64_t n) : N(n) {}
+
+  PullAwaitable DoPull() override {
+    for (uint64_t k = 0; k < N; ++k) {
+      co_await ExternalYield{};
+      out_ = k;
+      co_yield true;
+    }
+    co_return false;
+  }
+};
+
+static PullAwaitable fused_gen_ey(uint64_t N, uint64_t F, uint64_t *out) {
+  for (uint64_t k = 0; k < N; ++k)
+    for (uint64_t f = 0; f < F; ++f) {
+      co_await ExternalYield{};
+      *out = mkval(k, f);
+      co_yield true;
+    }
+  co_return false;
+}
+
+static uint64_t run_allcoroEY(uint64_t N, uint64_t F, int W) {
+  SourceEY s(N);
+  ExpandC<false> e(&s, F);
+  uint64_t rows = 0;
+  for (;;) {
+    auto ra = e.PullCo();
+    if (ResumePullStepY(ra) != Status::Row) break;
+    g_sink ^= do_work(e.out_, W);
+    ++rows;
+  }
+  return rows;
+}
+
+static uint64_t run_fusedEY(uint64_t N, uint64_t F, int W) {
+  uint64_t out = 0, rows = 0;
+  PullAwaitable gen = fused_gen_ey(N, F, &out);
+  for (;;) {
+    auto ra = gen.Resume();
+    if (ResumePullStepY(ra) != Status::Row) break;
+    g_sink ^= do_work(out, W);
+    ++rows;
+  }
+  return rows;
+}
+
 // ───────────────────────── main ─────────────────────────
 int main(int argc, char **argv) {
   if (argc < 6) {
@@ -441,6 +531,7 @@ int main(int argc, char **argv) {
   uint64_t F = std::strtoull(argv[3], nullptr, 10);
   int W = std::atoi(argv[4]);
   uint64_t reps = std::strtoull(argv[5], nullptr, 10);
+  g_yield_period = (argc > 6) ? std::strtoull(argv[6], nullptr, 10) : 0;  // external-yield period (EY designs)
 
   uint64_t (*fn)(uint64_t, uint64_t, int) = nullptr;
   if (design == "legacy")
@@ -457,6 +548,10 @@ int main(int argc, char **argv) {
     fn = run_helper;
   else if (design == "depth")
     fn = run_depth;  // F slot reinterpreted as pipeline depth D
+  else if (design == "allcoroEY")
+    fn = run_allcoroEY;  // external-yield (I/O park); period via argv[6]
+  else if (design == "fusedEY")
+    fn = run_fusedEY;
   else {
     std::fprintf(stderr, "unknown design: %s\n", design.c_str());
     return 2;

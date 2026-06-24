@@ -286,3 +286,37 @@ crossed per row**, in order of impact:
    pull-dense, ~zero-work shapes (bare `count(*)`-over-expansion) exceed 5%.
 
 Repro: `tests/mgbench/coroutine_perf/cursor_models_run.sh`.
+
+---
+
+## EXP-6 — external-yield / I/O-park cost (on-disk future: many short parked tasks)
+
+Models a cold-page wait deep in the scan: a leaf `co_await ExternalYield` parks the task; the
+driver resumes the stashed leaf handle (== scheduler resuming after I/O). Period P = park every
+P-th access (1 = every access cold). instr/row includes park+resume. chain F=1, W=0.
+
+| design     | P=never | P=8 | P=1 (every pull) | park increment |
+|------------|---------|-----|------------------|----------------|
+| allcoroEY  | 157     | 167 | 183              | ~+26 instr/park|
+| fusedEY    | 68      | 77  | 93               | ~+25 instr/park|
+
+Findings:
+- **Park+resume itself is cheap and ~equal for both designs (~25 instr/park).** The protocol
+  resumes the stashed LEAF handle directly (no root-to-leaf re-descent), so frequent parking does
+  NOT depth-penalize resume. Good news: the current yield/park machinery is already efficient.
+- **The fused advantage (~2×) persists under heavy parking** — it comes from the baseline
+  per-crossing dispatch, which parking does not change. fused @ every-pull-park (93) still beats
+  allcoro with NO parking (157).
+- **Frame memory per parked task** (not in the table; architectural): a parked `allcoro` task holds
+  the whole suspended chain alive = D coroutine frames (one per cursor in the pipeline); a parked
+  `fused` task holds 1. For "many short parked tasks" (on-disk), fused uses ~D× less frame memory.
+- **Selective conversion (`mixed`) is DISQUALIFIED for on-disk leaf I/O**: making leaves frame-less
+  (immediate path) removes the leaf's ability to suspend — but the leaf scan is exactly where a
+  cold-page I/O wait must park. `mixed` trades away the on-disk capability at the one place it is
+  needed. `fused` keeps deep (mid-row) suspension AND is fast.
+
+**Conclusion for the on-disk direction:** fusion is favoured on every axis that matters there —
+steady-state dispatch (~2×), parked-task memory (~D×), and it preserves mid-row I/O suspension
+(a single fused coroutine just `co_await`s at the internal blocking point; its one frame captures
+all live state). Row-boundary-only yield is NOT achievable for on-disk (an I/O wait is inherently
+mid-row), and fusion does not require it.
