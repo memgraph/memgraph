@@ -430,7 +430,7 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
   // Set the cold-tenant gauge ONCE after the restore loop (a per-iteration Set would be repeatedly
   // overwritten; no scrape endpoint is live during construction anyway). Covers both the cold-shell and
   // failed-recovery leave-cold paths above.
-  metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
+  UpdateColdGauge_();
 
   /*
    * DATABASES CLEAN UP
@@ -625,7 +625,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
   auto wr = std::lock_guard(lock_);
   // Cold-tenant fast path: scan suspended_ by uuid (replica apply path — no transaction arg).
   {
-    auto it = std::ranges::find_if(suspended_, [&](auto const &kv) { return kv.second.salient.uuid == uuid; });
+    auto it = FindSuspendedByUuid_(uuid);
     if (it != suspended_.end()) {
       auto res = DeleteCold_(it->first);
       if (!res) return std::unexpected{res.error()};
@@ -880,7 +880,7 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
   if (tenant_profiles_) {
     [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(name);
   }
-  metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
+  UpdateColdGauge_();
   return uuid;
 }
 
@@ -1200,7 +1200,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   storage::InMemoryStorage *inmem_for_disable = nullptr;
   if (auto *inmem = dynamic_cast<storage::InMemoryStorage *>((*acc)->storage())) {
     using CreateSnapshotError = storage::InMemoryStorage::CreateSnapshotError;
-    // A7: the periodic snapshot scheduler is NOT paused by the freeze, so a periodic
+    // The periodic snapshot scheduler is NOT paused by the freeze, so a periodic
     // snapshot can be mid-flight -> CreateSnapshot returns AlreadyRunning. Briefly wait it out:
     // once it finishes our call writes the small frozen-state delta or returns NothingNewToWrite.
     constexpr auto kSnapPollStep = std::chrono::milliseconds(10);
@@ -1277,7 +1277,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     // The tenant is now COLD. Counts every successful Suspend_ (user SUSPEND, replica RPC apply, and
     // recovery force-suspend all funnel through here); the gauge tracks the live cold-set size.
     metrics::Metrics().global.database_suspends->Increment();
-    metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
+    UpdateColdGauge_();
     // Persist the durable COLD marker under the SAME lock_ as the suspended_ insert so a concurrent
     // Resume_ cannot observe a half state. A Put failure degrades to a warning and never rolls back
     // or throws (the in-memory teardown still proceeds; MAIN's data stays durable on disk).
@@ -1470,7 +1470,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           // do not break the publish block's no-throw guarantee; done under lock_ so the gauge reads a
           // consistent suspended_ size.
           metrics::Metrics().global.database_resumes->Increment();
-          metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
+          UpdateColdGauge_();
         }
       } catch (...) {
         // PRE-PUBLISH failure: on_resume_ threw and the publish has NOT happened — `fresh` is still
@@ -1568,7 +1568,7 @@ DbmsHandler::ResumeResult DbmsHandler::ResumeByUUID(utils::UUID uuid, system::Tr
   std::string name;
   {
     auto rd = std::shared_lock{lock_};
-    auto it = std::ranges::find_if(suspended_, [&](auto const &kv) { return kv.second.salient.uuid == uuid; });
+    auto it = FindSuspendedByUuid_(uuid);
     if (it == suspended_.end()) return std::unexpected{ResumeError::NON_EXISTENT};
     name = it->first;
   }

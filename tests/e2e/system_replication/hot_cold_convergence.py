@@ -20,7 +20,7 @@
 #        V3 SystemRecovery payload (which now carries the COLD set). This is exercised by
 #        test_lagging_replica_convergence: the replica is DOWN across the SUSPEND, so the
 #        SuspendDatabaseRpc never reaches it; on reconnect SystemRecovery must force-suspend the
-#        tenant the replica still holds HOT (SR-1 exempt-from-delete + SR-1'(2) force-suspend).
+#        tenant the replica still holds HOT (exempt-from-delete + force-suspend).
 #
 #   Hot/cold is durable: a tenant suspended before a restart recovers COLD (metadata-only shell,
 #        durable cold marker), a HOT tenant recovers HOT with its data, and the COLD tenant still
@@ -230,7 +230,7 @@ def test_suspend_resume_convergence(connection, test_name):
 def test_lagging_replica_convergence(connection, test_name):
     # The replica is DOWN across the SUSPEND, so the SuspendDatabaseRpc never reaches it. On
     # reconnect, the V3 SystemRecovery payload carries A in the COLD set; the replica (which recovered
-    # A HOT from its own disk) must force-suspend it to converge (SR-1 / SR-1'(2)) rather than serving
+    # A HOT from its own disk) must force-suspend it to converge rather than serving
     # a stale HOT copy or dropping it.
     instances = {
         "replica_1": replica_args(test_name, recovery=True),
@@ -1290,7 +1290,7 @@ def test_main_crash_in_suspend_gap_converges(connection, test_name):
     #      registration of replica_1, auto-reconnecting to the already-up replica. The suspend now exists
     #      ONLY as durable state on MAIN — never as a streamed/recorded action.
     #   7. On reconnect MAIN runs SystemRecovery (V3); A is in MAIN's COLD set, so the replica force-
-    #      suspends its HOT A to COLD (SR-1'(2)) driven purely by the recovery payload, not an action.
+    #      suspends its HOT A to COLD driven purely by the recovery payload, not an action.
     #      tenant_probe must converge the replica to "COLD".
     #   8. A subsequent RESUME on MAIN still converges the replica back to HOT with data intact.
     instances = {

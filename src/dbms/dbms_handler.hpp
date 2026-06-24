@@ -452,7 +452,7 @@ class DbmsHandler {
   }
 
   /**
-   * @brief Holistic-review #3: does this node know @p uuid AT ALL — HOT (db_handler_) or COLD (suspended_)?
+   * @brief Does this node know @p uuid AT ALL — HOT (db_handler_) or COLD (suspended_)?
    *
    * The replica suspend/resume apply handlers resolve a UUID via SuspendByUUID/ResumeByUUID, which return
    * NON_EXISTENT both when the tenant is ALREADY in the target state (idempotent re-apply -> NO_NEED) and
@@ -594,7 +594,7 @@ class DbmsHandler {
       it->second.current_epoch = std::move(epoch);
       it->second.epoch_history = std::move(hist);
       it->second.has_epoch_meta = true;
-      // Holistic-review #2: also adopt MAIN's as-of-suspend LDT. PromoteColdTenants emplaces the
+      // Also adopt MAIN's as-of-suspend LDT. PromoteColdTenants emplaces the
       // promotion boundary as (current_epoch, last_durable_timestamp); without MAIN's LDT a converged
       // replica would pair MAIN's epoch with its OWN local LDT -> a phantom/garbled boundary ts that a
       // downstream replica's continuous-history check can reject (spurious DIVERGED).
@@ -995,6 +995,18 @@ class DbmsHandler {
   // Caller must hold lock_ (write).
   std::expected<utils::UUID, DeleteError> DeleteCold_(std::string_view name);
 
+  // Refresh the global cold-databases gauge from the live suspended_ size. Caller MUST hold lock_
+  // (every call site already does, or runs before any concurrent reader exists).
+  void UpdateColdGauge_() const noexcept {
+    metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
+  }
+
+  // Find the suspended (COLD) entry whose salient uuid matches @p uuid, or suspended_.end().
+  // Caller MUST hold lock_.
+  auto FindSuspendedByUuid_(utils::UUID uuid) {
+    return std::ranges::find_if(suspended_, [&](auto const &kv) { return kv.second.salient.uuid == uuid; });
+  }
+
   /**
    * @brief Create a new Database associated with the default database
    *
@@ -1133,7 +1145,7 @@ class DbmsHandler {
   // for the Resume_ publish block's noexcept guarantee: that block does suspended_.find(name) (string_view,
   // no temporary std::string -> no allocation) AFTER the gatekeeper has been committed HOT, so it must not
   // throw. Do NOT change this to std::less<std::string> — find(string_view) would then construct a
-  // std::string key and could throw bad_alloc inside the noexcept window (holistic-review #6).
+  // std::string key and could throw bad_alloc inside the noexcept window.
   std::map<std::string, SuspendedEntry, std::less<>> suspended_;
   // TODO: move to be common
   std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)

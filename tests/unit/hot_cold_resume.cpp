@@ -510,7 +510,7 @@ TEST_F(HotColdResume, CrossRestartPromotedColdTenantRunsNewEpoch) {
 
   // Eager-epoch promotion: rewrite the COLD tenant's durable epoch metadata to a new epoch (this is
   // what DoToMainPromotion calls for cold tenants the ForEach epoch loop cannot reach). Metadata-only.
-  const std::string e2 = "c10-promotion-epoch";
+  const std::string e2 = "promotion-epoch";
   handler_->PromoteColdTenants(e2);
 
   Restart();
@@ -605,7 +605,7 @@ TEST_F(HotColdResume, AppliedWireEpochDrivesColdPromotionBoundary) {
 
   // MAIN's authoritative epoch metadata, distinct from anything the local storage would produce.
   const std::string wire_epoch = "main-wire-epoch-E2";
-  // holistic-review #2: a distinct as-of-suspend LDT that the local suspend would never produce, so the
+  // A distinct as-of-suspend LDT that the local suspend would never produce, so the
   // promotion boundary's timestamp proves it used MAIN's APPLIED LDT, not the replica's local one.
   constexpr uint64_t wire_ldt = 271828;
   memgraph::storage::ColdTenantRecovery meta;
