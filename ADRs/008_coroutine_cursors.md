@@ -350,3 +350,142 @@ sampling + `perf stat` counters are the reliable attribution path.
   box), `p33_microbench.py` (chain), `p33_fanout.py` (fan-out component isolation),
   `hammer.py`, and a README with the VM baseline numbers and the bare-metal decision
   criteria.
+
+---
+
+# Addendum (2026-06-24): Generic park/yield runtime via hybrid single-source cursors
+
+**Status** — PROPOSED (design record for the next scope; supersedes P3.4's "flip all-coroutine,
+delete `PullLegacy`" as the *end-state* shape — though the migration still proceeds through the
+existing dual-path seam). Grounded in the P3.3 bare-metal study
+(`tests/mgbench/coroutine_perf/INVESTIGATION.md`, EXP-0…13).
+
+## Context
+
+P3.3 established (bare-metal Intel, HW counters) what the coroutine overhead actually is:
+- A per-cursor-boundary **crossing costs ~60 retired instr, ~65% of which are L1-HOT loads/stores**
+  (frame state save/restore + the await protocol — the stackless resumability tax). It is **NOT**
+  branch-misprediction (~0%), **NOT** cache misses, **NOT** the yield check (free); it is
+  instruction throughput, and it is **linear in plan depth** (EXP-9/10).
+- The big offender was a **per-call one-shot helper coroutine** (`InitEdgesCo`/`PullInputCo`): a
+  fresh frame allocated+destroyed per pull. Inlining it took chain-expand +20.0% → +10.0%; a safe
+  `await_resume` lean took it to +8.5% (both landed). Realistic queries (per-row work present) are
+  already ~0–3%.
+- A **fused** single coroutine BEATS the virtual-`Pull()` baseline (−21%): coroutines are not the
+  problem, *per-cursor boundaries* are.
+- The tax is **moot for the on-disk direction** (EXP-7: +0.3–3.6% at NVMe/SSD latencies — I/O
+  dominates by 1–2 orders of magnitude); it only bites in-memory, CPU-bound, pull-dense queries.
+
+The goal of the next scope is a **generic runtime that can park and/or yield any query at any point**
+— for parallel-execution scheduling (coordinator parks on branch-join; fairness preemption) AND for
+on-disk I/O (park on a cold page) — with the lowest feasible penalty and **without** maintaining two
+divergent pull bodies per cursor.
+
+## Decision
+
+### D-A1 — Selective (hybrid) coroutine cursors, not blanket all-coroutine
+
+A cursor is realized as a **coroutine iff it can suspend mid-`Pull()`**, i.e. it (a) has an unbounded
+internal loop that may run long before producing a row (pipeline breakers: Aggregate, OrderBy,
+join/Cartesian build, Accumulate; on-disk/blocking leaves; heavy-internal-skip scans), OR (b) has a
+**coroutine descendant** (ancestor-closure: a stackless yield can only travel up through coroutine
+frames, so every ancestor of a suspending cursor must also be a coroutine). All other cursors are
+plain synchronous `Pull()` (legacy speed, no per-crossing tax). **Between-row yield needs no
+coroutine at all** — cursor iteration state lives in member variables, so the session driver pauses
+between `Pull()` calls for free; coroutines are only for *mid-pull* suspension.
+
+The mode is decided **at cursor construction** (`MakeCursor`), bottom-up:
+`is_coroutine = needs_midpull_yield(op, storage_mode) || any_child_is_coroutine`.
+This touches only the execution layer — **no planner / `LogicalOperator` change**. The predicate is a
+tunable knob: start conservative, move cursors between regular/coroutine as measured yield/park/exec
+performance dictates.
+
+Consequence: for in-memory the hot scan→filter→expand pipeline feeding a breaker stays synchronous
+(~flag-OFF speed); only breakers are coroutines (pulled rarely by their parent, they consume input
+synchronously and yield mid-drain). For on-disk, leaves park → ancestor-closure makes the chain
+coroutine — fine, dispatch is moot there. Measured (standalone model): hybrid +19% over a virtual
+pipeline vs all-coroutine +187%; for `count(*)`-over-expand the breaker-hybrid recovers ~flag-OFF.
+
+### D-A2 — One developer-written body per cursor (single source of truth)
+
+`co_await`/`co_yield`/`co_return` are keywords that make a function a coroutine; they cannot be
+templated/`if constexpr`'d away, so a synchronous cursor needs a `co_*`-free body. We therefore do
+NOT hand-maintain two bodies. Per the cursor audit (EXP-13, all 57 pairs), every cursor reduces to a
+single body:
+- **44 streaming/simple cursors** — write the body ONCE in the hook style; boilerplate
+  (macro/`.inc` or codegen) emits BOTH the synchronous `Pull()` and the coroutine `DoPull()`. Parity
+  becomes **structural** (same source text), with the existing `cursor_parity` harness as backstop.
+- **2 breaker cursors** (`Aggregate`, `ExpandAllShortestPaths`) — they need a yield inside a
+  buffering computation that is not itself a child pull (a helper coroutine holding state across the
+  suspend), so they are **coroutine-only**: one hand-written coroutine body, no sync twin. (They are
+  always breakers ⇒ always coroutine, so no capability is lost.)
+- **6 parallel cursors** — already one synchronous body, wrapped as `Immediate(PullLegacy())` (a
+  shared cursor resumed concurrently by branch workers cannot own a persistent resumable frame).
+
+**The boilerplate contract** (the only things that differ between the two emitted forms):
+| hook        | sync form                              | coroutine form                                       |
+|-------------|----------------------------------------|------------------------------------------------------|
+| CHILD-PULL  | `child->Pull(f,c)`                     | `co_await PullChild(*child,f,c)`                     |
+| YIELD-CHECK | `AbortCheck(c)`                        | `co_await YieldPointAwaitable{c,maybe_check_abort}` |
+| EMIT a row  | `return true`                          | `produced=true; break;` → wrapper `co_yield true`   |
+| DONE        | `return false`                         | `co_return false`                                    |
+| (wrapper)   | —                                      | `while(true){ <body>; if(!produced) co_return false; co_yield true; }` |
+Plus three mechanical extensions the MEDIUM cursors need (all deterministic rewrites): an inlined
+refill/drain loop (`co_await` child until a predicate, `break`); more than one CHILD-PULL hook
+(multi-child ops — Merge/Optional/Union/Apply/IndexedJoin/Foreach); and a disambiguation flag when a
+`return` is lexically nested in a loop. Validated end-to-end by `tests/mgbench/coroutine_perf/
+single_source_poc.cpp` (one body → sync + coroutine, byte-identical results).
+
+### D-A3 — Uniform suspension family + scheduler wakers (the "generic" part)
+
+All suspension is `co_await` on one family, funnelled up the symmetric-transfer chain to the root
+driver via the existing stashed-leaf-handle slot; they differ only in *who wakes the task*:
+- `co_await Yield{}` — fairness preemption; waker = scheduler run-queue (resume ASAP). *(today's
+  `YieldPointAwaitable`.)*
+- `co_await IoWait{page}` — on-disk; submits an async read, waker = I/O completion.
+- `co_await BranchJoin{tasks}` — parallel coordinator parks until branches finish; waker =
+  last-branch-done. **This makes the parallel coordinator PARK instead of block — the deferred
+  "Approach B" — unifying parallel-coordinator-park and on-disk-I/O-park under one mechanism.**
+
+The work-stealing pool runs *ready* tasks; a parked task leaves the run-queue (its suspended
+frame-chain — a few small frames — sits in memory) with a registered waker; firing the waker
+re-queues it (possibly on another worker). Extends `WorkerYieldRegistry` + `CollectionScheduler`.
+
+## Alternatives considered (and rejected)
+
+- **Blanket all-coroutine (original P3.4)**: simplest (one coroutine body each, delete `PullLegacy`),
+  but pays the per-crossing tax everywhere (~+8.5% worst in-memory pull-dense). Rejected as the
+  in-memory end-state *only because* D-A2 makes the hybrid free of the dual-body cost; still the
+  correct shape for the on-disk subtree (where ancestor-closure forces it and the tax is moot).
+- **Stackful fibers**: zero per-crossing tax, one plain body, suspend-anywhere, better backtraces —
+  but a stack per parked task (memory pressure for "many short parked tasks" unless lazily-committed)
+  and a driver rewrite that discards the validated stackless work. Treated as "hand-rolled coroutines
+  to implement and maintain." Rejected; kept as a documented fallback if in-memory dispatch ever
+  becomes a hard blocker.
+- **Static fused-cursor library / query codegen (JIT)**: best raw throughput, but a combinatorial
+  library or per-query compile latency (fatal for many short queries), and needs planner cooperation.
+  Rejected.
+- **Prefetch-don't-park on-disk (only breakers are coroutines, no relay)**: would remove the dual
+  body need entirely, but gives up generic park-anywhere. Rejected per the explicit requirement to
+  park/yield any query at any point.
+
+## Consequences
+
+- Keep the dual-path *seam* (it is the mechanism), but the end-state is "one body per cursor" via
+  D-A2 — so P3.4's "delete `PullLegacy`" becomes "generate it (and `DoPull`) from one source," not
+  "hand-maintain both."
+- Build: (1) the boilerplate generator (macro/`.inc` or a small codegen) + port the 44 cursors to
+  single-source; (2) the `MakeCursor` bottom-up mode predicate; (3) the suspension family + scheduler
+  wakers (Yield/IoWait/BranchJoin); (4) migrate the parallel coordinator to `BranchJoin` park.
+- `cursor_parity` remains the correctness backstop throughout; the standalone `cursor_models.cpp`
+  harness A/Bs any regular/coroutine mix before kernel work.
+
+## Risks
+
+- Macro/`.inc` ergonomics + debugger line-info on the hottest code (mitigation: prefer a small codegen
+  step if the macro form proves unreadable; keep bodies small).
+- The 2 coroutine-only breakers (`Aggregate`, `ExpandAllShortestPaths`) must NOT be forced through the
+  generated-sync path.
+- Park/wake correctness (lost-wakeup, double-resume, teardown of a parked frame-chain) — the
+  HIGH-severity R1/R2 concerns already recorded for the Approach-B park redesign apply to the unified
+  waker model.
