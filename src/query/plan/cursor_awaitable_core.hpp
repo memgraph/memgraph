@@ -236,13 +236,12 @@ class PullAwaitable {
 
     bool await_resume() const {
       if (immediate_ready_) return immediate_value_;
-      if (!handle_ || handle_.done()) {
-        if (handle_) handle_.promise().RethrowIfException();
-        return false;
-      }
-      // Defensive (mirrors PullAwaitable::Awaiter): a not-done coroutine has no stored exception
-      // today (throwing runs final_suspend -> done, handled above), but keep the check so the
-      // contract holds if a body ever yields after catching internally.
+      if (!handle_) return false;
+      // P3.3 lean fast-path: drop the redundant handle_.done() load+branch. has_more_ already
+      // encodes the result either way -- false after co_return false (done), true after co_yield
+      // true (not done) -- and RethrowIfException covers the thrown-then-done case (a throw runs
+      // final_suspend -> done, with local_exception_ set and has_more_ still false). So this is
+      // byte-equivalent to the prior done()-branching form, with one fewer frame load per crossing.
       handle_.promise().RethrowIfException();
       return handle_.promise().has_more_;
     }

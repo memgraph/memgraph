@@ -494,3 +494,23 @@ Implications:
   skip the per-crossing store (~1 store/crossing).
 - The ~40-mem-op floor only goes away with **fewer crossings** (hybrid/fusion) or **stackful** (state
   in registers/hardware-stack). Leaning the framework cannot remove it.
+
+### EXP-11 — lean applied to the KERNEL (safe subset only)
+
+Most of the kernel framework's "fat" turned out to be **load-bearing**: immediate-mode
+(`immediate_ready_`) is used by the parallel cursors (`Immediate(PullLegacy())`), and exception
+rethrow is real — so the standalone's full 18% lean (which removed both) does NOT port safely. The
+one provably-equivalent trim is in `ResumeAwaitable::await_resume`: drop the redundant
+`handle_.done()` branch (`has_more_` already encodes the result, and `RethrowIfException` covers the
+thrown-then-done case). Applied to `src/query/plan/cursor_awaitable_core.hpp`, parity green:
+
+| query        | helper-fix only | + lean await_resume |
+|--------------|-----------------|---------------------|
+| chain expand | +10.0%          | **+8.5%**           |
+| fanout expand| +14.5%          | **+12.6%**          |
+
+~38 instr/edge removed (the single-branch form also improves surrounding codegen). Real
+(deterministic instr counts), safe (no immediate-mode/exception/topology/planner change). This is
+the LIMIT of safe framework-leaning in the kernel — the rest of the per-crossing cost is the
+load-bearing protocol + the irreducible mem-op floor. Cumulative chain-expand: original
+all-coroutine +20.0% → helper-frame inline +10.0% → lean await_resume +8.5%.
