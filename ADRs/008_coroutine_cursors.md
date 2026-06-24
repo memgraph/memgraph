@@ -262,3 +262,8 @@ helper coroutines into the persistent generator body, regardless of the box.
   `cursor_yield_interpreter.cpp`, `cursor_yield_pool.cpp`;
   `tests/e2e/parallel/test_parallel_correctness.py` (incl. `TestSubqueryArmParallelism`);
   `tests/gql_behave` (`--coroutine-cursors` arm).
+- Performance reproduction (P3.3): `tests/mgbench/coroutine_perf/` — `run_ab.sh` (flag-OFF
+  vs flag-ON microbench A/B), `profile_perf.sh` (HW-counter profiling for the bare-metal
+  box), `p33_microbench.py` (chain), `p33_fanout.py` (fan-out component isolation),
+  `hammer.py`, and a README with the VM baseline numbers and the bare-metal decision
+  criteria.
