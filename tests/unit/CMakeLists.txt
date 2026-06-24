@@ -144,6 +144,13 @@ add_unit_test(cursor_yield
     LINK_TARGETS mg-query
 )
 
+# Per-cursor mode seam (dormant): base Cursor PullCo()/DoPull()/gen_/mode_ composition,
+# verified on minimal fake Cursor subclasses (Sync leaf via Immediate, Coro leaf/parent via gen_).
+add_unit_test(cursor_seam
+    SOURCES cursor_seam.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_plan_orderby_index
     SOURCES query_plan_orderby_index.cpp
     LINK_TARGETS mg-query

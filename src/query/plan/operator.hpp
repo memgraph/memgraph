@@ -22,6 +22,7 @@
 #include "query/common.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
+#include "query/plan/cursor_awaitable_core.hpp"
 #include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
 #include "storage/v2/id_types.hpp"
@@ -72,6 +73,17 @@ struct ExpressionRange {
                   std::optional<utils::Bound<Expression *>> upper);
 };
 
+/// Per-cursor execution mode (coroutine cursors, dormant by default).
+///
+/// `Sync` == master behaviour: the cursor is driven by its ordinary synchronous `Pull()`, with zero
+/// coroutine machinery. `Coro` means the cursor exposes a persistent coroutine generator (`DoPull` via
+/// `MG_COROUTINE_CURSOR_PULLCO`) and can cooperatively suspend mid-`Pull()`.
+///
+/// The mode is a per-cursor property chosen bottom-up at cursor construction (a later PR); every cursor
+/// defaults to `Sync`, so until that selection wires anything the whole cursor tree runs exactly as on
+/// master.
+enum class CursorMode : bool { Sync = false, Coro = true };
+
 /// Base class for iteration cursors of @c LogicalOperator classes.
 ///
 /// Each @c LogicalOperator must produce a concrete @c Cursor, which provides
@@ -92,7 +104,24 @@ class Cursor {
   /// @return true if a result was produced, false if the cursor is exhausted.
   /// Once false is returned, Pull must not be called again without first
   /// calling Reset().
+  ///
+  /// This is the SYNCHRONOUS body — unchanged from master. In `Coro` mode the parent pulls this cursor
+  /// through `PullCo()` instead; a `Sync` cursor sitting under a `Coro` parent is still driven here (its
+  /// whole subtree runs synchronously), wrapped frame-lessly by the default `PullCo()` below.
   virtual bool Pull(Frame &, ExecutionContext &) = 0;
+
+  /// Coroutine-resume entry: how a coroutine PARENT pulls this cursor (uniformly, via `PullChild()`).
+  ///
+  /// Default (a `Sync` cursor): wrap the synchronous `Pull()` result as an IMMEDIATE (frame-less)
+  /// ResumeAwaitable — `await_ready()` is then true, the parent never suspends, and NO coroutine frame
+  /// is allocated for this hop. This is what lets a `Coro` parent drive an arbitrary `Sync` subtree at
+  /// full synchronous speed (the hybrid).
+  ///
+  /// A CONVERTED (`Coro`) cursor overrides this via `MG_COROUTINE_CURSOR_PULLCO` to lazily create and
+  /// resume its persistent generator `gen_` (built from `DoPull`).
+  virtual PullAwaitable::ResumeAwaitable PullCo(Frame &f, ExecutionContext &ctx) {
+    return PullAwaitable::ResumeAwaitable::Immediate(Pull(f, ctx));
+  }
 
   /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
@@ -101,7 +130,36 @@ class Cursor {
   virtual void Shutdown() = 0;
 
   virtual ~Cursor() = default;
+
+  [[nodiscard]] CursorMode mode() const noexcept { return mode_; }
+
+  void set_mode(CursorMode mode) noexcept { mode_ = mode; }
+
+ protected:
+  /// The COROUTINE body of a converted cursor (paired with `MG_COROUTINE_CURSOR_PULLCO`, which builds
+  /// `gen_` from it). The base default never runs: only converted cursors (later PRs) override it, and
+  /// only a `Coro`-mode cursor's overridden `PullCo()` reaches it.
+  virtual PullAwaitable DoPull(Frame & /*f*/, ExecutionContext & /*ctx*/) {
+    LOG_FATAL("Cursor::DoPull() invoked on a cursor that did not override it");
+  }
+
+  /// Destroy the live generator frame, if any. Converted cursors call this from their `Reset()`.
+  void ResetGen() noexcept { gen_.reset(); }
+
+  /// One heap coroutine frame per converted cursor per query, created lazily on first `PullCo()`.
+  /// Empty for `Sync` cursors — so this is pure dormant state until a cursor is converted + enabled.
+  std::optional<PullAwaitable> gen_;
+
+ private:
+  CursorMode mode_{CursorMode::Sync};
 };
+
+/// Sugar for pulling a child cursor from inside a coroutine parent's `DoPull`: `co_await PullChild(...)`.
+/// Routes through the child's virtual `PullCo()`, so the child's own mode (Sync→Immediate, Coro→gen_)
+/// decides whether a frame is allocated for the hop.
+inline PullAwaitable::ResumeAwaitable PullChild(Cursor &child, Frame &f, ExecutionContext &ctx) {
+  return child.PullCo(f, ctx);
+}
 
 /// unique_ptr to Cursor managed with a custom deleter.
 /// This allows us to use utils::MemoryResource for allocation.
