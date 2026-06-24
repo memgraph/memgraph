@@ -494,8 +494,10 @@ class DbmsHandler {
     // a failed boot recovery ("COLD (recovery failed[: out of memory])") — the degraded-but-alive
     // marker so the instance never silently drops a tenant.
     for (const auto &[name, entry] : suspended_) {
-      const std::string_view st = [&]() -> std::string_view {
-        switch (entry.cold_reason) {
+      // Capture-less IIFE (reason passed by value): a [&]-capturing lambda over the structured
+      // binding trips a clang-analyzer NullDereference false positive on `entry`.
+      const std::string_view st = [](SuspendedEntry::ColdReason reason) -> std::string_view {
+        switch (reason) {
           case SuspendedEntry::ColdReason::kRecoveryFailed:
             return "COLD (recovery failed)";
           case SuspendedEntry::ColdReason::kRecoveryFailedOom:
@@ -504,7 +506,7 @@ class DbmsHandler {
             return "COLD";
         }
         return "COLD";  // unreachable; silences -Wreturn-type
-      }();
+      }(entry.cold_reason);
       out.emplace_back(name, std::string{st});
     }
     for (auto &name : db_handler_.All()) {  // HOT names only (Handler::All() skips no-value shells)
@@ -531,8 +533,8 @@ class DbmsHandler {
   std::optional<ColdShowInfo> GetColdShowInfo(std::string_view name) const {
     auto rd = std::shared_lock{lock_};
     if (auto it = suspended_.find(name); it != suspended_.end()) {
-      const std::string_view st = [&]() -> std::string_view {
-        switch (it->second.cold_reason) {
+      const std::string_view st = [](SuspendedEntry::ColdReason reason) -> std::string_view {
+        switch (reason) {
           case SuspendedEntry::ColdReason::kRecoveryFailed:
             return "COLD (recovery failed); stats unavailable";
           case SuspendedEntry::ColdReason::kRecoveryFailedOom:
@@ -541,7 +543,7 @@ class DbmsHandler {
             return "COLD (as-of-suspend snapshot)";
         }
         return "COLD (as-of-suspend snapshot)";  // unreachable
-      }();
+      }(it->second.cold_reason);
       return ColdShowInfo{.uuid = it->second.salient.uuid, .stats = it->second.cold_stats, .status = std::string{st}};
     }
     return std::nullopt;
