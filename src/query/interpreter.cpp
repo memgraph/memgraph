@@ -7404,6 +7404,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                TypedValue(tenant_limit > 0 ? utils::GetReadableSize(static_cast<double>(tenant_limit))
                                            : std::string("unlimited"))},
               {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
+              {TypedValue("status"), TypedValue(storage->IsDefunct() ? "broken" : "ready")},
           };
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
@@ -7880,7 +7881,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   break;
                 case dbms::NewError::DEFUNCT:
                   throw QueryRuntimeException(
-                      "{} is defunct and in an unknown state. Try to delete it again or clean up storage and restart "
+                      "{} is broken and in an unknown state. Try to delete it again or clean up storage and restart "
                       "Memgraph.");
                 case dbms::NewError::GENERIC:
                   throw QueryRuntimeException("Failed while creating {}", db_name);
@@ -8247,9 +8248,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  // SHOW DATABASES carries a "state" column (HOT/COLD) and lists COLD tenants (which are excluded from
-  // All() as no-value shells, so they would otherwise vanish).
-  callback.header = std::vector<std::string>{"Name", "state"};
+  // SHOW DATABASES carries a "state" column (HOT/COLD) and a "health" column (ready/broken), and lists
+  // COLD tenants (which are excluded from All() as no-value shells, so they would otherwise vanish).
+  callback.header = std::vector<std::string>{"Name", "State", "Health"};
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
@@ -8265,6 +8266,16 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       status_of.emplace(std::move(name), std::move(st));
     }
 
+    // A database that failed durability recovery comes up broken (see
+    // --storage-allow-recovery-failure); report that so operators can spot it.
+    auto health_of = [db_handler](std::string_view name) -> std::string {
+      try {
+        return db_handler->Get(name)->storage()->IsDefunct() ? "broken" : "ready";
+      } catch (...) {
+        return "ready";
+      }
+    };
+
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
       Sort(all);
 
@@ -8275,7 +8286,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
         // status_of carries the HOT/COLD string. A granted name not in the
         // snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
         auto it = status_of.find(ns);
-        status.push_back({TypedValue(ns), TypedValue(it != status_of.end() ? it->second : std::string{"HOT"})});
+        status.push_back({TypedValue(ns),
+                          TypedValue(it != status_of.end() ? it->second : std::string{"HOT"}),
+                          TypedValue(health_of(ns))});
       }
 
       std::erase_if(status, [&](auto const &row) {
@@ -9906,14 +9919,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
 
-      // Fail-closed gate for defunct databases (those that failed durability recovery and
+      // Fail-closed gate for broken databases (those that failed durability recovery and
       // came up empty under --storage-allow-recovery-failure). Any query that operates on
       // the current database's data is rejected until it is recovered via RECOVER SNAPSHOT
       // or REPAIR DATABASE. Meta queries (USE/SHOW DATABASES, SHOW STORAGE INFO, auth,
       // replication, ...) do not touch the tenant graph and are allowed through.
       if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsDefunct()) {
         auto *q = parsed_query.query;
-        // Allowlist: in the defunct state only RECOVER SNAPSHOT (the cure) and read-only meta/info
+        // Allowlist: in the broken state only RECOVER SNAPSHOT (the cure) and read-only meta/info
         // queries that never touch the tenant graph are permitted. Everything else (Cypher, DDL,
         // CREATE SNAPSHOT, ...) is rejected until the database is recovered.
         const bool is_allowed =
@@ -9928,7 +9941,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
             utils::Downcast<SessionSettingQuery>(q) != nullptr;
         if (!is_allowed) {
           throw QueryException(
-              "Database is in the defunct state because the recovery process failed. Please recover your database "
+              "Database is in the broken state because the recovery process failed. Please recover your database "
               "using the RECOVER SNAPSHOT query or REPAIR DATABASE query + run your import queries. If you have a "
               "backup of the whole data directory, please replace the current data directory with the backup one and "
               "restart the process.");
