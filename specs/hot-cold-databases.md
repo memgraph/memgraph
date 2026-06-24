@@ -2,7 +2,7 @@
 
 **Status:** Enterprise feature (on by default; no flag)
 **Author:** Andreja Tonev (https://github.com/andrejtonev)
-**Last updated:** 2026-06-23
+**Last updated:** 2026-06-24
 
 > Let an idle database in a multi-tenant instance be **suspended** — its in-memory
 > storage dropped to reclaim RAM, leaving a durable on-disk shell — and later
@@ -341,11 +341,16 @@ In addition, `SHOW DATABASES` shows each database's `HOT`/`COLD` state, and
 - **Cross-version safety.** The on-disk and replication wire formats were extended to
   carry hot/cold state; this is not downgrade-safe, which is an accepted trade-off.
 - **Best-effort durable-marker persistence.** The hot/cold *state* marker is persisted
-  best-effort: a storage I/O failure while writing it (at suspend, resume, or promotion)
-  is logged but does not roll back or crash. No data is lost — the snapshot is written
-  before teardown — the tenant simply recovers to its last durably-recorded hot/cold state
-  on restart. In the rare case of a MAIN crash between a promotion and the marker write, a
-  cold tenant may recover its pre-promotion epoch; a later resume reconciles it.
+  best-effort: a storage write failure while writing it (at suspend, resume, or promotion)
+  is logged but does not roll back or crash. No data is ever lost — the snapshot is written
+  before teardown — and in the common cases the tenant simply recovers to its last
+  durably-recorded hot/cold state on restart (a failed suspend marker recovers HOT; a failed
+  resume marker recovers COLD and is resumable again). The one case that is **not**
+  self-healing: if a promotion marker write fails and the newly-promoted MAIN then crashes
+  before the marker is rewritten, the cold tenant recovers its *pre-promotion* epoch on
+  restart. The MAIN reconciles its own copy on the next `RESUME`, but a **non-HA replica** of
+  that tenant can latch `DIVERGED_FROM_MAIN` with no automatic recovery, and an operator must
+  re-register replication for it to converge. The crash window is a single durable write wide.
 
 ---
 
