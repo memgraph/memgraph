@@ -122,9 +122,29 @@ def replica_args(test_name, recovery: bool):
     }
 
 
+def execute_replication_ddl_with_retry(cursor, query, max_duration=30, time_between_attempt=0.2):
+    """Run a REGISTER/DROP REPLICA command, retrying only the transient cluster-state-lock error.
+
+    REGISTER/DROP REPLICA need unique access over the replication cluster state. When a system
+    operation (e.g. a SUSPEND/RESUME that just ran during churn) still holds that lock, the command
+    fails with "lack of unique access over the cluster state. Please try again later on." — an
+    explicitly retriable condition, not a failure. We retry ONLY that transient and re-raise anything
+    else immediately so real errors are never masked."""
+    start_time = time.time()
+    while True:
+        try:
+            return execute_and_fetch_all(cursor, query)
+        except mgclient.DatabaseError as e:
+            msg = str(e).lower()
+            transient = "unique access over the cluster state" in msg or "try again later" in msg
+            if not transient or time.time() - start_time > max_duration:
+                raise
+            time.sleep(time_between_attempt)
+
+
 def register_replica(main_cursor, sync: bool):
     mode = "SYNC" if sync else "ASYNC"
-    execute_and_fetch_all(
+    execute_replication_ddl_with_retry(
         main_cursor, f"REGISTER REPLICA replica_1 {mode} TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"
     )
 
@@ -1043,7 +1063,7 @@ def test_tenant_churn_under_memory_pressure_replicated(connection, test_name):
     # repair a diverged ASYNC replica) and require it to converge. The assertion proves the replica's
     # apply-handler teardown/rebuild left it in a state SystemRecovery can fully reconcile after the stress.
     execute_and_fetch_all(main_live, "USE DATABASE memgraph;")
-    execute_and_fetch_all(main_live, "DROP REPLICA replica_1;")
+    execute_replication_ddl_with_retry(main_live, "DROP REPLICA replica_1;")
     register_replica(main_live, sync=False)
     for t in tenants:
         with committed_lock:
