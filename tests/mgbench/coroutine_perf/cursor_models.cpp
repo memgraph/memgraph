@@ -429,6 +429,63 @@ static uint64_t run_depth(uint64_t N, uint64_t D, int W) {
   return rows;
 }
 
+// ───────────────────────── DESIGN: breaker (coroutine pipeline-breaker over a REGULAR pipeline) ─────────
+// Models the proposed hybrid: a pipeline BREAKER (aggregate/sort) is a coroutine that yields mid-pull
+// (during its pull-all), but the scan→expand pipeline FEEDING it stays REGULAR (virtual Pull, legacy
+// speed). The breaker yields BETWEEN complete input pulls, so the regular pipeline never relays a yield.
+// Per-input-row cost should be ~legacy (no per-row coroutine crossing), with yield still available.
+static uint64_t g_consumed = 0;
+
+static PullAwaitable breaker_gen(CursorL *top, int W) {
+  while (true) {
+    co_await YieldNoop{};  // the breaker's own mid-pull yield point (free when not yielding; suspends 1 frame when it
+                           // does)
+    if (!top->Pull()) break;
+    g_sink ^= do_work(top->out_, W);
+    ++g_consumed;
+  }
+  co_return true;  // breaker produced its single aggregate row
+}
+
+static uint64_t run_breaker(uint64_t N, uint64_t F, int W) {
+  SourceL s(N);
+  ExpandL e(&s, F);  // REGULAR input pipeline (virtual Pull)
+  g_consumed = 0;
+  PullAwaitable gen = breaker_gen(&e, W);
+  auto ra = gen.Resume();
+  ResumePullStep(ra);  // drive the breaker to completion (one output row); it consumes all input internally
+  return g_consumed;   // report per-INPUT-row cost
+}
+
+// breaker variant: yield-check only every K rows (inner non-coroutine loop) -> hot loop stays register-resident.
+static PullAwaitable breakerB_gen(CursorL *top, int W) {
+  constexpr int K = 256;
+  for (;;) {
+    co_await YieldNoop{};  // amortized: one suspend point per K consumed rows
+    bool done = false;
+    for (int i = 0; i < K; ++i) {
+      if (!top->Pull()) {
+        done = true;
+        break;
+      }
+      g_sink ^= do_work(top->out_, W);
+      ++g_consumed;
+    }
+    if (done) break;
+  }
+  co_return true;
+}
+
+static uint64_t run_breakerB(uint64_t N, uint64_t F, int W) {
+  SourceL s(N);
+  ExpandL e(&s, F);
+  g_consumed = 0;
+  PullAwaitable gen = breakerB_gen(&e, W);
+  auto ra = gen.Resume();
+  ResumePullStep(ra);
+  return g_consumed;
+}
+
 // ───────────────────────── EXTERNAL-YIELD (I/O park) model ─────────────────────────
 // Models the on-disk future: a cold-page access deep in the scan parks the task; the scheduler
 // runs something else; the task resumes when I/O completes. Here the "I/O" completes instantly so
@@ -555,6 +612,10 @@ int main(int argc, char **argv) {
     fn = run_allcoroEY;  // external-yield (I/O park); period via argv[6]
   else if (design == "fusedEY")
     fn = run_fusedEY;
+  else if (design == "breaker")
+    fn = run_breaker;  // coroutine breaker over a REGULAR input pipeline (the proposed hybrid)
+  else if (design == "breakerB")
+    fn = run_breakerB;  // breaker with yield-check amortized every K rows
   else {
     std::fprintf(stderr, "unknown design: %s\n", design.c_str());
     return 2;

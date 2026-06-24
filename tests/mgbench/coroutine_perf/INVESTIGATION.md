@@ -360,3 +360,59 @@ hard requirement — and then batched/vectorized pulls is the only constraint-co
 dedicated project. A cheap, constraint-compatible micro-win remains available regardless: shrink the
 live-across-suspend frame state (hoist frame_writer/oom/profile out of the co_await scope) for a few
 instr/crossing.
+
+---
+
+## EXP-8 — the HYBRID (selective coroutine by "needs mid-pull yield"), the constraint-compatible answer
+
+Principle (stackless): a yield can only travel up through coroutine frames, so:
+1. a cursor must be a coroutine iff its OWN single Pull() can run long (= needs to suspend mid-pull):
+   pipeline breakers (aggregate/sort/join-build — Pull() consumes all input), blocking/on-disk
+   leaves, heavy-internal-skip scans;
+2. ancestor-closure: if a cursor is a coroutine, all its ANCESTORS must be too (to relay its yield).
+Crucially, **between-row yield needs NO coroutine** — a cursor tree's iteration state lives in member
+variables, not a call stack, so the session driver can pause between root.Pull() calls and resume
+the loop later for free. Coroutines are ONLY for mid-Pull() suspension.
+
+So a pipeline BREAKER (aggregate) is a coroutine that yields mid-consume, while the scan→expand
+pipeline FEEDING it stays REGULAR (virtual Pull) — the breaker yields BETWEEN complete input pulls,
+never relaying a yield through the pipeline.
+
+Measured (chain pull-dense F=1 W=0, instr/row). NB the "legacy 32" earlier was unrealistically
+devirtualized (concrete local cursor); REAL Memgraph always pulls through Cursor* (virtual):
+
+| design                                            | instr/row | vs realistic flag-OFF |
+|---------------------------------------------------|-----------|------------------------|
+| virtual-call pipeline (== realistic flag-OFF)     | 48        | —                      |
+| **hybrid: coroutine breaker + virtual pipeline**  | **57**    | **+19%**               |
+| all-coroutine (flag-ON today)                     | 138       | +187%                  |
+| (devirtualized concrete pipeline — not realistic) | 32        | —                      |
+
+The hybrid removes essentially the entire per-row coroutine tax: the breaker is pulled by its parent
+only once per output row (once total for count, once/group for grouped agg), and consumes its input
+SYNCHRONOUSLY at virtual-Pull speed. For count(*)-over-expand this recovers ~flag-OFF speed. The
+residual +9/row is the breaker's consume loop running in a coroutine frame; `breakerB` showed the
+per-row `co_await` is free (amortizing it changed nothing), so factoring the hot consume loop into a
+plain helper (yield-check at the helper boundary) brings the breaker to ~baseline.
+
+### Why this fits all three stated constraints
+- **No fused library** — every cursor is just "regular" or "coroutine"; no operator combinations. It
+  reuses the EXISTING dual-path seam: regular == PullLegacy/immediate-PullCo, coroutine == DoPull.
+- **No planner change** — "regular vs coroutine" is decided at CURSOR CONSTRUCTION (MakeCursor) from
+  operator type + storage mode (in-memory vs on-disk), bottom-up: a cursor is a coroutine if its own
+  Pull() can be long OR any child is a coroutine. The LogicalOperator tree is untouched.
+- **Yield for slow cursors** — the slow ones (breakers, on-disk/heavy leaves) ARE coroutines and yield
+  mid-pull; fast ones don't need it and yield between pulls at the session for free. Mid-pull yield is
+  preserved exactly where it is needed.
+
+### Cost / implication
+This means KEEPING the dual path permanently (not deleting PullLegacy in P3.4) for the cursors that
+can be either mode — i.e. most of them, since a Filter/Produce/etc. must have a coroutine mode for
+when it sits above an on-disk (coroutine) leaf (ancestor-closure). Both bodies already exist today and
+are parity-proven, so it is "don't delete what exists + add the construction-time mode decision,"
+not "write new bodies." On-disk: leaves yield → coroutine-ness propagates up → fewer regular cursors,
+but EXP-7 shows dispatch is moot there anyway. In-memory: breakers are coroutines, the hot pipelines
+are regular → ~flag-OFF speed where it matters.
+
+**This is the recommended direction if in-memory pull-dense perf must be recovered while keeping
+stackless, the planner untouched, and mid-pull yield for slow cursors.**
