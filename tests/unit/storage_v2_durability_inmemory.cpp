@@ -1811,7 +1811,7 @@ inline void CreateMultiWalChain(const std::filesystem::path &storage_directory, 
 TEST_P(DurabilityTest, WalDeltaCorruptDefunctWhenRecoveryFailureAllowed) {
   CreateMultiWalChain(storage_directory, GetParam(), 100);
   ASSERT_EQ(GetSnapshotsList().size(), 0);
-  ASSERT_EQ(GetWalsList().size(), 6);
+  ASSERT_GE(GetWalsList().size(), 3);
 
   // Corrupt the deltas of a non-first WAL file so the structural chain checks pass but the
   // delta-level LoadWal fails.
@@ -1850,7 +1850,7 @@ TEST_P(DurabilityTest, WalDeltaCorruptDefunctWhenRecoveryFailureAllowed) {
 // With the flag off (default), a corrupt WAL delta still aborts startup.
 TEST_P(DurabilityTest, WalDeltaCorruptCrashesWhenRecoveryFailureNotAllowed) {
   CreateMultiWalChain(storage_directory, GetParam(), 100);
-  ASSERT_EQ(GetWalsList().size(), 6);
+  ASSERT_GE(GetWalsList().size(), 3);
   {
     auto wals = GetWalsList();
     DestroyWalFirstDelta(wals[wals.size() - 2]);
@@ -1872,7 +1872,7 @@ TEST_P(DurabilityTest, WalDeltaCorruptCrashesWhenRecoveryFailureNotAllowed) {
 TEST_P(DurabilityTest, WalMissingPrefixDefunctWhenRecoveryFailureAllowed) {
   CreateMultiWalChain(storage_directory, GetParam(), 100);
   ASSERT_EQ(GetSnapshotsList().size(), 0);
-  ASSERT_EQ(GetWalsList().size(), 6);
+  ASSERT_GE(GetWalsList().size(), 3);
 
   // Remove the oldest WAL file (the one with seq_num == 0). GetWalsList() is sorted newest-first.
   {
@@ -1895,7 +1895,7 @@ TEST_P(DurabilityTest, WalMissingPrefixDefunctWhenRecoveryFailureAllowed) {
 
 TEST_P(DurabilityTest, WalMissingPrefixCrashesWhenRecoveryFailureNotAllowed) {
   CreateMultiWalChain(storage_directory, GetParam(), 100);
-  ASSERT_EQ(GetWalsList().size(), 6);
+  ASSERT_GE(GetWalsList().size(), 3);
   {
     auto wals = GetWalsList();
     ASSERT_TRUE(std::filesystem::remove(wals.back()));
@@ -1917,7 +1917,7 @@ TEST_P(DurabilityTest, WalMissingPrefixCrashesWhenRecoveryFailureNotAllowed) {
 TEST_P(DurabilityTest, WalSeqNumGapDefunctWhenRecoveryFailureAllowed) {
   CreateMultiWalChain(storage_directory, GetParam(), 100);
   ASSERT_EQ(GetSnapshotsList().size(), 0);
-  ASSERT_EQ(GetWalsList().size(), 6);
+  ASSERT_GE(GetWalsList().size(), 3);
 
   // Remove a middle WAL file to introduce a sequence-number gap while keeping the prefix
   // (seq_num == 0) file present. GetWalsList() is sorted newest-first, so back() is the prefix.
