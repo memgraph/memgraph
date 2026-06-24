@@ -4423,8 +4423,8 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
     if (const auto err = mgp_list_make_empty(2, memory, &vertex_with_score); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text search results failed during creation of a mgp_list");
     }
-    if (mgp_list_append_extend(vertex_with_score, vertex) != mgp_error::MGP_ERROR_NO_ERROR ||
-        mgp_list_append_extend(vertex_with_score, score_value) != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (mgp_list_append_move(vertex_with_score, vertex) != mgp_error::MGP_ERROR_NO_ERROR ||
+        mgp_list_append_move(vertex_with_score, score_value) != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error(
           "Retrieving text search results failed during insertion of the mgp_value into the result list");
     }
@@ -4433,7 +4433,7 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text search results failed during creation of a list mgp_value");
     }
-    if (const auto err = mgp_list_append(search_results, vertex_with_score_value);
+    if (const auto err = mgp_list_append_move(search_results, vertex_with_score_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error(
           "Retrieving text search results failed during insertion of the mgp_value into the result list");
@@ -4533,8 +4533,8 @@ void WrapTextEdgeSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **r
     if (const auto err = mgp_list_make_empty(2, memory, &edge_with_score); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text search results failed during creation of a mgp_list");
     }
-    if (mgp_list_append_extend(edge_with_score, edge) != mgp_error::MGP_ERROR_NO_ERROR ||
-        mgp_list_append_extend(edge_with_score, score_value) != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (mgp_list_append_move(edge_with_score, edge) != mgp_error::MGP_ERROR_NO_ERROR ||
+        mgp_list_append_move(edge_with_score, score_value) != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error(
           "Retrieving text search results failed during insertion of the mgp_value into the result list");
     }
@@ -4543,13 +4543,14 @@ void WrapTextEdgeSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **r
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text search results failed during creation of a list mgp_value");
     }
-    if (const auto err = mgp_list_append(search_results, edge_with_score_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (const auto err = mgp_list_append_move(search_results, edge_with_score_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error(
           "Retrieving text search results failed during insertion of the mgp_value into the result list");
     }
-    mgp_value_destroy(edge_with_score_value);
-    mgp_value_destroy(edge);
     mgp_value_destroy(score_value);
+    mgp_value_destroy(edge);
+    mgp_value_destroy(edge_with_score_value);
   }
 
   mgp_value *search_results_value = nullptr;
