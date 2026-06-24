@@ -158,3 +158,52 @@ property/aggregation work dominates and dilutes it). Cutting it further needs a 
 chain unchanged (+9.9%) — deleting the dead helper did not regress. Variable expand +5.8%
 (more per-row work — DFS stack/path building — dilutes the per-pull coroutine floor).
 `cursor_parity` Corpus + MutationCorpus PASS; clean build, no warnings.
+
+---
+
+## EXP-4 — attack the residual ~10% (does symmetric transfer make crossings free?)
+
+**Concept.** Symmetric transfer (tail-call between coroutines) removes only the *trampoline /
+stack-growth / scheduler round-trip*. It does NOT remove, per `co_await`: (1) the await protocol
+(`await_ready`/`await_resume`), and (2) **frame save/restore of every local live across the
+suspend point** (a resumable frame must persist state to the heap; a normal `bool Pull()` keeps it
+in registers / on the call stack). So a coroutine boundary crossing is inherently costlier than a
+virtual `Pull()` call even with symmetric transfer, scaling with live-across-suspend state.
+
+**EXP-4b (throwaway, reverted): force ScanAll onto the frame-less immediate path** so a converted
+parent's `co_await PullChild(ScanAll)` does not suspend+resume a frame.
+
+| chain expand            | extra instr/edge | overhead |
+|-------------------------|------------------|----------|
+| ScanAll as coroutine    | 250              | +9.9%    |
+| ScanAll immediate       | 189              | **+7.5%**|
+| (fanout Expand floor)   | ~92              | —        |
+
+Removing ONE input-pull crossing saved **~61 instr/edge** — the measured cost of that crossing
+(ScanAll resume + Expand frame spill). Direct evidence the crossing is NOT free under symmetric
+transfer. It only fell to +7.5% (not the ~92 floor) because the `co_await PullChild` is still a
+co_await in Expand's body: `await_ready()` still runs and Expand's frame is still laid out
+conservatively for a possible suspend there.
+
+**Residual decomposition (chain count(*)-over-expand), measured:**
+- ~92 instr/edge — Aggregate→Expand crossing, paid every edge; irreducible while Expand is a coroutine.
+- ~61 instr/edge — ScanAll input-pull crossing; removable by NOT converting leaf ScanAll.
+- ~remainder — conservative frame layout around the (now-immediate) co_await + per-edge init work in coroutine context.
+
+**Conclusion:** the residual is **structural to the per-cursor-coroutine model**, not a bug and
+not a symmetric-transfer failure. Levers, by cost/benefit:
+1. **Selective conversion** — leave cursors that return one row per pull and have no unbounded
+   internal loop (ScanAll without internal filtering, Once, …) on the legacy/immediate path; only
+   convert cursors that genuinely need to suspend mid-pull for cooperative yield. Measured ~+10%→
+   +7.5% on chain; principled and the seam already supports it. Tradeoff: a per-cursor decision
+   about yield granularity (a leaf that CAN loop internally, e.g. a range scan that skips many
+   index entries, would lose its yield point). Partial win.
+2. **Cursor fusion** — collapse adjacent cursors into one coroutine to cut crossings (toward the
+   original big-bang shape). Largest win, largest redesign.
+3. **Accept** the current state: realistic queries (per-row work present) are already in budget
+   (sum_agg +0.3%, project +3.5%, variable expand +5.8%); only `count(*)`-over-bare-expansion
+   (near-zero per-row work — worst case) sits at ~+10%.
+
+Untested-on-bare-metal: removing the per-iteration `co_await YieldPointAwaitable` (one fewer
+suspend point per inner iteration → possible frame de-pessimization). The original investigation
+saw "no change" on the VM; could differ here. Lower priority than (1).
