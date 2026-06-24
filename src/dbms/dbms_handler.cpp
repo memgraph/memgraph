@@ -409,6 +409,13 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
             "registration. Its on-disk data is left untouched and directory cleanup is SKIPPED this boot.",
             name,
             e.what());
+        // Increment the boot-recovery failure metric before continuing — the degraded-boot event
+        // must be counted even though the cold-shell registration was skipped.
+        if (reason == SuspendedEntry::ColdReason::kRecoveryFailedOom) {
+          metrics::Metrics().global.database_boot_recovery_oom_failures->Increment();
+        } else {
+          metrics::Metrics().global.database_boot_recovery_failures->Increment();
+        }
         continue;
       }
       // Surface tenants left cold by a failed hot recovery; the OOM split mirrors the degraded marker
@@ -1185,6 +1192,12 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // Consolidating snapshot at suspend. The tenant is frozen (no in-flight txns), so this captures
   // the full committed state. On resume, recovery loads this snapshot and skips WAL files at/below
   // its durable timestamp -> near-zero WAL replay (fast reheat).
+  //
+  // Capture the InMemoryStorage pointer in a wider scope so DisableExitSnapshot() can be called
+  // just before finish_suspend() (past the abort point-of-no-return). If DisableExitSnapshot were
+  // called here and the suspend aborted between this point and rollback.Disable(), the rollback
+  // re-HOTs the tenant with exit-snapshot permanently disabled (no EnableExitSnapshot() API).
+  storage::InMemoryStorage *inmem_for_disable = nullptr;
   if (auto *inmem = dynamic_cast<storage::InMemoryStorage *>((*acc)->storage())) {
     using CreateSnapshotError = storage::InMemoryStorage::CreateSnapshotError;
     // A7: the periodic snapshot scheduler is NOT paused by the freeze, so a periodic
@@ -1220,8 +1233,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
             storage::InMemoryStorage::CreateSnapshotErrorToString(snap.error()));
       }
     }
-    // Disable exit snapshot: we just took the consolidating one; dtor must NOT take another.
-    inmem->DisableExitSnapshot();
+    inmem_for_disable = inmem;  // valid until finish_suspend() destroys the storage
   }
 
   // Capture heartbeat metadata POST-freeze (count==1, no concurrent commit can advance
@@ -1237,9 +1249,10 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     // is the prior-epochs deque (the boundary is appended only on a later promotion).
     entry.has_epoch_meta = true;
     entry.current_epoch = std::string{st->repl_storage_state_.epoch_.id()};
-    // Move: the consolidating snapshot already serialized history (above), the storage is frozen and
-    // about to be torn down, and nothing reads history again during teardown.
-    entry.epoch_history = std::move(st->repl_storage_state_.history);
+    // Copy (not move): copying ensures an aborted suspend leaves the live epoch history intact on
+    // the rollback path. On the commit path the storage is torn down immediately after, so the
+    // extra copy is paid at most once and costs nothing meaningful.
+    entry.epoch_history = st->repl_storage_state_.history;
     // Capture last-hot stats snapshot (used for replication and coordinator history).
     entry.cold_stats = st->GetBaseInfo();
   }
@@ -1269,14 +1282,11 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     // Resume_ cannot observe a half state. A Put failure degrades to a warning and never rolls back
     // or throws (the in-memory teardown still proceeds; MAIN's data stays durable on disk).
     if (durability_) {
-      try {
-        durability_->Put(Durability::GenKey(name), cold_val);
-      } catch (const std::exception &e) {
+      if (!durability_->Put(Durability::GenKey(name), cold_val)) {
         spdlog::warn(
-            "hot/cold suspend: failed to persist the cold durability marker for '{}' ({}); the database is "
+            "hot/cold suspend: failed to persist the cold durability marker for '{}'; the database is "
             "suspended in memory but will recover HOT on restart.",
-            name,
-            e.what());
+            name);
       }
     }
   }
@@ -1285,6 +1295,13 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // SUSPENDING -> COLD; if the guard fired afterwards it would abort_suspend() on a non-SUSPENDING
   // state and trip the debug assert.
   rollback.Disable();
+
+  // Disable exit snapshot NOW — past the abort point-of-no-return (rollback is disabled, so the
+  // tenant is committed to teardown). The storage object lives in the gatekeeper until
+  // finish_suspend() destroys it, so inmem_for_disable is still valid here. Doing this after
+  // rollback.Disable() ensures an aborted suspend never leaves the tenant re-HOT with exit-snapshot
+  // permanently disabled (there is no EnableExitSnapshot() API to undo it).
+  if (inmem_for_disable) inmem_for_disable->DisableExitSnapshot();
 
   // OUTSIDE lock_: value_.reset() -> ~Database (stop threads, FinalizeWal, NO exit snapshot).
   // The COLD shell stays in db_handler_ so a later resume can move-assign a fresh gatekeeper.
@@ -1393,11 +1410,13 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         auto rd = std::shared_lock{lock_};
         auto *live_gk = db_handler_.GetGatekeeper(name);
         if (!live_gk) return std::unexpected{ResumeError::NON_EXISTENT};  // dropped mid-resume
-        if (live_gk->state() != utils::GatekeeperState::COLD) {
-          // Still RESUMING (hit absolute ceiling) or HOT just now — check once more.
-          if (auto a = db_handler_.Get(name)) return std::move(*a);
-          return std::unexpected{ResumeError::RECOVERY_FAILED};
-        }
+        // HOT: the winner just published — share its accessor.
+        if (auto a = db_handler_.Get(name)) return std::move(*a);
+        // RESUMING: a second concurrent winner has taken over and is actively rebuilding — do not
+        // return RECOVERY_FAILED for a live winner; fall through to the bounded retry instead.
+        // COLD: the winner aborted and the COLD-fallback path restarts Phase A (bounded retry).
+        // Any other state is treated as COLD (bounded retry).
+        // Only RECOVERY_FAILED if the retry bound is exceeded (handled just below).
       }
       // Bound the retry — a single transient abort is retried; a persistent on_resume_ failure
       // (e.g. corrupt trigger metadata) is surfaced as RECOVERY_FAILED instead of looping forever.
@@ -1471,14 +1490,11 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       if (durability_) {
         auto wr = std::lock_guard{lock_};
         if (!suspended_.contains(name)) {
-          try {
-            durability_->Put(Durability::GenKey(name), Durability::GenVal(salient.uuid, rel_dir));
-          } catch (const std::exception &e) {
+          if (!durability_->Put(Durability::GenKey(name), Durability::GenVal(salient.uuid, rel_dir))) {
             spdlog::warn(
-                "hot/cold resume: failed to clear the cold durability marker for '{}' ({}); the database is live "
+                "hot/cold resume: failed to clear the cold durability marker for '{}'; the database is live "
                 "(HOT) but may recover COLD on restart (resumable).",
-                name,
-                e.what());
+                name);
           }
         }
       }
@@ -1498,9 +1514,19 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       }
       // Record the system action so the resume is ordered + replicated like CREATE/DROP DATABASE.
       // Reached only on the winner's successful publish; the replica wire is filled by DoReplication.
-      if (txn) txn->AddAction<ResumeDatabase>(salient.uuid);
-
-      spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
+      // Wrapped in its own try/catch because the gatekeeper is already HOT after the publish block
+      // above: any throw that escaped to the outer catch(...) would call abort_resume() on a HOT
+      // gatekeeper and trip its MG_ASSERT(state == RESUMING). The database is live regardless of
+      // whether recording or logging succeeds here.
+      try {
+        if (txn) txn->AddAction<ResumeDatabase>(salient.uuid);
+        spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
+      } catch (...) {
+        spdlog::warn(
+            "hot/cold resume: recording the resume system action for '{}' threw; the database is live (HOT) "
+            "and data is intact, but this resume may not replicate until the next system sync.",
+            name);
+      }
       return acc;
     } catch (...) {
       // Recovery (BuildDetached) threw before `acc`/`fresh` existed. No live accessor to release.
@@ -1582,19 +1608,17 @@ void DbmsHandler::PromoteColdTenants(std::string_view new_epoch_id) {
     entry.current_epoch = std::string{new_epoch_id};
 
     if (durability_) {
-      try {
-        durability_->Put(Durability::GenKey(name),
-                         Durability::GenColdVal(entry.salient.uuid,
-                                                entry.rel_dir,
-                                                entry.last_durable_timestamp,
-                                                entry.num_committed_txns,
-                                                entry.current_epoch,
-                                                entry.epoch_history,
-                                                entry.cold_stats));
-      } catch (const std::exception &e) {
-        // Best-effort: the in-memory entry already carries the new epoch (a resume in this process is
-        // correct); only a restart-before-persist would recover the pre-promotion epoch.
-        spdlog::warn("hot/cold promotion: failed to persist new epoch for cold database '{}' ({}).", name, e.what());
+      // Best-effort: the in-memory entry already carries the new epoch (a resume in this process is
+      // correct); only a restart-before-persist would recover the pre-promotion epoch.
+      if (!durability_->Put(Durability::GenKey(name),
+                            Durability::GenColdVal(entry.salient.uuid,
+                                                   entry.rel_dir,
+                                                   entry.last_durable_timestamp,
+                                                   entry.num_committed_txns,
+                                                   entry.current_epoch,
+                                                   entry.epoch_history,
+                                                   entry.cold_stats))) {
+        spdlog::warn("hot/cold promotion: failed to persist new epoch for cold database '{}'.", name);
       }
     }
     spdlog::trace("hot/cold promotion: cold database '{}' epoch rewritten to {}", name, new_epoch_id);

@@ -409,11 +409,23 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   for (const auto &config : database_configs) {
     const auto name = std::string{*config.name.str_view()};
     // MAIN lists this name HOT but the replica holds it COLD. Update() would throw
-    // UnknownDatabaseException on the COLD shell, so resume it (rewire=false) first.
+    // UnknownDatabaseException on the COLD shell, so handle the COLD shell first.
     if (dbms_handler.IsSuspended(name)) {
-      if (!dbms_handler.ResumeForRecovery(name).has_value()) {
-        spdlog::debug("SystemRecoveryHandler: failed to resume COLD database \"{}\" to match MAIN (HOT).", name);
-        return false;
+      if (dbms_handler.IsSuspendedWithUuid(name, config.uuid)) {
+        // Same tenant still COLD: resume it so Update() below can refresh the HOT config.
+        if (!dbms_handler.ResumeForRecovery(name).has_value()) {
+          spdlog::debug("SystemRecoveryHandler: failed to resume COLD database \"{}\" to match MAIN (HOT).", name);
+          return false;
+        }
+      } else {
+        // Same name, different uuid: MAIN drop+recreated the tenant while this replica kept the
+        // OLD shell COLD. Drop it so Update() below recreates MAIN's new tenant HOT; otherwise
+        // per-uuid Suspend/Resume RPCs for the new uuid would never find it.
+        if (const auto del = dbms_handler.Delete(name); !del && del.error() != DeleteError::NON_EXISTENT) {
+          spdlog::debug("SystemRecoveryHandler: failed to drop stale HOT-loop COLD database \"{}\" before recreate.",
+                        name);
+          return false;
+        }
       }
     }
     try {
@@ -465,6 +477,10 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
       spdlog::debug("SystemRecoveryHandler: UnknownDatabaseException creating COLD database \"{}\".", name);
       return false;
     }
+    // Mirror Suspend/Drop handlers: force-suspend destroys the tenant's InMemoryStorage, so a
+    // stale cached 2PC commit accessor for this tenant must be aborted first — otherwise a later
+    // DestroyReplAccessor() dereferences the now-freed Storage*.
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(config.uuid);
     if (!ForceSuspendForRecovery(dbms_handler, name)) {
       spdlog::debug("SystemRecoveryHandler: failed to suspend database \"{}\" to match MAIN (COLD).", name);
       return false;

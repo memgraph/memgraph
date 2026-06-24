@@ -582,16 +582,25 @@ class DbmsHandler {
     auto wr = std::lock_guard{lock_};
     auto it = suspended_.find(name);
     if (it == suspended_.end()) return;
-    it->second.cold_stats = meta.stats;
+    // Strong exception guarantee: do all potentially-throwing copies into locals first, then
+    // commit them into it->second with noexcept moves. A bad_alloc during any copy leaves
+    // it->second untouched (no partial update).
+    auto stats = meta.stats;
     if (meta.has_epoch_meta) {
-      it->second.current_epoch = meta.current_epoch;
-      it->second.epoch_history = meta.epoch_history;
+      auto epoch = meta.current_epoch;
+      auto hist = meta.epoch_history;  // deque copy — can throw bad_alloc
+      // All copies succeeded; commit with noexcept moves.
+      it->second.cold_stats = std::move(stats);
+      it->second.current_epoch = std::move(epoch);
+      it->second.epoch_history = std::move(hist);
       it->second.has_epoch_meta = true;
       // Holistic-review #2: also adopt MAIN's as-of-suspend LDT. PromoteColdTenants emplaces the
       // promotion boundary as (current_epoch, last_durable_timestamp); without MAIN's LDT a converged
       // replica would pair MAIN's epoch with its OWN local LDT -> a phantom/garbled boundary ts that a
       // downstream replica's continuous-history check can reject (spurious DIVERGED).
       it->second.last_durable_timestamp = meta.last_durable_timestamp;
+    } else {
+      it->second.cold_stats = std::move(stats);
     }
   }
 
