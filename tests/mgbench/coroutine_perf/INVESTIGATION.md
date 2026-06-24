@@ -543,3 +543,43 @@ as coroutines; they are always coroutines). Every other cursor stays a plain syn
 no macros, no codegen. This aligns with EXP-7 (dispatch is moot on-disk anyway) and is how many disk
 engines handle I/O. Net: the cleanest path to the hybrid with NO dual-body burden is "prefetch, don't
 park, at the storage layer" + coroutines confined to breakers — not a code-generation trick.
+
+---
+
+## EXP-13 — cursor audit: can the hybrid run on ONE dev-written body per cursor?
+
+Audited all 57 cursor pull-body pairs (`PullLegacy` vs `DoPull`) in `src/query/plan/operator.cpp`
+against: "is `DoPull` a mechanical transform of `PullLegacy` via fixed control-point hooks + an
+outer `while(true){…co_yield}` wrapper, so both forms come from one source?"
+
+Hook contract (the boilerplate):
+- CHILD-PULL: `child->Pull(f,c)` ↔ `co_await PullChild(*child,f,c)`
+- YIELD-CHECK: `AbortCheck(c)` ↔ `co_await YieldPointAwaitable{c,maybe_check_abort}`
+- EMIT: `return true` ↔ `produced=true; break;` (feeds the wrapper's `co_yield true`)
+- DONE: `return false` ↔ `co_return false`
+- (the `produced`-flag + `while(true){ <body>; if(!produced) co_return false; co_yield true; }`
+  wrapper is what absorbs an early `return` — so "flag/else inversion" is baseline, not divergence)
+Three recurring MEDIUM extensions, all still deterministic rewrites: (a) an inlined refill/drain loop
+(`co_await` child until a predicate, `break`), (b) >1 CHILD-PULL hook (multi-child ops), (c) a
+disambiguation flag when a `return` is nested in a loop.
+
+Result (57 pairs):
+| class       | count | meaning |
+|-------------|-------|---------|
+| CLEAN       | 31    | 4 base hooks + wrapper, nothing else |
+| MEDIUM      | 13    | + one of the 3 recurring patterns above; still deterministic single-source |
+| STRUCTURAL  | 2     | `Aggregate`, `ExpandAllShortestPaths` — need a helper coroutine holding state across a non-pull suspension |
+| WRAP-ONLY   | 6     | parallel cursors — already `Immediate(PullLegacy())`, one sync body, no coroutine twin (concurrent-resume safety) |
+
+**Verdict: every cursor reduces to ONE developer-written body.**
+- 44 streaming/simple (CLEAN+MEDIUM): one body in the hook style → boilerplate emits BOTH the sync
+  `Pull()` and the coroutine `DoPull()`. Parity becomes structural.
+- 2 STRUCTURAL (`Aggregate`, `ExpandAllShortestPaths`): both are BREAKERS → **coroutine-only** in the
+  hybrid (one hand-written coroutine body, no sync twin). Consistent with breaker design — no loss.
+- 6 parallel: already one sync body via `Immediate()`. Non-issue.
+
+So the hybrid does NOT require two hand-maintained divergent bodies anywhere. The dual-body burden the
+investigation worried about is removable: 44 cursors via a finite hook/boilerplate contract, 2 breakers
+coroutine-only, 6 parallel sync-only. GO for hybrid + single-source; then tune the per-cursor
+regular-vs-coroutine SELECTION (cursor-construction, bottom-up: `coroutine = needs_midpull_yield(self)
+|| any_child_is_coroutine`) against measured yield/park/execution perf.
