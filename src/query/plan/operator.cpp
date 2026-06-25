@@ -10406,6 +10406,9 @@ class DistinctCursor : public Cursor {
 };
 
 #ifdef MG_ENTERPRISE
+// Coroutine-cursor seam: shared producer pulled concurrently by branch workers. Rides the base
+// PullCo()=Immediate(Pull()); NO gen_/DoPull. See the seam note on ParallelBranchCursor — do NOT add
+// MG_COROUTINE_CURSOR_PULLCO (a shared gen_ frame cannot be Resumed concurrently).
 class DistinctParallelCursor : public Cursor {
  public:
   static constexpr size_t kLocalCacheBatchSize = 8;
@@ -13631,6 +13634,9 @@ std::unique_ptr<LogicalOperator> ScanChunkByEdge::Clone(AstStorage *storage) con
 }
 
 #ifdef MG_ENTERPRISE
+// Coroutine-cursor seam: shared producer pulled concurrently by branch workers. Rides the base
+// PullCo()=Immediate(Pull()); NO gen_/DoPull. See the seam note on ParallelBranchCursor — do NOT add
+// MG_COROUTINE_CURSOR_PULLCO (a shared gen_ frame cannot be Resumed concurrently).
 template <typename TChunksFun>
 class ScanParallelCursor : public Cursor {
  public:
@@ -14247,6 +14253,9 @@ UniqueCursorPtr ParallelMerge::MakeCursor(utils::MemoryResource *mem,
 }
 
 #ifdef MG_ENTERPRISE
+// Coroutine-cursor seam: thin pass-through over the shared ScanParallel producer (+ scheduler Trigger).
+// Rides the base PullCo()=Immediate(Pull()); NO gen_/DoPull. See the seam note on ParallelBranchCursor —
+// do NOT add MG_COROUTINE_CURSOR_PULLCO.
 class ParallelMergeCursor : public Cursor {
  public:
   ParallelMergeCursor(const ParallelMerge &self, utils::MemoryResource *mem,
@@ -14300,6 +14309,29 @@ class ParallelMergeCursor : public Cursor {
  * Handles creating multiple cursors, executing them in parallel, and unifying context fields.
  * Derived classes should override MergeResults() to implement domain-specific merging logic.
  */
+// ─────────────────────────────────────────────────────────────────────────────
+// COROUTINE-CURSOR SEAM — enterprise PARALLEL cursors (coroutine cursors v2 / PR-14).
+//
+// The parallel cursors (ScanParallel, DistinctParallel, ParallelMerge, ParallelBranch and its derived
+// AggregateParallel/OrderByParallel) intentionally do NOT use MG_COROUTINE_CURSOR_PULLCO and have NO
+// DoPull/gen_ coroutine body. They ride the base Cursor::PullCo() default == Immediate(Pull()) ("approach
+// A"): a Coro parent pulling one via PullChild gets a frame-less Immediate wrap of the synchronous Pull()
+// — re-entrant, no shared coroutine frame. This is REQUIRED, not a shortcut:
+//   • ScanParallel/DistinctParallel are SHARED producers pulled CONCURRENTLY by every branch worker (via
+//     plan_creation_helper_ / shared_state_). A persistent gen_ frame cannot be Resumed concurrently
+//     without corrupting coroutine state; Immediate(Pull()) has no shared frame and Pull() is
+//     mutex/shared-state guarded.
+//   • The coordinators (ParallelBranch / Aggregate / OrderByParallel) drive their branch sub-cursors via
+//     plain synchronous cursor->Pull() (branch-0 inline + the worker branches) and block on
+//     collection_scheduler_->WaitOrSteal(). There is NO PullCo/co_await anywhere in the parallel region,
+//     so nothing here yields and no per-branch yield-suppression is needed (the p3 stack drove branches
+//     via PullCo and DID need it; v2 does not).
+// They also never call SelectCoroMode, so they stay CursorMode::Sync regardless of the
+// --query-coroutine-yield-ops knob; even under "All" the parallel region runs fully synchronously while
+// any Coro-mode branch sub-cursors are still driven by their (mode-agnostic) Pull(). DO NOT add
+// MG_COROUTINE_CURSOR_PULLCO to these cursors. The self-park coordinator model (cooperative yield for
+// throughput) is the deferred "approach B" follow-up.
+// ─────────────────────────────────────────────────────────────────────────────
 class ParallelBranchCursor : public Cursor {
  public:
   ParallelBranchCursor(const std::shared_ptr<LogicalOperator> &branch_input, size_t num_threads,
@@ -14860,6 +14892,9 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
 }
 }  // namespace
 
+// Coroutine-cursor seam: coordinator that drives branch sub-cursors via synchronous Pull() + WaitOrSteal.
+// Rides the base PullCo()=Immediate(Pull()); NO gen_/DoPull. See the seam note on ParallelBranchCursor —
+// do NOT add MG_COROUTINE_CURSOR_PULLCO.
 class AggregateParallelCursor : public ParallelBranchCursor {
  public:
   AggregateParallelCursor(const AggregateParallel &self, utils::MemoryResource *mem,
@@ -15011,6 +15046,9 @@ std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table)
 ACCEPT_WITH_INPUT(AggregateParallel);
 
 #ifdef MG_ENTERPRISE
+// Coroutine-cursor seam: coordinator that drives branch sub-cursors via synchronous Pull() + WaitOrSteal.
+// Rides the base PullCo()=Immediate(Pull()); NO gen_/DoPull. See the seam note on ParallelBranchCursor —
+// do NOT add MG_COROUTINE_CURSOR_PULLCO.
 class OrderByParallelCursor : public ParallelBranchCursor {
  public:
   OrderByParallelCursor(const OrderByParallel &self, utils::MemoryResource *mem,

@@ -169,7 +169,7 @@ add_unit_test(cursor_parity
 
 add_unit_test(cursor_knob
     SOURCES cursor_knob.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
-    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+    LINK_TARGETS mg-communication mg-query mg-glue mg-license disk_test_utils
 )
 
 add_unit_test(query_plan_orderby_index
