@@ -1024,8 +1024,8 @@ package_smoke_image() {
   # numpy 1.26.4 / scipy 1.13.0 have no prebuilt wheels for Python 3.13, and
   # the source builds fail inside the smoke image (no compiler/headers).
   # Distros that ship Python 3.13 as the default (debian-13, fedora-41+) need
-  # numpy 2.1.0 / scipy 1.15.0. networkx 3.4 requires Python 3.10+, so
-  # centos-9 (Python 3.9) needs to stay on 3.2.1.
+  # numpy 2.1.0 / scipy 1.15.0. (centos-9 builds memgraph against python 3.12,
+  # not its distro-default 3.9, so it uses the default versions here.)
   local numpy_version="1.26.4"
   local scipy_version="1.13.0"
   local networkx_version="3.4.2"
@@ -1034,7 +1034,7 @@ package_smoke_image() {
     ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb"; libpython_pkg="libpython3.10" ;;
     debian-12*)    base_image="debian:12";    pkg_format="deb"; libpython_pkg="libpython3.11" ;;
     debian-13*)    base_image="debian:13";    pkg_format="deb"; libpython_pkg="libpython3.13"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
-    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm"; networkx_version="3.2.1" ;;
+    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm" ;;
     centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
     rocky-10*)     base_image="rockylinux/rockylinux:10";  pkg_format="rpm" ;;
     fedora-42*)    base_image="fedora:42"; pkg_format="rpm"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
@@ -1100,9 +1100,22 @@ gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==${netwo
     # /etc/dnf/dnf.conf, which strips memgraph's license files in
     # /usr/share/doc/memgraph/. Override on the dnf install line so the
     # smoke license check passes.
+    #
+    # By default the deps go to the distro python3 via pip3. CentOS Stream 9 is
+    # the exception: memgraph there embeds python 3.12 (built with
+    # MG_PYTHON_VERSION=3.12), not the distro-default 3.9, so its bundled query
+    # modules import from python3.12's site-packages — install the deps with
+    # python3.12's pip, not pip3 (which would be 3.9 and thus invisible to
+    # memgraph).
+    local rpm_python_pkgs="python3-libs python3-pip"
+    local pip_cmd="pip3"
+    if [[ "$os" == centos-9* ]]; then
+      rpm_python_pkgs="python3.12 python3.12-pip"
+      pip_cmd="python3.12 -m pip"
+    fi
     install_cmd="export PIP_BREAK_SYSTEM_PACKAGES=1 && \
-      dnf install -y --setopt=tsflags='' xmlsec1 libseccomp libatomic python3-libs python3-pip krb5-libs /pkg/$package_name && \
-      pip3 install --no-cache-dir ${pip_find_links} ${pip_packages} && \
+      dnf install -y --setopt=tsflags='' xmlsec1 libseccomp libatomic ${rpm_python_pkgs} krb5-libs /pkg/$package_name && \
+      ${pip_cmd} install --no-cache-dir ${pip_find_links} ${pip_packages} && \
       dnf clean all"
   fi
 
