@@ -7617,9 +7617,27 @@ class EmptyResultCursor : public Cursor {
     return false;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // EmptyResult is a sink: it drains all input (discarding rows) and never emits. The drain runs
+    // once on the first (only) DoPull invocation; the coroutine then co_returns false and is done.
+    // No co_yield, so no per-yield lifetime concern; profile spans the single drain == master Pull.
+    SCOPED_PROFILE_OP("EmptyResult");
+
+    if (!pulled_all_input_) {
+      while (co_await PullChild(*input_cursor_, frame, context)) {
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+      }
+      pulled_all_input_ = true;
+    }
+    co_return false;
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    ResetGen();
     input_cursor_->Reset();
     pulled_all_input_ = false;
   }
@@ -7684,9 +7702,53 @@ class AccumulateCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: Accumulate drains its whole input into cache_ once (guarded by pulled_all_input_, with
+    // advance_command on completion), then emits one cached row per Pull. The drain co_awaits the input
+    // (as master holds oom/profile across input_cursor_->Pull); each subsequent iteration emits one row.
+    // One emitted row == one master Pull. Converting this is what lights up the write + Merge cursors
+    // (which always sit directly below an Accumulate) on the coro path.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP("Accumulate");
+
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+
+        auto &dba = *context.db_accessor;
+        if (!pulled_all_input_) {
+          while (co_await PullChild(*input_cursor_, frame, context)) {
+            utils::pmr::vector<TypedValue> row(cache_.get_allocator().resource());
+            row.reserve(self_.symbols_.size());
+            for (const Symbol &symbol : self_.symbols_) row.emplace_back(frame[symbol]);
+            cache_.emplace_back(std::move(row));
+          }
+          pulled_all_input_ = true;
+          cache_it_ = cache_.begin();
+          if (self_.advance_command_) dba.AdvanceCommand();
+        }
+
+        if (cache_it_ != cache_.end()) {
+          auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+          auto row_it = (cache_it_++)->begin();
+          for (const Symbol &symbol : self_.symbols_) {
+            frame_writer.Write(symbol, *row_it++);
+          }
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    ResetGen();
     input_cursor_->Reset();
     cache_.clear();
     cache_it_ = cache_.begin();
@@ -7817,9 +7879,54 @@ class AggregateCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master Aggregate::Pull(). oom/profile/
+    // frame_writer are per-iteration, alive across the co_await ProcessAllCo drain on the first
+    // iteration but die before co_yield. ProcessAllCo is the input-pulling helper coroutine twin (it
+    // drains input via co_await PullChild then post-processes); it runs ONCE (pulled_all_input_ guard).
+    // Each subsequent iteration emits one aggregation group. Master's `return false` -> co_return false;
+    // master's `return true` -> produced=true -> the single co_yield. One emitted group == one Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+        if (!pulled_all_input_) {
+          if (!(co_await ProcessAllCo(&frame, &context)) && !self_.group_by_.empty()) co_return false;
+          pulled_all_input_ = true;
+          aggregation_it_ = aggregation_.begin();
+
+          if (aggregation_.empty()) {
+            DefaultAggregation(context, self_.aggregations_, self_.remember_, frame_writer);
+            produced = true;
+          }
+        }
+        if (!produced) {
+          if (aggregation_it_ == aggregation_.end()) co_return false;
+          // place aggregation values on the frame
+          size_t pos = 0;
+          for (const auto &aggregation_elem : self_.aggregations_)
+            frame_writer.Write(aggregation_elem.output_sym, aggregation_it_->second.values_[pos++]);
+          // place remember values on the frame
+          pos = 0;
+          for (const Symbol &remember_sym : self_.remember_)
+            frame_writer.Write(remember_sym, aggregation_it_->second.remember_[pos++]);
+          aggregation_it_++;
+          produced = true;
+        }
+      }
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    ResetGen();
     input_cursor_->Reset();
     aggregation_.clear();
     aggregation_it_ = aggregation_.begin();
@@ -8033,6 +8140,60 @@ class AggregateCursor : public Cursor {
       }
     }
     return true;
+  }
+
+  // Coroutine twin of ProcessAll (verbatim, with the input drain as `co_await PullChild` and the bool
+  // returns as co_return). Built from THIS master's ProcessAll (keeps auth_checker_ + the 5-arg
+  // evaluator) — NOT salvaged blindly. oom/profile are held by the DoPull caller across this.
+  PullAwaitable ProcessAllCo(Frame *frame, ExecutionContext *context) {
+    db_accessor_ = context->db_accessor;
+    auth_checker_ = context->auth_checker.get();
+    MG_ASSERT(db_accessor_, "Aggregation expects a current DB transaction");
+    ExpressionEvaluator evaluator =
+        ExpressionEvaluator{frame, *context, storage::View::NEW, nullptr, &context->number_of_hops};
+
+    bool pulled = false;
+    while (co_await PullChild(*input_cursor_, *frame, *context)) {
+      ProcessOne(*frame, &evaluator);
+      pulled = true;
+    }
+    if (!pulled) co_return false;
+
+    // post processing
+    for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
+      switch (self_.aggregations_[pos].op) {
+        case Aggregation::Op::AVG: {
+          // calculate AVG aggregations (so far they have only been summed)
+          for (auto &kv : aggregation_) {
+            const CompactAggregationValue &agg_value = kv.second;
+            auto count = agg_value.counts_[pos];
+            auto *pull_memory = context->evaluation_context.memory;
+            if (count > 0) {
+              kv.second.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
+            }
+          }
+          break;
+        }
+        case Aggregation::Op::COUNT: {
+          // Copy counts to be the value
+          for (auto &kv : aggregation_) {
+            const CompactAggregationValue &agg_value = kv.second;
+            kv.second.values_[pos] = agg_value.counts_[pos];
+          }
+          break;
+        }
+        case Aggregation::Op::MIN:
+        case Aggregation::Op::MAX:
+        case Aggregation::Op::SUM:
+        case Aggregation::Op::COLLECT_LIST:
+        case Aggregation::Op::COLLECT_MAP:
+        case Aggregation::Op::PROJECT_PATH:
+        case Aggregation::Op::PROJECT_LISTS:
+        case Aggregation::Op::DERIVE:
+          break;
+      }
+    }
+    co_return true;
   }
 
   /**
@@ -8563,9 +8724,99 @@ class OrderByCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master OrderBy::Pull(). oom/profile are
+    // per-iteration; the input is drained+sorted ONCE into cache_ (guarded by did_pull_all_) on the
+    // first iteration (drain locals alive across the co_await PullChild drain, die before co_yield,
+    // as master scopes them to the if block); each subsequent iteration emits one cached row. AbortCheck
+    // (subsumed by the yield) runs only when a row is emitted, and in parallel mode no frame write /
+    // cache_it_ advance occurs — both as master. One emitted row == one master Pull.
+    //
+    // PARALLEL-MODE CONTRACT: when driven as a parallel branch, this cursor is pulled exactly ONCE (the
+    // single drive triggers the full drain+sort populating cache_/order_by_cache_, read by
+    // OrderByParallelCursor via friend access); the suspended gen_ frame is only destroyed (Reset/dtor),
+    // never re-resumed. (The parallel driver itself is the later scheduler PR.)
+    while (true) {
+      bool produced = false;
+      {
+        const OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+
+        if (!did_pull_all_) [[unlikely]] {
+          ExpressionEvaluator evaluator =
+              ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+          // auto *pull_mem = context.evaluation_context.memory;
+          auto *query_mem = cache_.get_allocator().resource();
+
+          utils::pmr::vector<utils::pmr::vector<TypedValue>> order_by(query_mem);  // Cached for parallel merge
+          utils::pmr::vector<utils::pmr::vector<TypedValue>> output(query_mem);    // Cached, query memory
+
+          while (co_await PullChild(*input_cursor_, frame, context)) {
+            // collect the order_by elements
+            utils::pmr::vector<TypedValue> order_by_elem(query_mem);
+            order_by_elem.reserve(self_.order_by_.size());
+            for (auto const &expression_ptr : self_.order_by_) {
+              order_by_elem.emplace_back(expression_ptr->Accept(evaluator));
+            }
+            order_by.emplace_back(std::move(order_by_elem));
+
+            // collect the output elements
+            utils::pmr::vector<TypedValue> output_elem(query_mem);
+            output_elem.reserve(self_.output_symbols_.size());
+            for (const Symbol &output_sym : self_.output_symbols_) {
+              output_elem.emplace_back(frame[output_sym]);
+            }
+            output.emplace_back(std::move(output_elem));
+          }
+
+          // sorting with range zip
+          // we compare on just the projection of the 1st range (order_by)
+          // this will also permute the 2nd range (output)
+          ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(), [](auto const &value) -> auto const & {
+            return std::get<0>(value);
+          });
+
+          // Keep order_by for parallel merge only (saves memory in single-threaded mode)
+          if (parallel_execution_) {
+            order_by_cache_ = std::move(order_by);
+          }
+          cache_ = std::move(output);
+
+          did_pull_all_ = true;
+          cache_it_ = cache_.begin();
+          order_by_cache_it_ = order_by_cache_.begin();
+        }
+
+        if (cache_it_ != cache_.end()) {
+          co_await YieldPointAwaitable{context, maybe_check_abort};
+
+          // Parallel execution will extract the cache and handle the output values in OrderByParallelCursor
+          if (!parallel_execution_) {
+            // place the output values on the frame
+            DMG_ASSERT(self_.output_symbols_.size() == cache_it_->size(),
+                       "Number of values does not match the number of output symbols "
+                       "in OrderBy");
+            auto output_sym_it = self_.output_symbols_.begin();
+            auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+            for (auto &&output : *cache_it_) {
+              frame_writer.Write(*output_sym_it++, std::move(output));
+            }
+            cache_it_++;
+          }
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    ResetGen();
     input_cursor_->Reset();
     did_pull_all_ = false;
     cache_.clear();
@@ -8973,9 +9224,58 @@ class UnwindCursor : public Cursor {
     }
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master Unwind::Pull(). oom/profile/
+    // frame_writer are per-iteration; the inner refill loop pulls input (co_await) when the current
+    // list is exhausted, evaluates the next list, and yields one element. input_value_/input_value_it_
+    // are MEMBERS -> survive co_yield, so successive Pulls walk the same list. One element == one Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP("Unwind");
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        while (true) {
+          co_await YieldPointAwaitable{context, maybe_check_abort};
+          // if we reached the end of our list of values
+          // pull from the input
+          if (input_value_it_ == input_value_.end()) {
+            if (!co_await PullChild(*input_cursor_, frame, context)) {
+              break;  // produced stays false -> co_return false
+            }
+
+            // successful pull from input, initialize value and iterator
+            ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, storage::View::OLD};
+            TypedValue input_value = self_.input_expression_->Accept(evaluator);
+            if (input_value.type() != TypedValue::Type::List)
+              throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.",
+                                          input_value.type());
+            // Move the evaluted input_value_list to our vector.
+            input_value_ = std::move(input_value.ValueList());
+            input_value_it_ = input_value_.begin();
+          }
+
+          // if we reached the end of our list of values goto back to top
+          if (input_value_it_ == input_value_.end()) continue;
+
+          frame_writer.Write(self_.output_symbol_, std::move(*input_value_it_++));
+          produced = true;
+          break;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    ResetGen();
     input_cursor_->Reset();
     input_value_.clear();
     input_value_it_ = input_value_.end();
@@ -9034,9 +9334,48 @@ class DistinctCursor : public Cursor {
     }
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master Distinct::Pull(). oom/profile are
+    // per-iteration; the inner loop pulls input (co_await) until a row not yet in seen_rows_ (a MEMBER
+    // -> survives co_yield), then yields it. On input exhaustion seen_rows_ is cleared and the coroutine
+    // co_returns false, exactly as master. One distinct row == one master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP("Distinct");
+
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+
+        while (co_await PullChild(*input_cursor_, frame, context)) {
+          utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().resource());
+          row.reserve(self_.value_symbols_.size());
+
+          for (const auto &symbol : self_.value_symbols_) {
+            row.emplace_back(frame.at(symbol));
+          }
+
+          if (seen_rows_.insert(std::move(row)).second) {
+            produced = true;
+            break;
+          }
+        }
+
+        if (!produced) {
+          seen_rows_.clear();
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    ResetGen();
     input_cursor_->Reset();
     seen_rows_.clear();
   }
@@ -9975,7 +10314,131 @@ class CallProcedureCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master CallProcedureCursor::Pull(). oom/
+    // profile/frame_writer are per-iteration, alive across the co_await PullChild input pull and the
+    // synchronous CallCustomProcedure (FFI) in the refill loop, but die before co_yield. The refill
+    // loop pulls input + (re)runs the procedure when result_ rows are exhausted; one result row is
+    // emitted per Pull. result_/result_row_it_/stream_exhausted/call_initializer/cleanup_ are MEMBERS
+    // -> survive co_yield. One row == one master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(*self_);
+
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        auto skip_rows_with_deleted_values = [this]() {
+          while (result_row_it_ != result_.rows.end() && result_row_it_->has_deleted_values) {
+            ++result_row_it_;
+          }
+        };
+
+        // input_exhausted distinguishes master's in-loop `return false` (input exhausted) from the
+        // post-loop emit. void_procedure_'s in-loop `return true` maps to produced=true + break.
+        bool input_exhausted = false;
+
+        // We need to fetch new procedure results after pulling from input.
+        // TODO: Look into openCypher's distinction between procedures returning an
+        // empty result set vs procedures which return `void`. We currently don't
+        // have procedures registering what they return.
+        // This `while` loop will skip over empty results.
+        while (result_row_it_ == result_.rows.end()) {
+          if (!proc_->info.is_batched) {
+            stream_exhausted = true;
+          }
+          if (stream_exhausted) {
+            if (!co_await PullChild(*input_cursor_, frame, context)) {
+              if (proc_->cleanup) {
+                proc_->cleanup.value()();
+              }
+              input_exhausted = true;
+              break;
+            }
+            stream_exhausted = false;
+            if (proc_->initializer) {
+              call_initializer = true;
+              MG_ASSERT(proc_->cleanup);
+              proc_->cleanup.value()();
+            }
+          }
+          if (!cleanup_ && proc_->cleanup) [[unlikely]] {
+            cleanup_.emplace(*proc_->cleanup);
+          }
+          result_.rows.clear();
+
+          const auto graph_view = proc_->info.is_write ? storage::View::NEW : storage::View::OLD;
+          ExpressionEvaluator evaluator =
+              ExpressionEvaluator{&frame, context, graph_view, nullptr, &context.number_of_hops};
+          result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
+          auto *memory = context.evaluation_context.memory;
+          auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
+          auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
+          CallCustomProcedure(self_->procedure_name_,
+                              *proc_,
+                              self_->arguments_,
+                              graph,
+                              &evaluator,
+                              memory,
+                              memory_limit,
+                              &result_,
+                              self_->procedure_id_,
+                              call_initializer);
+
+          if (call_initializer) call_initializer = false;
+
+          if (result_.error_msg) {
+            memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
+            throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
+          }
+
+          if (self_->void_procedure_) {
+            // we do not throw if a void procedure returns something, so we clear the iterators here
+            result_.rows.clear();
+            result_row_it_ = result_.rows.end();
+            produced = true;  // master: return true
+            break;
+          }
+
+          result_row_it_ = result_.rows.begin();
+          if (!result_.is_transactional) {
+            skip_rows_with_deleted_values();
+          }
+
+          stream_exhausted = result_row_it_ == result_.rows.end();
+        }
+
+        if (!input_exhausted && !produced) {
+          // Instead of checking if procedure yielded all required values
+          // it is filled with null values on construction. This came as a
+          // direct consequence of changing from mgp_result rows from map to vector
+          // PRO: this is a lot faster
+          // CON: doesn't throw anymore if not all values are present
+          // Values are ordered the same as result_fields
+          auto &values = result_row_it_->values;
+          for (int i = 0; i < self_->result_fields_.size(); ++i) {
+            frame_writer.Write(self_->result_symbols_[i], std::move(values[i]));
+          }
+          ++result_row_it_;
+          if (!result_.is_transactional) {
+            skip_rows_with_deleted_values();
+          }
+
+          produced = true;  // master: return true
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Reset() override {
+    ResetGen();
     result_.rows.clear();
     result_row_it_ = result_.rows.begin();
     if (cleanup_) {
@@ -11100,12 +11563,54 @@ class RollUpApplyCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master RollUpApplyCursor::Pull(). oom/profile/
+    // frame_writer/result are per-iteration. Each Pull pulls ONE input row (always co_awaited, exactly
+    // as master's `input_->Pull(...) || pass_input_` always evaluates the left operand) and, if the
+    // input yielded OR pass_input_, drains the ENTIRE list_collection sub-plan into a list, writes it to
+    // result_symbol_, and resets list_collection_cursor_. One emitted row == one master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
+        // The input pull is ALWAYS evaluated (matches master's short-circuit `Pull(...) || pass_input_`,
+        // where the left operand always runs).
+        const bool input_pulled = co_await PullChild(*input_cursor_, frame, context);
+        if (input_pulled || self_.pass_input_) {
+          while (co_await PullChild(*list_collection_cursor_, frame, context)) {
+            // collect values from the list collection branch
+            result.ValueList().emplace_back(frame[self_.list_collection_symbol_]);
+          }
+
+          frame_writer.Write(self_.result_symbol_, result);
+          // After a successful input from the list_collection_cursor_
+          // reset state of cursor because it has to a Once at the beginning
+          list_collection_cursor_->Reset();
+          produced = true;
+        }
+        // else: produced stays false -> co_return false (master `return false`)
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override {
     input_cursor_->Shutdown();
     list_collection_cursor_->Shutdown();
   }
 
   void Reset() override {
+    ResetGen();
     input_cursor_->Reset();
     list_collection_cursor_->Reset();
   }
