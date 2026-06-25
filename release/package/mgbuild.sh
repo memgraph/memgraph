@@ -596,6 +596,15 @@ build_memgraph () {
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
+  # The abi3 DT_NEEDED rewrite (cmake/RewriteDtNeededAbi3.cmake) only fires when
+  # CMake's find_library(python3) locates the unversioned libpython3.so SONAME,
+  # and the rewritten binary must be loadable for the config/generate.py
+  # POST_BUILD step. RPM distros ship libpython3.so natively; Debian/Ubuntu ship
+  # only versioned libpython, so create the symlink here. Idempotent: a no-op
+  # where libpython3.so already exists. Run unconditionally because the dep step
+  # above is skipped when `check` passes against a pre-provisioned image.
+  docker exec -u root "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && ensure_libpython3_so_symlink"
+
   echo "Building targeted package..."
   # Fix issue with git marking directory as not safe
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git config --global --add safe.directory '*'"

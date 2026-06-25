@@ -37,6 +37,23 @@ case "$1" in
             chown memgraph:memgraph /etc/memgraph/ssl/* || exit 1
             chmod 400 /etc/memgraph/ssl/* || exit 1
         fi
+
+        # The memgraph binary is built against the Python stable ABI (abi3) and
+        # its DT_NEEDED is rewritten to the unversioned SONAME `libpython3.so`,
+        # so it can load against any libpython3 >= 3.10. Debian/Ubuntu ship only
+        # versioned libpython files, so point `libpython3.so` at the
+        # highest-numbered installed libpython3.X.so.1.0. The glob covers the
+        # multiarch dir (e.g. x86_64-linux-gnu), /usr/lib64 and /usr/lib without
+        # needing dpkg-architecture (dpkg-dev is not present on runtime hosts).
+        target="$(ls -1 /usr/lib/*/libpython3.*.so.1.0 /usr/lib64/libpython3.*.so.1.0 /usr/lib/libpython3.*.so.1.0 2>/dev/null | sort -V | tail -1)"
+        if [ -n "$target" ]; then
+            libdir="$(dirname "$target")"
+            # Skip (leave as-is) if something already provides libpython3.so.
+            if [ ! -e "$libdir/libpython3.so" ]; then
+                ln -sf "$(basename "$target")" "$libdir/libpython3.so"
+                ldconfig || true
+            fi
+        fi
     ;;
 
     abort-upgrade|abort-remove|abort-deconfigure)
