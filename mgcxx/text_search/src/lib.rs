@@ -76,13 +76,6 @@ mod ffi {
         // NOTE: Any primitive value here is a bit of a problem because of default value on the C++
         // side.
     }
-    // NOTE: SearchOutput is currently only used by the old search()/regex_search() functions which
-    // are not called from C++ anymore (replaced by the *_gids_pinned variants). Keeping it around
-    // because we will need it once we add single-store mode to the text index (returning full
-    // documents directly from Tantivy instead of doing a separate storage lookup by GID).
-    struct SearchOutput {
-        docs: Vec<DocumentOutput>,
-    }
 
     struct GidScore {
         gid: u64,
@@ -130,8 +123,6 @@ mod ffi {
         // the index and must be safe to call concurrently on the same shared Context from multiple
         // threads (the C++ side does exactly this, without a lock). Mutating ops (add/delete/commit/
         // rollback) keep `&mut Context` and are serialized by the C++ write_mutex.
-        fn search(context: &Context, input: &SearchInput) -> Result<SearchOutput>;
-        fn regex_search(context: &Context, input: &SearchInput) -> Result<SearchOutput>;
         fn aggregate(context: &Context, input: &SearchInput) -> Result<DocumentOutput>;
         fn acquire_searcher(context: &Context) -> Result<Box<SearcherContext>>;
         fn search_gids_pinned(
@@ -723,172 +714,6 @@ fn search_get_fields(
         }
     }
     Ok(result)
-}
-
-// NOTE: Not currently called from C++ — replaced by search_gids_pinned(). Keeping for future
-// single-store text index mode where we return full documents directly from Tantivy.
-fn search(
-    context: &ffi::Context,
-    input: &ffi::SearchInput,
-) -> Result<ffi::SearchOutput, std::io::Error> {
-    let index_path = &context.tantivyContext.index_path;
-    let index = &context.tantivyContext.index;
-    let schema = &context.tantivyContext.schema;
-    let reader = &context.tantivyContext.index_reader;
-
-    let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
-    let return_fields = search_get_fields(&input.return_fields, schema, index_path)?;
-    let query_parser = QueryParser::for_index(index, search_fields);
-    let query = match query_parser.parse_query(&input.search_query) {
-        Ok(q) => q,
-        Err(e) => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Unable to create search query for {:?} text search index -> {}",
-                    index_path, e
-                ),
-            ));
-        }
-    };
-
-    let searcher = reader.searcher();
-    let top_docs = match searcher.search(&query, &TopDocs::with_limit(input.effective_limit())) {
-        Ok(docs) => docs,
-        Err(e) => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Unable to perform text search under {:?} -> {}",
-                    index_path, e
-                ),
-            ));
-        }
-    };
-
-    let mut docs: Vec<ffi::DocumentOutput> = Vec::with_capacity(top_docs.len());
-    for (score, doc_address) in top_docs {
-        let doc: TantivyDocument = match searcher.doc(doc_address) {
-            Ok(d) => d,
-            Err(e) => {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    format!(
-                        "Unable to find document inside {:?} text search index) -> {}",
-                        index_path, e
-                    ),
-                ));
-            }
-        };
-        let mut data: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
-        for (name, field) in input.return_fields.iter().zip(return_fields.iter()) {
-            let field_data = match doc.get_first(*field) {
-                Some(f) => f,
-                None => continue,
-            };
-            let owned: OwnedValue = field_data.into();
-            data.insert(name.to_string(), owned_value_to_json(owned));
-        }
-
-        docs.push(ffi::DocumentOutput {
-            data: match to_string(&data) {
-                Ok(s) => s,
-                Err(e) => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!(
-                            "Unable to serialize {:?} text search index data into a string -> {}",
-                            index_path, e
-                        ),
-                    ));
-                }
-            },
-            score: score,
-        });
-    }
-    Ok(ffi::SearchOutput { docs })
-}
-
-// NOTE: Not currently called from C++ — replaced by regex_search_gids_pinned(). Keeping for
-// future single-store text index mode where we return full documents directly from Tantivy.
-fn regex_search(
-    context: &ffi::Context,
-    input: &ffi::SearchInput,
-) -> Result<ffi::SearchOutput, std::io::Error> {
-    let index_path = &context.tantivyContext.index_path;
-    let schema = &context.tantivyContext.schema;
-    let reader = &context.tantivyContext.index_reader;
-
-    let search_field = search_get_fields(&input.search_fields, schema, index_path)?[0];
-    let return_fields = search_get_fields(&input.return_fields, schema, index_path)?;
-
-    let query = match RegexQuery::from_pattern(&input.search_query, search_field) {
-        Ok(q) => q,
-        Err(e) => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Unable to create regex search query for {:?} text search index -> {}",
-                    index_path, e
-                ),
-            ));
-        }
-    };
-
-    let searcher = reader.searcher();
-    let top_docs = match searcher.search(&query, &TopDocs::with_limit(input.effective_limit())) {
-        Ok(docs) => docs,
-        Err(e) => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Unable to perform text search under {:?} -> {}",
-                    index_path, e
-                ),
-            ));
-        }
-    };
-
-    let mut docs: Vec<ffi::DocumentOutput> = Vec::with_capacity(top_docs.len());
-    for (score, doc_address) in top_docs {
-        let doc: TantivyDocument = match searcher.doc(doc_address) {
-            Ok(d) => d,
-            Err(e) => {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    format!(
-                        "Unable to find document inside {:?} text search index) -> {}",
-                        index_path, e
-                    ),
-                ));
-            }
-        };
-        let mut data: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
-        for (name, field) in input.return_fields.iter().zip(return_fields.iter()) {
-            let field_data = match doc.get_first(*field) {
-                Some(f) => f,
-                None => continue,
-            };
-            let owned: OwnedValue = field_data.into();
-            data.insert(name.to_string(), owned_value_to_json(owned));
-        }
-        docs.push(ffi::DocumentOutput {
-            data: match to_string(&data) {
-                Ok(s) => s,
-                Err(e) => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!(
-                            "Unable to serialize {:?} text search index data into a string -> {}",
-                            index_path, e
-                        ),
-                    ));
-                }
-            },
-            score: score,
-        });
-    }
-    Ok(ffi::SearchOutput { docs })
 }
 
 pub struct SearcherContext {
