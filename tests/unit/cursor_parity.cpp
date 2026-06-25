@@ -329,12 +329,23 @@ TEST_F(CursorParityTest, Corpus) {
     f << "a,b\n1,x\n2,y\n3,z\n";
   }
   ExpectParity("LOAD CSV FROM \"" + csv_path + "\" WITH HEADER AS row RETURN row.a AS a, row.b AS b ORDER BY a");
-  // FOLLOW-UP (tracked): OutputTable(Stream), LoadParquet/Jsonl and Periodic{Commit,Subquery} are NOT
-  // parity-covered here -- they need binary fixtures / IN-TRANSACTIONS semantics that don't fit this
-  // in-process harness. Today their safety rests on flag-OFF == master verbatim + the byte-identical
-  // DoPull splice + the dedicated load_parquet / periodic-commit suites (which run flag-OFF). They are
-  // to be exercised end-to-end under the flag in PHASE 3 (e2e + stress); a periodic-commit parity case
-  // counting commits across both drive modes would be the strongest in-process guard if added earlier.
+
+  // LoadJsonl: write a small JSONL file (one JSON object per line) and read it back -- one output row
+  // per line. Read-only under both drive modes, so the rendered rows must match.
+  const auto jsonl_path = (data_directory / "parity.jsonl").string();
+  {
+    std::ofstream f(jsonl_path);
+    f << "{\"a\": 1, \"b\": \"x\"}\n{\"a\": 2, \"b\": \"y\"}\n{\"a\": 3, \"b\": \"z\"}\n";
+  }
+  ExpectParity("LOAD JSONL FROM \"" + jsonl_path + "\" AS row RETURN row.a AS a, row.b AS b ORDER BY a");
+
+  // FOLLOW-UP (tracked): OutputTable(Stream) and LoadParquet are NOT parity-covered here -- OutputTable
+  // backs specific mgp procedures (needs a registered table-returning proc) and LoadParquet needs a
+  // binary fixture, neither of which fits this in-process harness. Their safety rests on flag-OFF ==
+  // master verbatim + the byte-identical DoPull splice + the LoadCsv/LoadJsonl twins above (LoadParquet
+  // is structurally identical, differing only in the synchronous reader type) + the dedicated
+  // load_parquet suite (flag-OFF). Periodic{Commit,Subquery} are a separate deferred PR (commit
+  // mid-query). All are to be exercised end-to-end under the flag in a later phase (e2e + stress).
 }
 
 // Write-cursor parity (P1.8 MUTATE). Each case: {setup, mutation-with-RETURN, cleanup}. The mutation
