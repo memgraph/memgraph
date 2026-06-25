@@ -4136,6 +4136,34 @@ TEST(MigrateAuthJson, V2ToV4) {
   EXPECT_EQ(ep["global_denies"], -1);
 }
 
+TEST(MigrateAuthJson, V2UpdateToV4) {
+  // V2 UPDATE (3) should go through V3 (UPDATE|READ = 2|1 = 3) then V4 label expansion
+  auto data = nlohmann::json::parse(R"({
+    "rolename": "r",
+    "permissions": {"grants": 0, "denies": 0},
+    "fine_grained_access_handler": {
+      "label_permissions": {
+        "global_permission": 3
+      },
+      "edge_type_permissions": {
+        "global_permission": 3
+      }
+    }
+  })");
+  MigrateAuthJson(data);
+
+  auto const &lp = data["fine_grained_permissions"]["label_permissions"];
+  // V2 UPDATE (3) -> V3 UPDATE|READ (2|1=3) -> V4 label expansion of UPDATE
+  // = READ(1) | SET_LABEL(32) | REMOVE_LABEL(64) | SET_PROPERTY(2) | DELETE_EDGE(128) | CREATE_EDGE(256) = 483
+  EXPECT_EQ(lp["global_grants"], 483);
+  EXPECT_EQ(lp["global_denies"], -1);
+
+  auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
+  // V2 UPDATE (3) -> V3 UPDATE|READ (2|1=3) -> V4 edge: no expansion, stays 3
+  EXPECT_EQ(ep["global_grants"], 3);
+  EXPECT_EQ(ep["global_denies"], -1);
+}
+
 TEST(MigrateAuthJson, V3DeserializesToValidRole) {
   memgraph::license::global_license_checker.EnableTesting();
   auto data = nlohmann::json::parse(R"({

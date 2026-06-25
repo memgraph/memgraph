@@ -1844,7 +1844,7 @@ void MigrateAuthJson(nlohmann::json &data) {
     constexpr uint64_t kV3Create = 8;
     constexpr uint64_t kV3Delete = 16;
 
-    auto const convert_v2_to_v3 = [&](uint64_t v2_perm) -> uint64_t {
+    auto const convert_v2_to_v3 = [](uint64_t v2_perm) -> uint64_t {
       switch (v2_perm) {
         case kV2Read:
           return kV3Read;
@@ -1910,6 +1910,7 @@ void MigrateAuthJson(nlohmann::json &data) {
     // Migrate global_permission → global_grants / global_denies
     auto global_it = perm_data.find("global_permission");
     if (global_it == perm_data.end()) continue;  // Already V4
+    if (!global_it->is_number_integer()) continue;
 
     auto const old_perm = global_it->template get<int64_t>();
     if (old_perm == 0) {
