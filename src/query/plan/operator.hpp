@@ -412,6 +412,8 @@ class Once : public memgraph::query::plan::LogicalOperator {
    public:
     OnceCursor() = default;
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1351,6 +1353,8 @@ class Filter : public memgraph::query::plan::LogicalOperator {
    public:
     FilterCursor(const Filter &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1402,6 +1406,8 @@ class Produce : public memgraph::query::plan::LogicalOperator {
    public:
     ProduceCursor(const Produce &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2416,6 +2422,8 @@ class Skip : public memgraph::query::plan::LogicalOperator {
    public:
     SkipCursor(const Skip &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2460,6 +2468,8 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
     EvaluatePatternFilterCursor(const EvaluatePatternFilter &, utils::MemoryResource *,
                                 metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2514,6 +2524,8 @@ class Limit : public memgraph::query::plan::LogicalOperator {
    public:
     LimitCursor(const Limit &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 

@@ -50,6 +50,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/parallel_state.hpp"
 #include "query/path.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
@@ -481,6 +482,31 @@ struct PlanCreationHelper {
       context.is_profile_query ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), ref, &context) \
                                : std::nullopt;
 
+PullAwaitable Once::OnceCursor::DoPull(Frame &, ExecutionContext &context) {
+  // Coroutine twin of Pull(). FIDELITY: each while-iteration reproduces exactly one master
+  // Once::Pull(). The inner scope closes before co_yield/co_return, so oom_exception + profile are
+  // destroyed at the same point master's `return` would destroy them.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("Once");
+
+      // Cooperative-yield trigger: CheckAbortOrYield (via YieldPointAwaitable) subsumes the abort
+      // check AND honours a scheduler-requested yield. yield_requested is null off a pool worker /
+      // when no driver wires it, so this is a no-op (abort-only) until the scheduler PR.
+      co_await YieldPointAwaitable{context, maybe_check_abort};
+
+      if (!did_pull_) {
+        did_pull_ = true;
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Once");
@@ -510,7 +536,10 @@ std::unique_ptr<LogicalOperator> Once::Clone(AstStorage *storage) const {
 
 void Once::OnceCursor::Shutdown() {}
 
-void Once::OnceCursor::Reset() { did_pull_ = false; }
+void Once::OnceCursor::Reset() {
+  ResetGen();  // destroy the generator frame first
+  did_pull_ = false;
+}
 
 CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeCreationInfo node_info)
     : input_(input ? input : std::make_shared<Once>()), node_info_(std::move(node_info)) {}
@@ -4519,6 +4548,39 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
       input_cursor_(self_.input_->MakeCursor(mem, metric_handles)),
       pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem, metric_handles)) {}
 
+PullAwaitable Filter::FilterCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // Coroutine twin of Pull(). FIDELITY: each while-iteration reproduces one master Filter::Pull().
+  // oom + profile + evaluator are per-iteration; the inner refill loop pulls input (co_await) until
+  // the predicate passes, then yields one row. The pattern-filter sub-cursors are pulled with
+  // synchronous bool Pull() (the EXISTS synchronous island) -- they write an evaluator callback into
+  // the frame and are not part of the co_await chain, exactly as in master.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP_BY_REF(self_);
+
+      co_await YieldPointAwaitable{context, maybe_check_abort};
+
+      // Like all filters, newly set values should not affect filtering of old
+      // nodes and edges.
+      ExpressionEvaluator evaluator{
+          &frame, context, storage::View::OLD, context.frame_change_collector, &context.number_of_hops};
+      while (co_await PullChild(*input_cursor_, frame, context)) {
+        for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
+          pattern_filter_cursor->Pull(frame, context);
+        }
+        if (EvaluateFilter(evaluator, self_.expression_)) {
+          produced = true;
+          break;
+        }
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
@@ -4541,7 +4603,10 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
 
 void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
+void Filter::FilterCursor::Reset() {
+  ResetGen();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol)
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(std::move(output_symbol)) {}
@@ -4570,6 +4635,37 @@ std::unique_ptr<LogicalOperator> EvaluatePatternFilter::Clone(AstStorage *storag
   return object;
 }
 
+PullAwaitable EvaluatePatternFilter::EvaluatePatternFilterCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // Coroutine twin of Pull(). FIDELITY: master's Pull() unconditionally returns true, writing an
+  // evaluator callback into the frame. The callback's nested input pull is a SYNCHRONOUS bool Pull()
+  // -- the EXISTS synchronous island, not part of any co_await chain. So this is an always-true
+  // generator: write the callback, co_yield true, repeat.
+  while (true) {
+    {
+      SCOPED_PROFILE_OP("EvaluatePatternFilter");
+
+      AbortCheck(context);
+
+      std::function<void(TypedValue *)> function =
+          [&frame, self = this->self_, input_cursor = this->input_cursor_.get(), &context](TypedValue *return_value) {
+            // EXISTS-island yield suppression: the synchronous sub-pull for EXISTS must not be
+            // preempted. YieldMode::Suppressed pins yield_requested=nullptr for the synchronous
+            // descent so CheckAbortOrYield never suspends the coroutine.
+            memgraph::query::plan::PullDriverScope const yield_suppress{context,
+                                                                        memgraph::query::plan::YieldMode::Suppressed};
+            OOMExceptionEnabler const oom_exception;
+            input_cursor->Reset();
+
+            *return_value = TypedValue(input_cursor->Pull(frame, context), context.evaluation_context.memory);
+          };
+
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      frame_writer.Write(self_.output_symbol_, TypedValue(std::move(function)));
+    }
+    co_yield true;
+  }
+}
+
 bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("EvaluatePatternFilter");
 
@@ -4590,7 +4686,10 @@ bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, Exec
 
 void EvaluatePatternFilter::EvaluatePatternFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void EvaluatePatternFilter::EvaluatePatternFilterCursor::Reset() { input_cursor_->Reset(); }
+void EvaluatePatternFilter::EvaluatePatternFilterCursor::Reset() {
+  ResetGen();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions)
     : input_(input ? input : std::make_shared<Once>()), named_expressions_(named_expressions) {}
@@ -4632,6 +4731,35 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
                                       metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {}
 
+PullAwaitable Produce::ProduceCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // Coroutine twin of Pull(). FIDELITY: each while-iteration reproduces exactly one master
+  // Produce::Pull(). oom_exception + profile + evaluator are alive across `co_await PullChild` --
+  // which is correct: in master the same guards are alive during the nested input_cursor_->Pull()
+  // call. The inner scope closes before co_yield/co_return, destroying them where master's `return`
+  // would.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP_BY_REF(self_);
+
+      co_await YieldPointAwaitable{context, maybe_check_abort};
+
+      if (co_await PullChild(*input_cursor_, frame, context)) {
+        // Produce should always yield the latest results.
+        ExpressionEvaluator evaluator{
+            &frame, context, storage::View::NEW, context.frame_change_collector, &context.number_of_hops};
+        for (auto *named_expr : self_.named_expressions_) {
+          named_expr->Accept(evaluator);
+        }
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
@@ -4653,7 +4781,10 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
 
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
+void Produce::ProduceCursor::Reset() {
+  ResetGen();  // destroy the generator frame first
+  input_cursor_->Reset();
+}
 
 Delete::Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<Expression *> &expressions, bool detach)
     : input_(input ? input : std::make_shared<Once>()), expressions_(expressions), detach_(detach) {}
@@ -11258,6 +11389,55 @@ Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem,
 #endif
 }
 
+PullAwaitable Skip::SkipCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // Coroutine twin of Pull(). FIDELITY: each while-iteration reproduces one master Skip::Pull(). The
+  // inner refill loop pulls input (co_await) and skips rows against the quota; once a row passes the
+  // quota it yields. oom + profile are per-iteration; the skip-expression evaluator is created
+  // (once, on the first input row) inside the loop body after the pull, so it crosses no suspend.
+  // shared_quota_.reset() placement matches master (on quota-consumed and on input-exhausted paths).
+  while (true) {
+    bool produced = false;
+    {
+      const OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("Skip");
+
+      co_await YieldPointAwaitable{context, maybe_check_abort};
+
+      while (co_await PullChild(*input_cursor_, frame, context)) {
+        if (to_skip_ == -1) {
+          // First successful pull from the input, evaluate the skip expression.
+          // The skip expression doesn't contain identifiers so graph view
+          // parameter is not important.
+          ExpressionEvaluator evaluator =
+              ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+          TypedValue to_skip = self_.expression_->Accept(evaluator);
+          if (to_skip.type() != TypedValue::Type::Int)
+            throw QueryRuntimeException("Number of elements to skip must be an integer.");
+
+          to_skip_ = to_skip.ValueInt();
+          if (to_skip_ < 0) throw QueryRuntimeException("Number of elements to skip must be non-negative.");
+          // Single threaded and parallel execution quota setup
+          if (self_.parallel_execution_) {
+            MG_ASSERT(shared_quota_, "Shared quota should be preset in parallel execution");
+            shared_quota_->Initialize(static_cast<uint64_t>(to_skip_),
+                                      utils::SharedQuota::WorkersToBatch(*self_.parallel_execution_));
+          } else {
+            shared_quota_.emplace(static_cast<uint64_t>(to_skip_));
+          }
+        }
+        // Skip until we skipped the quota
+        if (shared_quota_ && shared_quota_->Decrement() > 0) continue;
+        shared_quota_.reset();  // consumed all quota, reset the shared quota
+        produced = true;
+        break;
+      }
+      if (!produced) shared_quota_.reset();  // input exhausted: release any remaining resource
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Skip");
@@ -11299,6 +11479,7 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
 void Skip::SkipCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Skip::SkipCursor::Reset() {
+  ResetGen();  // destroy the generator frame first
   input_cursor_->Reset();
   to_skip_ = -1;
   shared_quota_.reset();
@@ -11340,6 +11521,63 @@ Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem,
     shared_quota_->SetPlanQuotas(plan_creation_helper_.shared_plan_quotas_);
   }
 #endif
+}
+
+PullAwaitable Limit::LimitCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // Coroutine twin of Pull(). FIDELITY: each while-iteration reproduces one master Limit::Pull(). The
+  // limit expression is evaluated once before the first input pull (LIMIT 0 => quota 0 => co_return
+  // false without pulling). The quota is checked BEFORE pulling, so the cursor never over-pulls its
+  // input. oom + profile are per-iteration. shared_quota_ Increment-on-failed-pull + reset placements
+  // match master.
+  while (true) {
+    bool produced = false;
+    {
+      const OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("Limit");
+
+      co_await YieldPointAwaitable{context, maybe_check_abort};
+
+      // We need to evaluate the limit expression before the first input Pull
+      // because it might be 0 and thereby we shouldn't Pull from input at all.
+      // We can do this before Pulling from the input because the limit expression
+      // is not allowed to contain any identifiers.
+      if (limit_ == -1) {
+        // Limit expression doesn't contain identifiers so graph view is not
+        // important.
+        ExpressionEvaluator evaluator =
+            ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+        TypedValue limit = self_.expression_->Accept(evaluator);
+        if (limit.type() != TypedValue::Type::Int)
+          throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
+
+        limit_ = limit.ValueInt();
+        if (limit_ < 0) throw QueryRuntimeException("Limit on number of returned elements must be non-negative.");
+        // Initialize the quota for parallel execution or single threaded execution
+        if (self_.parallel_execution_) {
+          MG_ASSERT(shared_quota_, "Shared quota should be preset in parallel execution");
+          shared_quota_->Initialize(static_cast<uint64_t>(limit_),
+                                    utils::SharedQuota::WorkersToBatch(*self_.parallel_execution_));
+        } else {
+          shared_quota_.emplace(static_cast<uint64_t>(limit_));
+        }
+      }
+
+      // check we have not exceeded the limit before pulling
+      if (shared_quota_->Decrement() == 0) {
+        shared_quota_.reset();  // Important to release any remaining resource for other threads
+        // produced stays false -> co_return false below
+      } else {
+        const auto res = co_await PullChild(*input_cursor_, frame, context);
+        if (!res) {
+          shared_quota_->Increment();  // We failed to pull, so we need to return the last quota
+          shared_quota_.reset();       // Important to release any remaining resource for other threads
+        }
+        produced = res;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
 }
 
 bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
@@ -11391,6 +11629,7 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
 void Limit::LimitCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Limit::LimitCursor::Reset() {
+  ResetGen();  // destroy the generator frame first
   input_cursor_->Reset();
   limit_ = -1;
   shared_quota_.reset();
