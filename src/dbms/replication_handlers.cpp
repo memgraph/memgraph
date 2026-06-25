@@ -11,8 +11,11 @@
 
 #include "dbms/replication_handlers.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <iterator>
 #include <mutex>
+#include <ranges>
 #include <thread>
 
 #include "dbms/dbms_handler.hpp"
@@ -398,12 +401,11 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   // incoming sets nor `old` and would never be reconciled away (permanent divergence). The DROP of
   // a COLD tenant is handled cold-aware by Delete() (see DeleteCold_). AllWithHotColdStatus() is
   // de-duplicated (a SUSPENDING-transient tenant is listed once, as COLD).
+  auto hot_cold = dbms_handler.AllWithHotColdStatus();
   std::vector<std::string> old;
-  {
-    auto hot_cold = dbms_handler.AllWithHotColdStatus();
-    old.reserve(hot_cold.size());
-    for (auto &[name, _status] : hot_cold) old.emplace_back(std::move(name));
-  }
+  old.reserve(hot_cold.size());
+  std::ranges::transform(
+      hot_cold | std::views::keys, std::back_inserter(old), [](auto &name) { return std::move(name); });
 
   // Check/create the incoming HOT dbs.
   for (const auto &config : database_configs) {

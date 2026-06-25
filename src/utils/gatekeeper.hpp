@@ -431,14 +431,18 @@ struct Gatekeeper {
       };
       // Behaviour-preserving diagnosability: keep waiting unboundedly for the real condition (a slow
       // accessor drain on shutdown is legitimate and must not be cut short), but if it has not been met
-      // after a generous interval, log WHY. Destroying a gatekeeper stuck in SUSPENDING/RESUMING is a
-      // caller ordering error that would otherwise hang here silently forever with no diagnostic.
-      while (!pimpl_->cv_.wait_for(lock, std::chrono::seconds{30}, terminal_and_drained)) {
+      // after a short interval, log WHY. The interval is deliberately well under the Kubernetes/Helm
+      // terminationGracePeriodSeconds (30s by default): a longer interval would let SIGKILL arrive
+      // before the first warning is ever emitted, hiding the very diagnostic this exists to surface.
+      // Destroying a gatekeeper stuck in SUSPENDING/RESUMING is a caller ordering error that would
+      // otherwise hang here silently forever with no diagnostic.
+      constexpr auto kDiagInterval = std::chrono::seconds{5};
+      while (!pimpl_->cv_.wait_for(lock, kDiagInterval, terminal_and_drained)) {
         // spdlog can throw (formatting, sink I/O); a destructor is implicitly noexcept, so an escaping
         // exception would call std::terminate. Swallow it — the wait condition is what matters here.
         try {
           spdlog::warn(
-              "~Gatekeeper has waited >30s for a terminal state and a drained accessor count (state={}, "
+              "~Gatekeeper has waited >5s for a terminal state and a drained accessor count (state={}, "
               "count={}). A graceful destruction during SUSPENDING/RESUMING is a caller ordering error — "
               "in-flight transitions must be quiesced before destroying.",
               static_cast<int>(pimpl_->state_),

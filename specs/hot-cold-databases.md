@@ -42,10 +42,7 @@ document seems surprising, check it against this principle: it is almost always 
 reason.
 
 The feature is part of enterprise multi-tenancy and is on by default in enterprise
-builds — there is no opt-in flag. (It originally shipped behind an
-`--experimental-enabled=hot-cold-databases` flag; once it stabilized the flag was
-removed, which also deleted the cross-cluster flag-consistency safety machinery that
-only existed to handle a flag being toggled while durable cold state existed.)
+builds — there is no opt-in flag.
 
 ---
 
@@ -205,7 +202,10 @@ a single coherent cluster-wide state, and it is consistent with how other DDL be
 
 This is also why hot/cold is the MAIN's decision rather than a per-node or consensus one.
 A database that is idle on the MAIN but actively read on a replica still follows the MAIN
-when the MAIN suspends it — the replica's readers are evicted. A node-local or quorum
+when the MAIN suspends it — the replica's readers lose access to it: in-flight transactions
+drain first (suspend waits for them), then the database goes COLD on the replica too and any
+further query against it is rejected until it is resumed (client sessions stay connected; the
+database itself is simply no longer queryable on that replica). A node-local or quorum
 decision would let the cluster hold divergent hot/cold maps (a replica believing a
 database is queryable while the MAIN considers it cold), which is exactly the operational
 ambiguity this design rules out. An operator who needs a tenant resident for replica-side

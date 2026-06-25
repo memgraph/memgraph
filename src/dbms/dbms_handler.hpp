@@ -494,20 +494,7 @@ class DbmsHandler {
     // a failed boot recovery ("COLD (recovery failed[: out of memory])") — the degraded-but-alive
     // marker so the instance never silently drops a tenant.
     for (const auto &[name, entry] : suspended_) {
-      // Capture-less IIFE (reason passed by value): a [&]-capturing lambda over the structured
-      // binding trips a clang-analyzer NullDereference false positive on `entry`.
-      const std::string_view st = [](SuspendedEntry::ColdReason reason) -> std::string_view {
-        switch (reason) {
-          case SuspendedEntry::ColdReason::kRecoveryFailed:
-            return "COLD (recovery failed)";
-          case SuspendedEntry::ColdReason::kRecoveryFailedOom:
-            return "COLD (recovery failed: out of memory)";
-          case SuspendedEntry::ColdReason::kSuspended:
-            return "COLD";
-        }
-        return "COLD";  // unreachable; silences -Wreturn-type
-      }(entry.cold_reason);
-      out.emplace_back(name, std::string{st});
+      out.emplace_back(name, std::string{ColdReasonBaseLabel(entry.cold_reason)});
     }
     for (auto &name : db_handler_.All()) {  // HOT names only (Handler::All() skips no-value shells)
       if (!suspended_.contains(name)) out.emplace_back(std::move(name), "HOT");
@@ -533,18 +520,13 @@ class DbmsHandler {
   std::optional<ColdShowInfo> GetColdShowInfo(std::string_view name) const {
     auto rd = std::shared_lock{lock_};
     if (auto it = suspended_.find(name); it != suspended_.end()) {
-      const std::string_view st = [](SuspendedEntry::ColdReason reason) -> std::string_view {
-        switch (reason) {
-          case SuspendedEntry::ColdReason::kRecoveryFailed:
-            return "COLD (recovery failed); stats unavailable";
-          case SuspendedEntry::ColdReason::kRecoveryFailedOom:
-            return "COLD (recovery failed: out of memory); stats unavailable";
-          case SuspendedEntry::ColdReason::kSuspended:
-            return "COLD (as-of-suspend snapshot)";
-        }
-        return "COLD (as-of-suspend snapshot)";  // unreachable
-      }(it->second.cold_reason);
-      return ColdShowInfo{.uuid = it->second.salient.uuid, .stats = it->second.cold_stats, .status = std::string{st}};
+      const auto reason = it->second.cold_reason;
+      // kSuspended carries a captured as-of-suspend snapshot; a recovery-failed tenant never captured
+      // one, so it reuses the shared base label (SHOW DATABASES status) plus a "stats unavailable" note.
+      std::string st = reason == SuspendedEntry::ColdReason::kSuspended
+                           ? std::string{"COLD (as-of-suspend snapshot)"}
+                           : std::string{ColdReasonBaseLabel(reason)} + "; stats unavailable";
+      return ColdShowInfo{.uuid = it->second.salient.uuid, .stats = it->second.cold_stats, .status = std::move(st)};
     }
     return std::nullopt;
   }
@@ -579,32 +561,14 @@ class DbmsHandler {
    * PromoteColdTenants; without MAIN's epoch it would keep its disk-recovered one and emit a phantom
    * boundary -> spurious DIVERGED downstream. has_epoch_meta=false leaves the local epoch
    * intact. No-op if @p name is not suspended.
+   *
+   * After mutating the in-memory entry it rewrites the durable COLD marker (best-effort, mirroring
+   * Suspend_ and PromoteColdTenants): the epoch metadata MAIN supplies here is exactly what a later
+   * promotion of this replica relies on, so it must survive a restart rather than be re-derived from
+   * the replica's own disk-recovered epoch. Defined out-of-line because the durable-write helpers live
+   * in the .cpp.
    */
-  void ApplyColdRecoveryMeta(std::string_view name, const storage::ColdTenantRecovery &meta) {
-    auto wr = std::lock_guard{lock_};
-    auto it = suspended_.find(name);
-    if (it == suspended_.end()) return;
-    // Strong exception guarantee: do all potentially-throwing copies into locals first, then
-    // commit them into it->second with noexcept moves. A bad_alloc during any copy leaves
-    // it->second untouched (no partial update).
-    auto stats = meta.stats;
-    if (meta.has_epoch_meta) {
-      auto epoch = meta.current_epoch;
-      auto hist = meta.epoch_history;  // deque copy — can throw bad_alloc
-      // All copies succeeded; commit with noexcept moves.
-      it->second.cold_stats = std::move(stats);
-      it->second.current_epoch = std::move(epoch);
-      it->second.epoch_history = std::move(hist);
-      it->second.has_epoch_meta = true;
-      // Also adopt MAIN's as-of-suspend LDT. PromoteColdTenants emplaces the
-      // promotion boundary as (current_epoch, last_durable_timestamp); without MAIN's LDT a converged
-      // replica would pair MAIN's epoch with its OWN local LDT -> a phantom/garbled boundary ts that a
-      // downstream replica's continuous-history check can reject (spurious DIVERGED).
-      it->second.last_durable_timestamp = meta.last_durable_timestamp;
-    } else {
-      it->second.cold_stats = std::move(stats);
-    }
-  }
+  void ApplyColdRecoveryMeta(std::string_view name, const storage::ColdTenantRecovery &meta);
 
   /**
    * @brief Snapshot the COLD set for the SystemRecovery payload: one ColdTenantRecovery per suspended
@@ -905,6 +869,22 @@ class DbmsHandler {
     enum class ColdReason : uint8_t { kSuspended, kRecoveryFailed, kRecoveryFailedOom };
     ColdReason cold_reason{ColdReason::kSuspended};
   };
+
+  // Single source of truth for the COLD-reason -> base SHOW status string, shared by
+  // AllWithHotColdStatus (SHOW DATABASES) and GetColdShowInfo (SHOW STORAGE INFO). The switch is
+  // exhaustive over ColdReason, so the post-switch std::unreachable() both satisfies -Wreturn-type
+  // and documents that an out-of-range enum value is impossible.
+  static constexpr std::string_view ColdReasonBaseLabel(SuspendedEntry::ColdReason reason) {
+    switch (reason) {
+      case SuspendedEntry::ColdReason::kSuspended:
+        return "COLD";
+      case SuspendedEntry::ColdReason::kRecoveryFailed:
+        return "COLD (recovery failed)";
+      case SuspendedEntry::ColdReason::kRecoveryFailedOom:
+        return "COLD (recovery failed: out of memory)";
+    }
+    std::unreachable();
+  }
 
   /// @brief Implementation of Suspend. See Suspend() for semantics.
   /// On success records a SuspendDatabase system action on @p txn (if non-null) for ordered replication.
