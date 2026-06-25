@@ -17,6 +17,9 @@ workloads:
   - name: "Recovery failure cure via REPAIR DATABASE"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/recovery_failure_repair_database.py"]
+  - name: "Drop defunct database"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/drop_defunct_database.py"]
   - name: "Periodic snapshot"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/periodic_snapshot.py"]
