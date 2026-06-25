@@ -20,6 +20,7 @@ copy_e2e_python_files(durability recovery_failure_defunct.py)
 copy_e2e_python_files(durability recovery_failure_status.py)
 copy_e2e_python_files(durability recovery_failure_recover_snapshot.py)
 copy_e2e_python_files(durability recovery_failure_repair_database.py)
+copy_e2e_python_files(durability drop_defunct_database.py)
 
 
 
