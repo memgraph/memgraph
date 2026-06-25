@@ -97,10 +97,8 @@ struct SystemRecoveryReqV2 {
 
 // V3 (hot/cold tenants): adds the COLD set as a vector of ColdTenantRecovery so a reconnecting/lagging
 // replica converges to MAIN's authoritative {HOT ∪ COLD} set. Each entry carries a suspended tenant's
-// salient config, MAIN's as-of-suspend stats snapshot, AND its epoch metadata so a
-// SystemRecovery-converged-then-promoted replica records the correct continuous-history boundary.
-// ColdTenantRecovery is composed of storage:: types only, so the dbms reconcile signature stays
-// cycle-free.
+// salient config and MAIN's as-of-suspend stats snapshot. ColdTenantRecovery is composed of storage::
+// types only, so the dbms reconcile signature stays cycle-free.
 struct SystemRecoveryReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_REQ, .name = "SystemRecoveryReq"};
   static constexpr uint64_t kVersion{3};

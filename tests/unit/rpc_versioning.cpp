@@ -314,9 +314,8 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
   }
 }
 
-// SystemRecoveryRpc V3 (hot/cold): the COLD set (a vector of ColdTenantRecovery: salient + StorageInfo
-// + epoch metadata) survives the SLK round-trip, including the StorageInfo serializer and the
-// epoch fields (current_epoch + epoch_history deque-as-pairs + has_epoch_meta).
+// SystemRecoveryRpc V3 (hot/cold): the COLD set (a vector of ColdTenantRecovery: salient + StorageInfo)
+// survives the SLK round-trip, including the StorageInfo serializer.
 TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   Endpoint const endpoint{"localhost", port};
 
@@ -358,11 +357,6 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   cold.stats.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION;
   cold.stats.durability_wal_enabled = true;
   cold.stats.schema_vertex_count = 9;
-  // Epoch metadata must round-trip too.
-  cold.current_epoch = "epoch-E2";
-  cold.epoch_history = memgraph::storage::EpochHistory{{"epoch-E1", 42}, {"epoch-E0", 7}};
-  cold.has_epoch_meta = true;
-  cold.last_durable_timestamp = 314159;  // holistic-review #2: LDT must round-trip for the promotion boundary
 
   auto stream =
       client.Stream<memgraph::replication::SystemRecoveryRpc>(memgraph::utils::UUID{},
@@ -388,13 +382,4 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   EXPECT_EQ(seen_cold[0].stats.isolation_level, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
   EXPECT_TRUE(seen_cold[0].stats.durability_wal_enabled);
   EXPECT_EQ(seen_cold[0].stats.schema_vertex_count, 9U);
-  // Epoch round-trip:
-  EXPECT_TRUE(seen_cold[0].has_epoch_meta);
-  EXPECT_EQ(seen_cold[0].current_epoch, "epoch-E2");
-  ASSERT_EQ(seen_cold[0].epoch_history.size(), 2U);
-  EXPECT_EQ(seen_cold[0].epoch_history[0].first, "epoch-E1");
-  EXPECT_EQ(seen_cold[0].epoch_history[0].second, 42U);
-  EXPECT_EQ(seen_cold[0].epoch_history[1].first, "epoch-E0");
-  EXPECT_EQ(seen_cold[0].epoch_history[1].second, 7U);
-  EXPECT_EQ(seen_cold[0].last_durable_timestamp, 314159U);
 }

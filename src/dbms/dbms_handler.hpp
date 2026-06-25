@@ -552,29 +552,21 @@ class DbmsHandler {
   }
 
   /**
-   * @brief Apply MAIN's authoritative cold metadata to a suspended tenant during recovery.
+   * @brief Apply MAIN's authoritative cold stats to a suspended tenant during recovery.
    *
-   * Overwrites cold_stats with MAIN's as-of-suspend snapshot AND, when MAIN recorded epoch
-   * metadata (has_epoch_meta — a post-epoch-capture cold entry), the current_epoch + epoch_history too. The epoch
-   * matters because a replica that converges a tenant via SystemRecovery (rather than the ordered
-   * SuspendDatabaseRpc) and is LATER promoted must append the correct continuous-history boundary in
-   * PromoteColdTenants; without MAIN's epoch it would keep its disk-recovered one and emit a phantom
-   * boundary -> spurious DIVERGED downstream. has_epoch_meta=false leaves the local epoch
-   * intact. No-op if @p name is not suspended.
-   *
-   * After mutating the in-memory entry it rewrites the durable COLD marker (best-effort, mirroring
-   * Suspend_ and PromoteColdTenants): the epoch metadata MAIN supplies here is exactly what a later
-   * promotion of this replica relies on, so it must survive a restart rather than be re-derived from
-   * the replica's own disk-recovered epoch. Defined out-of-line because the durable-write helpers live
-   * in the .cpp.
+   * Overwrites cold_stats with MAIN's as-of-suspend snapshot so a SystemRecovery-converged cold
+   * tenant serves the same SHOW STORAGE INFO / SHOW DATABASES numbers as MAIN. No-op if @p name is
+   * not suspended. After mutating the in-memory entry it rewrites the durable COLD marker (best-effort,
+   * mirroring Suspend_) so the refreshed stats survive a restart. Defined out-of-line because the
+   * durable-write helpers live in the .cpp.
    */
   void ApplyColdRecoveryMeta(std::string_view name, const storage::ColdTenantRecovery &meta);
 
   /**
    * @brief Snapshot the COLD set for the SystemRecovery payload: one ColdTenantRecovery per suspended
-   *        tenant (salient + cold_stats + epoch metadata), built from suspended_. Called on MAIN inside
-   *        the system-transaction guard so the COLD set is coherent with the HOT ForEach as-of
-   *        forced_group_timestamp, ensuring the snapshot is coherent with the HOT ForEach.
+   *        tenant (salient + cold_stats), built from suspended_. Called on MAIN inside the
+   *        system-transaction guard so the COLD set is coherent with the HOT ForEach as-of
+   *        forced_group_timestamp.
    */
   std::vector<storage::ColdTenantRecovery> SuspendedConfigsForRecovery() const {
     auto rd = std::shared_lock{lock_};
@@ -582,34 +574,10 @@ class DbmsHandler {
     out.reserve(suspended_.size());
     std::ranges::transform(suspended_, std::back_inserter(out), [](const auto &kv) {
       const auto &entry = kv.second;
-      return storage::ColdTenantRecovery{.salient = entry.salient,
-                                         .stats = entry.cold_stats,
-                                         .has_epoch_meta = entry.has_epoch_meta,
-                                         .last_durable_timestamp = entry.last_durable_timestamp,
-                                         .current_epoch = entry.current_epoch,
-                                         .epoch_history = entry.epoch_history};
+      return storage::ColdTenantRecovery{.salient = entry.salient, .stats = entry.cold_stats};
     });
     return out;
   }
-
-  /**
-   * @brief Eager-epoch rewrite for COLD tenants on MAIN promotion.
-   *
-   * ForEach/All() skip COLD tenants (no-value gatekeeper -> access() nullopt), so the promotion epoch
-   * loop never reaches them and a resumed cold tenant would otherwise keep its pre-promotion (disk)
-   * epoch -> the replica continuous-history check fails -> spurious DIVERGED after failover. This
-   * iterates suspended_ DIRECTLY, appending the promotion boundary (current_epoch, last_durable_ts) to
-   * each entry's epoch_history and setting current_epoch = @p new_epoch_id, then rewriting the durable
-   * COLD marker. Resume_ later restores history+epoch verbatim. Metadata-only: no force-resume.
-   *
-   * Lock discipline: takes ONLY lock_ + KVStore Put, never repl_state — the caller
-   * (DoToMainPromotion) holds the repl_state write lock, so acquiring it here would deadlock. The
-   * reverse edge (lock_ -> repl_state via on_resume_repl_) lives only in the resume path, which this
-   * does not use. Older V2 entries (has_epoch_meta == false) are left untouched.
-   *
-   * @param new_epoch_id the single new epoch id generated for all tenants at promotion
-   */
-  void PromoteColdTenants(std::string_view new_epoch_id);
 #endif
 
   /**
@@ -847,21 +815,9 @@ class DbmsHandler {
   // Hot/cold: rebuild metadata for a suspended (COLD) tenant. The gatekeeper stays in
   // db_handler_ as a COLD shell (value_ == nullopt); this holds what a later resume needs.
   struct SuspendedEntry {
-    storage::SalientConfig salient;  //!< salient config to recreate the storage
-    std::filesystem::path rel_dir;   //!< durability dir relative to the instance root
-    // Heartbeat metadata captured at suspend time, for replication.
-    uint64_t last_durable_timestamp{0};  //!< repl_storage_state_.commit_ts_info_.ldt_ at suspend
-    uint64_t num_committed_txns{0};      //!< repl_storage_state_.commit_ts_info_.num_committed_txns_
-    // The FULL replication epoch state captured at suspend, so a promotion can rewrite it
-    // and a resume can restore it verbatim (a single epoch string is insufficient — the replica
-    // continuous-history check needs the whole deque; see PromoteColdTenants + Resume_).
-    // Cached here because a COLD tenant has no live storage and therefore no live repl_storage_state_
-    // to read from; these values must survive in the durable cold entry so Resume_ can restore epoch
-    // continuity and PromoteColdTenants can append the correct boundary while the tenant remains cold.
-    std::string current_epoch;            //!< repl_storage_state_.epoch_.id() at suspend (post-promotion: new epoch)
-    storage::EpochHistory epoch_history;  //!< copy of repl_storage_state_.history at suspend
-    bool has_epoch_meta{false};           //!< false for older V2 cold entries (no epoch fields) — skip override
-    storage::StorageInfo cold_stats;      //!< last-hot stats snapshot
+    storage::SalientConfig salient;   //!< salient config to recreate the storage
+    std::filesystem::path rel_dir;    //!< durability dir relative to the instance root
+    storage::StorageInfo cold_stats;  //!< last-hot stats snapshot (cold SHOW STORAGE INFO display cache)
     // Why this tenant is COLD. RUNTIME-ONLY (never serialized): a tenant left cold by a failed boot
     // recovery keeps its durable entry HOT, so the next restart retries; this only drives the SHOW
     // marker + log for the current (degraded) process lifetime. A user SUSPEND / restored cold entry is

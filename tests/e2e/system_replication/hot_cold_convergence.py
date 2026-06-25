@@ -27,13 +27,12 @@
 #        resumes with all data intact. This is a single-instance test (no replication) exercised by
 #        test_cross_restart_hot_only_recovery.
 #
-#   Eager-epoch promotion: when a node holding a COLD tenant is promoted to MAIN, the new epoch
-#        is written into the cold tenant's durable metadata (PromoteColdTenants, since ForEach skips
-#        cold tenants) WITH the pre-promotion epoch appended to the epoch history. A later RESUME runs
-#        the new epoch, and a replica that still holds the tenant at the OLD epoch finds that old epoch
-#        in the new MAIN's continuous history -> it converges instead of diverging. Exercised by
-#        test_promotion_eager_epoch_convergence (the negative control: without the history boundary the
-#        old-epoch replica would DIVERGE and never converge).
+#   Cold-tenant convergence after failover: a COLD tenant is frozen at the same (epoch, ldt) on every
+#        instance (nobody can commit on it). When a node holding it COLD is promoted to MAIN and later
+#        RESUMEs the tenant, it runs the epoch recovered from its own disk (BuildDetached) — the same
+#        epoch every other copy holds — so a returning replica converges via the normal continuous-history
+#        check, no special cold-tenant epoch bump needed. Exercised by test_promotion_cold_tenant_convergence.
+#        (The earlier eager-epoch machinery was removed; see hot_cold_review_responses #20.)
 #
 #   Hot/cold is observable: SHOW DATABASES lists a COLD tenant with a HOT/COLD status column
 #        (it would otherwise vanish, being excluded from All()), and SHOW STORAGE INFO ON <cold>
@@ -340,22 +339,20 @@ def test_cold_aware_show(connection, test_name):
     assert tenant_probe(main_cursor, "A")() == 8
 
 
-def test_promotion_eager_epoch_convergence(connection, test_name):
-    # Promote a node that holds a COLD tenant, then prove a replica still at the pre-promotion
-    # epoch converges (continuous history) instead of diverging.
+def test_promotion_cold_tenant_convergence(connection, test_name):
+    # Promote a node that holds a COLD tenant, then prove a returning replica converges. A COLD tenant
+    # is frozen at the same (epoch, ldt) on every instance, so this works through the normal
+    # continuous-history check with no special cold-tenant epoch handling.
     #
     #   1. main + replica_1, tenant A replicated, both HOT at epoch E1.
     #   2. SUSPEND A -> both COLD; A's data sits on disk at E1 on both.
     #   3. Kill main. replica_1 is the survivor, holding COLD A at E1.
-    #   4. Promote replica_1 -> MAIN: DoToMainPromotion mints a new epoch E2 and PromoteColdTenants
-    #      rewrites A's durable cold metadata to E2 WITH (E1, ldt) appended to its epoch history
-    #      (ForEach alone would skip the cold tenant, so PromoteColdTenants handles it explicitly).
-    #   5. RESUME A on the new MAIN -> HOT at E2, data intact, history carrying the E1 boundary.
-    #   6. Restart the old main as a REPLICA of the new MAIN. It still holds A at E1. The new MAIN's
-    #      continuous-history check finds E1 in A's history -> continuous -> the replica converges to
-    #      the new MAIN's data. Without the eager-epoch boundary, the replica at E1 would be flagged a
-    #      branching point (DIVERGED_FROM_MAIN) and never converge -> this assertion would time out
-    #      (the negative control that gives the test teeth).
+    #   4. Promote replica_1 -> MAIN: hot tenants get a new epoch; the COLD tenant A keeps its disk
+    #      epoch E1 (no cold-tenant epoch bump — see hot_cold_review_responses #20).
+    #   5. RESUME A on the new MAIN -> HOT at E1 (recovered from disk by BuildDetached), data intact.
+    #   6. Restart the old main as a REPLICA of the new MAIN. It still holds A at E1. The new MAIN also
+    #      runs A at E1, so the continuous-history check matches -> the replica converges to the new
+    #      MAIN's data.
     instances = {
         "replica_1": replica_args(test_name, recovery=True),
         "main": main_args(test_name, recovery=True),
@@ -380,11 +377,11 @@ def test_promotion_eager_epoch_convergence(connection, test_name):
     # Kill the old MAIN (keep its data dir: it returns as a replica still holding A at E1).
     interactive_mg_runner.kill(instances, "main", keep_directories=True)
 
-    # Promote the survivor (replica_1) to MAIN. DoToMainPromotion generates a new epoch and
-    # PromoteColdTenants rewrites the COLD tenant's durable epoch + history boundary.
+    # Promote the survivor (replica_1) to MAIN. Hot tenants get a new epoch; the COLD tenant A keeps
+    # its disk epoch E1.
     execute_and_fetch_all(replica_cursor, "SET REPLICATION ROLE TO MAIN;")
 
-    # RESUME A on the new MAIN: it runs the new epoch E2, data intact, history holds the E1 boundary.
+    # RESUME A on the new MAIN: it runs its disk epoch E1 (BuildDetached), data intact.
     execute_and_fetch_all(replica_cursor, "USE DATABASE memgraph;")
     execute_and_fetch_all(replica_cursor, "RESUME DATABASE A;")
     mg_sleep_and_assert(6, tenant_probe(replica_cursor, "A"))
@@ -399,8 +396,8 @@ def test_promotion_eager_epoch_convergence(connection, test_name):
     execute_and_fetch_all(old_main_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['main']};")
 
     # The new MAIN registers the old main as a replica; SystemRecovery resumes A on it and streams the
-    # data. The continuous-history check accepts E1 (it is in A's history on the new MAIN), so the
-    # replica converges to 6 nodes rather than diverging.
+    # data. Both copies are at E1, so the continuous-history check matches and the replica converges to
+    # 6 nodes.
     execute_and_fetch_all(replica_cursor, f"REGISTER REPLICA old_main SYNC TO '127.0.0.1:{REPLICATION_PORTS['main']}';")
     mg_sleep_and_assert(6, tenant_probe(old_main_cursor, "A"))
 

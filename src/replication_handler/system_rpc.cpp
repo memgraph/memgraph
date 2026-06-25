@@ -76,23 +76,15 @@ void Load(memgraph::storage::StorageInfo *self, memgraph::slk::Reader *reader) {
   });
 }
 
-// One COLD tenant's recovery payload — salient + as-of-suspend stats + epoch metadata.
+// One COLD tenant's recovery payload — salient + as-of-suspend stats.
 void Save(const memgraph::storage::ColdTenantRecovery &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.salient, builder);
   memgraph::slk::Save(self.stats, builder);
-  memgraph::slk::Save(self.current_epoch, builder);
-  memgraph::slk::Save(self.epoch_history, builder);
-  memgraph::slk::Save(self.has_epoch_meta, builder);
-  memgraph::slk::Save(self.last_durable_timestamp, builder);
 }
 
 void Load(memgraph::storage::ColdTenantRecovery *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->salient, reader);
   memgraph::slk::Load(&self->stats, reader);
-  memgraph::slk::Load(&self->current_epoch, reader);
-  memgraph::slk::Load(&self->epoch_history, reader);
-  memgraph::slk::Load(&self->has_epoch_meta, reader);
-  memgraph::slk::Load(&self->last_durable_timestamp, reader);
 }
 
 // Serialize code for SystemRecoveryReqV1

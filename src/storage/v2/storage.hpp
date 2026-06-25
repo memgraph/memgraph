@@ -169,22 +169,15 @@ void StorageInfoForEachField(Self &s, Visit &&visit) {
 }
 
 // Hot/cold: the per-COLD-tenant recovery payload carried in SystemRecoveryReq V3 so a
-// reconnecting/lagging replica converges to MAIN's authoritative {HOT ∪ COLD} set WITH the correct
-// epoch. Replaces the earlier two parallel (salient, stats) vectors; bundling them keeps the 1:1
-// pairing structural (no length-mismatch guard) and adds the epoch metadata MAIN needs so a
-// SystemRecovery-converged-then-promoted replica appends the right continuous-history boundary.
-// Composed of storage:: types only, so it can sit in both the dbms and replication_handler signatures
-// without a layer cycle. `has_epoch_meta` is false for an older cold entry (no epoch recorded) — the
-// replica then tolerantly leaves its disk-recovered epoch intact.
+// reconnecting/lagging replica converges to MAIN's authoritative {HOT ∪ COLD} set. Replaces the
+// earlier two parallel (salient, stats) vectors; bundling them keeps the 1:1 pairing structural (no
+// length-mismatch guard). Composed of storage:: types only, so it can sit in both the dbms and
+// replication_handler signatures without a layer cycle. A resumed cold tenant trusts its own
+// on-disk WAL/snapshot epoch (BuildDetached); no epoch is carried here — see hot_cold_review_responses
+// #20 for the rationale (cold-tenant epoch machinery removed).
 struct ColdTenantRecovery {
   SalientConfig salient;
-  StorageInfo stats{};                 // value-init: a default-constructed recovery must not carry
-                                       // indeterminate bool fields (UB when serialized to the cold marker)
-  bool has_epoch_meta{false};          // placed before the string/deque members to avoid tail padding
-  uint64_t last_durable_timestamp{0};  // MAIN's as-of-suspend LDT; the promotion-boundary ts a converged
-                                       // replica must use (NOT its own local LDT) — see PromoteColdTenants
-  std::string current_epoch;
-  EpochHistory epoch_history;
+  StorageInfo stats{};  // value-init: a default-constructed recovery carries zeroed stats
 };
 
 static inline nlohmann::json ToJson(const StorageInfo &info) {

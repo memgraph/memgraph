@@ -237,15 +237,19 @@ sidesteps an entire category of mid-transaction teardown hazards.
 
 ### D7 — On failover/promotion, cold databases stay cold.
 
-When a replica is promoted to MAIN, databases that were cold stay cold. The new MAIN
-records the new replication epoch into each cold database's durable metadata so that a
-later `RESUME` picks up correctly where the cluster left off.
+When a replica is promoted to MAIN, databases that were cold stay cold. A cold database is
+frozen at the same replication epoch on every instance (nobody can commit on it), so a later
+`RESUME` simply rebuilds the storage from the tenant's own on-disk WAL/snapshot and runs the
+epoch recovered from disk — the same epoch every other copy holds. Promotion does **not**
+rewrite a cold database's epoch (a returning replica converges through the normal
+continuous-history check because both sides are at the same frozen epoch).
 
 *Rationale.* A promotion is a control-plane event, not a request to materialize every
 idle tenant. Force-reheating the entire cold set on every failover would cause a
 memory spike at the worst possible moment and contradict D1 (no automatic reheat). Keeping
-cold databases cold — while making sure their replication lineage stays correct so resume
-is safe — preserves both the memory benefit and data safety across failover.
+cold databases cold preserves the memory benefit; resume is safe without special epoch
+handling because a cold tenant accumulates no divergent commits to reconcile. (The earlier
+per-promotion cold-epoch rewrite was removed — see hot_cold_review_responses #20.)
 
 ### D8 — Resume is an attempt-and-roll-back, not a pre-check.
 
@@ -275,9 +279,9 @@ per-database failure.)
   async replicas converge.
 - **Convergence.** A replica that missed a suspend/resume (it was down, or lagging)
   converges to the MAIN's authoritative hot/cold set on reconnect, including the
-  as-of-suspend stats and the correct replication epoch for each cold database.
-- **Failover.** Cold stays cold across promotion (D7); the new epoch is recorded durably
-  so a later resume is consistent.
+  as-of-suspend stats for each cold database.
+- **Failover.** Cold stays cold across promotion (D7); a cold database keeps its disk epoch
+  and a returning replica converges through the normal continuous-history check.
 - A cold database has no live replication clients, so it is intentionally absent from
   `SHOW REPLICAS`.
 
@@ -341,16 +345,12 @@ In addition, `SHOW DATABASES` shows each database's `HOT`/`COLD` state, and
 - **Cross-version safety.** The on-disk and replication wire formats were extended to
   carry hot/cold state; this is not downgrade-safe, which is an accepted trade-off.
 - **Best-effort durable-marker persistence.** The hot/cold *state* marker is persisted
-  best-effort: a storage write failure while writing it (at suspend, resume, or promotion)
-  is logged but does not roll back or crash. No data is ever lost — the snapshot is written
-  before teardown — and in the common cases the tenant simply recovers to its last
-  durably-recorded hot/cold state on restart (a failed suspend marker recovers HOT; a failed
-  resume marker recovers COLD and is resumable again). The one case that is **not**
-  self-healing: if a promotion marker write fails and the newly-promoted MAIN then crashes
-  before the marker is rewritten, the cold tenant recovers its *pre-promotion* epoch on
-  restart. The MAIN reconciles its own copy on the next `RESUME`, but a **non-HA replica** of
-  that tenant can latch `DIVERGED_FROM_MAIN` with no automatic recovery, and an operator must
-  re-register replication for it to converge. The crash window is a single durable write wide.
+  best-effort: a storage write failure while writing it (at suspend or resume) is logged but
+  does not roll back or crash. No data is ever lost — the snapshot is written before teardown —
+  and the tenant simply recovers to its last durably-recorded hot/cold state on restart (a
+  failed suspend marker recovers HOT; a failed resume marker recovers COLD and is resumable
+  again). A resumed cold tenant always runs the epoch recovered from its own on-disk
+  WAL/snapshot, so there is no separate cold-epoch durability to lose.
 
 ---
 

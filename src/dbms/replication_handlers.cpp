@@ -452,8 +452,8 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
     std::erase(old, name);
 
     if (dbms_handler.IsSuspended(name)) {
-      // Same tenant still COLD here: refresh MAIN's as-of-suspend stats snapshot AND epoch metadata
-      // (a converged-then-promoted replica needs MAIN's epoch to record the right boundary).
+      // Same tenant still COLD here: refresh MAIN's as-of-suspend stats snapshot so cold SHOW STORAGE
+      // INFO / SHOW DATABASES on this replica match MAIN.
       if (dbms_handler.IsSuspendedWithUuid(name, config.uuid)) {
         dbms_handler.ApplyColdRecoveryMeta(name, cold);
         continue;

@@ -490,48 +490,9 @@ TEST_F(HotColdResume, CrossRestartResumedTenantRecoversHot) {
   EXPECT_EQ(CountNodes(acc), kNodes);
 }
 
-// A COLD tenant whose durable epoch metadata was rewritten by PromoteColdTenants (eager promotion)
-// runs the NEW epoch after a restart+resume, and its epoch history carries the promotion boundary
-// (the pre-promotion epoch). Without this, a lagging replica reconnecting at the old epoch would
-// fail MAIN's continuous-history check and spuriously DIVERGE after failover.
-TEST_F(HotColdResume, CrossRestartPromotedColdTenantRunsNewEpoch) {
-  constexpr int kNodes = 6;
-  auto cold = CreateAndPopulate("promoted_cold", kNodes);
-
-  // Capture the pre-promotion epoch (E1) from the live HOT storage.
-  std::string e1;
-  {
-    auto acc = handler_->Get(cold);
-    e1 = std::string{acc->storage()->repl_storage_state_.epoch_.id()};
-  }
-  ASSERT_FALSE(e1.empty());
-
-  ASSERT_TRUE(handler_->Suspend(cold).has_value());
-
-  // Eager-epoch promotion: rewrite the COLD tenant's durable epoch metadata to a new epoch (this is
-  // what DoToMainPromotion calls for cold tenants the ForEach epoch loop cannot reach). Metadata-only.
-  const std::string e2 = "promotion-epoch";
-  handler_->PromoteColdTenants(e2);
-
-  Restart();
-
-  // Promotion is metadata-only: the tenant is still COLD after the restart (no resume happened).
-  EXPECT_FALSE(InAll(cold)) << "a promoted-but-not-resumed cold tenant must recover COLD";
-
-  auto resumed = handler_->Resume(cold);
-  ASSERT_TRUE(resumed.has_value());
-  EXPECT_EQ(CountNodes(resumed.value()), kNodes) << "data survives suspend -> promote -> restart -> resume";
-
-  auto &rss = resumed.value()->storage()->repl_storage_state_;
-  EXPECT_EQ(std::string{rss.epoch_.id()}, e2)
-      << "the resumed tenant must run the post-promotion epoch, not the disk-recovered one";
-  ASSERT_FALSE(rss.history.empty()) << "the promotion boundary must be present in the epoch history";
-  EXPECT_EQ(rss.history.back().first, e1)
-      << "the epoch history must carry the pre-promotion epoch as the promotion boundary (continuous history)";
-}
-
-// A COLD tenant restarted+resumed WITHOUT a promotion keeps its original epoch — the resume epoch
-// override restores the captured epoch verbatim and must not corrupt or rotate it.
+// A COLD tenant restarted+resumed keeps its original epoch — resume rebuilds the storage from disk
+// (BuildDetached) and runs the epoch recovered from the tenant's own WAL/snapshot, unchanged. (The
+// cold-tenant epoch-rewrite-on-promotion machinery was removed; see hot_cold_review_responses #20.)
 TEST_F(HotColdResume, CrossRestartColdTenantWithoutPromotionKeepsEpoch) {
   constexpr int kNodes = 3;
   auto cold = CreateAndPopulate("unpromoted_cold", kNodes);
@@ -553,103 +514,39 @@ TEST_F(HotColdResume, CrossRestartColdTenantWithoutPromotionKeepsEpoch) {
   EXPECT_EQ(std::string{rss.epoch_.id()}, e1) << "a non-promoted resume must preserve the original epoch";
 }
 
-// Race: a promotion that lands in the resume's off-lock BuildDetached window must win. The
-// on_resume_ hook fires after BuildDetached and before the publish lock, so promoting from inside it
-// rewrites the in-map suspended_ entry to a new epoch AFTER the resume copied the (now stale) entry
-// in Phase A. The resume must re-read the entry under the publish lock and apply the PROMOTED epoch,
-// not the stale Phase-A snapshot. (Deterministically fails if the override uses the Phase-A copy.)
-TEST_F(HotColdResume, PromotionDuringResumeAppliesPromotedEpoch) {
-  constexpr int kNodes = 5;
-  auto cold = CreateAndPopulate("promote_during_resume", kNodes);
-
-  std::string e1;
-  {
-    auto acc = handler_->Get(cold);
-    e1 = std::string{acc->storage()->repl_storage_state_.epoch_.id()};
-  }
-  ASSERT_TRUE(handler_->Suspend(cold).has_value());
-
-  const std::string e2 = "epoch-promoted-mid-resume";
-  handler_->SetOnResume([&](memgraph::dbms::DatabaseAccess) { handler_->PromoteColdTenants(e2); });
-  auto resumed = handler_->Resume(cold);
-  handler_->SetOnResume({});
-  ASSERT_TRUE(resumed.has_value());
-
-  auto &rss = resumed.value()->storage()->repl_storage_state_;
-  EXPECT_EQ(std::string{rss.epoch_.id()}, e2)
-      << "a promotion racing the resume's build window must win (epoch re-read under the publish lock)";
-  ASSERT_FALSE(rss.history.empty());
-  EXPECT_EQ(rss.history.back().first, e1) << "the promotion boundary must still carry the pre-promotion epoch";
-}
-
-// On a replica, a cold tenant's epoch metadata arrives over the V3 SystemRecovery wire and is
-// installed by ApplyColdRecoveryMeta, OVERRIDING the local disk-recovered epoch. A subsequent eager
-// promotion (PromoteColdTenants) must then build its continuity boundary from MAIN's APPLIED epoch,
-// not the stale local one — otherwise a replica promoted after reconnect would emit a phantom
-// boundary and a lagging downstream replica would spuriously DIVERGE on MAIN's continuous-history
-// check. This proves the producer -> wire -> consumer epoch (ColdTenantRecovery.current_epoch) is
-// honored end to end on the consumer.
-TEST_F(HotColdResume, AppliedWireEpochDrivesColdPromotionBoundary) {
+// On a replica, MAIN's authoritative as-of-suspend stats arrive over the V3 SystemRecovery wire and
+// ApplyColdRecoveryMeta installs them into the cold entry, so cold SHOW STORAGE INFO / SHOW DATABASES
+// on the replica match MAIN. (No epoch is carried; see hot_cold_review_responses #20.)
+TEST_F(HotColdResume, AppliedWireStatsRefreshColdEntry) {
   constexpr int kNodes = 4;
-  auto cold = CreateAndPopulate("wire_epoch_cold", kNodes);
-
-  // Capture the local disk epoch so we can prove the wire value WINS over it.
-  std::string local_epoch;
-  {
-    auto acc = handler_->Get(cold);
-    local_epoch = std::string{acc->storage()->repl_storage_state_.epoch_.id()};
-  }
-  ASSERT_FALSE(local_epoch.empty());
+  auto cold = CreateAndPopulate("wire_stats_cold", kNodes);
 
   ASSERT_TRUE(handler_->Suspend(cold).has_value());
 
-  // MAIN's authoritative epoch metadata, distinct from anything the local storage would produce.
-  const std::string wire_epoch = "main-wire-epoch-E2";
-  // A distinct as-of-suspend LDT that the local suspend would never produce, so the
-  // promotion boundary's timestamp proves it used MAIN's APPLIED LDT, not the replica's local one.
-  constexpr uint64_t wire_ldt = 271828;
+  // MAIN's authoritative stats snapshot, distinct from anything the local suspend captured.
   memgraph::storage::ColdTenantRecovery meta;
-  meta.current_epoch = wire_epoch;
-  meta.epoch_history = memgraph::storage::EpochHistory{{"main-wire-epoch-E1", 99}};
-  meta.has_epoch_meta = true;
-  meta.last_durable_timestamp = wire_ldt;
+  for (const auto &c : handler_->SuspendedConfigsForRecovery()) {
+    if (c.salient.name.str() == cold) meta.salient = c.salient;
+  }
+  meta.stats.vertex_count = 4242;
+  meta.stats.edge_count = 99;
   handler_->ApplyColdRecoveryMeta(cold, meta);
 
-  // The applied wire epoch overrode the local disk epoch in the suspended_ entry.
-  {
-    auto cold_set = handler_->SuspendedConfigsForRecovery();
-    bool found = false;
-    for (const auto &c : cold_set) {
-      if (c.salient.name.str() == cold) {
-        EXPECT_EQ(c.current_epoch, wire_epoch)
-            << "ApplyColdRecoveryMeta must install MAIN's epoch over the local disk one";
-        EXPECT_NE(c.current_epoch, local_epoch);
-        EXPECT_TRUE(c.has_epoch_meta);
-        found = true;
-      }
-    }
-    ASSERT_TRUE(found) << "the suspended tenant must appear in the recovery snapshot";
-  }
-
-  // Eager promotion must build its boundary from the APPLIED wire epoch, not the stale local one.
-  const std::string new_epoch = "main-wire-epoch-E3";
-  handler_->PromoteColdTenants(new_epoch);
-
-  auto cold_set = handler_->SuspendedConfigsForRecovery();
   bool found = false;
-  for (const auto &c : cold_set) {
+  for (const auto &c : handler_->SuspendedConfigsForRecovery()) {
     if (c.salient.name.str() == cold) {
-      EXPECT_EQ(c.current_epoch, new_epoch) << "promotion must move the cold entry to the new epoch";
-      ASSERT_FALSE(c.epoch_history.empty());
-      EXPECT_EQ(c.epoch_history.back().first, wire_epoch)
-          << "the promotion boundary must be MAIN's APPLIED wire epoch, not the stale local disk epoch";
-      EXPECT_NE(c.epoch_history.back().first, local_epoch);
-      EXPECT_EQ(c.epoch_history.back().second, wire_ldt)
-          << "the promotion boundary timestamp must be MAIN's APPLIED LDT, not the replica's local one (#2)";
+      EXPECT_EQ(c.stats.vertex_count, 4242) << "ApplyColdRecoveryMeta must install MAIN's stats snapshot";
+      EXPECT_EQ(c.stats.edge_count, 99);
       found = true;
     }
   }
-  ASSERT_TRUE(found);
+  ASSERT_TRUE(found) << "the suspended tenant must appear in the recovery snapshot";
+
+  // The refreshed stats are durable: a restart recovers them (still COLD, no resume).
+  Restart();
+  auto info = handler_->GetColdShowInfo(cold);
+  ASSERT_TRUE(info.has_value()) << "the tenant must recover COLD with its refreshed stats";
+  EXPECT_EQ(info->stats.vertex_count, 4242) << "MAIN's stats must survive a restart via the cold marker";
 }
 
 // Observability: a successful SUSPEND/RESUME pair moves the global hot/cold Prometheus metrics — the
@@ -735,9 +632,10 @@ TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
 }
 
 // Regression: a durable cold entry that is VALID JSON but has a WRONG-TYPED optional metadata field
-// (e.g. last_durable_timestamp stored as a string) must NOT abort the boot. nlohmann's j.value() only
-// provides the default for MISSING keys; a present-but-wrong-typed value throws type_error (302), which
-// previously escaped the parse guard and propagated out of the DbmsHandler ctor → std::terminate.
+// (e.g. cold_stats stored as a string instead of an object) must NOT abort the boot. nlohmann's
+// j.value() only provides the default for MISSING keys; calling value() on a non-object throws
+// type_error (306), which previously escaped the parse guard and propagated out of the DbmsHandler
+// ctor → std::terminate.
 //
 // After the fix, make_cold_entry is wrapped in its own nlohmann::json::exception catch so:
 //   (a) the instance boots (no terminate, no throw from the ctor),
@@ -766,16 +664,16 @@ TEST_F(HotColdResume, WrongTypedColdMetadataBootsDegraded) {
   handler_.reset();
 
   // Overwrite the victim's durable KVStore value with VALID JSON that has a wrong-typed field:
-  // last_durable_timestamp stored as a string instead of uint64. This is the exact class of error that
-  // j.value("last_durable_timestamp", uint64_t{0}) will throw type_error(302) for. The uuid and
-  // rel_dir fields remain correct so the entry passes the outer parse guard — only make_cold_entry
-  // sees the bad type. Constructed as a raw string to avoid an nlohmann include in the test TU.
+  // cold_stats stored as a string instead of an object. StatsFromJson calls j.value(key, ...) on it,
+  // which throws type_error(306) on a non-object. The uuid and rel_dir fields remain correct so the
+  // entry passes the outer parse guard — only make_cold_entry sees the bad type. Constructed as a raw
+  // string to avoid an nlohmann include in the test TU.
   {
     // clang-format off
     const std::string bad_json =
         std::string(R"({"uuid":")") + victim_uuid_str +
         R"(","rel_dir":")" + victim_uuid_str +
-        R"(","cold":true,"last_durable_timestamp":"not_a_number","num_committed_txns":0})";
+        R"(","cold":true,"cold_stats":"not_an_object"})";
     // clang-format on
     memgraph::kvstore::KVStore kv(test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / ".durability");
     ASSERT_TRUE(kv.Put(std::string("database:") + victim, bad_json));

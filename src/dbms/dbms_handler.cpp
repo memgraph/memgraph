@@ -141,27 +141,15 @@ struct Durability {
   }
 
   // Durable entry for a COLD (suspended) tenant. Carries the HOT entry's identity (uuid, rel_dir)
-  // plus the cold marker, the suspend-time heartbeat metadata, and the as-of-suspend cold_stats.
-  // On restart a `cold:true` entry is restored as a no-value COLD shell (no storage build) — see the
-  // restore loop in the DbmsHandler ctor.
-  static auto GenColdVal(utils::UUID uuid, std::filesystem::path rel_dir, uint64_t last_durable_timestamp,
-                         uint64_t num_committed_txns, std::string_view current_epoch,
-                         const storage::EpochHistory &epoch_history, const storage::StorageInfo &cold_stats)
+  // plus the cold marker and the as-of-suspend cold_stats. On restart a `cold:true` entry is restored
+  // as a no-value COLD shell (no storage build) — see the restore loop in the DbmsHandler ctor. A
+  // resumed cold tenant trusts its own on-disk epoch (BuildDetached); no epoch is persisted here.
+  static auto GenColdVal(utils::UUID uuid, std::filesystem::path rel_dir, const storage::StorageInfo &cold_stats)
       -> std::string {
     nlohmann::json json;
     json["uuid"] = uuid;
     json["rel_dir"] = rel_dir;
     json["cold"] = true;
-    json["last_durable_timestamp"] = last_durable_timestamp;
-    json["num_committed_txns"] = num_committed_txns;
-    // Full replication epoch state. current_epoch is the live epoch id at suspend (rewritten to
-    // the new epoch on promotion); epoch_history is the prior-epochs deque (gains the promotion
-    // boundary on promotion). Resume_ restores both verbatim. Presence of current_epoch is the
-    // has_epoch_meta flag on read.
-    json["current_epoch"] = current_epoch;
-    auto hist = nlohmann::json::array();
-    for (const auto &[epoch_id, ldt] : epoch_history) hist.push_back({{"epoch", epoch_id}, {"ldt", ldt}});
-    json["epoch_history"] = std::move(hist);
     json["cold_stats"] = StatsToJson(cold_stats);
     return json.dump();
   }
@@ -243,20 +231,6 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
         entry.salient.name = nm;
         entry.salient.uuid = id;
         entry.rel_dir = std::move(rel_dir);
-        entry.last_durable_timestamp = json.value("last_durable_timestamp", uint64_t{0});
-        entry.num_committed_txns = json.value("num_committed_txns", uint64_t{0});
-        // Restore the full epoch state. has_epoch_meta is false for older V2 entries without a
-        // current_epoch key -> resume leaves the disk-recovered epoch/history intact (tolerant read),
-        // and PromoteColdTenants skips it so it is never corrupted with a "" boundary.
-        if (json.contains("current_epoch")) {
-          entry.has_epoch_meta = true;
-          entry.current_epoch = json.value("current_epoch", std::string{});
-          if (json.contains("epoch_history")) {
-            for (const auto &e : json.at("epoch_history")) {
-              entry.epoch_history.emplace_back(e.value("epoch", std::string{}), e.value("ldt", uint64_t{0}));
-            }
-          }
-        }
         if (json.contains("cold_stats")) entry.cold_stats = Durability::StatsFromJson(json.at("cold_stats"));
         return entry;
       };
@@ -302,8 +276,7 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
     const bool is_cold = json.value("cold", false);
     if (is_cold) {
       // COLD: metadata-only shell, no storage build.
-      // make_cold_entry reads optional cold-metadata fields (cold_stats, epoch fields,
-      // last_durable_timestamp) via j.value() / j.at(). nlohmann's j.value() throws
+      // make_cold_entry reads the optional cold_stats field via j.value() / j.at(). nlohmann's j.value() throws
       // nlohmann::json::type_error (302) when a key is PRESENT BUT WRONG-TYPED (the default only
       // covers MISSING keys). Guard here with the same degradation pattern as the parse guard above:
       // a wrong-typed sub-field must leave the instance booting DEGRADED, not abort it. We catch
@@ -1217,24 +1190,10 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     inmem_for_disable = inmem;  // valid until finish_suspend() destroys the storage
   }
 
-  // Capture heartbeat metadata POST-freeze (count==1, no concurrent commit can advance
-  // ldt/epoch between this read and teardown).
+  // Capture the last-hot stats snapshot POST-freeze (count==1, no concurrent commit can advance it
+  // between this read and teardown). Served by cold SHOW STORAGE INFO / SHOW DATABASES.
   {
     auto *st = (*acc)->storage();
-    auto const commit_info = st->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
-    entry.last_durable_timestamp = commit_info.ldt_;
-    entry.num_committed_txns = commit_info.num_committed_txns_;
-    // Capture the FULL replication epoch state, coherent with the ldt above — the freeze (count==1,
-    // SUSPENDING shell refuses new accessors, ForEach skips us) means no concurrent commit can rotate
-    // epoch_ or append to history between these reads. current_epoch is the live epoch id; epoch_history
-    // is the prior-epochs deque (the boundary is appended only on a later promotion).
-    entry.has_epoch_meta = true;
-    entry.current_epoch = std::string{st->repl_storage_state_.epoch_.id()};
-    // Copy (not move): copying ensures an aborted suspend leaves the live epoch history intact on
-    // the rollback path. On the commit path the storage is torn down immediately after, so the
-    // extra copy is paid at most once and costs nothing meaningful.
-    entry.epoch_history = st->repl_storage_state_.history;
-    // Capture last-hot stats snapshot (used for replication and coordinator history).
     entry.cold_stats = st->GetBaseInfo();
   }
 
@@ -1243,13 +1202,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // Serialize the durable COLD marker from `entry` BEFORE it is moved into suspended_.
   std::string cold_val;
   if (durability_) {
-    cold_val = Durability::GenColdVal(entry.salient.uuid,
-                                      entry.rel_dir,
-                                      entry.last_durable_timestamp,
-                                      entry.num_committed_txns,
-                                      entry.current_epoch,
-                                      entry.epoch_history,
-                                      entry.cold_stats);
+    cold_val = Durability::GenColdVal(entry.salient.uuid, entry.rel_dir, entry.cold_stats);
   }
   acc.reset();  // drop our accessor -> count == 0 (state still SUSPENDING)
   {
@@ -1319,9 +1272,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
   while (true) {
     utils::Gatekeeper<Database> *gk = nullptr;
     // Copy only the two fields the off-lock build needs (salient + rel_dir) instead of the full
-    // SuspendedEntry (which includes epoch_history — a deque up to kEpochHistoryRetention≈1000
-    // entries — and cold_stats). The epoch fields are re-read from a fresh suspended_.find under
-    // the exclusive publish lock below, so the Phase-A copy of them is never used.
+    // SuspendedEntry (which also holds cold_stats).
     storage::SalientConfig salient;
     std::filesystem::path rel_dir;
     bool won_resume = false;
@@ -1342,8 +1293,8 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       if (!gk) return std::unexpected{ResumeError::NON_EXISTENT};
       auto it = suspended_.find(name);
       if (it == suspended_.end()) return std::unexpected{ResumeError::NON_EXISTENT};
-      salient = it->second.salient;     // copy only the two fields the off-lock build needs
-      rel_dir = it->second.rel_dir;     // (epoch_history + cold_stats re-read fresh under publish lock)
+      salient = it->second.salient;  // copy only the two fields the off-lock build needs
+      rel_dir = it->second.rel_dir;
       won_resume = gk->begin_resume();  // COLD -> RESUMING (LAST step in Phase A)
     }
 
@@ -1426,22 +1377,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           // erase(iterator) — both nothrow — so the publish block cannot throw after the noexcept
           // move commits the gatekeeper to HOT.
           auto wr = std::unique_lock{lock_};
-          // BuildDetached recovered the PRE-promotion epoch+history from disk. If a promotion
-          // rewrote our durable epoch metadata while we were COLD, restore the full epoch state so the
-          // rebuilt storage runs the post-promotion epoch and a lagging replica's continuous-history
-          // check finds the promotion boundary (no spurious DIVERGED). Re-read suspended_[name] HERE,
-          // under the exclusive publish lock — NOT the Phase-A copy, which a PromoteColdTenants
-          // landing in the off-lock BuildDetached window would have left stale (it rewrites the in-map
-          // entry under this same lock_). `fresh` is still private (not yet move-published), so the
-          // write needs no engine_lock_, and it must precede the move (`acc` points into `fresh`'s
-          // pimpl). Skipped for older V2 entries (has_epoch_meta == false) — the disk-recovered
-          // epoch/history stand. Move out of the entry: it is erased just below.
+          // The resumed tenant runs its own on-disk epoch+history (recovered by BuildDetached) — the
+          // cold entry carries no epoch to restore (see hot_cold_review_responses #20).
           auto it = suspended_.find(name);  // valid across the move below (it touches db_handler_, not suspended_)
-          if (it != suspended_.end() && it->second.has_epoch_meta) {
-            auto &rss = acc->storage()->repl_storage_state_;
-            rss.history = std::move(it->second.epoch_history);
-            rss.epoch_.SetEpoch(std::move(it->second.current_epoch));
-          }
           // Overwriting the RESUMING shell here is deadlock-free because Gatekeeper's move-assign tears
           // the old state down via ~GKInternals (non-blocking), NOT the count-waiting ~Gatekeeper — see
           // the load-bearing note on Gatekeeper::operator=(Gatekeeper&&) in utils/gatekeeper.hpp.
@@ -1560,98 +1498,26 @@ void DbmsHandler::ApplyColdRecoveryMeta(std::string_view name, const storage::Co
   auto wr = std::lock_guard{lock_};
   auto it = suspended_.find(name);
   if (it == suspended_.end()) return;
-  // Strong exception guarantee: do all potentially-throwing copies into locals first, then
-  // commit them into it->second with noexcept moves. A bad_alloc during any copy leaves
-  // it->second untouched (no partial update).
+  // Strong exception guarantee: copy into a local first, then commit with a noexcept move. A bad_alloc
+  // during the copy leaves it->second untouched (no partial update).
   auto stats = meta.stats;
-  if (meta.has_epoch_meta) {
-    auto epoch = meta.current_epoch;
-    auto hist = meta.epoch_history;  // deque copy — can throw bad_alloc
-    // All copies succeeded; commit with noexcept moves.
-    it->second.cold_stats = std::move(stats);
-    it->second.current_epoch = std::move(epoch);
-    it->second.epoch_history = std::move(hist);
-    it->second.has_epoch_meta = true;
-    // Also adopt MAIN's as-of-suspend LDT. PromoteColdTenants emplaces the
-    // promotion boundary as (current_epoch, last_durable_timestamp); without MAIN's LDT a converged
-    // replica would pair MAIN's epoch with its OWN local LDT -> a phantom/garbled boundary ts that a
-    // downstream replica's continuous-history check can reject (spurious DIVERGED).
-    it->second.last_durable_timestamp = meta.last_durable_timestamp;
-  } else {
-    it->second.cold_stats = std::move(stats);
-  }
+  it->second.cold_stats = std::move(stats);
 
-  // Persist the refreshed COLD marker so MAIN's authoritative epoch/stats survive a restart. The Put
-  // runs UNDER lock_ (same discipline as PromoteColdTenants): releasing the lock between the in-memory
-  // mutation and the durable write would let a concurrent DROP erase the tenant in the gap, after
-  // which this trailing Put would resurrect a durable COLD entry for a tenant that no longer exists.
-  // Best-effort: the in-memory entry already carries MAIN's metadata (a resume in this process is
-  // correct); only a restart-before-persist would recover the stale epoch, which then self-heals on
-  // reconnect when the replica latches BEHIND and re-runs SystemRecovery.
+  // Persist the refreshed COLD marker so MAIN's authoritative stats survive a restart. The Put runs
+  // UNDER lock_: releasing the lock between the in-memory mutation and the durable write would let a
+  // concurrent DROP erase the tenant in the gap, after which this trailing Put would resurrect a
+  // durable COLD entry for a tenant that no longer exists. Best-effort: the in-memory entry already
+  // carries MAIN's stats (display is correct in this process); only a restart-before-persist would
+  // recover the stale stats, which then self-heal on the next SystemRecovery round.
   if (durability_) {
     const auto &entry = it->second;
     if (!durability_->Put(Durability::GenKey(name),
-                          Durability::GenColdVal(entry.salient.uuid,
-                                                 entry.rel_dir,
-                                                 entry.last_durable_timestamp,
-                                                 entry.num_committed_txns,
-                                                 entry.current_epoch,
-                                                 entry.epoch_history,
-                                                 entry.cold_stats))) {
-      spdlog::warn("hot/cold recovery: failed to persist cold metadata for database '{}'.", name);
+                          Durability::GenColdVal(entry.salient.uuid, entry.rel_dir, entry.cold_stats))) {
+      spdlog::warn("hot/cold recovery: failed to persist cold stats for database '{}'.", name);
     }
   }
 }
 
-void DbmsHandler::PromoteColdTenants(std::string_view new_epoch_id) {
-  // COLD tenants are invisible to the DoToMainPromotion ForEach epoch loop. Rewrite their durable
-  // epoch metadata so a later resume runs the new epoch and the replica continuous-history check
-  // finds the promotion boundary. Metadata-only — no force-resume. The new epoch reaches replicas
-  // via the normal resume data stream; this only makes MAIN's restored history continuous so that
-  // stream is accepted.
-  //
-  // Lock discipline: holds ONLY lock_ + KVStore Put; never acquires repl_state (the caller holds
-  // the repl_state write lock). The durable Put is the same small metadata write the suspend path
-  // does under lock_.
-  //
-  // The Puts run UNDER lock_ on purpose (not snapshot-then-flush-outside): releasing lock_ between
-  // mutating an in-memory entry and persisting it would let a concurrent DROP erase the tenant in
-  // the gap, after which the trailing Put would re-write a durable COLD entry for a tenant that no
-  // longer exists -> resurrection on the next restart. Promotion is a rare failover event, so the
-  // O(cold-set) lock hold is an acceptable price for that safety.
-  auto wr = std::lock_guard{lock_};
-
-  for (auto &[name, entry] : suspended_) {
-    // Skip older V2 entries without captured epoch metadata — mutating them would write a phantom
-    // "" boundary, and resume leaves their disk-recovered epoch intact anyway (has_epoch_meta == false).
-    if (!entry.has_epoch_meta) continue;
-
-    // Append the promotion boundary (the just-ended epoch + its last durable ts), mirroring
-    // SaveLatestHistory's guards (skip a zero-length boundary; bound history to the retention cap) so
-    // COLD history evolves exactly like a HOT tenant's would across PrepareForNewEpoch.
-    if (entry.epoch_history.empty() || entry.epoch_history.back().second != entry.last_durable_timestamp) {
-      if (entry.epoch_history.size() == storage::kEpochHistoryRetention) entry.epoch_history.pop_front();
-      entry.epoch_history.emplace_back(entry.current_epoch, entry.last_durable_timestamp);
-    }
-    entry.current_epoch = std::string{new_epoch_id};
-
-    if (durability_) {
-      // Best-effort: the in-memory entry already carries the new epoch (a resume in this process is
-      // correct); only a restart-before-persist would recover the pre-promotion epoch.
-      if (!durability_->Put(Durability::GenKey(name),
-                            Durability::GenColdVal(entry.salient.uuid,
-                                                   entry.rel_dir,
-                                                   entry.last_durable_timestamp,
-                                                   entry.num_committed_txns,
-                                                   entry.current_epoch,
-                                                   entry.epoch_history,
-                                                   entry.cold_stats))) {
-        spdlog::warn("hot/cold promotion: failed to persist new epoch for cold database '{}'.", name);
-      }
-    }
-    spdlog::trace("hot/cold promotion: cold database '{}' epoch rewritten to {}", name, new_epoch_id);
-  }
-}
 #endif  // MG_ENTERPRISE
 
 }  // namespace memgraph::dbms
