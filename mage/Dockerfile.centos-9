@@ -17,7 +17,9 @@ USER root
 # installed under 3.12. Stage the 3.12 interpreter/pip plus the build deps the
 # full requirements install needs — gssapi (kerberos auth module) has no PyPI
 # wheel and is compiled from source, needing gcc + krb5-devel + the 3.12 dev
-# headers.
+# headers. unixODBC provides libodbc.so.2, which pyodbc (imported by the
+# cross_database module) loads at runtime — the prod/debug images install the
+# equivalent via install_runtime_requirements.sh.
 #
 # Then install the base memgraph package and the MAGE package together so dnf
 # orders them (memgraph first, since memgraph-mage Requires it) and resolves the
@@ -31,7 +33,8 @@ RUN --mount=type=bind,source=./memgraph.rpm,target=/packages/memgraph.rpm,ro \
     --mount=type=bind,source=./memgraph-mage.rpm,target=/packages/memgraph-mage.rpm,ro \
   export PIP_BREAK_SYSTEM_PACKAGES=1 && \
   dnf install -y --setopt=tsflags='' \
-    python3.12 python3.12-pip python3.12-devel gcc gcc-c++ krb5-devel && \
+    python3.12 python3.12-pip python3.12-devel gcc gcc-c++ krb5-devel \
+    unixODBC && \
   dnf install -y --setopt=tsflags='' \
     /packages/memgraph.rpm /packages/memgraph-mage.rpm && \
   dnf clean all && rm -rf /var/cache/dnf
