@@ -65,7 +65,7 @@ struct CoroLeaf : Cursor {
   int n_;
   int64_t *last_;
 
-  CoroLeaf(int n, int64_t *last) : n_(n), last_(last) {}
+  CoroLeaf(int n, int64_t *last) : n_(n), last_(last) { set_mode(CursorMode::Coro); }
 
   MG_COROUTINE_CURSOR_PULLCO
 
@@ -93,7 +93,9 @@ struct CoroParent : Cursor {
   int64_t *child_last_;
 
   explicit CoroParent(Cursor *child, int64_t *seen, int64_t *child_last)
-      : child_(child), seen_(seen), child_last_(child_last) {}
+      : child_(child), seen_(seen), child_last_(child_last) {
+    set_mode(CursorMode::Coro);
+  }
 
   MG_COROUTINE_CURSOR_PULLCO
 

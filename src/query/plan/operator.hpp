@@ -136,6 +136,28 @@ class Cursor {
   void set_mode(CursorMode mode) noexcept { mode_ = mode; }
 
  protected:
+  /// PR-13 per-cursor mode selection, called at the END of a converted cursor's constructor (its child
+  /// cursors are built first, by the member-init list, so their modes are already set). Sets this
+  /// cursor's mode to `Coro` iff its op-kind is a yield point under the active policy (ActiveCoroPolicy)
+  /// OR any listed child cursor is already `Coro` — giving a contiguous Coro region from the root down
+  /// to the deepest yield point, with everything below it Sync. `op` defaults to `CoroOp::None` (a
+  /// non-split-point cursor that only goes Coro by propagation). No base `children()` accessor is needed
+  /// — each cursor passes its own child pointers locally. With an empty policy this leaves mode_ == Sync
+  /// (the default), so the whole tree runs exactly as master.
+  void SelectCoroMode(std::initializer_list<const Cursor *> children, CoroOp op = CoroOp::None) noexcept {
+    if (ActiveCoroPolicy().IsYieldPoint(op)) {
+      mode_ = CursorMode::Coro;
+      return;
+    }
+    for (const auto *child : children) {
+      if (child != nullptr && child->mode() == CursorMode::Coro) {
+        mode_ = CursorMode::Coro;
+        return;
+      }
+    }
+    // else: leave mode_ at its default (Sync).
+  }
+
   /// The COROUTINE body of a converted cursor (paired with `MG_COROUTINE_CURSOR_PULLCO`, which builds
   /// `gen_` from it). The base default never runs: only converted cursors (later PRs) override it, and
   /// only a `Coro`-mode cursor's overridden `PullCo()` reaches it.
@@ -410,7 +432,8 @@ class Once : public memgraph::query::plan::LogicalOperator {
  private:
   class OnceCursor : public Cursor {
    public:
-    OnceCursor() = default;
+    OnceCursor() { SelectCoroMode({}); }
+
     bool Pull(Frame &, ExecutionContext &) override;
     MG_COROUTINE_CURSOR_PULLCO
     PullAwaitable DoPull(Frame &, ExecutionContext &) override;

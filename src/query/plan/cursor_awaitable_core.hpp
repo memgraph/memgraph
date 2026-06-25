@@ -19,6 +19,42 @@
 
 namespace memgraph::query::plan {
 
+/// ─────────────────────────────────────────────────────────────────────────────
+/// Coroutine split policy (PR-13). Coroutine pull has a real per-cursor-boundary instruction-count
+/// cost (measured: shallow high-row scans/expands regress ~+24%/+34%, but aggregate/orderby ~0).
+/// So we DON'T run the whole plan as coroutines: we pick yield-worthy operator kinds as SPLIT POINTS
+/// and run coroutines only from the ROOT down to (and including) them — everything below stays a plain
+/// synchronous Pull(), paying no boundary cost. Selection (per cursor, at construction):
+///   Coro  iff  this op-kind is a yield point under the active policy  ||  any child cursor is Coro
+/// which yields a contiguous Coro region from the root to the deepest yield point. The active policy
+/// comes from the `--query-coroutine-yield-ops` knob (empty => all Sync => byte-identical to master).
+/// ─────────────────────────────────────────────────────────────────────────────
+
+/// Operator kinds that may be designated coroutine split points. `None` = a cursor that is never a
+/// split point on its own (it only goes Coro by propagation from a Coro child). Extend with more
+/// candidates as benchmarks justify; keep the underlying values < 64 (bitset slot).
+enum class CoroOp : uint8_t { None = 0, Aggregate, OrderBy };
+
+/// Which operator kinds are coroutine split points for the current query. Read at cursor construction.
+struct CoroSplitPolicy {
+  /// DEBUG parity-harness override: treat EVERY cursor (any kind, incl. leaves) as a split point, so the
+  /// whole plan runs coroutine and every DoPull body is exercised. Never set in production.
+  bool all_coro{false};
+  /// Production: bit i set => CoroOp(i) is a split point. Built from the knob.
+  uint64_t yield_ops{0};
+
+  [[nodiscard]] bool IsYieldPoint(CoroOp op) const noexcept {
+    return all_coro || (op != CoroOp::None && (yield_ops & (uint64_t{1} << static_cast<uint8_t>(op))) != 0);
+  }
+
+  [[nodiscard]] bool Empty() const noexcept { return !all_coro && yield_ops == 0; }
+};
+
+/// Thread-local active policy, set by PullPlan from the knob just before building the cursor tree
+/// (cursor construction is single-threaded), and read by each cursor's constructor via SelectCoroMode.
+/// Defaults to empty (all Sync). Definition in cursor_awaitable.cpp.
+[[nodiscard]] CoroSplitPolicy &ActiveCoroPolicy() noexcept;
+
 /// Result status for the scheduler/driver.
 struct PullRunResult {
   enum class Status : uint8_t { HasRow, Done, Yielded };
@@ -274,11 +310,17 @@ class PullAwaitable {
 /// The base Cursor::PullCo() default instead immediate-wraps a legacy bool Pull().
 /// Vtable dispatch on PullCo is therefore the converted/legacy predicate. Pair this
 /// with `PullAwaitable DoPull(Frame &, ExecutionContext &) override;`.
-#define MG_COROUTINE_CURSOR_PULLCO                                                  \
-  PullAwaitable::ResumeAwaitable PullCo(Frame &f, ExecutionContext &ctx) override { \
-    if (!gen_) [[unlikely]]                                                         \
-      gen_ = DoPull(f, ctx);                                                        \
-    return gen_->Resume();                                                          \
+#define MG_COROUTINE_CURSOR_PULLCO                                                                  \
+  PullAwaitable::ResumeAwaitable PullCo(Frame &f, ExecutionContext &ctx) override {                 \
+    /* mode_ is LIVE (PR-13): a Sync-mode converted cursor behaves exactly like an unconverted one  \
+       -- it immediate-wraps its synchronous Pull() (whole subtree runs sync, no coroutine frame /  \
+       per-boundary cost). Only a cursor selected Coro (SelectCoroMode: yield point or Coro child)  \
+       drives its persistent gen_. This is what makes the root->split-point coro / sync-below split \
+       expressible. */                                                                              \
+    if (mode() == CursorMode::Sync) return PullAwaitable::ResumeAwaitable::Immediate(Pull(f, ctx)); \
+    if (!gen_) [[unlikely]]                                                                         \
+      gen_ = DoPull(f, ctx);                                                                        \
+    return gen_->Resume();                                                                          \
   }
 
 }  // namespace memgraph::query::plan

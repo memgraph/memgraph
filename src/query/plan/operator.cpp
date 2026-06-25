@@ -634,7 +634,9 @@ std::unique_ptr<LogicalOperator> CreateNode::Clone(AstStorage *storage) const {
 
 CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::MemoryResource *mem,
                                                metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
@@ -760,7 +762,9 @@ std::unique_ptr<LogicalOperator> CreateExpand::Clone(AstStorage *storage) const 
 
 CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self, utils::MemoryResource *mem,
                                                      metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 namespace {
 
@@ -1016,7 +1020,9 @@ class ScanAllCursor : public Cursor {
         input_cursor_(std::move(input_cursor)),
         view_(view),
         get_vertices_(std::move(get_vertices)),
-        op_name_(op_name) {}
+        op_name_(op_name) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -1139,7 +1145,9 @@ class ScanAllByEdgeCursor : public Cursor {
         input_cursor_(std::move(input_cursor)),
         view_(view),
         get_edges_(std::move(get_edges)),
-        op_name_(op_name) {}
+        op_name_(op_name) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -2091,14 +2099,18 @@ std::unique_ptr<LogicalOperator> Expand::Clone(AstStorage *storage) const {
 
 Expand::ExpandCursor::ExpandCursor(const Expand &self, utils::MemoryResource *mem,
                                    metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 Expand::ExpandCursor::ExpandCursor(const Expand &self, int64_t input_degree, int64_t existing_node_degree,
                                    utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
     : self_(self),
       input_cursor_(self.input_->MakeCursor(mem, metric_handles)),
       prev_input_degree_(input_degree),
-      prev_existing_degree_(existing_node_degree) {}
+      prev_existing_degree_(existing_node_degree) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
@@ -2568,7 +2580,9 @@ class ExpandVariableCursor : public Cursor {
  public:
   ExpandVariableCursor(const ExpandVariable &self, utils::MemoryResource *mem,
                        metrics::DatabaseMetricHandles &metric_handles)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), edges_(mem), edges_it_(mem) {}
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), edges_(mem), edges_it_(mem) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -2938,6 +2952,7 @@ class STShortestPathCursor : public query::plan::Cursor {
   STShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem,
                        metrics::DatabaseMetricHandles &metric_handles)
       : self_(self), input_cursor_(self_.input()->MakeCursor(mem, metric_handles)) {
+    SelectCoroMode({input_cursor_.get()});
     MG_ASSERT(self_.common_.existing_node,
               "s-t shortest path algorithm should only "
               "be used when `existing_node` flag is "
@@ -3266,6 +3281,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         processed_(mem),
         to_visit_next_(mem),
         to_visit_current_(mem) {
+    SelectCoroMode({input_cursor_.get()});
     DMG_ASSERT(!self_.common_.existing_node,
                "Single source shortest path algorithm "
                "should not be used when `existing_node` "
@@ -3737,7 +3753,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         total_cost_(mem),
         previous_(mem),
         yielded_vertices_(mem),
-        pq_(mem) {}
+        pq_(mem) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -4287,7 +4305,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         total_cost_(mem),
         next_edges_(mem),
         traversal_stack_(mem),
-        pq_(mem) {}
+        pq_(mem) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -5047,7 +5067,9 @@ class KShortestPathsCursor : public Cursor {
         blocked_edges_(mem),
         blocked_vertices_(mem),
         distances_(mem),
-        predecessors_(mem) {}
+        predecessors_(mem) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -5759,7 +5781,9 @@ class ConstructNamedPathCursor : public Cursor {
  public:
   ConstructNamedPathCursor(ConstructNamedPath self, utils::MemoryResource *mem,
                            metrics::DatabaseMetricHandles &metric_handles)
-      : self_(std::move(self)), input_cursor_(self_.input()->MakeCursor(mem, metric_handles)) {}
+      : self_(std::move(self)), input_cursor_(self_.input()->MakeCursor(mem, metric_handles)) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -6117,7 +6141,9 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
                                    metrics::DatabaseMetricHandles &metric_handles)
     : self_(self),
       input_cursor_(self_.input_->MakeCursor(mem, metric_handles)),
-      pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem, metric_handles)) {}
+      pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 PullAwaitable Filter::FilterCursor::DoPull(Frame &frame, ExecutionContext &context) {
   // Coroutine twin of Pull(). FIDELITY: each while-iteration reproduces one master Filter::Pull().
@@ -6193,7 +6219,9 @@ UniqueCursorPtr EvaluatePatternFilter::MakeCursor(utils::MemoryResource *mem,
 
 EvaluatePatternFilter::EvaluatePatternFilterCursor::EvaluatePatternFilterCursor(
     const EvaluatePatternFilter &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({});
+}
 
 std::vector<Symbol> EvaluatePatternFilter::ModifiedSymbols(const SymbolTable &table) const {
   return input_->ModifiedSymbols(table);
@@ -6300,7 +6328,9 @@ std::string Produce::ToString() const {
 
 Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource *mem,
                                       metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 PullAwaitable Produce::ProduceCursor::DoPull(Frame &frame, ExecutionContext &context) {
   // Coroutine twin of Pull(). FIDELITY: each while-iteration reproduces exactly one master
@@ -6385,7 +6415,9 @@ std::unique_ptr<LogicalOperator> Delete::Clone(AstStorage *storage) const {
 
 Delete::DeleteCursor::DeleteCursor(const Delete &self, utils::MemoryResource *mem,
                                    metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &context) {
   // Delete should get the latest information, this way it is also possible
@@ -6643,7 +6675,9 @@ std::unique_ptr<LogicalOperator> SetProperty::Clone(AstStorage *storage) const {
 
 SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils::MemoryResource *mem,
                                                   metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
@@ -6865,7 +6899,9 @@ std::unique_ptr<LogicalOperator> SetNestedProperty::Clone(AstStorage *storage) c
 SetNestedProperty::SetNestedPropertyCursor::SetNestedPropertyCursor(const SetNestedProperty &self,
                                                                     utils::MemoryResource *mem,
                                                                     metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
@@ -7207,7 +7243,9 @@ std::unique_ptr<LogicalOperator> SetProperties::Clone(AstStorage *storage) const
 
 SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &self, utils::MemoryResource *mem,
                                                         metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 namespace {
 
@@ -7626,7 +7664,9 @@ std::unique_ptr<LogicalOperator> SetLabels::Clone(AstStorage *storage) const {
 
 SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::MemoryResource *mem,
                                             metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
@@ -7799,7 +7839,9 @@ std::unique_ptr<LogicalOperator> RemoveProperty::Clone(AstStorage *storage) cons
 
 RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(const RemoveProperty &self, utils::MemoryResource *mem,
                                                            metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
@@ -8009,7 +8051,9 @@ std::unique_ptr<LogicalOperator> RemoveNestedProperty::Clone(AstStorage *storage
 
 RemoveNestedProperty::RemoveNestedPropertyCursor::RemoveNestedPropertyCursor(
     const RemoveNestedProperty &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
@@ -8267,7 +8311,9 @@ std::unique_ptr<LogicalOperator> RemoveLabels::Clone(AstStorage *storage) const 
 
 RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, utils::MemoryResource *mem,
                                                      metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
@@ -8451,7 +8497,9 @@ std::string EdgeUniquenessFilter::ToString() const {
 
 EdgeUniquenessFilter::EdgeUniquenessFilterCursor::EdgeUniquenessFilterCursor(
     const EdgeUniquenessFilter &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
+}
 
 namespace {
 /**
@@ -8555,7 +8603,9 @@ std::vector<Symbol> EmptyResult::ModifiedSymbols(const SymbolTable &) const {  /
 class EmptyResultCursor : public Cursor {
  public:
   EmptyResultCursor(const EmptyResult &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
-      : input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+      : input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("EmptyResult");
@@ -8623,7 +8673,9 @@ std::vector<Symbol> Accumulate::ModifiedSymbols(const SymbolTable &) const { ret
 class AccumulateCursor : public Cursor {
  public:
   AccumulateCursor(const Accumulate &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), cache_(mem) {}
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), cache_(mem) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -8801,7 +8853,9 @@ class AggregateCursor : public Cursor {
       : self_(self),
         input_cursor_(self_.input_->MakeCursor(mem, metric_handles)),
         aggregation_(mem),
-        reused_group_by_(self.group_by_.size(), mem) {}
+        reused_group_by_(self.group_by_.size(), mem) {
+    SelectCoroMode({input_cursor_.get()}, CoroOp::Aggregate);
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -9604,7 +9658,9 @@ class OrderByCursor : public Cursor {
         input_cursor_(self_.input_->MakeCursor(mem, metric_handles)),
         parallel_execution_(parallel_execution),
         cache_(mem),
-        order_by_cache_(mem) {}
+        order_by_cache_(mem) {
+    SelectCoroMode({input_cursor_.get()}, CoroOp::OrderBy);
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
@@ -9856,7 +9912,9 @@ Merge::MergeCursor::MergeCursor(const Merge &self, utils::MemoryResource *mem,
                                 metrics::DatabaseMetricHandles &metric_handles)
     : input_cursor_(self.input_->MakeCursor(mem, metric_handles)),
       merge_match_cursor_(self.merge_match_->MakeCursor(mem, metric_handles)),
-      merge_create_cursor_(self.merge_create_->MakeCursor(mem, metric_handles)) {}
+      merge_create_cursor_(self.merge_create_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get(), merge_match_cursor_.get(), merge_create_cursor_.get()});
+}
 
 bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
@@ -10009,7 +10067,9 @@ Optional::OptionalCursor::OptionalCursor(const Optional &self, utils::MemoryReso
                                          metrics::DatabaseMetricHandles &metric_handles)
     : self_(self),
       input_cursor_(self.input_->MakeCursor(mem, metric_handles)),
-      optional_cursor_(self.optional_->MakeCursor(mem, metric_handles)) {}
+      optional_cursor_(self.optional_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get(), optional_cursor_.get()});
+}
 
 bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
@@ -10142,7 +10202,9 @@ std::vector<Symbol> Unwind::ModifiedSymbols(const SymbolTable &table) const {
 class UnwindCursor : public Cursor {
  public:
   UnwindCursor(const Unwind &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), input_value_(mem) {}
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), input_value_(mem) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -10259,7 +10321,9 @@ std::unique_ptr<LogicalOperator> Unwind::Clone(AstStorage *storage) const {
 class DistinctCursor : public Cursor {
  public:
   DistinctCursor(const Distinct &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), seen_rows_(mem) {}
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), seen_rows_(mem) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -10574,7 +10638,9 @@ Union::UnionCursor::UnionCursor(const Union &self, utils::MemoryResource *mem,
                                 metrics::DatabaseMetricHandles &metric_handles)
     : self_(self),
       left_cursor_(self.left_op_->MakeCursor(mem, metric_handles)),
-      right_cursor_(self.right_op_->MakeCursor(mem, metric_handles)) {}
+      right_cursor_(self.right_op_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({left_cursor_.get(), right_cursor_.get()});
+}
 
 bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
@@ -10690,6 +10756,7 @@ class CartesianCursor : public Cursor {
         right_op_frame_(mem),
         left_op_cursor_(self.left_op_->MakeCursor(mem, metric_handles)),
         right_op_cursor_(self_.right_op_->MakeCursor(mem, metric_handles)) {
+    SelectCoroMode({left_op_cursor_.get(), right_op_cursor_.get()});
     MG_ASSERT(left_op_cursor_ != nullptr, "CartesianCursor: Missing left operator cursor.");
     MG_ASSERT(right_op_cursor_ != nullptr, "CartesianCursor: Missing right operator cursor.");
   }
@@ -10858,7 +10925,7 @@ WITHOUT_SINGLE_INPUT(OutputTable);
 
 class OutputTableCursor : public Cursor {
  public:
-  explicit OutputTableCursor(const OutputTable &self) : self_(self) {}
+  explicit OutputTableCursor(const OutputTable &self) : self_(self) { SelectCoroMode({}); }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -10959,7 +11026,7 @@ WITHOUT_SINGLE_INPUT(OutputTableStream);
 
 class OutputTableStreamCursor : public Cursor {
  public:
-  explicit OutputTableStreamCursor(const OutputTableStream *self) : self_(self) {}
+  explicit OutputTableStreamCursor(const OutputTableStream *self) : self_(self) { SelectCoroMode({}); }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -11197,6 +11264,7 @@ class CallProcedureCursor : public Cursor {
         // rows are produced. We don't use the memory dedicated for QueryExecution (and Frame),
         // but memory dedicated for procedure to wipe result_ and everything allocated in procedure all at once.
         result_(mem) {
+    SelectCoroMode({input_cursor_.get()});
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
     auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
     if (!maybe_found) {
@@ -11605,7 +11673,9 @@ class LoadCsvCursor : public Cursor {
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem, metric_handles)) {}
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem, metric_handles)) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -11814,7 +11884,9 @@ class LoadParquetCursor : public Cursor {
 
  public:
   LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem, metric_handles)), row_(mem) {}
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem, metric_handles)), row_(mem) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler const oom_exception;
@@ -12004,7 +12076,9 @@ class LoadJsonlCursor : public Cursor {
 
  public:
   LoadJsonlCursor(const LoadJsonl *self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem, metric_handles)) {}
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem, metric_handles)) {
+    SelectCoroMode({input_cursor_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler const oom_exception;
@@ -12164,7 +12238,9 @@ class ForeachCursor : public Cursor {
       : loop_variable_symbol_(foreach.loop_variable_symbol_),
         input_(foreach.input_->MakeCursor(mem, metric_handles)),
         updates_(foreach.update_clauses_->MakeCursor(mem, metric_handles)),
-        expression(foreach.expression_) {}
+        expression(foreach.expression_) {
+    SelectCoroMode({input_.get(), updates_.get()});
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -12324,7 +12400,9 @@ Apply::ApplyCursor::ApplyCursor(const Apply &self, utils::MemoryResource *mem,
     : self_(self),
       input_(self.input_->MakeCursor(mem, metric_handles)),
       subquery_(self.subquery_->MakeCursor(mem, metric_handles)),
-      subquery_has_return_(self.subquery_has_return_) {}
+      subquery_has_return_(self.subquery_has_return_) {
+  SelectCoroMode({input_.get(), subquery_.get()});
+}
 
 std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
   // Since Apply is the Cartesian product, modified symbols are combined from
@@ -12445,7 +12523,9 @@ IndexedJoin::IndexedJoinCursor::IndexedJoinCursor(const IndexedJoin &self, utils
                                                   metrics::DatabaseMetricHandles &metric_handles)
     : self_(self),
       main_branch_(self.main_branch_->MakeCursor(mem, metric_handles)),
-      sub_branch_(self.sub_branch_->MakeCursor(mem, metric_handles)) {}
+      sub_branch_(self.sub_branch_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({main_branch_.get(), sub_branch_.get()});
+}
 
 std::vector<Symbol> IndexedJoin::ModifiedSymbols(const SymbolTable &table) const {
   // Since Apply is the Cartesian product, modified symbols are combined from
@@ -12557,6 +12637,7 @@ class HashJoinCursor : public Cursor {
         right_op_cursor_(self_.right_op_->MakeCursor(mem, metric_handles)),
         hashtable_(mem),
         right_op_frame_(mem) {
+    SelectCoroMode({left_op_cursor_.get(), right_op_cursor_.get()});
     MG_ASSERT(left_op_cursor_ != nullptr, "HashJoinCursor: Missing left operator cursor.");
     MG_ASSERT(right_op_cursor_ != nullptr, "HashJoinCursor: Missing right operator cursor.");
   }
@@ -12808,6 +12889,7 @@ class RollUpApplyCursor : public Cursor {
       : self_(self),
         input_cursor_(self.input_->MakeCursor(mem, metric_handles)),
         list_collection_cursor_(self_.list_collection_branch_->MakeCursor(mem, metric_handles)) {
+    SelectCoroMode({input_cursor_.get(), list_collection_cursor_.get()});
     MG_ASSERT(input_cursor_ != nullptr, "RollUpApplyCursor: Missing left operator cursor.");
     MG_ASSERT(list_collection_cursor_ != nullptr, "RollUpApplyCursor: Missing right operator cursor.");
   }
@@ -12934,6 +13016,7 @@ class PeriodicCommitCursor : public Cursor {
   PeriodicCommitCursor(const PeriodicCommit &self, utils::MemoryResource *mem,
                        metrics::DatabaseMetricHandles &metric_handles)
       : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {
+    SelectCoroMode({input_cursor_.get()});
     MG_ASSERT(input_cursor_ != nullptr, "PeriodicCommitCursor: Missing input cursor.");
     MG_ASSERT(self_.commit_frequency_ != nullptr, "Commit frequency should be defined at this point!");
   }
@@ -13090,6 +13173,7 @@ class PeriodicSubqueryCursor : public Cursor {
         input_(self.input_->MakeCursor(mem, metric_handles)),
         subquery_(self.subquery_->MakeCursor(mem, metric_handles)),
         subquery_has_return_(self.subquery_has_return_) {
+    SelectCoroMode({input_.get(), subquery_.get()});
     MG_ASSERT(self_.commit_frequency_ != nullptr, "Commit frequency should be defined at this point!");
   }
 
@@ -15099,6 +15183,7 @@ std::unique_ptr<LogicalOperator> Skip::Clone(AstStorage *storage) const {
 Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem,
                              metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
 #ifdef MG_ENTERPRISE
   if (self_.parallel_execution_) {
     // Use a globally defined quota for parallel execution
@@ -15233,6 +15318,7 @@ std::unique_ptr<LogicalOperator> Limit::Clone(AstStorage *storage) const {
 Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem,
                                 metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
+  SelectCoroMode({input_cursor_.get()});
 #ifdef MG_ENTERPRISE
   if (self_.parallel_execution_) {
     // Use a globally defined quota for parallel execution

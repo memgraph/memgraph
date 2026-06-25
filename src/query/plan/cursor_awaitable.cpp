@@ -15,6 +15,14 @@
 
 namespace memgraph::query::plan {
 
+// Thread-local active coroutine split policy (PR-13). Set by PullPlan from the knob immediately before
+// building the cursor tree (single-threaded), read by each cursor's ctor via SelectCoroMode. Defaults
+// to empty => every cursor stays Sync => byte-identical to master.
+CoroSplitPolicy &ActiveCoroPolicy() noexcept {
+  static thread_local CoroSplitPolicy policy{};
+  return policy;
+}
+
 #ifndef NDEBUG
 namespace {
 // DEBUG-ONLY parity-test seam (see header). Default OFF => synchronous root drive == master.
