@@ -329,16 +329,16 @@ static PyMethodDef PyVerticesIteratorMethods[] = {
     {nullptr, {}, {}, {}},
 };
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyVerticesIteratorType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_vertices_iterator.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyVerticesIteratorDealloc)},
     {Py_tp_methods, PyVerticesIteratorMethods},
     {0, nullptr},
 };
 
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
 static PyType_Spec PyVerticesIteratorType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.VerticesIterator",
     sizeof(PyVerticesIterator),
     0,
@@ -346,8 +346,8 @@ static PyType_Spec PyVerticesIteratorType_spec = {
     PyVerticesIteratorType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyVerticesIteratorType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyVerticesIteratorType = nullptr;
 
 // clang-format off
 struct PyEdgesIterator {
@@ -414,16 +414,16 @@ static PyMethodDef PyEdgesIteratorMethods[] = {
     {nullptr, {}, {}, {}},
 };
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyEdgesIteratorType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_edges_iterator.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyEdgesIteratorDealloc)},
     {Py_tp_methods, PyEdgesIteratorMethods},
     {0, nullptr},
 };
 
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
 static PyType_Spec PyEdgesIteratorType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.EdgesIterator",
     sizeof(PyEdgesIterator),
     0,
@@ -431,8 +431,8 @@ static PyType_Spec PyEdgesIteratorType_spec = {
     PyEdgesIteratorType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyEdgesIteratorType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyEdgesIteratorType = nullptr;
 
 PyObject *PyGraphInvalidate(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   self->graph = nullptr;
@@ -565,15 +565,15 @@ static PyMethodDef PyGraphMethods[] = {
     {nullptr, {}, {}, {}},
 };
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyGraphType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_graph.")},
     {Py_tp_methods, PyGraphMethods},
     {0, nullptr},
 };
 
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
 static PyType_Spec PyGraphType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Graph",
     sizeof(PyGraph),
     0,
@@ -581,8 +581,8 @@ static PyType_Spec PyGraphType_spec = {
     PyGraphType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyGraphType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyGraphType = nullptr;
 // clang-format on
 
 PyObject *MakePyGraph(mgp_graph *graph, mgp_memory *memory) {
@@ -602,14 +602,14 @@ struct PyCypherType {
 
 // clang-format on
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyCypherTypeType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_type.")},
     {0, nullptr},
 };
 
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
 static PyType_Spec PyCypherTypeType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Type",
     sizeof(PyCypherType),
     0,
@@ -617,8 +617,8 @@ static PyType_Spec PyCypherTypeType_spec = {
     PyCypherTypeType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyCypherTypeType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyCypherTypeType = nullptr;
 
 PyObject *MakePyCypherType(mgp_type *type) {
   MG_ASSERT(type);
@@ -747,15 +747,15 @@ static PyMethodDef PyQueryProcMethods[] = {
     {nullptr, {}, {}, {}},
 };
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyQueryProcType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_proc.")},
     {Py_tp_methods, PyQueryProcMethods},
     {0, nullptr},
 };
 
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
 static PyType_Spec PyQueryProcType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Proc",
     sizeof(PyQueryProc),
     0,
@@ -763,8 +763,8 @@ static PyType_Spec PyQueryProcType_spec = {
     PyQueryProcType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyQueryProcType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyQueryProcType = nullptr;
 
 PyObject *PyMagicFuncAddArg(PyMagicFunc *self, PyObject *args) { return PyCallableAddArg(self, args); }
 
@@ -784,17 +784,15 @@ static PyMethodDef PyMagicFuncMethods[] = {
     {nullptr, {}, {}, {}},
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyMagicFuncType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_func.")},
     {Py_tp_methods, PyMagicFuncMethods},
     {0, nullptr},
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
 static PyType_Spec PyMagicFuncType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Func",
     sizeof(PyMagicFunc),
     0,
@@ -802,8 +800,8 @@ static PyType_Spec PyMagicFuncType_spec = {
     PyMagicFuncType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyMagicFuncType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyMagicFuncType = nullptr;
 
 // clang-format off
 struct PyQueryModule {
@@ -956,18 +954,16 @@ void PyMessageDealloc(PyMessage *self) {
   HeapTypeFree(reinterpret_cast<PyObject *>(self));
 }
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyMessageType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_message.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyMessageDealloc)},
     {Py_tp_methods, PyMessageMethods},
     {0, nullptr},
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
 static PyType_Spec PyMessageType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Message",
     sizeof(PyMessage),
     0,
@@ -975,8 +971,8 @@ static PyType_Spec PyMessageType_spec = {
     PyMessageType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyMessageType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyMessageType = nullptr;
 
 PyObject *PyMessagesInvalidate(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
   self->messages = nullptr;
@@ -1043,17 +1039,15 @@ static PyMethodDef PyMessagesMethods[] = {
     {nullptr, {}, {}, {}},
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyMessagesType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_messages.")},
     {Py_tp_methods, PyMessagesMethods},
     {0, nullptr},
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
 static PyType_Spec PyMessagesType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Messages",
     sizeof(PyMessages),
     0,
@@ -1061,8 +1055,8 @@ static PyType_Spec PyMessagesType_spec = {
     PyMessagesType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyMessagesType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyMessagesType = nullptr;
 
 PyObject *MakePyMessages(mgp_messages *msgs, mgp_memory *memory) {
   MG_ASSERT(!msgs || (msgs && memory));
@@ -1748,15 +1742,15 @@ static PyMethodDef PyQueryModuleMethods[] = {
     {nullptr, {}, {}, {}},
 };
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyQueryModuleType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_module.")},
     {Py_tp_methods, PyQueryModuleMethods},
     {0, nullptr},
 };
 
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
 static PyType_Spec PyQueryModuleType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Module",
     sizeof(PyQueryModule),
     0,
@@ -1764,8 +1758,8 @@ static PyType_Spec PyQueryModuleType_spec = {
     PyQueryModuleType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyQueryModuleType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyQueryModuleType = nullptr;
 
 PyObject *MakePyQueryModule(mgp_module *module) {
   MG_ASSERT(module);
@@ -1946,16 +1940,16 @@ static PyMethodDef PyPropertiesIteratorMethods[] = {
     {nullptr, {}, {}, {}},
 };
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyPropertiesIteratorType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_properties_iterator.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyPropertiesIteratorDealloc)},
     {Py_tp_methods, PyPropertiesIteratorMethods},
     {0, nullptr},
 };
 
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
 static PyType_Spec PyPropertiesIteratorType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.PropertiesIterator",
     sizeof(PyPropertiesIterator),
     0,
@@ -1963,8 +1957,8 @@ static PyType_Spec PyPropertiesIteratorType_spec = {
     PyPropertiesIteratorType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyPropertiesIteratorType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyPropertiesIteratorType = nullptr;
 
 // clang-format off
 struct PyEdge {
@@ -2184,8 +2178,8 @@ static PyMethodDef PyEdgeMethods[] = {
 
 PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op);
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyEdgeType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_edge.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyEdgeDealloc)},
     {Py_tp_richcompare, reinterpret_cast<void *>(PyEdgeRichCompare)},
@@ -2193,8 +2187,8 @@ static PyType_Slot PyEdgeType_slots[] = {
     {0, nullptr},
 };
 
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
 static PyType_Spec PyEdgeType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Edge",
     sizeof(PyEdge),
     0,
@@ -2202,8 +2196,8 @@ static PyType_Spec PyEdgeType_spec = {
     PyEdgeType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyEdgeType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyEdgeType = nullptr;
 
 PyObject *MakePyEdgeWithoutCopy(mgp_edge &edge, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
@@ -2560,8 +2554,8 @@ static PyMethodDef PyVertexMethods[] = {
 
 PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op);
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyVertexType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_vertex.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyVertexDealloc)},
     {Py_tp_richcompare, reinterpret_cast<void *>(PyVertexRichCompare)},
@@ -2569,8 +2563,8 @@ static PyType_Slot PyVertexType_slots[] = {
     {0, nullptr},
 };
 
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
 static PyType_Spec PyVertexType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Vertex",
     sizeof(PyVertex),
     0,
@@ -2578,8 +2572,8 @@ static PyType_Spec PyVertexType_spec = {
     PyVertexType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyVertexType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyVertexType = nullptr;
 
 PyObject *MakePyVertexWithoutCopy(mgp_vertex &vertex, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
@@ -2746,16 +2740,16 @@ static PyMethodDef PyPathMethods[] = {
     {nullptr, {}, {}, {}},
 };
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyPathType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_path.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyPathDealloc)},
     {Py_tp_methods, PyPathMethods},
     {0, nullptr},
 };
 
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
 static PyType_Spec PyPathType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Path",
     sizeof(PyPath),
     0,
@@ -2763,8 +2757,8 @@ static PyType_Spec PyPathType_spec = {
     PyPathType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyPathType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyPathType = nullptr;
 
 PyObject *MakePyPath(mgp_path *path, PyGraph *py_graph) {
   MG_ASSERT(path);
@@ -2885,17 +2879,15 @@ static PyMethodDef PyLoggerMethods[] = {
     {nullptr, {}, {}, {}},
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,modernize-avoid-c-arrays,misc-use-anonymous-namespace)
 static PyType_Slot PyLoggerType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Logging API.")},
     {Py_tp_methods, PyLoggerMethods},
     {0, nullptr},
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
 static PyType_Spec PyLoggerType_spec = {
-    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Logger",
     sizeof(PyLogger),
     0,
@@ -2903,8 +2895,8 @@ static PyType_Spec PyLoggerType_spec = {
     PyLoggerType_slots,
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyLoggerType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyLoggerType = nullptr;
 
 struct PyUtils {
   PyObject_HEAD
@@ -2919,9 +2911,8 @@ PyMethodDef PyUtilsMethods[] = {  // NOSONAR
      "Check if enterprise license is valid."},
     {nullptr, {}, {}, {}}};
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,modernize-avoid-c-arrays)
 PyType_Slot PyUtilsType_slots[] = {
-    // NOLINT(modernize-avoid-c-arrays)
     // NOSONAR
     {Py_tp_doc, const_cast<char *>("Utils API.")},
     {Py_tp_methods, PyUtilsMethods},
