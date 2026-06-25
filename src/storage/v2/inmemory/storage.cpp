@@ -4539,6 +4539,57 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
   return {};
 }
 
+std::expected<void, InMemoryStorage::RepairError> InMemoryStorage::RepairDefunct() {
+  if (!IsDefunct()) {
+    return std::unexpected{InMemoryStorage::RepairError::NotDefunct};
+  }
+
+  auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
+  constexpr std::string_view old_dir = ".old";
+
+  // Move the corrupt snapshots and WAL files aside (to .old) when backup directories
+  // are enabled, otherwise delete them. This leaves the durability directory clean so
+  // the tenant recovers as an empty database on the next restart rather than re-defuncting.
+  if (use_old_dir) {
+    std::error_code ec{};
+    for (auto const &dir : {recovery_.snapshot_directory_, recovery_.wal_directory_}) {
+      auto const backup_dir = dir / old_dir;
+      if (std::filesystem::exists(backup_dir)) {
+        std::filesystem::remove_all(backup_dir, ec);
+      }
+      std::filesystem::create_directory(backup_dir, ec);
+      if (ec) {
+        spdlog::warn(
+            "Failed to create backup directory {}; it should be cleaned manually. Err: {}", backup_dir, ec.message());
+        return std::unexpected{InMemoryStorage::RepairError::BackupFailure};
+      }
+    }
+  }
+
+  for (auto const &dir : {recovery_.snapshot_directory_, recovery_.wal_directory_}) {
+    for (auto const &file_path : utils::GetFilesFromDir(dir)) {
+      if (!use_old_dir) {
+        file_retainer_.DeleteFile(file_path);
+      } else {
+        auto const new_path = dir / old_dir / file_path.filename();
+        spdlog::trace("Moving file {} to {}", file_path, new_path);
+        file_retainer_.RenameFile(file_path, new_path);
+      }
+    }
+    std::error_code ec{};
+    std::filesystem::remove(dir / old_dir, ec);  // remove dir if empty
+  }
+
+  // Reset the tenant to an empty working state (mirrors the defunct scrub in the constructor).
+  Clear();
+  name_id_mapper_->Clear();
+  description_store_.Clear();
+
+  SetDefunct(false);
+
+  return {};
+}
+
 std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {
   auto lock = std::unique_lock{snapshot_lock_};
   auto next = snapshot_runner_.NextExecution();
