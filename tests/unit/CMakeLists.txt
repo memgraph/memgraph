@@ -159,6 +159,14 @@ add_unit_test(cursor_coro_driver
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
+# Parity corpus: runs a broad query corpus synchronously vs coroutine-root-drive (the same force hook),
+# asserting identical renders. Grows as cursor families are converted; until then it is a broad
+# operator-surface robustness gate for the driver.
+add_unit_test(cursor_parity
+    SOURCES cursor_parity.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+)
+
 add_unit_test(query_plan_orderby_index
     SOURCES query_plan_orderby_index.cpp
     LINK_TARGETS mg-query
