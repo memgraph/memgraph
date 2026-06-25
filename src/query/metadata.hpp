@@ -64,6 +64,7 @@ enum class NotificationCode : uint8_t {
   INDEX_CONSTRAINT_NAME_IGNORED,
   CREATE_USER,
   CREATE_ROLE,
+  REPAIR_DATABASE,
 };
 
 struct Notification {
