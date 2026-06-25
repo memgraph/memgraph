@@ -1812,6 +1812,61 @@ TEST_P(DurabilityTest, SnapshotCorruptDefunctWhenRecoveryFailureAllowed) {
   }
 }
 
+// RECOVER SNAPSHOT cures a defunct tenant: loading a known-good snapshot into the empty
+// defunct placeholder clears the defunct flag and brings the data back.
+TEST_P(DurabilityTest, RecoverSnapshotCuresDefunct) {
+  CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+
+  // Stash a known-good copy of the snapshot outside the storage directory before corrupting
+  // the in-place file, so we can RECOVER from it later.
+  auto const good_snapshot_copy =
+      std::filesystem::temp_directory_path() / "MG_test_unit_storage_v2_durability_good_snapshot";
+  std::filesystem::remove(good_snapshot_copy);
+  {
+    auto const snapshots = GetSnapshotsList();
+    ASSERT_EQ(snapshots.size(), 1);
+    std::filesystem::copy_file(
+        snapshots.front(), good_snapshot_copy, std::filesystem::copy_options::overwrite_existing);
+  }
+
+  for (const auto &snapshot : GetSnapshotsList()) {
+    CorruptSnapshot(snapshot);
+  }
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  ASSERT_TRUE(db.storage()->IsDefunct());
+  ASSERT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
+
+  auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+  auto const res = storage->RecoverSnapshot(
+      good_snapshot_copy, true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  ASSERT_TRUE(res.has_value());
+
+  // The cure clears defunct and the recovered data is present.
+  EXPECT_FALSE(db.storage()->IsDefunct());
+  EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 1000);
+
+  // The durability directory is restart-clean: a single recovered snapshot file remains
+  // (the prior corrupt snapshot was moved into the .old backup directory).
+  auto const remaining_snapshots = GetSnapshotsList();
+  size_t snapshot_file_count = 0;
+  for (auto const &p : remaining_snapshots) {
+    if (std::filesystem::is_regular_file(p)) ++snapshot_file_count;
+  }
+  EXPECT_EQ(snapshot_file_count, 1);
+
+  std::filesystem::remove(good_snapshot_copy);
+}
+
 // With the flag off (default), the same corruption still aborts startup.
 TEST_P(DurabilityTest, SnapshotCorruptCrashesWhenRecoveryFailureNotAllowed) {
   CreateSimpleSnapshot(storage_directory, GetParam(), 1000);

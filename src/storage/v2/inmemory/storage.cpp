@@ -4542,6 +4542,11 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     throw utils::BasicException("Couldn't recover from the snapshot because of: {}", e.what());
   }
 
+  // A successful recovery cures a defunct tenant: the durability directory is now
+  // restart-clean (prior/corrupt files moved to .old or deleted), so background
+  // durability can resume.
+  SetDefunct(false);
+
   return {};
 }
 
