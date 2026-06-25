@@ -654,7 +654,7 @@ jobs:
           stop --remove
 
       - name: "Build image (prod)"
-        if: ${{ (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') && inputs.os = 'ubuntu24.04' }}
+        if: ${{ (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') && inputs.os == 'ubuntu24.04' }}
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -672,7 +672,7 @@ jobs:
             --package-flavour prod
 
       - name: "Build image (debug)"
-        if: ${{ (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') && inputs.os = 'ubuntu24.04' }}
+        if: ${{ (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') && inputs.os == 'ubuntu24.04' }}
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
