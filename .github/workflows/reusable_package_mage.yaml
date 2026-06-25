@@ -204,13 +204,20 @@ jobs:
           fi
           echo "using wheel path: WHEEL_PATH=${WHEEL_PATH}"
           echo "MAGE_WHEEL_PATH=${WHEEL_PATH}" >> $GITHUB_ENV
-          if curl --silent --fail "http://mgdeps-cache:8000/wheels/$WHEEL_PATH/" -o /dev/null; then
-            echo "mgdeps-cache is reachable :D"
-            echo "CACHE_PRESENT=true" >> $GITHUB_ENV
-          else
-            echo "mgdeps-cache is NOT reachable"
-            echo "CACHE_PRESENT=false" >> $GITHUB_ENV
-          fi
+          # TEMPORARY: force the mgdeps-cache off so the build pulls the new
+          # wheels from the S3 "wheels-staging" prefix (via install_python_requirements.sh
+          # --staging, default true) instead of the cached copies. Revert to the
+          # curl reachability check below once the staging wheels are promoted
+          # to the usual "wheels" prefix.
+          echo "mgdeps-cache disabled (temporary: using S3 wheels-staging)"
+          echo "CACHE_PRESENT=false" >> $GITHUB_ENV
+          # if curl --silent --fail "http://mgdeps-cache:8000/wheels/$WHEEL_PATH/" -o /dev/null; then
+          #   echo "mgdeps-cache is reachable :D"
+          #   echo "CACHE_PRESENT=true" >> $GITHUB_ENV
+          # else
+          #   echo "mgdeps-cache is NOT reachable"
+          #   echo "CACHE_PRESENT=false" >> $GITHUB_ENV
+          # fi
 
       - name: Get Memgraph version
         run: |
