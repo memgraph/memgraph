@@ -1124,6 +1124,8 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     ExpandCursor(const Expand &, int64_t input_degree, int64_t existing_node_degree, utils::MemoryResource *,
                  metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
     ExpansionInfo GetExpansionInfo(Frame &);
@@ -1830,6 +1832,8 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
    public:
     EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 

@@ -920,6 +920,53 @@ class ScanAllCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each while-iteration reproduces exactly one master ScanAllCursor::Pull(). oom +
+    // profile are scoped per-iteration (destroyed before co_yield/co_return, where master's return
+    // would destroy them).
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+
+        bool ok = true;
+        while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
+          if (!co_await PullChild(*input_cursor_, frame, context)) {
+            ok = false;
+            break;
+          }
+          // We need a getter function, because in case of exhausting a lazy
+          // iterable, we cannot simply reset it by calling begin().
+          auto next_vertices = get_vertices_(frame, context);
+          if (!next_vertices) continue;
+          vertices_ = std::move(next_vertices);
+          vertices_it_.emplace(vertices_->begin());
+          vertices_end_it_.emplace(vertices_->end());
+        }
+#ifdef MG_ENTERPRISE
+        if (ok && license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+            !FindNextVertex(context)) {
+          ok = false;
+        }
+#endif
+
+        if (ok) {
+          auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+          frame_writer.Write(output_symbol_, *vertices_it_.value());
+          ++vertices_it_.value();
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
 #ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_end_it_.value()) {
@@ -936,6 +983,7 @@ class ScanAllCursor : public Cursor {
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    ResetGen();
     input_cursor_->Reset();
     vertices_ = std::nullopt;
     vertices_it_ = std::nullopt;
@@ -1015,9 +1063,83 @@ class ScanAllByEdgeCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each while-iteration reproduces exactly one master ScanAllByEdgeCursor::Pull(),
+    // including the EdgeAtom::Direction::BOTH case, where one edge yields two rows across two
+    // consecutive Pull()s. We re-read `edge` from the iterator each iteration (do_reverse_output_
+    // gates forward vs reverse and whether to advance) -- master does the same on the second Pull,
+    // re-running oom/profile/AbortCheck.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+
+        bool ok = true;
+        while (!edges_ || edges_it_.value() == edges_end_it_.value()) {
+          if (!co_await PullChild(*input_cursor_, frame, context)) {
+            ok = false;
+            break;
+          }
+          auto next_edges = get_edges_(frame, context);
+          if (!next_edges) continue;
+
+          edges_.emplace(std::move(next_edges.value()));
+          edges_it_.emplace(edges_->begin());
+          edges_end_it_.emplace(edges_->end());
+        }
+
+        if (ok) {
+          auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+          auto output_expansion = [this, &frame_writer](const EdgeAccessor &edge, bool reverse) {
+            frame_writer.Write(self_.common_.edge_symbol, edge);
+            frame_writer.Write(self_.common_.edge_symbol, edge);
+            if (!reverse) {
+              frame_writer.Write(self_.common_.node1_symbol, edge.From());
+              frame_writer.Write(self_.common_.node2_symbol, edge.To());
+            } else {
+              frame_writer.Write(self_.common_.node1_symbol, edge.To());
+              frame_writer.Write(self_.common_.node2_symbol, edge.From());
+            }
+          };
+
+          const EdgeAccessor edge = *edges_it_.value();
+          frame_writer.Write(self_.common_.edge_symbol, edge);
+          bool early = false;
+          if (self_.common_.direction == EdgeAtom::Direction::OUT) {
+            output_expansion(edge, false);
+          } else if (self_.common_.direction == EdgeAtom::Direction::IN) {
+            output_expansion(edge, true);
+          } else {
+            // both, need to output the edge twice (forward this Pull, reverse the next)
+            if (!do_reverse_output_) {
+              output_expansion(edge, false);
+              do_reverse_output_ = true;
+              early = true;  // master returns true here WITHOUT advancing edges_it_
+            } else {
+              output_expansion(edge, true);
+            }
+          }
+          if (!early) {
+            do_reverse_output_ = false;
+            ++edges_it_.value();
+          }
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    ResetGen();
     input_cursor_->Reset();
     edges_ = std::nullopt;
     edges_it_ = std::nullopt;
@@ -1915,9 +2037,178 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 }
 
+PullAwaitable Expand::ExpandCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each emitted edge reproduces one master Expand::Pull(). oom/profile/frame_writer/
+  // pull_node are scoped per emitted edge -- recreated each outer iteration and destroyed before
+  // the co_yield, exactly as master recreates them every Pull. They remain alive across the
+  // inlined (re)initialization within the iteration (faithful: master holds them across the
+  // synchronous InitEdges call too) but never span the co_yield.
+  while (true) {
+    bool exhausted = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP_BY_REF(self_);
+
+      // A helper function for expanding a node from an edge.
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      auto pull_node = [this, &frame_writer]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
+                                                                            utils::tag_value<direction>) {
+        if (self_.common_.existing_node) return;
+        if constexpr (direction == EdgeAtom::Direction::IN) {
+          frame_writer.Write(self_.common_.node_symbol, new_edge.From());
+        } else if constexpr (direction == EdgeAtom::Direction::OUT) {
+          frame_writer.Write(self_.common_.node_symbol, new_edge.To());
+        } else {
+          LOG_FATAL("Must indicate exact expansion direction here");
+        }
+      };
+
+      while (true) {
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+        // attempt to get a value from the incoming edges
+        if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
+          auto edge = *(*in_edges_it_)++;
+#ifdef MG_ENTERPRISE
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+              !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                context.auth_checker->Has(
+                    edge.From(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            continue;
+          }
+#endif
+
+          frame_writer.Write(self_.common_.edge_symbol, edge);
+          pull_node(edge, utils::tag_v<EdgeAtom::Direction::IN>);
+          break;
+        }
+
+        // attempt to get a value from the outgoing edges
+        if (out_edges_ && *out_edges_it_ != out_edges_->end()) {
+          auto edge = *(*out_edges_it_)++;
+          // when expanding in EdgeAtom::Direction::BOTH directions
+          // we should do only one expansion for cycles, and it was
+          // already done in the block above
+          if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
+#ifdef MG_ENTERPRISE
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+              !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                context.auth_checker->Has(
+                    edge.To(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            continue;
+          }
+#endif
+          frame_writer.Write(self_.common_.edge_symbol, edge);
+          pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
+          break;
+        }
+
+        // If we are here, either the edges have not been initialized, or they have been
+        // exhausted. (Re)initialize them. INLINED from the former InitEdgesCo helper coroutine
+        // (P3.3): co_await'ing a temporary InitEdgesCo allocated+destroyed a fresh coroutine
+        // frame on every call (~once per emitted edge on a chain graph), which measured as ~80%
+        // of the chain-expand overhead. Inlining keeps the child pull as `co_await PullChild`
+        // (the child's persistent gen_, no allocation) but removes the per-call helper frame.
+        // Verbatim twin of InitEdges(): co_await PullChild replaces input_cursor_->Pull, the
+        // null-input skip is `continue`, and both success exits set initialized=true; break.
+        {
+          bool initialized = false;
+          while (true) {
+            if (!co_await PullChild(*input_cursor_, frame, context)) break;
+
+            if (context.hops_limit.IsLimitReached()) break;
+
+            expansion_info_ = GetExpansionInfo(frame);
+
+            if (!expansion_info_.input_node) {
+              continue;
+            }
+
+            auto vertex = *expansion_info_.input_node;
+            auto direction = expansion_info_.direction;
+
+            int64_t num_expanded_first = -1;
+            if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
+              if (self_.common_.existing_node) {
+                if (expansion_info_.existing_node) {
+                  auto existing_node = *expansion_info_.existing_node;
+
+                  auto edges_result = UnwrapEdgesResult(
+                      vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
+                  context.number_of_hops += edges_result.expanded_count;
+                  in_edges_.emplace(std::move(edges_result.edges));
+                  num_expanded_first = edges_result.expanded_count;
+                }
+              } else {
+                auto edges_result =
+                    UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
+                context.number_of_hops += edges_result.expanded_count;
+                in_edges_.emplace(std::move(edges_result.edges));
+                num_expanded_first = edges_result.expanded_count;
+              }
+              if (in_edges_) {
+                in_edges_it_.emplace(in_edges_->begin());
+              }
+            }
+
+            int64_t num_expanded_second = -1;
+            if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
+              if (self_.common_.existing_node) {
+                if (expansion_info_.existing_node) {
+                  auto existing_node = *expansion_info_.existing_node;
+                  auto edges_result = UnwrapEdgesResult(
+                      vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
+                  context.number_of_hops += edges_result.expanded_count;
+                  out_edges_.emplace(std::move(edges_result.edges));
+                  num_expanded_second = edges_result.expanded_count;
+                }
+              } else {
+                auto edges_result =
+                    UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
+                context.number_of_hops += edges_result.expanded_count;
+                out_edges_.emplace(std::move(edges_result.edges));
+                num_expanded_second = edges_result.expanded_count;
+              }
+              if (out_edges_) {
+                out_edges_it_.emplace(out_edges_->begin());
+              }
+            }
+
+            if (!expansion_info_.existing_node) {
+              initialized = true;
+              break;
+            }
+
+            num_expanded_first = num_expanded_first == -1 ? 0 : num_expanded_first;
+            num_expanded_second = num_expanded_second == -1 ? 0 : num_expanded_second;
+            int64_t total_expanded_edges = num_expanded_first + num_expanded_second;
+
+            if (!expansion_info_.reversed) {
+              prev_input_degree_ = total_expanded_edges;
+            } else {
+              prev_existing_degree_ = total_expanded_edges;
+            }
+
+            initialized = true;
+            break;
+          }
+          if (!initialized) {
+            exhausted = true;
+            break;
+          }
+        }
+
+        // we have re-initialized the edges, continue with the loop
+      }
+    }
+    if (exhausted) co_return false;
+    co_yield true;
+  }
+}
+
 void Expand::ExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Expand::ExpandCursor::Reset() {
+  ResetGen();
   input_cursor_->Reset();
   in_edges_ = std::nullopt;
   in_edges_it_ = std::nullopt;
@@ -2182,9 +2473,119 @@ class ExpandVariableCursor : public Cursor {
     }
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each while-iteration reproduces one master ExpandVariable::Pull(). oom/profile are
+    // per-iteration and stay alive across the inlined input pull (as master holds them across the
+    // PullInput call). Expand() stays SYNCHRONOUS (pure DFS-stack logic, no input pull); the input
+    // pull is inlined below as `co_await PullChild` (twin of the synchronous PullInput kept for
+    // the sync Pull) -- no per-call helper coroutine frame (P3.3).
+    while (true) {
+      bool exhausted = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+
+        while (true) {
+          if (Expand(frame, context)) {
+            break;
+          }
+
+          // (Re)pull the input. INLINED from the former PullInputCo helper coroutine (P3.3):
+          // co_await'ing a temporary PullInputCo allocated+destroyed a fresh coroutine frame on
+          // every call. The input pull stays `co_await PullChild` (child's persistent gen_, no
+          // allocation). Verbatim twin of PullInput(): co_return true -> pulled=true; break,
+          // co_return false -> break (pulled stays false), the null-input skip is `continue`.
+          // oom/profile are held by DoPull across this, as master holds them across PullInput.
+          bool pulled = false;
+          while (true) {
+            AbortCheck(context);
+            if (!co_await PullChild(*input_cursor_, frame, context)) break;
+
+            if (context.hops_limit.IsLimitReached()) break;
+
+            TypedValue const &vertex_value = frame[self_.input_symbol_];
+
+            // Null check due to possible failed optional match.
+            if (vertex_value.IsNull()) continue;
+
+            ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+            auto &vertex = vertex_value.ValueVertex();
+
+            // Evaluate the upper and lower bounds.
+            ExpressionEvaluator evaluator =
+                ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+            auto calc_bound = [&evaluator](auto &bound) {
+              auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
+              if (value < 0) throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
+              return value;
+            };
+
+            lower_bound_ = self_.lower_bound_ ? calc_bound(self_.lower_bound_) : 1;
+            upper_bound_ = self_.upper_bound_ ? calc_bound(self_.upper_bound_) : std::numeric_limits<int64_t>::max();
+
+            if (upper_bound_ > 0) {
+              auto *memory = edges_.get_allocator().resource();
+              edges_.emplace_back(
+                  ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
+              edges_it_.emplace_back(edges_.back().begin());
+            }
+
+            auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+            if (self_.filter_lambda_.accumulated_path_symbol) {
+              // Add initial vertex of path to the accumulated path
+              frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(vertex));
+            }
+
+            // reset the frame value to an empty edge list
+            if (frame[self_.common_.edge_symbol].IsList()) {
+              // Preserve the list capacity if possible
+              frame_writer.Modify(self_.common_.edge_symbol, [](TypedValue &value) { value.ValueList().clear(); });
+            } else {
+              auto *pull_memory = context.evaluation_context.memory;
+              frame_writer.Write(self_.common_.edge_symbol, TypedValue::TVector(pull_memory));
+            }
+
+            pulled = true;
+            break;
+          }
+
+          if (pulled) {
+            // if lower bound is zero we also yield empty paths
+            if (lower_bound_ == 0) {
+              auto &start_vertex = frame[self_.input_symbol_].ValueVertex();
+              if (!self_.common_.existing_node) {
+                auto frame_writer =
+                    frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+                frame_writer.Write(self_.common_.node_symbol, start_vertex);
+                break;
+              }
+              if (CheckExistingNode(start_vertex, self_.common_.node_symbol, frame)) {
+                break;
+              }
+            }
+            // if lower bound is not zero, we just continue, the next
+            // loop iteration will attempt to expand and we're good
+          } else {
+            exhausted = true;
+            break;
+          }
+          // else continue with the loop, try to expand again
+          // because we succesfully pulled from the input
+        }
+      }
+      if (exhausted) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    ResetGen();
     input_cursor_->Reset();
     edges_.clear();
     edges_it_.clear();
@@ -4351,9 +4752,99 @@ class ConstructNamedPathCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each while-iteration reproduces one master ConstructNamedPath::Pull(). oom +
+    // profile + frame_writer are per-iteration (frame_writer is created before the input pull, as
+    // in master). The path-building runs only after a successful input pull, so it crosses no
+    // suspend; its early-exits (Null cases) are an IIFE lambda whose `return` stands in for
+    // master's mid-Pull `return true`.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP("ConstructNamedPath");
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+
+        if (co_await PullChild(*input_cursor_, frame, context)) {
+          [&] {
+            auto symbol_it = self_.path_elements_.begin();
+            DMG_ASSERT(symbol_it != self_.path_elements_.end(), "Named path must contain at least one node");
+
+            const auto &start_vertex = frame[*symbol_it++];
+            auto *pull_memory = context.evaluation_context.memory;
+            // In an OPTIONAL MATCH everything could be Null.
+            if (start_vertex.IsNull()) {
+              frame_writer.Write(self_.path_symbol_, TypedValue(pull_memory));
+              return;
+            }
+
+            DMG_ASSERT(start_vertex.IsVertex(), "First named path element must be a vertex");
+            query::Path path(start_vertex.ValueVertex(), pull_memory);
+
+            // If the last path element symbol was for an edge list, then
+            // the next symbol is a vertex and it should not append to the path
+            // because
+            // expansion already did it.
+            bool last_was_edge_list = false;
+
+            for (; symbol_it != self_.path_elements_.end(); symbol_it++) {
+              const auto &expansion = frame[*symbol_it];
+              //  We can have Null (OPTIONAL MATCH), a vertex, an edge, or an edge
+              //  list (variable expand or BFS).
+              switch (expansion.type()) {
+                case TypedValue::Type::Null:
+                  frame_writer.Write(self_.path_symbol_, TypedValue(pull_memory));
+                  return;
+                case TypedValue::Type::Vertex:
+                  if (!last_was_edge_list) path.Expand(expansion.ValueVertex());
+                  last_was_edge_list = false;
+                  break;
+                case TypedValue::Type::Edge:
+                  path.Expand(expansion.ValueEdge());
+                  break;
+                case TypedValue::Type::List: {
+                  last_was_edge_list = true;
+                  // We need to expand all edges in the list and intermediary
+                  // vertices.
+                  const auto &edges = expansion.ValueList();
+                  for (const auto &edge_value : edges) {
+                    const auto &edge = edge_value.ValueEdge();
+                    const auto &from = edge.From();
+                    if (path.vertices().back() == from)
+                      path.Expand(edge, edge.To());
+                    else
+                      path.Expand(edge, from);
+                  }
+                  break;
+                }
+                default:
+                  LOG_FATAL("Unsupported type in named path construction");
+
+                  break;
+              }
+            }
+
+            frame_writer.Write(self_.path_symbol_, path);
+          }();
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
-  void Reset() override { input_cursor_->Reset(); }
+  void Reset() override {
+    ResetGen();
+    input_cursor_->Reset();
+  }
 
  private:
   const ConstructNamedPath self_;
@@ -6176,9 +6667,48 @@ bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, Execut
   return false;
 }
 
+PullAwaitable EdgeUniquenessFilter::EdgeUniquenessFilterCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each while-iteration reproduces one master EdgeUniquenessFilter::Pull(). oom/profile
+  // are per-iteration; the refill loop pulls input (co_await) until the uniqueness predicate
+  // passes, then yields one row.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("EdgeUniquenessFilter");
+
+      co_await YieldPointAwaitable{context, maybe_check_abort};
+
+      auto expansion_ok = [&]() {
+        const auto &expand_value = frame[self_.expand_symbol_];
+        for (const auto &previous_symbol : self_.previous_symbols_) {
+          const auto &previous_value = frame[previous_symbol];
+          // This shouldn't raise a TypedValueException, because the planner
+          // makes sure these are all of the expected type. In case they are not
+          // an error should be raised long before this code is executed.
+          if (ContainsSameEdge(previous_value, expand_value)) return false;
+        }
+        return true;
+      };
+
+      while (co_await PullChild(*input_cursor_, frame, context)) {
+        if (expansion_ok()) {
+          produced = true;
+          break;
+        }
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Reset() { input_cursor_->Reset(); }
+void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Reset() {
+  ResetGen();
+  input_cursor_->Reset();
+}
 
 EmptyResult::EmptyResult(const std::shared_ptr<LogicalOperator> &input)
     : input_(input ? input : std::make_shared<Once>()) {}

@@ -154,6 +154,9 @@ TEST_F(CursorParityTest, Corpus) {
   interpreter.Interpret("CREATE (a:N {id: 1}), (b:N {id: 2}), (c:N {id: 3})");
   interpreter.Interpret("MATCH (a:N {id: 1}), (b:N {id: 2}) CREATE (a)-[:E {w: 10}]->(b)");
   interpreter.Interpret("MATCH (b:N {id: 2}), (c:N {id: 3}) CREATE (b)-[:E {w: 20}]->(c)");
+  // Edge-type index so an anonymous-anchored edge pattern routes through ScanAllByEdge(Type), giving a
+  // contiguous-coro ScanAllByEdge->Produce chain (without an index it would be ScanAll+Expand).
+  interpreter.Interpret("CREATE EDGE INDEX ON :E");
   // Indexed label :J + edges :JE for the IndexedJoin corpus query (the same multi-pattern equi-join
   // that yields a HashJoin on the un-indexed :N becomes an IndexedJoin once :J(id) is indexed).
   interpreter.Interpret("CREATE INDEX ON :J(id)");
@@ -186,6 +189,24 @@ TEST_F(CursorParityTest, Corpus) {
       "UNWIND [1, 2, 3, 4, 5] AS x WITH x WHERE x % 2 = 0 RETURN x",
       "UNWIND [5, 4, 3, 2, 1] AS x WITH x WHERE x > 2 RETURN x LIMIT 2",
       "UNWIND [10, 20, 30, 40] AS x WITH x WHERE x >= 20 RETURN x SKIP 1",
+      // Contiguous-coro coverage for the scan/expand group (PR-6). NO breaker (OrderBy/Aggregate)
+      // between Produce and the scan/expand cursor, so the forced coroutine root-drive actually
+      // reaches ScanAll/Expand/ExpandVariable/ConstructNamedPath/EdgeUniquenessFilter DoPull (an
+      // intervening breaker would pull the whole subtree via the synchronous Immediate path). Both
+      // drive modes run the identical plan and iterate storage in the identical order, so the render
+      // is deterministic across them even without ORDER BY.
+      "MATCH (n:N) RETURN n.id AS id",                                              // ScanAll (by-label)
+      "MATCH ()-[r:E]->() RETURN r.w AS w",                                         // ScanAllByEdge (edge-type idx)
+      "MATCH (a:N {id: 1})-[:E]->(b:N) RETURN b.id AS bid",                         // Expand (directed)
+      "MATCH (a:N {id: 2})-[:E]-(b:N) RETURN b.id AS bid",                          // Expand (BOTH cycle path)
+      "MATCH (a:N {id: 1})-[:E*1..2]->(b:N) RETURN b.id AS bid",                    // ExpandVariable
+      "MATCH (a:N)-[r1:E]->(b:N)-[r2:E]->(c:N) RETURN c.id AS cid",                 // EdgeUniquenessFilter (r1!=r2)
+      "MATCH p = (a:N {id: 1})-[:E]->(b:N) RETURN size(relationships(p)) AS hops",  // ConstructNamedPath
+      // coro Filter x sync EXISTS boundary: the Filter runs coro, but the exists() subplan
+      // (EvaluatePatternFilterCursor) is driven SYNCHRONOUSLY from inside expression evaluation (via
+      // Pull(), not PullCo) in this dual-path phase, so its DoPull is not yet exercised here -- it is
+      // wired to the coro drive in a later PR. This still parity-checks the coro/sync boundary.
+      "MATCH (n:N) WHERE exists((n)-[:E]->()) RETURN n.id AS id",
       // ConstructNamedPath (P1.3 dual-path).
       "MATCH p = (a:N {id: 1})-[:E]->(b:N) RETURN size(relationships(p)) AS hops ORDER BY hops",
       // EvaluatePatternFilter / EXISTS (P1.3 dual-path synchronous island).
