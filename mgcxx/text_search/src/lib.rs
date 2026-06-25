@@ -276,6 +276,98 @@ mod tests {
         assert_eq!(gids(regex_search_gids_pinned(&ctx, &searcher, &input("bet.*")).unwrap()), vec![3]);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    // Locks the two tantivy behaviors regex_search_gids_pinned hand-couples to:
+    // (a) RegexQuery is constant-scored (the score=1.0 we emit), and (b) our manual
+    // FST/postings/alive-bitset walk yields the same doc set as tantivy's own RegexQuery.
+    // A tantivy upgrade that changes either fails here instead of silently diverging.
+    #[test]
+    fn regex_manual_iteration_matches_tantivy_regexquery() {
+        let dir = std::env::temp_dir().join(format!("mgcxx_regex_lock_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.to_str().unwrap().to_string();
+        let mappings = r#"{"properties":{
+            "data":{"type":"json","fast":true,"stored":true,"text":true},
+            "all":{"type":"text","fast":true,"stored":true,"text":true},
+            "gid":{"type":"u64","fast":true,"stored":true,"indexed":true}}}"#
+            .to_string();
+        let mut ctx = create_index(&path, &ffi::IndexConfig { mappings }).unwrap();
+        for (gid, name) in [
+            (1u64, "alpha"), (2, "alpine"), (3, "algol"), (4, "alabama"),
+            (5, "beta"), (6, "gamma"), (7, "alto"), (8, "almond"),
+        ] {
+            let data = format!(r#"{{"data":{{"name":"{name}"}},"all":"{name}","gid":{gid}}}"#);
+            add_document(&mut ctx, &ffi::DocumentInput { data }, true).unwrap();
+        }
+        commit(&mut ctx).unwrap();
+
+        let input = |q: &str, limit: usize| ffi::SearchInput {
+            search_fields: vec!["all".to_string()],
+            search_query: q.to_string(),
+            return_fields: vec![],
+            aggregation_query: String::new(),
+            limit,
+            fuzzy_distance: 0,
+            fuzzy_prefix: false,
+            fuzzy_transpositions: false,
+            fuzzy_field: String::new(),
+        };
+        // soft-delete a match to exercise the alive-bitset path
+        delete_document(&mut ctx, &input("almond", 10), false).unwrap();
+
+        let searcher = acquire_searcher(&ctx).unwrap();
+        let all_field = ctx.tantivyContext.schema.get_field("all").unwrap();
+
+        let manual = |pattern: &str, limit: usize| {
+            let mut g: Vec<u64> = regex_search_gids_pinned(&ctx, &searcher, &input(pattern, limit))
+                .unwrap()
+                .docs
+                .iter()
+                .map(|d| d.gid)
+                .collect();
+            g.sort_unstable();
+            g
+        };
+        let canonical = |pattern: &str| {
+            let query = RegexQuery::from_pattern(pattern, all_field).unwrap();
+            let hits = searcher.searcher.search(&query, &TopDocs::with_limit(1000)).unwrap();
+            for (score, _) in &hits {
+                assert_eq!(*score, 1.0, "RegexQuery is no longer constant-scored");
+            }
+            let mut g: Vec<u64> = hits
+                .iter()
+                .map(|(_, addr)| {
+                    searcher
+                        .searcher
+                        .segment_reader(addr.segment_ord)
+                        .fast_fields()
+                        .u64("gid")
+                        .unwrap()
+                        .first(addr.doc_id)
+                        .unwrap()
+                })
+                .collect();
+            g.sort_unstable();
+            g
+        };
+
+        for pattern in ["al.*", "alp.*", "a.*a", ".*o.*", "zzz.*"] {
+            assert_eq!(
+                manual(pattern, 1000),
+                canonical(pattern),
+                "manual regex iteration diverged from RegexQuery for /{pattern}/"
+            );
+        }
+        // the soft-deleted match (almond = gid 8) must not surface
+        assert!(!manual("al.*", 1000).contains(&8));
+
+        let capped = manual("al.*", 2);
+        let full = canonical("al.*");
+        assert_eq!(capped.len(), 2);
+        assert!(capped.iter().all(|g| full.contains(g)));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 // Field order is load-bearing: Rust drops fields in declaration order;
