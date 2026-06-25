@@ -2652,6 +2652,8 @@ class Merge : public memgraph::query::plan::LogicalOperator {
    public:
     MergeCursor(const Merge &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2706,6 +2708,8 @@ class Optional : public memgraph::query::plan::LogicalOperator {
    public:
     OptionalCursor(const Optional &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2825,6 +2829,8 @@ class Union : public memgraph::query::plan::LogicalOperator {
    public:
     UnionCursor(const Union &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -3131,6 +3137,8 @@ class Apply : public memgraph::query::plan::LogicalOperator {
    public:
     ApplyCursor(const Apply &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -3172,6 +3180,8 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
    public:
     IndexedJoinCursor(const IndexedJoin &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame & /*unused*/, ExecutionContext & /*unused*/) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 

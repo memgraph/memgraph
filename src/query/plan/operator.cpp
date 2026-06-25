@@ -8697,6 +8697,65 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 }
 
+PullAwaitable Merge::MergeCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master Merge::Pull(). oom/profile and the
+  // in_merge scope guard are per-iteration, alive across the co_await PullChild input/match/create
+  // pulls in the inner refill loop (as master holds them across the corresponding ->Pull) but die
+  // before co_yield. One emitted row == one master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("Merge");
+
+      context.evaluation_context.scope.in_merge = true;
+      memgraph::utils::OnScopeExit merge_exit([&] { context.evaluation_context.scope.in_merge = false; });
+
+      while (true) {
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+        if (pull_input_) {
+          if (co_await PullChild(*input_cursor_, frame, context)) {
+            // after a successful input from the input
+            // reset merge_match (it's expand iterators maintain state)
+            // and merge_create (could have a Once at the beginning)
+            merge_match_cursor_->Reset();
+            merge_create_cursor_->Reset();
+          } else {
+            // input is exhausted, we're done
+            break;  // produced stays false -> co_return false
+          }
+        }
+
+        // pull from the merge_match cursor
+        if (co_await PullChild(*merge_match_cursor_, frame, context)) {
+          // if successful, next Pull from this should not pull_input_
+          pull_input_ = false;
+          produced = true;
+          break;
+        } else {
+          // failed to Pull from the merge_match cursor
+          if (pull_input_) {
+            // if we have just now pulled from the input
+            // and failed to pull from merge_match, we should create.
+            // Master: `return merge_create_cursor_->Pull(...)`. The create branch (a CREATE pattern
+            // over a Once) ALWAYS yields exactly one row (merge_create was just Reset), so produced
+            // becomes true and a create-false terminal co_return is unreachable. pull_input_ stays
+            // true so the next Pull advances to the next input row.
+            produced = co_await PullChild(*merge_create_cursor_, frame, context);
+            break;
+          }
+          // We have exhausted merge_match_cursor_ after 1 or more successful
+          // Pulls. Attempt next input_cursor_ pull
+          pull_input_ = true;
+          continue;
+        }
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void Merge::MergeCursor::Shutdown() {
   input_cursor_->Shutdown();
   merge_match_cursor_->Shutdown();
@@ -8704,6 +8763,7 @@ void Merge::MergeCursor::Shutdown() {
 }
 
 void Merge::MergeCursor::Reset() {
+  ResetGen();
   input_cursor_->Reset();
   merge_match_cursor_->Reset();
   merge_create_cursor_->Reset();
@@ -8792,12 +8852,72 @@ bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 }
 
+PullAwaitable Optional::OptionalCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master Optional::Pull(). oom/profile and the
+  // per-iteration frame_writer span the co_await PullChild input/optional pulls in the inner refill
+  // loop (as master holds them across input_cursor_->Pull/optional_cursor_->Pull) but die before
+  // co_yield. One emitted row == one master Pull (a real optional row, OR the left-outer null-filled
+  // row when the optional branch is empty for a freshly pulled input row).
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("Optional");
+
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+      while (true) {
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+        if (pull_input_) {
+          if (co_await PullChild(*input_cursor_, frame, context)) {
+            // after a successful input from the input
+            // reset optional_ (it's expand iterators maintain state)
+            optional_cursor_->Reset();
+          } else {
+            // input is exhausted, we're done
+            break;
+          }
+        }
+
+        // pull from the optional_ cursor
+        if (co_await PullChild(*optional_cursor_, frame, context)) {
+          // if successful, next Pull from this should not pull_input_
+          pull_input_ = false;
+          produced = true;
+          break;
+        } else {
+          // failed to Pull from the merge_match cursor
+          if (pull_input_) {
+            // if we have just now pulled from the input
+            // and failed to pull from optional_ so set the
+            // optional symbols to Null, ensure next time the
+            // input gets pulled and return true
+            for (const Symbol &sym : self_.optional_symbols_) {
+              frame_writer.Write(sym, TypedValue(context.evaluation_context.memory));
+            }
+            pull_input_ = true;
+            produced = true;
+            break;
+          }
+          // we have exhausted optional_cursor_ after 1 or more successful Pulls
+          // attempt next input_cursor_ pull
+          pull_input_ = true;
+          continue;
+        }
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void Optional::OptionalCursor::Shutdown() {
   input_cursor_->Shutdown();
   optional_cursor_->Shutdown();
 }
 
 void Optional::OptionalCursor::Reset() {
+  ResetGen();
   input_cursor_->Reset();
   optional_cursor_->Reset();
   pull_input_ = true;
@@ -9194,12 +9314,60 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   return true;
 }
 
+PullAwaitable Union::UnionCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master Union::Pull(). oom/profile are
+  // per-iteration. Each Pull emits ONE row: from the left branch until exhausted (is_left_exhausted_
+  // is a MEMBER -> survives co_yield), then from the right branch. The left short-circuit is preserved
+  // by co_awaiting inside the `&&` (PullChild on left only runs while !is_left_exhausted_). One row ==
+  // one master Pull.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP_BY_REF(self_);
+
+      co_await YieldPointAwaitable{context, maybe_check_abort};
+
+      utils::pmr::unordered_map<std::string, TypedValue> results(context.evaluation_context.memory);
+      bool have_row = false;
+      if (!is_left_exhausted_ && co_await PullChild(*left_cursor_, frame, context)) {
+        // collect values from the left child
+        for (const auto &output_symbol : self_.left_symbols_) {
+          results[output_symbol.name()] = frame[output_symbol];
+        }
+        have_row = true;
+      } else {
+        is_left_exhausted_ = true;
+        if (co_await PullChild(*right_cursor_, frame, context)) {
+          // collect values from the right child
+          for (const auto &output_symbol : self_.right_symbols_) {
+            results[output_symbol.name()] = frame[output_symbol];
+          }
+          have_row = true;
+        }
+      }
+
+      if (have_row) {
+        // put collected values on frame under union symbols
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+        for (const auto &symbol : self_.union_symbols_) {
+          frame_writer.Write(symbol, results[symbol.name()]);
+        }
+        produced = true;
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void Union::UnionCursor::Shutdown() {
   left_cursor_->Shutdown();
   right_cursor_->Shutdown();
 }
 
 void Union::UnionCursor::Reset() {
+  ResetGen();
   left_cursor_->Reset();
   right_cursor_->Reset();
   is_left_exhausted_ = false;
@@ -9281,12 +9449,77 @@ class CartesianCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master CartesianCursor::Pull(). oom/profile/
+    // frame_writer are per-iteration; the left side is drained ONCE into left_op_frames_ (guarded by
+    // cartesian_pull_initialized_) on the first iteration — the drain co_awaits left, as master holds
+    // oom/profile across left_op_cursor_->Pull. Each subsequent iteration emits one (left x right)
+    // combination; right is pulled when the left iterator wraps. One emitted row == one master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+
+        if (!cartesian_pull_initialized_) {
+          // Pull all left_op frames.
+          while (co_await PullChild(*left_op_cursor_, frame, context)) {
+            left_op_frames_.emplace_back(frame.elems().begin(), frame.elems().end());
+          }
+
+          // We're setting the iterator to 'end' here so it pulls the right
+          // cursor.
+          left_op_frames_it_ = left_op_frames_.end();
+          cartesian_pull_initialized_ = true;
+        }
+
+        // If left operator yielded zero results there is no cartesian product.
+        if (left_op_frames_.empty()) {
+          co_return false;
+        }
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+        auto restore_frame = [&frame_writer](const auto &symbols, const auto &restore_from) {
+          for (const auto &symbol : symbols) {
+            frame_writer.Write(symbol, restore_from[symbol.position()]);
+          }
+        };
+
+        bool advance_exhausted = false;
+        if (left_op_frames_it_ == left_op_frames_.end()) {
+          // Advance right_op_cursor_.
+          if (!co_await PullChild(*right_op_cursor_, frame, context)) {
+            advance_exhausted = true;
+          } else {
+            right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
+            left_op_frames_it_ = left_op_frames_.begin();
+          }
+        } else {
+          // Make sure right_op_cursor last pulled results are on frame.
+          restore_frame(self_.right_symbols_, right_op_frame_);
+        }
+
+        if (!advance_exhausted) {
+          co_await YieldPointAwaitable{context, maybe_check_abort};
+
+          restore_frame(self_.left_symbols_, *left_op_frames_it_);
+          left_op_frames_it_++;
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override {
     left_op_cursor_->Shutdown();
     right_op_cursor_->Shutdown();
   }
 
   void Reset() override {
+    ResetGen();
     left_op_cursor_->Reset();
     right_op_cursor_->Reset();
     right_op_frame_.clear();
@@ -10397,12 +10630,54 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 }
 
+PullAwaitable Apply::ApplyCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master Apply::Pull(). oom/profile are
+  // per-iteration, alive across the co_await PullChild input/subquery pulls in the inner refill loop
+  // (as master holds them across input_->Pull/subquery_->Pull) but die before co_yield. One emitted
+  // row == one master Pull. SINGLE-RESULT: the inner loop refills until subquery yields a row (or, when
+  // !subquery_has_return_, an input row passes through with no subquery rows), then co_yields once.
+  while (true) {
+    bool produced = false;
+    {
+      OOMExceptionEnabler oom_exception;
+      SCOPED_PROFILE_OP("Apply");
+
+      while (true) {
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+        if (pull_input_ && !co_await PullChild(*input_, frame, context)) {
+          break;  // input exhausted -> produced stays false -> co_return false
+        }
+
+        if (co_await PullChild(*subquery_, frame, context)) {
+          // if successful, next Pull from this should not pull_input_
+          pull_input_ = false;
+          produced = true;
+          break;
+        }
+        // subquery cursor has been exhausted
+        // skip that row
+        pull_input_ = true;
+        subquery_->Reset();
+
+        // don't skip row if no rows are returned from subquery, return input_ rows
+        if (!subquery_has_return_) {
+          produced = true;
+          break;
+        }
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void Apply::ApplyCursor::Shutdown() {
   input_->Shutdown();
   subquery_->Shutdown();
 }
 
 void Apply::ApplyCursor::Reset() {
+  ResetGen();
   input_->Reset();
   subquery_->Reset();
   pull_input_ = true;
@@ -10472,12 +10747,47 @@ bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &contex
   }
 }
 
+PullAwaitable IndexedJoin::IndexedJoinCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // FIDELITY: each outer while-iteration reproduces one master IndexedJoin::Pull(). NOTE master has no
+  // OOMExceptionEnabler here (only SCOPED_PROFILE) — preserved. profile is per-iteration, alive across
+  // the co_await PullChild main/sub pulls in the inner refill loop but dies before co_yield. One
+  // emitted row == one master Pull; the inner loop refills until sub_branch yields a row.
+  while (true) {
+    bool produced = false;
+    {
+      SCOPED_PROFILE_OP("IndexedJoin");
+
+      while (true) {
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+        if (pull_input_ && !co_await PullChild(*main_branch_, frame, context)) {
+          break;  // input exhausted -> produced stays false -> co_return false
+        }
+
+        if (co_await PullChild(*sub_branch_, frame, context)) {
+          // if successful, next Pull from this should not pull_input_
+          pull_input_ = false;
+          produced = true;
+          break;
+        }
+
+        // subquery cursor has been exhausted
+        // skip that row
+        pull_input_ = true;
+        sub_branch_->Reset();
+      }
+    }
+    if (!produced) co_return false;
+    co_yield true;
+  }
+}
+
 void IndexedJoin::IndexedJoinCursor::Shutdown() {
   main_branch_->Shutdown();
   sub_branch_->Shutdown();
 }
 
 void IndexedJoin::IndexedJoinCursor::Reset() {
+  ResetGen();
   main_branch_->Reset();
   sub_branch_->Reset();
   pull_input_ = true;
@@ -10572,12 +10882,99 @@ class HashJoinCursor : public Cursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master HashJoinCursor::Pull(). profile +
+    // AbortCheck are per-iteration (once per Pull, as master). InitializeHashJoin is INLINED (it only
+    // pulls the left side, no return value): the left side is drained ONCE into hashtable_ (guarded by
+    // hash_join_initialized_) on the first iteration. The probe loop co_awaits right until a frame
+    // whose join value is in hashtable_; then each left frame sharing that value is emitted one per
+    // Pull. One emitted row == one master Pull.
+    while (true) {
+      bool produced = false;
+      {
+        SCOPED_PROFILE_OP("HashJoin");
+
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+
+        if (!hash_join_initialized_) {
+          // Pull all left_op_ frames (inlined InitializeHashJoin).
+          while (co_await PullChild(*left_op_cursor_, frame, context)) {
+            ExpressionEvaluator evaluator =
+                ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+            auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
+            if (left_value.type() != TypedValue::Type::Null) {
+              hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
+            }
+          }
+          hash_join_initialized_ = true;
+        }
+
+        // If left_op yielded zero results, there is no cartesian product.
+        if (hashtable_.empty()) {
+          co_return false;
+        }
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+        auto restore_frame = [&frame_writer](const auto &symbols, const auto &restore_from) {
+          for (const auto &symbol : symbols) {
+            frame_writer.Write(symbol, restore_from[symbol.position()]);
+          }
+        };
+
+        bool right_exhausted = false;
+        if (!common_value_found_) {
+          // Pull from the right_op until there's a mergeable frame
+          while (true) {
+            auto pulled = co_await PullChild(*right_op_cursor_, frame, context);
+            if (!pulled) {
+              right_exhausted = true;
+              break;
+            }
+
+            // Check if the join value from the pulled frame is shared with any left frames
+            ExpressionEvaluator evaluator =
+                ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+            auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
+            if (hashtable_.contains(right_value)) {
+              // If so, finish pulling for now and proceed to joining the pulled frame
+              right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
+              common_value_found_ = true;
+              common_value = right_value;
+              left_op_frame_it_ = hashtable_[common_value].begin();
+              break;
+            }
+          }
+        } else {
+          // Restore the right frame ahead of restoring the left frame
+          restore_frame(self_.right_symbols_, right_op_frame_);
+        }
+
+        if (!right_exhausted) {
+          restore_frame(self_.left_symbols_, *left_op_frame_it_);
+
+          left_op_frame_it_++;
+          // When all left frames with the common value have been joined, move on to pulling and joining
+          // the next right frame
+          if (common_value_found_ && left_op_frame_it_ == hashtable_[common_value].end()) {
+            common_value_found_ = false;
+          }
+
+          produced = true;
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override {
     left_op_cursor_->Shutdown();
     right_op_cursor_->Shutdown();
   }
 
   void Reset() override {
+    ResetGen();
     left_op_cursor_->Reset();
     right_op_cursor_->Reset();
     hashtable_.clear();

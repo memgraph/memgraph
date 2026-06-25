@@ -202,12 +202,33 @@ TEST_F(CursorParityTest, Corpus) {
       "MATCH (a:N {id: 1})-[:E*1..2]->(b:N) RETURN b.id AS bid",                    // ExpandVariable
       "MATCH (a:N)-[r1:E]->(b:N)-[r2:E]->(c:N) RETURN c.id AS cid",                 // EdgeUniquenessFilter (r1!=r2)
       "MATCH p = (a:N {id: 1})-[:E]->(b:N) RETURN size(relationships(p)) AS hops",  // ConstructNamedPath
-      // coro Filter x sync EXISTS boundary: the Filter runs coro, but the exists() subplan
-      // (EvaluatePatternFilterCursor) is driven SYNCHRONOUSLY from inside expression evaluation (via
-      // Pull(), not PullCo) in this dual-path phase, so its DoPull is not yet exercised here -- it is
-      // wired to the coro drive in a later PR. This still parity-checks the coro/sync boundary.
+                                                                                    // coro Filter x sync EXISTS
+                                                                                    // boundary: the Filter runs coro,
+                                                                                    // but the exists() subplan
+                                                                                    // (EvaluatePatternFilterCursor) is
+                                                                                    // driven SYNCHRONOUSLY from inside
+                                                                                    // expression evaluation (via
+                                                                                    // Pull(), not PullCo) in this
+                                                                                    // dual-path phase, so its DoPull is
+                                                                                    // not yet exercised here -- it is
+                                                                                    // wired to the coro drive in a
+                                                                                    // later PR. This still
+                                                                                    // parity-checks the coro/sync
+                                                                                    // boundary.
       "MATCH (n:N) WHERE exists((n)-[:E]->()) RETURN n.id AS id",
-      // ConstructNamedPath (P1.3 dual-path).
+      // Contiguous-coro coverage for the multi-child group (PR-8): NO breaker between Produce and the
+      // combiner, so the forced coroutine root-drive reaches Cartesian/Optional/Apply/HashJoin/
+      // IndexedJoin DoPull (the ORDER BY variants below route them via the synchronous Immediate path).
+      // Both drive modes run the identical plan and iterate storage identically, so order matches.
+      // (Merge is a WRITE -> always below Accumulate, so it stays sync until PR-9; see MutationCorpus.)
+      "MATCH (a:N), (b:N) RETURN a.id AS aid, b.id AS bid",                                            // Cartesian
+      "MATCH (n:N) OPTIONAL MATCH (n)-[:E]->(m:N) RETURN n.id AS nid, m.id AS mid",                    // Optional
+      "MATCH (n:N) CALL { WITH n MATCH (n)-[:E]->(m:N) RETURN m.id AS mid } RETURN n.id AS nid, mid",  // Apply
+      "MATCH (a:N)-[:E]->(b:N), (c:N)-[:E]->(d:N) WHERE c.id = a.id RETURN a.id AS aid, b.id AS bid, d.id AS "
+      "did",  // HashJoin
+      "MATCH (a:J)-[:JE]->(b:J), (c:J)-[:JE]->(d:J) WHERE c.id = a.id RETURN a.id AS aid, b.id AS bid, d.id AS "
+      "did",  // IndexedJoin
+              // ConstructNamedPath (P1.3 dual-path).
       "MATCH p = (a:N {id: 1})-[:E]->(b:N) RETURN size(relationships(p)) AS hops ORDER BY hops",
       // EvaluatePatternFilter / EXISTS (P1.3 dual-path synchronous island).
       "MATCH (n:N) WHERE exists((n)-[:E]->(:N)) RETURN n.id AS id ORDER BY id",
@@ -221,11 +242,14 @@ TEST_F(CursorParityTest, Corpus) {
       "MATCH (a:N {id: 1})-[r *BFS]->(b:N) RETURN b.id AS bid, size(r) AS hops ORDER BY bid",
       "MATCH (a:N {id: 1})-[r *BFS]->(b:N {id: 3}) RETURN size(r) AS hops",
       // Weighted / all-shortest (P1.6 dual-path) over weighted 1-(10)->2-(20)->3.
-      "MATCH (a:N {id: 1})-[r *WSHORTEST (e, n | e.w) total]->(b:N) RETURN b.id AS bid, total AS cost ORDER BY bid",
-      "MATCH (a:N {id: 1})-[r *ALLSHORTEST (e, n | e.w) total]->(b:N) RETURN b.id AS bid, total AS cost ORDER BY bid",
+      "MATCH (a:N {id: 1})-[r *WSHORTEST (e, n | e.w) total]->(b:N) RETURN b.id AS bid, total AS cost ORDER BY "
+      "bid",
+      "MATCH (a:N {id: 1})-[r *ALLSHORTEST (e, n | e.w) total]->(b:N) RETURN b.id AS bid, total AS cost ORDER "
+      "BY bid",
       // K-shortest (Yen's, P1.7 dual-path) over the 1->2->3 chain. KSHORTEST needs both endpoints
       // bound, so match the pair first.
-      "MATCH (a:N {id: 1}), (b:N {id: 3}) WITH a, b MATCH (a)-[r:E *KSHORTEST]->(b) RETURN size(r) AS hops ORDER BY "
+      "MATCH (a:N {id: 1}), (b:N {id: 3}) WITH a, b MATCH (a)-[r:E *KSHORTEST]->(b) RETURN size(r) AS hops "
+      "ORDER BY "
       "hops",
       // Aggregate (P1.9 dual-path): group-by, avg/min/max, DISTINCT-agg, no-input default aggregation.
       "MATCH (n:N) RETURN n.id % 2 AS parity, count(*) AS c ORDER BY parity",
@@ -233,7 +257,8 @@ TEST_F(CursorParityTest, Corpus) {
       "MATCH (n:N) RETURN count(DISTINCT (n.id % 2)) AS c",
       "MATCH (n:N) RETURN size(collect(n.id)) AS c",
       "MATCH (n:NoSuchLabel) RETURN count(*) AS c, sum(n.id) AS s",  // no-input -> DefaultAggregation
-      // OrderBy (P1.10 dual-path): descending + multi-key + ORDER BY over an expression.
+                                                                     // OrderBy (P1.10 dual-path): descending +
+                                                                     // multi-key + ORDER BY over an expression.
       "MATCH (n:N) RETURN n.id AS id ORDER BY id DESC",
       "MATCH (a:N)-[r:E]->(b:N) RETURN a.id AS aid, r.w AS w ORDER BY r.w DESC, a.id ASC",
       "MATCH (n:N) RETURN n.id AS id ORDER BY n.id % 2, n.id DESC",
@@ -247,7 +272,8 @@ TEST_F(CursorParityTest, Corpus) {
       // Optional: left-outer with null-fill where no outgoing edge exists (node id 3).
       "MATCH (n:N) OPTIONAL MATCH (n)-[:E]->(m:N) RETURN n.id AS nid, m.id AS mid ORDER BY nid, mid",
       // Apply: correlated CALL subquery (the subquery cursor is driven per input row).
-      "MATCH (n:N) CALL { WITH n MATCH (n)-[:E]->(m:N) RETURN m.id AS mid } RETURN n.id AS nid, mid ORDER BY nid, mid",
+      "MATCH (n:N) CALL { WITH n MATCH (n)-[:E]->(m:N) RETURN m.id AS mid } RETURN n.id AS nid, mid ORDER BY "
+      "nid, mid",
       // RollUpApply: pattern comprehension collects a per-row list (drives list_collection_cursor_).
       "MATCH (n:N) RETURN n.id AS id, [(n)-[:E]->(m:N) | m.id] AS outs ORDER BY id",
       // HashJoin: multi-pattern equi-join on the un-indexed :N (planner picks HashJoin, see query_plan
