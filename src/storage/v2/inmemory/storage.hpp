@@ -227,6 +227,8 @@ class InMemoryStorage final : public Storage {
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
 
+    std::vector<std::optional<VertexAccessor>> FindVertices(std::span<const Gid> gids, View view) override;
+
     VerticesIterable Vertices(View view) override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       const auto max_gid = Gid::FromUint(mem_storage->vertex_id_.load(std::memory_order_acquire));

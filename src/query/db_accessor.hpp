@@ -406,6 +406,16 @@ class DbAccessor final {
     return std::nullopt;
   }
 
+  std::vector<std::optional<VertexAccessor>> FindVertices(std::span<const storage::Gid> gids, storage::View view) {
+    auto storage_vertices = accessor_->FindVertices(gids, view);
+    std::vector<std::optional<VertexAccessor>> out;
+    out.reserve(storage_vertices.size());
+    for (auto &sv : storage_vertices) {
+      out.emplace_back(sv ? std::optional<VertexAccessor>{VertexAccessor(*sv)} : std::nullopt);
+    }
+    return out;
+  }
+
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
     auto maybe_edge = accessor_->FindEdge(gid, view);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);

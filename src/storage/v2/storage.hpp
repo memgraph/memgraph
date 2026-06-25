@@ -12,6 +12,8 @@
 #pragma once
 
 #include <optional>
+#include <span>
+#include <vector>
 
 #include "common_function_signatures.hpp"
 #include "memory/db_arena_fwd.hpp"
@@ -468,6 +470,15 @@ class Accessor {
   virtual VertexAccessor CreateVertex() = 0;
 
   virtual std::optional<VertexAccessor> FindVertex(Gid gid, View view) = 0;
+
+  // batched gid -> vertex; default loops FindVertex, InMemory overrides with a single shared
+  // skip-list accessor plus an ordered merge-scan for large batches.
+  virtual std::vector<std::optional<VertexAccessor>> FindVertices(std::span<const Gid> gids, View view) {
+    std::vector<std::optional<VertexAccessor>> out;
+    out.reserve(gids.size());
+    for (const auto gid : gids) out.push_back(FindVertex(gid, view));
+    return out;
+  }
 
   virtual VerticesIterable Vertices(View view) = 0;
 
