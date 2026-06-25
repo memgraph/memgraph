@@ -11,6 +11,9 @@ workloads:
   - name: "Recovery failure status reporting"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/recovery_failure_status.py"]
+  - name: "Recovery failure cure via RECOVER SNAPSHOT"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/recovery_failure_recover_snapshot.py"]
   - name: "Periodic snapshot"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/periodic_snapshot.py"]
