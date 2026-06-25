@@ -1824,4 +1824,8 @@ PropertyAccessPermissions Roles::GetPropertyEdgeTypePermissions(std::optional<st
 }
 #endif  // MG_ENTERPRISE
 
+void MigrateAuthJson(nlohmann::json & /*data*/) {
+  // TODO: implement
+}
+
 }  // namespace memgraph::auth
