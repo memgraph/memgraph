@@ -135,6 +135,12 @@ TEST_F(CursorKnobTest, ResultsInvariantUnderKnob) {
   // Whitespace + case tolerance and an unknown op (ignored with a warning -> empty policy -> sync).
   ExpectKnobInvariant("MATCH (n:N) RETURN count(n) AS c", " aggregate ");
   ExpectKnobInvariant("MATCH (n:N) RETURN count(n) AS c", "Bogus");
+
+  // Whole-plan coroutine ("All" / "*"): every cursor Coro (the benchmark worst-case arm). Results must
+  // still be identical to the sync baseline across scan, expand, aggregate and order-by plans.
+  ExpectKnobInvariant("MATCH (n:N) RETURN count(n) AS c, sum(n.id) AS s", "All");
+  ExpectKnobInvariant("MATCH (a:N)-[r:E]->(b:N) RETURN a.id AS a, b.id AS b, r.w AS w ORDER BY a", "All");
+  ExpectKnobInvariant("MATCH (n:N) RETURN n.id AS id ORDER BY id", "*");
 }
 
 }  // namespace

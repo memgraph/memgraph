@@ -349,7 +349,15 @@ plan::CoroSplitPolicy CoroSplitPolicyFromFlags() {
     while (!token.empty() && std::isspace(static_cast<unsigned char>(token.front()))) token.remove_prefix(1);
     while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back()))) token.remove_suffix(1);
     if (!token.empty()) {
-      if (auto op = CoroOpFromName(token)) {
+      auto ieq = [&](std::string_view other) {
+        return token.size() == other.size() &&
+               std::ranges::equal(token, other, [](char a, char b) { return std::tolower(a) == std::tolower(b); });
+      };
+      if (ieq("All") || token == "*") {
+        // Whole-plan coroutine. Primarily a benchmarking lever to measure the worst-case per-boundary
+        // cost the split points exist to avoid; not a recommended production setting for pull-heavy plans.
+        policy.all_coro = true;
+      } else if (auto op = CoroOpFromName(token)) {
         policy.yield_ops |= uint64_t{1} << static_cast<uint8_t>(*op);
       } else {
         spdlog::warn("Ignoring unknown coroutine split-point operator '{}' in --query-coroutine-yield-ops.", token);
