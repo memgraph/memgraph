@@ -327,8 +327,10 @@ TEST_F(CursorParityTest, MutationCorpus) {
       {"CREATE (:Tmp {id: 1, x: 5})", "MATCH (n:Tmp) REMOVE n.x RETURN n.x AS x"},
       // RemoveLabels
       {"CREATE (:Tmp:Extra {id: 1})", "MATCH (n:Tmp) REMOVE n:Extra RETURN 'Extra' IN labels(n) AS has"},
-      // Delete (buffered passthrough; capture id BEFORE delete -- can't read a deleted object)
-      {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})", "MATCH (n:Tmp) WITH n, n.id AS id DELETE n RETURN id ORDER BY id"},
+      // Delete (buffered passthrough; capture id BEFORE delete -- can't read a deleted object). No
+      // ORDER BY breaker above the write so Delete's DoPull is reachable on the coro path once
+      // Accumulate converts (PR-9); both drive modes iterate storage identically so order matches.
+      {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})", "MATCH (n:Tmp) WITH n, n.id AS id DELETE n RETURN id"},
       // EmptyResult sink (P1.9): a no-RETURN write drains through EmptyResult; the readback verifies the
       // write landed identically under both pull paths (the mutation itself returns nothing).
       {"CREATE (:Tmp {id: 1}), (:Tmp {id: 2})",

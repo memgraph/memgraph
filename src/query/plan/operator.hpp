@@ -493,6 +493,8 @@ class CreateNode : public memgraph::query::plan::LogicalOperator {
    public:
     CreateNodeCursor(const CreateNode &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -588,6 +590,8 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
    public:
     CreateExpandCursor(const CreateExpand &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1461,6 +1465,8 @@ class Delete : public memgraph::query::plan::LogicalOperator {
    public:
     DeleteCursor(const Delete &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1512,6 +1518,8 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
    public:
     SetPropertyCursor(const SetProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1554,6 +1562,8 @@ class SetNestedProperty : public memgraph::query::plan::LogicalOperator {
    public:
     SetNestedPropertyCursor(const SetNestedProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1608,6 +1618,8 @@ class SetProperties : public memgraph::query::plan::LogicalOperator {
    public:
     SetPropertiesCursor(const SetProperties &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1651,6 +1663,8 @@ class SetLabels : public memgraph::query::plan::LogicalOperator {
    public:
     SetLabelsCursor(const SetLabels &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1692,6 +1706,8 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
    public:
     RemovePropertyCursor(const RemoveProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1734,6 +1750,8 @@ class RemoveNestedProperty : public memgraph::query::plan::LogicalOperator {
    public:
     RemoveNestedPropertyCursor(const RemoveNestedProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1777,6 +1795,8 @@ class RemoveLabels : public memgraph::query::plan::LogicalOperator {
    public:
     RemoveLabelsCursor(const RemoveLabels &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
