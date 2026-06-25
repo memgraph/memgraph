@@ -179,40 +179,19 @@ endif()
 set(MG_PYTHON_STABLE_ABI_FLOOR "0x030a0000" CACHE STRING
     "Minimum Python version we promise to run on (Py_LIMITED_API value)")
 
-# Look for the unversioned `libpython3.so` — the abi3 SONAME that the stable
-# ABI guarantees is present on conforming Python installs (manylinux, Fedora,
-# RHEL, conda, etc.). When found, link against it directly so the resulting
-# binary's DT_NEEDED is also unversioned and the dynamic linker will accept
-# any compatible libpython3 at load time.
+# Always link against the full versioned libpython (`Python3::Python`, e.g.
+# `libpython3.12.so`). It defines the complete symbol set, so the link
+# always resolves — unlike the bare unversioned `libpython3.so`, which on
+# some distros (notably RHEL/CentOS 10) is a stub that does NOT export the
+# stable-ABI symbols and breaks the link with `undefined symbol` errors.
 #
-# On Debian/Ubuntu the unversioned symlink is not shipped by default; the
-# build falls back to `Python3::Python` (versioned libpython3.X.so), which
-# still benefits from Py_LIMITED_API for *source* portability but ends up
-# with a versioned runtime dependency. To get full version-portability on
-# Debian/Ubuntu, either:
-#   1. Create a symlink: `ln -s /usr/lib/$(arch)-linux-gnu/libpython3.X.so /usr/lib/$(arch)-linux-gnu/libpython3.so`
-#   2. Run `patchelf --replace-needed libpython3.X.so.1.0 libpython3.so memgraph`
-#      after build and ship libpython3.so alongside.
-find_library(MG_PYTHON_ABI3_LIB
-    NAMES python3
-    HINTS ${Python3_LIBRARY_DIRS}
-)
-
-if(MG_PYTHON_ABI3_LIB)
-    message(STATUS "Memgraph: linking against unversioned libpython3.so for abi3: ${MG_PYTHON_ABI3_LIB}")
-    # Wrap the abi3 lib in an INTERFACE target that also propagates Python's
-    # include dirs (which come from Python3::Python's interface).
-    add_library(mg_python_abi3 INTERFACE)
-    target_include_directories(mg_python_abi3 SYSTEM INTERFACE ${Python3_INCLUDE_DIRS})
-    target_link_libraries(mg_python_abi3 INTERFACE ${MG_PYTHON_ABI3_LIB})
-    set(MG_PYTHON_LINK_TARGET mg_python_abi3)
-else()
-    message(WARNING "Memgraph: unversioned libpython3.so not found; falling back to versioned "
-                    "${Python3_LIBRARIES}. The resulting binary will require the matching "
-                    "libpython3.X.so at runtime. To realise full abi3 version-portability, "
-                    "install/symlink an unversioned libpython3.so (see comment above).")
-    set(MG_PYTHON_LINK_TARGET Python3::Python)
-endif()
+# Runtime version-portability is achieved separately: a POST_BUILD step
+# (see cmake/RewriteDtNeededAbi3.cmake, invoked via mg_apply_python_abi3_rewrite
+# in src/CMakeLists.txt) rewrites the binary's DT_NEEDED from the versioned
+# SONAME the linker recorded (`libpython3.X.so.1.0`) to the unversioned abi3
+# SONAME `libpython3.so`. Combined with `Py_LIMITED_API` below, the binary
+# then loads against any libpython3 >= the floor at runtime.
+set(MG_PYTHON_LINK_TARGET Python3::Python)
 
 target_compile_definitions(mg-query PUBLIC
     "Py_LIMITED_API=${MG_PYTHON_STABLE_ABI_FLOOR}")
