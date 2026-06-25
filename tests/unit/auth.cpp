@@ -3964,6 +3964,21 @@ TEST(MigrateAuthJson, V4InputIsNoOp) {
   EXPECT_EQ(data, original);
 }
 
+TEST(MigrateAuthJson, V4SerializedRoleIsIdempotent) {
+  memgraph::license::global_license_checker.EnableTesting();
+
+  Role role{"test_role"};
+  role.permissions().Grant(Permission::MATCH);
+  role.fine_grained_access_handler().label_permissions().Grant({"Person"}, FineGrainedPermission::SET_PROPERTY);
+  role.fine_grained_access_handler().label_permissions().GrantGlobal(FineGrainedPermission::READ);
+  role.fine_grained_access_handler().edge_type_permissions().Grant({"KNOWS"}, FineGrainedPermission::READ);
+
+  auto const original = role.Serialize();
+  auto data = original;
+  MigrateAuthJson(data);
+  EXPECT_EQ(data, original);
+}
+
 TEST(MigrateAuthJson, V3GlobalPermissionReadLabel) {
   auto data = nlohmann::json::parse(R"({
     "rolename": "r",
