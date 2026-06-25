@@ -6305,6 +6305,60 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
       .rw_type = RWType::NONE};
 }
 
+PreparedQuery PrepareRepairDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
+                                         replication_coordination_glue::ReplicationRole replication_role,
+                                         std::vector<Notification> *notifications) {
+  if (in_explicit_transaction) {
+    throw RepairDatabaseInMulticommandTxException();
+  }
+
+  MG_ASSERT(current_db.db_acc_, "Repair Database query expects a current DB");
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw RepairDatabaseDisabledOnDiskStorage();
+  }
+
+  // Main-only: repairs happen authoritatively on the main; replicas re-sync from it.
+  if (replication_role == replication_coordination_glue::ReplicationRole::REPLICA) {
+    throw QueryException("REPAIR DATABASE can only be run on the MAIN instance.");
+  }
+
+  // Defunct-only: reject on a healthy database to prevent accidental data loss.
+  if (!storage->IsDefunct()) {
+    throw QueryException("REPAIR DATABASE can only be run on a database in the defunct state.");
+  }
+
+  auto const db_name = current_db.db_acc_->get()->name();
+
+  return PreparedQuery{
+      .header = {},
+      .privileges = std::move(parsed_query.required_privileges),
+      .query_handler = [db_acc = *current_db.db_acc_, db_name, notifications](
+                           AnyStream * /*stream*/,
+                           std::optional<int> /*n*/) mutable -> std::optional<QueryHandlerResult> {
+        auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+        if (auto maybe_error = mem_storage->RepairDefunct(); !maybe_error.has_value()) {
+          switch (maybe_error.error()) {
+            using enum storage::InMemoryStorage::RepairError;
+            case NotDefunct: {
+              throw QueryException("REPAIR DATABASE can only be run on a database in the defunct state.");
+            }
+            case BackupFailure: {
+              throw QueryException("Failed to move aside the corrupt durability files. Please clean them manually.");
+            }
+          }
+        }
+        notifications->emplace_back(
+            SeverityLevel::INFO,
+            NotificationCode::REPAIR_DATABASE,
+            fmt::format("Database '{}' repaired.", db_name),
+            "The database has been reset to an empty state. You can now run your import queries to repopulate it.");
+        return QueryHandlerResult::COMMIT;
+      },
+      .rw_type = RWType::NONE};
+}
+
 PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
   if (in_explicit_transaction) {
     throw ShowSchemaInfoInMulticommandTxException();
@@ -9540,6 +9594,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(RecoverSnapshotQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
 
+  void Visit(RepairDatabaseQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+
   // Read access required
   void Visit(ExplainQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
 
@@ -9773,9 +9829,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         // queries that never touch the tenant graph are permitted. Everything else (Cypher, DDL,
         // CREATE SNAPSHOT, ...) is rejected until the database is recovered.
         const bool is_allowed =
-            utils::Downcast<RecoverSnapshotQuery>(q) != nullptr || utils::Downcast<DatabaseInfoQuery>(q) != nullptr ||
-            utils::Downcast<SystemInfoQuery>(q) != nullptr || utils::Downcast<ReplicationInfoQuery>(q) != nullptr ||
-            utils::Downcast<ShowConfigQuery>(q) != nullptr ||
+            utils::Downcast<RecoverSnapshotQuery>(q) != nullptr || utils::Downcast<RepairDatabaseQuery>(q) != nullptr ||
+            utils::Downcast<DatabaseInfoQuery>(q) != nullptr || utils::Downcast<SystemInfoQuery>(q) != nullptr ||
+            utils::Downcast<ReplicationInfoQuery>(q) != nullptr || utils::Downcast<ShowConfigQuery>(q) != nullptr ||
             utils::Downcast<ShowQueryCallableMappingsQuery>(q) != nullptr ||
             utils::Downcast<SettingQuery>(q) != nullptr || utils::Downcast<VersionQuery>(q) != nullptr ||
             utils::Downcast<UseDatabaseQuery>(q) != nullptr || utils::Downcast<MultiDatabaseQuery>(q) != nullptr ||
@@ -10001,6 +10057,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto const replication_role = interpreter_context_->repl_state->ReadLock()->GetRole();
       prepared_query =
           PrepareRecoverSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
+    } else if (utils::Downcast<RepairDatabaseQuery>(parsed_query.query)) {
+      auto const replication_role = interpreter_context_->repl_state->ReadLock()->GetRole();
+      prepared_query = PrepareRepairDatabaseQuery(std::move(parsed_query),
+                                                  in_explicit_transaction_,
+                                                  current_db_,
+                                                  replication_role,
+                                                  &query_execution->notifications);
     } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
       prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<ShowNextSnapshotQuery>(parsed_query.query)) {

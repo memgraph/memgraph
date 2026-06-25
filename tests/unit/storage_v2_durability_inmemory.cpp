@@ -1867,6 +1867,70 @@ TEST_P(DurabilityTest, RecoverSnapshotCuresDefunct) {
   std::filesystem::remove(good_snapshot_copy);
 }
 
+// REPAIR DATABASE cures a defunct tenant: it resets the placeholder to an empty working
+// state, clears the defunct flag, and moves the corrupt durability files to the .old backup
+// directory (backup dirs enabled by default), leaving the directory restart-clean.
+TEST_P(DurabilityTest, RepairDefunctCuresDefunct) {
+  CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+
+  for (const auto &snapshot : GetSnapshotsList()) {
+    CorruptSnapshot(snapshot);
+  }
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  ASSERT_TRUE(db.storage()->IsDefunct());
+  ASSERT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
+
+  auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+  auto const res = storage->RepairDefunct();
+  ASSERT_TRUE(res.has_value());
+
+  // The cure clears defunct and leaves the tenant empty.
+  EXPECT_FALSE(db.storage()->IsDefunct());
+  EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
+  EXPECT_EQ(db.storage()->GetBaseInfo().edge_count, 0);
+
+  // The corrupt snapshot was moved aside into the snapshots/.old backup directory (the same
+  // .old convention RecoverSnapshot uses); no snapshot file remains directly under snapshots/,
+  // so the tenant recovers as an empty database on the next restart.
+  auto const old_snapshot_dir = storage_directory / memgraph::storage::durability::kSnapshotDirectory / ".old";
+  ASSERT_TRUE(std::filesystem::exists(old_snapshot_dir));
+  size_t backed_up = 0;
+  for (auto const &item : std::filesystem::directory_iterator(old_snapshot_dir)) {
+    if (std::filesystem::is_regular_file(item)) ++backed_up;
+  }
+  EXPECT_EQ(backed_up, 1);
+  for (auto const &p : GetSnapshotsList()) {
+    EXPECT_TRUE(std::filesystem::is_directory(p)) << "unexpected snapshot file remains: " << p;
+  }
+}
+
+// REPAIR DATABASE is rejected on a healthy (non-defunct) storage.
+TEST_P(DurabilityTest, RepairDefunctRejectedOnHealthy) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  ASSERT_FALSE(db.storage()->IsDefunct());
+
+  auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+  auto const res = storage->RepairDefunct();
+  ASSERT_FALSE(res.has_value());
+  EXPECT_EQ(res.error(), memgraph::storage::InMemoryStorage::RepairError::NotDefunct);
+}
+
 // With the flag off (default), the same corruption still aborts startup.
 TEST_P(DurabilityTest, SnapshotCorruptCrashesWhenRecoveryFailureNotAllowed) {
   CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
