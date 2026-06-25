@@ -461,6 +461,18 @@ class RecoverSnapshotDisabledOnDiskStorage final : public DisabledForOnDisk {
   SPECIALIZE_GET_EXCEPTION_NAME(RecoverSnapshotDisabledOnDiskStorage)
 };
 
+class RepairDatabaseInMulticommandTxException final : public MulticommandTxException {
+ public:
+  RepairDatabaseInMulticommandTxException() : MulticommandTxException("Repairing a database") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(RepairDatabaseInMulticommandTxException)
+};
+
+class RepairDatabaseDisabledOnDiskStorage final : public DisabledForOnDisk {
+ public:
+  RepairDatabaseDisabledOnDiskStorage() : DisabledForOnDisk("Repairing a database") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(RepairDatabaseDisabledOnDiskStorage)
+};
+
 class ShowSnapshotsInMulticommandTxException final : public MulticommandTxException {
  public:
   ShowSnapshotsInMulticommandTxException() : MulticommandTxException("Snapshots listing") {}
