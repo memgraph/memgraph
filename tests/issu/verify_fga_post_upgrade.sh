@@ -13,7 +13,9 @@ EXPECTED_EDGE="EDGE_TYPE PERMISSION GRANTED"
 FAILED=0
 for role in "${ROLES_TO_CHECK[@]}"; do
   echo "Checking FGA for role: ${role}"
-  OUTPUT=$(echo "SHOW PRIVILEGES FOR ${role};" | mgconsole "$@" -output_format csv)
+  OUTPUT=$(echo "SHOW PRIVILEGES FOR ${role};" | mgconsole "$@" -output_format csv 2>&1)
+  echo "Raw output for ${role}:"
+  echo "$OUTPUT"
 
   if ! echo "$OUTPUT" | grep -q "$EXPECTED_LABEL"; then
     echo "FAIL: ${role} is missing label FGA grants"
