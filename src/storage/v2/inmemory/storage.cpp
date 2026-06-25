@@ -18,10 +18,7 @@
 #include <filesystem>
 #include <functional>
 #include <mutex>
-#include <numeric>
 #include <optional>
-#include <ranges>
-#include <span>
 #include <system_error>
 #include <unordered_set>
 
@@ -720,40 +717,6 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid 
   auto it = acc.find(gid);
   if (it == acc.end()) return std::nullopt;
   return VertexAccessor::Create(&*it, storage_, &transaction_, view);
-}
-
-namespace {
-// above this batch size, one ordered forward pass over the skip-list beats N independent
-// O(log n) descents from root (sequential access is far more cache-friendly).
-constexpr std::size_t kBatchMergeScanThreshold = 50'000;
-}  // namespace
-
-std::vector<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::FindVertices(std::span<const Gid> gids,
-                                                                                           View view) {
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  auto acc = mem_storage->vertices_.access();  // one accessor for the whole batch
-  std::vector<std::optional<VertexAccessor>> out(gids.size());
-
-  if (gids.size() < kBatchMergeScanThreshold) {
-    for (auto const [i, gid] : std::views::enumerate(gids)) {
-      auto it = acc.find(gid);
-      if (it != acc.end()) out[i] = VertexAccessor::Create(&*it, storage_, &transaction_, view);
-    }
-    return out;
-  }
-
-  std::vector<std::size_t> order(gids.size());
-  std::iota(order.begin(), order.end(), std::size_t{0});
-  std::ranges::sort(order, std::less{}, [&](std::size_t i) { return gids[i]; });
-  auto it = acc.begin();
-  const auto end = acc.end();
-  for (const auto k : order) {
-    const auto want = gids[k];
-    while (it != end && (*it).gid < want) ++it;
-    if (it == end) break;
-    if ((*it).gid == want) out[k] = VertexAccessor::Create(&*it, storage_, &transaction_, view);
-  }
-  return out;
 }
 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>

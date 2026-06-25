@@ -17,9 +17,7 @@
 #include <exception>
 #include <memory>
 #include <optional>
-#include <ranges>
 #include <regex>
-#include <span>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -4064,32 +4062,6 @@ mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memo
   return std::visit(get_vertex_by_gid, graph->impl);
 }
 
-// batched gid -> mgp_vertex* (one shared storage accessor + merge-scan); nullptr where missing.
-std::vector<mgp_vertex *> GetVerticesByGids(mgp_graph *graph, std::span<const memgraph::storage::Gid> gids,
-                                            mgp_memory *memory) {
-  auto get_vertices = memgraph::utils::Overloaded{
-      [graph, gids, memory](memgraph::query::DbAccessor *impl) -> std::vector<mgp_vertex *> {
-        auto found = impl->FindVertices(gids, graph->view);
-        std::vector<mgp_vertex *> out;
-        out.reserve(found.size());
-        for (auto &v : found) out.push_back(v ? NewRawMgpObject<mgp_vertex>(memory, *v, graph) : nullptr);
-        return out;
-      },
-      [graph, gids, memory](memgraph::query::SubgraphDbAccessor *impl) -> std::vector<mgp_vertex *> {
-        std::vector<mgp_vertex *> out;
-        out.reserve(gids.size());
-        for (const auto gid : gids) {
-          auto mv = impl->FindVertex(gid, graph->view);
-          out.push_back(mv ? NewRawMgpObject<mgp_vertex>(
-                                 memory, memgraph::query::SubgraphVertexAccessor(*mv, impl->getGraph()), graph)
-                           : nullptr);
-        }
-        return out;
-      },
-      VirtualGraphUnreachable<std::vector<mgp_vertex *>>("GetVerticesByGids")};
-  return std::visit(get_vertices, graph->impl);
-}
-
 mgp_edge *GetEdgeByGid(mgp_graph *graph, memgraph::storage::Gid edge_gid, memgraph::storage::Gid from_vertex_gid,
                        mgp_memory *memory) {
   auto get_edge_by_gid = memgraph::utils::Overloaded{
@@ -4422,16 +4394,14 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
     return;
   }
 
-  // resolve all GIDs in one batch (shared skip-list accessor + merge-scan); some may be gone.
-  std::vector<memgraph::storage::Gid> gids;
-  gids.reserve(text_search_results.size());
-  for (const auto &result : text_search_results) gids.push_back(result.vertex_gid);
-  auto vertex_ptrs = GetVerticesByGids(graph, gids, memory);
-
+  // first find vertices by their GIDs because maybe not all vertices exist in the graph anymore
   std::vector<std::pair<mgp_vertex *, double>> vertices_with_scores;
-  vertices_with_scores.reserve(vertex_ptrs.size());
-  for (const auto [i, vertex_ptr] : std::views::enumerate(vertex_ptrs)) {
-    if (vertex_ptr) vertices_with_scores.emplace_back(vertex_ptr, text_search_results[i].score);
+  vertices_with_scores.reserve(text_search_results.size());
+  for (const auto &result : text_search_results) {
+    auto *vertex_ptr = GetVertexByGid(graph, result.vertex_gid, memory);
+    if (vertex_ptr) {
+      vertices_with_scores.emplace_back(vertex_ptr, result.score);
+    }
   }
 
   mgp_list *search_results{};
