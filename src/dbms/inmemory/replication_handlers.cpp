@@ -439,6 +439,12 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
+  // No defunct check is needed here. A defunct replica tenant reports commit-ts 0 with a fresh epoch (a consequence of
+  // Clear()), so the main always sees it as behind, drives it into the RECOVERY state and sends a full snapshot before
+  // any incremental delta. While the replica is in RECOVERY the main skips incremental PrepareCommit, and
+  // SnapshotHandler clears the defunct flag during that snapshot sync. Therefore by the time any PrepareCommit delta
+  // reaches the replica, the tenant is guaranteed non-defunct.
+
   // Abort prev txn if needed
   // It could happen that the main instance died before sending finalize for the previous commit and then
   // the new instance becomes main and sends prepare
@@ -715,6 +721,11 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     }
   }
   spdlog::debug("Snapshot from {} loaded successfully.", dst_snapshot_file);
+
+  // A successful snapshot load is the moment a defunct replica tenant becomes healthy: the main has just full-synced
+  // it. Clearing the defunct flag re-enables background durability and lets queries touch the tenant again (slice 1
+  // guards writes behind IsDefunct(), so clearing the flag is sufficient to resume normal operation).
+  storage->SetDefunct(false);
 
   auto const [ldt, num_committed_txns] = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
 
