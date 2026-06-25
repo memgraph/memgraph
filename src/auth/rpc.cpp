@@ -13,6 +13,7 @@
 
 #include <nlohmann/json.hpp>
 #include "auth/auth.hpp"
+#include "auth/models.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
@@ -26,9 +27,9 @@ namespace {
 auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
-  const auto json = nlohmann::json::parse(tmp);
-  auto role = memgraph::auth::Role::Deserialize(json);
-  return role;
+  auto json = nlohmann::json::parse(tmp);
+  memgraph::auth::MigrateAuthJson(json);
+  return memgraph::auth::Role::Deserialize(json);
 }
 }  // namespace
 
@@ -62,7 +63,8 @@ void Save(const auth::User &self, memgraph::slk::Builder *builder) {
 void Load(auth::User *self, memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
-  const auto json = nlohmann::json::parse(tmp);
+  auto json = nlohmann::json::parse(tmp);
+  memgraph::auth::MigrateAuthJson(json);
   *self = memgraph::auth::User::Deserialize(json);
   std::vector<auth::Role> roles;
   memgraph::slk::Load(&roles, reader);

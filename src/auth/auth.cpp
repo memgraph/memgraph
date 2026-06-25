@@ -310,190 +310,22 @@ void MigrateVersions(kvstore::KVStore &store) {
     spdlog::info("Auth storage migration to V2 completed successfully");
   }
 
-  if (version_str == kVersionV2) {
-    spdlog::info("Migrating auth storage from V2 to V3");
-    spdlog::warn(
-        "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
-
-    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV3}};
-
-    auto const convert_v2_to_v3_permissions = [](uint64_t const v2_perm) -> uint64_t {
-      // V2 permissions used bit_0 for read, bit_1 for update, and bit_2 for
-      // create_delete, but note that the trailing bits are also set because the
-      // permission formed a hierarchy.
-      constexpr uint64_t kV2Read = 1;
-      constexpr uint64_t kV2Update = 3;
-      constexpr uint64_t kV2CreateDelete = 7;
-
-      // V3 permission bits: NOTHING=0, READ=1, UPDATE=2, CREATE=8, DELETE=16.
-      // Need to duplicate them here as FineGrainedPermission is enterprise only
-      // and duplication is preferable to leaking the enum into community
-      // builds.
-      constexpr uint64_t kV3Nothing = 0;
-      constexpr uint64_t kV3Read = 1;
-      constexpr uint64_t kV3Update = 2;
-      constexpr uint64_t kV3Create = 8;
-      constexpr uint64_t kV3Delete = 16;
-
-      switch (v2_perm) {
-        case 0:
-          return kV3Nothing;
-        case kV2Read:
-          return kV3Read;
-        case kV2Update:
-          return kV3Update | kV3Read;
-        case kV2CreateDelete:
-          return kV3Create | kV3Delete | kV3Update | kV3Read;
-        default:
-          return kV3Nothing;
-      }
-    };
-
-    auto const migrate_entity = [&](auto const &prefix) {
-      for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
-        auto const &[key, value] = *it;
-        try {
-          auto data = nlohmann::json::parse(value);
-
-          auto const fg_it = data.find("fine_grained_access_handler");
-          if (fg_it != data.end() && fg_it->is_object()) {
-            for (auto const &perm_type : {"label_permissions", "edge_type_permissions"}) {
-              auto const perm_it = fg_it->find(perm_type);
-              if (perm_it != fg_it->end() && perm_it->is_object()) {
-                auto &perm_data = *perm_it;
-
-                auto const global_perm_it = perm_data.find("global_permission");
-                if (global_perm_it != perm_data.end() && global_perm_it->is_number_integer()) {
-                  auto const v2_perm = global_perm_it->template get<int64_t>();
-                  if (v2_perm >= 0) {
-                    *global_perm_it = convert_v2_to_v3_permissions(static_cast<uint64_t>(v2_perm));
-                  }
-                }
-
-                perm_data["permissions"] = nlohmann::json::array();
-              }
-            }
-
-            data["fine_grained_permissions"] = std::move(*fg_it);
-            data.erase("fine_grained_access_handler");
-            puts.emplace(key, data.dump());
-          }
-        } catch (const nlohmann::json::exception &e) {
-          throw AuthException("Failed to migrate auth data for '{}': {}", key, e.what());
-        }
-      }
-    };
-
-    migrate_entity(kUserPrefix);
-    migrate_entity(kRolePrefix);
-
-    if (!puts.empty()) {
-      store.PutMultiple(puts);
+  if (version_str == kVersionV2 || version_str == kVersionV3) {
+    spdlog::info("Migrating auth storage from {} to V4", *version_str);
+    if (version_str == kVersionV2) {
+      spdlog::warn(
+          "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
     }
-
-    version_str = kVersionV3;
-    spdlog::info("Auth storage migration to V3 completed successfully");
-  }
-
-  if (version_str == kVersionV3) {
-    spdlog::info("Migrating auth storage from V3 to V4");
 
     auto puts = std::map<std::string, std::string>{{kVersion, kVersionV4}};
 
-    // V4 changes the fine-grained permissions JSON structure:
-    // - `global_permission` is split into `global_grants`/`global_denies`
-    // - permissions array entries gain a `denied` field
-    // - For labels: UPDATE (bit 1) expands to SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE | CREATE_EDGE
-    // - For edge types: UPDATE (bit 1) becomes SET_PROPERTY (bit 1), which is the
-    //   same bit so no migration needed.
-    // - NOTHING becomes a DENY ALL
-
-    // Local copies of FineGrainedPermission values (defined under MG_ENTERPRISE
-    // in models.hpp). Duplicated here so that this migration runs even in
-    // community builds, which is necessary to correctly migrate data if an
-    // installation downgrades from enterprise to community then upgrades again.
-    // Admittedly unlikely, but easily handled!
-    constexpr uint64_t kUpdate = 2;                   // Old UPDATE bit, no longer exists in enum
-    constexpr uint64_t kSetLabel = 32;                // FineGrainedPermission::SET_LABEL
-    constexpr uint64_t kRemoveLabel = 64;             // FineGrainedPermission::REMOVE_LABEL
-    constexpr uint64_t kSetProperty = 2;              // FineGrainedPermission::SET_PROPERTY
-    constexpr uint64_t kDeleteEdge = 128;             // FineGrainedPermission::DELETE_EDGE
-    constexpr uint64_t kCreateEdge = 256;             // FineGrainedPermission::CREATE_EDGE
-    constexpr uint64_t kAllLabelPermissions = 507;    // kAllLabelPermissions
-    constexpr uint64_t kAllEdgeTypePermissions = 27;  // kAllEdgeTypePermissions
-
-    // For labels: UPDATE -> SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE | CREATE_EDGE
-    auto const migrate_label_permissions = [&](uint64_t const v3_perm) -> uint64_t {
-      uint64_t result = v3_perm;
-      if (result & kUpdate) {
-        result = (result & ~kUpdate) | kSetLabel | kRemoveLabel | kSetProperty | kDeleteEdge | kCreateEdge;
-      }
-      return result;
-    };
-
     auto const migrate_entity = [&](auto const &prefix) {
       for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
         auto const &[key, value] = *it;
         try {
           auto data = nlohmann::json::parse(value);
-
-          auto const fg_it = data.find("fine_grained_permissions");
-          if (fg_it != data.end() && fg_it->is_object()) {
-            for (auto const &perm_type : {"label_permissions", "edge_type_permissions"}) {
-              bool const is_label = std::string_view{perm_type} == "label_permissions";
-              auto const perm_it = fg_it->find(perm_type);
-              if (perm_it != fg_it->end() && perm_it->is_object()) {
-                auto &perm_data = *perm_it;
-
-                // Migrate global_permission -> global_grants/global_denies
-                auto const global_perm_it = perm_data.find("global_permission");
-                if (global_perm_it != perm_data.end()) {
-                  auto const old_perm = global_perm_it->template get<int64_t>();
-                  if (old_perm == 0) {
-                    // NOTHING -> deny all
-                    perm_data["global_grants"] = -1;
-                    perm_data["global_denies"] = (is_label ? kAllLabelPermissions : kAllEdgeTypePermissions);
-                  } else if (old_perm == -1) {
-                    // No global permission set
-                    perm_data["global_grants"] = -1;
-                    perm_data["global_denies"] = -1;
-                  } else {
-                    auto new_perm = static_cast<uint64_t>(old_perm);
-                    if (is_label) new_perm = migrate_label_permissions(new_perm);
-                    perm_data["global_grants"] = new_perm;
-                    perm_data["global_denies"] = -1;
-                  }
-                  perm_data.erase("global_permission");
-                }
-
-                // Migrate permissions: add "denied" field, migrate permission values for labels
-                auto const perms_it = perm_data.find("permissions");
-                if (perms_it != perm_data.end() && perms_it->is_array()) {
-                  nlohmann::json new_permissions = nlohmann::json::array();
-                  for (auto const &old_rule : *perms_it) {
-                    nlohmann::json new_rule;
-                    new_rule["symbols"] = old_rule.value("symbols", nlohmann::json::array());
-                    new_rule["matching"] = old_rule.value("matching", "ANY");
-
-                    auto const granted = old_rule.value("granted", int64_t{0});
-                    if (granted == 0) {
-                      // granted=0 (NOTHING) -> deny all
-                      new_rule["granted"] = 0;
-                      new_rule["denied"] = (is_label ? kAllLabelPermissions : kAllEdgeTypePermissions);
-                    } else {
-                      auto new_granted = static_cast<uint64_t>(granted);
-                      if (is_label) new_granted = migrate_label_permissions(new_granted);
-                      new_rule["granted"] = new_granted;
-                      new_rule["denied"] = 0;
-                    }
-                    new_permissions.push_back(std::move(new_rule));
-                  }
-                  perm_data["permissions"] = std::move(new_permissions);
-                }
-              }
-            }
-            puts.emplace(key, data.dump());
-          }
+          auth::MigrateAuthJson(data);
+          puts.emplace(key, data.dump());
         } catch (const nlohmann::json::exception &e) {
           throw AuthException("Failed to migrate auth data for '{}': {}", key, e.what());
         }
