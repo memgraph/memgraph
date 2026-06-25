@@ -953,6 +953,10 @@ echo "Running auth post-upgrade tests"
 kubectl cp auth_post_upgrade.cypherl "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/auth_post_upgrade.cypherl"
 kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/auth_post_upgrade.cypherl --username=system_admin_user --password=admin_password"
 
+echo "Verifying FGA grants survived rolling upgrade"
+kubectl cp verify_fga_post_upgrade.sh "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/verify_fga_post_upgrade.sh"
+kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash /var/lib/memgraph/verify_fga_post_upgrade.sh --username=system_admin_user --password=admin_password
+
 # --- Optional routing tests ---
 if [[ "$TEST_ROUTING" == "true" ]]; then
   kubectl cp routing.py memgraph-coordinator-1-0:/var/lib/memgraph/routing.py
