@@ -368,14 +368,17 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
                                                    slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::HeartbeatReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
 
+  // Wrong-main check BEFORE GetDatabaseAccessor: the accessor now inline-reheats a COLD tenant
+  // (full snapshot+WAL recovery), so reaching it for an RPC from a deposed MAIN would reheat — and
+  // possibly recover stale data — only to reject the RPC. Reject first.
   if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
     const storage::replication::HeartbeatRes res{false, 0, "", 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
+  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   if (!db_acc) {
     spdlog::warn("No database accessor");
@@ -616,15 +619,17 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
                                                   slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
+  // Wrong-main check BEFORE GetDatabaseAccessor: the accessor now inline-reheats a COLD tenant (full
+  // snapshot+WAL recovery), so a deposed-MAIN RPC must be rejected before it can trigger a reheat.
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
+    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
+    return;
+  }
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in snapshot handler for request with storage_uuid {}",
                   std::string{req.storage_uuid});
-    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
-    return;
-  }
-  if (current_main_uuid != req.main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
@@ -815,17 +820,19 @@ void InMemoryReplicationHandlers::WalFilesHandler(
 
   storage::replication::WalFilesReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
+  // Wrong-main check BEFORE GetDatabaseAccessor: the accessor now inline-reheats a COLD tenant (full
+  // snapshot+WAL recovery), so a deposed-MAIN RPC must be rejected before it can trigger a reheat.
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
+    rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
+    return;
+  }
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in wal files handler for request storage_uuid {}",
                   std::string{req.uuid});
     const storage::replication::WalFilesRes res{std::nullopt, 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
-    return;
-  }
-  if (current_main_uuid != req.main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
-    rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
 
@@ -940,16 +947,17 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
 
   storage::replication::CurrentWalReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
+  // Wrong-main check BEFORE GetDatabaseAccessor: the accessor now inline-reheats a COLD tenant (full
+  // snapshot+WAL recovery), so a deposed-MAIN RPC must be rejected before it can trigger a reheat.
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
+    rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
+    return;
+  }
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in current wal handler for request storage_uuid {}",
                   std::string{req.uuid});
-    rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
-    return;
-  }
-
-  if (current_main_uuid != req.main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
     rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }

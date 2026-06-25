@@ -8070,7 +8070,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             }
             return std::nullopt;
           },
-          .rw_type = RWType::NONE,
+          // W (like CREATE/DROP/RENAME DATABASE): SUSPEND mutates+replicates DB lifecycle state, so it
+          // must respect the HA IsMainWriteable() gate (rejected on a coordinator-write-disabled MAIN).
+          .rw_type = RWType::W,
           .db = query->db_name_};
     }
     case MultiDatabaseQuery::Action::RESUME: {
@@ -8106,7 +8108,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             }
             return std::nullopt;
           },
-          .rw_type = RWType::NONE,
+          // W (like CREATE/DROP/RENAME DATABASE): RESUME mutates+replicates DB lifecycle state, so it
+          // must respect the HA IsMainWriteable() gate (rejected on a coordinator-write-disabled MAIN).
+          .rw_type = RWType::W,
           .db = query->db_name_};
     }
   }

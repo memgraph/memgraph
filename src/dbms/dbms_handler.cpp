@@ -1401,21 +1401,31 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       }
 
       // Flip the durable entry back to HOT (drop the cold marker) so a restart recovers it HOT.
-      // Done in a SEPARATE short lock_ scope AFTER the publish — NOT inside the publish block, whose
-      // noexcept guarantee a throwing Put would violate. The write is guarded by !suspended_.contains:
-      // if a SUSPEND raced in after our publish-erase and re-suspended the tenant, its under-lock COLD
-      // marker must stand. A Put failure degrades to a warning (the tenant is live HOT regardless; on
-      // the next restart a stale cold marker only makes it recover COLD, and it is resumable again).
-      if (durability_) {
-        auto wr = std::lock_guard{lock_};
-        if (!suspended_.contains(name)) {
-          if (!durability_->Put(Durability::GenKey(name), Durability::GenVal(salient.uuid, rel_dir))) {
-            spdlog::warn(
-                "hot/cold resume: failed to clear the cold durability marker for '{}'; the database is live "
-                "(HOT) but may recover COLD on restart (resumable).",
-                name);
+      // Done in a SEPARATE short lock_ scope AFTER the publish. The write is guarded by
+      // !suspended_.contains: if a SUSPEND raced in after our publish-erase and re-suspended the tenant,
+      // its under-lock COLD marker must stand. Wrapped in its OWN try/catch (like the two arms below):
+      // the gatekeeper is already HOT here, so any throw escaping to the outer catch(...) would call
+      // abort_resume() on a HOT gatekeeper and trip its MG_ASSERT(state == RESUMING) -> terminate.
+      // GenKey/GenVal allocate (fmt/nlohmann) and can throw bad_alloc. A failure (bool or throw)
+      // degrades to a warning: the tenant is live HOT regardless; on the next restart a stale cold
+      // marker only makes it recover COLD, and it is resumable again.
+      try {
+        if (durability_) {
+          auto wr = std::lock_guard{lock_};
+          if (!suspended_.contains(name)) {
+            if (!durability_->Put(Durability::GenKey(name), Durability::GenVal(salient.uuid, rel_dir))) {
+              spdlog::warn(
+                  "hot/cold resume: failed to clear the cold durability marker for '{}'; the database is live "
+                  "(HOT) but may recover COLD on restart (resumable).",
+                  name);
+            }
           }
         }
+      } catch (...) {
+        spdlog::warn(
+            "hot/cold resume: clearing the cold durability marker for '{}' threw; the database is live (HOT) "
+            "and data is intact, but it may recover COLD on restart (resumable).",
+            name);
       }
       // POST-PUBLISH arm (replication). The tenant is ALREADY published HOT and erased from
       // suspended_; we must NOT abort_resume() here (the gatekeeper is no longer RESUMING). The arm

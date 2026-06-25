@@ -430,6 +430,13 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
         }
       }
     }
+    // If the replica holds this name HOT under a DIFFERENT uuid, Update() below drops+recreates the
+    // local storage. A stale cached 2PC commit accessor for the LOCAL uuid would then dangle, so abort
+    // it first (mirrors the COLD-loop force-suspend and the Drop/Suspend handlers). Same-uuid Update is
+    // a no-op refresh that must NOT abort an in-flight 2PC for that very tenant — hence the guard.
+    if (const auto local = dbms_handler.GetHotUuid(name); local && *local != config.uuid) {
+      InMemoryReplicationHandlers::AbortTwoPCForTenant(*local);
+    }
     try {
       if (!dbms_handler.Update(config)) {
         spdlog::debug("SystemRecoveryHandler: Failed to update database \"{}\".", name);
@@ -492,6 +499,12 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
 
   // Delete all the leftover old dbs (neither incoming HOT nor COLD).
   for (const auto &remove_db : old) {
+    // A HOT leftover's Delete frees its storage; abort any cached 2PC accessor for its LOCAL uuid
+    // first so a later DestroyReplAccessor() does not dereference the freed Storage*. COLD shells
+    // return nullopt (no live storage / no cached accessor), so this is a no-op for them.
+    if (const auto local = dbms_handler.GetHotUuid(remove_db)) {
+      InMemoryReplicationHandlers::AbortTwoPCForTenant(*local);
+    }
     const auto del = dbms_handler.Delete(remove_db);
     if (!del) {
       // Some errors are not terminal

@@ -541,6 +541,20 @@ class DbmsHandler {
   ResumeResult ResumeForRecovery(std::string_view name) { return Resume_(name, /*rewire_replication=*/false); }
 
   /**
+   * @brief Local uuid of a HOT tenant by name; nullopt if absent or COLD.
+   *
+   * COLD shells return nullopt (GetConfig → access() refuses non-HOT). The SystemRecovery handler uses
+   * this to abort a stale cached 2PC commit accessor (keyed by the LOCAL uuid) BEFORE a drop frees the
+   * tenant's storage — only a HOT tenant has live storage a cached accessor could dangle on, so the
+   * HOT-only answer is exactly the right scope.
+   */
+  std::optional<utils::UUID> GetHotUuid(std::string_view name) {
+    auto rd = std::shared_lock{lock_};
+    if (auto conf = db_handler_.GetConfig(name)) return conf->salient.uuid;
+    return std::nullopt;
+  }
+
+  /**
    * @brief Force-suspend a tenant during replica recovery, bypassing the durability-complete gate.
    * The gate protects a USER-initiated SUSPEND; in recovery the tenant is already COLD on MAIN
    * (authoritative) and suspend's consolidating snapshot is written unconditionally, so it stays
