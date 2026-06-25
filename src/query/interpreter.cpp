@@ -150,6 +150,16 @@ import memgraph.utils.aws;
 namespace r = ranges;
 namespace rv = ranges::views;
 
+// Coroutine split-point knob (coroutine cursors v2 / PR-13). Comma-separated list of operator kinds
+// designated as coroutine SPLIT POINTS: the plan runs as coroutines from the root down to (and
+// including) the deepest listed operator, and synchronously below it. Empty (the default) => every
+// cursor runs synchronously, byte-identical to master (zero per-boundary cost). Read fresh at each
+// query's plan construction, so it is runtime-tunable (e.g. via gflags::SetCommandLineOption).
+// Recognised kinds: Aggregate, OrderBy (case-insensitive; unknown names are ignored with a warning).
+DEFINE_string(query_coroutine_yield_ops, "",
+              "Comma-separated operator kinds used as coroutine split points (e.g. \"Aggregate,OrderBy\"). "
+              "Empty disables coroutine pull entirely (synchronous, identical to default).");
+
 namespace {
 
 using memgraph::query::Expression;
@@ -307,6 +317,59 @@ namespace {
 constexpr std::string_view kSocketErrorExplanation =
     "The socket address must be a string defining the address and port, delimited by a "
     "single colon. The address must be valid and the port must be an integer.";
+
+// Map a coroutine split-point operator name to its CoroOp kind (case-insensitive). nullopt => unknown.
+std::optional<plan::CoroOp> CoroOpFromName(std::string_view name) {
+  auto eq = [&](std::string_view other) {
+    return name.size() == other.size() &&
+           std::ranges::equal(name, other, [](char a, char b) { return std::tolower(a) == std::tolower(b); });
+  };
+  if (eq("Aggregate")) return plan::CoroOp::Aggregate;
+  if (eq("OrderBy")) return plan::CoroOp::OrderBy;
+  return std::nullopt;
+}
+
+// Build the active coroutine split policy for the next plan from the runtime knob. In DEBUG builds the
+// parity-test force hook overrides it to all_coro (whole plan coroutine). An empty knob (the default)
+// yields an empty policy => every cursor stays Sync => byte-identical to master.
+plan::CoroSplitPolicy CoroSplitPolicyFromFlags() {
+  plan::CoroSplitPolicy policy{};
+#ifndef NDEBUG
+  if (plan::ForceCoroRootDriveForTesting()) {
+    policy.all_coro = true;
+    return policy;
+  }
+#endif
+  std::string_view const spec = FLAGS_query_coroutine_yield_ops;
+  for (size_t pos = 0; pos <= spec.size();) {
+    auto const comma = spec.find(',', pos);
+    auto const end = comma == std::string_view::npos ? spec.size() : comma;
+    auto token = spec.substr(pos, end - pos);
+    // trim surrounding whitespace
+    while (!token.empty() && std::isspace(static_cast<unsigned char>(token.front()))) token.remove_prefix(1);
+    while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back()))) token.remove_suffix(1);
+    if (!token.empty()) {
+      if (auto op = CoroOpFromName(token)) {
+        policy.yield_ops |= uint64_t{1} << static_cast<uint8_t>(*op);
+      } else {
+        spdlog::warn("Ignoring unknown coroutine split-point operator '{}' in --query-coroutine-yield-ops.", token);
+      }
+    }
+    if (comma == std::string_view::npos) break;
+    pos = comma + 1;
+  }
+  return policy;
+}
+
+// Build the root cursor with the active split policy in effect, then clear it. Cursor construction is
+// single-threaded and reads ActiveCoroPolicy() in each cursor's SelectCoroMode, so the policy must be
+// set before MakeCursor (here, in the PullPlan member-init list) and torn down right after.
+plan::UniqueCursorPtr MakeRootCursorWithPolicy(const plan::LogicalOperator &plan, utils::MemoryResource *mem,
+                                               metrics::DatabaseMetricHandles &metric_handles) {
+  plan::ActiveCoroPolicy() = CoroSplitPolicyFromFlags();
+  utils::OnScopeExit const reset_policy{[] { plan::ActiveCoroPolicy() = plan::CoroSplitPolicy{}; }};
+  return plan.MakeCursor(mem, metric_handles);
+}
 
 #ifdef MG_ENTERPRISE
 void EnsureMainInstance(InterpreterContext *interpreter_context, const std::string &operation_name) {
@@ -3194,7 +3257,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 #endif
                    )
     : plan_(plan),
-      cursor_(plan->plan().MakeCursor(execution_memory, metric_handles)),
+      cursor_(MakeRootCursorWithPolicy(plan->plan(), execution_memory, metric_handles)),
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit)
 #ifdef MG_ENTERPRISE
@@ -3279,22 +3342,20 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
     // Returns true if a result was pulled.
     //
-    // Coroutine root-drive seam: by default (and for profile queries) the root cursor is pulled
-    // synchronously, byte-identical to master. When the test-only force hook is on, the root is driven
-    // through the coroutine path (PullCo + ResumePullStep) instead — which is still byte-identical while
-    // every cursor is Sync (PullCo() default == Immediate(Pull())), and exercises the coroutine machinery
-    // once cursors are converted. Yield is OFF here (no PullDriverScope), so ResumePullStep only ever
-    // returns HasRow/Done. (The real per-cursor mode selection that replaces this hook lands later.)
+    // Coroutine root-drive seam: the root cursor's mode (selected at construction from the
+    // --query-coroutine-yield-ops knob, see MakeRootCursorWithPolicy) decides how it is pulled. With an
+    // empty knob every cursor is Sync, the root is Sync, and we take the plain synchronous Pull() —
+    // byte-identical to master, no per-pull branch cost beyond one mode load. When the knob (or, in
+    // DEBUG, the parity force hook) makes the root Coro, we drive it through the coroutine path
+    // (PullCo + ResumePullStep). Profile queries always pull synchronously (the profiler instruments the
+    // synchronous Pull path). Yield is OFF here (no PullDriverScope), so ResumePullStep only ever returns
+    // HasRow/Done — the cooperative-yield scheduler wiring lands with the parallel cursors.
+    const bool drive_coro = cursor_->mode() == plan::CursorMode::Coro && !ctx_.is_profile_query;
     const auto pull_result = [&]() -> bool {
-#ifndef NDEBUG
-      // DEBUG-ONLY parity seam: when the force hook is on, drive the root via the coroutine path
-      // (PullCo + ResumePullStep) so the parity harness can verify coroutine pull == synchronous pull.
-      // Compiled out entirely in Release/RelWithDebInfo (NDEBUG) — production has no per-pull branch.
-      if (plan::ForceCoroRootDriveForTesting() && !ctx_.is_profile_query) [[unlikely]] {
+      if (drive_coro) [[unlikely]] {
         auto ra = cursor_->PullCo(frame_, ctx_);
         return plan::ResumePullStep(ra, ctx_).status == plan::PullRunResult::Status::HasRow;
       }
-#endif
       return cursor_->Pull(frame_, ctx_);
     };
 
