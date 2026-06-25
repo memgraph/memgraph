@@ -12973,9 +12973,64 @@ class PeriodicCommitCursor : public Cursor {
     return pull_value;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master PeriodicCommitCursor::Pull(). oom/
+    // profile are per-iteration. 1:1 passthrough: pull input once, increment pulled_, run the periodic
+    // commit when the threshold is reached OR on input exhaustion (with pulled_>0), then emit
+    // pull_value. commit_frequency_/pulled_ are MEMBERS -> survive co_yield. One row == one Pull.
+    //
+    // COMMIT-BOUNDARY SAFETY: the only co_await yield point is at the loop TOP (before PullChild +
+    // commit), matching master's AbortCheck. PeriodicCommit runs synchronously AFTER the co_await
+    // PullChild and BEFORE co_yield/co_return — there is NO yield point between the input pull and the
+    // commit, so a future cooperative-yield scheduler can never suspend a worker mid-commit. In the
+    // current dormant phase yield is OFF anyway (the YieldPoint is a no-op), so this is byte-identical
+    // to the synchronous Pull. DO NOT insert a yield between the PullChild and the PeriodicCommit.
+    while (true) {
+      bool produced = false;
+      {
+        // NOLINTNEXTLINE(misc-const-correctness)
+        OOMExceptionEnabler oom_exception;
+        // NOLINTNEXTLINE(misc-const-correctness)
+        SCOPED_PROFILE_OP_BY_REF(self_);
+
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+
+        if (!commit_frequency_) [[unlikely]] {
+          ExpressionEvaluator evaluator =
+              ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+          commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
+        }
+
+        bool const pull_value = co_await PullChild(*input_cursor_, frame, context);
+
+        pulled_++;
+        std::expected<void, storage::StorageManipulationError> commit_result;
+        if (pulled_ >= commit_frequency_) {
+          // do periodic commit since we pulled that many times
+          commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
+          pulled_ = 0;
+        } else if (!pull_value && pulled_ > 0) {
+          // do periodic commit for the rest of pulled items
+          commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
+        }
+
+        if (!commit_result) {
+          HandlePeriodicCommitError(commit_result.error());
+        }
+
+        produced = pull_value;
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
+    ResetGen();
     input_cursor_->Reset();
     commit_frequency_.reset();
     pulled_ = 0;
@@ -13094,12 +13149,92 @@ class PeriodicSubqueryCursor : public Cursor {
     }
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master PeriodicSubqueryCursor::Pull(). oom/
+    // profile are per-iteration; commit_frequency_ init runs once per Pull (before the inner refill
+    // loop), as master. Apply-pattern refill over input_ + subquery_ with periodic commit on
+    // input-exhaustion (pulled_>0) and on subquery-exhaustion (pulled_>=freq). pull_input_/pulled_/
+    // commit_frequency_ are MEMBERS -> survive co_yield. One emitted row == one master Pull.
+    //
+    // COMMIT-BOUNDARY SAFETY: the only co_await yield point is at the loop TOP (matching master's
+    // AbortCheck). Every PeriodicCommit runs synchronously inside the inner loop, AFTER its co_await
+    // PullChild and never with a yield point between the pull and the commit — so a future cooperative
+    // scheduler can never suspend a worker mid-commit. Yield is OFF in the dormant phase regardless.
+    // DO NOT insert a yield between a PullChild and a PeriodicCommit in the inner loop.
+    while (true) {
+      bool produced = false;
+      {
+        // NOLINTNEXTLINE(misc-const-correctness)
+        OOMExceptionEnabler oom_exception;
+        // NOLINTNEXTLINE(misc-const-correctness)
+        SCOPED_PROFILE_OP("PeriodicSubquery");
+
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+
+        if (!commit_frequency_) [[unlikely]] {
+          ExpressionEvaluator evaluator =
+              ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
+          commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
+        }
+
+        while (true) {
+          if (pull_input_) {
+            if (co_await PullChild(*input_, frame, context)) {
+              pulled_++;
+            } else {
+              if (pulled_ > 0) {
+                // do periodic commit for the rest of pulled items
+                const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
+                if (!commit_result) {
+                  HandlePeriodicCommitError(commit_result.error());
+                }
+              }
+              break;  // input exhausted -> produced stays false -> co_return false
+            }
+          }
+
+          if (co_await PullChild(*subquery_, frame, context)) {
+            // if successful, next Pull from this should not pull_input_
+            pull_input_ = false;
+            produced = true;
+            break;
+          }
+
+          if (pulled_ >= commit_frequency_) {
+            // do periodic commit since we pulled that many times
+            const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
+            if (!commit_result) {
+              HandlePeriodicCommitError(commit_result.error());
+            }
+            pulled_ = 0;
+          }
+
+          // subquery cursor has been exhausted
+          // skip that row
+          pull_input_ = true;
+          subquery_->Reset();
+
+          // don't skip row if no rows are returned from subquery, return input_ rows
+          if (!subquery_has_return_) {
+            produced = true;
+            break;
+          }
+        }
+      }
+      if (!produced) co_return false;
+      co_yield true;
+    }
+  }
+
   void Shutdown() override {
     input_->Shutdown();
     subquery_->Shutdown();
   }
 
   void Reset() override {
+    ResetGen();
     input_->Reset();
     subquery_->Reset();
     pull_input_ = true;
