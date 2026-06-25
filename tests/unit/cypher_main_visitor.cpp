@@ -6854,6 +6854,11 @@ TEST_P(CypherMainVisitorTest, RecoverSnapshotQuery) {
   ASSERT_EQ(config_map.at("aws_secret_key"), "secret_key");
 }
 
+TEST_P(CypherMainVisitorTest, RepairDatabaseQuery) {
+  auto &ast_generator = *GetParam();
+  ASSERT_TRUE(dynamic_cast<RepairDatabaseQuery *>(ast_generator.ParseQuery("REPAIR DATABASE")));
+}
+
 TEST_P(CypherMainVisitorTest, ShowSnapshotsQuery) {
   auto &ast_generator = *GetParam();
   ASSERT_TRUE(dynamic_cast<ShowSnapshotsQuery *>(ast_generator.ParseQuery("SHOW SNAPSHOTS")));

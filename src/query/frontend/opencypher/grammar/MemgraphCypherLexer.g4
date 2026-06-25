@@ -170,6 +170,7 @@ REGISTER                : R E G I S T E R ;
 RELOAD                  : R E L O A D ;
 RELOAD_TLS              : R E L O A D UNDERSCORE T L S ;
 RENAME                  : R E N A M E ;
+REPAIR                  : R E P A I R ;
 REPLACE                 : R E P L A C E ;
 REPLICA                 : R E P L I C A ;
 REPLICAS                : R E P L I C A S ;

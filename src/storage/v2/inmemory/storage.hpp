@@ -168,6 +168,11 @@ class InMemoryStorage final : public Storage {
     FailedOverwritingUUID
   };
 
+  enum class RepairError : uint8_t {
+    NotDefunct,
+    BackupFailure,
+  };
+
   /// @throw std::system_error
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
@@ -760,6 +765,12 @@ class InMemoryStorage final : public Storage {
   std::expected<void, InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
       std::optional<utils::S3Config> s3_config = std::nullopt);
+
+  // Cures a defunct tenant by resetting it to an empty working state. The corrupt
+  // snapshots/ and wal/ files are moved to a .old directory when backup directories
+  // are enabled, otherwise deleted, leaving the durability directory restart-clean.
+  // The defunct flag is cleared on success. Rejected on a healthy (non-defunct) storage.
+  std::expected<void, InMemoryStorage::RepairError> RepairDefunct();
 
   std::vector<SnapshotFileInfo> ShowSnapshots();
 
