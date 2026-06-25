@@ -862,6 +862,13 @@ kubectl delete pod memgraph-data-1-0
 wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-data-1-0 passed successfully"
 
+echo "Waiting for old MAIN to sync auth to upgraded replica..."
+sleep 30
+
+echo "Checking FGA on replica (data-1-0) while old MAIN still running"
+kubectl cp verify_fga_post_upgrade.sh memgraph-data-1-0:/var/lib/memgraph/verify_fga_post_upgrade.sh
+kubectl exec memgraph-data-1-0 -- bash /var/lib/memgraph/verify_fga_post_upgrade.sh --username=system_admin_user --password=admin_password
+
 echo "Deleting pod memgraph-data-0-0 which serves as main"
 kubectl scale statefulset memgraph-data-0 --replicas=0
 sleep 5
