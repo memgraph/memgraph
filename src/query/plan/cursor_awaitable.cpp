@@ -11,7 +11,20 @@
 
 #include "query/plan/cursor_awaitable.hpp"
 
+#include <atomic>
+
 namespace memgraph::query::plan {
+
+namespace {
+// TEST-ONLY throwaway scaffold (see header). Default OFF => synchronous root drive == master.
+std::atomic<bool> g_force_coro_root_drive{false};
+}  // namespace
+
+void SetForceCoroRootDriveForTesting(bool enabled) noexcept {
+  g_force_coro_root_drive.store(enabled, std::memory_order_relaxed);
+}
+
+bool ForceCoroRootDriveForTesting() noexcept { return g_force_coro_root_drive.load(std::memory_order_relaxed); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ResumePullStep — drives the root generator forward by exactly ONE step.

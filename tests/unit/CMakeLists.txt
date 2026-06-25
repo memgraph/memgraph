@@ -151,6 +151,14 @@ add_unit_test(cursor_seam
     LINK_TARGETS mg-query
 )
 
+# Coroutine root-drive seam (dormant): forces PullPlan to drive the plan via PullCo + ResumePullStep
+# and asserts results are byte-identical to synchronous drive (no cursor is converted yet, so they must
+# be). Dormant-correctness gate for the driver; the per-cursor parity corpus rides this same hook later.
+add_unit_test(cursor_coro_driver
+    SOURCES cursor_coro_driver.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+)
+
 add_unit_test(query_plan_orderby_index
     SOURCES query_plan_orderby_index.cpp
     LINK_TARGETS mg-query

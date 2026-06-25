@@ -84,6 +84,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "query/plan/fmt.hpp"
 #include "query/plan/hint_provider.hpp"
 #include "query/plan/parallel_checker.hpp"
@@ -3277,7 +3278,20 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     }};
 
     // Returns true if a result was pulled.
-    const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
+    //
+    // Coroutine root-drive seam: by default (and for profile queries) the root cursor is pulled
+    // synchronously, byte-identical to master. When the test-only force hook is on, the root is driven
+    // through the coroutine path (PullCo + ResumePullStep) instead — which is still byte-identical while
+    // every cursor is Sync (PullCo() default == Immediate(Pull())), and exercises the coroutine machinery
+    // once cursors are converted. Yield is OFF here (no PullDriverScope), so ResumePullStep only ever
+    // returns HasRow/Done. (The real per-cursor mode selection that replaces this hook lands later.)
+    const auto pull_result = [&]() -> bool {
+      if (plan::ForceCoroRootDriveForTesting() && !ctx_.is_profile_query) [[unlikely]] {
+        auto ra = cursor_->PullCo(frame_, ctx_);
+        return plan::ResumePullStep(ra, ctx_).status == plan::PullRunResult::Status::HasRow;
+      }
+      return cursor_->Pull(frame_, ctx_);
+    };
 
     auto values = std::vector<TypedValue>(output_symbols.size());
     const auto stream_values = [&] {

@@ -203,4 +203,20 @@ class PullDriverScope {
 // ─────────────────────────────────────────────────────────────────────────────
 PullRunResult ResumePullStep(PullAwaitable::ResumeAwaitable &ra, ExecutionContext &ctx);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST-ONLY (throwaway scaffold). Forces the root driver (PullPlan::Pull) to pull the plan via the
+// coroutine path — PullCo() + ResumePullStep — instead of the synchronous Pull(). This lets the parity
+// harness exercise the coroutine machinery before the real, per-cursor mode selection (a later PR,
+// MakeCursor-based) exists.
+//
+// Default OFF => the engine drives synchronously, byte-identical to master. With every cursor still in
+// Sync mode (PullCo() default == Immediate(Pull())), turning it ON is ALSO byte-identical until cursors
+// are converted; once a cursor has a coroutine body it is then exercised through this path.
+//
+// Process-global (not thread-safe against concurrent queries) — strictly a unit-test seam, removed when
+// MakeCursor-based mode selection lands.
+// ─────────────────────────────────────────────────────────────────────────────
+void SetForceCoroRootDriveForTesting(bool enabled) noexcept;
+[[nodiscard]] bool ForceCoroRootDriveForTesting() noexcept;
+
 }  // namespace memgraph::query::plan
