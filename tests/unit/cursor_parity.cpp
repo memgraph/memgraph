@@ -248,6 +248,9 @@ TEST_F(CursorParityTest, Corpus) {
       // Shortest-path BFS (P1.5 dual-path): SingleSource (source bound) + ST (both endpoints bound).
       "MATCH (a:N {id: 1})-[r *BFS]->(b:N) RETURN b.id AS bid, size(r) AS hops ORDER BY bid",
       "MATCH (a:N {id: 1})-[r *BFS]->(b:N {id: 3}) RETURN size(r) AS hops",
+      // STShortestPath needs BOTH endpoints pre-bound (existing_node) -> bind them in a prior WITH so
+      // the planner picks STShortestPathCursor (the single-MATCH form above resolves to SingleSource).
+      "MATCH (a:N {id: 1}), (b:N {id: 3}) WITH a, b MATCH (a)-[r *BFS]->(b) RETURN size(r) AS hops",
       // Weighted / all-shortest (P1.6 dual-path) over weighted 1-(10)->2-(20)->3.
       "MATCH (a:N {id: 1})-[r *WSHORTEST (e, n | e.w) total]->(b:N) RETURN b.id AS bid, total AS cost ORDER BY "
       "bid",
