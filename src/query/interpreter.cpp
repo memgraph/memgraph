@@ -3286,10 +3286,15 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     // once cursors are converted. Yield is OFF here (no PullDriverScope), so ResumePullStep only ever
     // returns HasRow/Done. (The real per-cursor mode selection that replaces this hook lands later.)
     const auto pull_result = [&]() -> bool {
+#ifndef NDEBUG
+      // DEBUG-ONLY parity seam: when the force hook is on, drive the root via the coroutine path
+      // (PullCo + ResumePullStep) so the parity harness can verify coroutine pull == synchronous pull.
+      // Compiled out entirely in Release/RelWithDebInfo (NDEBUG) — production has no per-pull branch.
       if (plan::ForceCoroRootDriveForTesting() && !ctx_.is_profile_query) [[unlikely]] {
         auto ra = cursor_->PullCo(frame_, ctx_);
         return plan::ResumePullStep(ra, ctx_).status == plan::PullRunResult::Status::HasRow;
       }
+#endif
       return cursor_->Pull(frame_, ctx_);
     };
 

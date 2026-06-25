@@ -35,6 +35,10 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "system/system.hpp"
 
+// DEBUG-ONLY: drives the root via the force-coro hook, which only exists when NDEBUG is undefined
+// (Debug builds). Compiled out in Release/RelWithDebInfo; replaced by a single skipped test below.
+#ifndef NDEBUG
+
 namespace {
 
 // Render a result stream (header + rows) to a stable string for equality comparison.
@@ -130,3 +134,11 @@ TEST_F(CursorCoroDriverTest, WritesAndReadbackByteIdentical) {
 }
 
 }  // namespace
+
+#else  // NDEBUG
+
+TEST(CursorCoroDriver, DebugOnly) {
+  GTEST_SKIP() << "coroutine root-drive smoke test is Debug-only (NDEBUG gates the force-coro seam)";
+}
+
+#endif  // NDEBUG

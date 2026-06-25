@@ -26,9 +26,11 @@
 // through its cursors. Keep corpus queries DETERMINISTIC (fixed seed data + stable ordering) so the two
 // renders compare equal without order-normalization.
 //
-// NOTE: the force-coro-root hook is a throwaway test seam; it is replaced by the real per-cursor mode
-// selection (MakeCursor) in a later PR, at which point this harness flips to driving via that selection.
-// Parallel (enterprise) cursors are converted with the scheduler/park work in a later PR.
+// NOTE: this whole harness is DEBUG-ONLY (gated behind NDEBUG below) — a permanent correctness gate,
+// NOT throwaway scaffolding. The force-coro-root hook coexists with the real per-cursor mode selection
+// (MakeCursor, a later PR): production drives via that selection, while this harness force-drives every
+// plan through the coroutine path to verify coroutine pull == synchronous pull across the full operator
+// surface. Parallel (enterprise) cursors are converted with the scheduler/park work in a later PR.
 
 #include <fstream>
 #include <sstream>
@@ -46,6 +48,11 @@
 #include "replication/state.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "system/system.hpp"
+
+// DEBUG-ONLY: the parity harness drives the plan through the coroutine path via the force-coro hook,
+// which only exists when NDEBUG is undefined (Debug builds). In Release/RelWithDebInfo the seam is
+// compiled out, so the whole harness is replaced by a single skipped test at the bottom.
+#ifndef NDEBUG
 
 namespace {
 
@@ -389,3 +396,13 @@ TEST_F(CursorParityTest, MutationCorpus) {
 }
 
 }  // namespace
+
+#else  // NDEBUG
+
+#include "gtest/gtest.h"
+
+TEST(CursorParity, DebugOnly) {
+  GTEST_SKIP() << "coroutine-cursor parity harness is Debug-only (NDEBUG gates the force-coro seam)";
+}
+
+#endif  // NDEBUG

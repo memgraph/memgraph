@@ -213,10 +213,17 @@ PullRunResult ResumePullStep(PullAwaitable::ResumeAwaitable &ra, ExecutionContex
 // Sync mode (PullCo() default == Immediate(Pull())), turning it ON is ALSO byte-identical until cursors
 // are converted; once a cursor has a coroutine body it is then exercised through this path.
 //
-// Process-global (not thread-safe against concurrent queries) — strictly a unit-test seam, removed when
-// MakeCursor-based mode selection lands.
+// Process-global (not thread-safe against concurrent queries) — strictly a parity-test seam.
+//
+// DEBUG-ONLY: gated behind NDEBUG (defined in Release/RelWithDebInfo, absent in Debug). In production
+// builds the hook, the interpreter branch that consults it, and the parity tests that toggle it all
+// compile out entirely — so there is ZERO per-pull overhead and no way to force the coroutine path.
+// The harness is a permanent Debug-build correctness gate (coroutine pull == synchronous pull), NOT
+// throwaway scaffolding; it coexists with the real MakeCursor-based mode selection (a later PR).
 // ─────────────────────────────────────────────────────────────────────────────
+#ifndef NDEBUG
 void SetForceCoroRootDriveForTesting(bool enabled) noexcept;
 [[nodiscard]] bool ForceCoroRootDriveForTesting() noexcept;
+#endif
 
 }  // namespace memgraph::query::plan

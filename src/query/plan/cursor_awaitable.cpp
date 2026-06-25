@@ -15,8 +15,9 @@
 
 namespace memgraph::query::plan {
 
+#ifndef NDEBUG
 namespace {
-// TEST-ONLY throwaway scaffold (see header). Default OFF => synchronous root drive == master.
+// DEBUG-ONLY parity-test seam (see header). Default OFF => synchronous root drive == master.
 std::atomic<bool> g_force_coro_root_drive{false};
 }  // namespace
 
@@ -25,6 +26,7 @@ void SetForceCoroRootDriveForTesting(bool enabled) noexcept {
 }
 
 bool ForceCoroRootDriveForTesting() noexcept { return g_force_coro_root_drive.load(std::memory_order_relaxed); }
+#endif
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ResumePullStep — drives the root generator forward by exactly ONE step.
