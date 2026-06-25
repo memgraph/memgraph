@@ -564,7 +564,7 @@ jobs:
           echo "RPM_DEBUGINFO_PACKAGE=${RPM_DEBUGINFO_PACKAGE}" >> $GITHUB_ENV
 
       - name: Build offline installer (.run) for Ubuntu 24.04
-        if: ${{ inputs.build_offline_installer && env.PACKAGE_MAGE == 'true' && inputs.os = 'ubuntu-24.04' && inputs.arch = 'amd' }}
+        if: ${{ inputs.build_offline_installer && env.PACKAGE_MAGE == 'true' && inputs.os == 'ubuntu-24.04' && inputs.arch == 'amd' }}
         run: |
           SUFFIX=""
           [[ "$MALLOC" == "true" ]]               && SUFFIX="${SUFFIX}-malloc"

@@ -42,6 +42,13 @@ BuildArch:      @ARCH@
 # the python tooling are named explicitly so a bare `dnf install` pulls them in.
 Requires:       memgraph
 Requires:       libcurl, openssl, python3, python3-pip, python3-setuptools, libgomp, libatomic
+# On CentOS Stream 9 memgraph embeds python 3.12 (built with MG_PYTHON_VERSION=3.12)
+# rather than the distro-default 3.9, so the query modules and the %post pip
+# install need the 3.12 interpreter + pip. python3.12-pip pulls python3.12, but
+# both are named for clarity.
+%if 0%{?rhel} == 9
+Requires:       python3.12, python3.12-pip
+%endif
 
 %description
 Additional query modules for Memgraph, installed under
