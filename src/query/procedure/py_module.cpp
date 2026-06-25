@@ -53,7 +53,7 @@ PyObject *g_dt_timezone = nullptr;   // NOLINT(cppcoreguidelines-avoid-non-const
 
 bool InitDateTimeRefs() {
   if (g_dt_date != nullptr) return true;
-  py::Object module(PyImport_ImportModule("datetime"));
+  const py::Object module(PyImport_ImportModule("datetime"));
   if (!module) return false;
   g_dt_date = PyObject_GetAttrString(module.Ptr(), "date");
   g_dt_time = PyObject_GetAttrString(module.Ptr(), "time");
@@ -77,9 +77,9 @@ bool IsDeltaExact(PyObject *o) { return Py_TYPE(o) == reinterpret_cast<PyTypeObj
 // the Python error indicator is set and the return is 0; callers must check
 // `PyErr_Occurred()` if they care.
 int GetIntAttr(PyObject *obj, const char *name) {
-  py::Object v(PyObject_GetAttrString(obj, name));
+  const py::Object v(PyObject_GetAttrString(obj, name));
   if (!v) return 0;
-  long n = PyLong_AsLong(v.Ptr());
+  const long n = PyLong_AsLong(v.Ptr());
   return static_cast<int>(n);
 }
 
@@ -117,7 +117,7 @@ void HeapTypeFree(PyObject *self) {
 // Set this as a __reduce__ special method on our types to prevent `pickle` and
 // `copy` module operations on our types.
 PyObject *DisallowPickleAndCopy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-  py::Object type_name(PyObject_GetAttrString(reinterpret_cast<PyObject *>(Py_TYPE(self)), "__name__"));
+  const py::Object type_name(PyObject_GetAttrString(reinterpret_cast<PyObject *>(Py_TYPE(self)), "__name__"));
   std::stringstream ss;
   ss << "cannot pickle nor copy '";
   if (type_name) {
@@ -330,6 +330,7 @@ static PyMethodDef PyVerticesIteratorMethods[] = {
 };
 
 static PyType_Slot PyVerticesIteratorType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_vertices_iterator.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyVerticesIteratorDealloc)},
     {Py_tp_methods, PyVerticesIteratorMethods},
@@ -337,6 +338,7 @@ static PyType_Slot PyVerticesIteratorType_slots[] = {
 };
 
 static PyType_Spec PyVerticesIteratorType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.VerticesIterator",
     sizeof(PyVerticesIterator),
     0,
@@ -345,7 +347,7 @@ static PyType_Spec PyVerticesIteratorType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyVerticesIteratorType = nullptr;
+static PyTypeObject *PyVerticesIteratorType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 // clang-format off
 struct PyEdgesIterator {
@@ -413,6 +415,7 @@ static PyMethodDef PyEdgesIteratorMethods[] = {
 };
 
 static PyType_Slot PyEdgesIteratorType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_edges_iterator.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyEdgesIteratorDealloc)},
     {Py_tp_methods, PyEdgesIteratorMethods},
@@ -420,6 +423,7 @@ static PyType_Slot PyEdgesIteratorType_slots[] = {
 };
 
 static PyType_Spec PyEdgesIteratorType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.EdgesIterator",
     sizeof(PyEdgesIterator),
     0,
@@ -428,7 +432,7 @@ static PyType_Spec PyEdgesIteratorType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyEdgesIteratorType = nullptr;
+static PyTypeObject *PyEdgesIteratorType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 PyObject *PyGraphInvalidate(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   self->graph = nullptr;
@@ -562,12 +566,14 @@ static PyMethodDef PyGraphMethods[] = {
 };
 
 static PyType_Slot PyGraphType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_graph.")},
     {Py_tp_methods, PyGraphMethods},
     {0, nullptr},
 };
 
 static PyType_Spec PyGraphType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Graph",
     sizeof(PyGraph),
     0,
@@ -576,7 +582,7 @@ static PyType_Spec PyGraphType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyGraphType = nullptr;
+static PyTypeObject *PyGraphType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 // clang-format on
 
 PyObject *MakePyGraph(mgp_graph *graph, mgp_memory *memory) {
@@ -597,11 +603,13 @@ struct PyCypherType {
 // clang-format on
 
 static PyType_Slot PyCypherTypeType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_type.")},
     {0, nullptr},
 };
 
 static PyType_Spec PyCypherTypeType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Type",
     sizeof(PyCypherType),
     0,
@@ -610,7 +618,7 @@ static PyType_Spec PyCypherTypeType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyCypherTypeType = nullptr;
+static PyTypeObject *PyCypherTypeType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 PyObject *MakePyCypherType(mgp_type *type) {
   MG_ASSERT(type);
@@ -740,12 +748,14 @@ static PyMethodDef PyQueryProcMethods[] = {
 };
 
 static PyType_Slot PyQueryProcType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_proc.")},
     {Py_tp_methods, PyQueryProcMethods},
     {0, nullptr},
 };
 
 static PyType_Spec PyQueryProcType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Proc",
     sizeof(PyQueryProc),
     0,
@@ -754,7 +764,7 @@ static PyType_Spec PyQueryProcType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyQueryProcType = nullptr;
+static PyTypeObject *PyQueryProcType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 PyObject *PyMagicFuncAddArg(PyMagicFunc *self, PyObject *args) { return PyCallableAddArg(self, args); }
 
@@ -776,6 +786,7 @@ static PyMethodDef PyMagicFuncMethods[] = {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyType_Slot PyMagicFuncType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_func.")},
     {Py_tp_methods, PyMagicFuncMethods},
     {0, nullptr},
@@ -783,6 +794,7 @@ static PyType_Slot PyMagicFuncType_slots[] = {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyType_Spec PyMagicFuncType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Func",
     sizeof(PyMagicFunc),
     0,
@@ -791,7 +803,7 @@ static PyType_Spec PyMagicFuncType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyMagicFuncType = nullptr;
+static PyTypeObject *PyMagicFuncType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 // clang-format off
 struct PyQueryModule {
@@ -946,6 +958,7 @@ void PyMessageDealloc(PyMessage *self) {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyType_Slot PyMessageType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_message.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyMessageDealloc)},
     {Py_tp_methods, PyMessageMethods},
@@ -954,6 +967,7 @@ static PyType_Slot PyMessageType_slots[] = {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyType_Spec PyMessageType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Message",
     sizeof(PyMessage),
     0,
@@ -962,7 +976,7 @@ static PyType_Spec PyMessageType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyMessageType = nullptr;
+static PyTypeObject *PyMessageType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 PyObject *PyMessagesInvalidate(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
   self->messages = nullptr;
@@ -1031,6 +1045,7 @@ static PyMethodDef PyMessagesMethods[] = {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyType_Slot PyMessagesType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_messages.")},
     {Py_tp_methods, PyMessagesMethods},
     {0, nullptr},
@@ -1038,6 +1053,7 @@ static PyType_Slot PyMessagesType_slots[] = {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyType_Spec PyMessagesType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Messages",
     sizeof(PyMessages),
     0,
@@ -1046,7 +1062,7 @@ static PyType_Spec PyMessagesType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyMessagesType = nullptr;
+static PyTypeObject *PyMessagesType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 PyObject *MakePyMessages(mgp_messages *msgs, mgp_memory *memory) {
   MG_ASSERT(!msgs || (msgs && memory));
@@ -1075,7 +1091,7 @@ py::Object MgpListToPyTupleImpl(mgp_list *list, PyGraph *py_graph, PyObject *py_
     // Note: PyTuple_SetItem (unlike the SET_ITEM macro) returns -1 on error
     // and steals the reference even on failure. Safe to call here because the
     // tuple is fresh and we never set the same index twice.
-    PyTuple_SetItem(py_tuple.Ptr(), i, elem.Steal());
+    PyTuple_SetItem(py_tuple.Ptr(), static_cast<Py_ssize_t>(i), elem.Steal());
   }
   return py_tuple;
 }
@@ -1202,7 +1218,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     }
   }};
 
-  Py_ssize_t len = PyList_Size(items.Ptr());
+  const Py_ssize_t len = PyList_Size(items.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
     auto *item = PyList_GetItem(items.Ptr(), i);
     if (!item) return py::FetchError();
@@ -1733,12 +1749,14 @@ static PyMethodDef PyQueryModuleMethods[] = {
 };
 
 static PyType_Slot PyQueryModuleType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_module.")},
     {Py_tp_methods, PyQueryModuleMethods},
     {0, nullptr},
 };
 
 static PyType_Spec PyQueryModuleType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Module",
     sizeof(PyQueryModule),
     0,
@@ -1747,7 +1765,7 @@ static PyType_Spec PyQueryModuleType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyQueryModuleType = nullptr;
+static PyTypeObject *PyQueryModuleType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 PyObject *MakePyQueryModule(mgp_module *module) {
   MG_ASSERT(module);
@@ -1929,6 +1947,7 @@ static PyMethodDef PyPropertiesIteratorMethods[] = {
 };
 
 static PyType_Slot PyPropertiesIteratorType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_properties_iterator.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyPropertiesIteratorDealloc)},
     {Py_tp_methods, PyPropertiesIteratorMethods},
@@ -1936,6 +1955,7 @@ static PyType_Slot PyPropertiesIteratorType_slots[] = {
 };
 
 static PyType_Spec PyPropertiesIteratorType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.PropertiesIterator",
     sizeof(PyPropertiesIterator),
     0,
@@ -1944,7 +1964,7 @@ static PyType_Spec PyPropertiesIteratorType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyPropertiesIteratorType = nullptr;
+static PyTypeObject *PyPropertiesIteratorType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 // clang-format off
 struct PyEdge {
@@ -2165,6 +2185,7 @@ static PyMethodDef PyEdgeMethods[] = {
 PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op);
 
 static PyType_Slot PyEdgeType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_edge.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyEdgeDealloc)},
     {Py_tp_richcompare, reinterpret_cast<void *>(PyEdgeRichCompare)},
@@ -2173,6 +2194,7 @@ static PyType_Slot PyEdgeType_slots[] = {
 };
 
 static PyType_Spec PyEdgeType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Edge",
     sizeof(PyEdge),
     0,
@@ -2181,7 +2203,7 @@ static PyType_Spec PyEdgeType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyEdgeType = nullptr;
+static PyTypeObject *PyEdgeType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 PyObject *MakePyEdgeWithoutCopy(mgp_edge &edge, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
@@ -2539,6 +2561,7 @@ static PyMethodDef PyVertexMethods[] = {
 PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op);
 
 static PyType_Slot PyVertexType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_vertex.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyVertexDealloc)},
     {Py_tp_richcompare, reinterpret_cast<void *>(PyVertexRichCompare)},
@@ -2547,6 +2570,7 @@ static PyType_Slot PyVertexType_slots[] = {
 };
 
 static PyType_Spec PyVertexType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Vertex",
     sizeof(PyVertex),
     0,
@@ -2555,7 +2579,7 @@ static PyType_Spec PyVertexType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyVertexType = nullptr;
+static PyTypeObject *PyVertexType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 PyObject *MakePyVertexWithoutCopy(mgp_vertex &vertex, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
@@ -2723,6 +2747,7 @@ static PyMethodDef PyPathMethods[] = {
 };
 
 static PyType_Slot PyPathType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Wraps struct mgp_path.")},
     {Py_tp_dealloc, reinterpret_cast<void *>(PyPathDealloc)},
     {Py_tp_methods, PyPathMethods},
@@ -2730,6 +2755,7 @@ static PyType_Slot PyPathType_slots[] = {
 };
 
 static PyType_Spec PyPathType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Path",
     sizeof(PyPath),
     0,
@@ -2738,7 +2764,7 @@ static PyType_Spec PyPathType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyPathType = nullptr;
+static PyTypeObject *PyPathType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 PyObject *MakePyPath(mgp_path *path, PyGraph *py_graph) {
   MG_ASSERT(path);
@@ -2861,6 +2887,7 @@ static PyMethodDef PyLoggerMethods[] = {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyType_Slot PyLoggerType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
     {Py_tp_doc, const_cast<char *>("Logging API.")},
     {Py_tp_methods, PyLoggerMethods},
     {0, nullptr},
@@ -2868,6 +2895,7 @@ static PyType_Slot PyLoggerType_slots[] = {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyType_Spec PyLoggerType_spec = {
+    // NOLINT(misc-use-anonymous-namespace)
     "_mgp.Logger",
     sizeof(PyLogger),
     0,
@@ -2876,7 +2904,7 @@ static PyType_Spec PyLoggerType_spec = {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject *PyLoggerType = nullptr;
+static PyTypeObject *PyLoggerType = nullptr;  // NOLINT(misc-use-anonymous-namespace)
 
 struct PyUtils {
   PyObject_HEAD
@@ -2893,6 +2921,7 @@ PyMethodDef PyUtilsMethods[] = {  // NOSONAR
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 PyType_Slot PyUtilsType_slots[] = {
+    // NOLINT(modernize-avoid-c-arrays)
     // NOSONAR
     {Py_tp_doc, const_cast<char *>("Utils API.")},
     {Py_tp_methods, PyUtilsMethods},
@@ -3499,7 +3528,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
                                                     .millisecond = dt_microsecond / 1000,
                                                     .microsecond = dt_microsecond % 1000};
 
-    if (py::Object tzinfo(GetTzInfo(o)); tzinfo) {
+    if (const py::Object tzinfo(GetTzInfo(o)); tzinfo) {
       py::Object const offset(PyObject_CallMethod(tzinfo.Ptr(), "utcoffset", "O", o));
       if (!offset) {
         throw std::runtime_error{"Cannot read timezone offset"};
@@ -3555,8 +3584,8 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     static constexpr int64_t microseconds_in_days =
         static_cast<std::chrono::microseconds>(std::chrono::days{1}).count();
     const auto days = GetIntAttr(o, "days");
-    auto microseconds = std::abs(days) * microseconds_in_days +
-                        static_cast<int64_t>(GetIntAttr(o, "seconds")) * kMicrosecondsInSecond +
+    auto microseconds = (std::abs(days) * microseconds_in_days) +
+                        (static_cast<int64_t>(GetIntAttr(o, "seconds")) * kMicrosecondsInSecond) +
                         GetIntAttr(o, "microseconds");
     microseconds *= days < 0 ? -1 : 1;
 
