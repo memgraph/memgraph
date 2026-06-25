@@ -13,7 +13,6 @@
 
 #include <nlohmann/json.hpp>
 #include "auth/auth.hpp"
-#include "auth/models.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
