@@ -289,6 +289,8 @@ void VectorEdgeIndex::Clear() {
 
 void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
                                           PropertyId property, const PropertyValue &value) {
+  // No vector edge indexes: a value can only be a vector-index id when one exists, so there is nothing to do.
+  if (index_->empty()) return;
   // Property should already be updated to the vector index id if it has vector index defined on it.
   if (value.IsVectorIndexId()) {
     const auto &vector_property = value.ValueVectorIndexList();

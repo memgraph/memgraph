@@ -1733,7 +1733,7 @@ TEST(PropertiesPermutationHelper, MatchesValue_ProducesVectorOfPositionsAndCompa
   PropertiesPermutationHelper prop_reader{std::array{
       PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p4}, PropertyPath{p5, p6}, PropertyPath{p7}}};
 
-  IndexOrderedPropertyValues const baseline{{
+  IndexOrderedValuesVector const baseline{{
       PropertyValue("apple"),
       PropertyValue("banana"),
       PropertyValue("cherry"),
@@ -1816,7 +1816,7 @@ TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderProperties) {
       PropertyPath{p1, p2},
   }};
 
-  IndexOrderedPropertyValues const baseline{{
+  IndexOrderedValuesVector const baseline{{
       PropertyValue("apple"),   // corresponds to p3.p4; ordered-index[1]
       PropertyValue("banana"),  // corresponds to p1.p2; ordered-index[0]
   }};
@@ -1850,7 +1850,7 @@ TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderPropertiesWhenR
   PropertiesPermutationHelper prop_reader{
       std::array{PropertyPath{p3, p4}, PropertyPath{p1, p6}, PropertyPath{p3, p5}, PropertyPath{p1, p2}}};
 
-  IndexOrderedPropertyValues const baseline{{
+  IndexOrderedValuesVector const baseline{{
       PropertyValue("apple"),   // corresponds to p3.p4; ordered-index[2]
       PropertyValue("banana"),  // corresponds to p1.p6; ordered-index[1]
       PropertyValue("cherry"),  // corresponds to p3.p5; ordered-index[3]
@@ -1958,24 +1958,25 @@ TEST(PropertiesPermutationHelper, MatchesValues_ReturnsABooleanMaskOfMatches) {
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_EQ(
-      prop_reader.MatchesValues(
-          store,
-          std::vector{PropertyValue{"apple"}, PropertyValue{"banana"}, PropertyValue{"cherry"}, PropertyValue{"date"}}),
-      (std::vector{true, true, true, true}));
-
-  EXPECT_EQ(
-      prop_reader.MatchesValues(
-          store,
-          std::vector{
-              PropertyValue{"applex"}, PropertyValue{"bananax"}, PropertyValue{"cherryx"}, PropertyValue{"datex"}}),
-      (std::vector{false, false, false, false}));
-
   EXPECT_EQ(prop_reader.MatchesValues(
                 store,
-                std::vector{
-                    PropertyValue{"apple"}, PropertyValue{"bananax"}, PropertyValue{"cherry"}, PropertyValue{"datex"}}),
-            (std::vector{true, false, true, false}));
+                IndexOrderedValuesVector{
+                    {PropertyValue{"apple"}, PropertyValue{"banana"}, PropertyValue{"cherry"}, PropertyValue{"date"}}}),
+            (std::vector{true, true, true, true}));
+
+  EXPECT_EQ(
+      prop_reader.MatchesValues(
+          store,
+          IndexOrderedValuesVector{
+              {PropertyValue{"applex"}, PropertyValue{"bananax"}, PropertyValue{"cherryx"}, PropertyValue{"datex"}}}),
+      (std::vector{false, false, false, false}));
+
+  EXPECT_EQ(
+      prop_reader.MatchesValues(
+          store,
+          IndexOrderedValuesVector{
+              {PropertyValue{"apple"}, PropertyValue{"bananax"}, PropertyValue{"cherry"}, PropertyValue{"datex"}}}),
+      (std::vector{true, false, true, false}));
 }
 
 TEST(PropertiesPermutationHelper, MatchesValues_WorksWithOutOfOrderProperties) {
@@ -1995,17 +1996,17 @@ TEST(PropertiesPermutationHelper, MatchesValues_WorksWithOutOfOrderProperties) {
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_EQ(
-      prop_reader.MatchesValues(
-          store,
-          std::vector{PropertyValue{"cherry"}, PropertyValue{"apple"}, PropertyValue{"banana"}, PropertyValue{"date"}}),
-      (std::vector{true, true, true, true}));
+  EXPECT_EQ(prop_reader.MatchesValues(
+                store,
+                IndexOrderedValuesVector{
+                    {PropertyValue{"cherry"}, PropertyValue{"apple"}, PropertyValue{"banana"}, PropertyValue{"date"}}}),
+            (std::vector{true, true, true, true}));
 
-  EXPECT_EQ(
-      prop_reader.MatchesValues(
-          store,
-          std::vector{PropertyValue{"apple"}, PropertyValue{"banana"}, PropertyValue{"cherry"}, PropertyValue{"date"}}),
-      (std::vector{false, false, false, true}));
+  EXPECT_EQ(prop_reader.MatchesValues(
+                store,
+                IndexOrderedValuesVector{
+                    {PropertyValue{"apple"}, PropertyValue{"banana"}, PropertyValue{"cherry"}, PropertyValue{"date"}}}),
+            (std::vector{false, false, false, true}));
 }
 
 TEST(PropertiesPermutationHelper, MatchesValues_WorksWithNestedProperties) {
@@ -2026,17 +2027,17 @@ TEST(PropertiesPermutationHelper, MatchesValues_WorksWithNestedProperties) {
   PropertyStore store;
   store.InitProperties(data);
 
-  EXPECT_EQ(
-      prop_reader.MatchesValues(
-          store,
-          std::vector{PropertyValue{"banana"}, PropertyValue{"cherry"}, PropertyValue{"apple"}, PropertyValue{"date"}}),
-      (std::vector{true, true, true, true}));
+  EXPECT_EQ(prop_reader.MatchesValues(
+                store,
+                IndexOrderedValuesVector{
+                    {PropertyValue{"banana"}, PropertyValue{"cherry"}, PropertyValue{"apple"}, PropertyValue{"date"}}}),
+            (std::vector{true, true, true, true}));
 
-  EXPECT_EQ(
-      prop_reader.MatchesValues(
-          store,
-          std::vector{PropertyValue{"apple"}, PropertyValue{"cherry"}, PropertyValue{"banana"}, PropertyValue{"date"}}),
-      (std::vector{false, false, true, true}));
+  EXPECT_EQ(prop_reader.MatchesValues(
+                store,
+                IndexOrderedValuesVector{
+                    {PropertyValue{"apple"}, PropertyValue{"cherry"}, PropertyValue{"banana"}, PropertyValue{"date"}}}),
+            (std::vector{false, false, true, true}));
 }
 
 //==============================================================================

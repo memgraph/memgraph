@@ -296,6 +296,8 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
 }
 
 void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) {
+  // No vector indexes: a value can only be a vector-index id when one exists, so there is nothing to do.
+  if (index_->empty()) return;
   // Property should already be updated to the vector index id if it has vector index defined on it.
   if (value.IsVectorIndexId()) {
     const auto &vector_property = value.ValueVectorIndexList();

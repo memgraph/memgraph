@@ -11,7 +11,12 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
+#include <memory>
 #include <span>
+#include <tuple>
+#include <variant>
 
 #include "memory/db_arena_fwd.hpp"
 #include "metrics/prometheus_metrics.hpp"
@@ -31,19 +36,32 @@
 
 namespace memgraph::storage {
 
+// Type-erased iterable wrappers the query executor consumes. Forward-declared
+// to keep the seam: vertices_iterable.hpp includes this header, so the erased
+// query methods take these by value in their declarations (incomplete type is
+// fine for a by-value return declaration) and are defined in the .cpp.
+class VerticesIterable;
+class VerticesChunkedIterable;
+
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
-  /// Index entry stored in the SkipList. Parameterized on sort direction:
-  /// Reverse=false gives ASC ordering, Reverse=true gives DESC (reversed values comparison).
-  template <bool Reverse = false>
+  /// Index entry stored in the SkipList. Parameterized on sort direction and
+  /// composite arity: Order=IndexOrder::ASC sorts ascending, IndexOrder::DESC
+  /// descending (the values comparison flips); N is the fixed composite arity
+  /// (array-backed) or dynamic_extent for the vector-backed dynamic storage.
+  template <IndexOrder Order = IndexOrder::ASC, std::size_t N = std::dynamic_extent>
   struct BasicEntry {
-    IndexOrderedPropertyValues values;
+    static constexpr IndexOrder kOrder = Order;
+    static constexpr std::size_t kArity = N;
+    using ValuesType = IndexOrderedValues<N>;
+
+    IndexOrderedValues<N> values;
     Vertex *vertex;
     uint64_t timestamp;
 
     friend std::weak_ordering operator<=>(BasicEntry const &lhs, BasicEntry const &rhs) {
-      // Reverse ONLY the values comparison; vertex+timestamp stay same for MVCC correctness
-      if constexpr (Reverse) {
+      // Flip ONLY the values comparison for DESC; vertex+timestamp stay same for MVCC correctness
+      if constexpr (Order == IndexOrder::DESC) {
         if (auto cmp = (rhs.values <=> lhs.values); cmp != 0) return cmp;
       } else {
         if (auto cmp = (lhs.values <=> rhs.values); cmp != 0) return cmp;
@@ -59,12 +77,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     bool operator<=(std::vector<PropertyValue> const &rhs) const;
   };
 
-  using Entry = BasicEntry<false>;
-  using DescEntry = BasicEntry<true>;
+  template <std::size_t N = std::dynamic_extent>
+  using Entry = BasicEntry<IndexOrder::ASC, N>;
+  template <std::size_t N = std::dynamic_extent>
+  using DescEntry = BasicEntry<IndexOrder::DESC, N>;
 
   explicit InMemoryLabelPropertyIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
-  template <typename EntryT = Entry>
+  template <typename EntryT = Entry<>>
   struct IndividualIndex {
     using EntryType = EntryT;
 
@@ -80,6 +100,19 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     metrics::ScopedGauge gauge_{};
   };
 
+  // An index of any supported composite arity, for a fixed sort direction. The
+  // array-backed fixed arities (1, 2) inline their values into the skiplist
+  // node; the dynamic_extent alternative is the vector-backed fallback for any
+  // other arity. The arity is fixed at index creation, so a given map entry
+  // holds exactly one alternative.
+  template <IndexOrder Order>
+  using IndexPtrVariant = std::variant<std::shared_ptr<IndividualIndex<BasicEntry<Order, 1>>>,
+                                       std::shared_ptr<IndividualIndex<BasicEntry<Order, 2>>>,
+                                       std::shared_ptr<IndividualIndex<BasicEntry<Order, std::dynamic_extent>>>>;
+
+  using AscIndexPtrVariant = IndexPtrVariant<IndexOrder::ASC>;
+  using DescIndexPtrVariant = IndexPtrVariant<IndexOrder::DESC>;
+
   struct Compare {
     template <std::ranges::forward_range T, std::ranges::forward_range U>
     bool operator()(T const &lhs, U const &rhs) const {
@@ -90,32 +123,33 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
   // ASC index types
-  using AscPropertiesIndices =
-      std::map<PropertiesPaths, std::shared_ptr<IndividualIndex<Entry>>, Compare,
-               memory::DbAwareAllocator<std::pair<const PropertiesPaths, std::shared_ptr<IndividualIndex<Entry>>>>>;
+  using AscPropertiesIndices = std::map<PropertiesPaths, AscIndexPtrVariant, Compare,
+                                        memory::DbAwareAllocator<std::pair<const PropertiesPaths, AscIndexPtrVariant>>>;
   using AscLabelPropertiesIndices = std::map<LabelId, AscPropertiesIndices, std::less<>,
                                              memory::DbAwareAllocator<std::pair<const LabelId, AscPropertiesIndices>>>;
-  using AscEntryDetail = std::tuple<PropertiesPaths const *, IndividualIndex<Entry> *>;
+  // Non-owning back-reference into the index map: the paths key and the owning
+  // index variant, both pointing into the same map node.
+  using AscEntryDetail = std::tuple<PropertiesPaths const *, AscIndexPtrVariant const *>;
   using AscReverseLookup = std::unordered_map<PropertyId, std::multimap<LabelId, AscEntryDetail>>;
 
   // DESC index types
   using DescPropertiesIndices =
-      std::map<PropertiesPaths, std::shared_ptr<IndividualIndex<DescEntry>>, Compare,
-               memory::DbAwareAllocator<std::pair<const PropertiesPaths, std::shared_ptr<IndividualIndex<DescEntry>>>>>;
+      std::map<PropertiesPaths, DescIndexPtrVariant, Compare,
+               memory::DbAwareAllocator<std::pair<const PropertiesPaths, DescIndexPtrVariant>>>;
   using DescLabelPropertiesIndices =
       std::map<LabelId, DescPropertiesIndices, std::less<>,
                memory::DbAwareAllocator<std::pair<const LabelId, DescPropertiesIndices>>>;
-  using DescEntryDetail = std::tuple<PropertiesPaths const *, IndividualIndex<DescEntry> *>;
+  using DescEntryDetail = std::tuple<PropertiesPaths const *, DescIndexPtrVariant const *>;
   using DescReverseLookup = std::unordered_map<PropertyId, std::multimap<LabelId, DescEntryDetail>>;
 
   struct IndexContainer {
    private:
     template <typename IndicesMap, typename ReverseLookup>
     static void BuildReverseLookup(IndicesMap const &indices, ReverseLookup &reverse_lookup) {
+      using EntryDetailT = typename ReverseLookup::mapped_type::mapped_type;
       for (auto const &[label, by_label] : indices) {
         for (auto const &[propertyPaths, entry] : by_label) {
-          using EntryDetailT = std::tuple<PropertiesPaths const *, typename std::decay_t<decltype(*entry)> *>;
-          auto const ed = EntryDetailT{&propertyPaths, entry.get()};
+          auto const ed = EntryDetailT{&propertyPaths, &entry};
           for (auto const &prop : propertyPaths) {
             reverse_lookup[prop[0]].emplace(label, ed);
           }
@@ -160,17 +194,37 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       fn(asc_reverse_lookup_);
       fn(desc_reverse_lookup_);
     }
+
+    // Select the asc or desc member by sort direction, so direction-generic
+    // code names it once.
+    template <IndexOrder Order>
+    auto &Indices(this auto &self) {
+      if constexpr (Order == IndexOrder::DESC) {
+        return self.desc_indices_;
+      } else {
+        return self.asc_indices_;
+      }
+    }
+
+    template <IndexOrder Order>
+    auto &ReverseLookup() {
+      if constexpr (Order == IndexOrder::DESC) {
+        return desc_reverse_lookup_;
+      } else {
+        return asc_reverse_lookup_;
+      }
+    }
   };
 
-  template <typename EntryT>
+  template <IndexOrder Order>
   struct BasicAllIndicesEntry {
-    std::shared_ptr<IndividualIndex<EntryT>> index_;
+    IndexPtrVariant<Order> index_;
     LabelId label_;
     PropertiesPaths properties_;
   };
 
-  using AscAllIndicesEntry = BasicAllIndicesEntry<Entry>;
-  using DescAllIndicesEntry = BasicAllIndicesEntry<DescEntry>;
+  using AscAllIndicesEntry = BasicAllIndicesEntry<IndexOrder::ASC>;
+  using DescAllIndicesEntry = BasicAllIndicesEntry<IndexOrder::DESC>;
 
   struct AllIndicesData {
     std::shared_ptr<std::vector<AscAllIndicesEntry> const> asc{
@@ -188,6 +242,16 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     void ForEach(Fn &&fn) const {
       fn(asc);
       fn(desc);
+    }
+
+    // Select the asc or desc tracking list by sort direction.
+    template <IndexOrder Order>
+    auto &Entries() {
+      if constexpr (Order == IndexOrder::DESC) {
+        return desc;
+      } else {
+        return asc;
+      }
     }
   };
 
@@ -215,7 +279,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp,
                     IndexOrder order = IndexOrder::ASC);
 
-  template <typename EntryT = Entry>
+  template <typename EntryT = Entry<>>
   class Iterable {
    public:
     Iterable(typename utils::SkipListDb<EntryT>::Accessor index_accessor,
@@ -266,7 +330,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Gid max_gid_;
   };
 
-  template <typename EntryT = Entry>
+  template <typename EntryT = Entry<>>
   class ChunkedIterable {
    public:
     ChunkedIterable(typename utils::SkipListDb<EntryT>::Accessor index_accessor,
@@ -379,6 +443,17 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                 std::span<PropertyValueRange const> bounds) const -> uint64_t override;
 
+    // Type-erased query entry points. They pick the entry type from the index's
+    // composite arity and sort direction internally and hand back the variant
+    // wrapper the executor consumes, so callers never name a per-arity type.
+    auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
+                  View view, Storage *storage, Transaction *transaction, IndexOrder order) -> VerticesIterable;
+
+    auto ChunkedVertices(LabelId label, std::span<PropertyPath const> properties,
+                         std::span<PropertyValueRange const> range,
+                         utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+                         Transaction *transaction, size_t num_chunks, IndexOrder order) -> VerticesChunkedIterable;
+
     template <typename EntryT>
     auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
                   View view, Storage *storage, Transaction *transaction) -> Iterable<EntryT>;
@@ -388,7 +463,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                   utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
                   Transaction *transaction) -> Iterable<EntryT>;
 
-    template <typename EntryT = Entry>
+    template <typename EntryT = Entry<>>
     ChunkedIterable<EntryT> ChunkedVertices(LabelId label, std::span<PropertyPath const> properties,
                                             std::span<PropertyValueRange const> range,
                                             utils::SkipListDb<Vertex>::ConstAccessor vertices_acc, View view,
@@ -408,7 +483,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
         if (it == indices_map.end()) return std::nullopt;
         auto it2 = it->second.find(properties);
         if (it2 == it->second.end()) return std::nullopt;
-        return fn(*it2->second);
+        return std::visit([&](auto const &index_ptr) { return fn(*index_ptr); }, it2->second);
       };
       if (auto r = try_find(index_container_->asc_indices_)) return r;
       if (auto r = try_find(index_container_->desc_indices_)) return r;
@@ -418,11 +493,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     // Returns the indices map (asc or desc) based on EntryT.
     template <typename EntryT>
     auto const &IndicesMap() const {
-      if constexpr (std::same_as<EntryT, DescEntry>) {
-        return index_container_->desc_indices_;
-      } else {
-        return index_container_->asc_indices_;
-      }
+      return index_container_->Indices<EntryT::kOrder>();
     }
 
     std::shared_ptr<IndexContainer const> index_container_;
@@ -438,8 +509,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   // RestoreIndex must NOT re-insert there.
   struct DropCapture {
     DropResult result;
-    std::shared_ptr<IndividualIndex<Entry>> asc_evicted;       // null if asc not dropped
-    std::shared_ptr<IndividualIndex<DescEntry>> desc_evicted;  // null if desc not dropped
+    std::optional<AscIndexPtrVariant> asc_evicted;    // nullopt if asc not dropped
+    std::optional<DescIndexPtrVariant> desc_evicted;  // nullopt if desc not dropped
     // Per-label stats slice captured before CleanupStatsForDrop erased entries.
     // nullopt if the label had no stats at drop time.
     std::optional<PropertiesIndicesStats> stats_evicted;
@@ -449,9 +520,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   [[nodiscard]] auto DropIndex(LabelId label, std::vector<PropertyPath> const &properties,
                                ActiveIndicesUpdater const &updater, std::optional<IndexOrder> order = std::nullopt)
       -> DropCapture;
-  void RestoreIndex(LabelId label, std::vector<PropertyPath> properties,
-                    std::shared_ptr<IndividualIndex<Entry>> asc_evicted,
-                    std::shared_ptr<IndividualIndex<DescEntry>> desc_evicted,
+  void RestoreIndex(LabelId label, std::vector<PropertyPath> properties, std::optional<AscIndexPtrVariant> asc_evicted,
+                    std::optional<DescIndexPtrVariant> desc_evicted,
                     std::optional<PropertiesIndicesStats> stats_evicted, ActiveIndicesUpdater const &updater);
 
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ClearIndexStats();
