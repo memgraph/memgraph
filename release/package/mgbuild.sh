@@ -745,6 +745,7 @@ build_memgraph () {
   # (see environment/os/centos-9.sh and install_python_requirements.sh).
   # find_package(Python3 3.12 EXACT) needs the 3.12 dev package; install it here
   # in case the prebuilt mgbuild image predates the centos-9.sh change.
+  # TODO(matt): Remove in Toolchain v8
   if [[ "$os" == centos-9* ]]; then
     docker exec -u root "$build_container" bash -c "rpm -q python3.12-devel >/dev/null 2>&1 || dnf install -y python3.12 python3.12-devel python3.12-pip"
     additional_options="$additional_options -DMG_PYTHON_VERSION=3.12"
@@ -1024,8 +1025,7 @@ package_smoke_image() {
   # numpy 1.26.4 / scipy 1.13.0 have no prebuilt wheels for Python 3.13, and
   # the source builds fail inside the smoke image (no compiler/headers).
   # Distros that ship Python 3.13 as the default (debian-13, fedora-41+) need
-  # numpy 2.1.0 / scipy 1.15.0. (centos-9 builds memgraph against python 3.12,
-  # not its distro-default 3.9, so it uses the default versions here.)
+  # numpy 2.1.0 / scipy 1.15.0.
   local numpy_version="1.26.4"
   local scipy_version="1.13.0"
   local networkx_version="3.4.2"

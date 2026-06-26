@@ -21,26 +21,11 @@ FROM ${BASE_IMAGE} AS base
 
 USER root
 
-# Install the python interpreter the query modules need, plus the build deps the
-# full requirements install pulls in: gssapi (kerberos auth module) has no PyPI
-# wheel and is compiled from source, needing gcc + krb5-devel + the python dev
-# headers; unixODBC provides libodbc.so.2, which pyodbc (imported by the
-# cross_database module) loads at runtime — the prod/debug images install the
-# equivalent via install_runtime_requirements.sh.
-#
 # PY_VERSION selects which python packages to install: empty -> the distro
 # default python3; set -> an explicit pythonX.Y (e.g. 3.12 on CentOS Stream 9,
 # whose default python3 is 3.9). install_python_requirements.sh (run by the
 # memgraph-mage %post) independently prefers python3.12 when present, so the
 # interpreter it installs deps into matches the one memgraph embeds.
-#
-# Then install the base memgraph package and the MAGE package together so dnf
-# orders them (memgraph first, since memgraph-mage Requires it) and resolves the
-# remaining C/C++ runtime deps (libgomp, libatomic, openssl, ...). The
-# memgraph-mage %post installs the full MAGE python requirements — required, not
-# optional: one of the smoke checks asserts every query module loaded, which
-# fails if any module's python deps are missing. --setopt=tsflags='' keeps
-# memgraph's license docs, which the minimal rpm base images otherwise strip.
 ARG PY_VERSION=""
 RUN --mount=type=bind,source=./memgraph.rpm,target=/packages/memgraph.rpm,ro \
     --mount=type=bind,source=./memgraph-mage.rpm,target=/packages/memgraph-mage.rpm,ro \

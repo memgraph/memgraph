@@ -5,6 +5,9 @@ set -euo pipefail
 # stages the payload, renders rpm/memgraph-mage.spec.in, and runs rpmbuild.
 
 SCRIPT_DIR=$(dirname $(realpath $0))
+# Resolve the mage/ source dir relative to this script (SCRIPT_DIR is
+# tools/ci/mage-build/package) so it works regardless of the caller's CWD.
+MAGE_DIR=$(realpath "$SCRIPT_DIR/../../../../mage")
 
 ARCH=$1            # rpm arch: x86_64 / aarch64
 PKG_ARCH=$2        # dpkg-style arch passed to install_python_requirements.sh: amd64 / arm64
@@ -62,11 +65,11 @@ mkdir -pv "$TOPDIR"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 mkdir -pv "$STAGE_ROOT/usr/lib/memgraph/query_modules"
 
 if [[ "$CUDA" == true ]]; then
-    cp -v ../../../../mage/python/requirements-gpu.txt "$STAGE_ROOT/usr/lib/memgraph/mage-requirements.txt"
+    cp -v "$MAGE_DIR/python/requirements-gpu.txt" "$STAGE_ROOT/usr/lib/memgraph/mage-requirements.txt"
 else
-    cp -v ../../../../mage/python/requirements.txt "$STAGE_ROOT/usr/lib/memgraph/mage-requirements.txt"
+    cp -v "$MAGE_DIR/python/requirements.txt" "$STAGE_ROOT/usr/lib/memgraph/mage-requirements.txt"
 fi
-cp ../../../../mage/install_python_requirements.sh "$STAGE_ROOT/usr/lib/memgraph/install_python_requirements.sh"
+cp "$MAGE_DIR/install_python_requirements.sh" "$STAGE_ROOT/usr/lib/memgraph/install_python_requirements.sh"
 
 tar -xvzf "$PACKAGE_DIR" -C "$STAGE_ROOT/usr/lib/memgraph/"
 

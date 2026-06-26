@@ -9,9 +9,6 @@ check_container_logs() {
     if echo "$logs" | grep -q "\[error\]"; then
         echo "Error(s) found in container logs:"
         echo "$logs" | grep "\[error\]"
-        # Dump the full log too — the [error] line alone often omits the cause
-        # (e.g. the Python traceback / missing-dependency detail that precedes a
-        # failed query-module load), so print everything for diagnosis.
         echo "----- full memgraph log (memgraph_next_data) -----"
         echo "$logs"
         echo "----- end memgraph log -----"
