@@ -22,6 +22,7 @@
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/inmemory/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
@@ -235,6 +236,36 @@ struct DropDatabase : memgraph::system::ISystemAction {
   utils::UUID uuid_;
 };
 
+// REPAIR DATABASE on a defunct main: the main resets the tenant to an empty state with a fresh epoch
+// (storage->RepairDefunct() done locally before this action is recorded). This action replicates the
+// reset to every replica via RepairDatabaseRpc so each replica completely wipes its stale tenant data,
+// then force-recovers the existing per-DB replication clients so the freshly cleared replicas re-sync
+// from the main (their commit timestamp is back to 0, so no branching point is detected) and become
+// ready to accept the main's subsequent commits.
+struct RepairDatabaseAction : memgraph::system::ISystemAction {
+  RepairDatabaseAction(utils::UUID uuid, DatabaseAccess db_acc) : uuid_{uuid}, db_acc_{std::move(db_acc)} {}
+
+  void DoDurability() override { /* Done during DBMS execution */ }
+
+  bool ShouldReplicateInCommunity() const override { return false; }
+
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const storage::replication::RepairDatabaseRes &response) {
+      return response.result != storage::replication::RepairDatabaseRes::Result::FAILURE;
+    };
+
+    return client.StreamAndFinalizeDelta<storage::replication::RepairDatabaseRpc>(
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
+  }
+
+  void PostReplication(replication::RoleMainData &mainData) const override {}
+
+ private:
+  utils::UUID uuid_;
+  DatabaseAccess db_acc_;
+};
+
 struct RenameDatabase : memgraph::system::ISystemAction {
   explicit RenameDatabase(std::string old_name, std::string new_name)
       : old_name_{std::move(old_name)}, new_name_{std::move(new_name)} {}
@@ -400,6 +431,28 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
   }
 
   return {};  // Success
+}
+
+std::optional<std::string> DbmsHandler::RepairDatabase(DatabaseAccess db_acc, system::Transaction *txn) {
+  auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+  // MAIN-side local reset: move the corrupt durability files aside, clear the tenant and drop the
+  // defunct flag. The tenant comes back empty with a fresh epoch.
+  if (auto repaired = mem_storage->RepairDefunct(); !repaired.has_value()) {
+    switch (repaired.error()) {
+      using enum storage::InMemoryStorage::RepairError;
+      case NotDefunct:
+        return "REPAIR DATABASE can only be run on a database in the defunct state.";
+      case BackupFailure:
+        return "Failed to move aside the corrupt durability files. Please clean them manually.";
+    }
+  }
+
+  // Replicate the reset to the replicas so they wipe their stale tenant data and re-sync from the main.
+  if (txn) {
+    txn->AddAction<RepairDatabaseAction>(mem_storage->uuid(), db_acc);
+  }
+
+  return std::nullopt;
 }
 
 struct CreateDatabase : memgraph::system::ISystemAction {

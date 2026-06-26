@@ -27,6 +27,7 @@ import copy
 import os
 import shutil
 import sys
+import time
 from functools import partial
 
 import interactive_mg_runner
@@ -288,42 +289,50 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
     execute_and_fetch_all(main_cursor, f"USE DATABASE {TENANT}")
     execute_and_fetch_all(main_cursor, "REPAIR DATABASE")
     assert tenant_status(main_cursor).get(TENANT) == "ready", "Main's tenant should be ready after REPAIR"
-    assert tenant_vertex_count(main_cursor) == 0, "Main's tenant should be empty after REPAIR"
 
-    # 5 + 6: REPAIR's force-recover drives every replica into RECOVERY and re-syncs it to the main's
-    # fresh, empty epoch -- wiping the stale NUM_NODES nodes and leaving a clean tenant ready for the
-    # main's commits. We prove this by importing FRESH_NODES new nodes on the repaired main and asserting
-    # each replica converges to EXACTLY that count: not NUM_NODES (stale data was wiped) and not
-    # NUM_NODES + FRESH_NODES (no leftover divergence), but exactly the fresh data the clean tenant
-    # accepted. The exact moment the main re-checks each replica is timing dependent, so we keep nudging
-    # with writes while polling (mirrors the self-heal test's nudge loop), tolerating only the transient
-    # SYNC-replica-mid-recovery error.
-    FRESH_NODES = 42
-    main_cursor = connect(host="localhost", port=7687).cursor()
-    execute_and_fetch_all(main_cursor, f"USE DATABASE {TENANT}")
-    assert tenant_status(main_cursor).get(TENANT) == "ready"
-
-    written = 0
-
-    def nudge_and_count(check_port):
-        nonlocal written
+    # 5: REPAIR's force-recover drives every replica into RECOVERY and re-syncs it to the main's fresh,
+    # empty epoch. Wait until the wipe has fully propagated -- 0 nodes on the main AND both replicas (the
+    # stale NUM_NODES nodes are gone everywhere). Reconnect each poll (the instances were restarted) and
+    # tolerate transient read errors while a replica is mid-resync.
+    def count_on(port):
         try:
-            if written < FRESH_NODES:
-                execute_and_fetch_all(main_cursor, "CREATE (:Fresh)")
-                written += 1
-        except Exception as e:
-            # Tolerate only the transients expected on a freshly-repaired main: a SYNC replica still
-            # mid-recovery, or the brief window where a just-restored main is not yet writeable. Anything
-            # else is a real failure. The next poll retries.
-            msg = str(e)
-            assert (
-                "Failed to replicate to SYNC replica" in msg or "Write queries currently forbidden" in msg
-            ), f"Unexpected error while nudging main: {e}"
-        return tenant_vertex_count(connect(host="localhost", port=check_port).cursor())
+            return tenant_vertex_count(connect(host="localhost", port=port).cursor())
+        except Exception:
+            return None
 
-    for name in ("instance_1", "instance_2"):
-        port = INSTANCE_BOLT_PORT[name]
-        mg_sleep_and_assert(FRESH_NODES, partial(nudge_and_count, port), max_duration=180, time_between_attempt=2)
+    for port in (7687, INSTANCE_BOLT_PORT["instance_1"], INSTANCE_BOLT_PORT["instance_2"]):
+        mg_sleep_and_assert(0, partial(count_on, port))
+
+    # Before importing fresh data, wait until SHOW REPLICAS on the main reports BOTH replicas READY for
+    # the tenant -- i.e. they have finished re-syncing the reset and are ready to accept the main's commits.
+    def both_replicas_ready_for_tenant():
+        rows = execute_and_fetch_all(main_cursor, "SHOW REPLICAS")
+        # data_info (the last column) maps database name -> {"ts", "behind", "status"}.
+        statuses = [row[-1].get(TENANT, {}).get("status") for row in rows]
+        return len(statuses) == 2 and all(s == "ready" for s in statuses)
+
+    mg_sleep_and_assert(True, both_replicas_ready_for_tenant)
+
+    # 6: The clean tenant is ready to accept the main's commits. Import FRESH_NODES nodes on the main and
+    # assert the main and both replicas converge to EXACTLY that count: not NUM_NODES (stale data was
+    # wiped) and not NUM_NODES + FRESH_NODES (no leftover divergence), but exactly the fresh data the
+    # clean tenant accepted. Retry the import only while the just-repaired main is briefly not writeable
+    # ("Write queries currently forbidden"), for at most 5s. "Failed to replicate to SYNC replica" must
+    # NOT happen -- the replicas are clean and ready.
+    FRESH_NODES = 42
+    deadline = time.time() + 5
+    while True:
+        try:
+            execute_and_fetch_all(main_cursor, f"UNWIND range(1, {FRESH_NODES}) AS i CREATE (:Fresh)")
+            break
+        except Exception as e:
+            if "Write queries currently forbidden" in str(e) and time.time() < deadline:
+                time.sleep(0.2)
+                continue
+            raise
+
+    for port in (7687, INSTANCE_BOLT_PORT["instance_1"], INSTANCE_BOLT_PORT["instance_2"]):
+        mg_sleep_and_assert(FRESH_NODES, partial(count_on, port))
 
     # The repaired main holds exactly the fresh data, and its tenant is ready.
     assert tenant_status(main_cursor).get(TENANT) == "ready"
@@ -338,7 +347,7 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
             execute_and_fetch_all(cur, f"USE DATABASE {TENANT}")
             return tenant_storage_status(cur)
 
-        mg_sleep_and_assert("ready", replica_storage_ready, max_duration=60, time_between_attempt=2)
+        mg_sleep_and_assert("ready", replica_storage_ready)
         assert tenant_status(connect(host="localhost", port=port).cursor()).get(TENANT) == "ready"
 
     # The default tenant was never affected on any instance.

@@ -6307,6 +6307,7 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
 
 PreparedQuery PrepareRepairDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
                                          replication_coordination_glue::ReplicationRole replication_role,
+                                         InterpreterContext *interpreter_context, Interpreter &interpreter,
                                          std::vector<Notification> *notifications) {
   if (in_explicit_transaction) {
     throw RepairDatabaseInMulticommandTxException();
@@ -6334,28 +6335,19 @@ PreparedQuery PrepareRepairDatabaseQuery(ParsedQuery parsed_query, bool in_expli
   return PreparedQuery{
       .header = {},
       .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [db_acc = *current_db.db_acc_, db_name, notifications](
-                           AnyStream * /*stream*/,
-                           std::optional<int> /*n*/) mutable -> std::optional<QueryHandlerResult> {
-        auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-        if (auto maybe_error = mem_storage->RepairDefunct(); !maybe_error.has_value()) {
-          switch (maybe_error.error()) {
-            using enum storage::InMemoryStorage::RepairError;
-            case NotDefunct: {
-              throw QueryException("REPAIR DATABASE can only be run on a database in the defunct state.");
-            }
-            case BackupFailure: {
-              throw QueryException("Failed to move aside the corrupt durability files. Please clean them manually.");
-            }
-          }
+      .query_handler =
+          [db_acc = *current_db.db_acc_, db_name, interpreter = &interpreter, interpreter_context, notifications](
+              AnyStream * /*stream*/, std::optional<int> /*n*/) mutable -> std::optional<QueryHandlerResult> {
+        if (!interpreter->system_transaction_) {
+          throw QueryException("Expected to be in a system transaction");
         }
-        // REPLICATION
-        // Note: This can only be called on MAIN. The main is now empty with a fresh epoch, so force every replica
-        // to re-sync, wiping its stale tenant data and leaving a clean empty tenant ready for the main's commits.
-        const auto locked_clients = mem_storage->repl_storage_state_.replication_storage_clients_.ReadLock();
-        auto protector = dbms::DatabaseProtector{db_acc};
-        for (const auto &client : *locked_clients) {
-          client->ForceRecoverReplica(mem_storage, protector);
+        // Repair the tenant locally on the MAIN (reset to an empty state with a fresh epoch) and record a
+        // system action that replicates the reset to every replica: each replica wipes its stale tenant data
+        // and re-syncs from the main's fresh epoch, leaving a clean empty tenant ready for the main's commits.
+        if (auto const err =
+                interpreter_context->dbms_handler->RepairDatabase(db_acc, &*interpreter->system_transaction_);
+            err.has_value()) {
+          throw QueryException("{}", *err);
         }
         notifications->emplace_back(
             SeverityLevel::INFO,
@@ -9602,7 +9594,9 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(RecoverSnapshotQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
 
-  void Visit(RepairDatabaseQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  // REPAIR DATABASE runs as a system transaction (it replicates the tenant reset to the replicas); it must
+  // not open a data accessor on the current DB, otherwise the system-transaction commit path is skipped.
+  void Visit(RepairDatabaseQuery & /*unused*/) override {}
 
   // Read access required
   void Visit(ExplainQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
@@ -9791,7 +9785,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
         utils::Downcast<ReplicationQuery>(parsed_query.query) ||
         utils::Downcast<UserProfileQuery>(parsed_query.query) ||
-        utils::Downcast<TenantProfileQuery>(parsed_query.query) || utils::Downcast<ParameterQuery>(parsed_query.query);
+        utils::Downcast<TenantProfileQuery>(parsed_query.query) ||
+        utils::Downcast<ParameterQuery>(parsed_query.query) || utils::Downcast<RepairDatabaseQuery>(parsed_query.query);
 
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
     auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
@@ -10071,6 +10066,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                                   in_explicit_transaction_,
                                                   current_db_,
                                                   replication_role,
+                                                  interpreter_context_,
+                                                  *this,
                                                   &query_execution->notifications);
     } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
       prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);

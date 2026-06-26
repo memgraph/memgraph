@@ -4581,13 +4581,16 @@ std::expected<void, InMemoryStorage::RepairError> InMemoryStorage::RepairDefunct
   }
 
   // Reset the tenant to an empty working state (mirrors the defunct scrub in the constructor).
+  ResetTenant();
+
+  return {};
+}
+
+void InMemoryStorage::ResetTenant() {
   Clear();
   name_id_mapper_->Clear();
   description_store_.Clear();
-
   SetDefunct(false);
-
-  return {};
 }
 
 std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {
