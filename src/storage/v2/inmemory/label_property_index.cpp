@@ -1387,6 +1387,7 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT> InMemoryLabelPropertyIndex::
           max_gid};
 }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static): `this` used via Vertices<E> in `build`.
 auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(LabelId label, std::span<PropertyPath const> properties,
                                                          std::span<PropertyValueRange const> range, View view,
                                                          Storage *storage, Transaction *transaction, IndexOrder order)
@@ -1397,6 +1398,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::Vertices(LabelId label, std::spa
   return DispatchByEntry(order, properties.size(), build);
 }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static): `this` used via ChunkedVertices<E> in `build`.
 auto InMemoryLabelPropertyIndex::ActiveIndices::ChunkedVertices(LabelId label, std::span<PropertyPath const> properties,
                                                                 std::span<PropertyValueRange const> range,
                                                                 utils::SkipListDb<Vertex>::ConstAccessor vertices_acc,
@@ -1468,6 +1470,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const
         WithIndex(it2->second, [&](auto &index) {
           using EntryT = typename std::decay_t<decltype(index)>::EntryType;
           auto acc = index.skiplist.access();
+          // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign): to_remove holds fully-constructed pairs.
           for (auto const &[values, vertex] : to_remove) {
             acc.remove(EntryT{values, vertex, start_timestamp});
           }
@@ -1570,6 +1573,7 @@ static_assert(sizeof(AscEntry2) == ExpectedInlineEntrySize<2>());
 static_assert(sizeof(DescEntry2) == ExpectedInlineEntrySize<2>());
 
 // The query surface instantiated for every concrete entry type.
+// NOLINTBEGIN(bugprone-macro-parentheses): EntryT is a template type argument, parenthesising it is not valid syntax.
 #define MG_INSTANTIATE_LABEL_PROPERTY_INDEX_QUERY(EntryT)                                                              \
   template struct InMemoryLabelPropertyIndex::IndividualIndex<EntryT>;                                                 \
   template class InMemoryLabelPropertyIndex::Iterable<EntryT>;                                                         \
@@ -1597,6 +1601,7 @@ static_assert(sizeof(DescEntry2) == ExpectedInlineEntrySize<2>());
       Storage *,                                                                                                       \
       Transaction *,                                                                                                   \
       size_t);
+// NOLINTEND(bugprone-macro-parentheses)
 
 MG_INSTANTIATE_LABEL_PROPERTY_INDEX_QUERY(InMemoryLabelPropertyIndex::Entry<>)
 MG_INSTANTIATE_LABEL_PROPERTY_INDEX_QUERY(InMemoryLabelPropertyIndex::DescEntry<>)
