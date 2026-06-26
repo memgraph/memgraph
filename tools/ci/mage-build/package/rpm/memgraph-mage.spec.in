@@ -98,7 +98,14 @@ ARCH=@PKG_ARCH@
 # but the deps are present, so tolerate failure when MEMGRAPH_OFFLINE_INSTALL=1
 # (set by the .run installer). For a normal dnf/rpm install the failure stays
 # hard so a genuine network/pip error doesn't silently leave MAGE broken.
-if ! su - memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA --arch $ARCH"; then
+#
+# Use runuser, not su: su's PAM stack pulls in system-auth/postlogin, which on
+# minimal images (e.g. centos-10) isn't configured yet when this %post runs in
+# the same dnf transaction (authselect's scriptlet runs after ours), giving
+# "su: cannot open session: Permission denied". runuser's PAM config is minimal
+# (pam_rootok, pam_systemd optional) so it works regardless. -l gives memgraph's
+# login env (HOME=/var/lib/memgraph) so pip --user lands where memgraph reads it.
+if ! runuser -l memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA --arch $ARCH"; then
     if [ "${MEMGRAPH_OFFLINE_INSTALL:-}" = "1" ]; then
         echo "WARNING: install_python_requirements.sh exited non-zero." >&2
         echo "         Tolerated because MEMGRAPH_OFFLINE_INSTALL=1 — the python deps" >&2
