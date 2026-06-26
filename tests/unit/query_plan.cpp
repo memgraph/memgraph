@@ -2387,6 +2387,46 @@ TYPED_TEST(TestPlanner, ScanAllById) {
   CheckPlan<TypeParam>(query, this->storage, ExpectScanAllById(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, ScanAllByIdInListParameter) {
+  // MATCH (n) WHERE id(n) IN $ids RETURN n lowers the IN-list to an
+  // Unwind feeding a per-element ScanAllById.
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(IN_LIST(FN("id", IDENT("n")), PARAMETER_LOOKUP(0))), RETURN("n")));
+  CheckPlan<TypeParam>(query, this->storage, ExpectUnwind(), ExpectScanAllById(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ScanAllByIdInListWithLabelResidual) {
+  // The id scan is selected and the label survives as a residual Filter.
+  FakeDbAccessor dba;
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", "L"))), WHERE(IN_LIST(FN("id", IDENT("n")), PARAMETER_LOOKUP(0))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectScanAllById(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ScanAllByIdInListSelfReferentialNotOptimized) {
+  // The RHS list references the scanned node, so it cannot be evaluated before
+  // n is bound; the id scan must not fire and a full ScanAll + Filter remains.
+  FakeDbAccessor dba;
+  auto lst = PROPERTY_PAIR(dba, "lst");
+  auto *prop_rhs = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), WHERE(IN_LIST(FN("id", IDENT("n")), PROPERTY_LOOKUP(dba, "n", lst))), RETURN("n")));
+  {
+    auto symbol_table = memgraph::query::MakeSymbolTable(prop_rhs);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, prop_rhs);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+  }
+  auto *list_rhs = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                      WHERE(IN_LIST(FN("id", IDENT("n")), LIST(PROPERTY_LOOKUP(dba, "n", lst)))),
+                                      RETURN("n")));
+  {
+    auto symbol_table = memgraph::query::MakeSymbolTable(list_rhs);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, list_rhs);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+  }
+}
+
 TYPED_TEST(TestPlanner, ScanAllByEdgeId) {
   // Test MATCH ()-[r]->() WHERE id(r) = 42 RETURN r
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("r"), NODE("anon2"))),
@@ -2459,6 +2499,28 @@ TYPED_TEST(TestPlanner, LabelPropertyInListValidOptimization) {
                                              std::vector{ExpressionRange::Equal(fake_identifier)}),
               ExpectProduce());
   }
+}
+
+TYPED_TEST(TestPlanner, LabelPropertyInListParameter) {
+  // A parameter on the right of a property IN lowers to the Unwind +
+  // label+property scan, the same shape as a literal list.
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR(dba, "property");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(IN_LIST(PROPERTY_LOOKUP(dba, "n", property), PARAMETER_LOOKUP(0))),
+                                   RETURN("n")));
+  dba.SetIndexCount(label, property.second, 1);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto fake_identifier = IDENT("fake");
+  CheckPlan(
+      planner.plan(),
+      symbol_table,
+      ExpectUnwind(),
+      ExpectScanAllByLabelProperties(
+          label, std::vector{ms::PropertyPath{property.second}}, std::vector{ExpressionRange::Equal(fake_identifier)}),
+      ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, LabelPropertyInListWhereLabelPropertyOnLeftNotListOnRight) {

@@ -282,6 +282,128 @@ TYPED_TEST(InterpreterTest, Parameters) {
   }
 }
 
+// With a label+property index, n.prop IN <list> unwinds the list into
+// per-element index lookups. This must stay result-identical to the membership
+// Filter: a node matched by a duplicated element is emitted once, a parameter
+// list drives the same lookup, null and empty yield no rows, and a non-list
+// scalar throws.
+TYPED_TEST(InterpreterTest, PropertyInListIndexedEquivalence) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  this->Interpret("CREATE INDEX ON :L(prop)");
+  this->Interpret("CREATE (:L {prop: 1}), (:L {prop: 2}), (:L {prop: 3})");
+
+  auto count = [&](const std::string &query, EPV::map_t params = {}) {
+    auto stream = this->Interpret(query, params);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+  auto list = [](std::vector<EPV> xs) { return EPV(std::move(xs)); };
+
+  // Duplicate list elements must not emit a matched node more than once.
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN [1, 1] RETURN n"), 1);
+  // Whole-number doubles collapse onto their int, and the index matches both.
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN [1, 1.0] RETURN n"), 1);
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN [1, 2] RETURN n"), 2);
+
+  // A parameter list drives the same indexed lookup.
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", list({EPV(int64_t{1}), EPV(int64_t{2})})}}), 2);
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", list({EPV(int64_t{1}), EPV(int64_t{1})})}}), 1);
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", EPV{}}}), 0);                    // null -> 0 rows
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", list({})}}), 0);                 // empty -> 0 rows
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", list({EPV(int64_t{9})})}}), 0);  // no match
+
+  // A non-list scalar parameter throws, matching the membership Filter.
+  EXPECT_ANY_THROW(this->Interpret("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", EPV(int64_t{1})}}));
+}
+
+// `id(n) IN <list>` is lowered to Unwind(toSet(coalesce(value, []))) feeding a
+// per-element ScanAllById. The optimised plan must be result-identical to the
+// ScanAll + membership Filter it replaces for every input shape.
+TYPED_TEST(InterpreterTest, IdInListEquivalence) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  // Three vertices; capture their ids in creation order.
+  std::vector<int64_t> ids;
+  {
+    auto stream = this->Interpret("UNWIND range(1, 3) AS i CREATE (n) RETURN id(n) AS id");
+    for (const auto &row : stream.GetResults()) ids.push_back(row[0].ValueInt());
+  }
+  ASSERT_EQ(ids.size(), 3U);
+  std::sort(ids.begin(), ids.end());
+  const int64_t present = ids.front();
+  const int64_t missing = ids.back() + 1000;
+
+  auto matched_ids = [&](EPV ids_param) {
+    auto stream = this->Interpret("MATCH (n) WHERE id(n) IN $ids RETURN id(n) AS id", {{"ids", std::move(ids_param)}});
+    std::vector<int64_t> out;
+    for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
+    std::sort(out.begin(), out.end());
+    return out;
+  };
+  auto list = [](std::vector<EPV> xs) { return EPV(std::move(xs)); };
+  const auto present_dbl = static_cast<double>(present);
+
+  EXPECT_THAT(matched_ids(EPV{}), testing::IsEmpty());          // null parameter -> 0 rows
+  EXPECT_THAT(matched_ids(list({})), testing::IsEmpty());       // empty list -> 0 rows
+  EXPECT_THAT(matched_ids(list({EPV(present), EPV(present)})),  // duplicates -> once
+              testing::ElementsAre(present));
+  EXPECT_THAT(matched_ids(list({EPV(present), EPV(present_dbl)})),  // int/double dup -> once
+              testing::ElementsAre(present));
+  EXPECT_THAT(matched_ids(list({EPV(present), EPV{}})),  // null element dropped
+              testing::ElementsAre(present));
+  EXPECT_THAT(matched_ids(list({EPV(1.5), EPV(std::string("x"))})),  // no coercible id -> none
+              testing::IsEmpty());
+  EXPECT_THAT(matched_ids(list({EPV(present_dbl)})), testing::ElementsAre(present));  // exact-int double matches
+  EXPECT_THAT(matched_ids(list({EPV(missing)})), testing::IsEmpty());                 // missing id -> 0 rows
+
+  // A non-list scalar throws, matching the membership Filter's "IN expected a list".
+  EXPECT_ANY_THROW(this->Interpret("MATCH (n) WHERE id(n) IN $ids RETURN n", {{"ids", EPV(int64_t{5})}}));
+}
+
+// The Unwind feeding the id scan emits nodes in list order, so an ORDER BY
+// id(n) must still sort rather than being elided as already-ordered.
+TYPED_TEST(InterpreterTest, IdInListOrderByNotElided) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  std::vector<int64_t> ids;
+  {
+    auto stream = this->Interpret("UNWIND range(1, 4) AS i CREATE (n) RETURN id(n) AS id");
+    for (const auto &row : stream.GetResults()) ids.push_back(row[0].ValueInt());
+  }
+  std::sort(ids.begin(), ids.end());
+
+  // Drive the scan with the ids in descending order; ORDER BY must re-sort.
+  EPV::list_t param;
+  for (auto it = ids.rbegin(); it != ids.rend(); ++it) param.emplace_back(EPV(*it));
+  auto stream = this->Interpret("MATCH (n) WHERE id(n) IN $ids RETURN id(n) AS id ORDER BY id(n)",
+                                {{"ids", EPV(std::move(param))}});
+  std::vector<int64_t> out;
+  for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
+  EXPECT_THAT(out, testing::ElementsAreArray(ids));
+}
+
+// `MATCH (n:L) WHERE id(n) IN $ids` selects the id scan and keeps the label as a
+// residual filter, so only labelled vertices come back.
+TYPED_TEST(InterpreterTest, IdInListLabelResidual) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  std::vector<int64_t> labelled;
+  std::vector<int64_t> all;
+  {
+    auto stream = this->Interpret("CREATE (a:L), (b) RETURN id(a) AS la, id(b) AS lb");
+    labelled.push_back(stream.GetResults()[0][0].ValueInt());
+    all.push_back(stream.GetResults()[0][0].ValueInt());
+    all.push_back(stream.GetResults()[0][1].ValueInt());
+  }
+
+  EPV::list_t param;
+  for (auto id : all) param.emplace_back(EPV(id));
+  auto stream = this->Interpret("MATCH (n:L) WHERE id(n) IN $ids RETURN id(n) AS id", {{"ids", EPV(std::move(param))}});
+  std::vector<int64_t> out;
+  for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
+  EXPECT_THAT(out, testing::ElementsAreArray(labelled));
+}
+
 // Run CREATE/MATCH/MERGE queries with property map
 TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
   {
