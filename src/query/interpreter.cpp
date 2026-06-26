@@ -150,15 +150,21 @@ import memgraph.utils.aws;
 namespace r = ranges;
 namespace rv = ranges::views;
 
-// Coroutine split-point knob (coroutine cursors v2 / PR-13). Comma-separated list of operator kinds
+// Coroutine split-point knob (coroutine cursors v2). Comma-separated list of operator kinds
 // designated as coroutine SPLIT POINTS: the plan runs as coroutines from the root down to (and
-// including) the deepest listed operator, and synchronously below it. Empty (the default) => every
-// cursor runs synchronously, byte-identical to master (zero per-boundary cost). Read fresh at each
-// query's plan construction, so it is runtime-tunable (e.g. via gflags::SetCommandLineOption).
+// including) the deepest listed operator, and synchronously below it. Read fresh at each query's
+// plan construction, so it is runtime-tunable (e.g. via gflags::SetCommandLineOption).
 // Recognised kinds: Aggregate, OrderBy (case-insensitive; unknown names are ignored with a warning).
-DEFINE_string(query_coroutine_yield_ops, "",
-              "Comma-separated operator kinds used as coroutine split points (e.g. \"Aggregate,OrderBy\"). "
-              "Empty disables coroutine pull entirely (synchronous, identical to default).");
+// "All" (or "*") forces the whole plan coroutine.
+//
+// DEFAULT = "Aggregate,OrderBy" (the validated split policy). The bare-metal perf gate
+// (tests/mgbench/coroutine_perf/RESULTS.md) measured this default at ~+1% instructions/query on the
+// worst pull-heavy reads (vs ~+10% for whole-plan coroutine), within the agreed budget, while
+// enabling cooperative-yield-capable execution. Set the flag to the EMPTY string to disable the
+// coroutine pull path entirely (every cursor synchronous, byte-identical to master) — the kill switch.
+DEFINE_string(query_coroutine_yield_ops, "Aggregate,OrderBy",
+              "Comma-separated operator kinds used as coroutine split points (default \"Aggregate,OrderBy\"; "
+              "\"All\"/\"*\" = whole plan; EMPTY = disable coroutine pull entirely, synchronous like master).");
 
 namespace {
 

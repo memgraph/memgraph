@@ -145,6 +145,16 @@ TEST_F(CursorKnobTest, ResultsInvariantUnderKnob) {
   ExpectKnobInvariant("MATCH (n:N) RETURN n.id AS id ORDER BY id", "*");
 }
 
+// The coroutine pull path is ON by default (flip-default): the compiled default of the knob is the
+// validated split policy, not empty. Empty remains the kill switch. Locks the flip against accidental
+// revert. (A plain TEST, not in the fixture, so its SetUp does not overwrite the flag first.)
+TEST(CursorKnobDefault, DefaultIsSplitPolicy) {
+  gflags::CommandLineFlagInfo info;
+  ASSERT_TRUE(gflags::GetCommandLineFlagInfo("query_coroutine_yield_ops", &info));
+  EXPECT_EQ(info.default_value, "Aggregate,OrderBy")
+      << "the coroutine pull path is expected ON by default (split policy); empty is the kill switch";
+}
+
 #ifdef MG_ENTERPRISE
 // Enterprise PARALLEL cursors under the coroutine drive. The parallel cursors (ScanParallel,
 // ParallelMerge, AggregateParallel, OrderByParallel, ...) intentionally have NO coroutine body — they
