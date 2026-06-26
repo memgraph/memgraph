@@ -181,6 +181,40 @@ TEST_F(CursorKnobTest, CoroRegionTallyReflectsSplit) {
   EXPECT_EQ(memgraph::query::plan::CoroSelectedCount(), 0u) << "knob-off plan should be fully synchronous";
 }
 
+// PROFILE annotates each operator with its coroutine/synchronous mode ("[coro]" suffix), so the split
+// point is visible per operator. Profile queries drive synchronously, but the cursor modes are still
+// selected by the policy, so the annotation reflects what the (non-profile) run would do.
+TEST_F(CursorKnobTest, ProfileAnnotatesCoroOperators) {
+  interpreter.Interpret("CREATE (a:N {id: 1}), (b:N {id: 2}), (c:N {id: 3})");
+
+  // Returns the single line of `text` that contains `needle` (or "" if none).
+  auto line_with = [](const std::string &text, const std::string &needle) -> std::string {
+    auto pos = text.find(needle);
+    if (pos == std::string::npos) return "";
+    auto start = text.rfind('\n', pos);
+    start = (start == std::string::npos) ? 0 : start + 1;
+    auto end = text.find('\n', pos);
+    return text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+  };
+
+  // Split policy: Aggregate (split point) + Produce (above it) run coroutine; the scan (below) stays sync.
+  FLAGS_query_coroutine_yield_ops = "Aggregate,OrderBy,Accumulate,Distinct,HashJoin";
+  auto split = Render(interpreter.Interpret("PROFILE MATCH (n:N) RETURN count(n) AS c"));
+  FLAGS_query_coroutine_yield_ops = "";
+
+  EXPECT_NE(split.find("[coro]"), std::string::npos) << "split policy should mark some operators coro:\n" << split;
+  EXPECT_NE(line_with(split, "Aggregate").find("[coro]"), std::string::npos)
+      << "Aggregate is the split point -> coro:\n"
+      << split;
+  auto scan_line = line_with(split, "ScanAll");
+  ASSERT_FALSE(scan_line.empty()) << split;
+  EXPECT_EQ(scan_line.find("[coro]"), std::string::npos) << "the scan is below the split point -> sync:\n" << split;
+
+  // Knob off: every operator synchronous -> no annotation anywhere.
+  auto sync = Render(interpreter.Interpret("PROFILE MATCH (n:N) RETURN count(n) AS c"));
+  EXPECT_EQ(sync.find("[coro]"), std::string::npos) << "knob off -> no coroutine operators:\n" << sync;
+}
+
 #ifdef MG_ENTERPRISE
 // Enterprise PARALLEL cursors under the coroutine drive. The parallel cursors (ScanParallel,
 // ParallelMerge, AggregateParallel, OrderByParallel, ...) intentionally have NO coroutine body — they

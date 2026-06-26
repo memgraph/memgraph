@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,6 +31,10 @@ struct ProfilingStats {
   std::string name;
   // TODO: This should use the allocator for query execution
   std::vector<ProfilingStats> children;
+  // Whether this operator's cursor was selected to run as a coroutine (split policy). Surfaced in
+  // PROFILE output so the coroutine/synchronous split point is visible per operator. Kept LAST so
+  // existing positional aggregate initializers (which omit it) still compile.
+  bool coro{false};
 };
 
 struct ProfilingStatsWithTotalTime {

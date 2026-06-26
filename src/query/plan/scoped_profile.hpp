@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,7 +28,8 @@ namespace memgraph::query::plan {
  */
 class ScopedProfile {
  public:
-  ScopedProfile(uint64_t key, const query::plan::NamedLogicalOperator &op, query::ExecutionContext *context) noexcept
+  ScopedProfile(uint64_t key, const query::plan::NamedLogicalOperator &op, query::ExecutionContext *context,
+                bool coro = false) noexcept
       : context_(context), root_{context_->stats_root} {
     DMG_ASSERT(context_->is_profile_query);
 
@@ -38,6 +39,7 @@ class ScopedProfile {
       stats_->key = key;
       op.dba_ = context->db_accessor;
       stats_->name = op.ToString();
+      stats_->coro = coro;
       op.dba_ = nullptr;
     } else {
       stats_ = nullptr;
@@ -52,6 +54,7 @@ class ScopedProfile {
         stats_->key = key;
         op.dba_ = context->db_accessor;
         stats_->name = op.ToString();
+        stats_->coro = coro;
         op.dba_ = nullptr;
       } else {
         stats_ = &(*it);
@@ -63,7 +66,7 @@ class ScopedProfile {
     start_time_ = utils::ReadTSC();
   }
 
-  ScopedProfile(uint64_t key, const char *name, query::ExecutionContext *context) noexcept
+  ScopedProfile(uint64_t key, const char *name, query::ExecutionContext *context, bool coro = false) noexcept
       : context_(context), root_{context_->stats_root} {
     DMG_ASSERT(context_->is_profile_query);
 
@@ -72,6 +75,7 @@ class ScopedProfile {
       stats_ = &context_->stats;
       stats_->key = key;
       stats_->name = name;
+      stats_->coro = coro;
     } else {
       stats_ = nullptr;
 
@@ -84,6 +88,7 @@ class ScopedProfile {
         stats_ = &root_->children.back();
         stats_->key = key;
         stats_->name = name;
+        stats_->coro = coro;
       } else {
         stats_ = &(*it);
       }

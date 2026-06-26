@@ -471,16 +471,19 @@ struct PlanCreationHelper {
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define SCOPED_PROFILE_OP(name)                                                                    \
-  const std::optional<ScopedProfile> profile =                                                     \
-      context.is_profile_query                                                                     \
-          ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), name, &context) \
+#define SCOPED_PROFILE_OP(name)                                                                             \
+  const std::optional<ScopedProfile> profile =                                                              \
+      context.is_profile_query                                                                              \
+          ? std::optional<ScopedProfile>(                                                                   \
+                std::in_place, ComputeProfilingKey(this), name, &context, this->mode() == CursorMode::Coro) \
           : std::nullopt;
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define SCOPED_PROFILE_OP_BY_REF(ref)                                                                                  \
-  std::optional<ScopedProfile> const profile =                                                                         \
-      context.is_profile_query ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), ref, &context) \
-                               : std::nullopt;
+#define SCOPED_PROFILE_OP_BY_REF(ref)                                                                      \
+  std::optional<ScopedProfile> const profile =                                                             \
+      context.is_profile_query                                                                             \
+          ? std::optional<ScopedProfile>(                                                                  \
+                std::in_place, ComputeProfilingKey(this), ref, &context, this->mode() == CursorMode::Coro) \
+          : std::nullopt;
 
 PullAwaitable Once::OnceCursor::DoPull(Frame &, ExecutionContext &context) {
   // Coroutine twin of Pull(). FIDELITY: each while-iteration reproduces exactly one master

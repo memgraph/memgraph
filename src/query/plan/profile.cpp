@@ -57,7 +57,9 @@ class ProfilingStatsToTableHelper {
   void Output(const ProfilingStats &cumulative_stats) {
     auto cycles = IndividualCycles(cumulative_stats);
 
-    rows_.emplace_back(std::vector<TypedValue>{TypedValue(FormatOperator(cumulative_stats.name.c_str())),
+    auto op_cell = FormatOperator(cumulative_stats.name.c_str());
+    if (cumulative_stats.coro) op_cell += " [coro]";
+    rows_.emplace_back(std::vector<TypedValue>{TypedValue(op_cell),
                                                TypedValue(cumulative_stats.actual_hits),
                                                TypedValue(FormatRelativeTime(cycles)),
                                                TypedValue(FormatAbsoluteTime(cycles))});
@@ -143,6 +145,7 @@ class ProfilingStatsToJsonHelper {
     obj->emplace("actual_hits", cumulative_stats.actual_hits);
     obj->emplace("relative_time", RelativeTime(cycles, total_cycles_));
     obj->emplace("absolute_time", AbsoluteTime(cycles, total_cycles_, total_time_));
+    obj->emplace("coro", cumulative_stats.coro);
     obj->emplace("children", json::array());
 
     for (size_t i = 0; i < cumulative_stats.children.size(); ++i) {
