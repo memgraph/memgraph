@@ -3228,6 +3228,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
     auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
     DMG_ASSERT(auth_checker, "Auth checker should not be null");
     if (auth_checker->NeedsFineGrainedAuthChecker()) {
+      ctx_.has_property_restrictions = !auth_checker->HasUnrestrictedAccessToVertexProperties() ||
+                                       !auth_checker->HasUnrestrictedAccessToEdgeTypeProperties();
       ctx_.auth_checker = std::move(auth_checker);
     }
   }
