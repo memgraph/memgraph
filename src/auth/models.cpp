@@ -25,7 +25,6 @@ namespace memgraph::auth {
 namespace {
 
 constexpr auto kVersion = "version";
-constexpr int kCurrentAuthVersion = 4;
 constexpr auto kRoleName = "rolename";
 constexpr auto kBuiltIn = "builtin";
 constexpr auto kPermissions = "permissions";
@@ -1853,8 +1852,7 @@ void MigrateAuthJson(nlohmann::json &data) {
   if (!data.is_object()) return;
 
   auto version = DeduceVersion(data);
-  if (!version.has_value()) return;
-  if (version == kCurrentAuthVersion) {
+  if (!version.has_value() || version == kCurrentAuthVersion) {
     if (!data.contains(kVersion)) data[kVersion] = kCurrentAuthVersion;
     return;
   }
