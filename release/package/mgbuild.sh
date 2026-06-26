@@ -1995,7 +1995,7 @@ package_mage_rpm() {
   echo -e "${GREEN_BOLD}Packaging MAGE RPM package${RESET}"
   docker exec -i -u root $build_container bash -c "command -v rpmbuild >/dev/null 2>&1 || (dnf install -y rpm-build || yum install -y rpm-build)"
 
-  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-rpm.sh '${rpm_arch}' '${pkg_arch}' $build_type $version $malloc $cuda $cugraph"
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-rpm.sh '${rpm_arch}' '${pkg_arch}' $build_type $version $malloc $cuda $cugraph '${os}'"
 
   mkdir -pv output
   for path in $(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.rpm"); do

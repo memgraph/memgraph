@@ -13,12 +13,26 @@ VERSION=$4
 MALLOC=$5
 CUDA=$6
 CUGRAPH=$7
-PACKAGE_DIR=${8:-$HOME/mage.tar.gz}
+OS=$8              # target distro, e.g. centos-9 / centos-10 — encoded in the filename
+PACKAGE_DIR=${9:-$HOME/mage.tar.gz}
+
+if [[ -z "$OS" ]]; then
+    echo "Error: build-rpm.sh requires the target OS as the 8th argument (e.g. centos-9)"
+    exit 1
+fi
 
 # The RPM Version field must not contain '-' (it delimits version-release), so
 # normalise it to '.', then strip anything preceding the version number.
 CLEAN_VERSION=$(echo "$VERSION" | sed 's/-/./g')
 CLEAN_VERSION=$(echo "$CLEAN_VERSION" | sed 's/^[^0-9]*//')
+
+# Encode the target distro in the output filename (in the dist-tag slot, e.g.
+# "centos-9") so per-distro rpms are distinguishable: they otherwise share
+# name-version-release.arch and would collide in the flat MAGE S3 prefix. We use
+# the distro name rather than rpm's %{?dist} tag because the tag is generation-
+# based (centos-10 and rocky-10 are both ".el10") and wouldn't disambiguate
+# same-generation vendors. This only renames the file; the rpm's internal
+# Release still carries %{?dist}.
 
 # Variant suffix, encoded in the output filename only (the package Name stays
 # memgraph-mage), matching build-deb.sh's PACKAGE_NAME convention.
@@ -33,8 +47,8 @@ elif [[ "$CUDA" == true ]]; then
     NAME_SUFFIX="${NAME_SUFFIX}-cuda"
 fi
 
-PACKAGE_NAME="memgraph-mage-${CLEAN_VERSION}-1.${ARCH}${NAME_SUFFIX}.rpm"
-DEBUGINFO_PACKAGE_NAME="memgraph-mage-debuginfo-${CLEAN_VERSION}-1.${ARCH}${NAME_SUFFIX}.rpm"
+PACKAGE_NAME="memgraph-mage-${CLEAN_VERSION}-1.${OS}.${ARCH}${NAME_SUFFIX}.rpm"
+DEBUGINFO_PACKAGE_NAME="memgraph-mage-debuginfo-${CLEAN_VERSION}-1.${OS}.${ARCH}${NAME_SUFFIX}.rpm"
 
 echo "Building package: $PACKAGE_NAME"
 
