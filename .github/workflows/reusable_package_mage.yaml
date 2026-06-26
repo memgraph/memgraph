@@ -202,22 +202,20 @@ jobs:
             echo "Using wheels build for CUDA"
             WHEEL_PATH="cuda-13.0/${WHEEL_PATH}"
           fi
+          # Wheels live under a dated prefix wheels/<date>/<arch>/ (portable
+          # manylinux builds). Keep WHEELS_DATE in sync with the one in
+          # mage/install_python_requirements.sh.
+          WHEELS_DATE="2026-06-25"
+          WHEEL_PATH="${WHEELS_DATE}/${WHEEL_PATH}"
           echo "using wheel path: WHEEL_PATH=${WHEEL_PATH}"
           echo "MAGE_WHEEL_PATH=${WHEEL_PATH}" >> $GITHUB_ENV
-          # TEMPORARY: force the mgdeps-cache off so the build pulls the new
-          # wheels from the S3 "wheels-staging" prefix (via install_python_requirements.sh
-          # --staging, default true) instead of the cached copies. Revert to the
-          # curl reachability check below once the staging wheels are promoted
-          # to the usual "wheels" prefix.
-          echo "mgdeps-cache disabled (temporary: using S3 wheels-staging)"
-          echo "CACHE_PRESENT=false" >> $GITHUB_ENV
-          # if curl --silent --fail "http://mgdeps-cache:8000/wheels/$WHEEL_PATH/" -o /dev/null; then
-          #   echo "mgdeps-cache is reachable :D"
-          #   echo "CACHE_PRESENT=true" >> $GITHUB_ENV
-          # else
-          #   echo "mgdeps-cache is NOT reachable"
-          #   echo "CACHE_PRESENT=false" >> $GITHUB_ENV
-          # fi
+          if curl --silent --fail "http://mgdeps-cache:8000/wheels/$WHEEL_PATH/" -o /dev/null; then
+            echo "mgdeps-cache is reachable :D"
+            echo "CACHE_PRESENT=true" >> $GITHUB_ENV
+          else
+            echo "mgdeps-cache is NOT reachable"
+            echo "CACHE_PRESENT=false" >> $GITHUB_ENV
+          fi
 
       - name: Get Memgraph version
         run: |
