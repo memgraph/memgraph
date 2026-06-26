@@ -457,6 +457,13 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
+  // No defunct check is needed here. A defunct replica tenant reports commit-ts 0 with a fresh epoch (a consequence of
+  // Clear()), so the main always sees it as behind, drives it into the RECOVERY state and sends recovery steps (a
+  // snapshot, WAL files, or both) before any incremental delta. While the replica is in RECOVERY the main skips
+  // incremental PrepareCommit, and whichever recovery handler runs (SnapshotHandler, WalFilesHandler or
+  // CurrentWalHandler) clears the defunct flag on success. Therefore by the time any PrepareCommit delta reaches the
+  // replica, the tenant is guaranteed non-defunct.
+
   // Abort prev txn if needed
   // It could happen that the main instance died before sending finalize for the previous commit and then
   // the new instance becomes main and sends prepare
@@ -739,6 +746,11 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   }
   spdlog::debug("Snapshot from {} loaded successfully.", dst_snapshot_file);
 
+  // A successful snapshot load is the moment a defunct replica tenant becomes healthy: the main has just full-synced
+  // it. Clearing the defunct flag re-enables background durability and lets queries touch the tenant again (slice 1
+  // guards writes behind IsDefunct(), so clearing the flag is sufficient to resume normal operation).
+  storage->SetDefunct(false);
+
   auto const [ldt, num_committed_txns] = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
 
   // The old durability files (WALs and snapshots that predate this recovery snapshot) must be removed
@@ -912,6 +924,13 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   }
 
   spdlog::debug("Replication recovery from WAL files succeeded for db {}.", storage->name());
+
+  // A defunct replica tenant reports commit-ts 0 and the main heals it during RECOVERY. The recovery steps need not
+  // include a snapshot: when the main's WAL chain reaches back to the start (e.g. the main never took a snapshot),
+  // GetRecoverySteps sends WAL files only. Having fully applied them, the tenant is consistent with the main, so the
+  // defunct flag is cleared here too (mirrors SnapshotHandler) to re-enable queries and background durability.
+  storage->SetDefunct(false);
+
   const storage::replication::WalFilesRes res{
       storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, num_committed_txns};
 
@@ -1017,6 +1036,10 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
         storage->name());
   } else {
     spdlog::debug("Replication recovery from current WAL ended successfully! DB {}.", storage->name());
+    // The current WAL can be the only recovery step the main sends to heal a defunct tenant (commit-ts 0, no snapshot
+    // on the main). On success the tenant is consistent with the main, so clear the defunct flag here too, just like
+    // SnapshotHandler and WalFilesHandler do.
+    storage->SetDefunct(false);
   }
 
   const storage::replication::CurrentWalRes res{
