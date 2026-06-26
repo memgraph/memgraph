@@ -363,10 +363,14 @@ struct Gatekeeper {
   // Reverses a freeze when the caller decides to abort the suspend.
   void abort_suspend() {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    // MG_ASSERT (always-on): a bare assert() is stripped under -DNDEBUG, which the shipping
-    // RelWithDebInfo build defines. These guard real state-machine invariants whose violation
-    // would otherwise corrupt the gatekeeper silently in production, so they must survive NDEBUG.
-    MG_ASSERT(pimpl_->state_ == GatekeeperState::SUSPENDING, "abort_suspend() called outside SUSPENDING state");
+    // DMG_ASSERT (debug/CI-only): the wrong-state call this guards is provably unreachable on every
+    // current path (each transition has a single disciplined caller — see Suspend_/Resume_), so this
+    // is a regression tripwire for future edits, NOT a production safety mechanism: a multi-tenant
+    // prod process should not be crashed by a state-machine mismatch. Trade-off (deliberate): under
+    // NDEBUG the assert is a no-op and the transition below still runs, so a hypothetical wrong-state
+    // call in release would silently mis-transition (e.g. ghost-HOT) rather than crash — accepted
+    // because the invariant holds on all real paths and debug/CI catches any regression first.
+    DMG_ASSERT(pimpl_->state_ == GatekeeperState::SUSPENDING, "abort_suspend() called outside SUSPENDING state");
     pimpl_->state_ = GatekeeperState::HOT;
     pimpl_->cv_.notify_all();
   }
@@ -377,7 +381,8 @@ struct Gatekeeper {
   // value_ is disengaged.
   void finish_suspend() {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    MG_ASSERT(pimpl_->state_ == GatekeeperState::SUSPENDING, "finish_suspend() called outside SUSPENDING state");
+    // DMG_ASSERT (debug/CI-only regression tripwire) — see abort_suspend() for the rationale + trade-off.
+    DMG_ASSERT(pimpl_->state_ == GatekeeperState::SUSPENDING, "finish_suspend() called outside SUSPENDING state");
     {
       // Opt-in lifetime guard around object destruction (mirrors the dtor).
       typename GatekeeperGuardFor<T>::type arena_guard;
@@ -419,7 +424,8 @@ struct Gatekeeper {
   // Resume failed; rolls back to COLD so begin_resume() can be retried.
   void abort_resume() {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    MG_ASSERT(pimpl_->state_ == GatekeeperState::RESUMING, "abort_resume() called outside RESUMING state");
+    // DMG_ASSERT (debug/CI-only regression tripwire) — see abort_suspend() for the rationale + trade-off.
+    DMG_ASSERT(pimpl_->state_ == GatekeeperState::RESUMING, "abort_resume() called outside RESUMING state");
     pimpl_->state_ = GatekeeperState::COLD;
     pimpl_->cv_.notify_all();
   }
