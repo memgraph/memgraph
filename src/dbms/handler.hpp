@@ -203,7 +203,14 @@ class Handler {
       db_acc->reset();
       // TODO: Make sure this shuts down correctly
       auto task = [gk = std::move(itr->second), post_delete_func = std::forward<Func>(post_delete_func)]() mutable {
-        gk.~Gatekeeper<T>();
+        // Destroy the gatekeeper exactly once, via natural scope — NOT an explicit gk.~Gatekeeper<T>()
+        // followed by the captured gk being destructed again when this lambda is destroyed (that is a
+        // double-destruction: [basic.life] UB, reading a destroyed object's pimpl_). Moving into a
+        // block-scoped local runs the blocking ~Gatekeeper once here; the moved-from capture then
+        // destroys cleanly (null pimpl_) with the lambda.
+        {
+          auto dying = std::move(gk);
+        }
         post_delete_func();
       };
       defer_pool_.AddTask(std::move(task));
@@ -262,6 +269,11 @@ class Handler {
   [[nodiscard]] bool empty() const noexcept { return items_.empty(); }
 
  private:
+  // Declaration order is LOAD-BEARING for shutdown: members destruct in reverse declaration order, so
+  // `defer_pool_` (declared last) destructs FIRST — its ~ThreadPool joins the defer thread and drains
+  // queued deferred-delete tasks (each owning a moved-out Gatekeeper) BEFORE `items_` is destroyed.
+  // Reordering these would let `items_` (and the live gatekeepers) be torn down while a deferred
+  // ~Gatekeeper task is still running/queued -> hang or use-after-free. Keep items_ before defer_pool_.
   container_type items_;  //!< map to all active items
   utils::ThreadPool defer_pool_{1};
 };

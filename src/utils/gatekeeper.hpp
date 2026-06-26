@@ -175,6 +175,10 @@ struct Gatekeeper {
     // invariant try_begin_suspend() established, leading to a dangling value_ after finish_suspend().
     // Safe today because access() returns nullopt outside HOT, so no new accessor can be minted
     // during SUSPENDING, and the suspend path's own accessor is a stack-local that is never copied.
+    // The read of other.owner_ then lock of owner_->mutex_ is also safe WITHOUT a prior lock: the
+    // source `other` holds a live count on the same GKInternals, so count_ >= 1 throughout this copy
+    // and ~Gatekeeper (which frees GKInternals only at count_ == 0) cannot destroy owner_ underneath
+    // us. This relies on the caller NOT destroying/sharing `other` on another thread mid-copy.
     Accessor(Accessor const &other) : owner_{other.owner_} {
       if (owner_) {
         auto guard = std::unique_lock{owner_->mutex_};
@@ -311,6 +315,11 @@ struct Gatekeeper {
 
   std::optional<Accessor> access() {
     auto guard = std::unique_lock{pimpl_->mutex_};
+    // Intentionally gated ONLY on state_ == HOT, NOT on is_marked_for_deletion: a tenant being deleted
+    // can still be HOT, and the marked-for-deletion guard is surfaced via Accessor::operator bool (the
+    // caller checks it and releases). access() minting on a marked-but-HOT shell is benign — the minted
+    // Accessor's operator bool is false, so callers won't use it, and the count returns to 0 so a
+    // waiting ~Gatekeeper proceeds. Adding a marked check here is NOT a correctness requirement.
     if (pimpl_->value_ && pimpl_->state_ == GatekeeperState::HOT) {
       return Accessor{this};
     }
