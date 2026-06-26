@@ -352,6 +352,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
 }
 
 void SessionHL::LogOff() {
+  cached_auth_checker_.reset();
 #ifdef MG_ENTERPRISE
   interpreter_.ResetDB();
 #endif
@@ -359,7 +360,10 @@ void SessionHL::LogOff() {
   session_user_or_role_.reset();
 }
 
-void SessionHL::Abort() { interpreter_.Abort(); }
+void SessionHL::Abort() {
+  cached_auth_checker_.reset();
+  interpreter_.Abort();
+}
 
 bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
   try {
@@ -384,20 +388,7 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
-
-    std::unique_ptr<memgraph::query::FineGrainedAuthChecker> auth_checker;  // NOLINT(misc-const-correctness)
-#ifdef MG_ENTERPRISE
-    if (storage && interpreter_context_->auth_checker && interpreter_.user_or_role_ && *interpreter_.user_or_role_ &&
-        interpreter_.current_db_.execution_db_accessor_) {
-      auto *dba = &*interpreter_.current_db_.execution_db_accessor_;
-      auth_checker = interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*interpreter_.user_or_role_, dba);
-      DMG_ASSERT(auth_checker, "Auth checker should not be null");
-      if (!auth_checker->NeedsFineGrainedAuthChecker()) {
-        auth_checker = nullptr;
-      }
-    }
-#endif
-    TypedValueResultStream<TEncoder> stream(&encoder_, storage, auth_checker.get());
+    TypedValueResultStream<TEncoder> stream(&encoder_, storage, cached_auth_checker_.get());
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
@@ -413,6 +404,7 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
 }
 
 void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
+  cached_auth_checker_.reset();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     auto &db = interpreter_.current_db_.db_acc_;
@@ -460,6 +452,23 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
     auto result =
         interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
     interpreter_.CheckAuthorized(result.privileges, result.db);
+
+#ifdef MG_ENTERPRISE
+    cached_auth_checker_.reset();
+    auto &db = interpreter_.current_db_.db_acc_;
+    auto *storage = db ? db->get()->storage() : nullptr;
+    if (storage && interpreter_context_->auth_checker && interpreter_.user_or_role_ && *interpreter_.user_or_role_ &&
+        interpreter_.current_db_.execution_db_accessor_) {
+      auto *dba = &*interpreter_.current_db_.execution_db_accessor_;
+      cached_auth_checker_ =
+          interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*interpreter_.user_or_role_, dba);
+      DMG_ASSERT(cached_auth_checker_, "Auth checker should not be null");
+      if (!cached_auth_checker_->NeedsFineGrainedAuthChecker()) {
+        cached_auth_checker_.reset();
+      }
+    }
+#endif
+
     return {std::move(result.headers), result.qid};
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
