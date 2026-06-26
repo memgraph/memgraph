@@ -1853,7 +1853,11 @@ void MigrateAuthJson(nlohmann::json &data) {
   if (!data.is_object()) return;
 
   auto version = DeduceVersion(data);
-  if (!version.has_value() || version == kCurrentAuthVersion) return;
+  if (!version.has_value()) return;
+  if (version == kCurrentAuthVersion) {
+    if (!data.contains(kVersion)) data[kVersion] = kCurrentAuthVersion;
+    return;
+  }
 
   // V2 to V3: rename fine_grained_access_handler to fine_grained_permissions,
   //           convert global_permission values from V2 enum to V3 bitmask,
