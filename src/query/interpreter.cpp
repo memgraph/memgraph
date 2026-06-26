@@ -6349,6 +6349,14 @@ PreparedQuery PrepareRepairDatabaseQuery(ParsedQuery parsed_query, bool in_expli
             }
           }
         }
+        // REPLICATION
+        // Note: This can only be called on MAIN. The main is now empty with a fresh epoch, so force every replica
+        // to re-sync, wiping its stale tenant data and leaving a clean empty tenant ready for the main's commits.
+        const auto locked_clients = mem_storage->repl_storage_state_.replication_storage_clients_.ReadLock();
+        auto protector = dbms::DatabaseProtector{db_acc};
+        for (const auto &client : *locked_clients) {
+          client->ForceRecoverReplica(mem_storage, protector);
+        }
         notifications->emplace_back(
             SeverityLevel::INFO,
             NotificationCode::REPAIR_DATABASE,
