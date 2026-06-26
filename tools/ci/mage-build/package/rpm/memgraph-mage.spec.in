@@ -26,6 +26,15 @@
 # so our hand-rolled subpackage below is actually built.
 %global _debuginfo_subpackages 0
 
+# memgraph bundles its toolchain libstdc++ under /usr/lib/memgraph, and the
+# query modules (built with that newer toolchain) load it rather than the
+# distro's system libstdc++. So drop the auto-generated libstdc++ Requires:
+# the toolchain's GLIBCXX symbols (e.g. GLIBCXX_3.4.34) aren't provided by the
+# system libstdc++ on older distros (e.g. centos-10), and demanding them would
+# make the package uninstallable. The runtime lib comes from the memgraph
+# package (which memgraph-mage Requires), not the system one.
+%global __requires_exclude ^libstdc\\+\\+\\.so
+
 # Set to 1 by build-rpm.sh when mage-debug.tar.gz carried .debug sidecars.
 %global with_debuginfo @WITH_DEBUGINFO@
 
