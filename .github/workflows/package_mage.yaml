@@ -59,15 +59,12 @@ on:
         type: choice
         description: Target OS
         default: ubuntu-24.04
+        # Only Python-3.12 distros are currently supported (MAGE's deps are
+        # cp312-only); see tools/ci/package_mage_setup.py for the full note.
         options:
           - ubuntu-24.04
-          - ubuntu-22.04
-          - debian-12
-          - debian-13
-          - fedora-42
           - centos-9
           - centos-10
-          - rocky-10
 
   workflow_call:
     inputs:
@@ -145,7 +142,7 @@ jobs:
 
       - name: Set up package execution
         id: setup
-        run: python3 tools/ci/package_mage_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME"  #TODO: handle Linux distro
+        run: python3 tools/ci/package_mage_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME"
 
 
   BuildMage:

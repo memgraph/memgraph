@@ -4,9 +4,15 @@ import os
 import sys
 
 # Single source of truth for the OS/arch (+ flavour) combinations MAGE can be
-# packaged for. Mirrors the Memgraph build matrix in
-# .github/workflows/build_rc.yml — arm is only listed where Memgraph builds it
-# (ubuntu-24.04, debian-12, debian-13, fedora-42).
+# packaged for.
+#
+# IMPORTANT: MAGE's python query-module dependencies (torch/PyG/DGL wheels) are
+# currently cp312-only, so MAGE only works on distros whose embedded Python is
+# 3.12 — ubuntu-24.04, centos-9 (built explicitly against python3.12), and
+# centos-10 (ships 3.12 by default). The other distros Memgraph builds on
+# (ubuntu-22.04 → 3.10, debian-12 → 3.11, debian-13/fedora-42 → 3.13) are
+# commented out below; re-enabling them would require MAGE to support those
+# Python versions (i.e. additional cp310/cp311/cp313 wheel builds).
 #
 # `label` is the PR-label suffix: apply `CI -package=mage-<label>` to a PR to
 # trigger that build. ubuntu-24.04 is the primary target, so its amd/arm builds
@@ -25,44 +31,18 @@ SUPPORTED_BUILDS = [
     {"label": "cuda", "os": "ubuntu-24.04", "arch": "amd", "cuda": "true", "cugraph": "false", "malloc": "false"},
     {"label": "cugraph", "os": "ubuntu-24.04", "arch": "amd", "cuda": "false", "cugraph": "true", "malloc": "false"},
     {"label": "malloc", "os": "ubuntu-24.04", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "true"},
-    {
-        "label": "ubuntu-22.04",
-        "os": "ubuntu-22.04",
-        "arch": "amd",
-        "cuda": "false",
-        "cugraph": "false",
-        "malloc": "false",
-    },
-    {"label": "debian-12", "os": "debian-12", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
-    {
-        "label": "debian-12-arm",
-        "os": "debian-12",
-        "arch": "arm",
-        "cuda": "false",
-        "cugraph": "false",
-        "malloc": "false",
-    },
-    {"label": "debian-13", "os": "debian-13", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
-    {
-        "label": "debian-13-arm",
-        "os": "debian-13",
-        "arch": "arm",
-        "cuda": "false",
-        "cugraph": "false",
-        "malloc": "false",
-    },
-    {"label": "fedora-42", "os": "fedora-42", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
-    {
-        "label": "fedora-42-arm",
-        "os": "fedora-42",
-        "arch": "arm",
-        "cuda": "false",
-        "cugraph": "false",
-        "malloc": "false",
-    },
     {"label": "centos-9", "os": "centos-9", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
     {"label": "centos-10", "os": "centos-10", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
-    {"label": "rocky-10", "os": "rocky-10", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
+    # Disabled until MAGE supports Python versions other than 3.12 (see note above).
+    # These mirror the rest of the Memgraph build matrix in build_rc.yml:
+    # {"label": "ubuntu-22.04",  "os": "ubuntu-22.04", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.10
+    # {"label": "debian-12",     "os": "debian-12",    "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.11
+    # {"label": "debian-12-arm", "os": "debian-12",    "arch": "arm", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.11
+    # {"label": "debian-13",     "os": "debian-13",    "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.13
+    # {"label": "debian-13-arm", "os": "debian-13",    "arch": "arm", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.13
+    # {"label": "fedora-42",     "os": "fedora-42",    "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.13
+    # {"label": "fedora-42-arm", "os": "fedora-42",    "arch": "arm", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.13
+    # {"label": "rocky-10",      "os": "rocky-10",     "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},  # Python 3.12, not yet validated
 ]
 
 # matrix_build (workflow_dispatch) builds the original ubuntu-24.04 flavour set
