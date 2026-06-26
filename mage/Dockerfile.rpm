@@ -1,40 +1,57 @@
-# Minimal CentOS Stream 9 image for running MAGE smoke tests against the RPM
+# Minimal rpm-distro image for running MAGE smoke tests against the RPM
 # packages. This is NOT a production image and is never published — it exists
 # only so the smoke-test framework (which drives a Docker image) can exercise
 # the memgraph + memgraph-mage RPMs on an rpm-based distro. The build context
 # is the mage/ directory, mirroring Dockerfile.release.
 #
+# Generic across rpm distros via build args:
+#   BASE_IMAGE  - the distro base image (e.g. quay.io/centos/centos:stream9,
+#                 quay.io/centos/centos:stream10, rockylinux/rockylinux:10).
+#   PY_VERSION  - the python the modules need. Leave empty to use the distro
+#                 default (python3), or set it (e.g. "3.12") to install an
+#                 explicit pythonX.Y — CentOS Stream 9 defaults python3 to 3.9
+#                 but memgraph there embeds 3.12.
+#
 # Expects two RPMs staged into the build context under fixed names (as
 # Dockerfile.release does with ./memgraph.deb):
 #   ./memgraph.rpm        - the base memgraph package
 #   ./memgraph-mage.rpm   - the MAGE query-modules package built by build-rpm.sh
-FROM quay.io/centos/centos:stream9 AS base
+ARG BASE_IMAGE=quay.io/centos/centos:stream9
+FROM ${BASE_IMAGE} AS base
 
 USER root
 
-# memgraph here embeds python 3.12 (built with -DMG_PYTHON_VERSION=3.12, since
-# CentOS Stream 9's default python3 is 3.9), so the query-module deps must be
-# installed under 3.12. Stage the 3.12 interpreter/pip plus the build deps the
-# full requirements install needs — gssapi (kerberos auth module) has no PyPI
-# wheel and is compiled from source, needing gcc + krb5-devel + the 3.12 dev
-# headers. unixODBC provides libodbc.so.2, which pyodbc (imported by the
+# Install the python interpreter the query modules need, plus the build deps the
+# full requirements install pulls in: gssapi (kerberos auth module) has no PyPI
+# wheel and is compiled from source, needing gcc + krb5-devel + the python dev
+# headers; unixODBC provides libodbc.so.2, which pyodbc (imported by the
 # cross_database module) loads at runtime — the prod/debug images install the
 # equivalent via install_runtime_requirements.sh.
+#
+# PY_VERSION selects which python packages to install: empty -> the distro
+# default python3; set -> an explicit pythonX.Y (e.g. 3.12 on CentOS Stream 9,
+# whose default python3 is 3.9). install_python_requirements.sh (run by the
+# memgraph-mage %post) independently prefers python3.12 when present, so the
+# interpreter it installs deps into matches the one memgraph embeds.
 #
 # Then install the base memgraph package and the MAGE package together so dnf
 # orders them (memgraph first, since memgraph-mage Requires it) and resolves the
 # remaining C/C++ runtime deps (libgomp, libatomic, openssl, ...). The
-# memgraph-mage %post runs install_python_requirements.sh (auto-selecting
-# python3.12) to install the full MAGE python requirements — required, not
+# memgraph-mage %post installs the full MAGE python requirements — required, not
 # optional: one of the smoke checks asserts every query module loaded, which
 # fails if any module's python deps are missing. --setopt=tsflags='' keeps
-# memgraph's license docs, which the CentOS minimal image otherwise strips.
+# memgraph's license docs, which the minimal rpm base images otherwise strip.
+ARG PY_VERSION=""
 RUN --mount=type=bind,source=./memgraph.rpm,target=/packages/memgraph.rpm,ro \
     --mount=type=bind,source=./memgraph-mage.rpm,target=/packages/memgraph-mage.rpm,ro \
   export PIP_BREAK_SYSTEM_PACKAGES=1 && \
+  if [ -n "$PY_VERSION" ]; then \
+    py_pkgs="python${PY_VERSION} python${PY_VERSION}-pip python${PY_VERSION}-devel"; \
+  else \
+    py_pkgs="python3 python3-pip python3-devel"; \
+  fi && \
   dnf install -y --setopt=tsflags='' \
-    python3.12 python3.12-pip python3.12-devel gcc gcc-c++ krb5-devel \
-    unixODBC && \
+    $py_pkgs gcc gcc-c++ krb5-devel unixODBC && \
   dnf install -y --setopt=tsflags='' \
     /packages/memgraph.rpm /packages/memgraph-mage.rpm && \
   dnf clean all && rm -rf /var/cache/dnf

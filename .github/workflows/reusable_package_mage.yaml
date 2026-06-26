@@ -364,18 +364,14 @@ jobs:
           --dest-dir $MG_PACKAGE_ARTIFACT_DIR
 
           # Stage the base memgraph package as mage/memgraph.deb for the
-          # downstream MAGE docker build and the offline installer. Both only
-          # run on deb-based distros; on rpm distros (centos/fedora/rocky) the
-          # base package is an .rpm and isn't consumed here — package-mage-rpm
-          # only declares `Requires: memgraph`, it doesn't bundle it — so skip
-          # this staging entirely rather than failing on a missing *.deb glob.
+          # downstream MAGE docker build and the offline installer.
           if [[ "$OS" == ubuntu-* || "$OS" == debian-* ]]; then
             mv -v "$MG_PACKAGE_ARTIFACT_DIR"/memgraph_*.deb mage/memgraph.deb
             # Debug-flavoured docker images install memgraph-debuginfo on top
             # of the prod deb. Stage the companion sidecar deb when either
             # docker variant needs it; the relwithdebinfo Dockerfile target
             # consumes it from mage/memgraph-debuginfo.deb.
-            if [[ ("$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both") && "$OS" == ubuntu-* ]]; then
+            if [[ ("$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both") && "$OS" == "ubuntu-24.04" ]]; then
               debuginfo_deb=$(ls -1 "$MG_PACKAGE_ARTIFACT_DIR"/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)
               if [[ -z "$debuginfo_deb" ]]; then
                 echo "Error: building the relwithdebinfo MAGE docker image requires a memgraph-debuginfo deb in $MG_PACKAGE_ARTIFACT_DIR" >&2
@@ -386,10 +382,7 @@ jobs:
             fi
           else
             # rpm distros: stage the base memgraph rpm as mage/memgraph.rpm for
-            # the centos-9 smoke image (Dockerfile.centos-9). Copy rather than
-            # move so the package stays in $MG_PACKAGE_ARTIFACT_DIR. The base
-            # rpm is memgraph-<version>... ; the -debuginfo rpm is excluded by
-            # the [0-9] after the dash.
+            # the rpm smoke image (Dockerfile.rpm).
             base_rpm=$(ls -1 "$MG_PACKAGE_ARTIFACT_DIR"/memgraph-[0-9]*.rpm 2>/dev/null | head -n 1)
             if [[ -n "$base_rpm" ]]; then
               cp -v "$base_rpm" mage/memgraph.rpm
@@ -687,25 +680,35 @@ jobs:
             --cuda $CUDA \
             --package-flavour debug
 
-      - name: "Build centos-9 smoke image"
-        # centos-9 publishes no MAGE docker image; build a throwaway local image
+      - name: "Build rpm smoke image"
+        # rpm distros publish no MAGE docker image; build a throwaway local image
         # from the rpms (base memgraph + memgraph-mage) so the Docker smoke-test
         # framework can exercise the rpm install path. Never pushed. The base
         # memgraph rpm was staged to mage/memgraph.rpm by the Copy/Download step;
         # the memgraph-mage rpm comes from the Build RPM package step.
-        if: ${{ inputs.run_smoke_tests && inputs.os == 'centos-9' && !inputs.cugraph && !inputs.cuda }}
+        if: ${{ inputs.run_smoke_tests && startsWith(inputs.os, 'centos') && !inputs.cugraph && !inputs.cuda }}
         run: |
           set -euo pipefail
+          # Map the distro to its base image and the python version the modules
+          # need. PY_VERSION empty => distro-default python3; centos-9 ships 3.9
+          # but memgraph there embeds 3.12, so it needs an explicit 3.12.
+          case "$OS" in
+            centos-9)  base_image="quay.io/centos/centos:stream9";  py_version="3.12" ;;
+            centos-10) base_image="quay.io/centos/centos:stream10"; py_version="" ;;
+            *) echo "Error: no rpm smoke base-image mapping for OS '$OS'" >&2; exit 1 ;;
+          esac
           if [[ ! -f mage/memgraph.rpm ]]; then
-            echo "Error: mage/memgraph.rpm not staged — cannot build centos-9 smoke image" >&2
+            echo "Error: mage/memgraph.rpm not staged — cannot build rpm smoke image" >&2
             exit 1
           fi
           mage_rpm="$(ls -t output/memgraph-mage-[0-9]*.rpm | head -n 1)"
           cp -v "$mage_rpm" mage/memgraph-mage.rpm
-          # BuildKit required: Dockerfile.centos-9 uses RUN --mount=type=bind.
+          # BuildKit required: Dockerfile.rpm uses RUN --mount=type=bind.
           DOCKER_BUILDKIT=1 docker build \
-            -f mage/Dockerfile.centos-9 \
-            -t "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}-centos-9" \
+            -f mage/Dockerfile.rpm \
+            --build-arg BASE_IMAGE="$base_image" \
+            --build-arg PY_VERSION="$py_version" \
+            -t "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}-${OS}" \
             mage
 
       - name: "Bolt smoke test (prod)"
@@ -991,11 +994,11 @@ jobs:
             --next-image "${DOCKER_REPOSITORY_NAME}:${DEBUG_IMAGE_TAG}" \
             --last-image "${DOCKER_REPOSITORY_NAME}:${LAST_DEBUG_VERSION}"
 
-      - name: "Run Docker smoke tests (centos-9)"
-        # Smoke the freshly-built centos-9 rpm image (next) against the usual
-        # published prod image (last) — there is no prior centos-9 image to diff
-        # against, so the standard prod image stands in as the baseline.
-        if: ${{ inputs.run_smoke_tests && inputs.os == 'centos-9' && !inputs.cugraph && !inputs.cuda }}
+      - name: "Run Docker smoke tests (rpm)"
+        # Smoke the freshly-built rpm image (next) against the usual published
+        # prod image (last) — there is no prior rpm image to diff against, so the
+        # standard prod image stands in as the baseline.
+        if: ${{ inputs.run_smoke_tests && startsWith(inputs.os, 'centos') && !inputs.cugraph && !inputs.cuda }}
         run: |
           docker pull "${DOCKER_REPOSITORY_NAME}:${LAST_PROD_VERSION}"
           ./release/package/mgbuild.sh \
@@ -1003,7 +1006,7 @@ jobs:
             --os $OS \
             --arch $ARCH \
             test-mage smoke \
-            --next-image "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}-centos-9" \
+            --next-image "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}-${OS}" \
             --last-image "${DOCKER_REPOSITORY_NAME}:${LAST_PROD_VERSION}"
 
       - name: Push query module archive to GitHub
