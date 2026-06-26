@@ -122,6 +122,35 @@ deltas are single-run noise. ✅ flat.
 
 ---
 
+## 4b. Macro check — pokec medium, OFF vs SPLIT (gate step 3.5)
+
+End-to-end whole-query sanity beyond the microbench. Real pokec **medium** dataset (100 000 `:User`,
+1 768 515 `:Friend` edges, `:User(id)` index) loaded once into a snapshot (`pokec_load.py`) and
+recovered per arm; a representative read slice of the standard mgbench pokec queries run OFF vs SPLIT
+(`pokec_ab.py`). Vertex-parameterised queries use a **fixed** pool of 300 real ids (same across arms);
+scan/aggregate queries are median-of-25, vertex queries median-over-300.
+
+| query | OFF(ms) | SPLIT(ms) | SPLIT% |
+|---|---:|---:|---:|
+| aggregate (`n.age, COUNT(*)`)        | 26.587 | 26.184 | −1.5% |
+| aggregate_filter (`age>=18`)         | 37.801 | 37.635 | −0.4% |
+| agg_count (`count(n)`)               |  9.855 |  9.074 | −7.9% |
+| point_lookup (`{id:$id}`)            |  0.127 |  0.129 | +1.6% |
+| expansion_1 (`-->(n)`)               |  0.157 |  0.161 | +3.0% |
+| expansion_2 (`-->()-->(n)` DISTINCT) |  1.358 |  1.274 | −6.2% |
+| expansion_2_filter                   |  1.068 |  1.027 | −3.9% |
+
+**Reading:** no whole-query surprise. Deltas are symmetric around zero (several negative = SPLIT
+faster, i.e. noise); the largest positive — `expansion_1` +3.0% — is +4 µs on a 0.16 ms query, pure
+jitter at n=300. Nothing approaches the 5% ceiling. The macro check corroborates the microbench/PMU
+verdict at the end-to-end level.
+
+> Load note: the cypherl import is parse-bound (~3000 stmt/s) because the 1.77M edge statements carry
+> literal ids (no plan-cache reuse) and are sent one-per-round-trip from Python. It is a one-time cost
+> (snapshot is reused per arm). A 10–50× faster import would `UNWIND $rows` to parse/plan once per batch.
+
+---
+
 ## 5. Yield latency — `tests/unit/cursor_yield_latency.cpp`
 
 A **mechanism microbench** (synthetic fake-coroutine chain, no DB) measuring the **uninterruptible
@@ -160,8 +189,9 @@ mechanism bench establishes the **principle**, not the per-operator numbers.
 ## 6. Decision
 
 Per the `PERF_GATE.md` decision tree, the throughput criterion — **SPLIT ≤ ~2%, ALL reproduces the
-regression** — is met on the trustworthy metric (instructions/query: **SPLIT +1%**, ALL +10%).
-Correctness (parity / knob / parallel tests) was already green.
+regression** — is met on the trustworthy metric (instructions/query: **SPLIT +1%**, ALL +10%),
+and corroborated end-to-end by the pokec macro check (§4b, SPLIT within noise of OFF).
+Correctness (parity / knob / parallel tests) was already green. All gate steps (3.0–3.5) complete.
 
 ➡️ **Green-light the endgame:** flip the empty-knob default to the split policy (coroutine
 root→split-point), keep the knob as an override / kill-switch, and proceed to delete the dual `Pull`
@@ -214,6 +244,12 @@ tests/mgbench/coroutine_perf/perf_pmu.sh build/memgraph 7799 120
 # 3.4 parallel sanity (needs enterprise license in env):
 set -a; source <license-file>; set +a
 tests/mgbench/coroutine_perf/parallel_ab.sh build/memgraph 7796
+
+# 3.5 macro check — pokec medium (load once into a snapshot, then recover per arm):
+DS=tests/mgbench/.cache/datasets/pokec/medium
+./build/memgraph --bolt-port=7795 --data-directory=/tmp/pokec_base --storage-snapshot-on-exit=true &
+tests/mgbench/coroutine_perf/pokec_load.py 7795 $DS/dataset.cypher $DS/memgraph.cypher  # then stop the server
+#   for each arm: cp -r /tmp/pokec_base /tmp/pokec_<arm>; start with the knob flag; pokec_ab.py 7794 <arm>
 
 # yield-latency mechanism microbench (no DB):
 cmake --build build --target cursor_yield_latency -j$(nproc)
