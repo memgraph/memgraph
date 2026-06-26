@@ -154,17 +154,22 @@ namespace rv = ranges::views;
 // designated as coroutine SPLIT POINTS: the plan runs as coroutines from the root down to (and
 // including) the deepest listed operator, and synchronously below it. Read fresh at each query's
 // plan construction, so it is runtime-tunable (e.g. via gflags::SetCommandLineOption).
-// Recognised kinds: Aggregate, OrderBy (case-insensitive; unknown names are ignored with a warning).
-// "All" (or "*") forces the whole plan coroutine.
+// Recognised kinds: Aggregate, OrderBy, Accumulate, Distinct, HashJoin (case-insensitive; unknown names
+// are ignored with a warning). "All" (or "*") forces the whole plan coroutine.
 //
-// DEFAULT = "Aggregate,OrderBy" (the validated split policy). The bare-metal perf gate
-// (tests/mgbench/coroutine_perf/RESULTS.md) measured this default at ~+1% instructions/query on the
-// worst pull-heavy reads (vs ~+10% for whole-plan coroutine), within the agreed budget, while
-// enabling cooperative-yield-capable execution. Set the flag to the EMPTY string to disable the
-// coroutine pull path entirely (every cursor synchronous, byte-identical to master) — the kill switch.
-DEFINE_string(query_coroutine_yield_ops, "Aggregate,OrderBy",
-              "Comma-separated operator kinds used as coroutine split points (default \"Aggregate,OrderBy\"; "
-              "\"All\"/\"*\" = whole plan; EMPTY = disable coroutine pull entirely, synchronous like master).");
+// DEFAULT = the blocking/materializing operators. The bare-metal perf gate
+// (tests/mgbench/coroutine_perf/RESULTS.md) validated the Aggregate,OrderBy subset at ~+1%
+// instructions/query on the worst pull-heavy reads (vs ~+10% for whole-plan coroutine). The remaining
+// materializers (Accumulate/Distinct/HashJoin) extend the coroutine region down to the lowest costly
+// operator in plans that have one; they are blocking too (whole-input buffer / hash build) so the
+// high-row scan/expand region still stays synchronous below them. This broadened default is pending
+// re-validation on the next perf pass — dial it back via the knob if a plan regresses. Set the flag to
+// the EMPTY string to disable the coroutine pull path entirely (every cursor synchronous,
+// byte-identical to master) — the kill switch.
+DEFINE_string(query_coroutine_yield_ops, "Aggregate,OrderBy,Accumulate,Distinct,HashJoin",
+              "Comma-separated operator kinds used as coroutine split points (default = the blocking "
+              "operators Aggregate,OrderBy,Accumulate,Distinct,HashJoin; \"All\"/\"*\" = whole plan; "
+              "EMPTY = disable coroutine pull entirely, synchronous like master).");
 
 namespace {
 
@@ -332,6 +337,9 @@ std::optional<plan::CoroOp> CoroOpFromName(std::string_view name) {
   };
   if (eq("Aggregate")) return plan::CoroOp::Aggregate;
   if (eq("OrderBy")) return plan::CoroOp::OrderBy;
+  if (eq("Accumulate")) return plan::CoroOp::Accumulate;
+  if (eq("Distinct")) return plan::CoroOp::Distinct;
+  if (eq("HashJoin")) return plan::CoroOp::HashJoin;
   return std::nullopt;
 }
 

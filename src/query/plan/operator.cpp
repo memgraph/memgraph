@@ -8674,7 +8674,7 @@ class AccumulateCursor : public Cursor {
  public:
   AccumulateCursor(const Accumulate &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
       : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), cache_(mem) {
-    SelectCoroMode({input_cursor_.get()});
+    SelectCoroMode({input_cursor_.get()}, CoroOp::Accumulate);  // blocking: buffers whole input
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -10322,7 +10322,7 @@ class DistinctCursor : public Cursor {
  public:
   DistinctCursor(const Distinct &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
       : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)), seen_rows_(mem) {
-    SelectCoroMode({input_cursor_.get()});
+    SelectCoroMode({input_cursor_.get()}, CoroOp::Distinct);  // maintains a seen-set over the input
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -12640,7 +12640,7 @@ class HashJoinCursor : public Cursor {
         right_op_cursor_(self_.right_op_->MakeCursor(mem, metric_handles)),
         hashtable_(mem),
         right_op_frame_(mem) {
-    SelectCoroMode({left_op_cursor_.get(), right_op_cursor_.get()});
+    SelectCoroMode({left_op_cursor_.get(), right_op_cursor_.get()}, CoroOp::HashJoin);  // blocking: hash build
     MG_ASSERT(left_op_cursor_ != nullptr, "HashJoinCursor: Missing left operator cursor.");
     MG_ASSERT(right_op_cursor_ != nullptr, "HashJoinCursor: Missing right operator cursor.");
   }

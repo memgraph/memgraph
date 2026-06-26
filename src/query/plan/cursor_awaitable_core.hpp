@@ -30,10 +30,12 @@ namespace memgraph::query::plan {
 /// comes from the `--query-coroutine-yield-ops` knob (empty => all Sync => byte-identical to master).
 /// ─────────────────────────────────────────────────────────────────────────────
 
-/// Operator kinds that may be designated coroutine split points. `None` = a cursor that is never a
-/// split point on its own (it only goes Coro by propagation from a Coro child). Extend with more
+/// Operator kinds that may be designated coroutine split points — the blocking / materializing
+/// operators that consume their whole input and emit buffered/fewer rows, so the high-row streaming
+/// scan/expand pipeline stays below them (synchronous, no per-boundary cost). `None` = a cursor that is
+/// never a split point on its own (it only goes Coro by propagation from a Coro child). Extend with more
 /// candidates as benchmarks justify; keep the underlying values < 64 (bitset slot).
-enum class CoroOp : uint8_t { None = 0, Aggregate, OrderBy };
+enum class CoroOp : uint8_t { None = 0, Aggregate, OrderBy, Accumulate, Distinct, HashJoin };
 
 /// Which operator kinds are coroutine split points for the current query. Read at cursor construction.
 struct CoroSplitPolicy {

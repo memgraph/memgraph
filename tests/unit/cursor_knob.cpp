@@ -125,6 +125,11 @@ TEST_F(CursorKnobTest, ResultsInvariantUnderKnob) {
   // OrderBy split point.
   ExpectKnobInvariant("MATCH (n:N) RETURN n.id AS id ORDER BY n.id DESC", "OrderBy");
 
+  // Distinct split point (the broadened default also includes Accumulate/HashJoin; all blocking ops are
+  // already proven coro==sync by the all-coro parity harness, this exercises the production knob path).
+  ExpectKnobInvariant("MATCH (n:N) RETURN DISTINCT n.id % 2 AS p", "Distinct");
+  ExpectKnobInvariant("MATCH (n:N) RETURN DISTINCT n.id % 2 AS p", "Aggregate,OrderBy,Accumulate,Distinct,HashJoin");
+
   // Combined knob: whichever split point appears in the plan drives the coroutine region.
   ExpectKnobInvariant("MATCH (n:N) WITH n.id AS id ORDER BY id RETURN count(id) AS c", "Aggregate,OrderBy");
   ExpectKnobInvariant("MATCH (n:N) RETURN n.id AS id ORDER BY n.id", "Aggregate,OrderBy");
@@ -151,8 +156,9 @@ TEST_F(CursorKnobTest, ResultsInvariantUnderKnob) {
 TEST(CursorKnobDefault, DefaultIsSplitPolicy) {
   gflags::CommandLineFlagInfo info;
   ASSERT_TRUE(gflags::GetCommandLineFlagInfo("query_coroutine_yield_ops", &info));
-  EXPECT_EQ(info.default_value, "Aggregate,OrderBy")
-      << "the coroutine pull path is expected ON by default (split policy); empty is the kill switch";
+  EXPECT_EQ(info.default_value, "Aggregate,OrderBy,Accumulate,Distinct,HashJoin")
+      << "the coroutine pull path is expected ON by default (split at the blocking operators); empty is "
+         "the kill switch";
 }
 
 #ifdef MG_ENTERPRISE
