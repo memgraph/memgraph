@@ -310,16 +310,8 @@ void MigrateVersions(kvstore::KVStore &store) {
     spdlog::info("Auth storage migration to V2 completed successfully");
   }
 
-  if (version_str == kVersionV2 || version_str == kVersionV3) {
-    spdlog::info("Migrating auth storage from {} to V4", *version_str);
-    if (version_str == kVersionV2) {
-      spdlog::warn(
-          "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
-    }
-
-    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV4}};
-
-    auto const migrate_entity = [&](auto const &prefix) {
+  auto const migrate_entities = [&](auto &puts) {
+    for (auto const &prefix : {kUserPrefix, kRolePrefix}) {
       for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
         auto const &[key, value] = *it;
         try {
@@ -330,11 +322,29 @@ void MigrateVersions(kvstore::KVStore &store) {
           throw AuthException("Failed to migrate auth data for '{}': {}", key, e.what());
         }
       }
-    };
+    }
+  };
 
-    migrate_entity(kUserPrefix);
-    migrate_entity(kRolePrefix);
+  if (version_str == kVersionV2) {
+    spdlog::info("Migrating auth storage from V2 to V3");
+    spdlog::warn(
+        "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
 
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV3}};
+    migrate_entities(puts);
+    if (!puts.empty()) {
+      store.PutMultiple(puts);
+    }
+
+    version_str = kVersionV3;
+    spdlog::info("Auth storage migration to V3 completed successfully");
+  }
+
+  if (version_str == kVersionV3) {
+    spdlog::info("Migrating auth storage from V3 to V4");
+
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV4}};
+    migrate_entities(puts);
     if (!puts.empty()) {
       store.PutMultiple(puts);
     }
