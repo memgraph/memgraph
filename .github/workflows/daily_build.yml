@@ -298,7 +298,7 @@ jobs:
       malloc: ${{ matrix.malloc }}
       run_smoke_tests: ${{ !matrix.cugraph && !inputs.skip_smoke_tests }}
       run_tests: true
-      package_deb: "default"
+      package_mage: "default"
       upload_debug_symbols: true
       generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
     secrets: inherit

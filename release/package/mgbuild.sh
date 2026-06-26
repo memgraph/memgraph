@@ -1884,9 +1884,9 @@ build_mage() {
   # (e.g. -fvect-cost-model) are GCC-specific, so we use the toolchain gcc, not
   # its clang. CC/CXX propagate into build.sh's `python3 setup` → cmake, which
   # honours them on a fresh configure (CI containers start clean).
-  local TOOLCHAIN_ROOT="/opt/toolchain-${toolchain_version}"
-  local EXPORT_MAGE_COMPILER="export CC=${TOOLCHAIN_ROOT}/bin/gcc CXX=${TOOLCHAIN_ROOT}/bin/g++"
-  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && $EXPORT_MAGE_COMPILER && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
+  local toolchain_root="/opt/toolchain-${toolchain_version}"
+  local export_mage_compiler="export CC=${toolchain_root}/bin/gcc CXX=${toolchain_root}/bin/g++"
+  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && $export_mage_compiler && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
   if [[ "$config_only" = true ]]; then
     echo -e "${GREEN_BOLD}Configuration done successfully${RESET}"
     exit 0
@@ -1987,7 +1987,7 @@ package_mage_rpm() {
     amd) rpm_arch="x86_64";  pkg_arch="amd64" ;;
     arm) rpm_arch="aarch64"; pkg_arch="arm64" ;;
     *)
-      echo -e "${RED_BOLD}Error: package_mage_rpm: unsupported arch '$arch' (expected amd or arm)${RESET}"
+      echo -e "${RED_BOLD}Error: package_mage_rpm: unsupported arch '$arch' (expected amd or arm)${RESET}" >&2
       exit 1
     ;;
   esac

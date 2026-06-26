@@ -157,6 +157,10 @@ jobs:
     with:
       arch: ${{ matrix.arch }}
       build_type: RelWithDebInfo
+      # All matrix values come from tools/ci/package_mage_setup.py — the workflow
+      # just passes them through. build_docker_image defaults to 'none' (rpm
+      # distros publish no MAGE image; PR builds set 'debug' for ubuntu there).
+      build_docker_image: ${{ matrix.build_docker_image || 'none' }}
       memgraph_download_link: ${{ matrix.memgraph_download_link }}
       s3_dest_dir: ${{ matrix.s3_dest_dir }}
       cuda: ${{ matrix.cuda == 'true' }}

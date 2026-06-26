@@ -111,6 +111,15 @@ class PackageMageSetup:
                 "cugraph": build["cugraph"],
                 "malloc": build["malloc"],
                 "os": build["os"],
+                # PR builds produce a debug MAGE image so the docker smoke + e2e
+                # tests have something to run against. Only ubuntu-24.04 publishes
+                # a MAGE image; rpm distros build none (smoke-tested via the rpm
+                # smoke image) and cugraph can't be smoke/e2e-tested in CI (GPU),
+                # so it gets no image either — run_smoke_tests stays true but is a
+                # no-op without an image.
+                "build_docker_image": (
+                    "debug" if (build["os"] == "ubuntu-24.04" and build["cugraph"] != "true") else "none"
+                ),
             }
             out.update(default_args)
             return out

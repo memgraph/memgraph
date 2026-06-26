@@ -20,7 +20,7 @@ OS=$8              # target distro, e.g. centos-9 / centos-10 — encoded in the
 PACKAGE_DIR=${9:-$HOME/mage.tar.gz}
 
 if [[ -z "$OS" ]]; then
-    echo "Error: build-rpm.sh requires the target OS as the 8th argument (e.g. centos-9)"
+    echo "Error: build-rpm.sh requires the target OS as the 8th argument (e.g. centos-9)" >&2
     exit 1
 fi
 

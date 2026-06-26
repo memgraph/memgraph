@@ -512,7 +512,7 @@ jobs:
           rm -rf "$DBG_DIR"
 
       - name: Build DEB package in MGBUILD container
-        if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_MAGE == 'true' && startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-') }}
+        if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_MAGE == 'true' && (startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-')) }}
         run: |
           PACKAGE_ARGS="${{ inputs.malloc && '--malloc' || '' }}${{ inputs.cuda && ' --cuda' || '' }}"
           ./release/package/mgbuild.sh \
@@ -534,7 +534,7 @@ jobs:
         # RPM counterpart of the DEB step above, gated on the rpm-based distros.
         # The push-to-GitHub/S3 artifact steps for *.rpm already exist further
         # down; this step is what actually produces output/memgraph-mage*.rpm.
-        if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_MAGE == 'true' && startsWith(inputs.os, 'fedora-') || startsWith(inputs.os, 'centos-') || startsWith(inputs.os, 'rocky-') }}
+        if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_MAGE == 'true' && (startsWith(inputs.os, 'fedora-') || startsWith(inputs.os, 'centos-') || startsWith(inputs.os, 'rocky-')) }}
         run: |
           PACKAGE_ARGS="${{ inputs.malloc && '--malloc' || '' }}${{ inputs.cuda && ' --cuda' || '' }}"
           ./release/package/mgbuild.sh \
@@ -1017,7 +1017,7 @@ jobs:
           path: "mage/mage.tar.gz"
 
       - name: Push DEB package to GitHub
-        if: ${{ inputs.push_to_github && env.PACKAGE_MAGE == 'true' && startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-') }}
+        if: ${{ inputs.push_to_github && env.PACKAGE_MAGE == 'true' && (startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-')) }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "${{ env.ARTIFACT_NAME }}-deb"

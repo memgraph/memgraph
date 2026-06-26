@@ -294,7 +294,7 @@ jobs:
       run_smoke_tests: ${{ !matrix.cugraph }}
       upload_debug_symbols: true
       run_tests: true
-      package_deb: "default"
+      package_mage: "default"
       generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
       build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
