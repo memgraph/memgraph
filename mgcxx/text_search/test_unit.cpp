@@ -33,12 +33,14 @@ TEST(text_search_test_case, simple_test1) {
     }
     mgcxx::text_search::SearchInput search_input = {
         .search_fields = {"metadata"}, .search_query = "data.key1:AWESOME", .return_fields = {"data"}};
-    auto result1 = measure_time_diff<mgcxx::text_search::SearchOutput>(
-        "search1", [&]() { return mgcxx::text_search::search(context, search_input); });
+    auto searcher = mgcxx::text_search::acquire_searcher(context);
+    auto result1 = measure_time_diff<mgcxx::text_search::GidScoreOutput>(
+        "search1", [&]() { return mgcxx::text_search::search_gids_pinned(context, *searcher, search_input); });
     ASSERT_EQ(result1.docs.size(), 5);
     for (uint64_t i = 0; i < 10; ++i) {
-      auto result = measure_time_diff<mgcxx::text_search::SearchOutput>(
-          fmt::format("search{}", i), [&]() { return mgcxx::text_search::search(context, search_input); });
+      auto result = measure_time_diff<mgcxx::text_search::GidScoreOutput>(fmt::format("search{}", i), [&]() {
+        return mgcxx::text_search::search_gids_pinned(context, *searcher, search_input);
+      });
     }
 
     nlohmann::json aggregation_query = {};
@@ -75,7 +77,8 @@ TEST(text_search_test_case, simple_test2) {
 
     mgcxx::text_search::SearchInput search_input = {
         .search_fields = {"gid"}, .search_query = fmt::format("{}", 0), .return_fields = {"data"}};
-    auto result = mgcxx::text_search::search(context, search_input);
+    auto searcher = mgcxx::text_search::acquire_searcher(context);
+    auto result = mgcxx::text_search::search_gids_pinned(context, *searcher, search_input);
     ASSERT_EQ(result.docs.size(), 1);
     mgcxx::text_search::drop_index(std::move(context));
   } catch (const ::rust::Error &error) {
@@ -99,8 +102,9 @@ TEST(text_search_test_case, mappings) {
     // when improving extract_schema.
     // TODO(gitbuda): Implement full range of extract_schema options.
     mgcxx::text_search::SearchInput search_input = {
-        .search_fields = {"prop1"}, .search_query = "bla", .return_fields = {"data"}};
-    mgcxx::text_search::search(context, search_input);
+        .search_fields = {"data"}, .search_query = "bla", .return_fields = {"data"}};
+    auto searcher = mgcxx::text_search::acquire_searcher(context);
+    mgcxx::text_search::search_gids_pinned(context, *searcher, search_input);
     mgcxx::text_search::drop_index(std::move(context));
   } catch (const ::rust::Error &error) {
     std::cout << error.what() << std::endl;
@@ -112,10 +116,10 @@ TEST(text_search_test_case, mappings) {
 
 TEST(text_search_test_case, limit_test) {
   try {
-    auto index_name =
-        fmt::format("tantivy_index_limit_test_{}", std::chrono::duration_cast<std::chrono::microseconds>(
-                                                       std::chrono::high_resolution_clock::now().time_since_epoch())
-                                                       .count());
+    auto index_name = fmt::format("tantivy_index_limit_test_{}",
+                                  std::chrono::duration_cast<std::chrono::microseconds>(
+                                      std::chrono::high_resolution_clock::now().time_since_epoch())
+                                      .count());
     auto index_config = mgcxx::text_search::IndexConfig{.mappings = dummy_mappings1().dump()};
     auto context = mgcxx::text_search::create_index(index_name, index_config);
 
@@ -132,7 +136,8 @@ TEST(text_search_test_case, limit_test) {
                                                            .return_fields = {"data"},
                                                            .aggregation_query = "",
                                                            .limit = 3};
-    auto result_limit3 = mgcxx::text_search::search(context, search_input_limit3);
+    auto searcher = mgcxx::text_search::acquire_searcher(context);
+    auto result_limit3 = mgcxx::text_search::search_gids_pinned(context, *searcher, search_input_limit3);
     ASSERT_EQ(result_limit3.docs.size(), 3);
     for (const auto &doc : result_limit3.docs) {
       ASSERT_GT(doc.score, 0.0f);  // Scores should be positive
@@ -143,7 +148,7 @@ TEST(text_search_test_case, limit_test) {
                                                           .return_fields = {"data"},
                                                           .aggregation_query = "",
                                                           .limit = 2};
-    auto regex_result = mgcxx::text_search::regex_search(context, regex_search_input);
+    auto regex_result = mgcxx::text_search::regex_search_gids_pinned(context, *searcher, regex_search_input);
     ASSERT_EQ(regex_result.docs.size(), 2);
 
     mgcxx::text_search::drop_index(std::move(context));

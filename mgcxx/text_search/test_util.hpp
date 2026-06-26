@@ -24,10 +24,12 @@
 nlohmann::json dummy_mappings1() {
   nlohmann::json mappings = {};
   mappings["properties"] = {};
+  mappings["properties"]["gid"] = {{"type", "u64"}, {"fast", true}, {"stored", true}, {"indexed", true}};
   mappings["properties"]["metadata"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
   mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
   return mappings;
 }
+
 std::vector<mgcxx::text_search::DocumentInput> dummy_data1(uint64_t docs_no = 1, uint64_t props_no = 1) {
   std::vector<mgcxx::text_search::DocumentInput> docs;
   for (uint64_t doc_index = 0; doc_index < docs_no; ++doc_index) {
@@ -36,6 +38,7 @@ std::vector<mgcxx::text_search::DocumentInput> dummy_data1(uint64_t docs_no = 1,
     for (uint64_t prop_index = 0; prop_index < props_no; ++prop_index) {
       props[fmt::format("key{}", prop_index)] = fmt::format("value{} is AWESOME", prop_index);
     }
+    data["gid"] = doc_index;
     data["data"] = props;
     data["metadata"] = {};
     data["metadata"]["gid"] = doc_index;
@@ -57,6 +60,7 @@ nlohmann::json dummy_mappings2() {
   mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
   return mappings;
 }
+
 std::vector<mgcxx::text_search::DocumentInput> dummy_data2(uint64_t docs_no = 1, uint64_t props_no = 1) {
   std::vector<mgcxx::text_search::DocumentInput> docs;
   for (uint64_t doc_index = 0; doc_index < docs_no; ++doc_index) {
@@ -81,12 +85,14 @@ std::ostream &operator<<(std::ostream &os, const mgcxx::text_search::DocumentOut
 }
 
 auto now() { return std::chrono::steady_clock::now(); }
+
 template <typename T>
 auto print_time_diff(std::string_view prefix, T start, T end) {
   std::cout << prefix << " dt = " << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
             << "[µs]" << std::endl;
   // << "[ms]" << std::endl;
 }
+
 template <typename T>
 auto measure_time_diff(std::string_view prefix, std::function<T()> f) {
   auto start = now();
