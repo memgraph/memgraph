@@ -880,7 +880,7 @@ const REGEX_CACHE_CAPACITY: usize = 256;
 // autocomplete reuses patterns heavily. On a miss we compile off-lock and only hold the lock for
 // the small get/put. The automaton is independent of index/searcher, so caching by pattern is exact.
 fn compiled_regex(context: &ffi::Context, pattern: &str) -> Result<Arc<Regex>, std::io::Error> {
-    if let Some(regex) = context.tantivyContext.regex_cache.lock().unwrap().get(pattern) {
+    if let Some(regex) = context.tantivyContext.regex_cache.lock().unwrap_or_else(|p| p.into_inner()).get(pattern) {
         return Ok(regex.clone());
     }
     let regex = Arc::new(Regex::new(pattern).map_err(|e| {
@@ -896,7 +896,7 @@ fn compiled_regex(context: &ffi::Context, pattern: &str) -> Result<Arc<Regex>, s
         .tantivyContext
         .regex_cache
         .lock()
-        .unwrap()
+        .unwrap_or_else(|p| p.into_inner())
         .put(pattern.to_string(), regex.clone());
     Ok(regex)
 }
@@ -921,8 +921,8 @@ fn regex_search_gids_pinned(
     let limit = input.effective_limit();
     let mut docs: Vec<ffi::GidScore> = Vec::with_capacity(limit);
     // A single doc can carry several matching terms (kAllField concatenates all property values),
-    // so dedup on the globally-unique gid. `limit` is small, so the set is cheap.
-    let mut seen: HashSet<u64> = HashSet::new();
+    // so dedup on the globally-unique gid.
+    let mut seen: HashSet<u64> = HashSet::with_capacity(limit);
 
     'segments: for segment_reader in searcher_ctx.searcher.segment_readers() {
         let inverted_index = segment_reader.inverted_index(search_field).map_err(|e| {
@@ -1039,7 +1039,7 @@ fn regex_search_edge_gids_pinned(
 
     let limit = input.effective_limit();
     let mut docs: Vec<ffi::EdgeGidScore> = Vec::with_capacity(limit);
-    let mut seen: HashSet<u64> = HashSet::new();
+    let mut seen: HashSet<u64> = HashSet::with_capacity(limit);
 
     'segments: for segment_reader in searcher_ctx.searcher.segment_readers() {
         let inverted_index = segment_reader.inverted_index(search_field).map_err(|e| {
