@@ -11,7 +11,10 @@
 
 use log::debug;
 use serde_json::{to_string, Value};
+use std::collections::HashSet;
 use std::io::{Error, ErrorKind};
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex};
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::AggregationCollector;
@@ -19,7 +22,8 @@ use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{QueryParser, RegexQuery};
 use tantivy::schema::*;
-use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument};
+use tantivy::{DocSet, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, TERMINATED};
+use tantivy_fst::Regex;
 
 // NOTE: Result<T> == Result<T,std::io::Error>.
 #[cxx::bridge(namespace = "mgcxx::text_search")]
@@ -72,13 +76,6 @@ mod ffi {
         // NOTE: Any primitive value here is a bit of a problem because of default value on the C++
         // side.
     }
-    // NOTE: SearchOutput is currently only used by the old search()/regex_search() functions which
-    // are not called from C++ anymore (replaced by the *_gids_pinned variants). Keeping it around
-    // because we will need it once we add single-store mode to the text index (returning full
-    // documents directly from Tantivy instead of doing a separate storage lookup by GID).
-    struct SearchOutput {
-        docs: Vec<DocumentOutput>,
-    }
 
     struct GidScore {
         gid: u64,
@@ -122,31 +119,33 @@ mod ffi {
         // NOTE: search() and regex_search() are not currently called from C++ — the optimized
         // *_gids_pinned variants are used instead. Keeping these because we will need them once we
         // add single-store mode to the text index (returning full documents from Tantivy).
-        fn search(context: &mut Context, input: &SearchInput) -> Result<SearchOutput>;
-        fn regex_search(context: &mut Context, input: &SearchInput) -> Result<SearchOutput>;
-        fn aggregate(context: &mut Context, input: &SearchInput) -> Result<DocumentOutput>;
-        fn acquire_searcher(context: &mut Context) -> Result<Box<SearcherContext>>;
+        // NOTE: the read-only entry points take `&Context` (shared) on purpose: they never mutate
+        // the index and must be safe to call concurrently on the same shared Context from multiple
+        // threads (the C++ side does exactly this, without a lock). Mutating ops (add/delete/commit/
+        // rollback) keep `&mut Context` and are serialized by the C++ write_mutex.
+        fn aggregate(context: &Context, input: &SearchInput) -> Result<DocumentOutput>;
+        fn acquire_searcher(context: &Context) -> Result<Box<SearcherContext>>;
         fn search_gids_pinned(
-            context: &mut Context,
+            context: &Context,
             searcher: &SearcherContext,
             input: &SearchInput,
         ) -> Result<GidScoreOutput>;
         fn regex_search_gids_pinned(
-            context: &mut Context,
+            context: &Context,
             searcher: &SearcherContext,
             input: &SearchInput,
         ) -> Result<GidScoreOutput>;
         fn search_edge_gids_pinned(
-            context: &mut Context,
+            context: &Context,
             searcher: &SearcherContext,
             input: &SearchInput,
         ) -> Result<EdgeGidScoreOutput>;
         fn regex_search_edge_gids_pinned(
-            context: &mut Context,
+            context: &Context,
             searcher: &SearcherContext,
             input: &SearchInput,
         ) -> Result<EdgeGidScoreOutput>;
-        fn get_num_docs(context: &mut Context) -> Result<u64>;
+        fn get_num_docs(context: &Context) -> Result<u64>;
         fn drop_index(context: Context) -> Result<()>;
     }
 }
@@ -236,6 +235,139 @@ mod tests {
             json!({"name": "test", "count": -3, "tags": [true, 42u64], "nested": {"x": 1.5}, "empty": null})
         );
     }
+
+    #[test]
+    fn regex_search_cache_returns_consistent_results() {
+        let dir = std::env::temp_dir().join(format!("mgcxx_regex_cache_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.to_str().unwrap().to_string();
+        let mappings = r#"{"properties":{
+            "data":{"type":"json","fast":true,"stored":true,"text":true},
+            "all":{"type":"text","fast":true,"stored":true,"text":true},
+            "gid":{"type":"u64","fast":true,"stored":true,"indexed":true}}}"#
+            .to_string();
+        let mut ctx = create_index(&path, &ffi::IndexConfig { mappings }).unwrap();
+        for (gid, name) in [(1u64, "alpha"), (2, "alpine"), (3, "beta")] {
+            let data = format!(r#"{{"data":{{"name":"{name}"}},"all":"{name}","gid":{gid}}}"#);
+            add_document(&mut ctx, &ffi::DocumentInput { data }, true).unwrap();
+        }
+        commit(&mut ctx).unwrap();
+        let searcher = acquire_searcher(&ctx).unwrap();
+        let input = |q: &str| ffi::SearchInput {
+            search_fields: vec!["all".to_string()],
+            search_query: q.to_string(),
+            return_fields: vec![],
+            aggregation_query: String::new(),
+            limit: 10,
+            fuzzy_distance: 0,
+            fuzzy_prefix: false,
+            fuzzy_transpositions: false,
+            fuzzy_field: String::new(),
+        };
+        let gids = |out: ffi::GidScoreOutput| {
+            let mut g: Vec<u64> = out.docs.iter().map(|d| d.gid).collect();
+            g.sort_unstable();
+            g
+        };
+        let miss = gids(regex_search_gids_pinned(&ctx, &searcher, &input("alp.*")).unwrap());
+        let hit = gids(regex_search_gids_pinned(&ctx, &searcher, &input("alp.*")).unwrap());
+        assert_eq!(miss, vec![1, 2]);
+        assert_eq!(miss, hit);
+        assert_eq!(gids(regex_search_gids_pinned(&ctx, &searcher, &input("bet.*")).unwrap()), vec![3]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Locks the two tantivy behaviors regex_search_gids_pinned hand-couples to:
+    // (a) RegexQuery is constant-scored (the score=1.0 we emit), and (b) our manual
+    // FST/postings/alive-bitset walk yields the same doc set as tantivy's own RegexQuery.
+    // A tantivy upgrade that changes either fails here instead of silently diverging.
+    #[test]
+    fn regex_manual_iteration_matches_tantivy_regexquery() {
+        let dir = std::env::temp_dir().join(format!("mgcxx_regex_lock_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.to_str().unwrap().to_string();
+        let mappings = r#"{"properties":{
+            "data":{"type":"json","fast":true,"stored":true,"text":true},
+            "all":{"type":"text","fast":true,"stored":true,"text":true},
+            "gid":{"type":"u64","fast":true,"stored":true,"indexed":true}}}"#
+            .to_string();
+        let mut ctx = create_index(&path, &ffi::IndexConfig { mappings }).unwrap();
+        for (gid, name) in [
+            (1u64, "alpha"), (2, "alpine"), (3, "algol"), (4, "alabama"),
+            (5, "beta"), (6, "gamma"), (7, "alto"), (8, "almond"),
+        ] {
+            let data = format!(r#"{{"data":{{"name":"{name}"}},"all":"{name}","gid":{gid}}}"#);
+            add_document(&mut ctx, &ffi::DocumentInput { data }, true).unwrap();
+        }
+        commit(&mut ctx).unwrap();
+
+        let input = |q: &str, limit: usize| ffi::SearchInput {
+            search_fields: vec!["all".to_string()],
+            search_query: q.to_string(),
+            return_fields: vec![],
+            aggregation_query: String::new(),
+            limit,
+            fuzzy_distance: 0,
+            fuzzy_prefix: false,
+            fuzzy_transpositions: false,
+            fuzzy_field: String::new(),
+        };
+        // soft-delete a match to exercise the alive-bitset path
+        delete_document(&mut ctx, &input("almond", 10), false).unwrap();
+
+        let searcher = acquire_searcher(&ctx).unwrap();
+        let all_field = ctx.tantivyContext.schema.get_field("all").unwrap();
+
+        let manual = |pattern: &str, limit: usize| {
+            let mut g: Vec<u64> = regex_search_gids_pinned(&ctx, &searcher, &input(pattern, limit))
+                .unwrap()
+                .docs
+                .iter()
+                .map(|d| d.gid)
+                .collect();
+            g.sort_unstable();
+            g
+        };
+        let canonical = |pattern: &str| {
+            let query = RegexQuery::from_pattern(pattern, all_field).unwrap();
+            let hits = searcher.searcher.search(&query, &TopDocs::with_limit(1000)).unwrap();
+            for (score, _) in &hits {
+                assert_eq!(*score, 1.0, "RegexQuery is no longer constant-scored");
+            }
+            let mut g: Vec<u64> = hits
+                .iter()
+                .map(|(_, addr)| {
+                    searcher
+                        .searcher
+                        .segment_reader(addr.segment_ord)
+                        .fast_fields()
+                        .u64("gid")
+                        .unwrap()
+                        .first(addr.doc_id)
+                        .unwrap()
+                })
+                .collect();
+            g.sort_unstable();
+            g
+        };
+
+        for pattern in ["al.*", "alp.*", "a.*a", ".*o.*", "zzz.*"] {
+            assert_eq!(
+                manual(pattern, 1000),
+                canonical(pattern),
+                "manual regex iteration diverged from RegexQuery for /{pattern}/"
+            );
+        }
+        // the soft-deleted match (almond = gid 8) must not surface
+        assert!(!manual("al.*", 1000).contains(&8));
+
+        let capped = manual("al.*", 2);
+        let full = canonical("al.*");
+        assert_eq!(capped.len(), 2);
+        assert!(capped.iter().all(|g| full.contains(g)));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 // Field order is load-bearing: Rust drops fields in declaration order;
@@ -246,6 +378,8 @@ pub struct TantivyContext {
     pub index_writer: Option<IndexWriter>,
     pub index_reader: IndexReader,
     pub index: Index,
+    // compiled-regex automaton cache, keyed by pattern string; see compiled_regex()
+    pub regex_cache: Mutex<lru::LruCache<String, Arc<Regex>>>,
 }
 
 impl TantivyContext {
@@ -518,6 +652,9 @@ fn create_index(path: &String, config: &ffi::IndexConfig) -> Result<ffi::Context
             index_writer: Some(index_writer),
             index_reader,
             index,
+            regex_cache: Mutex::new(lru::LruCache::new(
+                NonZeroUsize::new(REGEX_CACHE_CAPACITY).expect("REGEX_CACHE_CAPACITY must be non-zero"),
+            )),
         }),
     })
 }
@@ -671,213 +808,19 @@ fn search_get_fields(
     Ok(result)
 }
 
-// NOTE: Not currently called from C++ — replaced by search_gids_pinned(). Keeping for future
-// single-store text index mode where we return full documents directly from Tantivy.
-fn search(
-    context: &mut ffi::Context,
-    input: &ffi::SearchInput,
-) -> Result<ffi::SearchOutput, std::io::Error> {
-    let index_path = &context.tantivyContext.index_path;
-    let index = &context.tantivyContext.index;
-    let schema = &context.tantivyContext.schema;
-    let reader = &context.tantivyContext.index_reader;
-
-    let search_fields = search_get_fields(&input.search_fields, schema, index_path)?;
-    let return_fields = search_get_fields(&input.return_fields, schema, index_path)?;
-    let query_parser = QueryParser::for_index(index, search_fields);
-    let query = match query_parser.parse_query(&input.search_query) {
-        Ok(q) => q,
-        Err(e) => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Unable to create search query for {:?} text search index -> {}",
-                    index_path, e
-                ),
-            ));
-        }
-    };
-
-    let searcher = reader.searcher();
-    let top_docs = match searcher.search(&query, &TopDocs::with_limit(input.effective_limit())) {
-        Ok(docs) => docs,
-        Err(e) => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Unable to perform text search under {:?} -> {}",
-                    index_path, e
-                ),
-            ));
-        }
-    };
-
-    let mut docs: Vec<ffi::DocumentOutput> = Vec::with_capacity(top_docs.len());
-    for (score, doc_address) in top_docs {
-        let doc: TantivyDocument = match searcher.doc(doc_address) {
-            Ok(d) => d,
-            Err(e) => {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    format!(
-                        "Unable to find document inside {:?} text search index) -> {}",
-                        index_path, e
-                    ),
-                ));
-            }
-        };
-        let mut data: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
-        for (name, field) in input.return_fields.iter().zip(return_fields.iter()) {
-            let field_data = match doc.get_first(*field) {
-                Some(f) => f,
-                None => continue,
-            };
-            let owned: OwnedValue = field_data.into();
-            data.insert(name.to_string(), owned_value_to_json(owned));
-        }
-
-        docs.push(ffi::DocumentOutput {
-            data: match to_string(&data) {
-                Ok(s) => s,
-                Err(e) => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!(
-                            "Unable to serialize {:?} text search index data into a string -> {}",
-                            index_path, e
-                        ),
-                    ));
-                }
-            },
-            score: score,
-        });
-    }
-    Ok(ffi::SearchOutput { docs })
-}
-
-// NOTE: Not currently called from C++ — replaced by regex_search_gids_pinned(). Keeping for
-// future single-store text index mode where we return full documents directly from Tantivy.
-fn regex_search(
-    context: &mut ffi::Context,
-    input: &ffi::SearchInput,
-) -> Result<ffi::SearchOutput, std::io::Error> {
-    let index_path = &context.tantivyContext.index_path;
-    let schema = &context.tantivyContext.schema;
-    let reader = &context.tantivyContext.index_reader;
-
-    let search_field = search_get_fields(&input.search_fields, schema, index_path)?[0];
-    let return_fields = search_get_fields(&input.return_fields, schema, index_path)?;
-
-    let query = match RegexQuery::from_pattern(&input.search_query, search_field) {
-        Ok(q) => q,
-        Err(e) => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Unable to create regex search query for {:?} text search index -> {}",
-                    index_path, e
-                ),
-            ));
-        }
-    };
-
-    let searcher = reader.searcher();
-    let top_docs = match searcher.search(&query, &TopDocs::with_limit(input.effective_limit())) {
-        Ok(docs) => docs,
-        Err(e) => {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Unable to perform text search under {:?} -> {}",
-                    index_path, e
-                ),
-            ));
-        }
-    };
-
-    let mut docs: Vec<ffi::DocumentOutput> = Vec::with_capacity(top_docs.len());
-    for (score, doc_address) in top_docs {
-        let doc: TantivyDocument = match searcher.doc(doc_address) {
-            Ok(d) => d,
-            Err(e) => {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    format!(
-                        "Unable to find document inside {:?} text search index) -> {}",
-                        index_path, e
-                    ),
-                ));
-            }
-        };
-        let mut data: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
-        for (name, field) in input.return_fields.iter().zip(return_fields.iter()) {
-            let field_data = match doc.get_first(*field) {
-                Some(f) => f,
-                None => continue,
-            };
-            let owned: OwnedValue = field_data.into();
-            data.insert(name.to_string(), owned_value_to_json(owned));
-        }
-        docs.push(ffi::DocumentOutput {
-            data: match to_string(&data) {
-                Ok(s) => s,
-                Err(e) => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!(
-                            "Unable to serialize {:?} text search index data into a string -> {}",
-                            index_path, e
-                        ),
-                    ));
-                }
-            },
-            score: score,
-        });
-    }
-    Ok(ffi::SearchOutput { docs })
-}
-
-fn extract_u64_field(
-    doc: &TantivyDocument,
-    field: Field,
-    field_name: &str,
-    index_path: &std::path::PathBuf,
-) -> Result<u64, std::io::Error> {
-    let value = doc.get_first(field).ok_or_else(|| {
-        Error::new(
-            ErrorKind::Other,
-            format!(
-                "Document missing {} field in {:?}",
-                field_name, index_path
-            ),
-        )
-    })?;
-    let owned: OwnedValue = value.into();
-    match owned {
-        OwnedValue::U64(n) => Ok(n),
-        other => Err(Error::new(
-            ErrorKind::Other,
-            format!(
-                "{} field has unexpected type {:?} in {:?}",
-                field_name, other, index_path
-            ),
-        )),
-    }
-}
-
 pub struct SearcherContext {
     searcher: tantivy::Searcher,
 }
 
 fn acquire_searcher(
-    context: &mut ffi::Context,
+    context: &ffi::Context,
 ) -> Result<Box<SearcherContext>, std::io::Error> {
     let searcher = context.tantivyContext.index_reader.searcher();
     Ok(Box::new(SearcherContext { searcher }))
 }
 
 fn search_gids_pinned(
-    context: &mut ffi::Context,
+    context: &ffi::Context,
     searcher_ctx: &SearcherContext,
     input: &ffi::SearchInput,
 ) -> Result<ffi::GidScoreOutput, std::io::Error> {
@@ -905,70 +848,121 @@ fn search_gids_pinned(
             )
         })?;
 
-    let gid_field = schema.get_field("gid").map_err(|e| {
-        Error::new(ErrorKind::Other, format!("gid field not found in {:?} -> {}", index_path, e))
-    })?;
+    // Read `gid` from the columnar fast field instead of fetching + decompressing the full stored
+    // document per hit (the stored `data` blob holds all indexed property values). `gid` is
+    // configured as a fast field, so this is a direct columnar lookup.
+    let gid_columns = searcher_ctx
+        .searcher
+        .segment_readers()
+        .iter()
+        .map(|sr| sr.fast_fields().u64("gid"))
+        .collect::<Result<Vec<_>, tantivy::TantivyError>>()
+        .map_err(|e| {
+            Error::new(ErrorKind::Other, format!("gid fast field not available in {:?} -> {}", index_path, e))
+        })?;
 
     let mut docs: Vec<ffi::GidScore> = Vec::with_capacity(top_docs.len());
     for (score, doc_address) in top_docs {
-        let doc: TantivyDocument = searcher_ctx.searcher.doc(doc_address).map_err(|e| {
-            Error::new(
-                ErrorKind::Other,
-                format!("Unable to find document inside {:?} -> {}", index_path, e),
-            )
-        })?;
-        let gid = extract_u64_field(&doc, gid_field, "gid", index_path)?;
+        let gid = gid_columns[doc_address.segment_ord as usize]
+            .first(doc_address.doc_id)
+            .ok_or_else(|| {
+                Error::new(ErrorKind::Other, format!("gid missing for matched doc in {:?}", index_path))
+            })?;
         docs.push(ffi::GidScore { gid, score });
     }
     Ok(ffi::GidScoreOutput { docs })
 }
 
+const REGEX_CACHE_CAPACITY: usize = 256;
+
+// Compiling a regex into an FST automaton is a pure function of the pattern but costs ~18% of a
+// regex query at high throughput. Cache compiled automata by pattern string (bounded LRU);
+// autocomplete reuses patterns heavily. On a miss we compile off-lock and only hold the lock for
+// the small get/put. The automaton is independent of index/searcher, so caching by pattern is exact.
+fn compiled_regex(context: &ffi::Context, pattern: &str) -> Result<Arc<Regex>, std::io::Error> {
+    if let Some(regex) = context.tantivyContext.regex_cache.lock().unwrap_or_else(|p| p.into_inner()).get(pattern) {
+        return Ok(regex.clone());
+    }
+    let regex = Arc::new(Regex::new(pattern).map_err(|e| {
+        Error::new(
+            ErrorKind::Other,
+            format!(
+                "Unable to create regex search query for {:?} -> {}",
+                context.tantivyContext.index_path, e
+            ),
+        )
+    })?);
+    context
+        .tantivyContext
+        .regex_cache
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .put(pattern.to_string(), regex.clone());
+    Ok(regex)
+}
+
 fn regex_search_gids_pinned(
-    context: &mut ffi::Context,
+    context: &ffi::Context,
     searcher_ctx: &SearcherContext,
     input: &ffi::SearchInput,
 ) -> Result<ffi::GidScoreOutput, std::io::Error> {
+    // Regex queries in tantivy produce a constant score (ConstScorer) for every matching doc, so
+    // there is no meaningful ranking to preserve. Instead of letting RegexQuery+TopDocs eagerly
+    // materialize the full matching doc set into a max_doc-sized bitset (see AutomatonWeight::scorer),
+    // we stream the FST-pruned matching terms and their postings lazily and stop as soon as we have
+    // collected `limit` distinct docs. This turns the cost from O(all matching docs) into O(limit)
+    // for prefix-style patterns that fan out across many terms.
     let index_path = &context.tantivyContext.index_path;
     let schema = &context.tantivyContext.schema;
 
     let search_field = search_get_fields(&input.search_fields, schema, index_path)?[0];
-    let query = RegexQuery::from_pattern(&input.search_query, search_field).map_err(|e| {
-        Error::new(
-            ErrorKind::Other,
-            format!("Unable to create regex search query for {:?} -> {}", index_path, e),
-        )
-    })?;
+    let regex = compiled_regex(context, &input.search_query)?;
 
-    let top_docs = searcher_ctx
-        .searcher
-        .search(&query, &TopDocs::with_limit(input.effective_limit()))
-        .map_err(|e| {
-            Error::new(
-                ErrorKind::Other,
-                format!("Unable to perform text search under {:?} -> {}", index_path, e),
-            )
+    let limit = input.effective_limit();
+    let mut docs: Vec<ffi::GidScore> = Vec::with_capacity(limit);
+    // A single doc can carry several matching terms (kAllField concatenates all property values),
+    // so dedup on the globally-unique gid.
+    let mut seen: HashSet<u64> = HashSet::with_capacity(limit);
+
+    'segments: for segment_reader in searcher_ctx.searcher.segment_readers() {
+        let inverted_index = segment_reader.inverted_index(search_field).map_err(|e| {
+            Error::new(ErrorKind::Other, format!("inverted index not available in {:?} -> {}", index_path, e))
         })?;
-
-    let gid_field = schema.get_field("gid").map_err(|e| {
-        Error::new(ErrorKind::Other, format!("gid field not found in {:?} -> {}", index_path, e))
-    })?;
-
-    let mut docs: Vec<ffi::GidScore> = Vec::with_capacity(top_docs.len());
-    for (score, doc_address) in top_docs {
-        let doc: TantivyDocument = searcher_ctx.searcher.doc(doc_address).map_err(|e| {
-            Error::new(
-                ErrorKind::Other,
-                format!("Unable to find document inside {:?} -> {}", index_path, e),
-            )
+        let gid_column = segment_reader.fast_fields().u64("gid").map_err(|e| {
+            Error::new(ErrorKind::Other, format!("gid fast field not available in {:?} -> {}", index_path, e))
         })?;
-        let gid = extract_u64_field(&doc, gid_field, "gid", index_path)?;
-        docs.push(ffi::GidScore { gid, score });
+        // Postings include soft-deleted docs (Memgraph deletes via delete_query); skip them just as
+        // searcher.search() would via the alive bitset.
+        let alive_bitset = segment_reader.alive_bitset();
+
+        let mut term_stream = inverted_index.terms().search(regex.as_ref()).into_stream()?;
+        while term_stream.advance() {
+            let term_info = term_stream.value();
+            let mut postings =
+                inverted_index.read_postings_from_terminfo(term_info, IndexRecordOption::Basic)?;
+            let mut doc = postings.doc();
+            while doc != TERMINATED {
+                let alive = alive_bitset.map_or(true, |bitset| bitset.is_alive(doc));
+                if alive {
+                    if let Some(gid) = gid_column.first(doc) {
+                        if seen.insert(gid) {
+                            // Score matches the constant ConstScorer value RegexQuery would emit.
+                            docs.push(ffi::GidScore { gid, score: 1.0 });
+                            if docs.len() >= limit {
+                                break 'segments;
+                            }
+                        }
+                    }
+                }
+                doc = postings.advance();
+            }
+        }
     }
     Ok(ffi::GidScoreOutput { docs })
 }
 
 fn search_edge_gids_pinned(
-    context: &mut ffi::Context,
+    context: &ffi::Context,
     searcher_ctx: &SearcherContext,
     input: &ffi::SearchInput,
 ) -> Result<ffi::EdgeGidScoreOutput, std::io::Error> {
@@ -996,86 +990,107 @@ fn search_edge_gids_pinned(
             )
         })?;
 
-    let edge_gid_field = schema.get_field("edge_gid").map_err(|e| {
-        Error::new(ErrorKind::Other, format!("edge_gid not found in {:?} -> {}", index_path, e))
-    })?;
-    let from_gid_field = schema.get_field("from_vertex_gid").map_err(|e| {
-        Error::new(ErrorKind::Other, format!("from_vertex_gid not found in {:?} -> {}", index_path, e))
-    })?;
-    let to_gid_field = schema.get_field("to_vertex_gid").map_err(|e| {
-        Error::new(ErrorKind::Other, format!("to_vertex_gid not found in {:?} -> {}", index_path, e))
-    })?;
+    // Read the edge/from/to gids from columnar fast fields instead of decompressing the stored
+    // document per hit. All three are configured as fast fields.
+    let segment_readers = searcher_ctx.searcher.segment_readers();
+    let fast_u64_column = |field_name: &str| {
+        segment_readers
+            .iter()
+            .map(|sr| sr.fast_fields().u64(field_name))
+            .collect::<Result<Vec<_>, tantivy::TantivyError>>()
+            .map_err(|e| {
+                Error::new(ErrorKind::Other, format!("{} fast field not available in {:?} -> {}", field_name, index_path, e))
+            })
+    };
+    let edge_gid_columns = fast_u64_column("edge_gid")?;
+    let from_gid_columns = fast_u64_column("from_vertex_gid")?;
+    let to_gid_columns = fast_u64_column("to_vertex_gid")?;
+
+    let read_gid = |columns: &[tantivy::columnar::Column<u64>], doc: &tantivy::DocAddress, field_name: &str| {
+        columns[doc.segment_ord as usize].first(doc.doc_id).ok_or_else(|| {
+            Error::new(ErrorKind::Other, format!("{} missing for matched doc in {:?}", field_name, index_path))
+        })
+    };
 
     let mut docs: Vec<ffi::EdgeGidScore> = Vec::with_capacity(top_docs.len());
     for (score, doc_address) in top_docs {
-        let doc: TantivyDocument = searcher_ctx.searcher.doc(doc_address).map_err(|e| {
-            Error::new(
-                ErrorKind::Other,
-                format!("Unable to find document inside {:?} -> {}", index_path, e),
-            )
-        })?;
-        let edge_gid = extract_u64_field(&doc, edge_gid_field, "edge_gid", index_path)?;
-        let from_gid = extract_u64_field(&doc, from_gid_field, "from_vertex_gid", index_path)?;
-        let to_gid = extract_u64_field(&doc, to_gid_field, "to_vertex_gid", index_path)?;
+        let edge_gid = read_gid(&edge_gid_columns, &doc_address, "edge_gid")?;
+        let from_gid = read_gid(&from_gid_columns, &doc_address, "from_vertex_gid")?;
+        let to_gid = read_gid(&to_gid_columns, &doc_address, "to_vertex_gid")?;
         docs.push(ffi::EdgeGidScore { edge_gid, from_gid, to_gid, score });
     }
     Ok(ffi::EdgeGidScoreOutput { docs })
 }
 
 fn regex_search_edge_gids_pinned(
-    context: &mut ffi::Context,
+    context: &ffi::Context,
     searcher_ctx: &SearcherContext,
     input: &ffi::SearchInput,
 ) -> Result<ffi::EdgeGidScoreOutput, std::io::Error> {
+    // Same lazy, early-terminating strategy as regex_search_gids_pinned (see comment there): regex
+    // scores are constant, so we stream FST-pruned matching terms and stop at `limit` distinct edges
+    // instead of materializing the full matching doc set. The edge/from/to gids are read from the
+    // columnar fast fields rather than decompressing the stored document per hit.
     let index_path = &context.tantivyContext.index_path;
     let schema = &context.tantivyContext.schema;
 
     let search_field = search_get_fields(&input.search_fields, schema, index_path)?[0];
-    let query = RegexQuery::from_pattern(&input.search_query, search_field).map_err(|e| {
-        Error::new(
-            ErrorKind::Other,
-            format!("Unable to create regex search query for {:?} -> {}", index_path, e),
-        )
-    })?;
+    let regex = compiled_regex(context, &input.search_query)?;
 
-    let top_docs = searcher_ctx
-        .searcher
-        .search(&query, &TopDocs::with_limit(input.effective_limit()))
-        .map_err(|e| {
-            Error::new(
-                ErrorKind::Other,
-                format!("Unable to perform text search under {:?} -> {}", index_path, e),
-            )
+    let limit = input.effective_limit();
+    let mut docs: Vec<ffi::EdgeGidScore> = Vec::with_capacity(limit);
+    let mut seen: HashSet<u64> = HashSet::with_capacity(limit);
+
+    'segments: for segment_reader in searcher_ctx.searcher.segment_readers() {
+        let inverted_index = segment_reader.inverted_index(search_field).map_err(|e| {
+            Error::new(ErrorKind::Other, format!("inverted index not available in {:?} -> {}", index_path, e))
         })?;
+        let fast_fields = segment_reader.fast_fields();
+        let fast_u64_column = |field_name: &str| {
+            fast_fields.u64(field_name).map_err(|e| {
+                Error::new(ErrorKind::Other, format!("{} fast field not available in {:?} -> {}", field_name, index_path, e))
+            })
+        };
+        let edge_gid_column = fast_u64_column("edge_gid")?;
+        let from_gid_column = fast_u64_column("from_vertex_gid")?;
+        let to_gid_column = fast_u64_column("to_vertex_gid")?;
+        // Postings include soft-deleted docs (Memgraph deletes via delete_query); skip them just as
+        // searcher.search() would via the alive bitset.
+        let alive_bitset = segment_reader.alive_bitset();
 
-    let edge_gid_field = schema.get_field("edge_gid").map_err(|e| {
-        Error::new(ErrorKind::Other, format!("edge_gid not found in {:?} -> {}", index_path, e))
-    })?;
-    let from_gid_field = schema.get_field("from_vertex_gid").map_err(|e| {
-        Error::new(ErrorKind::Other, format!("from_vertex_gid not found in {:?} -> {}", index_path, e))
-    })?;
-    let to_gid_field = schema.get_field("to_vertex_gid").map_err(|e| {
-        Error::new(ErrorKind::Other, format!("to_vertex_gid not found in {:?} -> {}", index_path, e))
-    })?;
-
-    let mut docs: Vec<ffi::EdgeGidScore> = Vec::with_capacity(top_docs.len());
-    for (score, doc_address) in top_docs {
-        let doc: TantivyDocument = searcher_ctx.searcher.doc(doc_address).map_err(|e| {
-            Error::new(
-                ErrorKind::Other,
-                format!("Unable to find document inside {:?} -> {}", index_path, e),
-            )
-        })?;
-        let edge_gid = extract_u64_field(&doc, edge_gid_field, "edge_gid", index_path)?;
-        let from_gid = extract_u64_field(&doc, from_gid_field, "from_vertex_gid", index_path)?;
-        let to_gid = extract_u64_field(&doc, to_gid_field, "to_vertex_gid", index_path)?;
-        docs.push(ffi::EdgeGidScore { edge_gid, from_gid, to_gid, score });
+        let mut term_stream = inverted_index.terms().search(regex.as_ref()).into_stream()?;
+        while term_stream.advance() {
+            let term_info = term_stream.value();
+            let mut postings =
+                inverted_index.read_postings_from_terminfo(term_info, IndexRecordOption::Basic)?;
+            let mut doc = postings.doc();
+            while doc != TERMINATED {
+                let alive = alive_bitset.map_or(true, |bitset| bitset.is_alive(doc));
+                if alive {
+                    if let Some(edge_gid) = edge_gid_column.first(doc) {
+                        if seen.insert(edge_gid) {
+                            let from_gid = from_gid_column.first(doc).ok_or_else(|| {
+                                Error::new(ErrorKind::Other, format!("from_vertex_gid missing for matched doc in {:?}", index_path))
+                            })?;
+                            let to_gid = to_gid_column.first(doc).ok_or_else(|| {
+                                Error::new(ErrorKind::Other, format!("to_vertex_gid missing for matched doc in {:?}", index_path))
+                            })?;
+                            docs.push(ffi::EdgeGidScore { edge_gid, from_gid, to_gid, score: 1.0 });
+                            if docs.len() >= limit {
+                                break 'segments;
+                            }
+                        }
+                    }
+                }
+                doc = postings.advance();
+            }
+        }
     }
     Ok(ffi::EdgeGidScoreOutput { docs })
 }
 
 fn aggregate(
-    context: &mut ffi::Context,
+    context: &ffi::Context,
     input: &ffi::SearchInput,
 ) -> Result<ffi::DocumentOutput, std::io::Error> {
     let index_path = &context.tantivyContext.index_path;
@@ -1116,7 +1131,7 @@ fn aggregate(
     })
 }
 
-fn get_num_docs(context: &mut ffi::Context) -> Result<u64, std::io::Error> {
+fn get_num_docs(context: &ffi::Context) -> Result<u64, std::io::Error> {
     let reader = &context.tantivyContext.index_reader;
     let searcher = reader.searcher();
     Ok(searcher.num_docs() as u64)
