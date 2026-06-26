@@ -1076,8 +1076,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
 #ifdef MG_ENTERPRISE
-  bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const;
-  bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const;
+  bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
+    if (!auth_checker_) return true;
+    return CheckPropertyPermission(accessor, prop);
+  }
+
+  bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const {
+    if (!auth_checker_) return true;
+    return CheckPropertyPermission(accessor, prop);
+  }
 #else
   template <typename T>
     requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor>
@@ -1182,6 +1189,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
+
+#ifdef MG_ENTERPRISE
+  bool CheckPropertyPermission(VertexAccessor const &accessor, storage::PropertyId prop) const;
+  bool CheckPropertyPermission(EdgeAccessor const &accessor, storage::PropertyId prop) const;
+#endif
 
   Frame *frame_;
   const SymbolTable *symbol_table_;

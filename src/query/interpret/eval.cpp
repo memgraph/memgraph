@@ -567,15 +567,13 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
 }
 
 #ifdef MG_ENTERPRISE
-bool ExpressionEvaluator::IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
-  if (!auth_checker_) return true;
+bool ExpressionEvaluator::CheckPropertyPermission(VertexAccessor const &accessor, storage::PropertyId prop) const {
   auto maybe_labels = accessor.Labels(view_);
   if (!maybe_labels) return false;
   return auth_checker_->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
 }
 
-bool ExpressionEvaluator::IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const {
-  if (!auth_checker_) return true;
+bool ExpressionEvaluator::CheckPropertyPermission(EdgeAccessor const &accessor, storage::PropertyId prop) const {
   return auth_checker_->HasPropertyPermission(accessor.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
 }
 
