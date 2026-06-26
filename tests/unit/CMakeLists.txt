@@ -144,6 +144,15 @@ add_unit_test(cursor_yield
     LINK_TARGETS mg-query
 )
 
+# Yield-latency microbench: synthetic fake-coroutine chain (N=8 depth), NO DB / NO storage.
+# Measures the uninterruptible span from the first ResumePullStep call until the first Yielded
+# (or first row when mid-consume yield is impossible). Plain int main(), prints table to stdout.
+add_unit_test(cursor_yield_latency
+    SOURCES cursor_yield_latency.cpp
+    LINK_TARGETS mg-query
+    CUSTOM_MAIN
+)
+
 # Per-cursor mode seam (dormant): base Cursor PullCo()/DoPull()/gen_/mode_ composition,
 # verified on minimal fake Cursor subclasses (Sync leaf via Immediate, Coro leaf/parent via gen_).
 add_unit_test(cursor_seam
