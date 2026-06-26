@@ -56,6 +56,30 @@ def execute_and_ignore_dead_replica(cursor, query):
         assert "Failed to replicate to SYNC replica" in str(e)
 
 
+def corrupt_snapshots(tenant_directory):
+    """Corrupt the data (vertex/edge/index) region of every snapshot under `tenant_directory`
+    while preserving the offsets block at the start and the metadata section at the end. This keeps
+    the file readable by ReadSnapshotInfo (so it is selected for recovery) but makes LoadSnapshot
+    fail, which is the path that yields a defunct database. Mirrors the helper in
+    tests/e2e/durability/common.py."""
+    snapshot_dir = os.path.join(tenant_directory, "snapshots")
+    files = [
+        os.path.join(snapshot_dir, f) for f in os.listdir(snapshot_dir) if os.path.isfile(os.path.join(snapshot_dir, f))
+    ]
+    assert files, f"Expected at least one snapshot to corrupt under {snapshot_dir}"
+    head_keep = 1024  # magic + version + SECTION_OFFSETS
+    tail_keep = 4096  # SECTION_METADATA (uuid/epoch/counts) lives near the end
+    for path in files:
+        size = os.path.getsize(path)
+        start = min(head_keep, size)
+        end = max(start, size - tail_keep)
+        assert end > start, f"Snapshot {path} too small ({size} bytes) to corrupt safely"
+        with open(path, "r+b") as fh:
+            fh.seek(start)
+            fh.write(b"\xff" * (end - start))
+    return files
+
+
 def count_files(directory):
     return len([name for name in os.listdir(directory) if os.path.isfile(os.path.join(directory, name))])
 

@@ -12,14 +12,23 @@
 # Slice 7 (Defunct Recovery / HA): a replica that boots with a corrupted tenant snapshot and
 # --storage-allow-recovery-failure=true comes up defunct for that tenant, then self-heals: the
 # main detects the replica is behind (a defunct tenant reports commit-ts 0 with a fresh epoch),
-# drives it into RECOVERY and sends a full snapshot, and the replica-side SnapshotHandler clears
+# drives it into RECOVERY and sends recovery steps, and the matching replica-side handler clears
 # the defunct flag. After self-heal the replica reports `ready` and serves the tenant's data.
 #
+# The recovery steps the main sends depend on what durability the main holds for the tenant
+# (GetRecoverySteps), so this test is parametrized over both healing paths:
+#   - "snapshot": the main took a CREATE SNAPSHOT, so it sends a full snapshot; SnapshotHandler
+#     clears defunct.
+#   - "wal": the main never snapshotted the tenant, so its WAL chain reaches back to seq 0 and it
+#     sends WAL files / the current WAL only; WalFilesHandler / CurrentWalHandler clear defunct.
+# The replica boots defunct identically in both cases (its own corrupted snapshot is the only
+# durability source); only the main-side recovery steps differ.
+#
 # Placement note: the spec suggests tests/e2e/durability/, but this test needs the coordinator +
-# data-instance harness (the Raft coordinator, SHOW INSTANCES, the single-coordinator instance
-# descriptions) that lives in tests/e2e/high_availability/. Wiring the coordinator helpers from the
-# durability directory is impractical, so the test lives next to the other coordinator tests and
-# reuses high_availability/common.py.
+# data-instance harness (the Raft coordinators, SHOW INSTANCES, the instance descriptions) that
+# lives in tests/e2e/high_availability/. Wiring the coordinator helpers from the durability
+# directory is impractical, so the test lives next to the other coordinator tests and reuses
+# high_availability/common.py.
 
 import os
 import shutil
@@ -28,7 +37,7 @@ from functools import partial
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
+from common import connect, corrupt_snapshots, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -54,30 +63,6 @@ def cleanup_instances():
     interactive_mg_runner.kill_all()
     yield
     interactive_mg_runner.kill_all()
-
-
-def corrupt_snapshots(tenant_directory):
-    """Corrupt the data (vertex/edge/index) region of every snapshot under `tenant_directory`
-    while preserving the offsets block at the start and the metadata section at the end. This keeps
-    the file readable by ReadSnapshotInfo (so it is selected for recovery) but makes LoadSnapshot
-    fail, which is the path that yields a defunct database. Mirrors the helper in
-    tests/e2e/durability/common.py."""
-    snapshot_dir = os.path.join(tenant_directory, "snapshots")
-    files = [
-        os.path.join(snapshot_dir, f) for f in os.listdir(snapshot_dir) if os.path.isfile(os.path.join(snapshot_dir, f))
-    ]
-    assert files, f"Expected at least one snapshot to corrupt under {snapshot_dir}"
-    head_keep = 1024  # magic + version + SECTION_OFFSETS
-    tail_keep = 4096  # SECTION_METADATA (uuid/epoch/counts) lives near the end
-    for path in files:
-        size = os.path.getsize(path)
-        start = min(head_keep, size)
-        end = max(start, size - tail_keep)
-        assert end > start, f"Snapshot {path} too small ({size} bytes) to corrupt safely"
-        with open(path, "r+b") as fh:
-            fh.seek(start)
-            fh.write(b"\xff" * (end - start))
-    return files
 
 
 def find_tenant_dir(instance_full_data_directory):
@@ -149,7 +134,7 @@ def get_memgraph_instances_description(test_name: str):
             "data_directory": f"{get_data_path(file, test_name)}/instance_3",
             "setup_queries": [],
         },
-        "coordinator": {
+        "coordinator_1": {
             "args": [
                 "--bolt-port",
                 "7690",
@@ -159,10 +144,40 @@ def get_memgraph_instances_description(test_name: str):
                 "--coordinator-hostname=localhost",
                 "--management-port=10121",
             ],
-            "log_file": f"{get_logs_path(file, test_name)}/coordinator.log",
-            "data_directory": f"{get_data_path(file, test_name)}/coordinator",
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator_1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator_1",
+            "setup_queries": [],
+        },
+        "coordinator_2": {
+            "args": [
+                "--bolt-port",
+                "7691",
+                "--log-level=TRACE",
+                "--coordinator-id=2",
+                "--coordinator-port=10112",
+                "--coordinator-hostname=localhost",
+                "--management-port=10122",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator_2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator_2",
+            "setup_queries": [],
+        },
+        "coordinator_3": {
+            "args": [
+                "--bolt-port",
+                "7692",
+                "--log-level=TRACE",
+                "--coordinator-id=3",
+                "--coordinator-port=10113",
+                "--coordinator-hostname=localhost",
+                "--management-port=10123",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator_3.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator_3",
             "setup_queries": [
                 "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+                "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+                "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
                 "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
@@ -182,15 +197,18 @@ def tenant_vertex_count(cursor):
     return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
 
 
-def test_defunct_replica_tenant_self_heals_from_main(test_name):
+@pytest.mark.parametrize("recovery_path", ["snapshot", "wal"])
+def test_defunct_replica_tenant_self_heals_from_main(test_name, recovery_path):
     # 1. Bring up a coordinator-managed cluster: instance_3 (7687) MAIN, instance_1 (7688) and
     #    instance_2 (7689) REPLICAs.
-    # 2. Create the broken_db tenant, populate it and CREATE SNAPSHOT so every instance has a
-    #    snapshot of the tenant on disk.
-    # 3. Kill replica instance_1 and corrupt its broken_db snapshot.
+    # 2. Create the broken_db tenant and populate it. For the "snapshot" path the main also takes a
+    #    CREATE SNAPSHOT; for the "wal" path it does not, so the main's only durability for the
+    #    tenant is its WAL chain (which reaches back to seq 0).
+    # 3. Kill replica instance_1 and corrupt its broken_db snapshot (written via storage_snapshot_on_exit).
     # 4. Restart instance_1 with --storage-allow-recovery-failure=true: broken_db boots defunct.
     # 5. Assert the main is unaffected, then assert instance_1's broken_db self-heals to `ready`
-    #    (full snapshot sync from main clears defunct) and serves the tenant's data.
+    #    (the main's recovery steps clear defunct: a snapshot for the "snapshot" path, WAL files /
+    #    current WAL for the "wal" path) and serves the tenant's data.
 
     instances = get_memgraph_instances_description(test_name=test_name)
 
@@ -200,9 +218,11 @@ def test_defunct_replica_tenant_self_heals_from_main(test_name):
     # 1
     interactive_mg_runner.start_all(instances, keep_directories=False)
 
-    coord_cursor = connect(host="localhost", port=7690).cursor()
+    coord_cursor = connect(host="localhost", port=7692).cursor()
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
@@ -214,7 +234,10 @@ def test_defunct_replica_tenant_self_heals_from_main(test_name):
     execute_and_fetch_all(main_cursor, f"CREATE DATABASE {TENANT}")
     execute_and_fetch_all(main_cursor, f"USE DATABASE {TENANT}")
     execute_and_fetch_all(main_cursor, f"UNWIND range(1, {NUM_NODES}) AS i CREATE (:Node {{id: i}})")
-    execute_and_fetch_all(main_cursor, "CREATE SNAPSHOT")
+    if recovery_path == "snapshot":
+        # The main holds a snapshot of the tenant -> GetRecoverySteps heals the replica via a full
+        # snapshot. For the "wal" path we deliberately skip this so the main heals via WAL only.
+        execute_and_fetch_all(main_cursor, "CREATE SNAPSHOT")
 
     # The tenant and its data must be present on both replicas before we corrupt one of them.
     instance_1_cursor = connect(host="localhost", port=7688).cursor()
@@ -244,11 +267,12 @@ def test_defunct_replica_tenant_self_heals_from_main(test_name):
 
     # Drive the main to replicate broken_db again. After instance_1 restarts, its broken_db is
     # defunct and reports commit-ts 0 with a fresh epoch; the next replicated transaction makes the
-    # main see the replica as behind, transition it to RECOVERY and send a full snapshot, which the
-    # replica-side SnapshotHandler uses to clear the defunct flag. The exact moment the main
-    # re-checks the restarted replica's state is timing dependent, so we keep nudging it with writes
-    # while polling for the heal. Every write is on broken_db, so the main's broken_db count is the
-    # ground truth the healed replica must converge to.
+    # main see the replica as behind, transition it to RECOVERY and send recovery steps (a snapshot
+    # for the "snapshot" path, WAL files / the current WAL for the "wal" path), which the matching
+    # replica-side handler uses to clear the defunct flag. The exact moment the main re-checks the
+    # restarted replica's state is timing dependent, so we keep nudging it with writes while polling
+    # for the heal. Every write is on broken_db, so the main's broken_db count is the ground truth
+    # the healed replica must converge to.
     execute_and_fetch_all(main_cursor, f"USE DATABASE {TENANT}")
 
     instance_1_cursor = connect(host="localhost", port=7688).cursor()
@@ -256,10 +280,10 @@ def test_defunct_replica_tenant_self_heals_from_main(test_name):
     def nudge_and_check_healed():
         try:
             execute_and_fetch_all(main_cursor, "CREATE (:Heal)")
-        except Exception:
-            # A SYNC replica that is mid-recovery can transiently make the commit fail; ignore and
-            # let the next poll retry.
-            pass
+        except Exception as e:
+            # A SYNC replica that is mid-recovery can transiently make the commit fail; tolerate only
+            # that specific error and let the next poll retry. Anything else is a real failure.
+            assert "Failed to replicate to SYNC replica" in str(e), f"Unexpected error while nudging main: {e}"
         return tenant_status(instance_1_cursor).get(TENANT)
 
     # 5b: the replica self-heals to `ready`.
