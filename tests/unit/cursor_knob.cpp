@@ -32,6 +32,7 @@
 #include "interpreter_faker.hpp"
 #include "license/license.hpp"
 #include "query/interpreter_context.hpp"
+#include "query/plan/cursor_awaitable.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "system/system.hpp"
@@ -159,6 +160,25 @@ TEST(CursorKnobDefault, DefaultIsSplitPolicy) {
   EXPECT_EQ(info.default_value, "Aggregate,OrderBy,Accumulate,Distinct,HashJoin")
       << "the coroutine pull path is expected ON by default (split at the blocking operators); empty is "
          "the kill switch";
+}
+
+// The coroutine-region-size tally that feeds the observability metric (memgraph_coroutine_region_cursors).
+// CoroSelectedCount() is reset before each plan's MakeCursor and incremented once per cursor selected
+// Coro, so after a query it holds that plan's coroutine-region size. A split-point query has a non-empty
+// region; a pure-scan query with the knob off has none. (Verifies the metric's input directly; the
+// Prometheus counter wiring follows the existing per-DB pattern.)
+TEST_F(CursorKnobTest, CoroRegionTallyReflectsSplit) {
+  interpreter.Interpret("CREATE (a:N {id: 1}), (b:N {id: 2}), (c:N {id: 3})");
+
+  // Aggregate under the (broadened) split set: Produce <- Aggregate(Coro) <- ScanAll(Sync) -> region > 0.
+  FLAGS_query_coroutine_yield_ops = "Aggregate,OrderBy,Accumulate,Distinct,HashJoin";
+  interpreter.Interpret("MATCH (n:N) RETURN count(n) AS c");
+  EXPECT_GT(memgraph::query::plan::CoroSelectedCount(), 0u) << "aggregate plan should have a coroutine region";
+
+  // Pure scan with the knob off: no split point -> no coroutine region.
+  FLAGS_query_coroutine_yield_ops = "";
+  interpreter.Interpret("MATCH (n:N) RETURN n.id AS id");
+  EXPECT_EQ(memgraph::query::plan::CoroSelectedCount(), 0u) << "knob-off plan should be fully synchronous";
 }
 
 #ifdef MG_ENTERPRISE

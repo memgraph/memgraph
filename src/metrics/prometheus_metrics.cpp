@@ -165,6 +165,19 @@ PrometheusMetrics::PrometheusMetrics()
                                    .Name("memgraph_read_write_queries_total")
                                    .Help("Total number of read-write queries")
                                    .Register(registry_)},
+      query_coroutine_driven_family_{prometheus::BuildCounter()
+                                         .Name("memgraph_query_coroutine_driven_total")
+                                         .Help("Queries whose root cursor ran as a coroutine (split policy)")
+                                         .Register(registry_)},
+      query_sync_driven_family_{prometheus::BuildCounter()
+                                    .Name("memgraph_query_sync_driven_total")
+                                    .Help("Queries whose root cursor ran synchronously")
+                                    .Register(registry_)},
+      coroutine_region_cursors_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_coroutine_region_cursors_total")
+              .Help("Total cursors selected to run as coroutines (average region size = / coroutine_driven)")
+              .Register(registry_)},
       // Operators
       once_operator_family_{prometheus::BuildCounter()
                                 .Name("memgraph_once_operator_total")
@@ -1020,6 +1033,9 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .read_query = {&read_query_family_.Add(labels)},
                   .write_query = {&write_query_family_.Add(labels)},
                   .read_write_query = {&read_write_query_family_.Add(labels)},
+                  .query_coroutine_driven = {&query_coroutine_driven_family_.Add(labels)},
+                  .query_sync_driven = {&query_sync_driven_family_.Add(labels)},
+                  .coroutine_region_cursors = {&coroutine_region_cursors_family_.Add(labels)},
                   .deleted_nodes = {&deleted_nodes_family_.Add(labels)},
                   .deleted_edges = {&deleted_edges_family_.Add(labels)},
                   .show_schema = {&show_schema_family_.Add(labels)},
@@ -1133,6 +1149,9 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   read_query_family_.Remove(h.read_query.get());
   write_query_family_.Remove(h.write_query.get());
   read_write_query_family_.Remove(h.read_write_query.get());
+  query_coroutine_driven_family_.Remove(h.query_coroutine_driven.get());
+  query_sync_driven_family_.Remove(h.query_sync_driven.get());
+  coroutine_region_cursors_family_.Remove(h.coroutine_region_cursors.get());
   deleted_nodes_family_.Remove(h.deleted_nodes.get());
   deleted_edges_family_.Remove(h.deleted_edges.get());
   show_schema_family_.Remove(h.show_schema.get());

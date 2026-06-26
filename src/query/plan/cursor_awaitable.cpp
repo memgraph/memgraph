@@ -23,6 +23,12 @@ CoroSplitPolicy &ActiveCoroPolicy() noexcept {
   return policy;
 }
 
+// Thread-local tally of cursors selected Coro while building the current plan (coroutine-region size).
+uint32_t &CoroSelectedCount() noexcept {
+  static thread_local uint32_t count{0};
+  return count;
+}
+
 #ifndef NDEBUG
 namespace {
 // DEBUG-ONLY parity-test seam (see header). Default OFF => synchronous root drive == master.

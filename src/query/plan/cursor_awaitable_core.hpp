@@ -57,6 +57,11 @@ struct CoroSplitPolicy {
 /// Defaults to empty (all Sync). Definition in cursor_awaitable.cpp.
 [[nodiscard]] CoroSplitPolicy &ActiveCoroPolicy() noexcept;
 
+/// Thread-local tally of cursors selected to run as coroutines while building the current plan.
+/// SelectCoroMode increments it; PullPlan resets it to 0 before MakeCursor and reads it after to
+/// record the coroutine-region size metric. Definition in cursor_awaitable.cpp.
+[[nodiscard]] uint32_t &CoroSelectedCount() noexcept;
+
 /// Result status for the scheduler/driver.
 struct PullRunResult {
   enum class Status : uint8_t { HasRow, Done, Yielded };

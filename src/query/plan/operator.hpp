@@ -145,15 +145,18 @@ class Cursor {
   /// — each cursor passes its own child pointers locally. With an empty policy this leaves mode_ == Sync
   /// (the default), so the whole tree runs exactly as master.
   void SelectCoroMode(std::initializer_list<const Cursor *> children, CoroOp op = CoroOp::None) noexcept {
-    if (ActiveCoroPolicy().IsYieldPoint(op)) {
-      mode_ = CursorMode::Coro;
-      return;
-    }
-    for (const auto *child : children) {
-      if (child != nullptr && child->mode() == CursorMode::Coro) {
-        mode_ = CursorMode::Coro;
-        return;
+    bool coro = ActiveCoroPolicy().IsYieldPoint(op);
+    if (!coro) {
+      for (const auto *child : children) {
+        if (child != nullptr && child->mode() == CursorMode::Coro) {
+          coro = true;
+          break;
+        }
       }
+    }
+    if (coro) {
+      mode_ = CursorMode::Coro;
+      ++CoroSelectedCount();  // tally coroutine-region size for the metric
     }
     // else: leave mode_ at its default (Sync).
   }

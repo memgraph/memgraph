@@ -248,6 +248,13 @@ struct DatabaseMetricHandles {
   CounterHandle write_query;
   CounterHandle read_write_query;
 
+  // Coroutine cursors (split-point pull policy). Average coroutine region size =
+  // coroutine_region_cursors / query_coroutine_driven; adoption = query_coroutine_driven /
+  // (query_coroutine_driven + query_sync_driven).
+  CounterHandle query_coroutine_driven;    // plans whose root cursor ran as a coroutine
+  CounterHandle query_sync_driven;         // plans whose root cursor ran synchronously
+  CounterHandle coroutine_region_cursors;  // total cursors selected to run as coroutines
+
   // TTL
   CounterHandle deleted_nodes;
   CounterHandle deleted_edges;
@@ -444,6 +451,9 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &read_query_family_;
   prometheus::Family<prometheus::Counter> &write_query_family_;
   prometheus::Family<prometheus::Counter> &read_write_query_family_;
+  prometheus::Family<prometheus::Counter> &query_coroutine_driven_family_;
+  prometheus::Family<prometheus::Counter> &query_sync_driven_family_;
+  prometheus::Family<prometheus::Counter> &coroutine_region_cursors_family_;
 
   // Per-database metric families — operators
   prometheus::Family<prometheus::Counter> &once_operator_family_;

@@ -389,6 +389,7 @@ plan::CoroSplitPolicy CoroSplitPolicyFromFlags() {
 plan::UniqueCursorPtr MakeRootCursorWithPolicy(const plan::LogicalOperator &plan, utils::MemoryResource *mem,
                                                metrics::DatabaseMetricHandles &metric_handles) {
   plan::ActiveCoroPolicy() = CoroSplitPolicyFromFlags();
+  plan::CoroSelectedCount() = 0;  // tally the coroutine-region size of this plan (read back by PullPlan)
   utils::OnScopeExit const reset_policy{[] { plan::ActiveCoroPolicy() = plan::CoroSplitPolicy{}; }};
   return plan.MakeCursor(mem, metric_handles);
 }
@@ -3331,6 +3332,18 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.protector = std::move(protector);
   ctx_.is_main = interpreter_context->repl_state->ReadLock()->IsMain();
   ctx_.worker_pool = worker_pool;
+
+  // Coroutine split-policy observability (read the per-plan tally set during MakeRootCursorWithPolicy).
+  // query_coroutine_driven/query_sync_driven => adoption; coroutine_region_cursors / query_coroutine_driven
+  // => average coroutine-region size. (A Coro-mode root that ends up driven synchronously because it is a
+  // profile query is still counted as coroutine-selected — the metric reflects the split policy outcome.)
+  const auto coro_region_size = plan::CoroSelectedCount();
+  if (cursor_->mode() == plan::CursorMode::Coro) {
+    metric_handles.query_coroutine_driven.Increment();
+    metric_handles.coroutine_region_cursors.Increment(static_cast<double>(coro_region_size));
+  } else {
+    metric_handles.query_sync_driven.Increment();
+  }
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
