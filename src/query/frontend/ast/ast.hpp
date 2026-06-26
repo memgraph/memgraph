@@ -1903,8 +1903,8 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   /// Filter lambda for variable length expands. Can have an empty expression, but identifiers must be valid, because an
   /// optimization pass may inline other expressions into this lambda.
   memgraph::query::EdgeAtom::Lambda filter_lambda_;
-  /// Used in weighted shortest path. It must have valid expressions and identifiers. In all other expand types, it is
-  /// empty.
+  /// Used in weighted, all and k shortest path expansions to compute edge weights. When present it must have valid
+  /// expressions and identifiers. In all other expand types, it is empty.
   memgraph::query::EdgeAtom::Lambda weight_lambda_;
   /// Variable where the total weight for weighted shortest path will be stored.
   memgraph::query::Identifier *total_weight_{nullptr};

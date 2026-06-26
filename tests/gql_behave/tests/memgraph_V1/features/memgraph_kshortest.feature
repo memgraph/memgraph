@@ -9,8 +9,10 @@ Feature: K Shortest Paths
   #   * Scenarios under "Desired behavior" encode the target feature: a weight
   #     lambda + `total_weight` so KSHORTEST returns the K LEAST-COST paths
   #     (weighted), and the A*-style variant where a heuristic is folded into
-  #     the weight lambda via reduced edge costs. These currently FAIL (the
-  #     parser rejects a lambda on KSHORTEST) and are the spec for the work.
+  #     the weight lambda via reduced edge costs. The parser now accepts these,
+  #     but the cursor still ranks by hop count and does not populate
+  #     total_weight, so they FAIL at the result level until the cursor is made
+  #     weight-aware. They are the spec for the remaining work.
   #
   # All scenarios share the weighted DAG in graphs/kshortest.cypher.
 
@@ -49,7 +51,7 @@ Feature: K Shortest Paths
 
   ########################################################################
   # Desired behavior: weighted KSHORTEST returns the K least-cost paths.
-  # (Currently fails: "KSHORTEST expansion does not support filter lambda.")
+  # (Parses now; fails until the cursor honors the weight lambda + total_weight.)
   ########################################################################
 
   Scenario: Weighted KSHORTEST returns the single least-cost path

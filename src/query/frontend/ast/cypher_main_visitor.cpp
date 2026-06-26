@@ -3322,10 +3322,10 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
   if (variableExpansion) {
     if (relationshipDetail->total_weight && edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH &&
-        edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS)
+        edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS && edge->type_ != EdgeAtom::Type::KSHORTEST)
       throw SemanticException(
-          "Variable for total weight is allowed only with weighted and all shortest "
-          "path expansion.");
+          "Variable for total weight is allowed only with weighted, all shortest "
+          "and k shortest path expansion.");
     auto visit_lambda = [this](auto *lambda) {
       EdgeAtom::Lambda edge_lambda;
       auto traversed_edge_variable = std::any_cast<std::string>(lambda->traversed_edge->accept(this));
@@ -3376,13 +3376,10 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         }
         break;
       case 1:
-        if (edge->type_ == EdgeAtom::Type::KSHORTEST) {
-          throw SemanticException("KSHORTEST expansion does not support filter lambda.");
-        }
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
-            edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
-          // For wShortest and allShortest, the first (and required) lambda is
-          // used for weight calculation.
+            edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS || edge->type_ == EdgeAtom::Type::KSHORTEST) {
+          // For wShortest, allShortest and kShortest, the first (and only, when a
+          // single lambda is supplied) lambda is used for weight calculation.
           edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
           visit_total_weight();
           // Add mandatory inner variables for filter lambda.
@@ -3406,7 +3403,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         }
         break;
       case 2:
-        if (edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH && edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS)
+        if (edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH &&
+            edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS && edge->type_ != EdgeAtom::Type::KSHORTEST)
           throw SemanticException("Only one filter lambda can be supplied.");
         edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
         visit_total_weight();
