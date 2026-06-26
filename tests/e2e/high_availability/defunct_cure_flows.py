@@ -316,7 +316,6 @@ def wait_replica_ready_on_main(main_cur, timeout=60):
     """Wait until the main reports a registered replica whose overall replication status is
     'ready', so a subsequent SYNC write replicates rather than failing with the replica unreachable
     (avoids retrying writes, which would otherwise double-insert)."""
-    from common import show_replicas
 
     start = time.time()
     while time.time() - start < timeout:
@@ -346,10 +345,6 @@ def setup_cluster_with_tenant(test_name, vertex_count=5000):
     coord_cursor = connect(host="localhost", port=7692).cursor()
     for query in get_setup_queries():
         execute_and_fetch_all(coord_cursor, query)
-
-    # Raise the down-timeout so the coordinator does not spuriously fail over while a data instance
-    # is busy recovering/repairing a defunct tenant (the cure work can briefly delay health checks).
-    execute_and_fetch_all(coord_cursor, "SET COORDINATOR SETTING 'instance_down_timeout_sec' TO '60'")
 
     wait_main(coord_cursor, "instance_1")
     wait_replica(coord_cursor, "instance_2")
