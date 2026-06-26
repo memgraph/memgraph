@@ -1173,12 +1173,19 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       std::optional<ExpansionLambda> weight_lambda;
       std::optional<Symbol> total_weight;
 
-      if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
-        weight_lambda.emplace(ExpansionLambda{.inner_edge_symbol = symbol_table.at(*edge->weight_lambda_.inner_edge),
-                                              .inner_node_symbol = symbol_table.at(*edge->weight_lambda_.inner_node),
-                                              .expression = edge->weight_lambda_.expression});
-
-        total_weight.emplace(symbol_table.at(*edge->total_weight_));
+      // Weight lambda and total weight are mandatory for weighted and all shortest paths, and
+      // optional for kshortest (when supplied, paths are ranked by total weight instead of hop
+      // count). Guarding on presence handles all three: the mandatory cases are always present.
+      if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS ||
+          edge->type_ == EdgeAtom::Type::KSHORTEST) {
+        if (edge->weight_lambda_.expression) {
+          weight_lambda.emplace(ExpansionLambda{.inner_edge_symbol = symbol_table.at(*edge->weight_lambda_.inner_edge),
+                                                .inner_node_symbol = symbol_table.at(*edge->weight_lambda_.inner_node),
+                                                .expression = edge->weight_lambda_.expression});
+        }
+        if (edge->total_weight_) {
+          total_weight.emplace(symbol_table.at(*edge->total_weight_));
+        }
       }
 
       if (edge->type_ == EdgeAtom::Type::KSHORTEST && !existing_node) {
