@@ -3,45 +3,77 @@ import json
 import os
 import sys
 
-PR_BUILDS = ["amd", "arm", "cuda", "cugraph", "centos-9"]
-
-# Matrix values are emitted as JSON and consumed by package_mage.yaml via
-# `${{ matrix.X == 'true' }}` comparisons. GitHub Actions coerces operands to
-# numbers when comparing across types, so a Python bool `True` round-tripped
-# through json.dumps as JSON `true` does NOT equal the string `'true'`. Keep
-# every boolean-flavoured field as a string here so the workflow comparisons
-# resolve correctly.
-MATRIX_BUILDS = [
+# Single source of truth for the OS/arch (+ flavour) combinations MAGE can be
+# packaged for. Mirrors the Memgraph build matrix in
+# .github/workflows/build_rc.yml — arm is only listed where Memgraph builds it
+# (ubuntu-24.04, debian-12, debian-13, fedora-42).
+#
+# `label` is the PR-label suffix: apply `CI -package=mage-<label>` to a PR to
+# trigger that build. ubuntu-24.04 is the primary target, so its amd/arm builds
+# keep the short "amd"/"arm" labels and the cuda/cugraph/malloc flavour builds
+# (all ubuntu-24.04 amd) keep their flavour labels; every other distro uses an
+# "<os>"/"<os>-arm" label.
+#
+# Boolean-flavoured fields (cuda/cugraph/malloc) are emitted as JSON and consumed
+# by package_mage.yaml via `${{ matrix.X == 'true' }}` comparisons. GitHub
+# Actions coerces operands to numbers when comparing across types, so a Python
+# bool `True` round-tripped through json.dumps as JSON `true` does NOT equal the
+# string `'true'`. Keep them as strings here so the workflow comparisons resolve.
+SUPPORTED_BUILDS = [
+    {"label": "amd", "os": "ubuntu-24.04", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
+    {"label": "arm", "os": "ubuntu-24.04", "arch": "arm", "cuda": "false", "cugraph": "false", "malloc": "false"},
+    {"label": "cuda", "os": "ubuntu-24.04", "arch": "amd", "cuda": "true", "cugraph": "false", "malloc": "false"},
+    {"label": "cugraph", "os": "ubuntu-24.04", "arch": "amd", "cuda": "false", "cugraph": "true", "malloc": "false"},
+    {"label": "malloc", "os": "ubuntu-24.04", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "true"},
     {
+        "label": "ubuntu-22.04",
+        "os": "ubuntu-22.04",
         "arch": "amd",
         "cuda": "false",
         "cugraph": "false",
         "malloc": "false",
     },
+    {"label": "debian-12", "os": "debian-12", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
     {
+        "label": "debian-12-arm",
+        "os": "debian-12",
         "arch": "arm",
         "cuda": "false",
         "cugraph": "false",
         "malloc": "false",
     },
+    {"label": "debian-13", "os": "debian-13", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
     {
-        "arch": "amd",
-        "cuda": "true",
+        "label": "debian-13-arm",
+        "os": "debian-13",
+        "arch": "arm",
+        "cuda": "false",
         "cugraph": "false",
         "malloc": "false",
     },
+    {"label": "fedora-42", "os": "fedora-42", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
     {
-        "arch": "amd",
+        "label": "fedora-42-arm",
+        "os": "fedora-42",
+        "arch": "arm",
         "cuda": "false",
         "cugraph": "false",
-        "malloc": "true",
-    },
-    {
-        "arch": "amd",
-        "cuda": "false",
-        "cugraph": "true",
         "malloc": "false",
     },
+    {"label": "centos-9", "os": "centos-9", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
+    {"label": "centos-10", "os": "centos-10", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
+    {"label": "rocky-10", "os": "rocky-10", "arch": "amd", "cuda": "false", "cugraph": "false", "malloc": "false"},
+]
+
+# matrix_build (workflow_dispatch) builds the original ubuntu-24.04 flavour set
+# (amd, arm, cuda, cugraph, malloc) plus centos-9. Selected from SUPPORTED_BUILDS
+# by label, minus the PR-label key. The remaining distros are still reachable via
+# single-OS workflow_dispatch selection or their PR labels.
+MATRIX_BUILD_LABELS = {"amd", "arm", "cuda", "cugraph", "malloc", "centos-9"}
+MATRIX_BUILDS = [
+    {k: v for k, v in build.items() if k != "label"}
+    for build in SUPPORTED_BUILDS
+    if build["label"] in MATRIX_BUILD_LABELS
 ]
 
 
@@ -79,9 +111,8 @@ class PackageMageSetup:
     def get_package_suite(self) -> dict:
         return self._package_suite
 
-    def _check_pr_label(self, package: str, pr_labels: list) -> dict | None:
+    def _check_pr_label(self, build: dict, pr_labels: list) -> dict | None:
         default_args = {
-            "malloc": "false",
             "memgraph_download_link": "",
             "push_to_s3": "false",
             "s3_dest_dir": "mage-unofficial",
@@ -91,13 +122,15 @@ class PackageMageSetup:
             "generate_sbom": "false",
             "ref": "",
         }
-        if f"CI -package=mage-{package}" in pr_labels:
-            print(f'Found label for "{package}"')
+        label = build["label"]
+        if f"CI -package=mage-{label}" in pr_labels:
+            print(f'Found label for "{label}"')
             out = {
-                "arch": "arm" if package == "arm" else "amd",
-                "cuda": "true" if package == "cuda" else "false",
-                "cugraph": "true" if package == "cugraph" else "false",
-                "os": "centos-9" if package == "centos-9" else "ubuntu-24.04",
+                "arch": build["arch"],
+                "cuda": build["cuda"],
+                "cugraph": build["cugraph"],
+                "malloc": build["malloc"],
+                "os": build["os"],
             }
             out.update(default_args)
             return out
@@ -105,10 +138,10 @@ class PackageMageSetup:
 
     def _setup_pull_request(self) -> None:
         pr_labels = self._get_pr_labels()
-        for package in PR_BUILDS:
-            build = self._check_pr_label(package, pr_labels)
-            if build:
-                self._package_suite.append(build)
+        for build in SUPPORTED_BUILDS:
+            result = self._check_pr_label(build, pr_labels)
+            if result:
+                self._package_suite.append(result)
 
     def get_workflow_inputs(self) -> dict:
         if self._get_event_name() in ["workflow_dispatch", "workflow_call"]:

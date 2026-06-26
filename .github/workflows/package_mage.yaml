@@ -61,7 +61,13 @@ on:
         default: ubuntu-24.04
         options:
           - ubuntu-24.04
+          - ubuntu-22.04
+          - debian-12
+          - debian-13
+          - fedora-42
           - centos-9
+          - centos-10
+          - rocky-10
 
   workflow_call:
     inputs:
