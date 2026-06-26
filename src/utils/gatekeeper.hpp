@@ -445,19 +445,19 @@ struct Gatekeeper {
                pimpl_->count_ == 0;
       };
       // Behaviour-preserving diagnosability: keep waiting unboundedly for the real condition (a slow
-      // accessor drain on shutdown is legitimate and must not be cut short), but if it has not been met
-      // after a short interval, log WHY. The interval is deliberately well under the Kubernetes/Helm
-      // terminationGracePeriodSeconds (30s by default): a longer interval would let SIGKILL arrive
-      // before the first warning is ever emitted, hiding the very diagnostic this exists to surface.
-      // Destroying a gatekeeper stuck in SUSPENDING/RESUMING is a caller ordering error that would
-      // otherwise hang here silently forever with no diagnostic.
-      constexpr auto kDiagInterval = std::chrono::seconds{5};
+      // accessor drain on shutdown is legitimate and must not be cut short), but periodically emit a
+      // breadcrumb explaining WHY it is still waiting. TRACE level + a long (5min) interval on purpose:
+      // a slow drain is usually benign, so a 5s WARN would be alarming, spammy log noise. This is a
+      // quiet heartbeat for someone who has already turned trace logging on to debug a hang (e.g. a
+      // gatekeeper destroyed while stuck SUSPENDING/RESUMING, a caller ordering error) — not a routine
+      // shutdown warning. The wait itself is still unbounded; only the breadcrumb cadence changed.
+      constexpr auto kDiagInterval = std::chrono::minutes{5};
       while (!pimpl_->cv_.wait_for(lock, kDiagInterval, terminal_and_drained)) {
         // spdlog can throw (formatting, sink I/O); a destructor is implicitly noexcept, so an escaping
         // exception would call std::terminate. Swallow it — the wait condition is what matters here.
         try {
-          spdlog::warn(
-              "~Gatekeeper has waited >5s for a terminal state and a drained accessor count (state={}, "
+          spdlog::trace(
+              "~Gatekeeper has waited >5min for a terminal state and a drained accessor count (state={}, "
               "count={}). A graceful destruction during SUSPENDING/RESUMING is a caller ordering error — "
               "in-flight transitions must be quiesced before destroying.",
               static_cast<int>(pimpl_->state_),
