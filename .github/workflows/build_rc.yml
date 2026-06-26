@@ -259,7 +259,7 @@ jobs:
       build_docker_image: ${{ matrix.build_docker_image }}
       os: ${{ matrix.os || 'ubuntu-24.04' }}
       memgraph_download_link: >-
-        ${{ startsWith(matrix.os, 'centos') && format(
+        ${{ startsWith(matrix.os || 'ubuntu-24.04', 'centos') && format(
           'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}/memgraph-{3}_1-1.x86_64.rpm',
           inputs.mock && '-mock-rc' || '',
           needs.PrepareReleaseBranch.outputs.tag_name,
@@ -295,8 +295,8 @@ jobs:
       upload_debug_symbols: true
       run_tests: true
       package_mage: "default"
-      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
-      build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os || 'ubuntu-24.04', 'centos') }}
+      build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os || 'ubuntu-24.04', 'centos') }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
       version: ${{ inputs.version }}
     secrets: inherit

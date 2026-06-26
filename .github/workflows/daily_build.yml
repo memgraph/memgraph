@@ -263,7 +263,7 @@ jobs:
       daily_build: true
       os: ${{ matrix.os || 'ubuntu-24.04' }}
       memgraph_download_link: >-
-        ${{ startsWith(matrix.os, 'centos') && format(
+        ${{ startsWith(matrix.os || 'ubuntu-24.04', 'centos') && format(
           'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}/memgraph-{3}-1.x86_64.rpm',
           inputs.mock && '_mock' || '',
           needs.CurrentDateJob.outputs.current_date,
@@ -300,7 +300,7 @@ jobs:
       run_tests: true
       package_mage: "default"
       upload_debug_symbols: true
-      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os || 'ubuntu-24.04', 'centos') }}
     secrets: inherit
 
   AggregateMAGEBuildTests:
