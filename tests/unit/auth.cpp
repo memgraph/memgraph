@@ -3940,9 +3940,7 @@ TEST_F(AuthWithStorage, GetUsersForProfile) {
 
 // Role-based profile management is no longer supported in the new architecture
 
-// --- MigrateAuthJson unit tests ---
-
-TEST(MigrateAuthJson, V4InputIsNoOp) {
+TEST(MigrateAuthJson, CurrentVersionWithoutVersionFieldNeedsNoMigration) {
   auto const original = nlohmann::json::parse(R"({
     "rolename": "test_role",
     "permissions": {"grants": 0, "denies": 0},
@@ -3964,7 +3962,7 @@ TEST(MigrateAuthJson, V4InputIsNoOp) {
   EXPECT_EQ(data, original);
 }
 
-TEST(MigrateAuthJson, V4SerializedRoleIsIdempotent) {
+TEST(MigrateAuthJson, CurrentVersionWithVersionFieldNeedsNoMigration) {
   memgraph::license::global_license_checker.EnableTesting();
 
   Role role{"test_role"};
@@ -3979,7 +3977,7 @@ TEST(MigrateAuthJson, V4SerializedRoleIsIdempotent) {
   EXPECT_EQ(data, original);
 }
 
-TEST(MigrateAuthJson, V3GlobalPermissionReadLabel) {
+TEST(MigrateAuthJson, V3ReadLabelMigratesToGrantsAndDenies) {
   auto data = nlohmann::json::parse(R"({
     "rolename": "r",
     "permissions": {"grants": 0, "denies": 0},
@@ -4007,7 +4005,7 @@ TEST(MigrateAuthJson, V3GlobalPermissionReadLabel) {
   EXPECT_EQ(ep["global_denies"], -1);
 }
 
-TEST(MigrateAuthJson, V3GlobalPermissionNothing) {
+TEST(MigrateAuthJson, V3NothingMigratesToDenyAll) {
   auto data = nlohmann::json::parse(R"({
     "username": "u",
     "permissions": {"grants": 0, "denies": 0},
@@ -4035,7 +4033,7 @@ TEST(MigrateAuthJson, V3GlobalPermissionNothing) {
   EXPECT_EQ(ep["global_denies"], 27);  // kAllEdgeTypePermissions
 }
 
-TEST(MigrateAuthJson, V3LabelUpdateExpands) {
+TEST(MigrateAuthJson, V3LabelUpdateExpandsToFineGrainedBits) {
   // V3 UPDATE bit (2) on labels should expand to SET_LABEL|REMOVE_LABEL|SET_PROPERTY|DELETE_EDGE|CREATE_EDGE
   auto data = nlohmann::json::parse(R"({
     "rolename": "r",
@@ -4065,7 +4063,7 @@ TEST(MigrateAuthJson, V3LabelUpdateExpands) {
   EXPECT_EQ(ep["global_grants"], 3);
 }
 
-TEST(MigrateAuthJson, V3PerEntityRuleMigration) {
+TEST(MigrateAuthJson, V3PerEntityRulesGainDeniedField) {
   auto data = nlohmann::json::parse(R"({
     "rolename": "r",
     "permissions": {"grants": 0, "denies": 0},
@@ -4100,7 +4098,7 @@ TEST(MigrateAuthJson, V3PerEntityRuleMigration) {
   EXPECT_EQ(rules[1]["matching"], "EXACTLY");
 }
 
-TEST(MigrateAuthJson, V2ToV4) {
+TEST(MigrateAuthJson, V2CreateDeleteMigratesToFullLabelGrants) {
   // V2 format: uses "fine_grained_access_handler" key and V2 permission enum
   auto data = nlohmann::json::parse(R"({
     "rolename": "r",
@@ -4136,7 +4134,7 @@ TEST(MigrateAuthJson, V2ToV4) {
   EXPECT_EQ(ep["global_denies"], -1);
 }
 
-TEST(MigrateAuthJson, V2UpdateToV4) {
+TEST(MigrateAuthJson, V2UpdateMigratesWithLabelExpansion) {
   // V2 UPDATE (3) should go through V3 (UPDATE|READ = 2|1 = 3) then V4 label expansion
   auto data = nlohmann::json::parse(R"({
     "rolename": "r",
@@ -4164,7 +4162,7 @@ TEST(MigrateAuthJson, V2UpdateToV4) {
   EXPECT_EQ(ep["global_denies"], -1);
 }
 
-TEST(MigrateAuthJson, V3DeserializesToValidRole) {
+TEST(MigrateAuthJson, V3RoleDeserializesAfterMigration) {
   memgraph::license::global_license_checker.EnableTesting();
   auto data = nlohmann::json::parse(R"({
     "rolename": "fga_role",
@@ -4189,7 +4187,7 @@ TEST(MigrateAuthJson, V3DeserializesToValidRole) {
   EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(FineGrainedPermission::READ));
 }
 
-TEST(MigrateAuthJson, V3DeserializesToValidUser) {
+TEST(MigrateAuthJson, V3UserDeserializesAfterMigration) {
   memgraph::license::global_license_checker.EnableTesting();
   auto data = nlohmann::json::parse(R"({
     "username": "fga_user",
@@ -4215,7 +4213,7 @@ TEST(MigrateAuthJson, V3DeserializesToValidUser) {
   EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(FineGrainedPermission::READ));
 }
 
-TEST(MigrateAuthJson, NoFgaFieldIsNoOp) {
+TEST(MigrateAuthJson, NoFgaFieldNeedsNoMigration) {
   auto const original = nlohmann::json::parse(R"({
     "username": "basic_user",
     "password_hash": null,

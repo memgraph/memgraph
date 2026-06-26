@@ -1120,9 +1120,6 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
 #endif
 
 /// Migrate a single user or role JSON object to the latest format in-place.
-/// Detects the version by JSON shape and applies migrations as needed.
-/// Already-current input is a no-op. Handles FGA JSON structure changes only
-/// (V1→V2 role-link/password-hash migration is not relevant here).
 void MigrateAuthJson(nlohmann::json &data);
 
 }  // namespace memgraph::auth
