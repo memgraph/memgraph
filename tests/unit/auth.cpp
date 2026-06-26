@@ -3971,6 +3971,7 @@ TEST(MigrateAuthJson, V2MigrationToCurrentVersion) {
       }
     })");
     MigrateAuthJson(data);
+    ASSERT_EQ(data["version"], kCurrentAuthVersion);
 
     ASSERT_FALSE(data.contains("fine_grained_access_handler"));
     ASSERT_TRUE(data.contains("fine_grained_permissions"));
@@ -4004,6 +4005,7 @@ TEST(MigrateAuthJson, V2MigrationToCurrentVersion) {
       }
     })");
     MigrateAuthJson(data);
+    ASSERT_EQ(data["version"], kCurrentAuthVersion);
 
     auto const &lp = data["fine_grained_permissions"]["label_permissions"];
     // V2 UPDATE (3) -> V3 UPDATE|READ (3) -> V4 label expansion = 483
@@ -4035,6 +4037,7 @@ TEST(MigrateAuthJson, V3MigrationToCurrentVersion) {
       }
     })");
     MigrateAuthJson(data);
+    ASSERT_EQ(data["version"], kCurrentAuthVersion);
 
     auto const &lp = data["fine_grained_permissions"]["label_permissions"];
     ASSERT_FALSE(lp.contains("global_permission"));
@@ -4064,6 +4067,7 @@ TEST(MigrateAuthJson, V3MigrationToCurrentVersion) {
       }
     })");
     MigrateAuthJson(data);
+    ASSERT_EQ(data["version"], kCurrentAuthVersion);
 
     auto const &lp = data["fine_grained_permissions"]["label_permissions"];
     ASSERT_FALSE(lp.contains("global_permission"));
@@ -4093,6 +4097,7 @@ TEST(MigrateAuthJson, V3MigrationToCurrentVersion) {
       }
     })");
     MigrateAuthJson(data);
+    ASSERT_EQ(data["version"], kCurrentAuthVersion);
 
     auto const &lp = data["fine_grained_permissions"]["label_permissions"];
     ASSERT_FALSE(lp.contains("global_permission"));
@@ -4126,6 +4131,7 @@ TEST(MigrateAuthJson, V3MigrationToCurrentVersion) {
       }
     })");
     MigrateAuthJson(data);
+    ASSERT_EQ(data["version"], kCurrentAuthVersion);
 
     auto const &rules = data["fine_grained_permissions"]["label_permissions"]["permissions"];
     ASSERT_EQ(rules.size(), 2);
@@ -4144,14 +4150,18 @@ TEST(MigrateAuthJson, V3MigrationToCurrentVersion) {
 }
 
 TEST(MigrateAuthJson, NoFgaFieldNeedsNoMigration) {
-  auto const original = nlohmann::json::parse(R"({
+  auto data = nlohmann::json::parse(R"({
     "username": "basic_user",
     "password_hash": null,
     "permissions": {"grants": 0, "denies": 0}
   })");
-  auto data = original;
+  auto const original = data;
   MigrateAuthJson(data);
-  EXPECT_EQ(data, original);
+  ASSERT_EQ(data["version"], kCurrentAuthVersion);
+
+  for (auto const &[key, value] : original.items()) {
+    EXPECT_EQ(data[key], value) << "Mismatch for key: " << key;
+  }
 }
 
 #endif  // MG_ENTERPRISE
