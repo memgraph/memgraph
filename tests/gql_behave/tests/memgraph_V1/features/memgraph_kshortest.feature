@@ -111,6 +111,29 @@ Feature: K Shortest Paths
           | 3              |
 
   ########################################################################
+  # Desired behavior: weighted KSHORTEST with an optional filter lambda,
+  # mirroring WSHORTEST's two-lambda form:
+  #   *KSHORTEST | K (weight_lambda) total_weight (filter_lambda)
+  # The filter lambda prunes edges/nodes during expansion. Here it excludes
+  # node B, leaving only the two paths that avoid it (S-A-T and S-T).
+  ########################################################################
+
+  Scenario: Weighted KSHORTEST with a filter lambda excludes pruned paths
+      Given graph "kshortest"
+      When executing query:
+          """
+          MATCH (s:Node {name: 'S'}), (t:Node {name: 'T'})
+          WITH s, t
+          MATCH p = (s)-[r *KSHORTEST | 10 (e, n | e.weight) total_weight (e, n | n.name <> 'B')]->(t)
+          RETURN [n IN nodes(p) | n.name] AS path, total_weight
+          ORDER BY total_weight
+          """
+      Then the result should be, in order:
+          | path              | total_weight |
+          | ['S', 'A', 'T']   | 6            |
+          | ['S', 'T']        | 10           |
+
+  ########################################################################
   # Desired behavior: A*-guided KSHORTEST.
   #
   # A* is Dijkstra on reduced edge costs w'(u->v) = w(u,v) - h(u) + h(v),
