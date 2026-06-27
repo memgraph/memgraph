@@ -58,10 +58,13 @@ void RpcMessageDeliverer::Execute() {
   while (true) {
     auto const remaining_file_size = GetRemainingFileSize();
 
-    slk::StreamInfo const ret = slk::CheckStreamStatus(input_stream_->data() + consumed_bytes,
-                                                       input_stream_->size() - consumed_bytes,
-                                                       remaining_file_size,
-                                                       consumed_bytes);
+    // Non-zero marks the message in progress, so a lone footer ends it instead of
+    // parsing as an empty (INVALID) stream.
+    slk::StreamInfo const ret =
+        slk::CheckStreamStatus(input_stream_->data() + consumed_bytes,
+                               input_stream_->size() - consumed_bytes,
+                               remaining_file_size,
+                               consumed_bytes + (file_replication_handler_.has_value() ? 1U : 0U));
 
     if (ret.status == slk::StreamStatus::INVALID) {
       input_stream_->Clear();
@@ -70,6 +73,9 @@ void RpcMessageDeliverer::Execute() {
     // We resize the stream if the initial header+request cannot fit into the input stream or if we couldn't read
     // 0xFFFF/0x0000 segment
     if (ret.status == slk::StreamStatus::PARTIAL) {
+      // Drop the consumed prefix: the next Execute() re-parses from the start, and
+      // OpenFile() has a side effect, so a consumed file would otherwise re-register.
+      if (consumed_bytes > 0) input_stream_->Shift(consumed_bytes);
       input_stream_->Resize(ret.stream_size);
       return;
     }
@@ -84,11 +90,9 @@ void RpcMessageDeliverer::Execute() {
 
     if (ret.status == slk::StreamStatus::NEW_FILE) {
       if (!file_replication_handler_) {
-        // Will be used at the end to construct slk::Reader. Contains message header and request. It is necessary to do
-        // this only when initializing FileReplicationHandler
-        header_request_ =
-            std::vector<uint8_t>{input_stream_->data(),
-                                 input_stream_->data() + (input_stream_->size() - ret.pos - sizeof(slk::SegmentSize))};
+        // The header+request used to build the request reader: [0, ret.pos) is the
+        // args segment plus the file mask, which Finalize() takes as the final segment.
+        header_request_ = std::vector<uint8_t>{input_stream_->data(), input_stream_->data() + ret.pos};
         file_replication_handler_.emplace();
       } else {
         // If file replication handler is already active, and we received NEW_FILE status it means we should create new
