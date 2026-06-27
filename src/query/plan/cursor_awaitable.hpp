@@ -224,6 +224,13 @@ PullRunResult ResumePullStep(PullAwaitable::ResumeAwaitable &ra, ExecutionContex
 #ifndef NDEBUG
 void SetForceCoroRootDriveForTesting(bool enabled) noexcept;
 [[nodiscard]] bool ForceCoroRootDriveForTesting() noexcept;
+
+// DEBUG-ONLY yield seam (S1 — coroutine-native scheduler). When enabled, the production drive points
+// ctx.stopping_context.yield_requested at an always-true flag, so every throttled YieldPointAwaitable
+// check actually yields — exercising the real suspend/resume drive end-to-end (the yield path has no
+// production scheduler yet). ForceYieldFlagForTesting() returns that flag (nullptr when off).
+void SetForceYieldForTesting(bool enabled) noexcept;
+[[nodiscard]] std::atomic<bool> *ForceYieldFlagForTesting() noexcept;
 #endif
 
 }  // namespace memgraph::query::plan

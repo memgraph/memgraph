@@ -3386,10 +3386,33 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     // synchronous Pull path). Yield is OFF here (no PullDriverScope), so ResumePullStep only ever returns
     // HasRow/Done — the cooperative-yield scheduler wiring lands with the parallel cursors.
     const bool drive_coro = cursor_->mode() == plan::CursorMode::Coro && !ctx_.is_profile_query;
+
+    // Coroutine root-drive: a Coro root is driven via PullCo + ResumePullStep under an Enabled
+    // PullDriverScope, which wires ctx.suspended_task_handle_ptr so a YieldPointAwaitable deep in the
+    // pull chain can cooperatively yield. ResumePullStep then returns Yielded; the drive re-resumes the
+    // stashed leaf until it produces a row or exhausts. Today nothing sets yield_requested in production
+    // (no scheduler yet), so Yielded never occurs and this is the same single-step drive as before; the
+    // cooperative-yield scheduler (S2+) is what will actually park the worker on a Yielded.
+    std::optional<plan::PullDriverScope> driver_scope;
+    if (drive_coro) {
+      driver_scope.emplace(ctx_, plan::YieldMode::Enabled);
+#ifndef NDEBUG
+      // DEBUG yield seam: force every throttled checkpoint to yield, exercising the suspend/resume drive.
+      if (auto *force_flag = plan::ForceYieldFlagForTesting()) ctx_.stopping_context.yield_requested = force_flag;
+#endif
+    }
     const auto pull_result = [&]() -> bool {
       if (drive_coro) [[unlikely]] {
         auto ra = cursor_->PullCo(frame_, ctx_);
-        return plan::ResumePullStep(ra, ctx_).status == plan::PullRunResult::Status::HasRow;
+        for (;;) {
+          auto const r = plan::ResumePullStep(ra, ctx_);
+          // Yielded: the leaf suspended at a cooperative-yield point before producing a row. With no
+          // scheduler park yet (S1), immediately re-resume the stashed leaf on this thread; the worker
+          // park lands in S2. The loop preserves correctness either way.
+          if (r.status == plan::PullRunResult::Status::Yielded) [[unlikely]]
+            continue;
+          return r.status == plan::PullRunResult::Status::HasRow;
+        }
       }
       return cursor_->Pull(frame_, ctx_);
     };

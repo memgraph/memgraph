@@ -215,6 +215,35 @@ TEST_F(CursorKnobTest, ProfileAnnotatesCoroOperators) {
   EXPECT_EQ(sync.find("[coro]"), std::string::npos) << "knob off -> no coroutine operators:\n" << sync;
 }
 
+#ifndef NDEBUG
+// S1 (coroutine-native scheduler): the production drive yields + resumes correctly. Force EVERY
+// throttled checkpoint to yield and assert the coroutine drive still produces results identical to the
+// no-yield baseline — proving PullPlan's Enabled PullDriverScope + the Yielded re-resume loop are
+// correct on a real query through the interpreter. Debug-only: the force-yield seam compiles out under
+// NDEBUG (Release/RelWithDebInfo). Verify in RelWithDebInfo via the ungate-in-place trick, or in Debug.
+TEST_F(CursorKnobTest, ForcedYieldDriveIsResultInvariant) {
+  for (int b = 0; b < 200; b += 50) {
+    interpreter.Interpret("UNWIND range(" + std::to_string(b + 1) + ", " + std::to_string(b + 50) +
+                          ") AS i CREATE (:N {id: i, g: i % 4})");
+  }
+  FLAGS_query_coroutine_yield_ops = "Aggregate,OrderBy,Accumulate,Distinct,HashJoin";
+
+  auto run = [&](const std::string &q) {
+    memgraph::query::plan::SetForceYieldForTesting(false);
+    auto baseline = Render(interpreter.Interpret(q));
+    memgraph::query::plan::SetForceYieldForTesting(true);
+    auto yielded = Render(interpreter.Interpret(q));
+    memgraph::query::plan::SetForceYieldForTesting(false);
+    EXPECT_EQ(baseline, yielded) << "forced-yield drive changed results for: " << q;
+  };
+
+  run("MATCH (n:N) RETURN n.id AS id ORDER BY n.id");            // OrderBy split, scan below
+  run("MATCH (n:N) RETURN n.g AS g, count(*) AS c ORDER BY g");  // Aggregate + OrderBy
+  run("MATCH (n:N) RETURN DISTINCT n.g AS g ORDER BY g");        // Distinct + OrderBy
+  FLAGS_query_coroutine_yield_ops = "";
+}
+#endif
+
 #ifdef MG_ENTERPRISE
 // Enterprise PARALLEL cursors under the coroutine drive. The parallel cursors (ScanParallel,
 // ParallelMerge, AggregateParallel, OrderByParallel, ...) intentionally have NO coroutine body — they

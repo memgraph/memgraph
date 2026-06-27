@@ -33,6 +33,13 @@ uint32_t &CoroSelectedCount() noexcept {
 namespace {
 // DEBUG-ONLY parity-test seam (see header). Default OFF => synchronous root drive == master.
 std::atomic<bool> g_force_coro_root_drive{false};
+
+// DEBUG-ONLY yield seam (S1). When enabled, PullPlan points ctx.stopping_context.yield_requested at
+// g_force_yield_flag so every throttled YieldPointAwaitable check yields, maximally exercising the
+// production suspend/resume drive. g_force_yield_flag stays true while enabled (no scheduler clears it;
+// progress is still guaranteed because the throttle counter only fires every N checks).
+std::atomic<bool> g_force_yield_enabled{false};
+std::atomic<bool> g_force_yield_flag{false};
 }  // namespace
 
 void SetForceCoroRootDriveForTesting(bool enabled) noexcept {
@@ -40,6 +47,15 @@ void SetForceCoroRootDriveForTesting(bool enabled) noexcept {
 }
 
 bool ForceCoroRootDriveForTesting() noexcept { return g_force_coro_root_drive.load(std::memory_order_relaxed); }
+
+void SetForceYieldForTesting(bool enabled) noexcept {
+  g_force_yield_flag.store(enabled, std::memory_order_relaxed);
+  g_force_yield_enabled.store(enabled, std::memory_order_relaxed);
+}
+
+std::atomic<bool> *ForceYieldFlagForTesting() noexcept {
+  return g_force_yield_enabled.load(std::memory_order_relaxed) ? &g_force_yield_flag : nullptr;
+}
 #endif
 
 // ─────────────────────────────────────────────────────────────────────────────
