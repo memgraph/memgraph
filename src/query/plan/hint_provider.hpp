@@ -30,7 +30,7 @@ namespace memgraph::query::plan {
 
 struct PlanHintsResult {
   std::vector<std::string> hints;
-  // True if the plan has a ScanAll+Filter a label or label-property index could have served.
+  // True if the plan has a label/label-property-filtered node scan that a matching index could have served.
   bool has_unindexed_scan{false};
 };
 

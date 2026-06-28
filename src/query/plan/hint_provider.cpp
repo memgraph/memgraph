@@ -14,8 +14,9 @@
 namespace memgraph::query::plan {
 
 namespace {
-// Parallel execution rewrites `Filter -> Scan*` into `Filter -> ScanChunk -> ParallelMerge -> ScanParallel*`;
-// map back to the sequential scan type whose hint logic applies (see parallel_rewrite.hpp).
+// Parallel execution may rewrite a `Scan*` into `ScanChunk -> ParallelMerge -> ScanParallel*`
+// (edge scans use ScanChunkByEdge -> ... -> ScanParallelByEdge, handled below). For a vertex
+// ScanChunk, recover the scan type whose hint logic applies (see parallel_rewrite.hpp).
 const utils::TypeInfo &EffectiveScanType(const ScanAll &scan) {
   const auto &type = scan.GetTypeInfo();
   // Non-ScanChunk scans (incl. ScanChunkByEdge, the edge parallel rewrite, whose type differs) use
