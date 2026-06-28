@@ -293,7 +293,7 @@ def test_openmetrics_per_db_transaction_counters(populated_databases):
 
 
 def test_unindexed_scan_queries_counter():
-    """Task 2: count queries whose plan did a ScanAll+Filter an index could have served.
+    """Count queries whose plan did a ScanAll+Filter an index could have served.
 
     Uses a fresh label (Unindexed) so populated_databases' indexes don't apply.
     EXPLAIN/PROFILE must not advance the counter; counting is per-query, so a query
@@ -307,25 +307,29 @@ def test_unindexed_scan_queries_counter():
     def counter():
         return om_get(parse_openmetrics(scrape_openmetrics()), "memgraph_unindexed_scan_queries_total", "memgraph") or 0
 
-    baseline = counter()
+    # `expected` tracks the running count; each step bumps it only when it should count, so the
+    # assertions stay correct if steps are reordered or inserted.
+    expected = counter()
 
     execute(cursor, "MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
-    assert counter() == baseline + 1
+    expected += 1
+    assert counter() == expected
 
     execute(cursor, "MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
-    assert counter() == baseline + 2
+    expected += 1
+    assert counter() == expected
 
     # EXPLAIN/PROFILE must not advance the counter.
     execute(cursor, "EXPLAIN MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
-    assert counter() == baseline + 2
+    assert counter() == expected
     execute(cursor, "PROFILE MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
-    assert counter() == baseline + 2
+    assert counter() == expected
 
     # Creating the matching index stops further increments.
     execute(cursor, "CREATE INDEX ON :Unindexed(name)")
     try:
         execute(cursor, "MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
-        assert counter() == baseline + 2
+        assert counter() == expected
     finally:
         execute(cursor, "DROP INDEX ON :Unindexed(name)")
 
@@ -336,18 +340,20 @@ def test_unindexed_scan_queries_counter():
         "UNION ALL "
         "MATCH (m:UnindexedB) WHERE m.v = 1 RETURN m.v AS v",
     )
-    assert counter() == baseline + 3
+    expected += 1
+    assert counter() == expected
 
     # Parallel execution rewrites the scan into ScanChunk -> ParallelMerge -> ScanParallel;
     # an unindexed parallel scan must still be counted (+1).
     execute(cursor, "USING PARALLEL EXECUTION MATCH (n:Unindexed) WHERE n.name = 'x' RETURN count(n)")
-    assert counter() == baseline + 4
+    expected += 1
+    assert counter() == expected
 
     # The same parallel query backed by an index must NOT advance the counter.
     execute(cursor, "CREATE INDEX ON :Unindexed(name)")
     try:
         execute(cursor, "USING PARALLEL EXECUTION MATCH (n:Unindexed) WHERE n.name = 'x' RETURN count(n)")
-        assert counter() == baseline + 4
+        assert counter() == expected
     finally:
         execute(cursor, "DROP INDEX ON :Unindexed(name)")
 

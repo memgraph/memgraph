@@ -60,24 +60,22 @@ void PlanHintsProvider::HintIndexUsage(Filter &op) {
 
   if (scan_type == ScanAll::kType) {
     if (!filtered_labels.empty() && !filtered_properties.empty()) {
-      hints_.push_back(
+      AddUnindexedScanHint(
           fmt::format("Sequential scan will be used on symbol `{0}` although there is a filter on labels {1} and "
                       "properties {2}. Consider "
                       "creating a label-property index.",
                       scan_symbol.name(),
                       filtered_labels,
                       filtered_properties));
-      has_unindexed_scan_ = true;
       return;
     }
 
     if (!filtered_labels.empty()) {
-      hints_.push_back(
+      AddUnindexedScanHint(
           fmt::format("Sequential scan will be used on symbol `{0}` although there is a filter on labels {1}. Consider "
                       "creating a label index.",
                       scan_symbol.name(),
                       filtered_labels));
-      has_unindexed_scan_ = true;
       return;
     }
     // Label-less property filter: no node index can serve it, so no hint and no count.

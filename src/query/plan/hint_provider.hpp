@@ -37,11 +37,11 @@ struct PlanHintsResult {
 [[nodiscard]] PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
 
 class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
-  // Accessors are valid only post-traversal; ProvidePlanHints owns the construct -> Accept -> read lifecycle.
-  friend PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
-
  public:
   explicit PlanHintsProvider(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
+
+  // Single-use: constructed, Accept-ed once, then read. take_hints() moves hints_ out, so reuse is a bug.
+  PlanHintsProvider(PlanHintsProvider &&) = delete;
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -377,6 +377,9 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(RemoveNestedProperty & /*op*/) override { return true; }
 
  private:
+  // ProvidePlanHints owns the construct -> Accept -> read lifecycle; these accessors are valid only post-traversal.
+  friend PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
+
   const SymbolTable &symbol_table_;
   std::vector<std::string> hints_;
   bool has_unindexed_scan_{false};
@@ -387,7 +390,15 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool DefaultPreVisit() override { LOG_FATAL("Operator not implemented for providing plan hints!"); }
 
-  // Records a missing-/suboptimal-index hint for a Filter and sets has_unindexed_scan_ accordingly.
+  // A missing-index hint always coincides with an unindexed scan: keep the two in lockstep here so a
+  // ScanAll branch can't push a hint without also being counted (the suboptimal case uses hints_ directly).
+  void AddUnindexedScanHint(std::string hint) {
+    hints_.push_back(std::move(hint));
+    has_unindexed_scan_ = true;
+  }
+
+  // Records a missing- or suboptimal-index hint for a Filter. Marks has_unindexed_scan_ (via
+  // AddUnindexedScanHint) only for the missing-index cases (ScanAll + label/label-property).
   void HintIndexUsage(Filter &op);
 
   template <typename Func>
