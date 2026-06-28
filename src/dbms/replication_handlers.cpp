@@ -180,8 +180,8 @@ void RepairDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   } catch (const UnknownDatabaseException &) {
     // The tenant does not exist on this replica; nothing to reset.
     res = RepairDatabaseRes(RepairDatabaseRes::Result::NO_NEED);
-  } catch (...) {
-    // Failure
+  } catch (const std::exception &e) {
+    spdlog::error("RepairDatabaseHandler: failed to reset the tenant: {}", e.what());
   }
 
   rpc::SendFinalResponse(res, request_version, res_builder);

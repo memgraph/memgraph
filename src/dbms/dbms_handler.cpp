@@ -433,28 +433,6 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
   return {};  // Success
 }
 
-std::optional<std::string> DbmsHandler::RepairDatabase(DatabaseAccess db_acc, system::Transaction *txn) {
-  auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-  // MAIN-side local reset: move the corrupt durability files aside, clear the tenant and drop the
-  // defunct flag. The tenant comes back empty with a fresh epoch.
-  if (auto repaired = mem_storage->RepairDefunct(); !repaired.has_value()) {
-    switch (repaired.error()) {
-      using enum storage::InMemoryStorage::RepairError;
-      case NotDefunct:
-        return "REPAIR DATABASE can only be run on a database in the defunct state.";
-      case BackupFailure:
-        return "Failed to move aside the corrupt durability files. Please clean them manually.";
-    }
-  }
-
-  // Replicate the reset to the replicas so they wipe their stale tenant data and re-sync from the main.
-  if (txn) {
-    txn->AddAction<RepairDatabaseAction>(mem_storage->uuid(), db_acc);
-  }
-
-  return std::nullopt;
-}
-
 struct CreateDatabase : memgraph::system::ISystemAction {
   explicit CreateDatabase(storage::SalientConfig config, DatabaseAccess db_acc)
       : config_{std::move(config)}, db_acc(db_acc) {}
@@ -661,6 +639,31 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
 }
 
 #endif
+
+std::optional<std::string> DbmsHandler::RepairDatabase(DatabaseAccess db_acc,
+                                                       [[maybe_unused]] system::Transaction *txn) {
+  auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+  // MAIN-side local reset: move the corrupt durability files aside, clear the tenant and drop the
+  // defunct flag. The tenant comes back empty with a fresh epoch. Available in Community and Enterprise.
+  if (auto repaired = mem_storage->RepairDefunct(); !repaired.has_value()) {
+    switch (repaired.error()) {
+      using enum storage::InMemoryStorage::RepairError;
+      case NotDefunct:
+        return "REPAIR DATABASE can only be run on a database in the defunct state.";
+      case BackupFailure:
+        return "Failed to move aside the corrupt durability files. Please clean them manually.";
+    }
+  }
+
+#ifdef MG_ENTERPRISE
+  // Replicate the reset to the replicas so they wipe their stale tenant data and re-sync from the main.
+  if (txn) {
+    txn->AddAction<RepairDatabaseAction>(mem_storage->uuid(), std::move(db_acc));
+  }
+#endif
+
+  return std::nullopt;
+}
 
 std::optional<memgraph::metrics::StorageSnapshot> DbmsHandler::TryGetStorageSnapshotForMetrics(utils::UUID const &uuid
                                                                                                [[maybe_unused]]) {

@@ -6307,8 +6307,7 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
 
 PreparedQuery PrepareRepairDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
                                          replication_coordination_glue::ReplicationRole replication_role,
-                                         InterpreterContext *interpreter_context, Interpreter &interpreter,
-                                         std::vector<Notification> *notifications) {
+                                         Interpreter &interpreter, std::vector<Notification> *notifications) {
   if (in_explicit_transaction) {
     throw RepairDatabaseInMulticommandTxException();
   }
@@ -6335,17 +6334,16 @@ PreparedQuery PrepareRepairDatabaseQuery(ParsedQuery parsed_query, bool in_expli
   return PreparedQuery{
       .header = {},
       .privileges = std::move(parsed_query.required_privileges),
-      .query_handler =
-          [db_acc = *current_db.db_acc_, db_name, interpreter = &interpreter, interpreter_context, notifications](
-              AnyStream * /*stream*/, std::optional<int> /*n*/) mutable -> std::optional<QueryHandlerResult> {
+      .query_handler = [db_acc = *current_db.db_acc_, db_name, interpreter = &interpreter, notifications](
+                           AnyStream * /*stream*/,
+                           std::optional<int> /*n*/) mutable -> std::optional<QueryHandlerResult> {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
         // Repair the tenant locally on the MAIN (reset to an empty state with a fresh epoch) and record a
         // system action that replicates the reset to every replica: each replica wipes its stale tenant data
         // and re-syncs from the main's fresh epoch, leaving a clean empty tenant ready for the main's commits.
-        if (auto const err =
-                interpreter_context->dbms_handler->RepairDatabase(db_acc, &*interpreter->system_transaction_);
+        if (auto const err = memgraph::dbms::DbmsHandler::RepairDatabase(db_acc, &*interpreter->system_transaction_);
             err.has_value()) {
           throw QueryException("{}", *err);
         }
@@ -10066,7 +10064,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                                   in_explicit_transaction_,
                                                   current_db_,
                                                   replication_role,
-                                                  interpreter_context_,
                                                   *this,
                                                   &query_execution->notifications);
     } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
