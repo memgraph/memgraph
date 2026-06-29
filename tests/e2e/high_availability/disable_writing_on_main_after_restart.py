@@ -15,13 +15,7 @@ from functools import partial
 
 import interactive_mg_runner
 import pytest
-from common import (
-    connect,
-    execute_and_fetch_all,
-    get_data_path,
-    get_logs_path,
-    show_instances,
-)
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -45,10 +39,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--management-port",
             "10011",
             "--also-log-to-stderr",
-            "--instance-health-check-frequency-sec",
-            "1",
-            "--instance-down-timeout-sec",
-            "5",
         ],
         "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
         "data_directory": f"{get_data_path(file, test_name)}/instance_1",
@@ -63,10 +53,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--management-port",
             "10012",
             "--also-log-to-stderr",
-            "--instance-health-check-frequency-sec",
-            "1",
-            "--instance-down-timeout-sec",
-            "5",
         ],
         "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
         "data_directory": f"{get_data_path(file, test_name)}/instance_2",
@@ -81,10 +67,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--management-port",
             "10013",
             "--also-log-to-stderr",
-            "--instance-health-check-frequency-sec",
-            "5",
-            "--instance-down-timeout-sec",
-            "10",
         ],
         "log_file": f"{get_logs_path(file, test_name)}/instance_3.log",
         "data_directory": f"{get_data_path(file, test_name)}/instance_3",
