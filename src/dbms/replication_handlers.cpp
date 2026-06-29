@@ -475,6 +475,17 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
       }
     }
 
+    // If the replica holds this name HOT under a DIFFERENT uuid, Update() below drops+recreates the
+    // local storage (Delete_ frees the OLD-uuid InMemoryStorage). A stale cached 2PC commit accessor
+    // for that LOCAL uuid would then dangle, so abort it FIRST — mirrors the HOT-reconcile loop above.
+    // The AbortTwoPCForTenant(config.uuid) after Update uses the NEW uuid and runs after the free, so it
+    // cannot cover the OLD uuid; this guard does. Same-uuid Update is a no-op refresh whose in-flight 2PC
+    // must NOT be aborted here (the config.uuid abort before ForceSuspendForRecovery handles it) — hence
+    // the *local != config.uuid guard. A HOT-under-different-uuid tenant is NOT caught by the IsSuspended
+    // block above (it is HOT, not in suspended_), so without this it would reach Update unguarded.
+    if (const auto local = dbms_handler.GetHotUuid(name); local && *local != config.uuid) {
+      InMemoryReplicationHandlers::AbortTwoPCForTenant(*local);
+    }
     // Currently HOT (force-suspend) or absent (create HOT first, then suspend). Update() creates a
     // missing tenant and is a no-op-ish salient refresh for an existing HOT one.
     try {
@@ -507,9 +518,17 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
     }
     const auto del = dbms_handler.Delete(remove_db);
     if (!del) {
-      // Some errors are not terminal
-      if (del.error() == DeleteError::DEFAULT_DB || del.error() == DeleteError::NON_EXISTENT) {
-        spdlog::debug("SystemRecoveryHandler: Dropped database \"{}\".", remove_db);
+      // Some errors are not terminal and must not fail the whole recovery round:
+      //  - DEFAULT_DB / NON_EXISTENT: nothing to drop.
+      //  - USING: the tenant is mid-transition (e.g. a SUSPEND that inserted into suspended_ but whose
+      //    finish_suspend has not run yet, so DeleteCold_ sees state != COLD). This is transient — the
+      //    next recovery round retries once the transition settles. Failing here would needlessly mark
+      //    the replica BEHIND for a self-healing condition.
+      if (del.error() == DeleteError::DEFAULT_DB || del.error() == DeleteError::NON_EXISTENT ||
+          del.error() == DeleteError::USING) {
+        spdlog::debug("SystemRecoveryHandler: leftover database \"{}\" not dropped this round (non-terminal: {}).",
+                      remove_db,
+                      static_cast<int>(del.error()));
         continue;
       }
       spdlog::debug("SystemRecoveryHandler: Failed to drop database \"{}\".", remove_db);
