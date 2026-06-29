@@ -267,6 +267,71 @@ def test_lagging_replica_convergence(connection, test_name):
     mg_sleep_and_assert(7, tenant_probe(replica_cursor, "A"))
 
 
+def test_recreated_cold_tenant_under_new_uuid_converges(connection, test_name):
+    # Regression for the COLD-reconcile-loop 2PC use-after-free (grounded-review BLOCKER):
+    #   When MAIN drop+recreates a tenant (NEW uuid) and suspends it while a replica is offline, the
+    #   replica reconnects still holding that tenant HOT under the OLD uuid. SystemRecovery's COLD loop,
+    #   for a HOT-under-a-different-uuid tenant, must abort that uuid's cached 2PC accessor BEFORE
+    #   Update() frees the old storage (mirroring the HOT loop), then drop+recreate under the new uuid and
+    #   force-suspend. Pre-fix the COLD loop only aborted MAIN's NEW uuid (after the free), so an in-flight
+    #   2PC accessor for the OLD uuid would dangle -> use-after-free.
+    #
+    # The precise dangling-accessor window is concurrent-only (a PrepareCommit not yet Finalized across
+    # the uuid change; the cache is cleared at FinalizeCommit) and is not deterministically reproducible
+    # here without 2PC-gap/crash injection. This test deterministically exercises the SAME code branch
+    # (different-uuid COLD reconcile -> Update frees the old-uuid storage -> the new abort guard runs) and
+    # asserts the replica converges to MAIN's RECREATED tenant rather than serving the stale old-uuid copy
+    # or crashing. Under ASan it also guards the dangling-accessor path itself.
+    instances = {
+        "replica_1": replica_args(test_name, recovery=True),
+        "main": main_args(test_name),
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    set_replica_role(replica_cursor)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    register_replica(main_cursor, sync=False)  # ASYNC: MAIN's DDL must not block on the down replica
+
+    # Tenant A under its ORIGINAL uuid, distinctive node count, replicated HOT to the replica.
+    create_and_populate(main_cursor, "A", 5)
+    mg_sleep_and_assert(5, tenant_probe(replica_cursor, "A"))
+
+    # Take the replica down (keep its dir so it recovers A HOT under the OLD uuid on restart).
+    interactive_mg_runner.kill(instances, "replica_1", keep_directories=True)
+
+    # While the replica is offline, MAIN drop+recreates A (NEW uuid) with a DIFFERENT node count, then
+    # suspends it. The Drop/Create/Suspend RPCs are all lost; only the V3 SystemRecovery payload conveys
+    # the final state (A COLD under the new uuid) on reconnect.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "DROP DATABASE A;")
+    create_and_populate(main_cursor, "A", 9)
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
+    assert tenant_probe(main_cursor, "A")() == "COLD"
+
+    # Bring the replica back. It recovers A HOT under the OLD uuid from disk; on reconnect MAIN runs
+    # SystemRecovery (V3) and the COLD loop reconciles A: abort old-uuid 2PC -> Update drops the old-uuid
+    # storage + recreates under the new uuid -> force-suspend -> COLD. The replica converging to COLD
+    # (rather than the recovery round crashing on a UAF or stalling) is the core regression assertion.
+    interactive_mg_runner.start(instances, "replica_1")
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    mg_sleep_and_assert("COLD", tenant_probe(replica_cursor, "A"))
+
+    # Liveness: both instances survived the reconcile (a UAF would have crashed the replica's apply
+    # thread). SHOW DATABASES must still answer on both, with A listed COLD.
+    assert any(row[0] == "A" and row[1] == "COLD" for row in execute_and_fetch_all(replica_cursor, "SHOW DATABASES;"))
+    assert any(row[0] == "A" and row[1] == "COLD" for row in execute_and_fetch_all(main_cursor, "SHOW DATABASES;"))
+
+    # RESUME on MAIN: the cluster must converge to MAIN's RECREATED (new-uuid) data (9), proving the
+    # old-uuid storage was dropped and rebuilt under the new uuid — never served stale (5).
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "RESUME DATABASE A;")
+    assert tenant_probe(main_cursor, "A")() == 9
+    mg_sleep_and_assert(9, tenant_probe(replica_cursor, "A"))
+
+
 def test_cross_restart_hot_only_recovery(connection, test_name):
     # Single MAIN, no replication. A tenant suspended before a restart must recover COLD (durable
     # cold marker), a HOT tenant must recover HOT with its data, and the COLD tenant must still resume
