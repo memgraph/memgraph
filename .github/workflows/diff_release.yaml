@@ -119,6 +119,18 @@ jobs:
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
 
+      # TEMPORARY: validates the core-dump capture/analysis/upload/ping pipeline
+      # end to end (crash -> gdb trace -> S3 -> monitoring ping). Intentionally
+      # crashes Memgraph and exits 1, so this job fails and jumps straight to the
+      # "Collect core dumps" step. Remove (or gate) before merge.
+      - name: Trigger core dump (CI pipeline validation)
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          trigger-dump
+
       - name: Initialize tests
         run: |
           ./release/package/mgbuild.sh \
