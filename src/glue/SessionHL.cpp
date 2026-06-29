@@ -345,6 +345,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
 void SessionHL::LogOff() {
   interpreter_.cached_auth_checker_ = nullptr;
   cached_auth_checker_.reset();
+  auth_checker_db_name_.clear();
 #ifdef MG_ENTERPRISE
   interpreter_.ResetDB();
 #endif
@@ -355,6 +356,7 @@ void SessionHL::LogOff() {
 void SessionHL::Abort() {
   interpreter_.cached_auth_checker_ = nullptr;
   cached_auth_checker_.reset();
+  auth_checker_db_name_.clear();
   interpreter_.Abort();
 }
 
@@ -397,8 +399,6 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
 }
 
 void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
-  interpreter_.cached_auth_checker_ = nullptr;
-  cached_auth_checker_.reset();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     auto &db = interpreter_.current_db_.db_acc_;
@@ -448,20 +448,28 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
     interpreter_.CheckAuthorized(result.privileges, result.db);
 
 #ifdef MG_ENTERPRISE
-    cached_auth_checker_.reset();
     interpreter_.cached_auth_checker_ = nullptr;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
     if (storage && interpreter_context_->auth_checker && interpreter_.user_or_role_ && *interpreter_.user_or_role_ &&
         interpreter_.current_db_.execution_db_accessor_) {
       auto *dba = &*interpreter_.current_db_.execution_db_accessor_;
-      cached_auth_checker_ =
-          interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*interpreter_.user_or_role_, dba);
-      DMG_ASSERT(cached_auth_checker_, "Auth checker should not be null");
-      if (!cached_auth_checker_->NeedsFineGrainedAuthChecker()) {
-        cached_auth_checker_.reset();
+      auto const current_db = dba->DatabaseName();
+      if (cached_auth_checker_ && auth_checker_db_name_ == current_db) {
+        cached_auth_checker_->UpdateDbAccessor(dba);
+      } else {
+        cached_auth_checker_ =
+            interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*interpreter_.user_or_role_, dba);
+        DMG_ASSERT(cached_auth_checker_, "Auth checker should not be null");
+        if (!cached_auth_checker_->NeedsFineGrainedAuthChecker()) {
+          cached_auth_checker_.reset();
+        }
+        auth_checker_db_name_ = current_db;
       }
       interpreter_.cached_auth_checker_ = cached_auth_checker_.get();
+    } else {
+      cached_auth_checker_.reset();
+      auth_checker_db_name_.clear();
     }
 #endif
 
@@ -631,6 +639,10 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
   // Runtime config is sent at the beginning of the transaction, but is missing during the transaction
   if (in_explicit_tx || (previous_run_time_info_ && run_time_info == *previous_run_time_info_)) return;
+
+  session_->cached_auth_checker_.reset();
+  session_->auth_checker_db_name_.clear();
+  session_->interpreter_.cached_auth_checker_ = nullptr;
 
   db_explicit_ = false;
   user_explicit_ = false;

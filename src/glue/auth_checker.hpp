@@ -107,6 +107,8 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
   void PopulateCachedPermissions() const;
   bool IsCachedPermissionsPopulated() const;
 
+  void UpdateDbAccessor(query::DbAccessor const *dba) override { dba_ = dba; }
+
  private:
   auth::FineGrainedAccessPermissions const &GetCachedLabelPermissions() const;
   auth::FineGrainedAccessPermissions const &GetCachedEdgePermissions() const;

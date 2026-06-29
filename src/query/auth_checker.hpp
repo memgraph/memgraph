@@ -96,6 +96,8 @@ class FineGrainedAuthChecker {
                                                    memgraph::storage::PropertyId property,
                                                    AuthQuery::PropertyPermissionType type) const = 0;
 
+  virtual void UpdateDbAccessor(DbAccessor const * /*dba*/) {}
+
   // Used to make the auth checker thread safe
   // throw if not possible
   virtual void MakeThreadSafe() const = 0;
