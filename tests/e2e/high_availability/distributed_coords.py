@@ -2102,8 +2102,14 @@ def test_all_coords_down_resume(test_name):
     # 4
 
     with concurrent.futures.ThreadPoolExecutor(2) as executor:
-        executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_2")
-        executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_1")
+        futures = [
+            executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_2"),
+            executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_1"),
+        ]
+        # Block until both coordinators have fully started and surface any startup errors,
+        # otherwise the connect below can race a coordinator whose Bolt server isn't up yet.
+        for future in concurrent.futures.as_completed(futures):
+            future.result()
 
     # 5
 
