@@ -461,6 +461,21 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
     EXPECT_EQ(seen_version, 2U) << "the server must observe the V2 wire version and run the upgrade chain";
     EXPECT_TRUE(cold_defaulted_empty) << "V3 cold_databases must default empty when upgrading a V2 request";
   }
+  {
+    auto stream = client.Stream<memgraph::replication::SystemRecoveryRpc>(
+        memgraph::utils::UUID{},
+        0,
+        std::vector<memgraph::storage::SalientConfig>{},
+        memgraph::auth::Auth::Config{},
+        std::vector<memgraph::auth::User>{},
+        std::vector<memgraph::auth::Role>{},
+        std::vector<memgraph::auth::UserProfiles::Profile>{},
+        std::vector<memgraph::parameters::ParameterInfo>{},
+        std::vector<memgraph::storage::ColdTenantRecovery>{},
+        std::vector<memgraph::utils::UUID>{memgraph::utils::UUID{}, memgraph::utils::UUID{}});
+    auto reply = stream.SendAndWait();
+    EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+  }
 }
 
 // SystemRecoveryRpc V3 (hot/cold): the COLD set (a vector of ColdTenantRecovery: salient + StorageInfo)

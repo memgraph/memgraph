@@ -271,6 +271,19 @@ class Storage {
 
   void SetDefunct(bool value) noexcept { defunct_.store(value, std::memory_order_release); }
 
+  // A storage is marked repaired when it was reset to an empty working state via REPAIR DATABASE
+  // (locally on the main or through the RepairDatabaseRpc on a replica). The main advertises its
+  // repaired tenants in SystemRecoveryReq so a replica that missed the RepairDatabaseRpc still
+  // learns it must reset that tenant. The flag is in-memory and lives only for the current run.
+  bool WasRepaired() const noexcept { return was_repaired_.load(std::memory_order_acquire); }
+
+  void SetRepaired(bool value) noexcept { was_repaired_.store(value, std::memory_order_release); }
+
+  // Last durable timestamp; 0 right after a tenant reset (REPAIR/ResetTenant).
+  uint64_t GetLastDurableTimestamp() const noexcept {
+    return repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+  }
+
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
   using Accessor = memgraph::storage::Accessor;
@@ -408,6 +421,9 @@ class Storage {
 
   // Set when durability recovery failed and the storage was brought up empty.
   std::atomic<bool> defunct_{false};
+
+  // Set when the tenant was reset to an empty state via REPAIR DATABASE (see WasRepaired()).
+  std::atomic<bool> was_repaired_{false};
 
   std::unique_ptr<NameIdMapper> name_id_mapper_;
   Config config_;

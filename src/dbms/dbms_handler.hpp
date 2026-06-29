@@ -643,6 +643,20 @@ class DbmsHandler {
 #endif
 
   /**
+   * @brief Repair a defunct database on the MAIN and replicate the reset to the replicas.
+   *
+   * Resets the tenant to an empty state with a fresh epoch (moving the corrupt durability files aside)
+   * and, when a system transaction is provided (enterprise), records a system action that wipes the stale
+   * tenant on every replica and re-syncs them from the main. Available in Community (single default
+   * database) and Enterprise (any tenant).
+   *
+   * @param db_acc access to the database to repair
+   * @param txn system transaction for replication (may be nullptr)
+   * @return error message on failure, std::nullopt on success
+   */
+  static std::optional<std::string> RepairDatabase(DatabaseAccess db_acc, system::Transaction *txn = nullptr);
+
+  /**
    * @brief Return all active databases.
    *
    * @return std::vector<std::string>
