@@ -358,9 +358,9 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   storage::replication::HeartbeatReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  // Wrong-main check BEFORE GetDatabaseAccessor: the accessor now inline-reheats a COLD tenant
-  // (full snapshot+WAL recovery), so reaching it for an RPC from a deposed MAIN would reheat — and
-  // possibly recover stale data — only to reject the RPC. Reject first.
+  // Wrong-main check BEFORE GetDatabaseAccessor: a deposed-MAIN RPC must be rejected before any tenant
+  // work. (GetDatabaseAccessor returns nullopt for a COLD/absent tenant — it does NOT reheat — so this
+  // is defence-in-depth + an early exit, not a reheat guard.)
   if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
     const storage::replication::HeartbeatRes res{false, 0, "", 0};
@@ -608,8 +608,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
                                                   slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  // Wrong-main check BEFORE GetDatabaseAccessor: the accessor now inline-reheats a COLD tenant (full
-  // snapshot+WAL recovery), so a deposed-MAIN RPC must be rejected before it can trigger a reheat.
+  // Wrong-main check BEFORE GetDatabaseAccessor: a deposed-MAIN RPC must be rejected before any tenant
+  // work. (GetDatabaseAccessor returns nullopt for a COLD/absent tenant — it does NOT reheat — so this
+  // is defence-in-depth + an early exit, not a reheat guard.)
   if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
@@ -809,8 +810,9 @@ void InMemoryReplicationHandlers::WalFilesHandler(
 
   storage::replication::WalFilesReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  // Wrong-main check BEFORE GetDatabaseAccessor: the accessor now inline-reheats a COLD tenant (full
-  // snapshot+WAL recovery), so a deposed-MAIN RPC must be rejected before it can trigger a reheat.
+  // Wrong-main check BEFORE GetDatabaseAccessor: a deposed-MAIN RPC must be rejected before any tenant
+  // work. (GetDatabaseAccessor returns nullopt for a COLD/absent tenant — it does NOT reheat — so this
+  // is defence-in-depth + an early exit, not a reheat guard.)
   if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
     rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
@@ -936,8 +938,9 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
 
   storage::replication::CurrentWalReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  // Wrong-main check BEFORE GetDatabaseAccessor: the accessor now inline-reheats a COLD tenant (full
-  // snapshot+WAL recovery), so a deposed-MAIN RPC must be rejected before it can trigger a reheat.
+  // Wrong-main check BEFORE GetDatabaseAccessor: a deposed-MAIN RPC must be rejected before any tenant
+  // work. (GetDatabaseAccessor returns nullopt for a COLD/absent tenant — it does NOT reheat — so this
+  // is defence-in-depth + an early exit, not a reheat guard.)
   if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
     rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);

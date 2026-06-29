@@ -321,7 +321,7 @@ per-database failure.)
 | `memgraph_database_resume_latency_seconds` | histogram | Wall-clock latency of a successful resume. |
 | `memgraph_cold_databases` | gauge | Currently-cold database count. |
 | `memgraph_database_boot_recovery_failures_total` | counter | Databases left cold at boot due to a recovery failure. |
-| `memgraph_database_boot_recovery_oom_failures_total` | counter | Subset of the above where the cause was out-of-memory. |
+| `memgraph_database_boot_recovery_oom_failures_total` | counter | Databases left cold at boot due to an out-of-memory recovery failure (disjoint from the row above — OOM failures count here only; sum both rows for the total). |
 
 The suspend/resume counts and latencies are the set product asked for. The latency
 histograms are observed once per **successful** operation (on the same code path as the
