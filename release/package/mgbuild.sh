@@ -504,7 +504,7 @@ install_python_from_deadsnakes () {
     apt-get install -y software-properties-common && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
     apt-get update && \
-    apt-get install -y python${version} python${version}-dev"
+    apt-get install -y python${version} python${version}-dev python${version}-venv"
   point_libpython3_so "$version"
 }
 
@@ -1494,6 +1494,21 @@ copy_debug_symbols() {
 ##################### TESTS ######################
 ##################################################
 test_memgraph() {
+  # Extract --python-runtime-version (it may appear anywhere) and drop it from
+  # the positional args so each test case's own arg parser is unaffected. When
+  # set, query-module Python deps are installed for THAT interpreter: memgraph
+  # embeds the runtime-swapped libpython, so its sys.path is that version's site
+  # dirs, not the container default python3's.
+  local python_runtime_version=""
+  local _args=()
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --python-runtime-version) python_runtime_version="$2"; shift 2 ;;
+      *) _args+=("$1"); shift ;;
+    esac
+  done
+  set -- ${_args[@]+"${_args[@]}"}
+
   local test_name="$1"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_VENV="source ve3/bin/activate"
@@ -1867,14 +1882,30 @@ test_memgraph() {
     e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
       docker exec -u root $build_container bash -c "apt-get update && apt-get install -y lsof" # TODO(matt): install within mgbuild container
-      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
-      docker exec -u mg $build_container bash -c "pip install --break-system-packages --user networkx==2.5.1"
+      if [[ -n "$python_runtime_version" ]]; then
+        # Memgraph embeds the runtime-swapped libpython, so install the deps for
+        # that interpreter (ensurepip bootstraps pip into its --user site).
+        local PY="python${python_runtime_version}"
+        docker exec -u mg $build_container bash -c "$PY -m ensurepip --upgrade --user && $PY -m pip install --user --break-system-packages --upgrade pip"
+        docker exec -u mg $build_container bash -c "$PY -m pip install --user --break-system-packages networkx==2.5.1"
+      else
+        docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
+        docker exec -u mg $build_container bash -c "pip install --break-system-packages --user networkx==2.5.1"
+      fi
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE && ./run.sh"
     ;;
     query_modules_e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
-      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
-      docker exec -u mg $build_container bash -c "pip install --break-system-packages --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
+      if [[ -n "$python_runtime_version" ]]; then
+        # Memgraph embeds the runtime-swapped libpython, so install the deps for
+        # that interpreter (ensurepip bootstraps pip into its --user site).
+        local PY="python${python_runtime_version}"
+        docker exec -u mg $build_container bash -c "$PY -m ensurepip --upgrade --user && $PY -m pip install --user --break-system-packages --upgrade pip"
+        docker exec -u mg $build_container bash -c "$PY -m pip install --user --break-system-packages -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
+      else
+        docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
+        docker exec -u mg $build_container bash -c "pip install --break-system-packages --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
+      fi
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests/query_modules && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 -m pytest ."
     ;;
     query_modules_unit)
