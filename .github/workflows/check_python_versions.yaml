@@ -142,7 +142,7 @@ jobs:
       arch: 'amd'
       os: 'ubuntu-24.04'
       run_core: 'true'
-      run_integration: 'false'
+      run_integration: 'true'
       python_version: ${{ matrix.python_build }}
       python_runtime_version: ${{ matrix.python_runtime }}
       run_id: "b${{ matrix.python_build }}-r${{ matrix.python_runtime }}"
@@ -167,26 +167,6 @@ jobs:
       run_e2e: 'true'
       run_stress: 'false'
       run_query_modules: 'true'
-      python_version: ${{ matrix.python_build }}
-      python_runtime_version: ${{ matrix.python_runtime }}
-      run_id: "b${{ matrix.python_build }}-r${{ matrix.python_runtime }}"
-    secrets: inherit
-
-  Malloc:
-    needs: Setup
-    if: ${{ github.event_name == 'push' || inputs.malloc }}
-    strategy:
-      fail-fast: false
-      max-parallel: 3
-      matrix:
-        python_build: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
-        python_runtime: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
-    uses: ./.github/workflows/diff_malloc.yaml
-    with:
-      ref: ${{ inputs.ref || github.ref }}
-      arch: 'amd'
-      os: 'ubuntu-24.04'
-      run_build: 'true'
       python_version: ${{ matrix.python_build }}
       python_runtime_version: ${{ matrix.python_runtime }}
       run_id: "b${{ matrix.python_build }}-r${{ matrix.python_runtime }}"
