@@ -772,6 +772,12 @@ class InMemoryStorage final : public Storage {
   // The defunct flag is cleared on success. Rejected on a healthy (non-defunct) storage.
   std::expected<void, InMemoryStorage::RepairError> RepairDefunct();
 
+  // Completely resets the tenant to an empty working state: clears the graph, the name-id mapper and
+  // the description store, drops the defunct flag and resets the replication epoch/timestamp. Used on a
+  // replica when the main repairs a tenant (REPAIR DATABASE): the replica wipes its stale data so it can
+  // re-sync from the main's fresh, empty epoch. Unlike RepairDefunct() this does not touch durability files.
+  void ResetTenant();
+
   std::vector<SnapshotFileInfo> ShowSnapshots();
 
   std::optional<SnapshotFileInfo> ShowNextSnapshot();
