@@ -131,7 +131,9 @@ decide what to resume.
   write made since the last snapshot — the data loss the core principle forbids. On-disk
   databases already hold their working set on disk rather than in RAM, so there is no
   in-memory footprint for suspend to reclaim, and they sit outside the snapshot+WAL
-  recovery model the resume path is built on.
+  recovery model the resume path is built on. Product confirmed that supporting only
+  in-memory transactional databases (snapshot + WAL) is acceptable for the first release;
+  analytical/snapshot-only support, if it lands, is deferred to a later iteration.
 - States are surfaced to operators via the `status` column of `SHOW DATABASES` (present
   only when the feature is enabled).
 
@@ -270,6 +272,14 @@ fails to recover at boot should instead abort startup may become a configurable 
 a future release; today the safe default is to keep the instance alive and surface the
 per-database failure.)
 
+> **Note (review follow-up).** At *runtime*, a failed `RESUME` is non-terminal by design —
+> it rolls back to cold and is retriable, so the instance must never abort on it. At *boot*,
+> a hot database that fails its recovery is currently **terminal for that tenant**: it is
+> left cold and surfaced, and there is no opt-in yet to tolerate (or, conversely, to hard-fail
+> on) such a failure. A future `--storage-allow-recovery-failure`-style flag could let an
+> operator choose the boot-time policy per the broader tenant-failure-tolerance work; this
+> path is flagged for the developer who picks that up.
+
 ---
 
 ## 7. Replication and high availability
@@ -289,21 +299,28 @@ per-database failure.)
 
 ## 8. Observability
 
-Five **global** Prometheus metrics expose hot/cold activity (also visible via
+**Global** Prometheus metrics expose hot/cold activity (also visible via
 `SHOW METRICS INFO`):
 
 | Metric | Type | Meaning |
 |---|---|---|
 | `memgraph_database_suspends_total` | counter | Successful suspends (operator + replica-apply). |
 | `memgraph_database_resumes_total` | counter | Successful resumes. |
+| `memgraph_database_suspend_latency_seconds` | histogram | Wall-clock latency of a successful suspend. |
+| `memgraph_database_resume_latency_seconds` | histogram | Wall-clock latency of a successful resume. |
 | `memgraph_cold_databases` | gauge | Currently-cold database count. |
 | `memgraph_database_boot_recovery_failures_total` | counter | Databases left cold at boot due to a recovery failure. |
 | `memgraph_database_boot_recovery_oom_failures_total` | counter | Subset of the above where the cause was out-of-memory. |
 
+The suspend/resume counts and latencies are the set product asked for. The latency
+histograms are observed once per **successful** operation (on the same code path as the
+counters), so a rejected or aborted attempt does not skew the distribution.
+
 Metrics are global rather than per-database because a cold database has no live storage to
 attach per-database metrics to. Per-database visibility — so an operator can see exactly
 which tenant is frequently cold or repeatedly fails to resume, and decide whether to move
-it elsewhere — is a recognized gap; see §10.
+it elsewhere — was raised in review; product confirmed global is sufficient for the first
+release, and per-database labelling remains a recognized future gap (see §10).
 
 In addition, `SHOW DATABASES` shows each database's `HOT`/`COLD` state, and
 `SHOW STORAGE INFO ON DATABASE <cold>` shows its frozen as-of-suspend stats.
@@ -338,6 +355,14 @@ In addition, `SHOW DATABASES` shows each database's `HOT`/`COLD` state, and
   response while the rebuild proceeds in the background) is the most likely next step.
 - **Per-database metrics.** Hot/cold metrics are global today; per-database labelling
   would let an operator see exactly which database is cold or failed to resume.
+- **Replica-side suspend behavior / HA consensus.** Today suspend is the MAIN's decision and
+  replicas follow it (D4): a tenant actively read on a replica still goes COLD there when the
+  MAIN suspends it. The question of what a replica should do when the MAIN suspends a tenant it
+  is actively serving — drop in-flight readers immediately, defer the suspend until the tenant
+  is idle (as DROP DATABASE does), fail the apply and require system recovery, or move to a
+  2-phase commit with coordinator consensus split per replication group — was raised in review
+  and is **not settled**; product feedback is still pending and it likely needs stress/Jepsen
+  coverage. The current behavior is the conservative MAIN-authoritative one described in D4.
 - **Per-tenant non-default storage config** is reconstructed from instance defaults on
   restart (shared with the existing hot-restart path), so non-default per-tenant storage
   settings are not preserved across a restart. This is a pre-existing multi-tenancy
