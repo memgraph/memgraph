@@ -1411,17 +1411,24 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         return std::unexpected{ResumeError::RECOVERY_FAILED};
       }
       // Publish committed: the tenant is HOT and queryable. Record resume latency (recovery + publish)
-      // OUTSIDE the try above so it cannot reach that catch (which would abort_resume a HOT gatekeeper),
-      // and before the best-effort post-publish bookkeeping below so that work is excluded from the metric.
-      metrics::Metrics().global.database_resume_latency_seconds->Observe(
-          std::chrono::duration<double>(std::chrono::steady_clock::now() - resume_start).count());
+      // before the best-effort post-publish bookkeeping below so that work is excluded from the metric.
+      // Wrapped in its OWN try/catch like the sibling post-publish arms below: we are STILL inside the
+      // outer try whose catch(...) calls abort_resume() on a now-HOT gatekeeper (DMG_ASSERT(state ==
+      // RESUMING) -> terminate). Histogram::Observe takes a std::mutex lock, whose lock() may throw
+      // std::system_error under OS resource exhaustion, so it must not be allowed to escape to that catch.
+      try {
+        metrics::Metrics().global.database_resume_latency_seconds->Observe(
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - resume_start).count());
+      } catch (...) {
+        spdlog::warn("hot/cold resume: recording resume latency for '{}' threw; database is live (HOT).", name);
+      }
 
       // Flip the durable entry back to HOT (drop the cold marker) so a restart recovers it HOT.
       // Done in a SEPARATE short lock_ scope AFTER the publish. The write is guarded by
       // !suspended_.contains: if a SUSPEND raced in after our publish-erase and re-suspended the tenant,
       // its under-lock COLD marker must stand. Wrapped in its OWN try/catch (like the two arms below):
       // the gatekeeper is already HOT here, so any throw escaping to the outer catch(...) would call
-      // abort_resume() on a HOT gatekeeper and trip its MG_ASSERT(state == RESUMING) -> terminate.
+      // abort_resume() on a HOT gatekeeper and trip its DMG_ASSERT(state == RESUMING) -> terminate.
       // GenKey/GenVal allocate (fmt/nlohmann) and can throw bad_alloc. A failure (bool or throw)
       // degrades to a warning: the tenant is live HOT regardless; on the next restart a stale cold
       // marker only makes it recover COLD, and it is resumable again.
@@ -1461,7 +1468,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       // Reached only on the winner's successful publish; the replica wire is filled by DoReplication.
       // Wrapped in its own try/catch because the gatekeeper is already HOT after the publish block
       // above: any throw that escaped to the outer catch(...) would call abort_resume() on a HOT
-      // gatekeeper and trip its MG_ASSERT(state == RESUMING). The database is live regardless of
+      // gatekeeper and trip its DMG_ASSERT(state == RESUMING). The database is live regardless of
       // whether recording or logging succeeds here.
       try {
         if (txn) txn->AddAction<ResumeDatabase>(salient.uuid);
