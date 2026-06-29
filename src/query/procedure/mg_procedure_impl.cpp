@@ -4083,6 +4083,35 @@ mgp_edge *GetEdgeByGid(mgp_graph *graph, memgraph::storage::Gid edge_gid, memgra
   return std::visit(get_edge_by_gid, graph->impl);
 }
 
+#ifdef MG_ENTERPRISE
+namespace {
+bool VertexHasReadPermission(const memgraph::query::VertexAccessor &v, const mgp_graph &graph) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return true;
+  return ctx->auth_checker->Has(v, graph.view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+}
+
+bool EdgeHasReadPermission(const memgraph::query::EdgeAccessor &e, const mgp_graph &graph) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return true;
+  const auto *auth_checker = ctx->auth_checker.get();
+  if (!auth_checker->Has(e, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
+  const auto view = graph.view;
+  if (!auth_checker->Has(e.From(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
+  return auth_checker->Has(e.To(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+}
+
+bool HasFineGrainedRestrictions(const mgp_graph &graph) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return false;
+  const auto *auth_checker = ctx->auth_checker.get();
+  return !auth_checker->HasUnrestrictedAccessToVertices() || !auth_checker->HasUnrestrictedAccessToEdges() ||
+         !auth_checker->HasUnrestrictedAccessToVertexProperties() ||
+         !auth_checker->HasUnrestrictedAccessToEdgeTypeProperties();
+}
+}  // namespace
+#endif
+
 template <typename FoundElementRange, typename MakeElementValueFunc>
 void WrapVectorSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **result, size_t found_elements_size,
                              MakeElementValueFunc make_element_value, const FoundElementRange &found_elements,
@@ -4588,6 +4617,14 @@ mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, 
                                                      .fuzzy_transpositions = fuzzy_transpositions != 0};
     try {
       text_search_results = graph->getImpl()->TextIndexSearch(index_name, search_query, search_mode, config);
+#ifdef MG_ENTERPRISE
+      if (graph->ctx && graph->ctx->auth_checker) {
+        std::erase_if(text_search_results, [&](const memgraph::storage::TextSearchResult &r) {
+          const auto maybe_vertex = graph->getImpl()->FindVertex(r.vertex_gid, graph->view);
+          return !maybe_vertex || !VertexHasReadPermission(*maybe_vertex, *graph);
+        });
+      }
+#endif
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
@@ -4600,6 +4637,15 @@ mgp_error mgp_graph_aggregate_over_text_index(mgp_graph *graph, const char *inde
   return WrapExceptions([graph, memory, index_name, search_query, aggregation_query, result]() {
     std::string search_results;
     std::optional<std::string> error_msg = std::nullopt;
+#ifdef MG_ENTERPRISE
+    if (HasFineGrainedRestrictions(*graph)) {
+      error_msg =
+          "text_search.aggregate is unavailable under fine-grained access restrictions because it cannot honor "
+          "per-row READ permissions. Use text_search.search and aggregate the filtered results in Cypher.";
+      WrapTextIndexAggregation(memory, result, search_results, error_msg);
+      return;
+    }
+#endif
     try {
       search_results = graph->getImpl()->TextIndexAggregate(index_name, search_query, aggregation_query);
     } catch (memgraph::query::QueryException &e) {
@@ -4615,6 +4661,16 @@ mgp_error mgp_graph_aggregate_over_text_edge_index(mgp_graph *graph, const char 
   return WrapExceptions([graph, memory, index_name, search_query, aggregation_query, result]() {
     std::string search_results;
     std::optional<std::string> error_msg = std::nullopt;
+#ifdef MG_ENTERPRISE
+    if (HasFineGrainedRestrictions(*graph)) {
+      error_msg =
+          "text_search.aggregate_edges is unavailable under fine-grained access restrictions because it cannot "
+          "honor per-row READ permissions. Use text_search.search_edges and aggregate the filtered results in "
+          "Cypher.";
+      WrapTextIndexAggregation(memory, result, search_results, error_msg);
+      return;
+    }
+#endif
     try {
       search_results = graph->getImpl()->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
     } catch (memgraph::query::QueryException &e) {
@@ -4646,6 +4702,14 @@ mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *
                                                      .fuzzy_transpositions = fuzzy_transpositions != 0};
     try {
       text_edge_search_results = graph->getImpl()->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
+#ifdef MG_ENTERPRISE
+      if (graph->ctx && graph->ctx->auth_checker) {
+        std::erase_if(text_edge_search_results, [&](const memgraph::storage::TextEdgeSearchResult &r) {
+          const auto maybe_edge = graph->getImpl()->FindEdge(r.edge_gid, r.from_vertex_gid, graph->view);
+          return !maybe_edge || !EdgeHasReadPermission(*maybe_edge, *graph);
+        });
+      }
+#endif
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
@@ -4683,6 +4747,13 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
             "Unrecognized argument type when performing vector search, expected values are Double or Int!");
       }
       found_vertices = graph->getImpl()->VectorIndexSearchOnNodes(index_name, result_size, search_query_vector);
+#ifdef MG_ENTERPRISE
+      if (graph->ctx && graph->ctx->auth_checker) {
+        std::erase_if(found_vertices, [&](const auto &t) {
+          return !VertexHasReadPermission(memgraph::query::VertexAccessor(std::get<0>(t)), *graph);
+        });
+      }
+#endif
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
@@ -4720,6 +4791,13 @@ mgp_error mgp_graph_search_vector_index_on_edges(mgp_graph *graph, const char *i
             "Unrecognized argument type when performing vector search, expected values are Double or Int!");
       }
       found_edges = graph->getImpl()->VectorIndexSearchOnEdges(index_name, result_size, search_query_vector);
+#ifdef MG_ENTERPRISE
+      if (graph->ctx && graph->ctx->auth_checker) {
+        std::erase_if(found_edges, [&](const auto &t) {
+          return !EdgeHasReadPermission(memgraph::query::EdgeAccessor(std::get<0>(t)), *graph);
+        });
+      }
+#endif
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
