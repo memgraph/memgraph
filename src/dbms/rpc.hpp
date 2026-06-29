@@ -100,6 +100,44 @@ struct DropDatabaseRes {
 
 using DropDatabaseRpc = rpc::RequestResponse<DropDatabaseReq, DropDatabaseRes>;
 
+struct RepairDatabaseReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_REPAIR_DATABASE_REQ, .name = "RepairDatabaseReq"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(RepairDatabaseReq *self, memgraph::slk::Reader *reader);
+  static void Save(const RepairDatabaseReq &self, memgraph::slk::Builder *builder);
+  RepairDatabaseReq() = default;
+
+  RepairDatabaseReq(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
+                    uint64_t const new_group_timestamp, const utils::UUID &uuid)
+      : main_uuid(main_uuid),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        uuid(uuid) {}
+
+  utils::UUID main_uuid;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
+  utils::UUID uuid;
+};
+
+struct RepairDatabaseRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_REPAIR_DATABASE_RES, .name = "RepairDatabaseRes"};
+  static constexpr uint64_t kVersion{1};
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(RepairDatabaseRes *self, memgraph::slk::Reader *reader);
+  static void Save(const RepairDatabaseRes &self, memgraph::slk::Builder *builder);
+  RepairDatabaseRes() = default;
+
+  explicit RepairDatabaseRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using RepairDatabaseRpc = rpc::RequestResponse<RepairDatabaseReq, RepairDatabaseRes>;
+
 struct RenameDatabaseReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RENAME_DATABASE_REQ, .name = "RenameDatabaseReq"};
   static constexpr uint64_t kVersion{1};
@@ -205,6 +243,14 @@ void Load(memgraph::storage::replication::DropDatabaseReq *self, memgraph::slk::
 void Save(const memgraph::storage::replication::DropDatabaseRes &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::RepairDatabaseReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::RepairDatabaseReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::RepairDatabaseRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::RepairDatabaseRes *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::replication::RenameDatabaseReq &self, memgraph::slk::Builder *builder);
 
