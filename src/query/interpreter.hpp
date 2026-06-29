@@ -307,6 +307,7 @@ class Interpreter final {
 #ifdef MG_ENTERPRISE
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif
+  FineGrainedAuthChecker const *cached_auth_checker_{nullptr};
   SessionInfo session_info_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;

@@ -257,7 +257,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         triggering_user_(context.triggering_user.get())
 #ifdef MG_ENTERPRISE
         ,
-        auth_checker_(context.auth_checker.get()),
+        auth_checker_(context.auth_checker),
         has_property_restrictions_(context.has_property_restrictions)
 #endif
   {
@@ -1211,7 +1211,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   const QueryUserOrRole *user_or_role_;
   const QueryUserOrRole *triggering_user_;
 #ifdef MG_ENTERPRISE
-  FineGrainedAuthChecker *auth_checker_{nullptr};
+  FineGrainedAuthChecker const *auth_checker_{nullptr};
   bool has_property_restrictions_{false};
 #endif
 };  // namespace memgraph::query

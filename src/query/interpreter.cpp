@@ -3141,6 +3141,7 @@ struct PullPlan {
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                     storage::DatabaseProtectorPtr protector, metrics::DatabaseMetricHandles &metric_handles,
+                    FineGrainedAuthChecker const *auth_checker = nullptr,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
                     std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr,
@@ -3184,9 +3185,10 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                    storage::DatabaseProtectorPtr protector, metrics::DatabaseMetricHandles &metric_handles,
-                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
-                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   utils::PriorityThreadPool *worker_pool, memory::ArenaPool *db_arena_pool
+                   FineGrainedAuthChecker const *auth_checker, TriggerContextCollector *trigger_context_collector,
+                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
+                   const std::optional<int64_t> hops_limit, utils::PriorityThreadPool *worker_pool,
+                   memory::ArenaPool *db_arena_pool
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
@@ -3228,15 +3230,10 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.edgetypes = NamesToEdgeTypes(plan->ast_storage().edge_types_, dba);
   ctx_.user_or_role = user_or_role;  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
-  if (license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role && dba) {
-    // Create only if an explicit user is defined
-    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
-    DMG_ASSERT(auth_checker, "Auth checker should not be null");
-    if (auth_checker->NeedsFineGrainedAuthChecker()) {
-      ctx_.has_property_restrictions = !auth_checker->HasUnrestrictedAccessToVertexProperties() ||
-                                       !auth_checker->HasUnrestrictedAccessToEdgeTypeProperties();
-      ctx_.auth_checker = std::move(auth_checker);
-    }
+  if (auth_checker) {
+    ctx_.has_property_restrictions = !auth_checker->HasUnrestrictedAccessToVertexProperties() ||
+                                     !auth_checker->HasUnrestrictedAccessToEdgeTypeProperties();
+    ctx_.auth_checker = auth_checker;
   }
 #endif
   ctx_.stopping_context = std::move(stopping_context);
@@ -3655,6 +3652,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               std::move(stopping_context),
                                               dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
                                               *(*current_db.db_acc_)->metric_handles(),
+                                              interpreter.cached_auth_checker_,
                                               trigger_context_collector,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
@@ -3864,9 +3862,10 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          stopping_context = std::move(stopping_context),
                                          db_acc = *current_db.db_acc_,
                                          hops_limit,
-                                         db_arena_pool = &current_db.db_acc_->get()->Arena()
+                                         db_arena_pool = &current_db.db_acc_->get()->Arena(),
+                                         cached_auth_checker = interpreter.cached_auth_checker_
 #ifdef MG_ENTERPRISE
-                                             ,
+                                         ,
                                          parallel_execution,
                                          user_resource = std::move(user_resource)
 #endif
@@ -3884,6 +3883,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         std::move(stopping_context),
                                         dbms::DatabaseProtector{db_acc}.clone(),
                                         *db_acc->metric_handles(),
+                                        cached_auth_checker,
                                         nullptr,
                                         memory_limit,
                                         frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,

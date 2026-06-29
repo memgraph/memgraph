@@ -343,6 +343,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
 }
 
 void SessionHL::LogOff() {
+  interpreter_.cached_auth_checker_ = nullptr;
   cached_auth_checker_.reset();
 #ifdef MG_ENTERPRISE
   interpreter_.ResetDB();
@@ -352,6 +353,7 @@ void SessionHL::LogOff() {
 }
 
 void SessionHL::Abort() {
+  interpreter_.cached_auth_checker_ = nullptr;
   cached_auth_checker_.reset();
   interpreter_.Abort();
 }
@@ -395,6 +397,7 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
 }
 
 void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
+  interpreter_.cached_auth_checker_ = nullptr;
   cached_auth_checker_.reset();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
@@ -446,6 +449,7 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
 
 #ifdef MG_ENTERPRISE
     cached_auth_checker_.reset();
+    interpreter_.cached_auth_checker_ = nullptr;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
     if (storage && interpreter_context_->auth_checker && interpreter_.user_or_role_ && *interpreter_.user_or_role_ &&
@@ -457,6 +461,7 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
       if (!cached_auth_checker_->NeedsFineGrainedAuthChecker()) {
         cached_auth_checker_.reset();
       }
+      interpreter_.cached_auth_checker_ = cached_auth_checker_.get();
     }
 #endif
 
