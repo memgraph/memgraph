@@ -166,3 +166,20 @@ function(mg_apply_python_abi3_rewrite target_name)
         COMMENT "Rewriting DT_NEEDED on ${target_name} for Python stable-ABI portability"
         VERBATIM)
 endfunction()
+
+# Apply mg_apply_python_abi3_rewrite to every EXECUTABLE target defined in the
+# directory this is called from. `add_custom_command(TARGET ...)` requires the
+# target to live in the current directory, so this MUST be called from the
+# CMakeLists.txt that defines the targets (e.g. the end of each tests/integration
+# subdir), not from a parent. The per-target helper is a no-op for binaries
+# without a versioned libpython dependency, so applying it to all executables is
+# safe.
+function(mg_apply_python_abi3_rewrite_dir_executables)
+    get_property(dir_targets DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(dir_target ${dir_targets})
+        get_target_property(dir_target_type ${dir_target} TYPE)
+        if(dir_target_type STREQUAL "EXECUTABLE")
+            mg_apply_python_abi3_rewrite(${dir_target})
+        endif()
+    endforeach()
+endfunction()
