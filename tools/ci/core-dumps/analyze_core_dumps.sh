@@ -5,7 +5,7 @@
 # repo is copied to /home/mg/memgraph there, so this script ships with it).
 # It walks a directory of core dumps (default /tmp/mg-cores), and for each core
 # matching `core.*` it runs gdb against the Memgraph binary and writes a
-# `thread apply all bt full` backtrace to the output directory.
+# call-chain-only backtrace (`thread apply all bt`) to the output directory.
 #
 # gdb is provided by the toolchain (/opt/toolchain-<ver>/bin/gdb); pass
 # --toolchain so we can activate it. If gdb is already on PATH that is used
@@ -105,10 +105,13 @@ for core in "${cores[@]}"; do
     echo "gdb:       $(gdb --version | head -n1)"
     echo "=========================================="
     echo
+    # frame-arguments=none keeps the backtrace to functions + source locations
+    # with no argument values, and plain `bt` (not `bt full`) omits locals — so
+    # no crash-time memory is written into the uploaded trace.
     gdb -batch -nx \
       -ex "set pagination off" \
-      -ex "set print pretty on" \
-      -ex "thread apply all bt full" \
+      -ex "set print frame-arguments none" \
+      -ex "thread apply all bt" \
       -ex "info sharedlibrary" \
       -ex "quit" \
       "$BINARY" "$core" 2>&1 || echo "(gdb exited non-zero while analyzing $core)"
