@@ -486,6 +486,11 @@ add_unit_test(utils_epoch_tracker
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_worker_yield_registry
+    SOURCES utils_worker_yield_registry.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_exceptions
     SOURCES utils_exceptions.cpp
     LINK_TARGETS mg-utils
