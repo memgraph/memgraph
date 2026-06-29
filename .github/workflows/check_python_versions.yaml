@@ -46,7 +46,7 @@ on:
       release:
         type: boolean
         default: true
-        description: "Run the Release core + query_modules suites across the matrix (benchmark/e2e/stress skipped)."
+        description: "Run the Release core + e2e + query_modules suites across the matrix (benchmark/stress skipped)."
       malloc:
         type: boolean
         default: true
@@ -164,7 +164,7 @@ jobs:
       os: 'ubuntu-24.04'
       run_core: 'true'
       run_benchmark: 'false'
-      run_e2e: 'false'
+      run_e2e: 'true'
       run_stress: 'false'
       run_query_modules: 'true'
       python_version: ${{ matrix.python_build }}
