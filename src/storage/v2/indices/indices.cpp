@@ -172,6 +172,16 @@ Indices::Indices(const Config &config, StorageMode storage_mode, utils::MemoryTr
   active_indices_.WithLock([&](ActiveIndicesPtr &ai) { ai = std::move(snapshot); });
 }
 
+void Indices::RebindMetricHandles(metrics::DatabaseMetricHandles const &handles) {
+  static_cast<InMemoryLabelIndex *>(label_index_.get())->SetGauge(handles.active_label_indices);
+  static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
+      ->SetGauge(handles.active_label_property_indices);
+  static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->SetGauge(handles.active_edge_type_indices);
+  static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())
+      ->SetGauge(handles.active_edge_type_property_indices);
+  static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->SetGauge(handles.active_edge_property_indices);
+}
+
 Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_indices) const {
   return AbortProcessor{.label_ = active_indices.label_->GetAbortProcessor(),
                         .label_properties_ = active_indices.label_properties_->GetAbortProcessor(),

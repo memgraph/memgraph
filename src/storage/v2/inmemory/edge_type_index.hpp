@@ -57,6 +57,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
  public:
   explicit InMemoryEdgeTypeIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
+  void SetGauge(metrics::GaugeHandle gauge) { gauge_ = gauge; }
+
   class Iterable {
    public:
     Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,

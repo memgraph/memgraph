@@ -43,6 +43,12 @@ Constraints::Constraints(const Config &config, StorageMode storage_mode,
   active_constraints_.WithLock([&](ActiveConstraintsPtr &ac) { ac = std::move(snapshot); });
 }
 
+void Constraints::RebindMetricHandles(metrics::DatabaseMetricHandles const &handles) {
+  existence_constraints_->SetGauge(handles.active_existence_constraints);
+  static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->SetGauge(handles.active_unique_constraints);
+  type_constraints_->SetGauge(handles.active_type_constraints);
+}
+
 void Constraints::DropGraphClearConstraints() {
   // DROP GRAPH can only happen for IN_MEMORY so it safe to assume this cast
   static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->DropGraphClearConstraints();

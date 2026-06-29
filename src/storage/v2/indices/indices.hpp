@@ -47,6 +47,8 @@ struct Indices {
   Indices &operator=(Indices &&) = delete;
   ~Indices() = default;
 
+  void RebindMetricHandles(metrics::DatabaseMetricHandles const &handles);
+
   /// This function should be called from garbage collection to clean up the
   /// vertex indices.
   /// TODO: unused in disk indices

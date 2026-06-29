@@ -914,6 +914,11 @@ StorageSnapshot PrometheusMetrics::ResolveStorageSnapshot(utils::UUID const &uui
 
 DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, std::string_view name) {
   std::lock_guard const lock{databases_.mutex};
+  return AddDatabaseUnsafe(uuid, name);
+}
+
+// Unsafe variants assume the caller already holds databases_.mutex.
+DatabaseMetricHandles PrometheusMetrics::AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name) {
   if (name == dbms::kDefaultDB) {
     default_db_uuid_ = uuid;
   }
@@ -1039,6 +1044,11 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
 
 void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   std::lock_guard const lock{databases_.mutex};
+  RemoveDatabaseUnsafe(uuid);
+}
+
+// Unsafe variants assume the caller already holds databases_.mutex.
+void PrometheusMetrics::RemoveDatabaseUnsafe(utils::UUID const &uuid) {
   auto it = r::find_if(databases_.entries, [&uuid](auto const &e) { return e.uuid == uuid; });
   if (it == databases_.entries.end()) return;
   auto &h = it->handles;
@@ -1148,14 +1158,12 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   databases_.entries.erase(it);
 }
 
-void PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID const &new_uuid) {
+DatabaseMetricHandles PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID const &new_uuid) {
   std::lock_guard const lock{databases_.mutex};
-  if (!default_db_uuid_) return;  // metrics not registered for the default DB
-  auto const &old_uuid = *default_db_uuid_;
-  auto it = r::find_if(databases_.entries, [&old_uuid](auto const &e) { return e.uuid == old_uuid; });
-  MG_ASSERT(it != databases_.entries.end(), "RebindDefaultDatabaseUUID: default UUID not found in metrics registry");
-  it->uuid = new_uuid;
-  default_db_uuid_ = new_uuid;
+  if (!default_db_uuid_) return {};
+  auto const old_uuid = *default_db_uuid_;
+  RemoveDatabaseUnsafe(old_uuid);
+  return AddDatabaseUnsafe(new_uuid, dbms::kDefaultDB);
 }
 
 void PrometheusMetrics::UpdateGauges() {
