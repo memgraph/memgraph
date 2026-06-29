@@ -1886,7 +1886,7 @@ test_memgraph() {
         # Memgraph embeds the runtime-swapped libpython, so install the deps for
         # that interpreter (ensurepip bootstraps pip into its --user site).
         local PY="python${python_runtime_version}"
-        docker exec -u mg $build_container bash -c "$PY -m ensurepip --upgrade --user && $PY -m pip install --user --break-system-packages --upgrade pip"
+        docker exec -u mg $build_container bash -c "$PY -m pip install --user --break-system-packages --upgrade pip"
         docker exec -u mg $build_container bash -c "$PY -m pip install --user --break-system-packages networkx==2.5.1"
       else
         docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
@@ -1900,7 +1900,7 @@ test_memgraph() {
         # Memgraph embeds the runtime-swapped libpython, so install the deps for
         # that interpreter (ensurepip bootstraps pip into its --user site).
         local PY="python${python_runtime_version}"
-        docker exec -u mg $build_container bash -c "$PY -m ensurepip --upgrade --user && $PY -m pip install --user --break-system-packages --upgrade pip"
+        docker exec -u mg $build_container bash -c "$PY -m pip install --user --break-system-packages --upgrade pip"
         docker exec -u mg $build_container bash -c "$PY -m pip install --user --break-system-packages -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
       else
         docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
