@@ -461,16 +461,16 @@ class RecoverSnapshotDisabledOnDiskStorage final : public DisabledForOnDisk {
   SPECIALIZE_GET_EXCEPTION_NAME(RecoverSnapshotDisabledOnDiskStorage)
 };
 
-class RepairDatabaseInMulticommandTxException final : public MulticommandTxException {
+class ResetDatabaseInMulticommandTxException final : public MulticommandTxException {
  public:
-  RepairDatabaseInMulticommandTxException() : MulticommandTxException("Repairing a database") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(RepairDatabaseInMulticommandTxException)
+  ResetDatabaseInMulticommandTxException() : MulticommandTxException("Resetting a database") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ResetDatabaseInMulticommandTxException)
 };
 
-class RepairDatabaseDisabledOnDiskStorage final : public DisabledForOnDisk {
+class ResetDatabaseDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
-  RepairDatabaseDisabledOnDiskStorage() : DisabledForOnDisk("Repairing a database") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(RepairDatabaseDisabledOnDiskStorage)
+  ResetDatabaseDisabledOnDiskStorage() : DisabledForOnDisk("Resetting a database") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ResetDatabaseDisabledOnDiskStorage)
 };
 
 class ShowSnapshotsInMulticommandTxException final : public MulticommandTxException {

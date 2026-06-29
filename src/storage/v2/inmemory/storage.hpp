@@ -168,7 +168,7 @@ class InMemoryStorage final : public Storage {
     FailedOverwritingUUID
   };
 
-  enum class RepairError : uint8_t {
+  enum class ResetError : uint8_t {
     NotDefunct,
     BackupFailure,
   };
@@ -770,7 +770,13 @@ class InMemoryStorage final : public Storage {
   // snapshots/ and wal/ files are moved to a .old directory when backup directories
   // are enabled, otherwise deleted, leaving the durability directory restart-clean.
   // The defunct flag is cleared on success. Rejected on a healthy (non-defunct) storage.
-  std::expected<void, InMemoryStorage::RepairError> RepairDefunct();
+  std::expected<void, InMemoryStorage::ResetError> ResetDefunct();
+
+  // Completely resets the tenant to an empty working state: clears the graph, the name-id mapper and
+  // the description store, drops the defunct flag and resets the replication epoch/timestamp. Used on a
+  // replica when the main resets a tenant (RESET DATABASE): the replica wipes its stale data so it can
+  // re-sync from the main's fresh, empty epoch. Unlike ResetDefunct() this does not touch durability files.
+  void ResetTenant();
 
   std::vector<SnapshotFileInfo> ShowSnapshots();
 

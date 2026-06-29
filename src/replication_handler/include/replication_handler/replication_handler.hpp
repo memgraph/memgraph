@@ -75,6 +75,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     // One ColdTenantRecovery per suspended tenant (salient + stats); empty on non-enterprise /
     // no-license.
     std::vector<storage::ColdTenantRecovery> cold_databases;
+    std::vector<utils::UUID> resetted_uuids;
   };
 
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
@@ -89,15 +90,21 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
 
     if (is_enterprise) {
       auto configs = std::vector<storage::SalientConfig>{};
-      dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
+      auto resetted_uuids = std::vector<utils::UUID>{};
+      dbms_handler.ForEach([&configs, &resetted_uuids](dbms::DatabaseAccess acc) {
+        configs.emplace_back(acc->config().salient);
+        // Advertise resetted tenants so a replica that missed the ResetDatabaseRpc resets them.
+        if (acc->storage()->WasResetted()) resetted_uuids.emplace_back(acc->config().salient.uuid);
+      });
       // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
 #ifdef MG_ENTERPRISE
       // Snapshot the COLD set inside the same system-transaction guard as the HOT ForEach so the two
       // are coherent as-of last_committed_timestamp.
       auto cold_databases = dbms_handler.SuspendedConfigsForRecovery();
-      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), std::move(cold_databases)};
+      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), std::move(cold_databases),
+                    std::move(resetted_uuids)};
 #else
-      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), {}};
+      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), {}, std::move(resetted_uuids)};
 #endif
     }
     // No license -> send only default config
@@ -127,7 +134,8 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             locked_auth.AllRoles(),
                                                             locked_auth.AllProfiles(),
                                                             params_snapshot,
-                                                            std::move(db_info.cold_databases));
+                                                            std::move(db_info.cold_databases),
+                                                            std::move(db_info.resetted_uuids));
       });
 #else
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,

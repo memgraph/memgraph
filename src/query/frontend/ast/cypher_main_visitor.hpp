@@ -417,9 +417,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitRecoverSnapshotQuery(MemgraphCypher::RecoverSnapshotQueryContext *ctx) override;
 
   /**
-   * @return RepairDatabaseQuery*
+   * @return ResetDatabaseQuery*
    */
-  antlrcpp::Any visitRepairDatabaseQuery(MemgraphCypher::RepairDatabaseQueryContext *ctx) override;
+  antlrcpp::Any visitResetDatabaseQuery(MemgraphCypher::ResetDatabaseQueryContext *ctx) override;
 
   /**
    * @return ShowSnapshotsQuery*

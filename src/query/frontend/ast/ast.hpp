@@ -3713,7 +3713,7 @@ class RecoverSnapshotQuery : public memgraph::query::Query {
   bool force_;
 };
 
-class RepairDatabaseQuery : public memgraph::query::Query {
+class ResetDatabaseQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
 
@@ -3721,8 +3721,8 @@ class RepairDatabaseQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  RepairDatabaseQuery *Clone(AstStorage *storage) const override {
-    auto *object = storage->Create<RepairDatabaseQuery>();
+  ResetDatabaseQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ResetDatabaseQuery>();
     return object;
   }
 };

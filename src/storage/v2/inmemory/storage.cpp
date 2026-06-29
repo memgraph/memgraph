@@ -497,7 +497,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         // --storage-allow-recovery-failure: instead of crashing the process, bring this
         // database up empty and defunct. RecoverData only reads durability files, so the
         // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT,
-        // REPAIR DATABASE, or restore the whole data directory from a backup.
+        // RESET DATABASE, or restore the whole data directory from a backup.
         if (!config_.durability.allow_recovery_failure) throw;
         spdlog::warn("Database '{}' failed to recover; bringing it up in the defunct state.", name());
         Clear();
@@ -4549,9 +4549,9 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
   return {};
 }
 
-std::expected<void, InMemoryStorage::RepairError> InMemoryStorage::RepairDefunct() {
+std::expected<void, InMemoryStorage::ResetError> InMemoryStorage::ResetDefunct() {
   if (!IsDefunct()) {
-    return std::unexpected{InMemoryStorage::RepairError::NotDefunct};
+    return std::unexpected{InMemoryStorage::ResetError::NotDefunct};
   }
 
   auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
@@ -4571,7 +4571,7 @@ std::expected<void, InMemoryStorage::RepairError> InMemoryStorage::RepairDefunct
       if (ec) {
         spdlog::warn(
             "Failed to create backup directory {}; it should be cleaned manually. Err: {}", backup_dir, ec.message());
-        return std::unexpected{InMemoryStorage::RepairError::BackupFailure};
+        return std::unexpected{InMemoryStorage::ResetError::BackupFailure};
       }
     }
   }
@@ -4591,13 +4591,17 @@ std::expected<void, InMemoryStorage::RepairError> InMemoryStorage::RepairDefunct
   }
 
   // Reset the tenant to an empty working state (mirrors the defunct scrub in the constructor).
+  ResetTenant();
+
+  return {};
+}
+
+void InMemoryStorage::ResetTenant() {
   Clear();
   name_id_mapper_->Clear();
   description_store_.Clear();
-
   SetDefunct(false);
-
-  return {};
+  SetResetted(true);
 }
 
 std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {

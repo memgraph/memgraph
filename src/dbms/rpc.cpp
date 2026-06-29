@@ -81,6 +81,22 @@ void ResumeDatabaseRes::Load(ResumeDatabaseRes *self, memgraph::slk::Reader *rea
   memgraph::slk::Load(self, reader);
 }
 
+void ResetDatabaseReq::Save(const ResetDatabaseReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void ResetDatabaseReq::Load(ResetDatabaseReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void ResetDatabaseRes::Save(const ResetDatabaseRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void ResetDatabaseRes::Load(ResetDatabaseRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 void RenameDatabaseReq::Save(const RenameDatabaseReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
@@ -220,6 +236,36 @@ void Save(const memgraph::storage::replication::ResumeDatabaseRes &self, memgrap
 
 void Load(memgraph::storage::replication::ResumeDatabaseRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->result, reader);
+}
+
+// Serialize code for ResetDatabaseReq
+
+void Save(const memgraph::storage::replication::ResetDatabaseReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.expected_group_timestamp, builder);
+  memgraph::slk::Save(self.new_group_timestamp, builder);
+  memgraph::slk::Save(self.uuid, builder);
+}
+
+void Load(memgraph::storage::replication::ResetDatabaseReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->expected_group_timestamp, reader);
+  memgraph::slk::Load(&self->new_group_timestamp, reader);
+  memgraph::slk::Load(&self->uuid, reader);
+}
+
+// Serialize code for ResetDatabaseRes
+
+void Save(const memgraph::storage::replication::ResetDatabaseRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.result, builder);
+}
+
+void Load(memgraph::storage::replication::ResetDatabaseRes *self, memgraph::slk::Reader *reader) {
+  uint8_t res = 0;
+  memgraph::slk::Load(&res, reader);
+  if (!utils::NumToEnum(res, self->result)) {
+    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
+  }
 }
 
 // Serialize code for RenameDatabaseReq

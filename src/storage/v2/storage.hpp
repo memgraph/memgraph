@@ -266,10 +266,23 @@ class Storage {
 
   // A storage is defunct when it failed durability recovery on startup and was
   // brought up empty (see --storage-allow-recovery-failure). A defunct storage
-  // rejects data queries until recovered via RECOVER SNAPSHOT or REPAIR DATABASE.
+  // rejects data queries until recovered via RECOVER SNAPSHOT or RESET DATABASE.
   bool IsDefunct() const noexcept { return defunct_.load(std::memory_order_acquire); }
 
   void SetDefunct(bool value) noexcept { defunct_.store(value, std::memory_order_release); }
+
+  // A storage is marked resetted when it was reset to an empty working state via RESET DATABASE
+  // (locally on the main or through the ResetDatabaseRpc on a replica). The main advertises its
+  // resetted tenants in SystemRecoveryReq so a replica that missed the ResetDatabaseRpc still
+  // learns it must reset that tenant. The flag is in-memory and lives only for the current run.
+  bool WasResetted() const noexcept { return was_resetted_.load(std::memory_order_acquire); }
+
+  void SetResetted(bool value) noexcept { was_resetted_.store(value, std::memory_order_release); }
+
+  // Last durable timestamp; 0 right after a tenant reset (RESET/ResetTenant).
+  uint64_t GetLastDurableTimestamp() const noexcept {
+    return repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+  }
 
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
@@ -408,6 +421,9 @@ class Storage {
 
   // Set when durability recovery failed and the storage was brought up empty.
   std::atomic<bool> defunct_{false};
+
+  // Set when the tenant was reset to an empty state via RESET DATABASE (see WasResetted()).
+  std::atomic<bool> was_resetted_{false};
 
   std::unique_ptr<NameIdMapper> name_id_mapper_;
   Config config_;
