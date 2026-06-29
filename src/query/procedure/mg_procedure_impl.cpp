@@ -4101,13 +4101,20 @@ bool EdgeHasReadPermission(const memgraph::query::EdgeAccessor &e, const mgp_gra
   return auth_checker->Has(e.To(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
 }
 
-bool HasFineGrainedRestrictions(const mgp_graph &graph) {
+bool HasFineGrainedVertexRestrictions(const mgp_graph &graph) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return false;
   const auto *auth_checker = ctx->auth_checker.get();
-  return !auth_checker->HasUnrestrictedAccessToVertices() || !auth_checker->HasUnrestrictedAccessToEdges() ||
-         !auth_checker->HasUnrestrictedAccessToVertexProperties() ||
-         !auth_checker->HasUnrestrictedAccessToEdgeTypeProperties();
+  return !auth_checker->HasUnrestrictedAccessToVertices() || !auth_checker->HasUnrestrictedAccessToVertexProperties();
+}
+
+bool HasFineGrainedEdgeRestrictions(const mgp_graph &graph) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return false;
+  const auto *auth_checker = ctx->auth_checker.get();
+  // endpoints also gate edge visibility, so any vertex restriction matters here too
+  return !auth_checker->HasUnrestrictedAccessToEdges() || !auth_checker->HasUnrestrictedAccessToEdgeTypeProperties() ||
+         !auth_checker->HasUnrestrictedAccessToVertices();
 }
 }  // namespace
 #endif
@@ -4638,7 +4645,7 @@ mgp_error mgp_graph_aggregate_over_text_index(mgp_graph *graph, const char *inde
     std::string search_results;
     std::optional<std::string> error_msg = std::nullopt;
 #ifdef MG_ENTERPRISE
-    if (HasFineGrainedRestrictions(*graph)) {
+    if (HasFineGrainedVertexRestrictions(*graph)) {
       error_msg =
           "text_search.aggregate is unavailable under fine-grained access restrictions because it cannot honor "
           "per-row READ permissions. Use text_search.search and aggregate the filtered results in Cypher.";
@@ -4662,7 +4669,7 @@ mgp_error mgp_graph_aggregate_over_text_edge_index(mgp_graph *graph, const char 
     std::string search_results;
     std::optional<std::string> error_msg = std::nullopt;
 #ifdef MG_ENTERPRISE
-    if (HasFineGrainedRestrictions(*graph)) {
+    if (HasFineGrainedEdgeRestrictions(*graph)) {
       error_msg =
           "text_search.aggregate_edges is unavailable under fine-grained access restrictions because it cannot "
           "honor per-row READ permissions. Use text_search.search_edges and aggregate the filtered results in "
