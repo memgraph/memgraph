@@ -1898,7 +1898,7 @@ test_memgraph() {
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
       if [[ -n "$python_runtime_version" ]]; then
         # Memgraph embeds the runtime-swapped libpython, so install the deps for
-        if [[ "$python_runtime_version" == "3.13" || "$python_runtime_version" == "3.14" ]];
+        if [[ "$python_runtime_version" == "3.13" || "$python_runtime_version" == "3.14" ]]; then
             # We currently depend on an older version of scipy which only has binaries for up to Python 3.12
             docker exec -u root $build_container bash -c "apt install -y gfortran"
         fi
