@@ -91,8 +91,15 @@ signal_name() {
 SIGNAL_NAME=""
 EXIT_STATUS=""
 if [[ -n "$SIGNAL" ]]; then
-  SIGNAL_NAME="$(signal_name "$SIGNAL")"
-  EXIT_STATUS="$((128 + SIGNAL))"
+  # Guard the arithmetic: a non-numeric --signal would otherwise abort the
+  # script. Drop a bad value and carry on without signal labels.
+  if [[ "$SIGNAL" =~ ^[0-9]+$ ]]; then
+    SIGNAL_NAME="$(signal_name "$SIGNAL")"
+    EXIT_STATUS="$((128 + SIGNAL))"
+  else
+    echo "Warning: --signal '$SIGNAL' is not numeric; omitting signal labels." >&2
+    SIGNAL=""
+  fi
 fi
 
 if [[ -z "$MESSAGE" ]]; then
@@ -108,8 +115,12 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 0
 fi
 
-# Loki push API expects nanosecond unix timestamps as strings.
-ts_ns="$(date +%s)000000000"
+# Loki push API expects nanosecond unix timestamps as strings. Use real
+# nanosecond precision (date +%s%N) so back-to-back pings in a per-trace loop
+# get distinct timestamps and Loki/VictoriaLogs doesn't dedupe them; fall back
+# to second precision if %N is unsupported.
+ts_ns="$(date +%s%N 2>/dev/null)"
+[[ "$ts_ns" =~ ^[0-9]+$ ]] || ts_ns="$(date +%s)000000000"
 
 # Build the JSON payload with python3 (build_loki_payload.py) so labels/message
 # are escaped safely. Fields are passed via the environment, not the argv/shell.
@@ -119,14 +130,25 @@ payload="$(CLUSTER_ID="$CLUSTER_ID" CLUSTER_ENV="$CLUSTER_ENV" \
   CORE_URL="$CORE_URL" BINARIES_URL="$BINARIES_URL" \
   MSG="$MESSAGE" TS_NS="$ts_ns" python3 "$SCRIPT_DIR/build_loki_payload.py")"
 
-auth_args=()
+# Pass basic-auth creds to curl via a config read from stdin, never as a
+# --user argument (which would expose the password in ps / /proc/<pid>/cmdline).
+# Backslashes and double quotes are escaped for curl's config-file quoting.
+auth_config=""
 if [[ -n "$MONITORING_USERNAME" && -n "$MONITORING_PASSWORD" ]]; then
-  auth_args=(--user "${MONITORING_USERNAME}:${MONITORING_PASSWORD}")
+  esc_user="${MONITORING_USERNAME//\\/\\\\}"; esc_user="${esc_user//\"/\\\"}"
+  esc_pass="${MONITORING_PASSWORD//\\/\\\\}"; esc_pass="${esc_pass//\"/\\\"}"
+  auth_config="user = \"${esc_user}:${esc_pass}\""
 fi
 
-echo "Pinging monitoring server: $VLOGS_PUSH_URL"
-http_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
-  "${auth_args[@]}" \
+# Redact the monitoring host from the log line so the internal address isn't
+# disclosed in (potentially public) CI logs.
+if [[ -n "${MONITORING_HOST:-}" ]]; then
+  echo "Pinging monitoring server: ${VLOGS_PUSH_URL/${MONITORING_HOST}/***}"
+else
+  echo "Pinging monitoring server (endpoint redacted)."
+fi
+http_code="$(printf '%s' "$auth_config" | curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+  --config - \
   -H 'Content-Type: application/json' \
   -X POST "$VLOGS_PUSH_URL" \
   --data-binary "$payload" || echo "000")"

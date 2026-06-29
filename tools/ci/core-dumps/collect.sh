@@ -126,11 +126,14 @@ container_out="${CORES_DIR}/stacktraces"
 # Copying it in (rather than assuming the repo is present) lets this work for
 # any container: the mgbuild container, or a runtime image (e.g. the MAGE debug
 # image) where gdb + debug symbols are already installed.
-docker cp "$SCRIPT_DIR/analyze_core_dumps.sh" "${BUILD_CONTAINER}:/tmp/analyze_core_dumps.sh" >/dev/null 2>&1 \
-  || echo "Warning: could not copy analyze script into ${BUILD_CONTAINER}." >&2
-docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
-  "bash /tmp/analyze_core_dumps.sh --cores-dir '$CORES_DIR' --binary '$BINARY' --out-dir '$container_out' --toolchain '$TOOLCHAIN' --core-glob '$CORE_GLOB'" \
-  || echo "Warning: analyze step exited non-zero (continuing)." >&2
+docker exec -u root "$BUILD_CONTAINER" rm -f /tmp/analyze_core_dumps.sh >/dev/null 2>&1 || true
+if docker cp "$SCRIPT_DIR/analyze_core_dumps.sh" "${BUILD_CONTAINER}:/tmp/analyze_core_dumps.sh" >/dev/null 2>&1; then
+  docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
+    "bash /tmp/analyze_core_dumps.sh --cores-dir '$CORES_DIR' --binary '$BINARY' --out-dir '$container_out' --toolchain '$TOOLCHAIN' --core-glob '$CORE_GLOB'" \
+    || echo "Warning: analyze step exited non-zero (continuing)." >&2
+else
+  echo "Warning: could not copy analyze script into ${BUILD_CONTAINER}; skipping analysis." >&2
+fi
 
 # Copy the produced stack traces out to a host temp dir. Chown them to the
 # invoking (non-root) user first — analyze may have run as root (--exec-user

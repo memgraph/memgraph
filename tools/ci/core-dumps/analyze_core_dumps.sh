@@ -69,8 +69,10 @@ if [[ ${#cores[@]} -eq 0 ]]; then
   exit 0
 fi
 
+binary_missing=false
 if [[ ! -f "$BINARY" ]]; then
-  echo "Warning: Memgraph binary '$BINARY' not found; stack traces may be incomplete." >&2
+  echo "Warning: Memgraph binary '$BINARY' not found; stack traces will have NO SYMBOLS (addresses only)." >&2
+  binary_missing=true
 fi
 
 mkdir -p "$OUT_DIR"
@@ -101,6 +103,7 @@ for core in "${cores[@]}"; do
     [[ -n "$sig" ]] && echo "signal:    $sig"
     [[ -n "$epoch" ]] && echo "crashed:   $(date -u -d "@${epoch}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "epoch ${epoch}")"
     echo "binary:    $BINARY"
+    [[ "$binary_missing" == true ]] && echo "symbols:   MISSING — binary not found; backtrace shows addresses only, treat as unreliable"
     echo "generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "gdb:       $(gdb --version | head -n1)"
     echo "=========================================="

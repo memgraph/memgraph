@@ -158,15 +158,25 @@ fi
 #    at least one core qualifies.
 build_parent="$(dirname "$BUILD_DIR")"
 build_base="$(basename "$BUILD_DIR")"
-echo "Uploading build artifacts (memgraph + *.debug + *.so) -> ${base_uri}/binaries.tar.gz"
 binaries_url=""
-if docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
-     "cd '$build_parent' && find '$build_base' -type f \\( -name memgraph -o -name '*.debug' -o -name '*.so' \\) -print0 | tar --null -czf - -T -" \
-     | aws s3 cp "${s3_put_args[@]}" - "${base_uri}/binaries.tar.gz"; then
-  binaries_url="${base_uri}/binaries.tar.gz"
-  echo "  build artifacts uploaded: ${binaries_url}"
+# Count matching ELF files first: with no matches, GNU tar still emits a valid
+# (empty) archive, which we'd otherwise advertise as a real download. Skip the
+# upload and leave binaries_url empty in that case.
+elf_count="$(docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
+  "cd '$build_parent' && find '$build_base' -type f \\( -name memgraph -o -name '*.debug' -o -name '*.so' \\) | wc -l" 2>/dev/null || echo 0)"
+[[ "$elf_count" =~ ^[0-9]+$ ]] || elf_count=0
+if [[ "$elf_count" -eq 0 ]]; then
+  echo "No build artifacts (memgraph/*.debug/*.so) found under ${BUILD_DIR} — skipping binaries upload."
 else
-  echo "Warning: build artifact upload failed (continuing)." >&2
+  echo "Uploading ${elf_count} build artifact(s) (memgraph + *.debug + *.so) -> ${base_uri}/binaries.tar.gz"
+  if docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
+       "cd '$build_parent' && find '$build_base' -type f \\( -name memgraph -o -name '*.debug' -o -name '*.so' \\) -print0 | tar --null -czf - -T -" \
+       | aws s3 cp "${s3_put_args[@]}" - "${base_uri}/binaries.tar.gz"; then
+    binaries_url="${base_uri}/binaries.tar.gz"
+    echo "  build artifacts uploaded: ${binaries_url}"
+  else
+    echo "Warning: build artifact upload failed (continuing)." >&2
+  fi
 fi
 
 # 2) The eligible core(s): gzip-compressed inside the container and streamed
