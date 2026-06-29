@@ -129,7 +129,7 @@ struct ExecutionContext {
   int64_t number_of_hops{0};
   HopsLimit hops_limit;
   std::optional<uint64_t> periodic_commit_frequency;
-  std::shared_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
+  FineGrainedAuthChecker const *auth_checker{nullptr};
   bool has_property_restrictions{false};
   std::shared_ptr<storage::DatabaseProtector> protector;
   bool is_main{true};
