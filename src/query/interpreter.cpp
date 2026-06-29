@@ -3230,6 +3230,10 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                                      !auth_checker->HasUnrestrictedAccessToEdgeTypeProperties();
     ctx_.auth_checker = auth_checker;
   }
+#else
+  (void)auth_checker;  // [[maybe_unused]] would be better for this community-only
+                       // warning, but the PullPlan constructor argument list
+                       // is already too dense to read clearly.
 #endif
   ctx_.stopping_context = std::move(stopping_context);
   ctx_.is_profile_query = is_profile_query;
