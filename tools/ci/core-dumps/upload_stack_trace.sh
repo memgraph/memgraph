@@ -101,7 +101,7 @@ fi
 if [[ -n "${MONITORING_HOST:-}" ]]; then
   for f in "${trace_files[@]}"; do
     ping_args=(--url "${s3_uri}${f}")
-    if [[ "$f" =~ _sig([0-9]+) ]]; then
+    if [[ "$f" =~ _sig([0-9]+)\.txt$ ]]; then
       ping_args+=(--signal "${BASH_REMATCH[1]}")
     fi
     [[ -n "$CORE_URL" ]] && ping_args+=(--core-url "$CORE_URL")

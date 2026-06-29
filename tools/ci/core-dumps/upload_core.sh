@@ -11,7 +11,7 @@
 # Whether the core uploads depends on --mode and its size:
 #   false  - never upload
 #   auto   - upload only cores <= --core-size-limit (default 2 GiB)
-#   true   - upload cores below a 1 TiB hard safety ceiling
+#   true   - upload cores up to a 1 TiB hard safety ceiling (inclusive)
 # The build-artifacts tarball is uploaded only when at least one core uploads
 # (binaries are useless without a core to load them against).
 #

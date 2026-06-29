@@ -7,6 +7,7 @@ Invoked by ping_monitoring.sh.
 """
 import json
 import os
+import sys
 
 
 def build_payload():
@@ -31,11 +32,17 @@ def build_payload():
         stream["core_url"] = os.environ["CORE_URL"]
     if os.environ.get("BINARIES_URL"):
         stream["binaries_url"] = os.environ["BINARIES_URL"]
+    # TS_NS and MSG are required (the log entry is meaningless without them).
+    # Fail with a clear message rather than an opaque KeyError if run standalone.
+    ts_ns = os.environ.get("TS_NS")
+    msg = os.environ.get("MSG")
+    if not ts_ns or msg is None:
+        sys.exit("build_loki_payload.py: TS_NS and MSG environment variables are required")
     return {
         "streams": [
             {
                 "stream": stream,
-                "values": [[os.environ["TS_NS"], os.environ["MSG"]]],
+                "values": [[ts_ns, msg]],
             }
         ]
     }

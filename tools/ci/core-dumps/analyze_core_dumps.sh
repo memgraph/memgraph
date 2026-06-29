@@ -96,6 +96,13 @@ for core in "${cores[@]}"; do
   fi
   [[ -z "$trace_name" ]] && trace_name="$(printf '%s' "$base" | tr -c 'A-Za-z0-9._-' '_')"
   out="$OUT_DIR/${trace_name}.txt"
+  # Guard against two cores mapping to the same trace name (same second/pid/sig)
+  # silently overwriting each other — append a counter if the name is taken.
+  dup=1
+  while [[ -e "$out" ]]; do
+    out="$OUT_DIR/${trace_name}_${dup}.txt"
+    dup=$((dup + 1))
+  done
   echo "Analyzing $core -> $out"
   {
     echo "=== Memgraph CI core dump stack trace ==="

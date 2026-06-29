@@ -43,7 +43,7 @@ Options:
   --core-glob PAT       Glob (relative to --cores-dir) matching cores (default: $CORE_GLOB)
   --upload-core MODE    Upload core + build artifacts: true|false|auto (default: $UPLOAD_CORE)
                         auto uploads only cores <= --core-size-limit; true uploads
-                        cores below a 1 TiB hard ceiling; false never uploads.
+                        cores up to a 1 TiB hard ceiling; false never uploads.
   --core-size-limit N   auto upload threshold in GiB (default: $CORE_SIZE_LIMIT)
   -h, --help            Show this help
 EOF
@@ -91,6 +91,17 @@ if [[ ! "$CORES_DIR" =~ $dir_re ]]; then
 fi
 if [[ ! "$CORE_GLOB" =~ $glob_re ]]; then
   echo "Error: --core-glob contains unsafe characters (got '$CORE_GLOB')" >&2
+  exit 1
+fi
+# BINARY and BUILD_DIR are interpolated into the same container-side commands.
+# They're operator-supplied (not attacker-reachable), but validate them with the
+# same path char-class for consistency and defence in depth.
+if [[ ! "$BINARY" =~ $dir_re ]]; then
+  echo "Error: --binary contains unsafe characters (got '$BINARY')" >&2
+  exit 1
+fi
+if [[ ! "$BUILD_DIR" =~ $dir_re ]]; then
+  echo "Error: --build-dir contains unsafe characters (got '$BUILD_DIR')" >&2
   exit 1
 fi
 
