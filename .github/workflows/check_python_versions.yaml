@@ -1,6 +1,8 @@
 name: "Check Python build/runtime version matrix"
 concurrency:
-  group: python-version-matrix-${{ github.ref }}-${{ github.sha }}
+  # One run of this workflow at a time per branch — a newer run supersedes an
+  # in-progress one on the same branch (keyed on the ref only, not the sha).
+  group: python-version-matrix-${{ github.ref }}
   cancel-in-progress: true
 
 # Cross-builds Memgraph against every combination of build-time and runtime
