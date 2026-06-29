@@ -37,6 +37,10 @@ on:
         type: boolean
         default: true
         description: "Run the mgcxx tests."
+      python_version:
+        type: string
+        default: ''
+        description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the default Python inside each build container."
   workflow_call:
     inputs:
       community_core:
@@ -70,6 +74,10 @@ on:
         type: boolean
         default: true
         description: "Run the mgcxx tests."
+      python_version:
+        type: string
+        default: ''
+        description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the default Python inside each build container."
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -119,6 +127,7 @@ jobs:
       arch: 'amd'
       os: 'ubuntu-24.04'
       run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
+      python_version: ${{ inputs.python_version }}
     secrets: inherit
 
   Coverage:
@@ -130,6 +139,7 @@ jobs:
       os: 'ubuntu-24.04'
       run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
       run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_clang_tidy }}
+      python_version: ${{ inputs.python_version }}
     secrets: inherit
 
   Debug:
@@ -141,6 +151,7 @@ jobs:
       os: 'ubuntu-24.04'
       run_core: ${{ needs.DiffSetup.outputs.run_debug_core }}
       run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
+      python_version: ${{ inputs.python_version }}
     secrets: inherit
 
   Jepsen:
@@ -163,6 +174,7 @@ jobs:
       run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
       run_query_modules: ${{ needs.DiffSetup.outputs.run_release_query_modules }}
+      python_version: ${{ inputs.python_version }}
     secrets: inherit
 
   Malloc:
@@ -173,6 +185,7 @@ jobs:
       arch: 'amd'
       os: 'ubuntu-24.04'
       run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
+      python_version: ${{ inputs.python_version }}
     secrets: inherit
 
   Mage:

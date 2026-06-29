@@ -19,6 +19,10 @@ on:
         type: string
         description: "The ID of the run that triggered this workflow."
         default: ''
+      python_version:
+        type: string
+        description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the container's default Python."
+        default: ''
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -31,6 +35,7 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
+  PYTHON_VERSION: ${{ inputs.python_version }}
   TOOLCHAIN: v7
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -92,6 +97,7 @@ jobs:
           --build-type $BUILD_TYPE \
           build-memgraph --community \
           --split-debug \
+          ${PYTHON_VERSION:+--python-version $PYTHON_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
