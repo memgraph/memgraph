@@ -45,8 +45,7 @@ env:
   MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
   CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
   CLUSTER_ENV: "ci-diff-debug"
-  AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+
 
 jobs:
   core:
@@ -183,6 +182,9 @@ jobs:
       - name: Collect core dumps
         if: failure()
         continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
         run: |
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \
@@ -294,6 +296,9 @@ jobs:
       - name: Collect core dumps
         if: failure()
         continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
         run: |
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \

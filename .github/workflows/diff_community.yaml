@@ -35,13 +35,7 @@ env:
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
-  AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
-  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
-  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
-  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
-  CLUSTER_ENV: "ci-diff-community"
+
 
 jobs:
   core:
@@ -123,6 +117,14 @@ jobs:
       - name: Collect core dumps
         if: failure()
         continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+          MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+          MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+          CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+          CLUSTER_ENV: "ci-diff-community"
         run: |
           ./tools/ci/core-dumps/collect.sh \
           --toolchain $TOOLCHAIN \

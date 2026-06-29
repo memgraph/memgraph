@@ -111,7 +111,10 @@ fi
 # parsing `ls` output (so filenames with odd characters can't skew the count).
 core_count="$(docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
   "shopt -s nullglob; cores=(${CORES_DIR}/${CORE_GLOB}); echo \${#cores[@]}" 2>/dev/null || echo 0)"
-if [[ "${core_count:-0}" -eq 0 ]]; then
+# Stray container stdout could make this non-numeric, which would abort the
+# `-eq` comparison under set -u — so normalize anything non-numeric to 0.
+[[ "$core_count" =~ ^[0-9]+$ ]] || core_count=0
+if [[ "$core_count" -eq 0 ]]; then
   echo "No core dumps found in ${BUILD_CONTAINER}:${CORES_DIR} — nothing to collect."
   exit 0
 fi

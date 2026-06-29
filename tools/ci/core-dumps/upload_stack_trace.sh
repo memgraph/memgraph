@@ -8,7 +8,10 @@
 #
 # AWS credentials are taken from the environment (AWS_ACCESS_KEY_ID /
 # AWS_SECRET_ACCESS_KEY / AWS_REGION), same as the Jepsen core-dump upload.
-set -euo pipefail
+#
+# Best-effort: no `set -e` — a failed upload must not abort before the
+# annotations / monitoring pings run; each fallible call is guarded instead.
+set -uo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
 
@@ -71,9 +74,13 @@ fi
 s3_uri="s3://${S3_BUCKET}/${S3_PREFIX}/"
 
 echo "Uploading $(find "$TRACES_DIR" -type f | wc -l) stack-trace file(s) to $s3_uri"
-aws s3 cp --region "$S3_REGION" --sse aws:kms --recursive "$TRACES_DIR" "$s3_uri"
-
-echo "Stack traces available under: $s3_uri"
+if aws s3 cp --region "$S3_REGION" --sse aws:kms --recursive "$TRACES_DIR" "$s3_uri"; then
+  echo "Stack traces available under: $s3_uri"
+else
+  # Upload failed (e.g. creds not configured). Still emit annotations/pings
+  # below so the crash is at least visible, just without a working link.
+  echo "Warning: stack-trace upload failed (continuing to annotations/ping)." >&2
+fi
 
 # Build the list of per-file URLs. The analyze step sanitizes trace filenames
 # to a URL-safe set, so the uploaded object names need no extra encoding and we

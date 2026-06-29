@@ -135,8 +135,7 @@ env:
   CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
   CLUSTER_ENV: "ci-mage-${{ inputs.arch }}"
   S3_DEST_DIR: "${{ inputs.s3_dest_dir }}"
-  AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+
 
 jobs:
   BuildAndPush:
@@ -448,6 +447,9 @@ jobs:
 
       - name: Upload debug symbols
         if: ${{ inputs.upload_debug_symbols && env.SPLIT_DEBUG == 'true' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
         run: |
           # Stage all .debug sidecars from this job into a single dir.
           # Two sources feed staging:
@@ -769,6 +771,9 @@ jobs:
       - name: "Collect core dumps (debug)"
         if: ${{ failure() && inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
         continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
         run: |
           ./tools/ci/core-dumps/collect_from_image.sh \
           --source-container $MAGE_CONTAINER \

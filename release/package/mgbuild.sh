@@ -2556,7 +2556,10 @@ check_core_dumps() {
     # A zero core size soft limit silently disables core dumps.
     local core_limit
     core_limit="$(docker exec -u mg "$build_container" bash -c 'ulimit -c' 2>/dev/null)"
-    if [[ "$core_limit" == "0" ]]; then
+    if [[ -z "$core_limit" ]]; then
+      ok=false
+      echo "::warning title=Core dump ulimit unknown::Could not read 'ulimit -c' inside ${build_container} (empty result); cannot confirm core dumps are enabled."
+    elif [[ "$core_limit" == "0" ]]; then
       ok=false
       echo "::warning title=Core dumps disabled by ulimit::core file size limit (ulimit -c) is 0 inside ${build_container}; core dumps will be suppressed. Start the container with --ulimit core=-1."
     else
