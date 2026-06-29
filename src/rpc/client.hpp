@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <optional>
 #include <storage/v2/replication/rpc.hpp>
@@ -414,6 +415,12 @@ class Client {
       return local_guard;  // RVO
     });
 
+    // The client has been aborted as part of shutdown. Refuse to open (or reconnect) a stream so a queued recovery
+    // task, heartbeat, or commit can't revive the connection after Abort() already tore it down.
+    if (aborted_.load(std::memory_order_acquire)) {
+      throw GenericRpcFailedException();
+    }
+
     // Check if the connection is broken (if we haven't used the client for a
     // long time the server could have died).
     if (client_ && client_->ErrorStatus()) {
@@ -494,6 +501,9 @@ class Client {
   std::chrono::milliseconds connect_timeout_ms_;
 
   mutable utils::ResourceLock mutex_;
+  // Set once by Abort() during shutdown. Latches permanently: an aborted client never opens another stream, so no
+  // in-flight or queued task can reconnect after teardown begins.
+  std::atomic<bool> aborted_{false};
 };
 
 }  // namespace memgraph::rpc

@@ -134,7 +134,9 @@ void RpcMessageDeliverer::Execute() {
 
   slk::Reader req_reader = GetReqReader();
   slk::Builder res_builder([&](const uint8_t *data, size_t const size, bool const have_more) {
-    output_stream_->Write(data, size, have_more);
+    if (!output_stream_->Write(data, size, have_more)) {
+      throw SessionException("Failed to write RPC response; peer connection is broken");
+    }
   });
 
   auto const maybe_message_header = std::invoke([&req_reader]() -> std::optional<ProtocolMessageHeader> {
