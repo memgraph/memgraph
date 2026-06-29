@@ -1878,6 +1878,11 @@ def test_coordinator_user_action_demote_instance_to_replica(test_name):
     # 1
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
+    FAILOVER_PERIOD = 2
+    inner_instances_description["instance_1"]["args"].append(f"--instance-down-timeout-sec={FAILOVER_PERIOD}")
+    inner_instances_description["instance_2"]["args"].append(f"--instance-down-timeout-sec={FAILOVER_PERIOD}")
+    inner_instances_description["instance_3"]["args"].append(f"--instance-down-timeout-sec={FAILOVER_PERIOD}")
+
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
@@ -1958,7 +1963,7 @@ def test_coordinator_user_action_demote_instance_to_replica(test_name):
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
     assert str(e.value) == "Show replicas query should only be run on the main instance."
 
-    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3), FAILOVER_PERIOD + 1)
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_1))
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_2))
 
