@@ -352,6 +352,23 @@
                                    (assoc op :type :fail :value (str e))))
 
                                (assoc op :type :info :value "Not coordinator"))
+
+; Show replication lag should be run only on coordinators (a follower forwards it to the leader).
+        :show-replication-lag-read (if (hautils/coord-instance? node)
+                                     (try
+                                       #_{:clj-kondo/ignore [:unresolved-symbol]}
+                                       (utils/with-session bolt-conn session
+                                         (let [lags (reduce conj [] #_{:clj-kondo/ignore [:unresolved-var]}
+                                                            (mgquery/show-replication-lag session))]
+                                           (assoc op
+                                                  :type :ok
+                                                  :value {:lags lags :node node :time (utils/current-local-time-formatted)})))
+                                       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                                         (utils/process-service-unavailable-exc op node))
+                                       (catch Exception e
+                                         (assoc op :type :fail :value (str e))))
+
+                                     (assoc op :type :info :value "Not coordinator"))
         :setup-cluster
         ; If nothing was done before, registration will be done on the 1st leader and all good.
         ; If leader didn't change but registration was done, we won't even try to register -> all good again.
@@ -410,6 +427,31 @@
   "Check if there is more than one main in single read where single-read is a read list of instances. Single-read here is already processed list of roles."
   [roles]
   (> (count (get-mains roles)) 1))
+
+(defn robust-get
+  "Map lookup tolerant of keyword vs string keys. neo4j-clj may keywordize nested map keys depending on the version,
+  so SHOW REPLICATION LAG rows could carry either form."
+  [m k]
+  (when (map? m)
+    (let [v (get m (keyword k))]
+      (if (nil? v) (get m k) v))))
+
+(defn read->negative-lags
+  "Given a single ok show-replication-lag-read value, returns a seq of maps describing every observed negative
+  num_txns_behind_main. A replica reported as ahead of main (negative lag) must never be observed."
+  [read-val]
+  (->> (:lags read-val)
+       (mapcat (fn [row]
+                 (let [instance (robust-get row "instance_name")
+                       data-info (robust-get row "data_info")]
+                   (map (fn [[db db-data]]
+                          {:node (:node read-val)
+                           :time (:time read-val)
+                           :instance instance
+                           :db (name db)
+                           :lag (robust-get db-data "num_txns_behind_main")})
+                        data-info))))
+       (filter #(let [lag (:lag %)] (and (number? lag) (neg? lag))))))
 
 (defn checker
   "Checker."
@@ -499,10 +541,23 @@
                                   (filter #(= :get-nodes (:f %)))
                                   (map :value))
 
+            failed-show-replication-lag (->> history
+                                             (filter #(= :fail (:type %)))
+                                             (filter #(= :show-replication-lag-read (:f %)))
+                                             (map :value))
+
             si-reads  (->> history
                            (filter #(= :ok (:type %)))
                            (filter #(= :show-instances-read (:f %)))
                            (map :value))
+
+            ; All observed negative replication lags. SHOW REPLICATION LAG must never report a replica as ahead of
+            ; main, so this collection must be empty across the whole history.
+            negative-lags (->> history
+                               (filter #(= :ok (:type %)))
+                               (filter #(= :show-replication-lag-read (:f %)))
+                               (map :value)
+                               (mapcat read->negative-lags))
 
             partial-instances (->> si-reads
                                    (filter #(not= 6 (count (:instances %)))))
@@ -530,6 +585,8 @@
                                      (empty? partial-instances)
                                      (empty? failed-setup-cluster)
                                      (empty? failed-show-instances)
+                                     (empty? failed-show-replication-lag)
+                                     (empty? negative-lags)
                                      (empty? failed-add-nodes)
                                      (empty? failed-get-nodes)
                                      (empty? n1-duplicates)
@@ -557,6 +614,8 @@
                             :empty-n3-missing-intervals? (empty? n3-missing-intervals)
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
+                            :empty-failed-show-replication-lag? (empty? failed-show-replication-lag) ; There shouldn't be any failed show replication lag operations.
+                            :empty-negative-lags? (empty? negative-lags) ; A replica must never be reported as ahead of main.
                             :empty-failed-add-nodes? (empty? failed-add-nodes) ; There shouldn't be any failed add-nodes operations.
                             :empty-failed-get-nodes? (empty? failed-get-nodes) ; There shouldn't be any failed get-nodes operations.
                             :empty-partial-instances? (empty? partial-instances)}
@@ -572,7 +631,9 @@
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-add-nodes :condition (not (:empty-failed-add-nodes? initial-result)) :value failed-add-nodes}
                      {:key :failed-get-nodes :condition (not (:empty-failed-get-nodes? initial-result)) :value failed-get-nodes}
-                     {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}]]
+                     {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}
+                     {:key :failed-show-replication-lag :condition (not (:empty-failed-show-replication-lag? initial-result)) :value failed-show-replication-lag}
+                     {:key :negative-lags :condition (not (:empty-negative-lags? initial-result)) :value negative-lags}]]
 
         (reduce (fn [result update]
                   (if (:condition update)
@@ -590,6 +651,11 @@
   "Invoke show-instances-read op."
   [_ _]
   {:type :invoke, :f :show-instances-read, :value nil})
+
+(defn show-replication-lag-reads
+  "Invoke show-replication-lag-read op."
+  [_ _]
+  {:type :invoke, :f :show-replication-lag-read, :value nil})
 
 (defn setup-cluster
   "Invoke setup-cluster operation."
@@ -615,7 +681,7 @@
     (gen/sleep 5)
     (gen/once create-unique-constraint)
     (gen/delay delay-requests-sec
-               (gen/mix [show-instances-reads add-nodes])))))
+               (gen/mix [show-instances-reads show-replication-lag-reads add-nodes])))))
 
 #_{:clojure-lsp/ignore [:clojure-lsp/unused-public-var]}
 (defn workload

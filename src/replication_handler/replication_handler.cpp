@@ -412,15 +412,21 @@ auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationL
   dbms_handler_.ForEach([&lag_info](dbms::DatabaseAccess db_acc) {
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
     auto const db_name = db_acc->name();
-    auto const num_main_committed_txns =
-        repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
-    lag_info.dbs_main_committed_txns_.emplace(db_name, num_main_committed_txns);
 
     repl_storage_state.replication_storage_clients_.WithReadLock(
-        [&db_name, &lag_info, &num_main_committed_txns](auto &storage_clients) {
+        [&db_name, &lag_info, &repl_storage_state](auto &storage_clients) {
+          // First observe replicas' num committed txns, then main's, so a concurrent commit can't make
+          // main's value smaller than the replica's and produce a spurious negative lag.
+          std::map<std::string, uint64_t> repl_committed_txns;
           for (auto &repl_storage_client : storage_clients) {
-            auto const replica_name = repl_storage_client->Name();
-            auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
+            repl_committed_txns.emplace(repl_storage_client->Name(), repl_storage_client->GetNumCommittedTxns());
+          }
+
+          auto const num_main_committed_txns =
+              repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
+          lag_info.dbs_main_committed_txns_.emplace(db_name, num_main_committed_txns);
+
+          for (auto const &[replica_name, num_committed_txns_repl] : repl_committed_txns) {
             auto const replica_lag = static_cast<int64_t>(num_main_committed_txns - num_committed_txns_repl);
             // Insert or find the already inserted element
             auto [replica_it, _] = lag_info.replicas_info_.try_emplace(

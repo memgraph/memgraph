@@ -109,13 +109,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 
   auto const &heartbeat_res = *maybe_heartbeat_res;
 
-  if (heartbeat_res.success_) {
-    commit_ts_info_.store(CommitTsInfo{.ldt_ = heartbeat_res.current_commit_timestamp_,
-                                       .num_committed_txns_ = heartbeat_res.num_txns_committed_},
-                          std::memory_order_release);
-
-    spdlog::trace("Set num committed txns to {}", heartbeat_res.num_txns_committed_);
-  } else {
+  if (!heartbeat_res.success_) {
 #ifdef MG_ENTERPRISE  // Multi-tenancy is only supported in enterprise
     // Replica is missing the current database
     client_.state_.WithLock([&](auto &state) {
@@ -128,6 +122,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     return;
 #endif
   }
+  // The replica's reported num_committed_txns_ is recorded only once we know its history is not divergent (see the
+  // "No branching point" path below). Storing it here unconditionally would, for a former main that committed
+  // transactions this main never saw, expose a count larger than main's and surface as a negative replication lag.
 
   bool branching_point{false};
   // different epoch id, replica was main
@@ -227,7 +224,13 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     return;
   }
 
-  // No branching point
+  // No branching point. The replica's history is consistent with main's, so its reported progress can't exceed
+  // main's; record it now.
+  commit_ts_info_.store(CommitTsInfo{.ldt_ = heartbeat_res.current_commit_timestamp_,
+                                     .num_committed_txns_ = heartbeat_res.num_txns_committed_},
+                        std::memory_order_release);
+  spdlog::trace("Set num committed txns to {}", heartbeat_res.num_txns_committed_);
+
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
   spdlog::trace("Current timestamp on replica {} for db {} is {}.",
@@ -636,6 +639,14 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   }
 
   spdlog::debug("Starting replica {} recovery for db {}.", client_.name_, main_db_name);
+
+  if (reset_needed) {
+    // A force reset wipes the replica's storage (incl. its num_committed_txns_) back to 0 before re-recovering
+    // from this main. Reset our cached view of the replica too, otherwise the WAL/current-WAL recovery steps
+    // accumulate onto the diverged replica's stale pre-reset count and leave a permanently inflated value,
+    // which surfaces as a persistent negative replication lag.
+    commit_ts_info_.store(CommitTsInfo{.ldt_ = 0, .num_committed_txns_ = 0}, std::memory_order_release);
+  }
 
   auto *main_mem_storage = static_cast<InMemoryStorage *>(main_storage);
 
