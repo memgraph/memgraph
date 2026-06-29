@@ -2150,8 +2150,8 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto updater = storage_->indices_.MakeUpdater();
 
   LabelPropertyIndex::DropResult drop_result;
-  std::shared_ptr<InMemoryLabelPropertyIndex::IndividualIndex<InMemoryLabelPropertyIndex::Entry>> asc_evicted;
-  std::shared_ptr<InMemoryLabelPropertyIndex::IndividualIndex<InMemoryLabelPropertyIndex::DescEntry>> desc_evicted;
+  std::optional<InMemoryLabelPropertyIndex::AscIndexPtrVariant> asc_evicted;
+  std::optional<InMemoryLabelPropertyIndex::DescIndexPtrVariant> desc_evicted;
   std::optional<InMemoryLabelPropertyIndex::PropertiesIndicesStats> stats_evicted;
   storage_->invalidator_->invalidate_now([&] {
     auto captured = mem_label_property_index->DropIndex(label, properties, updater, order);
@@ -2605,12 +2605,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     std::span<storage::PropertyValueRange const> property_ranges, View view, IndexOrder order) {
   auto *active_indices =
       static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
-  if (order == IndexOrder::DESC) {
-    return VerticesIterable(active_indices->Vertices<InMemoryLabelPropertyIndex::DescEntry>(
-        label, properties, property_ranges, view, storage_, &transaction_));
-  }
-  return VerticesIterable(active_indices->Vertices<InMemoryLabelPropertyIndex::Entry>(
-      label, properties, property_ranges, view, storage_, &transaction_));
+  return active_indices->Vertices(label, properties, property_ranges, view, storage_, &transaction_, order);
 }
 
 VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(View view, size_t num_chunks) {
@@ -2634,12 +2629,8 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
   auto *active_indices =
       static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
-  if (order == IndexOrder::DESC) {
-    return VerticesChunkedIterable(active_indices->ChunkedVertices<InMemoryLabelPropertyIndex::DescEntry>(
-        label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
-  }
-  return VerticesChunkedIterable(active_indices->ChunkedVertices<InMemoryLabelPropertyIndex::Entry>(
-      label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks));
+  return active_indices->ChunkedVertices(
+      label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks, order);
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {

@@ -20,10 +20,15 @@
 namespace memgraph::storage {
 
 class VerticesChunkedIterable final {
-  using AscChunked = InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry>;
-  using DescChunked = InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry>;
+  using AscChunked = InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry<>>;
+  using DescChunked = InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry<>>;
+  using Asc1Chunked = InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry<1>>;
+  using Desc1Chunked = InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry<1>>;
+  using Asc2Chunked = InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::Entry<2>>;
+  using Desc2Chunked = InMemoryLabelPropertyIndex::ChunkedIterable<InMemoryLabelPropertyIndex::DescEntry<2>>;
 
-  using Data = std::variant<AllVerticesChunkedIterable, InMemoryLabelIndex::ChunkedIterable, AscChunked, DescChunked>;
+  using Data = std::variant<AllVerticesChunkedIterable, InMemoryLabelIndex::ChunkedIterable, AscChunked, DescChunked,
+                            Asc1Chunked, Desc1Chunked, Asc2Chunked, Desc2Chunked>;
 
   Data data_;
 
@@ -36,6 +41,14 @@ class VerticesChunkedIterable final {
 
   explicit VerticesChunkedIterable(DescChunked v) : data_(std::move(v)) {}
 
+  explicit VerticesChunkedIterable(Asc1Chunked v) : data_(std::move(v)) {}
+
+  explicit VerticesChunkedIterable(Desc1Chunked v) : data_(std::move(v)) {}
+
+  explicit VerticesChunkedIterable(Asc2Chunked v) : data_(std::move(v)) {}
+
+  explicit VerticesChunkedIterable(Desc2Chunked v) : data_(std::move(v)) {}
+
   VerticesChunkedIterable(const VerticesChunkedIterable &) = delete;
   VerticesChunkedIterable &operator=(const VerticesChunkedIterable &) = delete;
 
@@ -46,7 +59,8 @@ class VerticesChunkedIterable final {
 
   class Iterator final {
     using Data = std::variant<AllVerticesChunkedIterable::Iterator, InMemoryLabelIndex::ChunkedIterable::Iterator,
-                              AscChunked::Iterator, DescChunked::Iterator>;
+                              AscChunked::Iterator, DescChunked::Iterator, Asc1Chunked::Iterator,
+                              Desc1Chunked::Iterator, Asc2Chunked::Iterator, Desc2Chunked::Iterator>;
 
     Data data_;
 
@@ -58,6 +72,14 @@ class VerticesChunkedIterable final {
     explicit Iterator(AscChunked::Iterator it) : data_(std::move(it)) {}
 
     explicit Iterator(DescChunked::Iterator it) : data_(std::move(it)) {}
+
+    explicit Iterator(Asc1Chunked::Iterator it) : data_(std::move(it)) {}
+
+    explicit Iterator(Desc1Chunked::Iterator it) : data_(std::move(it)) {}
+
+    explicit Iterator(Asc2Chunked::Iterator it) : data_(std::move(it)) {}
+
+    explicit Iterator(Desc2Chunked::Iterator it) : data_(std::move(it)) {}
 
     Iterator(const Iterator &) = default;
     Iterator &operator=(const Iterator &) = default;
