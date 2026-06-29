@@ -290,6 +290,17 @@ per-database failure.)
 - **Convergence.** A replica that missed a suspend/resume (it was down, or lagging)
   converges to the MAIN's authoritative hot/cold set on reconnect, including the
   as-of-suspend stats for each cold database.
+- **Replica fails, MAIN recovers — never self-heals.** The replica's correctness model is
+  recovery-driven: when an incoming RPC cannot be applied because the replica is in a
+  different state than MAIN expects, the replica **fails** that operation and lets MAIN's
+  recovery converge it. Concretely, a data delta (PrepareCommit/WAL) that arrives for a
+  tenant the replica still holds COLD — e.g. a reconnect/lag reorder where the delta beats
+  the ordered RESUME — is **rejected**, not applied by reheating the tenant inline. A COLD
+  tenant is brought HOT only by the ordered `RESUME` system RPC; reheating off a stray delta
+  would let the replica drift from MAIN's authoritative hot/cold map. The rejected delta
+  surfaces the divergence and MAIN re-drives recovery. (The same principle covers a system
+  operation referencing a tenant that should exist but doesn't: the replica fails and
+  SystemRecovery amends it.)
 - **Failover.** Cold stays cold across promotion (D7); a cold database keeps its disk epoch
   and a returning replica converges through the normal continuous-history check.
 - A cold database has no live replication clients, so it is intentionally absent from
@@ -355,14 +366,15 @@ In addition, `SHOW DATABASES` shows each database's `HOT`/`COLD` state, and
   response while the rebuild proceeds in the background) is the most likely next step.
 - **Per-database metrics.** Hot/cold metrics are global today; per-database labelling
   would let an operator see exactly which database is cold or failed to resume.
-- **Replica-side suspend behavior / HA consensus.** Today suspend is the MAIN's decision and
-  replicas follow it (D4): a tenant actively read on a replica still goes COLD there when the
-  MAIN suspends it. The question of what a replica should do when the MAIN suspends a tenant it
-  is actively serving — drop in-flight readers immediately, defer the suspend until the tenant
-  is idle (as DROP DATABASE does), fail the apply and require system recovery, or move to a
-  2-phase commit with coordinator consensus split per replication group — was raised in review
-  and is **not settled**; product feedback is still pending and it likely needs stress/Jepsen
-  coverage. The current behavior is the conservative MAIN-authoritative one described in D4.
+- **Replica-side suspend of an actively-read tenant / HA consensus.** The *delta* path is
+  settled and implemented (§7): a replica fails an operation it cannot apply and lets MAIN
+  recover. What remains open is the *policy* when MAIN suspends a tenant a replica is actively
+  **reading** right now. Today the replica follows MAIN (D4): in-flight transactions drain,
+  then the tenant goes COLD and further queries are rejected. Whether that should instead
+  defer the suspend until the tenant is idle (as DROP DATABASE does), or move to a 2-phase
+  commit with coordinator consensus split per replication group, was raised in review and is
+  **not settled** — product feedback is still pending and it likely needs stress/Jepsen
+  coverage. The current behavior is the conservative MAIN-authoritative one in D4.
 - **Per-tenant non-default storage config** is reconstructed from instance defaults on
   restart (shared with the existing hot-restart path), so non-default per-tenant storage
   settings are not preserved across a restart. This is a pre-existing multi-tenancy
