@@ -561,6 +561,10 @@ TEST_F(HotColdResume, SuspendResumeMoveObservabilityMetrics) {
   auto &m = memgraph::metrics::Metrics().global;
   const double suspends0 = m.database_suspends->Value();
   const double resumes0 = m.database_resumes->Value();
+  // Latency-histogram sample-count baselines: a dropped Observe() would leave these unchanged, a
+  // regression the counters alone would NOT catch.
+  const uint64_t suspend_lat0 = m.database_suspend_latency_seconds->Collect().histogram.sample_count;
+  const uint64_t resume_lat0 = m.database_resume_latency_seconds->Collect().histogram.sample_count;
   // Capture the gauge baseline BEFORE any suspend so both gauge assertions are deltas, not absolutes.
   // The gauge is a process-global singleton; other tests in this binary may have left residue.
   const double cold_gauge0 = m.cold_databases->Value();
@@ -571,9 +575,13 @@ TEST_F(HotColdResume, SuspendResumeMoveObservabilityMetrics) {
       << "a successful SUSPEND increments the suspends counter";
   EXPECT_DOUBLE_EQ(m.cold_databases->Value() - cold_gauge0, 1.0)
       << "the cold-tenant gauge increases by 1 when the tenant is suspended";
+  EXPECT_EQ(m.database_suspend_latency_seconds->Collect().histogram.sample_count - suspend_lat0, 1u)
+      << "a successful SUSPEND observes the suspend-latency histogram exactly once";
 
   ASSERT_TRUE(handler_->Resume(t).has_value());
   EXPECT_DOUBLE_EQ(m.database_resumes->Value() - resumes0, 1.0) << "a successful RESUME increments the resumes counter";
+  EXPECT_EQ(m.database_resume_latency_seconds->Collect().histogram.sample_count - resume_lat0, 1u)
+      << "a successful RESUME observes the resume-latency histogram exactly once";
   EXPECT_DOUBLE_EQ(m.cold_databases->Value() - cold_gauge0, 0.0)
       << "the cold-tenant gauge returns to its pre-test level after resume";
 }
