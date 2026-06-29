@@ -58,6 +58,8 @@ on:
         default: ''
         description: "Git ref to run on. Empty uses the triggering ref."
 
+run-name: "Check Python build/runtime version matrix"
+
 jobs:
   Setup:
     runs-on: ubuntu-latest
