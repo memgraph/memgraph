@@ -153,7 +153,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(VersionQuery & /*version_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 
   // Versioning management — all gated behind the dedicated VERSIONING privilege.
-  void Visit(CheckoutVersionQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }
+  void Visit(CheckoutBranchQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }
 
   void Visit(ShowVersionsQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::VERSIONING); }
 

@@ -464,9 +464,8 @@ constexpr utils::TypeInfo query::SessionTraceQuery::kType{
 constexpr utils::TypeInfo query::SessionSettingQuery::kType{
     .id = utils::TypeId::AST_SESSION_SETTING_QUERY, .name = "SessionSettingQuery", .superclass = &query::Query::kType};
 
-constexpr utils::TypeInfo query::CheckoutVersionQuery::kType{.id = utils::TypeId::AST_CHECKOUT_VERSION_QUERY,
-                                                             .name = "CheckoutVersionQuery",
-                                                             .superclass = &query::Query::kType};
+constexpr utils::TypeInfo query::CheckoutBranchQuery::kType{
+    .id = utils::TypeId::AST_CHECKOUT_BRANCH_QUERY, .name = "CheckoutBranchQuery", .superclass = &query::Query::kType};
 
 constexpr utils::TypeInfo query::ShowVersionsQuery::kType{
     .id = utils::TypeId::AST_SHOW_VERSIONS_QUERY, .name = "ShowVersionsQuery", .superclass = &query::Query::kType};

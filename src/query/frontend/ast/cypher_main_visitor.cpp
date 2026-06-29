@@ -1927,25 +1927,44 @@ antlrcpp::Any CypherMainVisitor::visitVersionName(MemgraphCypher::VersionNameCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitCheckoutVersionQuery(MemgraphCypher::CheckoutVersionQueryContext *ctx) {
-  auto *checkout_version = storage_->Create<CheckoutVersionQuery>();
-  checkout_version->version_name_ = std::any_cast<Expression *>(ctx->targetVersion->accept(this));
+  auto *checkout_branch = storage_->Create<CheckoutBranchQuery>();
+  checkout_branch->version_name_ = std::any_cast<Expression *>(ctx->targetVersion->accept(this));
+  // CHECKOUT always positions the session onto the target.
+  checkout_branch->position_ = true;
   // FROM <parent> turns this into a combined create-and-checkout; absent => switch onto an existing branch.
   if (ctx->parentVersion) {
-    checkout_version->parent_ = std::any_cast<Expression *>(ctx->parentVersion->accept(this));
+    checkout_branch->parent_ = std::any_cast<Expression *>(ctx->parentVersion->accept(this));
   }
   if (ctx->versionDescription) {
     // A description is recorded only at branch creation, so it is meaningless when just switching.
     // Reject it outright rather than silently dropping it.
-    if (!checkout_version->parent_) {
+    if (!checkout_branch->parent_) {
       throw SemanticException("WITH DESCRIPTION is only valid when creating a branch (with FROM).");
     }
     if (!ctx->versionDescription->StringLiteral()) {
       throw SemanticException("Version description must be a string literal.");
     }
-    checkout_version->description_ = std::any_cast<Expression *>(ctx->versionDescription->accept(this));
+    checkout_branch->description_ = std::any_cast<Expression *>(ctx->versionDescription->accept(this));
   }
-  query_ = checkout_version;
-  return checkout_version;
+  query_ = checkout_branch;
+  return checkout_branch;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateBranchQuery(MemgraphCypher::CreateBranchQueryContext *ctx) {
+  auto *create_branch = storage_->Create<CheckoutBranchQuery>();
+  create_branch->version_name_ = std::any_cast<Expression *>(ctx->targetVersion->accept(this));
+  // CREATE forks the branch but, unlike CHECKOUT, does not position the session onto it.
+  create_branch->position_ = false;
+  // FROM <parent> is mandatory in the grammar: a branch is always created off a named parent.
+  create_branch->parent_ = std::any_cast<Expression *>(ctx->parentVersion->accept(this));
+  if (ctx->versionDescription) {
+    if (!ctx->versionDescription->StringLiteral()) {
+      throw SemanticException("Version description must be a string literal.");
+    }
+    create_branch->description_ = std::any_cast<Expression *>(ctx->versionDescription->accept(this));
+  }
+  query_ = create_branch;
+  return create_branch;
 }
 
 antlrcpp::Any CypherMainVisitor::visitShowVersionsQuery(MemgraphCypher::ShowVersionsQueryContext *ctx) {

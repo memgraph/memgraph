@@ -3748,7 +3748,11 @@ class ShowNextSnapshotQuery : public memgraph::query::Query {
 // Position the session on a graph version (governs both reads and writes); 'master' selects the base
 // graph. With the optional BRANCH FROM clause it first creates the version (forking from the named
 // parent, like CREATE VERSION) and then positions onto it — a combined create-and-checkout.
-class CheckoutVersionQuery : public memgraph::query::Query {
+// Backs both CHECKOUT BRANCH and CREATE BRANCH. CHECKOUT positions the session onto the target
+// (position_ == true); when it also carries a parent_ it first creates the branch (create-and-checkout).
+// CREATE BRANCH always carries a parent_ but leaves position_ == false: it forks the branch without
+// switching onto it, so the session stays where it is.
+class CheckoutBranchQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
 
@@ -3756,17 +3760,19 @@ class CheckoutVersionQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  CheckoutVersionQuery *Clone(AstStorage *storage) const override {
-    auto *object = storage->Create<CheckoutVersionQuery>();
+  CheckoutBranchQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<CheckoutBranchQuery>();
     object->version_name_ = version_name_ ? version_name_->Clone(storage) : nullptr;
     object->description_ = description_ ? description_->Clone(storage) : nullptr;
     object->parent_ = parent_ ? parent_->Clone(storage) : nullptr;
+    object->position_ = position_;
     return object;
   }
 
   Expression *version_name_{nullptr};
   Expression *description_{nullptr};  // optional WITH DESCRIPTION '<str>' (create form only)
-  Expression *parent_{nullptr};       // BRANCH FROM '<parent>' => create-and-checkout; nullptr => switch only
+  Expression *parent_{nullptr};       // BRANCH FROM '<parent>' => create; nullptr => switch only
+  bool position_{true};               // CHECKOUT positions the session onto the target; CREATE does not
 };
 
 // List the versions of a database (current DB when database_ is empty).

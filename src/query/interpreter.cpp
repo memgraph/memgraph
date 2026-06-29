@@ -3574,12 +3574,13 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
   // Versioning: when a version is active, the query runs against master with the version's overlay
   // replayed in, and is rolled back afterwards; writes are captured into the version's overlay store.
-  const bool version_active = interpreter.active_version_.has_value();
+  const auto active_version = interpreter.GetActiveVersion();
+  const bool version_active = active_version.has_value();
   std::filesystem::path versions_dir;
   std::string active_version_name;
   if (version_active) {
     versions_dir = current_db.db_acc_->get()->config().durability.storage_directory / "versions";
-    active_version_name = *interpreter.active_version_;
+    active_version_name = *active_version;
   }
   const bool is_write_query = rw_type == RWType::W || rw_type == RWType::RW;
 
@@ -6544,7 +6545,7 @@ PreparedQuery PrepareMergeVersionQuery(ParsedQuery parsed_query, bool in_explici
   const auto versions_dir = VersionsDir(current_db);
 
   // You can only merge the version you're currently on.
-  if (interpreter.active_version_ != version_name) {
+  if (interpreter.GetActiveVersion() != version_name) {
     throw QueryRuntimeException(
         "You must be on version '{}' to merge it. Run CHECKOUT BRANCH '{}' first.", version_name, version_name);
   }
@@ -6617,9 +6618,9 @@ PreparedQuery PrepareMergeVersionQuery(ParsedQuery parsed_query, bool in_explici
             storage::VersionDeltaStore::Drop(versions_dir / version_name);
             storage::VersionRegistry{versions_dir}.Remove(version_name);
             if (state->into_master) {
-              interpreter.active_version_.reset();
+              interpreter.ResetActiveVersion();
             } else {
-              interpreter.active_version_ = state->parent;
+              interpreter.SetActiveVersion(state->parent);
             }
           }};
 }
@@ -6646,10 +6647,11 @@ PreparedQuery PrepareRevertVersionQuery(ParsedQuery parsed_query, bool in_explic
   const auto commit_timestamp = static_cast<uint64_t>(value.ValueInt());
 
   // Revert operates on the session's active version; master has no overlay to revert.
-  if (!interpreter.active_version_) {
+  const auto active_version = interpreter.GetActiveVersion();
+  if (!active_version) {
     throw QueryRuntimeException("No active version. Run CHECKOUT BRANCH '<name>' first.");
   }
-  const auto version_name = *interpreter.active_version_;
+  const auto version_name = *active_version;
   const auto versions_dir = VersionsDir(current_db);
 
   Callback callback;
@@ -6838,11 +6840,12 @@ PreparedQuery PrepareShowVersionBranchQuery(ParsedQuery parsed_query, bool in_ex
   callback.header = {"version", "number", "description"};
   callback.fn = [&interpreter,
                  versions_dir = VersionsDir(current_db)]() mutable -> std::vector<std::vector<TypedValue>> {
-    if (!interpreter.active_version_) {
+    const auto active_version = interpreter.GetActiveVersion();
+    if (!active_version) {
       return {{TypedValue{"master"}, TypedValue{static_cast<int64_t>(storage::kMasterVersionNumber)}, TypedValue{""}}};
     }
-    const auto info = storage::VersionRegistry{versions_dir}.InfoOf(*interpreter.active_version_);
-    return {{TypedValue{*interpreter.active_version_},
+    const auto info = storage::VersionRegistry{versions_dir}.InfoOf(*active_version);
+    return {{TypedValue{*active_version},
              info ? TypedValue{static_cast<int64_t>(info->number)} : TypedValue{},
              TypedValue{info ? info->description : std::string{}}}};
   };
@@ -6900,7 +6903,7 @@ PreparedQuery PrepareShowVersioningGraphQuery(ParsedQuery parsed_query, bool in_
       try {
         entries.push_back({name,
                            versions_dir_for(name),
-                           name == current_name ? interpreter.active_version_ : std::optional<std::string>{}});
+                           name == current_name ? interpreter.GetActiveVersion() : std::optional<std::string>{}});
       } catch (const utils::BasicException & /*unused*/) {
         // Database vanished/unavailable mid-enumeration — skip it rather than fail the whole graph.
       }
@@ -6913,7 +6916,7 @@ PreparedQuery PrepareShowVersioningGraphQuery(ParsedQuery parsed_query, bool in_
           "Cannot show versioning graph for database '{}': {}.", show_graph->database_, e.what());
     }
   } else {
-    entries.push_back({current_name, VersionsDir(current_db), interpreter.active_version_});
+    entries.push_back({current_name, VersionsDir(current_db), interpreter.GetActiveVersion()});
   }
 
   Callback callback;
@@ -7020,14 +7023,14 @@ PreparedQuery PrepareShowVersioningGraphQuery(ParsedQuery parsed_query, bool in_
       .priority = utils::Priority::HIGH};
 }
 
-PreparedQuery PrepareCheckoutVersionQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
-                                          Interpreter &interpreter) {
+PreparedQuery PrepareCheckoutBranchQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
+                                         Interpreter &interpreter) {
   EnsureVersioningEnabled();
   if (in_explicit_transaction) {
     throw VersionInMulticommandTxException();
   }
-  MG_ASSERT(current_db.db_acc_, "Checkout Version query expects a current DB");
-  auto *checkout = utils::Downcast<CheckoutVersionQuery>(parsed_query.query);
+  MG_ASSERT(current_db.db_acc_, "Checkout Branch query expects a current DB");
+  auto *checkout = utils::Downcast<CheckoutBranchQuery>(parsed_query.query);
   const auto versions_dir = VersionsDir(current_db);
 
   // Evaluates a string-literal expression (description / parent name) to a std::string.
@@ -7043,15 +7046,17 @@ PreparedQuery PrepareCheckoutVersionQuery(ParsedQuery parsed_query, bool in_expl
     return std::string{static_cast<std::string_view>(value.ValueString())};
   };
 
-  // --- CHECKOUT BRANCH x BRANCH FROM y: create the version (like CREATE VERSION), then position onto it. ---
+  // --- Create form: CHECKOUT BRANCH x ... FROM y (create-and-checkout) or CREATE BRANCH x ... FROM y
+  // (create only). Both carry a parent_; position_ distinguishes whether to switch onto the new branch. ---
   if (checkout->parent_ != nullptr) {
     const auto version_name = EvaluateVersionName(checkout->version_name_, parsed_query);  // rejects 'master'
     const std::string description = checkout->description_ ? eval_string(checkout->description_) : "";
     const std::string parent = eval_string(checkout->parent_);
+    const bool position = checkout->position_;
 
     Callback callback;
     callback.header = {"version", "number", "description", "parent"};
-    callback.fn = [versions_dir, version_name, description, parent, &interpreter]() mutable
+    callback.fn = [versions_dir, version_name, description, parent, position, &interpreter]() mutable
         -> std::vector<std::vector<TypedValue>> {
       const auto version_path = versions_dir / version_name;
       if (std::filesystem::exists(version_path)) {
@@ -7064,8 +7069,10 @@ PreparedQuery PrepareCheckoutVersionQuery(ParsedQuery parsed_query, bool in_expl
       try {
         storage::VersionDeltaStore{version_path};
         const auto number = storage::VersionRegistry{versions_dir}.Add(version_name, description, parent);
-        // Creation succeeded — position the session onto the freshly created version.
-        interpreter.active_version_ = version_name;
+        // CHECKOUT positions the session onto the freshly created version; CREATE leaves it untouched.
+        if (position) {
+          interpreter.SetActiveVersion(version_name);
+        }
         return {{TypedValue{version_name},
                  TypedValue{static_cast<int64_t>(number)},
                  TypedValue{description},
@@ -7099,13 +7106,13 @@ PreparedQuery PrepareCheckoutVersionQuery(ParsedQuery parsed_query, bool in_expl
   Callback callback;
   callback.fn = [name = std::move(name), versions_dir, &interpreter]() mutable -> std::vector<std::vector<TypedValue>> {
     if (name == "master") {
-      interpreter.active_version_.reset();
+      interpreter.ResetActiveVersion();
       return {};
     }
     if (!std::filesystem::exists(versions_dir / name)) {
       throw QueryRuntimeException("Version '{}' does not exist.", name);
     }
-    interpreter.active_version_ = std::move(name);
+    interpreter.SetActiveVersion(std::move(name));
     return {};
   };
 
@@ -7133,13 +7140,14 @@ PreparedQuery PrepareShowChangesQuery(ParsedQuery parsed_query, bool in_explicit
     throw VersionInMulticommandTxException();
   }
   MG_ASSERT(current_db.db_acc_, "Show Changes query expects a current DB");
-  if (!interpreter.active_version_) {
+  const auto active_version = interpreter.GetActiveVersion();
+  if (!active_version) {
     throw QueryRuntimeException("No active version. Run CHECKOUT BRANCH '<name>' first.");
   }
   auto *show_changes = utils::Downcast<ShowChangesQuery>(parsed_query.query);
   storage::Storage *storage = current_db.db_acc_->get()->storage();
   const auto versions_dir = VersionsDir(current_db);
-  const auto active_version_name = *interpreter.active_version_;
+  const auto active_version_name = *active_version;
   const auto version_path = versions_dir / active_version_name;
 
   // --- FORMAT GRAPH: build a virtual graph wiring each delta to the real entity it changed. ---
@@ -8972,9 +8980,6 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
         std::vector<std::vector<TypedValue>> status;
         std::string res;
 
-        // Switching tenants always lands you on that database's master graph.
-        interpreter.active_version_.reset();
-
         try {
           if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->name()) {
             res = "Already using " + db_name;
@@ -8987,6 +8992,10 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
         } catch (const utils::BasicException &e) {
           throw QueryRuntimeException(e.what());
         }
+
+        // An explicit USE DATABASE positions the session on master of the target database. (This is
+        // distinct from per-query Bolt `db` routing, which preserves each database's active branch.)
+        interpreter.ResetActiveVersion();
 
         status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
         auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
@@ -10275,18 +10284,14 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::
 // Before Prepare or during Prepare, but single-threaded.
 // TODO: Is there any cleanup?
 void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
-  // Reset the active version only on an actual tenant change. SetCurrentDB is re-invoked with the
-  // SAME database on ordinary queries (the bolt layer reconfigures per run — e.g. the access mode
-  // r/w changes between statements), and resetting unconditionally would wipe the session's active
-  // version between a CHECKOUT BRANCH and the next query.
-  const bool db_changed = !current_db_.db_acc_ || current_db_.db_acc_->get()->name() != db_name;
+  // The active version is tracked per database (active_versions_), so SetCurrentDB never needs to
+  // touch it: GetActiveVersion() resolves against whichever database is current. This is what makes
+  // CHECKOUT BRANCH survive on a tenant — the bolt layer reconfigures the current db on every run
+  // (and tenants differ from the session's login-default db), so resetting here on a db change would
+  // wipe the branch on the first tenant-routed query of every (pooled) connection.
   // Can throw
   // do we lock here?
   current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(db_name), in_explicit_db);
-  // Switching tenants always lands you on that database's master graph.
-  if (db_changed) {
-    active_version_.reset();
-  }
 }
 #else
 // Default database only
@@ -10452,7 +10457,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   // Versioning management. DROP/SHOW BRANCHES and CHECKOUT operate on the per-DB versions/
   // folder (no graph-storage access). SHOW BRANCH DIFF needs storage access only for its FORMAT
   // GRAPH variant (see Visit(ShowChangesQuery) below).
-  void Visit(CheckoutVersionQuery & /*unused*/) override {}
+  void Visit(CheckoutBranchQuery & /*unused*/) override {}
 
   void Visit(ShowVersionsQuery & /*unused*/) override {}
 
@@ -10730,11 +10735,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (auto *cypher_q = utils::Downcast<CypherQuery>(parsed_query.query);
         cypher_q != nullptr && cypher_q->pre_query_directives_.version_ != nullptr) {
       EnsureVersioningEnabled();
-      if (active_version_) {
+      if (const auto current_version = GetActiveVersion()) {
         throw QueryRuntimeException(
             "USING VERSION can only be applied from the master branch. You are currently on version '{}'; run "
             "CHECKOUT BRANCH 'master' first.",
-            *active_version_);
+            *current_version);
       }
       EvaluationContext evaluation_context;
       evaluation_context.timestamp = QueryTimestamp();
@@ -10745,7 +10750,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         throw QueryRuntimeException("Version name must be a string.");
       }
       std::string name{static_cast<std::string_view>(value.ValueString())};
-      saved_active_version = active_version_;  // std::nullopt when on master
+      saved_active_version = GetActiveVersion();  // std::nullopt when on master
       restore_active_version = true;
       if (name != "master") {
         if (current_db_.db_acc_) {
@@ -10755,11 +10760,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
             throw QueryRuntimeException("Version '{}' does not exist.", name);
           }
         }
-        active_version_ = std::move(name);
+        SetActiveVersion(std::move(name));
       }
     }
     utils::OnScopeExit restore_version{[&] {
-      if (restore_active_version) active_version_ = std::move(saved_active_version);
+      if (restore_active_version) RestoreActiveVersion(std::move(saved_active_version));
     }};
 
     if (!in_explicit_transaction_) {
@@ -10771,7 +10776,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       parsed_query.query->Accept(transaction_requirements);
       // When a version is active, even a read Cypher query must replay the overlay (which writes)
       // into the transaction before scanning, so it needs at least WRITE access.
-      if (active_version_ && transaction_requirements.accessor_type_ == storage::StorageAccessType::READ &&
+      if (GetActiveVersion() && transaction_requirements.accessor_type_ == storage::StorageAccessType::READ &&
           utils::Downcast<CypherQuery>(parsed_query.query)) {
         transaction_requirements.accessor_type_ = storage::StorageAccessType::WRITE;
       }
@@ -11012,9 +11017,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<ShowVersioningGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareShowVersioningGraphQuery(
           std::move(parsed_query), in_explicit_transaction_, current_db_, *this, interpreter_context_);
-    } else if (utils::Downcast<CheckoutVersionQuery>(parsed_query.query)) {
+    } else if (utils::Downcast<CheckoutBranchQuery>(parsed_query.query)) {
       prepared_query =
-          PrepareCheckoutVersionQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, *this);
+          PrepareCheckoutBranchQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, *this);
     } else if (utils::Downcast<ShowChangesQuery>(parsed_query.query)) {
       prepared_query = PrepareShowChangesQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, *this);
     } else if (utils::Downcast<MergeVersionQuery>(parsed_query.query)) {
@@ -11215,7 +11220,7 @@ void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAcc
   current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(),
                                        couldCommit,
                                        acc_type,
-                                       /*force_change_collection=*/active_version_.has_value());
+                                       /*force_change_collection=*/GetActiveVersion().has_value());
 }
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {

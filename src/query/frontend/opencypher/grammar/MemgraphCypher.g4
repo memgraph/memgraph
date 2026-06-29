@@ -798,6 +798,7 @@ showQueryCallableMappingsQuery : SHOW QUERY CALLABLE MAPPINGS ;
 versionQuery : SHOW VERSION ;
 
 versionManagementQuery : checkoutVersionQuery
+                       | createBranchQuery
                        | showVersionsQuery
                        | showVersionBranchQuery
                        | showChangesQuery
@@ -810,6 +811,10 @@ versionManagementQuery : checkoutVersionQuery
 // CHECKOUT BRANCH x positions the session on version x. With FROM y it first creates x
 // (forking from the named parent) and then positions onto it — a combined create-and-checkout.
 checkoutVersionQuery : CHECKOUT BRANCH targetVersion=versionName ( WITH DESCRIPTION versionDescription=literal )? ( FROM parentVersion=versionName )? ;
+
+// CREATE BRANCH x FROM y forks a new branch x off the named parent WITHOUT positioning the
+// session onto it (unlike CHECKOUT BRANCH x FROM y). Use a subsequent CHECKOUT BRANCH x to switch.
+createBranchQuery : CREATE BRANCH targetVersion=versionName ( WITH DESCRIPTION versionDescription=literal )? FROM parentVersion=versionName ;
 
 showVersionsQuery : SHOW BRANCHES ( FOR DATABASE db=symbolicName )? ;
 

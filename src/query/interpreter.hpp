@@ -14,6 +14,7 @@
 #include <gflags/gflags.h>
 #include <chrono>
 #include <functional>
+#include <map>
 #include <optional>
 
 #include "dbms/database.hpp"
@@ -319,10 +320,40 @@ class Interpreter final {
   std::shared_ptr<utils::AsyncTimer> current_timeout_timer_{};
   std::optional<storage::ExternalPropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
 
-  // Session's active graph version (std::nullopt == master/base graph). Set by `CHECKOUT BRANCH`,
-  // governs which version's overlay reads/writes resolve against. Read by SHOW BRANCH DIFF and the
-  // Cypher replay->query->rollback path.
-  std::optional<std::string> active_version_{};
+  // Active graph version per database, keyed by database name. A database absent from the map means
+  // master/base graph. Set by `CHECKOUT BRANCH`; governs which version's overlay reads/writes resolve
+  // against. Read by SHOW BRANCH DIFF and the Cypher replay->query->rollback path. Scoped per database
+  // (not a single session value) so switching tenants restores that tenant's branch instead of forcing
+  // everyone back to master. Per Bolt connection (one Interpreter per connection).
+  std::map<std::string, std::string> active_versions_{};
+
+  // Active version for the *current* database (std::nullopt == master). These resolve the current db
+  // name internally, so callers never thread it through.
+  std::optional<std::string> GetActiveVersion() {
+    if (!current_db_.db_acc_) return std::nullopt;
+    const auto it = active_versions_.find(std::string{current_db_.db_acc_->get()->name()});
+    if (it == active_versions_.end()) return std::nullopt;
+    return it->second;
+  }
+
+  void SetActiveVersion(std::string version) {
+    DMG_ASSERT(current_db_.db_acc_, "Cannot set an active version without a current database");
+    active_versions_[std::string{current_db_.db_acc_->get()->name()}] = std::move(version);
+  }
+
+  void ResetActiveVersion() {
+    if (!current_db_.db_acc_) return;
+    active_versions_.erase(std::string{current_db_.db_acc_->get()->name()});
+  }
+
+  // Restore a previously saved active version for the current db (used by the USING VERSION directive).
+  void RestoreActiveVersion(std::optional<std::string> version) {
+    if (version) {
+      SetActiveVersion(*std::move(version));
+    } else {
+      ResetActiveVersion();
+    }
+  }
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);

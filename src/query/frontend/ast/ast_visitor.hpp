@@ -146,7 +146,7 @@ class ParameterQuery;
 class DescriptionQuery;
 class ReloadSSLQuery;
 class ShowMemoryInfoQuery;
-class CheckoutVersionQuery;
+class CheckoutBranchQuery;
 class ShowVersionsQuery;
 class ShowVersionBranchQuery;
 class ShowVersioningGraphQuery;
@@ -201,8 +201,8 @@ class QueryVisitor
           CoordinatorQuery, DropAllIndexesQuery, DropAllConstraintsQuery, DropGraphQuery, CreateEnumQuery,
           ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery,
           ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery, SessionSettingQuery, UserProfileQuery, TenantProfileQuery,
-          ParameterQuery, DescriptionQuery, ReloadSSLQuery, ShowMemoryInfoQuery, CheckoutVersionQuery,
-          ShowVersionsQuery, ShowVersionBranchQuery, ShowVersioningGraphQuery, ShowChangesQuery, MergeVersionQuery,
-          RevertVersionQuery, DropVersionQuery> {};
+          ParameterQuery, DescriptionQuery, ReloadSSLQuery, ShowMemoryInfoQuery, CheckoutBranchQuery, ShowVersionsQuery,
+          ShowVersionBranchQuery, ShowVersioningGraphQuery, ShowChangesQuery, MergeVersionQuery, RevertVersionQuery,
+          DropVersionQuery> {};
 
 }  // namespace memgraph::query
