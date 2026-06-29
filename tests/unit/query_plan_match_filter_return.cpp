@@ -847,10 +847,13 @@ class QueryPlanExpandVariable : public testing::Test {
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     ExecutionContext context;
+#ifdef MG_ENTERPRISE
+    std::optional<memgraph::glue::FineGrainedAuthChecker> auth_checker;
+#endif
     if (user) {
 #ifdef MG_ENTERPRISE
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
-      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+      auth_checker.emplace(*user, &dba);
+      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &*auth_checker);
 #endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
@@ -867,10 +870,13 @@ class QueryPlanExpandVariable : public testing::Test {
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     ExecutionContext context;
+#ifdef MG_ENTERPRISE
+    std::optional<memgraph::glue::FineGrainedAuthChecker> auth_checker;
+#endif
     if (user) {
 #ifdef MG_ENTERPRISE
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
-      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+      auth_checker.emplace(*user, &dba);
+      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &*auth_checker);
 #endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
@@ -2055,10 +2061,13 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     std::vector<ResultType> results;
     memgraph::query::ExecutionContext context;
+#ifdef MG_ENTERPRISE
+    std::optional<memgraph::glue::FineGrainedAuthChecker> auth_checker;
+#endif
     if (user) {
 #ifdef MG_ENTERPRISE
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
-      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+      auth_checker.emplace(*user, &dba);
+      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &*auth_checker);
 #endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
@@ -2524,11 +2533,14 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     std::vector<ResultType> results;
+#ifdef MG_ENTERPRISE
+    std::optional<memgraph::glue::FineGrainedAuthChecker> auth_checker;
+#endif
     ExecutionContext context;
     if (user) {
 #ifdef MG_ENTERPRISE
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
-      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+      auth_checker.emplace(*user, &dba);
+      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &*auth_checker);
 #endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
