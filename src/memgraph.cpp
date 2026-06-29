@@ -78,6 +78,7 @@
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
+#include "utils/worker_yield_signal.hpp"
 #include "version.hpp"
 
 #include <gflags/gflags.h>
@@ -844,6 +845,10 @@ int main(int argc, char **argv) {
 
   // Global worker pool!
   // Used by sessions to schedule tasks.
+  // B1.3: registry must OUTLIVE the pool (lifetime contract: declared first, destroyed last).
+  // Sized to FLAGS_bolt_num_workers: that is the number of LP worker threads (mixed) the pool
+  // launches. HP threads never use the registry (they are never preempted).
+  std::optional<memgraph::utils::WorkerYieldRegistry> worker_yield_registry_;
   std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
   unsigned io_n_threads = FLAGS_bolt_num_workers;
 
@@ -855,10 +860,14 @@ int main(int argc, char **argv) {
     // NOTE: We should also register cleanup, but since threads exist until the end of the program,
     //       everyhting will be cleaned up anyway at program exit.
 
+    // B1.3: construct registry before pool so it outlives the pool (destroyed in reverse order).
+    // The registry tracks one yield flag per LP worker thread.
+    worker_yield_registry_.emplace(static_cast<uint16_t>(FLAGS_bolt_num_workers));
     worker_pool_.emplace(/* low priority */
                          static_cast<uint16_t>(FLAGS_bolt_num_workers),
                          /* high priority */ 1U,
-                         is_coordinator_instance ? []() {} : []() { memgraph::query::procedure::RegisterPyThread(); });
+                         is_coordinator_instance ? []() {} : []() { memgraph::query::procedure::RegisterPyThread(); },
+                         /* yield_registry */ &*worker_yield_registry_);
     io_n_threads = 1U;
   }
 

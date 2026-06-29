@@ -43,6 +43,23 @@ stay exactly as in v2.
 8. `CollectionScheduler`: atomic `pool_` (C0 fix), `ProgressAwaitable` (`await_suspend`→
    `RegisterProgressWaiter`, busy-spin fallback), `Trigger` nulls pool atomically.
 
+## KEY SIGNATURE DECISION (minimize blast radius)
+**KEEP v2's `using TaskSignature = std::move_only_function<void(Priority)>`** (the worker loop calls
+`task.value()(ThreadPriority)`). Do NOT adopt p3's `void()` — that would force editing every task closure
+in the tree. Bridge p3's resumable layer internally:
+- `ResumableTaskSignature = std::move_only_function<bool()>` stays the INTERNAL TaskCollection task type.
+- `TaskCollection::AddTask(TaskSignature)` keeps accepting `void(Priority)`; wrap to bool:
+  `tasks_.emplace_back([t=std::move(task)]() mutable -> bool { t(Priority::LOW); return false; });`
+  (branch tasks already ignore Priority — `/*unused*/` — so a fixed LOW is fine.)
+- `ScheduleResumableTask`/`ResumableWrapper::Run` push to the pool via `ScheduledAddTask`, so the closure
+  pushed is `[w](Priority) mutable { w.Run(); }` (Priority ignored inside Run; capture `priority` for the
+  fallback reschedule like p3 does).
+- Worker loop keeps `task.value()(ThreadPriority)`; `RescheduleTaskOnWorker` pushes a `void(Priority)`.
+⇒ existing ctor calls (2/3-arg), `DoWork`, and operator.cpp branch tasks compile UNCHANGED. Only pool
+internals + `ScheduledCollection` (→ScheduleResumableTask) + the new optional `yield_registry` ctor arg
+change. **B1.1+B1.2+B1.3 land together as one green-building unit** (TaskCollection internals can't change
+without compiling against consumers).
+
 ## Binding invariants (do not weaken)
 R1 in_flight 2-phase gate · R2 single progress waiter (MG_ASSERT) · R7 Trigger-before-park · atomic pool_ ·
 PARKED stored **release** (read out-of-mutex by Finished/AllTerminal acquire) · EC-2 stolen task (no
