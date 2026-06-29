@@ -1080,7 +1080,8 @@ class DbmsHandler {
       auto acc = db_gk.access();
       // Skip non-HOT shells: a COLD (suspended) tenant keeps an in-map gatekeeper, but access()
       // returns nullopt (it is not HOT). Dereferencing it would be UB. A COLD tenant is correctly
-      // "not found by UUID" here — the caller falls back to ResumeByUUID, which reheats it from disk.
+      // "not found by UUID" here, so a data delta for it raises UnknownDatabaseException and the replica
+      // fails that delta for MAIN to recover (it is NOT reheated inline — see GetDatabaseAccessor).
       if (acc && acc->get()->uuid() == uuid) {
         return std::move(*acc);
       }

@@ -207,26 +207,15 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
     }
     return std::optional{std::move(acc)};
   } catch (const dbms::UnknownDatabaseException &) {
-#ifdef MG_ENTERPRISE
-    // A data or recovery RPC referenced a tenant that is not HOT on this replica. If it
-    // is a known COLD (suspended) tenant, reheat it from disk INLINE on this (single-threaded) RPC
-    // thread — never by waiting for another RPC, which would self-deadlock the one server thread.
-    // ResumeByUUID runs synchronous local recovery (snapshot + WAL), so this is a bounded,
-    // self-contained reheat. This barrier lets a data delta that arrives for a still-COLD tenant
-    // (reconnect/lag, before the RESUME system delta is applied) be applied rather than dropped.
-    if (auto resumed = dbms_handler->ResumeByUUID(uuid); resumed.has_value()) {
-      spdlog::info("Replica reheated COLD database \"{}\" to apply an incoming delta.", std::string{uuid});
-      auto &acc = resumed.value();
-      const memory::DbArenaScope db_arena_scope{acc.get()};
-      auto const *inmem_storage = static_cast<storage::InMemoryStorage *>(acc.get()->storage());
-      if (!inmem_storage || inmem_storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-        spdlog::error("Database is not IN_MEMORY_TRANSACTIONAL.");
-        return std::nullopt;
-      }
-      return std::optional{std::move(acc)};
-    }
-#endif
-    spdlog::warn("No database with UUID \"{}\" on replica!", std::string{uuid});
+    // A data/recovery RPC referenced a tenant that is not HOT on this replica (absent, or held COLD).
+    // We deliberately do NOT reheat it inline. The cluster's correctness model is recovery-driven: when an
+    // incoming RPC cannot be executed because this node is in a different state than MAIN expects, the
+    // replica FAILS the operation and lets MAIN's recovery converge it. A COLD tenant must be brought HOT
+    // only by the ordered RESUME system RPC, never as a side effect of a lagging/reordered data delta —
+    // reheating here would let the replica self-heal off MAIN's authoritative hot/cold map and drift.
+    // Returning nullopt fails the delta and surfaces the divergence to MAIN.
+    spdlog::warn("No HOT database with UUID \"{}\" on replica; failing the delta for MAIN to recover.",
+                 std::string{uuid});
     return std::nullopt;
   }
 }
