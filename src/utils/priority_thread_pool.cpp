@@ -315,6 +315,15 @@ void CurrentResumableTask::SetParked() {
 // ResumableTaskSignature bool() to the external void(Priority) TaskSignature without
 // changing any call site outside the pool.
 void PriorityThreadPool::ScheduleResumableTask(ResumableTaskSignature task, Priority priority) {
+  // TLS-pinning guard: resumable tasks MUST be LOW priority. An HP-id task lands in an LP worker's
+  // stealable work_ and can be stolen by an HP worker, which runs without SetCurrentWorker (HP workers
+  // get a nullptr yield_registry) → GetCurrentWorkerId()==nullopt → the yield/park path can no longer
+  // pin the continuation to its origin worker, silently breaking same-worker TLS resume. There is no
+  // legitimate HP resumable task today (parallel-coordinator + serial-yield consumers are all LOW).
+  MG_ASSERT(priority == Priority::LOW,
+            "ScheduleResumableTask only supports Priority::LOW — HP resumable tasks have no TLS-pinning "
+            "guarantee (an HP worker may steal them and lose same-worker resume)");
+
   struct ResumableWrapper {
     std::shared_ptr<ResumableTaskSignature> task;
     PriorityThreadPool *pool;
