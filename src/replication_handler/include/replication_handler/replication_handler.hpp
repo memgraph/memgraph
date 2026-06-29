@@ -67,6 +67,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
   struct DbInfo {
     std::vector<storage::SalientConfig> configs;
     uint64_t last_committed_timestamp;
+    std::vector<utils::UUID> repaired_uuids;
   };
 
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
@@ -81,12 +82,17 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
 
     if (is_enterprise) {
       auto configs = std::vector<storage::SalientConfig>{};
-      dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
+      auto repaired_uuids = std::vector<utils::UUID>{};
+      dbms_handler.ForEach([&configs, &repaired_uuids](dbms::DatabaseAccess acc) {
+        configs.emplace_back(acc->config().salient);
+        // Advertise repaired tenants so a replica that missed the RepairDatabaseRpc resets them.
+        if (acc->storage()->WasRepaired()) repaired_uuids.emplace_back(acc->config().salient.uuid);
+      });
       // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
-      return DbInfo{configs, system.LastCommittedSystemTimestamp()};
+      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), std::move(repaired_uuids)};
     }
     // No license -> send only default config
-    return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
+    return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp(), {}};
   });
   try {
     metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
@@ -111,7 +117,8 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             locked_auth.AllUsers(),
                                                             locked_auth.AllRoles(),
                                                             locked_auth.AllProfiles(),
-                                                            params_snapshot);
+                                                            params_snapshot,
+                                                            std::move(db_info.repaired_uuids));
       });
 #else
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,

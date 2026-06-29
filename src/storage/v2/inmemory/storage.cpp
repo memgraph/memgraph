@@ -4591,6 +4591,7 @@ void InMemoryStorage::ResetTenant() {
   name_id_mapper_->Clear();
   description_store_.Clear();
   SetDefunct(false);
+  SetRepaired(true);
 }
 
 std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {
