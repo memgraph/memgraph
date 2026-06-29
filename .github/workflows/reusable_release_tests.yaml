@@ -1447,30 +1447,11 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
         run: |
-          # run.sh gathered the nodes' cores into tests/jepsen/cores as
-          # jepsen-n<i>_<date>_core.<...>. The mgbuild container is still up and
-          # has the toolchain gdb + the matching unstripped binary, so copy the
-          # cores in, produce stack traces, upload the cores + binary, and ping
-          # monitoring — all into the shared ci-stack-traces/ layout.
-          # CLUSTER_ID/CLUSTER_ENV and the MONITORING_* vars come from the
-          # workflow-level env.
-          cores_dir="tests/jepsen/cores"
-          if [ ! -d "$cores_dir" ] || [ -z "$(ls -A "$cores_dir" 2>/dev/null)" ]; then
-            echo "No core dumps collected — skipping analysis."
-            exit 0
-          fi
-          container="mgbuild_${TOOLCHAIN}_${OS}"
-          docker exec -u root "$container" mkdir -p /tmp/mg-cores
-          docker cp "$cores_dir/." "$container":/tmp/mg-cores/
-          ./tools/ci/core-dumps/collect.sh \
+          ./tools/ci/core-dumps/collect_jepsen_cores.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
-          --exec-user root \
-          --core-glob '*core.*' \
-          --upload-core true \
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
-          rm -rf "$cores_dir"
 
       - name: Save Jepsen report
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
