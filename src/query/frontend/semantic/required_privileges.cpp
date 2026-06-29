@@ -132,7 +132,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(RecoverSnapshotQuery & /* unused */) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 
-  void Visit(RepairDatabaseQuery & /* unused */) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
+  void Visit(ResetDatabaseQuery & /* unused */) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 
   void Visit(ShowSnapshotsQuery & /* unused */) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 

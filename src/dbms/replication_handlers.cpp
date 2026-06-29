@@ -18,10 +18,12 @@
 #include <ranges>
 #include <thread>
 
+#include "dbms/database_protector.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/rpc.hpp"
 #include "license/license.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "system/state.hpp"
 
 #include "rpc/utils.hpp"
@@ -144,6 +146,57 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
     }
   } catch (...) {
     // Failure
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+void ResetDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                           const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using memgraph::storage::replication::ResetDatabaseRes;
+  ResetDatabaseRes res(ResetDatabaseRes::Result::FAILURE);
+
+  // Ignore if no license
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    spdlog::error(
+        "Handling ResetDatabase, an enterprise RPC message, without license. Check your license status by running "
+        "SHOW LICENSE INFO.");
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  memgraph::storage::replication::ResetDatabaseReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::ResetDatabaseReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("ResetDatabaseHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  try {
+    // Resolve the tenant by UUID and completely reset it so the stale data is wiped. After this the
+    // replica's tenant is empty with commit ts 0; the main then force-recovers it from its fresh epoch.
+    auto db_acc = dbms_handler.Get(req.uuid);
+    auto protector = dbms::DatabaseProtector{db_acc};
+    auto *mem = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+    mem->ResetTenant();
+    res = ResetDatabaseRes(ResetDatabaseRes::Result::SUCCESS);
+    spdlog::debug("ResetDatabaseHandler: SUCCESS");
+  } catch (const UnknownDatabaseException &) {
+    // The tenant does not exist on this replica; nothing to reset.
+    res = ResetDatabaseRes(ResetDatabaseRes::Result::NO_NEED);
+  } catch (const std::exception &e) {
+    spdlog::error("ResetDatabaseHandler: failed to reset the tenant: {}", e.what());
   }
 
   rpc::SendFinalResponse(res, request_version, res_builder);
@@ -354,7 +407,8 @@ bool ForceSuspendForRecovery(DbmsHandler &dbms_handler, std::string_view name) {
 }  // namespace
 
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs,
-                           const std::vector<storage::ColdTenantRecovery> &cold_databases) {
+                           const std::vector<storage::ColdTenantRecovery> &cold_databases,
+                           const std::vector<utils::UUID> &resetted_uuids) {
   /*
    * NO LICENSE
    */
@@ -533,6 +587,24 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
     }
   }
 
+  // Reset any tenant the main has resetted but whose ResetDatabaseRpc this replica missed. A tenant
+  // already at commit ts 0 was reset (e.g. by the ResetDatabaseRpc) and is skipped to avoid a needless
+  // re-sync; one still holding stale data (ts != 0) is reset so the main can re-sync it from scratch.
+  for (const auto &uuid : resetted_uuids) {
+    try {
+      auto db_acc = dbms_handler.Get(uuid);
+      auto protector = dbms::DatabaseProtector{db_acc};
+      auto *mem = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+      if (mem->GetLastDurableTimestamp() != 0) {
+        mem->ResetTenant();
+        spdlog::debug("SystemRecoveryHandler: reset resetted tenant {}.", std::string{uuid});
+      }
+    } catch (const UnknownDatabaseException &) {
+      spdlog::debug("SystemRecoveryHandler: resetted tenant {} not present on this replica; nothing to reset.",
+                    std::string{uuid});
+    }
+  }
+
   /*
    * SUCCESS
    */
@@ -671,6 +743,14 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
           auto *req_reader,
           auto *res_builder) mutable {
         DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::ResetDatabaseRpc>(
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
+        ResetDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::RenameDatabaseRpc>(
       [&data, system_state_access, &dbms_handler](

@@ -171,7 +171,6 @@ memgraphCypherKeyword : cypherKeyword
                       | RELOAD
                       | RELOAD_TLS
                       | RENAME
-                      | REPAIR
                       | REPLACE
                       | REPLICA
                       | REPLICAS
@@ -275,7 +274,7 @@ query : cypherQuery
       | storageModeQuery
       | createSnapshotQuery
       | recoverSnapshotQuery
-      | repairDatabaseQuery
+      | resetDatabaseQuery
       | showSnapshotsQuery
       | showNextSnapshotQuery
       | streamQuery
@@ -721,7 +720,7 @@ createSnapshotQuery : CREATE SNAPSHOT ;
 
 recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( WITH CONFIG configsMap=configMap ) ? ( FORCE )? ;
 
-repairDatabaseQuery : REPAIR DATABASE ;
+resetDatabaseQuery : RESET DATABASE ;
 
 showSnapshotsQuery : SHOW SNAPSHOTS ;
 

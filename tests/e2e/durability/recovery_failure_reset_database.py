@@ -43,23 +43,23 @@ def storage_info(cursor):
     return {row[0]: row[1] for row in rows}
 
 
-def repair_notifications():
-    """Run REPAIR DATABASE through the neo4j driver (mgclient does not expose Bolt
+def reset_notifications():
+    """Run RESET DATABASE through the neo4j driver (mgclient does not expose Bolt
     notifications) and return the notifications carried in the query summary."""
     driver = neo4j.GraphDatabase.driver("bolt://localhost:7687", auth=("", ""))
     try:
         with driver.session() as session:
-            result = session.run("REPAIR DATABASE")
+            result = session.run("RESET DATABASE")
             return list(result.consume().notifications or [])
     finally:
         driver.close()
 
 
-def test_repair_database_cures_defunct(test_name):
-    """A defunct default database is cured in place by REPAIR DATABASE: it resets to an
-    empty working state, emits the repair notification, accepts import queries, and recovers
+def test_reset_database_cures_defunct(test_name):
+    """A defunct default database is cured in place by RESET DATABASE: it resets to an
+    empty working state, emits the reset notification, accepts import queries, and recovers
     healthy across a restart (it does not re-enter defunct)."""
-    data_directory = get_data_path("recovery_failure_repair_database", test_name)
+    data_directory = get_data_path("recovery_failure_reset_database", test_name)
     full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
     shutil.rmtree(full_data_directory, ignore_errors=True)
 
@@ -68,7 +68,7 @@ def test_repair_database_cures_defunct(test_name):
             # WAL disabled so the snapshot is the only durability: corrupting it makes
             # recovery fail deterministically (no WAL fallback that would recover healthy).
             "args": ["--log-level=TRACE", "--data-recovery-on-startup=true", "--storage-wal-enabled=false"],
-            "log_file": "recovery_failure_repair_database.log",
+            "log_file": "recovery_failure_reset_database.log",
             "data_directory": data_directory,
         }
     }
@@ -89,11 +89,11 @@ def test_repair_database_cures_defunct(test_name):
     cursor = connect(host="localhost", port=7687).cursor()
     assert storage_info(cursor)["status"] == "defunct"
 
-    # Cure the defunct database in place with REPAIR DATABASE and assert the success
+    # Cure the defunct database in place with RESET DATABASE and assert the success
     # notification is present in the query summary.
-    notifications = repair_notifications()
+    notifications = reset_notifications()
     titles = [n.get("title", "") for n in notifications]
-    assert any("repaired" in t for t in titles), f"Expected a repair notification, got {notifications}"
+    assert any("resetted" in t for t in titles), f"Expected a reset notification, got {notifications}"
 
     # The tenant is now an empty, ready database that accepts import queries.
     cursor = connect(host="localhost", port=7687).cursor()
@@ -104,7 +104,7 @@ def test_repair_database_cures_defunct(test_name):
     execute_and_fetch_all(cursor, "CREATE SNAPSHOT")
     interactive_mg_runner.kill_all()
 
-    # Restart: the repair left the durability directory restart-clean, so the tenant recovers
+    # Restart: the reset left the durability directory restart-clean, so the tenant recovers
     # healthy with the imported data and does not re-enter the defunct state.
     interactive_mg_runner.start(instances, "default")
     cursor = connect(host="localhost", port=7687).cursor()
@@ -113,17 +113,17 @@ def test_repair_database_cures_defunct(test_name):
     interactive_mg_runner.stop_all()
 
 
-def test_repair_database_rejected_on_healthy(test_name):
-    """REPAIR DATABASE is rejected on a healthy (non-defunct) database to prevent
+def test_reset_database_rejected_on_healthy(test_name):
+    """RESET DATABASE is rejected on a healthy (non-defunct) database to prevent
     accidental data loss."""
-    data_directory = get_data_path("recovery_failure_repair_database", test_name)
+    data_directory = get_data_path("recovery_failure_reset_database", test_name)
     full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
     shutil.rmtree(full_data_directory, ignore_errors=True)
 
     instances = {
         "default": {
             "args": ["--log-level=TRACE", "--data-recovery-on-startup=true", "--storage-wal-enabled=false"],
-            "log_file": "recovery_failure_repair_database_healthy.log",
+            "log_file": "recovery_failure_reset_database_healthy.log",
             "data_directory": data_directory,
         }
     }
@@ -134,7 +134,7 @@ def test_repair_database_rejected_on_healthy(test_name):
     assert storage_info(cursor)["status"] == "ready"
 
     with pytest.raises(Exception) as exc_info:
-        execute_and_fetch_all(cursor, "REPAIR DATABASE")
+        execute_and_fetch_all(cursor, "RESET DATABASE")
     assert "defunct" in str(exc_info.value)
 
     # The data is untouched.

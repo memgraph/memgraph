@@ -390,11 +390,6 @@ using SystemRecoveryRpcV1 = rpc::RequestResponse<SystemRecoveryReqV1, SystemReco
 using SystemRecoveryRpcV2 = rpc::RequestResponse<SystemRecoveryReqV2, SystemRecoveryResV2>;
 }  // namespace memgraph::replication
 
-// SystemRecoveryRpc backward-compat: a pre-V3 MAIN (no hot/cold) sends a V1 or V2 SystemRecoveryReq. A
-// V3 replica must accept it through the server-side LoadWithUpgrade chain (V1->V2->V3 / V2->V3),
-// defaulting the fields the old wire lacks (parameters for V1; cold_databases for both), and reply with
-// a response the old client can read via the Res Downgrade chain (V3->V2->V1). This exercises the actual
-// upgrade/downgrade path end to end — the companion V3 test only covers the same-version round-trip.
 TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
   Endpoint const endpoint{"localhost", port};
 
@@ -460,6 +455,20 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
     EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryResV2::Result::SUCCESS);
     EXPECT_EQ(seen_version, 2U) << "the server must observe the V2 wire version and run the upgrade chain";
     EXPECT_TRUE(cold_defaulted_empty) << "V3 cold_databases must default empty when upgrading a V2 request";
+  }
+  {
+    auto stream = client.Stream<memgraph::replication::SystemRecoveryRpc>(
+        memgraph::utils::UUID{},
+        0,
+        std::vector<memgraph::storage::SalientConfig>{},
+        memgraph::auth::Auth::Config{},
+        std::vector<memgraph::auth::User>{},
+        std::vector<memgraph::auth::Role>{},
+        std::vector<memgraph::auth::UserProfiles::Profile>{},
+        std::vector<memgraph::parameters::ParameterInfo>{},
+        std::vector<memgraph::utils::UUID>{memgraph::utils::UUID{}, memgraph::utils::UUID{}});
+    auto reply = stream.SendAndWait();
+    EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
   }
 }
 
