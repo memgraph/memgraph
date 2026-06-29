@@ -556,6 +556,14 @@ PrometheusMetrics::PrometheusMetrics()
               .Name("memgraph_database_boot_recovery_oom_failures_total")
               .Help("Number of databases left cold because their hot recovery ran out of memory at startup")
               .Register(registry_)},
+      database_suspend_latency_family_{prometheus::BuildHistogram()
+                                           .Name("memgraph_database_suspend_latency_seconds")
+                                           .Help("Latency of a successful database SUSPEND in seconds")
+                                           .Register(registry_)},
+      database_resume_latency_family_{prometheus::BuildHistogram()
+                                          .Name("memgraph_database_resume_latency_seconds")
+                                          .Help("Latency of a successful database RESUME in seconds")
+                                          .Register(registry_)},
       // HighAvailability counters
       successful_failovers_family_{prometheus::BuildCounter()
                                        .Name("memgraph_successful_failovers_total")
@@ -846,6 +854,8 @@ PrometheusMetrics::PrometheusMetrics()
   global.cold_databases = &cold_databases_family_.Add(no_labels);
   global.database_boot_recovery_failures = &database_boot_recovery_failures_family_.Add(no_labels);
   global.database_boot_recovery_oom_failures = &database_boot_recovery_oom_failures_family_.Add(no_labels);
+  global.database_suspend_latency_seconds = &database_suspend_latency_family_.Add(no_labels, kLatencyBuckets);
+  global.database_resume_latency_seconds = &database_resume_latency_family_.Add(no_labels, kLatencyBuckets);
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
@@ -2039,6 +2049,8 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
                  "HotCold",
                  "Counter",
                  static_cast<int64_t>(global.database_boot_recovery_oom_failures->Value())});
+  AppendHistogramPercentiles(out, "DatabaseSuspendLatency", "HotCold", *global.database_suspend_latency_seconds);
+  AppendHistogramPercentiles(out, "DatabaseResumeLatency", "HotCold", *global.database_resume_latency_seconds);
 
   // Session
   out.push_back({"ActiveSessions", "Session", "Gauge", static_cast<int64_t>(global.active_sessions->Value())});

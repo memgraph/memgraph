@@ -1029,6 +1029,10 @@ struct ResumeDatabase : memgraph::system::ISystemAction {
 DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::Transaction *txn, bool for_recovery) {
   if (name == kDefaultDB) return std::unexpected{SuspendError::DEFAULT_DB};
 
+  // Wall-clock start for the suspend-latency histogram; observed only on the success path below so a
+  // rejected/aborted attempt (e.g. an ACTIVE_CONNECTIONS timeout) does not pollute the distribution.
+  const auto suspend_start = std::chrono::steady_clock::now();
+
   SuspendedEntry entry;
   utils::Gatekeeper<Database> *gk = nullptr;
   std::optional<DatabaseAccess> acc;
@@ -1255,6 +1259,10 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // Done only after the local teardown commits; the replica wire is filled by DoReplication.
   if (txn) txn->AddAction<SuspendDatabase>(tenant_uuid);
 
+  // Successful suspend: record end-to-end latency (includes the consolidating snapshot + teardown).
+  metrics::Metrics().global.database_suspend_latency_seconds->Observe(
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - suspend_start).count());
+
   spdlog::info("hot/cold: database '{}' suspended (HOT -> COLD)", name);
   return {};
 }
@@ -1269,6 +1277,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
   // surfaced as RECOVERY_FAILED instead of looping forever.
   constexpr int kMaxColdFallbackRestarts = 16;
   int cold_fallback_restarts = 0;
+  // Wall-clock start for the resume-latency histogram; observed only on the winner's successful publish
+  // below (the path that bumps the resume counter), so loser/error returns do not skew the distribution.
+  const auto resume_start = std::chrono::steady_clock::now();
   while (true) {
     utils::Gatekeeper<Database> *gk = nullptr;
     // Copy only the two fields the off-lock build needs (salient + rel_dir) instead of the full
@@ -1399,6 +1410,11 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
         return std::unexpected{ResumeError::RECOVERY_FAILED};
       }
+      // Publish committed: the tenant is HOT and queryable. Record resume latency (recovery + publish)
+      // OUTSIDE the try above so it cannot reach that catch (which would abort_resume a HOT gatekeeper),
+      // and before the best-effort post-publish bookkeeping below so that work is excluded from the metric.
+      metrics::Metrics().global.database_resume_latency_seconds->Observe(
+          std::chrono::duration<double>(std::chrono::steady_clock::now() - resume_start).count());
 
       // Flip the durable entry back to HOT (drop the cold marker) so a restart recovers it HOT.
       // Done in a SEPARATE short lock_ scope AFTER the publish. The write is guarded by

@@ -288,6 +288,10 @@ struct GlobalMetricHandles {
   prometheus::Gauge *cold_databases;
   prometheus::Counter *database_boot_recovery_failures;
   prometheus::Counter *database_boot_recovery_oom_failures;
+  // Wall-clock latency of a successful SUSPEND / RESUME (observed once per successful operation, on the
+  // same path as the counters above). Global for the same reason: a COLD tenant has no live storage.
+  prometheus::Histogram *database_suspend_latency_seconds;
+  prometheus::Histogram *database_resume_latency_seconds;
 
   // Transaction (global) — incremented when no per-db context is available
   prometheus::Counter *transient_errors;
@@ -571,6 +575,8 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &cold_databases_family_;
   prometheus::Family<prometheus::Counter> &database_boot_recovery_failures_family_;
   prometheus::Family<prometheus::Counter> &database_boot_recovery_oom_failures_family_;
+  prometheus::Family<prometheus::Histogram> &database_suspend_latency_family_;
+  prometheus::Family<prometheus::Histogram> &database_resume_latency_family_;
 
   // No separate global families needed — global no-db counters reuse the per-db families with no label
 

@@ -136,6 +136,12 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "DatabaseResumes", "type": "HotCold", "metric type": "Counter"},
         {"name": "DatabaseSuspends", "type": "HotCold", "metric type": "Counter"},
         {"name": "ColdDatabases", "type": "HotCold", "metric type": "Gauge"},
+        {"name": "DatabaseResumeLatency_us_50p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseResumeLatency_us_90p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseResumeLatency_us_99p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseSuspendLatency_us_50p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseSuspendLatency_us_90p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseSuspendLatency_us_99p", "type": "HotCold", "metric type": "Histogram"},
         # Index (alphabetical)
         {"name": "ActiveEdgePropertyIndices", "type": "Index", "metric type": "Gauge"},
         {"name": "ActiveEdgeTypeIndices", "type": "Index", "metric type": "Gauge"},
