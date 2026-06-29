@@ -210,6 +210,7 @@ constexpr auto kVersionV1 = "V1";
 constexpr auto kVersionV2 = "V2";
 constexpr auto kVersionV3 = "V3";
 constexpr auto kVersionV4 = "V4";
+constexpr auto kVersionV5 = "V5";
 }  // namespace
 
 /**
@@ -310,47 +311,11 @@ void MigrateVersions(kvstore::KVStore &store) {
     spdlog::info("Auth storage migration to V2 completed successfully");
   }
 
-  auto const migrate_entities = [&](auto &puts) {
-    for (auto const &prefix : {kUserPrefix, kRolePrefix}) {
-      for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
-        auto const &[key, value] = *it;
-        try {
-          auto data = nlohmann::json::parse(value);
-          auth::MigrateAuthJson(data);
-          puts.emplace(key, data.dump());
-        } catch (const nlohmann::json::exception &e) {
-          throw AuthException("Failed to migrate auth data for '{}': {}", key, e.what());
-        }
-      }
-    }
-  };
-
-  if (version_str == kVersionV2) {
-    spdlog::info("Migrating auth storage from V2 to V3");
-    spdlog::warn(
-        "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
-
-    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV3}};
-    migrate_entities(puts);
-    if (!puts.empty()) {
-      store.PutMultiple(puts);
-    }
-
-    version_str = kVersionV3;
-    spdlog::info("Auth storage migration to V3 completed successfully");
-  }
-
-  if (version_str == kVersionV3) {
-    spdlog::info("Migrating auth storage from V3 to V4");
-
-    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV4}};
-    migrate_entities(puts);
-    if (!puts.empty()) {
-      store.PutMultiple(puts);
-    }
-
-    version_str = kVersionV4;
-    spdlog::info("Auth storage migration to V4 completed successfully");
+  // V3/V4 entity-level migrations (FGA schema changes) are handled lazily by
+  // MigrateAuthJson on each Deserialize. Just bump the store version.
+  if (version_str == kVersionV2 || version_str == kVersionV3 || version_str == kVersionV4) {
+    store.Put(kVersion, kVersionV5);
+    version_str = kVersionV5;
   }
 }
 
@@ -377,6 +342,12 @@ auto ParseJson(std::string_view str) {
   return data;
 }
 
+auto ParseAndMigrateJson(std::string_view str) {
+  auto data = ParseJson(str);
+  auth::MigrateAuthJson(data);
+  return data;
+}
+
 };  // namespace
 
 Auth::Auth(std::string storage_directory, Config config
@@ -395,7 +366,7 @@ Auth::Auth(std::string storage_directory, Config config
     MigrateVersions(storage_);
   } else {
     // Clean storage; put the version
-    storage_.Put(kVersion, kVersionV4);
+    storage_.Put(kVersion, kVersionV5);
   }
 
 #ifdef MG_ENTERPRISE
@@ -683,7 +654,7 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
   auto existing_user = storage_.Get(kUserPrefix + username);
   if (!existing_user) return std::nullopt;
 
-  auto user = User::Deserialize(ParseJson(*existing_user));
+  auto user = User::Deserialize(ParseAndMigrateJson(*existing_user));
   LinkUser(user);
   return user;
 }
@@ -850,7 +821,7 @@ std::vector<auth::User> Auth::AllUsers() const {
     auto username = it->first.substr(kUserPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
     try {
-      User user = auth::User::Deserialize(ParseJson(it->second));  // Will throw on failure
+      User user = auth::User::Deserialize(ParseAndMigrateJson(it->second));  // Will throw on failure
       LinkUser(user);
       ret.emplace_back(std::move(user));
     } catch (AuthException &) {
@@ -867,7 +838,7 @@ std::vector<std::string> Auth::AllUsernames() const {
     if (username != utils::ToLowerCase(username)) continue;
     try {
       // Check if serialized correctly
-      memgraph::auth::User::Deserialize(ParseJson(it->second));  // Will throw on failure
+      memgraph::auth::User::Deserialize(ParseAndMigrateJson(it->second));  // Will throw on failure
       ret.emplace_back(std::move(username));
     } catch (AuthException &) {
       continue;
@@ -891,7 +862,7 @@ std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
   auto existing_role = storage_.Get(kRolePrefix + rolename);
   if (!existing_role) return std::nullopt;
 
-  auto role = Role::Deserialize(ParseJson(*existing_role));
+  auto role = Role::Deserialize(ParseAndMigrateJson(*existing_role));
   LinkRole(role);
   return role;
 }
@@ -1213,7 +1184,7 @@ std::vector<auth::Role> Auth::AllRoles() const {
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
     if (rolename != utils::ToLowerCase(rolename)) continue;
-    Role role = memgraph::auth::Role::Deserialize(ParseJson(it->second));  // Will throw on failure
+    Role role = memgraph::auth::Role::Deserialize(ParseAndMigrateJson(it->second));  // Will throw on failure
     LinkRole(role);
     ret.emplace_back(std::move(role));
   }
@@ -1227,7 +1198,7 @@ std::vector<std::string> Auth::AllRolenames() const {
     if (rolename != utils::ToLowerCase(rolename)) continue;
     try {
       // Check that the data is serialized correctly
-      memgraph::auth::Role::Deserialize(ParseJson(it->second));
+      memgraph::auth::Role::Deserialize(ParseAndMigrateJson(it->second));
       ret.emplace_back(std::move(rolename));
     } catch (AuthException &) {
       continue;
@@ -1417,7 +1388,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
     try {
-      User user = auth::User::Deserialize(ParseJson(it->second));
+      User user = auth::User::Deserialize(ParseAndMigrateJson(it->second));
       LinkUser(user);
       user.db_access().Revoke(db);
       SaveUser(user, system_tx);
@@ -1428,7 +1399,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
     try {
-      auto role = memgraph::auth::Role::Deserialize(ParseJson(it->second));
+      auto role = memgraph::auth::Role::Deserialize(ParseAndMigrateJson(it->second));
       role.db_access().Revoke(db);
       LinkRole(role);
       SaveRole(role, system_tx);
