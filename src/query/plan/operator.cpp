@@ -6238,6 +6238,14 @@ std::unique_ptr<LogicalOperator> EvaluatePatternFilter::Clone(AstStorage *storag
 }
 
 PullAwaitable EvaluatePatternFilter::EvaluatePatternFilterCursor::DoPull(Frame &frame, ExecutionContext &context) {
+  // INTENTIONAL SYNC ISLAND (audit 2026-06-27, AUDIT_AND_NEXT.md §2): the EXISTS sub-plan is pulled
+  // synchronously from inside expression evaluation (the callback below must return a bool there), so it
+  // is never driven via PullCo and its DoPull is never coro-driven by the corpus. This is BY DESIGN, not
+  // a gap: driving it coroutine would require a Suppressed (non-yielding) sub-pull — pure per-boundary
+  // cost with zero benefit, since a bounded EXISTS check can never yield. It is a bounded sync region
+  // below an effective split point, consistent with the split-point model, and is equal between modes
+  // (the synchronous Pull() runs identically whether the parent is Sync or Coro). DO NOT convert.
+  //
   // Coroutine twin of Pull(). FIDELITY: master's Pull() unconditionally returns true, writing an
   // evaluator callback into the frame. The callback's nested input pull is a SYNCHRONOUS bool Pull()
   // -- the EXISTS synchronous island, not part of any co_await chain. So this is an always-true
