@@ -31,6 +31,8 @@ env:
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
   RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-jepsen"
 
 jobs:
   core:
@@ -70,6 +72,14 @@ jobs:
           --arch $ARCH \
           --no-conan-cache \
           run
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build release binary
         run: |
@@ -162,25 +172,18 @@ jobs:
           cd tests/jepsen
           ./run.sh process-results
 
-      - name: Upload Jepsen core dumps to S3
+      - name: Analyze Jepsen core dumps
         if: always()
         continue-on-error: true
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: eu-west-1
         run: |
-          cores_dir="tests/jepsen/cores"
-          if [ ! -d "$cores_dir" ] || [ -z "$(ls -A "$cores_dir" 2>/dev/null)" ]; then
-            echo "No core dumps collected — skipping S3 upload."
-            exit 0
-          fi
-          cp build/memgraph "$cores_dir/memgraph"
-          ts="$(date -u +%Y%m%dT%H%M%SZ)"
-          s3_prefix="s3://deps.memgraph.io/jepsen_core_dumps/${ts}_run${{ github.run_id }}-attempt${{ github.run_attempt }}/"
-          echo "Uploading $(ls "$cores_dir" | wc -l) file(s) to $s3_prefix"
-          aws s3 sync "$cores_dir" "$s3_prefix"
-          rm -rf "$cores_dir"
+          ./tools/ci/core-dumps/collect_jepsen_cores.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Save Jepsen report
         continue-on-error: true
