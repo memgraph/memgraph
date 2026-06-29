@@ -143,7 +143,7 @@ fi
 
 # Shared destination for everything from this crash: stack traces, and (with
 # --upload-core) the core dump and build artifacts all land in the same folder.
-bucket="deps.memgraph.io"
+bucket="memgraph-cores"
 region="eu-west-1"
 if command -v openssl >/dev/null 2>&1; then
   hash="$(openssl rand -hex 8)"

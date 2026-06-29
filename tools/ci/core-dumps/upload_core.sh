@@ -29,7 +29,7 @@ BUILD_CONTAINER=""
 CORES_DIR="/tmp/mg-cores"
 BUILD_DIR="/home/mg/memgraph/build"
 S3_PREFIX=""
-S3_BUCKET="deps.memgraph.io"
+S3_BUCKET="memgraph-cores"
 S3_REGION="eu-west-1"
 MODE="auto"
 CORE_SIZE_LIMIT="2"   # GiB
@@ -52,7 +52,7 @@ Options:
   --cores-dir DIR       Core dump dir inside the container (default: $CORES_DIR)
   --build-dir DIR       Build dir inside the container (default: $BUILD_DIR)
   --bucket NAME         S3 bucket (default: $S3_BUCKET)
-  --region NAME         S3 region for the HTTP URL (default: $S3_REGION)
+  --region NAME         S3 region for the upload (default: $S3_REGION)
   --mode MODE           true | false | auto (default: $MODE)
   --core-size-limit N   auto threshold in GiB (default: $CORE_SIZE_LIMIT)
   --exec-user USER      Container user to run stat/gzip/tar as (default: $EXEC_USER)
@@ -129,7 +129,8 @@ if ! docker inspect "$BUILD_CONTAINER" >/dev/null 2>&1; then
 fi
 
 base_uri="s3://${S3_BUCKET}/${S3_PREFIX}"
-base_url="https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET}/${S3_PREFIX}"
+
+s3_put_args=(--region "$S3_REGION" --sse aws:kms)
 
 # Gather cores with their sizes and decide which are within the limit.
 mapfile -t core_lines < <(docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
@@ -161,8 +162,8 @@ echo "Uploading build artifacts (memgraph + *.debug + *.so) -> ${base_uri}/binar
 binaries_url=""
 if docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
      "cd '$build_parent' && find '$build_base' -type f \\( -name memgraph -o -name '*.debug' -o -name '*.so' \\) -print0 | tar --null -czf - -T -" \
-     | aws s3 cp --region "$S3_REGION" - "${base_uri}/binaries.tar.gz"; then
-  binaries_url="${base_url}/binaries.tar.gz"
+     | aws s3 cp "${s3_put_args[@]}" - "${base_uri}/binaries.tar.gz"; then
+  binaries_url="${base_uri}/binaries.tar.gz"
   echo "  build artifacts uploaded: ${binaries_url}"
 else
   echo "Warning: build artifact upload failed (continuing)." >&2
@@ -178,9 +179,9 @@ for entry in "${eligible[@]}"; do
   cbase="$(basename "$core")"
   echo "Uploading core ${core} ($((raw_size / 1048576)) MiB raw) -> ${base_uri}/${cbase}.gz"
   if docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" sh -c "gzip -c '$core'" \
-       | aws s3 cp --region "$S3_REGION" --expected-size "$raw_size" - "${base_uri}/${cbase}.gz"; then
-    echo "  core uploaded: ${base_url}/${cbase}.gz"
-    [[ -z "$first_core_url" ]] && first_core_url="${base_url}/${cbase}.gz"
+       | aws s3 cp "${s3_put_args[@]}" --expected-size "$raw_size" - "${base_uri}/${cbase}.gz"; then
+    echo "  core uploaded: ${base_uri}/${cbase}.gz"
+    [[ -z "$first_core_url" ]] && first_core_url="${base_uri}/${cbase}.gz"
   else
     echo "Warning: core upload failed for ${core} (continuing)." >&2
   fi
@@ -196,7 +197,7 @@ if [[ -n "$URL_OUT" ]]; then
   } > "$URL_OUT"
 fi
 
-echo "Core bundle available under: ${base_url}/"
+echo "Core bundle available under: ${base_uri}/"
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
   echo "::warning title=Memgraph core dump uploaded::Core dump: ${first_core_url:-(upload failed)}%0ABinaries: ${binaries_url:-(upload failed)}"
 fi

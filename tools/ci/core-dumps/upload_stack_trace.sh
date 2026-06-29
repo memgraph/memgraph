@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Upload Memgraph CI core-dump stack traces to S3 and (best-effort) ping the
-# remote monitoring server with the resulting HTTP URL(s).
+# remote monitoring server with the resulting s3:// URI(s).
 #
 # The destination prefix is handed in by collect.sh so the stack traces, the
 # core dump and the build artifacts for one crash all land in the same folder:
@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -
 
 TRACES_DIR=""
 S3_PREFIX=""
-S3_BUCKET="deps.memgraph.io"
+S3_BUCKET="memgraph-cores"
 S3_REGION="eu-west-1"
 CORE_URL=""
 BINARIES_URL=""
@@ -27,7 +27,7 @@ Options:
   --traces-dir DIR    Directory of stack-trace files to upload (required)
   --s3-prefix PREFIX  S3 key prefix to upload under (required)
   --bucket NAME       S3 bucket (default: $S3_BUCKET)
-  --region NAME       S3 region for the HTTP URL (default: $S3_REGION)
+  --region NAME       S3 region for the upload (default: $S3_REGION)
   --core-url URL      Core dump URL to include in the monitoring log line
   --binaries-url URL  Build-artifacts URL to include in the monitoring log line
   -h, --help          Show this help
@@ -69,12 +69,11 @@ if ! command -v aws >/dev/null 2>&1; then
 fi
 
 s3_uri="s3://${S3_BUCKET}/${S3_PREFIX}/"
-http_url="https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET}/${S3_PREFIX}/"
 
 echo "Uploading $(find "$TRACES_DIR" -type f | wc -l) stack-trace file(s) to $s3_uri"
-aws s3 cp --region "$S3_REGION" --recursive "$TRACES_DIR" "$s3_uri"
+aws s3 cp --region "$S3_REGION" --sse aws:kms --recursive "$TRACES_DIR" "$s3_uri"
 
-echo "Stack traces available under: $http_url"
+echo "Stack traces available under: $s3_uri"
 
 # Build the list of per-file URLs. The analyze step sanitizes trace filenames
 # to a URL-safe set, so the uploaded object names need no extra encoding and we
@@ -84,7 +83,7 @@ mapfile -t trace_files < <(cd "$TRACES_DIR" && find . -type f -printf '%P\n' | s
 # Surface each file URL as a GitHub annotation when running in Actions.
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
   for f in "${trace_files[@]}"; do
-    echo "::warning title=Memgraph core dump captured::Stack trace: ${http_url}${f}"
+    echo "::warning title=Memgraph core dump captured::Stack trace: ${s3_uri}${f}"
   done
 fi
 
@@ -94,7 +93,7 @@ fi
 # and — when the core was uploaded — the core dump and build-artifacts URLs.
 if [[ -n "${MONITORING_HOST:-}" ]]; then
   for f in "${trace_files[@]}"; do
-    ping_args=(--url "${http_url}${f}")
+    ping_args=(--url "${s3_uri}${f}")
     if [[ "$f" =~ _sig([0-9]+) ]]; then
       ping_args+=(--signal "${BASH_REMATCH[1]}")
     fi

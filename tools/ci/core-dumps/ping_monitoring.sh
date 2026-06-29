@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Push a single log line to the remote VictoriaLogs monitoring server,
-# carrying the HTTP URL of a Memgraph CI core-dump stack trace.
+# carrying the s3:// URI of a Memgraph CI core-dump stack trace.
 #
 # This reuses the same VictoriaLogs Loki push flow and label convention as
 # tools/ci/monitoring (see manifests/vector.yaml.tmpl): the log line is
@@ -25,7 +25,7 @@ Usage: ping_monitoring.sh --url STACK_TRACE_URL [--message TEXT]
 Pushes one log line to the VictoriaLogs Loki endpoint.
 
 Options:
-  --url URL         HTTP URL of the uploaded stack trace (required)
+  --url URL         s3:// URI of the uploaded stack trace (required)
   --message TEXT    Override the log message (default mentions the URL)
   --signal N        Signal that killed Memgraph (adds signal/exit_status labels)
   --core-url URL    Core dump URL (adds a core_url label)
