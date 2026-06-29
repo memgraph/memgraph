@@ -957,6 +957,11 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 
   auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
 
+  if (std::ranges::contains(coordinator_instances_context, config.coordinator_id, &CoordinatorInstanceContext::id)) {
+    spdlog::error("Trying to set-up a coordinator with id which is already added to the cluster.");
+    return AddCoordinatorInstanceStatus::ID_ALREADY_EXISTS;
+  }
+
   {
     auto const existing_coord = std::ranges::find_if(
         coordinator_instances_context,

@@ -50,7 +50,7 @@ namespace r = ranges;
 namespace rv = r::views;
 
 static constexpr std::string_view kInvalidWalErrorMessage =
-    "Invalid WAL data! Your durability WAL files somehow got corrupted. Please contact the Memgraph team for support.";
+    "Invalid WAL data! Your durability WAL files got corrupted. Please contact the Memgraph team for support.";
 
 namespace memgraph::storage::durability {
 
