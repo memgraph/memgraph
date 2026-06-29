@@ -23,6 +23,10 @@ on:
         type: string
         description: "The ID of the run that triggered this workflow."
         default: ''
+      python_version:
+        type: string
+        description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the container's default Python. Runtime stays the image default (no swap)."
+        default: ''
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -101,6 +105,7 @@ jobs:
       run_tests: true
       run_smoke_tests: true
       print_output_url: ${{ github.event_name == 'merge_group' }}
+      python_version: ${{ inputs.python_version }}
     secrets: inherit
 
   arm_mage_tests:
@@ -121,6 +126,7 @@ jobs:
       run_tests: true
       run_smoke_tests: true
       print_output_url: ${{ github.event_name == 'merge_group' }}
+      python_version: ${{ inputs.python_version }}
     secrets: inherit
 
   cuda_mage_tests:
@@ -136,4 +142,5 @@ jobs:
       push_to_s3: false
       run_tests: true
       cuda: true
+      python_version: ${{ inputs.python_version }}
     secrets: inherit

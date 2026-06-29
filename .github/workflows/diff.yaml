@@ -41,6 +41,10 @@ on:
         type: string
         default: ''
         description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the default Python inside each build container."
+      python_runtime_version:
+        type: string
+        default: ''
+        description: "After building, remove the build Python and swap in this version (e.g. 3.13) so tests run the binary against a different libpython. Empty disables the swap."
   workflow_call:
     inputs:
       community_core:
@@ -78,6 +82,10 @@ on:
         type: string
         default: ''
         description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the default Python inside each build container."
+      python_runtime_version:
+        type: string
+        default: ''
+        description: "After building, remove the build Python and swap in this version (e.g. 3.13) so tests run the binary against a different libpython. Empty disables the swap."
       ref:
         description: 'Branch or commit ref to run the workflow on'
         required: false
@@ -128,6 +136,7 @@ jobs:
       os: 'ubuntu-24.04'
       run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
       python_version: ${{ inputs.python_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
     secrets: inherit
 
   Coverage:
@@ -140,6 +149,7 @@ jobs:
       run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
       run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_clang_tidy }}
       python_version: ${{ inputs.python_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
     secrets: inherit
 
   Debug:
@@ -152,6 +162,7 @@ jobs:
       run_core: ${{ needs.DiffSetup.outputs.run_debug_core }}
       run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
       python_version: ${{ inputs.python_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
     secrets: inherit
 
   Jepsen:
@@ -175,6 +186,7 @@ jobs:
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
       run_query_modules: ${{ needs.DiffSetup.outputs.run_release_query_modules }}
       python_version: ${{ inputs.python_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
     secrets: inherit
 
   Malloc:
@@ -186,6 +198,7 @@ jobs:
       os: 'ubuntu-24.04'
       run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
       python_version: ${{ inputs.python_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
     secrets: inherit
 
   Mage:
@@ -197,6 +210,9 @@ jobs:
       run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
       run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
       run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
+      # Mage only overrides the build-time Python; runtime stays the image
+      # default, so no python_runtime_version (no swap) is forwarded.
+      python_version: ${{ inputs.python_version }}
     secrets: inherit
 
   MGCXX:

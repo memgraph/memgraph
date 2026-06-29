@@ -152,6 +152,7 @@ print_help () {
   echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
   echo -e "  --python-version string       Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
+  echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
   echo -e "  --conan-username string       Specify conan username (default \"\")"
   echo -e "  --conan-password string       Specify conan password (default \"\")"
@@ -469,6 +470,83 @@ upload_conan_cache() {
   return $?
 }
 
+# Point the unversioned abi3 SONAME `libpython3.so` at an exact Python version's
+# versioned library inside the build container, so the memgraph binary (whose
+# DT_NEEDED was rewritten to `libpython3.so`) both builds and runs against that
+# version. Arg: <version> e.g. 3.12
+point_libpython3_so () {
+  local version="$1"
+  docker exec -u root "$build_container" bash -c '
+    v="'"$version"'"
+    target=$(ls /usr/lib/*/libpython${v}.so.1.0 /usr/lib/libpython${v}.so.1.0 2>/dev/null | head -n 1)
+    if [ -n "$target" ]; then
+      ln -sf "$(basename "$target")" "$(dirname "$target")/libpython3.so"
+      ldconfig || true
+      echo "Pointed libpython3.so -> $target"
+    else
+      echo "WARNING: libpython${v}.so.1.0 not found in the container" >&2
+    fi'
+}
+
+# Install an exact Python version from the deadsnakes PPA and point libpython3.so
+# at it. deadsnakes is Ubuntu-only; on other distros this warns and relies on the
+# container already providing the version (find_package fails loudly otherwise).
+# Arg: <version> e.g. 3.12
+install_python_from_deadsnakes () {
+  local version="$1"
+  if [[ "$os" != ubuntu* ]]; then
+    echo "WARNING: Python $version requested on non-Ubuntu OS '$os'; deadsnakes is Ubuntu-only, skipping install. The container must already provide Python $version." >&2
+    return 0
+  fi
+  echo "Installing Python $version from the deadsnakes PPA ..."
+  docker exec -u root "$build_container" bash -c "export DEBIAN_FRONTEND=noninteractive && \
+    apt-get update && \
+    apt-get install -y software-properties-common && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y python${version} python${version}-dev"
+  point_libpython3_so "$version"
+}
+
+# Remove an exact Python version (interpreter, headers and shared library) so we
+# can prove the abi3 binary no longer depends on the version it was built with.
+# No-op on non-Ubuntu. Refuses to remove the container's system python3 (purging
+# it would cascade-remove python3 and the build/test tooling that depends on it);
+# in that case the version stays installed but libpython3.so is still repointed
+# by the caller, so the abi3 cross-version test remains valid. Arg: <version>
+remove_python_version () {
+  local version="$1"
+  [[ "$os" == ubuntu* ]] || return 0
+  docker exec -u root "$build_container" bash -c '
+    export DEBIAN_FRONTEND=noninteractive
+    v="'"$version"'"
+    default=$(python3 --version 2>/dev/null | cut -d" " -f2 | cut -d. -f1,2)
+    if [ "$v" = "$default" ]; then
+      echo "Refusing to remove Python $v: it is the container system python3 (build/test tooling depends on it). Keeping it installed; libpython3.so is still repointed for the abi3 test." >&2
+      exit 0
+    fi
+    echo "Removing Python $v from the container ..."
+    apt-get purge -y "python$v" "python$v-dev" "libpython$v" "libpython$v-dev" || true
+    ldconfig || true'
+}
+
+# Print, in bold orange for easy visual verification in CI, which libpython the
+# freshly built binary resolves to. After the abi3 rewrite DT_NEEDED reads
+# `libpython3.so`; resolve that symlink to the concrete versioned library.
+# Arg: <label> e.g. "build" or "runtime"
+report_libpython_link () {
+  local label="$1"
+  local mg_binary="$MGBUILD_ROOT_DIR/build/memgraph"
+  local info
+  info=$(docker exec -u mg "$build_container" bash -c '
+    bin="'"$mg_binary"'"
+    needed=$(patchelf --print-needed "$bin" 2>/dev/null | grep -i "^libpython" | head -n 1 || true)
+    resolved=$(ldd "$bin" 2>/dev/null | awk "/libpython/ {print \$3; exit}" || true)
+    real=$(readlink -f "$resolved" 2>/dev/null || true)
+    echo "DT_NEEDED=${needed:-<none>} -> ${real:-<unresolved>}"' 2>/dev/null || true)
+  printf '\033[1;38;5;208m%s\033[0m\n' "Memgraph libpython link (${label}): ${info:-<unknown>}"
+}
+
 
 build_memgraph () {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
@@ -497,6 +575,7 @@ build_memgraph () {
   local split_debug=false
   local python_version=""
   local python_version_flag=""
+  local python_runtime_version=""
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -568,6 +647,14 @@ build_memgraph () {
         python_version_flag="-DMG_PYTHON_VERSION=$2"
         shift 2
       ;;
+      --python-runtime-version)
+        # After building (and reporting the build-time link), remove the build
+        # Python and install this version instead, so the test steps that follow
+        # run the binary against a libpython it was NOT built against — proving
+        # the abi3 (stable-ABI) portability promise.
+        python_runtime_version="$2"
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -608,37 +695,12 @@ build_memgraph () {
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
-  # When an explicit Python version is requested (--python-version), install it
-  # from the deadsnakes PPA so the build can link against it, then point the
-  # unversioned abi3 SONAME libpython3.so at exactly that version (overriding
-  # ensure_libpython3_so_symlink's "highest installed" default below) so the
-  # binary both builds and runs against the requested version. deadsnakes is
-  # Ubuntu-only; on other distros the container is expected to already provide
-  # the version (and find_package will fail loudly if it doesn't).
+  # Install the requested build-time Python (--python-version) from deadsnakes
+  # and point libpython3.so at it, so the build links against exactly that
+  # version. This overrides ensure_libpython3_so_symlink's "highest installed"
+  # default below (which no-ops once libpython3.so already exists).
   if [[ -n "$python_version" ]]; then
-    if [[ "$os" == ubuntu* ]]; then
-      echo "Installing Python $python_version from the deadsnakes PPA ..."
-      docker exec -u root "$build_container" bash -c "export DEBIAN_FRONTEND=noninteractive && \
-        apt-get update && \
-        apt-get install -y software-properties-common && \
-        add-apt-repository -y ppa:deadsnakes/ppa && \
-        apt-get update && \
-        apt-get install -y python${python_version} python${python_version}-dev"
-      # Repoint libpython3.so at the requested version (single-quoted container
-      # script so globs/$() run in the container; version spliced from the host).
-      docker exec -u root "$build_container" bash -c '
-        v="'"$python_version"'"
-        target=$(ls /usr/lib/*/libpython${v}.so.1.0 /usr/lib/libpython${v}.so.1.0 2>/dev/null | head -n 1)
-        if [ -n "$target" ]; then
-          ln -sf "$(basename "$target")" "$(dirname "$target")/libpython3.so"
-          ldconfig || true
-          echo "Pointed libpython3.so -> $target"
-        else
-          echo "WARNING: libpython${v}.so.1.0 not found after deadsnakes install" >&2
-        fi'
-    else
-      echo "WARNING: --python-version $python_version requested on non-Ubuntu OS '$os'; deadsnakes is Ubuntu-only, skipping PPA install. The container must already provide Python $python_version." >&2
-    fi
+    install_python_from_deadsnakes "$python_version"
   fi
 
   # The abi3 DT_NEEDED rewrite (cmake/RewriteDtNeededAbi3.cmake) only fires when
@@ -859,20 +921,21 @@ build_memgraph () {
   # Clean up virtual environment
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && deactivate"
 
-  # Report which libpython the freshly built binary will load, in bold orange so
-  # it stands out in CI logs for visual verification. After the abi3 rewrite the
-  # binary's DT_NEEDED reads "libpython3.so"; resolve that symlink to the
-  # concrete versioned library to show the actual Python version.
-  local mg_binary="$MGBUILD_ROOT_DIR/build/memgraph"
-  local libpython_info
-  libpython_info=$(docker exec -u mg "$build_container" bash -c '
-    bin="'"$mg_binary"'"
-    needed=$(patchelf --print-needed "$bin" 2>/dev/null | grep -i "^libpython" | head -n 1 || true)
-    resolved=$(ldd "$bin" 2>/dev/null | awk "/libpython/ {print \$3; exit}" || true)
-    real=$(readlink -f "$resolved" 2>/dev/null || true)
-    echo "DT_NEEDED=${needed:-<none>} -> ${real:-<unresolved>}"' 2>/dev/null || true)
-  # Bold orange (ANSI 256-color 208).
-  printf '\033[1;38;5;208m%s\033[0m\n' "Memgraph links to libpython: ${libpython_info:-<unknown>}"
+  # Report which libpython the freshly built binary links to (build version).
+  report_libpython_link "build"
+
+  # Optionally prove abi3 portability: remove the Python we built against and
+  # swap in a different one, so the test steps that run after this build load
+  # the binary against a libpython it was NOT built against. The container
+  # persists across workflow steps, so the new symlink is in effect for them.
+  if [[ -n "$python_runtime_version" ]]; then
+    echo "Swapping runtime Python: removing build version '${python_version:-<container default>}', installing '$python_runtime_version' ..."
+    if [[ -n "$python_version" ]]; then
+      remove_python_version "$python_version"
+    fi
+    install_python_from_deadsnakes "$python_runtime_version"
+    report_libpython_link "runtime"
+  fi
 }
 
 init_tests() {

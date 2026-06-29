@@ -39,6 +39,10 @@ on:
         type: string
         description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the container's default Python."
         default: ""
+      python_runtime_version:
+        type: string
+        description: "After building, remove the build Python and swap in this version so tests run against a different libpython. Empty disables the swap."
+        default: ""
       ref:
         description: "Branch or commit ref to run the workflow on"
         required: false
@@ -52,6 +56,7 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
   PYTHON_VERSION: ${{ inputs.python_version }}
+  PYTHON_RUNTIME_VERSION: ${{ inputs.python_runtime_version }}
   TOOLCHAIN: v7
   DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: "benchmark_result.json"
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
@@ -121,6 +126,7 @@ jobs:
           build-memgraph \
           --split-debug \
           ${PYTHON_VERSION:+--python-version $PYTHON_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -294,6 +300,7 @@ jobs:
           build-memgraph \
           --split-debug \
           ${PYTHON_VERSION:+--python-version $PYTHON_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -561,6 +568,7 @@ jobs:
           build-memgraph \
           --split-debug \
           ${PYTHON_VERSION:+--python-version $PYTHON_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -720,6 +728,7 @@ jobs:
           build-memgraph \
           --split-debug \
           ${PYTHON_VERSION:+--python-version $PYTHON_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -899,6 +908,7 @@ jobs:
           build-memgraph \
           --split-debug \
           ${PYTHON_VERSION:+--python-version $PYTHON_VERSION} \
+          ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
