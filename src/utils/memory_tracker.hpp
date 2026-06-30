@@ -125,6 +125,14 @@ class MemoryTracker final {
 
     static bool CanThrow() { return counter_ > 0; };
 
+    /// Direct read/write of the thread-local counter.  Used ONLY by the park/resume
+    /// driver in PullPlan::Pull to save the counter at park time and restore it on resume
+    /// (so the suspended frame's RAII enablers balance correctly on the resumed thread).
+    /// Never call from production logic — RAII always keeps it balanced on the hot path.
+    static uint64_t GetCounter() noexcept { return counter_; }
+
+    static void SetCounter(uint64_t v) noexcept { counter_ = v; }
+
    private:
     static thread_local uint64_t counter_ [[gnu::tls_model("initial-exec")]];
   };

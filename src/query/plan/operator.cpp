@@ -15489,4 +15489,11 @@ void Limit::LimitCursor::Reset() {
   shared_quota_.reset();
 }
 
+#ifndef NDEBUG
+// DEBUG-ONLY: reset the thread-local YieldPointAwaitable throttle counter to the given period.
+// Called by SetForceYieldForTesting (cursor_awaitable.cpp) so small datasets still fire parks
+// (period=1 means every checkpoint yields; restore to 20 on disable).
+void ResetYieldThrottleForTesting(std::size_t period) noexcept { maybe_check_abort.Reset(period); }
+#endif
+
 }  // namespace memgraph::query::plan

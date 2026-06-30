@@ -29,6 +29,13 @@ struct ResettableCounter {
     return true;
   }
 
+  /// Replace the counter period with `new_period`.  The next call fires after exactly `new_period`
+  /// invocations.  Intended ONLY for DEBUG test seams (e.g. ResetYieldThrottleForTesting).
+  void Reset(std::size_t new_period) noexcept {
+    orig_ = new_period;
+    counter_ = new_period;
+  }
+
  private:
   mutable std::size_t counter_;
   std::size_t orig_;

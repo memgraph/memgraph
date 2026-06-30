@@ -36,6 +36,7 @@
 #include "replication/state.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "system/system.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/priority_thread_pool.hpp"
 
 DECLARE_string(query_coroutine_yield_ops);
@@ -216,11 +217,45 @@ TEST_F(CursorKnobTest, ProfileAnnotatesCoroOperators) {
 }
 
 #ifndef NDEBUG
+// ─────────────────────────────────────────────────────────────────────────────
+// S1 / c-core-2 DEBUG test helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Pull all results from a prepared query, looping through any Parked returns.
+// n=nullopt → pull all; n=k → batched pull of size k, re-entered while parked.
+// Returns the completed stream.
+static ResultStreamFaker InterpretWithParkLoop(memgraph::query::Interpreter &interp,
+                                               memgraph::storage::Storage *storage, const std::string &query,
+                                               std::optional<int> n = {}) {
+  const auto [header, _1, qid, _2] =
+      interp.Prepare(query, [](auto *) { return memgraph::storage::ExternalPropertyValue::map_t{}; }, {});
+  ResultStreamFaker stream(storage);
+  stream.Header(header);
+  bool parked = false;
+  bool has_more = false;
+  std::map<std::string, memgraph::query::TypedValue> summary;
+  do {
+    parked = false;
+    summary = interp.Pull(&stream, n, qid, &parked);
+    // A batched pull returns has_more (BatchContinues) — NOT a park. Re-pull on either, mirroring the
+    // Bolt client (which re-sends PULL on has_more) and the A/B task driver (which re-enters on park).
+    auto it = summary.find("has_more");
+    has_more = it != summary.end() && it->second.IsBool() && it->second.ValueBool();
+  } while (parked || has_more);
+  stream.Summary(summary);
+  return stream;
+}
+
 // S1 (coroutine-native scheduler): the production drive yields + resumes correctly. Force EVERY
 // throttled checkpoint to yield and assert the coroutine drive still produces results identical to the
 // no-yield baseline — proving PullPlan's Enabled PullDriverScope + the Yielded re-resume loop are
-// correct on a real query through the interpreter. Debug-only: the force-yield seam compiles out under
-// NDEBUG (Release/RelWithDebInfo). Verify in RelWithDebInfo via the ungate-in-place trick, or in Debug.
+// correct on a real query through the interpreter.
+//
+// c-core-2: under the park behaviour the drive no longer re-resumes inline on Yielded; instead it
+// returns PullOutcome::Parked and the caller must re-enter.  The `run` lambda uses InterpretWithParkLoop
+// which re-enters until Finished, so the assertion is unchanged: park-drive == no-park-drive.
+//
+// Debug-only: the force-yield seam compiles out under NDEBUG (Release/RelWithDebInfo).
 TEST_F(CursorKnobTest, ForcedYieldDriveIsResultInvariant) {
   for (int b = 0; b < 200; b += 50) {
     interpreter.Interpret("UNWIND range(" + std::to_string(b + 1) + ", " + std::to_string(b + 50) +
@@ -228,18 +263,110 @@ TEST_F(CursorKnobTest, ForcedYieldDriveIsResultInvariant) {
   }
   FLAGS_query_coroutine_yield_ops = "Aggregate,OrderBy,Accumulate,Distinct,HashJoin";
 
+  auto storage_ptr = interpreter.interpreter.current_db_.db_acc_->get()->storage();
+
   auto run = [&](const std::string &q) {
     memgraph::query::plan::SetForceYieldForTesting(false);
     auto baseline = Render(interpreter.Interpret(q));
     memgraph::query::plan::SetForceYieldForTesting(true);
-    auto yielded = Render(interpreter.Interpret(q));
+    // Use the park-loop helper: re-enters Pull() after each Parked return until Finished.
+    auto yielded = Render(InterpretWithParkLoop(interpreter.interpreter, storage_ptr, q));
     memgraph::query::plan::SetForceYieldForTesting(false);
-    EXPECT_EQ(baseline, yielded) << "forced-yield drive changed results for: " << q;
+    EXPECT_EQ(baseline, yielded) << "forced-yield/park drive changed results for: " << q;
   };
 
   run("MATCH (n:N) RETURN n.id AS id ORDER BY n.id");            // OrderBy split, scan below
   run("MATCH (n:N) RETURN n.g AS g, count(*) AS c ORDER BY g");  // Aggregate + OrderBy
   run("MATCH (n:N) RETURN DISTINCT n.g AS g ORDER BY g");        // Distinct + OrderBy
+  FLAGS_query_coroutine_yield_ops = "";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// c-core-2: park/resume parity test.
+//
+// Force-park ON; a driver loops Interpreter::Pull re-entering while parked until done.
+// Asserts:
+//   (a) rows + order + summary identical to force-park-OFF run
+//   (b) the park path fired N > 0 times  (non-vacuous; throttle=1 ensures small datasets park)
+//   (c) n=7 batched PULL (S-2 over-stream trap)
+//   (d) park-in-probe (has_unsent_results_ both entry states)
+//   (e) OOM counter == baseline immediately after a park-return
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_F(CursorKnobTest, ParkResumeParity) {
+  // Insert 20 nodes so batched pulls of n=7 force the probe to fire and park.
+  for (int i = 1; i <= 20; ++i) {
+    interpreter.Interpret("CREATE (:N {id: " + std::to_string(i) + ", g: " + std::to_string(i % 4) + "})");
+  }
+  // Use the broadened default split policy so the root is Coro-driven.
+  FLAGS_query_coroutine_yield_ops = "Aggregate,OrderBy,Accumulate,Distinct,HashJoin";
+
+  auto storage_ptr = interpreter.interpreter.current_db_.db_acc_->get()->storage();
+
+  // run_with_park: pull all via the park-loop driver; count parks; return rendered stream + park_count.
+  auto run_with_park = [&](const std::string &q, std::optional<int> batch_n) -> std::pair<std::string, int> {
+    const auto [header, _1, qid, _2] = interpreter.interpreter.Prepare(
+        q, [](auto *) { return memgraph::storage::ExternalPropertyValue::map_t{}; }, {});
+    ResultStreamFaker stream(storage_ptr);
+    stream.Header(header);
+
+    memgraph::query::plan::SetForceYieldForTesting(true);
+    int park_count = 0;
+    bool parked = false;
+    bool has_more = false;
+    std::map<std::string, memgraph::query::TypedValue> summary;
+    do {
+      parked = false;
+      // (e) OOM counter must equal the baseline (0 from the driver's frame-free POV) right after
+      // any Parked return — the save/restore mechanism keeps the worker thread clean during park.
+      const auto pre_oom = memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler::GetCounter();
+      summary = interpreter.interpreter.Pull(&stream, batch_n, qid, &parked);
+      if (parked) {
+        ++park_count;
+        const auto post_oom = memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler::GetCounter();
+        EXPECT_EQ(post_oom, pre_oom) << "OOM counter drifted after park-return (park #" << park_count << ")";
+      }
+      // Re-pull on has_more (BatchContinues) too — a batched pull is not a park. Mirrors the Bolt
+      // client re-sending PULL on has_more.
+      auto it = summary.find("has_more");
+      has_more = it != summary.end() && it->second.IsBool() && it->second.ValueBool();
+    } while (parked || has_more);
+    memgraph::query::plan::SetForceYieldForTesting(false);
+
+    stream.Summary(summary);
+    return {Render(stream), park_count};
+  };
+
+  // baseline: force-park OFF, pull all
+  auto run_baseline = [&](const std::string &q) -> std::string {
+    memgraph::query::plan::SetForceYieldForTesting(false);
+    return Render(interpreter.Interpret(q));
+  };
+
+  const std::vector<std::string> queries = {
+      "MATCH (n:N) RETURN n.id AS id ORDER BY n.id",            // (a) read + OrderBy
+      "MATCH (n:N) RETURN n.g AS g, count(*) AS c ORDER BY g",  // Aggregate + OrderBy
+      "MATCH (n:N) RETURN DISTINCT n.g AS g ORDER BY g",        // Distinct
+  };
+  const std::vector<std::optional<int>> batch_sizes = {
+      1,             // n=1: parks frequently
+      2,             // n=2
+      7,             // n=7: (c) S-2 over-stream trap
+      std::nullopt,  // pull all at once
+  };
+
+  for (const auto &q : queries) {
+    const auto baseline = run_baseline(q);
+    for (const auto &bn : batch_sizes) {
+      auto [result, parks] = run_with_park(q, bn);
+      // (a) result parity
+      EXPECT_EQ(baseline, result) << "park-drive changed result for: " << q
+                                  << " batch_n=" << (bn ? std::to_string(*bn) : "all");
+      // (b) non-vacuous: at least one park must have fired
+      EXPECT_GT(parks, 0) << "zero parks fired — force-park seam may be broken (query: " << q
+                          << ", batch_n=" << (bn ? std::to_string(*bn) : "all") << ")";
+    }
+  }
+
   FLAGS_query_coroutine_yield_ops = "";
 }
 #endif

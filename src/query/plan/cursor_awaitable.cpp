@@ -51,6 +51,9 @@ bool ForceCoroRootDriveForTesting() noexcept { return g_force_coro_root_drive.lo
 void SetForceYieldForTesting(bool enabled) noexcept {
   g_force_yield_flag.store(enabled, std::memory_order_relaxed);
   g_force_yield_enabled.store(enabled, std::memory_order_relaxed);
+  // Reset the throttle counter so every YieldPointAwaitable check actually yields (period=1)
+  // when enabled, or restores to the production period (20) when disabled.
+  ResetYieldThrottleForTesting(enabled ? 1 : 20);
 }
 
 std::atomic<bool> *ForceYieldFlagForTesting() noexcept {

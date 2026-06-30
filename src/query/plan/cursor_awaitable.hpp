@@ -229,8 +229,15 @@ void SetForceCoroRootDriveForTesting(bool enabled) noexcept;
 // ctx.stopping_context.yield_requested at an always-true flag, so every throttled YieldPointAwaitable
 // check actually yields — exercising the real suspend/resume drive end-to-end (the yield path has no
 // production scheduler yet). ForceYieldFlagForTesting() returns that flag (nullptr when off).
+// Additionally resets the thread-local YieldPointAwaitable throttle counter to period=1 (so small
+// datasets fire at least one park — non-vacuous); on disable, resets to the production period.
 void SetForceYieldForTesting(bool enabled) noexcept;
 [[nodiscard]] std::atomic<bool> *ForceYieldFlagForTesting() noexcept;
+
+// Reset the thread-local YieldPointAwaitable throttle counter (maybe_check_abort in operator.cpp)
+// to the given period.  Called by SetForceYieldForTesting to make every checkpoint yield immediately.
+// Defined in operator.cpp (where the TLS counter lives).
+void ResetYieldThrottleForTesting(std::size_t period) noexcept;
 #endif
 
 }  // namespace memgraph::query::plan

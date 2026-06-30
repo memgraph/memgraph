@@ -3253,11 +3253,55 @@ struct PullPlan {
     return *last_stats_;
   }
 
+  /// Shutdown guard: if the cursor was never shut down on the normal Finished path (e.g. the client
+  /// disconnected while the query was parked), call Shutdown() here so CallProcedure's cleanup
+  /// lambda runs and the suspended coroutine frames are freed cleanly by ~cursor_.
+  ~PullPlan() {
+    if (cursor_ && !shutdown_called_) {
+      cursor_->Shutdown();
+    }
+  }
+
  private:
   std::shared_ptr<PlanWrapper> plan_ = nullptr;
+  // cursor_ is declared FIRST so it is destroyed LAST (after driver_scope_ and ctx_).
+  // ~PullAwaitable (inside the cursor) frees the suspended coroutine frames, so they must
+  // outlive both the driver scope (whose dtor writes back into ctx_) and ctx_ itself.
   plan::UniqueCursorPtr cursor_ = nullptr;
   Frame frame_;
   ExecutionContext ctx_;
+
+  // ── c-core-2 park/resume members ─────────────────────────────────────────────────────────────
+  // Declared AFTER ctx_ so their dtors run BEFORE ctx_ is destroyed.
+  // driver_scope_ RAII writes ctx_.suspended_task_handle_ptr / enabled_driver_active on destruction,
+  // so ctx_ must still be live when driver_scope_ dies.  cursor_ (above) is declared before all of
+  // these so it outlives them; its ~PullAwaitable frees the suspended coroutine frames last.
+
+  /// Hoisted from the old local in Pull().  Constructed ONCE per query when coro-drive starts
+  /// (!driver_scope_ guard); reset explicitly on Finished and by ~PullPlan.
+  std::optional<plan::PullDriverScope> driver_scope_;
+
+  /// Hoisted batch counter (was local `int i`).  Persists across a park-return so the re-entered
+  /// Pull resumes exactly where it left off, not from the batch start.
+  int batch_i_{0};
+
+  /// Set to true before a Parked return; cleared at re-entry after restoring state.
+  bool resuming_from_park_{false};
+
+  /// Guards ~PullPlan: if cursor_->Shutdown() was already called on the Finished path we must not
+  /// call it again in the destructor (double-Shutdown on a spent cursor is UB for CallProcedure).
+  bool shutdown_called_{false};
+
+  /// OOM counter snapshot at the drive boundary (no in-flight enablers).  Captured once when
+  /// driver_scope_ is first emplaced; unchanged for the lifetime of the query drive.
+  uint64_t park_baseline_oom_{0};
+
+  /// OOM counter save across a park.  Saved from the suspended-frame's counter on Parked-return
+  /// (counter_ includes the in-flight RAII enablers on the suspended chain); restored before the
+  /// first ResumePullStep on re-entry so the enablers balance when their dtors fire on resume.
+  uint64_t park_saved_oom_{0};
+  // ─────────────────────────────────────────────────────────────────────────────────────────────
+
   std::optional<size_t> memory_limit_;
 #ifdef MG_ENTERPRISE
   std::shared_ptr<utils::UserResources> user_resource_{};
@@ -3388,6 +3432,12 @@ PullOutcome PullPlan::Pull(AnyStream *stream, std::optional<int> n, const std::v
 #endif
     }};
 
+    // ── Timer: accumulate execution time on EVERY exit (including Parked) via OnScopeExit.
+    // The old `execution_time_ += timer.Elapsed()` only fired on the normal tail return;
+    // parked returns bypassed it — under-reporting latency and ctx_.profile_execution_time.
+    utils::Timer timer;
+    auto add_time = utils::OnScopeExit{[&] { execution_time_ += timer.Elapsed(); }};
+
     // Returns true if a result was pulled.
     //
     // Coroutine root-drive seam: the root cursor's mode (selected at construction from the
@@ -3396,38 +3446,55 @@ PullOutcome PullPlan::Pull(AnyStream *stream, std::optional<int> n, const std::v
     // byte-identical to master, no per-pull branch cost beyond one mode load. When the knob (or, in
     // DEBUG, the parity force hook) makes the root Coro, we drive it through the coroutine path
     // (PullCo + ResumePullStep). Profile queries always pull synchronously (the profiler instruments the
-    // synchronous Pull path). Yield is OFF here (no PullDriverScope), so ResumePullStep only ever returns
-    // HasRow/Done — the cooperative-yield scheduler wiring lands with the parallel cursors.
+    // synchronous Pull path).
     const bool drive_coro = cursor_->mode() == plan::CursorMode::Coro && !ctx_.is_profile_query;
 
-    // Coroutine root-drive: a Coro root is driven via PullCo + ResumePullStep under an Enabled
-    // PullDriverScope, which wires ctx.suspended_task_handle_ptr so a YieldPointAwaitable deep in the
-    // pull chain can cooperatively yield. ResumePullStep then returns Yielded; the drive re-resumes the
-    // stashed leaf until it produces a row or exhausts. Today nothing sets yield_requested in production
-    // (no scheduler yet), so Yielded never occurs and this is the same single-step drive as before; the
-    // cooperative-yield scheduler (S2+) is what will actually park the worker on a Yielded.
-    std::optional<plan::PullDriverScope> driver_scope;
-    if (drive_coro) {
-      driver_scope.emplace(ctx_, plan::YieldMode::Enabled);
-#ifndef NDEBUG
-      // DEBUG yield seam: force every throttled checkpoint to yield, exercising the suspend/resume drive.
-      if (auto *force_flag = plan::ForceYieldFlagForTesting()) ctx_.stopping_context.yield_requested = force_flag;
-#endif
+    // ── driver_scope_ is a member (hoisted from the old local).  Constructed ONCE per query
+    // when the coro drive starts and kept alive across park/resume so the slot_ that
+    // ctx_.suspended_task_handle_ptr points into remains valid.  On Finished we reset it.
+    if (drive_coro && !driver_scope_) {
+      driver_scope_.emplace(ctx_, plan::YieldMode::Enabled);
+      // Capture the OOM baseline: the counter value before any coroutine DoPull RAII
+      // enablers are on the stack.  On park we save the in-flight counter (which includes
+      // those enablers) then restore to baseline so the worker thread is clean during park.
+      // On resume we restore the saved value so the enablers balance when their dtors fire.
+      park_baseline_oom_ = utils::MemoryTracker::OutOfMemoryExceptionEnabler::GetCounter();
     }
-    const auto pull_result = [&]() -> bool {
+#ifndef NDEBUG
+    // DEBUG yield seam: force every throttled checkpoint to yield (non-vacuous because
+    // SetForceYieldForTesting also resets the throttle to period=1).
+    if (drive_coro) {
+      if (auto *force_flag = plan::ForceYieldFlagForTesting()) ctx_.stopping_context.yield_requested = force_flag;
+    }
+#endif
+
+    // ── On re-entry from a park, restore the OOM counter the coroutine's in-flight RAII
+    // enablers expect, before the first ResumePullStep that resumes those enablers' frame.
+    if (resuming_from_park_) {
+      utils::MemoryTracker::OutOfMemoryExceptionEnabler::SetCounter(park_saved_oom_);
+    }
+
+    // do_pull() — one coroutine step (coro path) or one synchronous Pull (sync path).
+    // Returns: HasRow, Done, or Parked (coro path only; sync path never parks).
+    //
+    // On Parked: the leaf suspended at a cooperative-yield point before producing a row.
+    // Save the OOM counter (includes in-flight enablers on the suspended frame), clean it
+    // back to baseline (so the worker is clean during park), and propagate Parked upward.
+    enum class StepResult : uint8_t { HasRow, Done, Parked };
+    const auto do_pull = [&]() -> StepResult {
       if (drive_coro) [[unlikely]] {
         auto ra = cursor_->PullCo(frame_, ctx_);
-        for (;;) {
-          auto const r = plan::ResumePullStep(ra, ctx_);
-          // Yielded: the leaf suspended at a cooperative-yield point before producing a row. With no
-          // scheduler park yet (S1), immediately re-resume the stashed leaf on this thread; the worker
-          // park lands in S2. The loop preserves correctness either way.
-          if (r.status == plan::PullRunResult::Status::Yielded) [[unlikely]]
-            continue;
-          return r.status == plan::PullRunResult::Status::HasRow;
+        auto const r = plan::ResumePullStep(ra, ctx_);
+        if (r.status == plan::PullRunResult::Status::Yielded) [[unlikely]] {
+          // A YieldPointAwaitable suspended the leaf: this is the park point.
+          // Save and sanitize the OOM counter so the thread is clean during park.
+          park_saved_oom_ = utils::MemoryTracker::OutOfMemoryExceptionEnabler::GetCounter();
+          utils::MemoryTracker::OutOfMemoryExceptionEnabler::SetCounter(park_baseline_oom_);
+          return StepResult::Parked;
         }
+        return r.status == plan::PullRunResult::Status::HasRow ? StepResult::HasRow : StepResult::Done;
       }
-      return cursor_->Pull(frame_, ctx_);
+      return cursor_->Pull(frame_, ctx_) ? StepResult::HasRow : StepResult::Done;
     };
 
     auto values = std::vector<TypedValue>(output_symbols.size());
@@ -3438,34 +3505,42 @@ PullOutcome PullPlan::Pull(AnyStream *stream, std::optional<int> n, const std::v
       stream->Result(values);
     };
 
-    // Get the execution time of all possible result pulls and streams.
-    utils::Timer timer;
-
-    int i = 0;
-    if (has_unsent_results_ && !output_symbols.empty()) {
-      // stream unsent results from previous pull
-      stream_values();
-      ++i;
-    }
-
-    for (; !n || i < n; ++i) {
-      if (!pull_result()) {
-        break;
-      }
-
-      if (!output_symbols.empty()) {
+    // ── Batch loop.  batch_i_ is a member so it persists across park-return.
+    // On fresh entry (!resuming_from_park_): reset batch_i_, handle has_unsent_results_ preamble.
+    // On re-entry (resuming_from_park_): skip the preamble, restore batch_i_, clear the flag.
+    if (!resuming_from_park_) {
+      batch_i_ = 0;
+      if (has_unsent_results_ && !output_symbols.empty()) {
         stream_values();
+        ++batch_i_;
       }
     }
+    resuming_from_park_ = false;  // consumed; cleared whether we skipped or not
 
-    // If we finished because we streamed the requested n results,
-    // we try to pull the next result to see if there is more.
-    // If there is additional result, we leave the pulled result in the frame
-    // and set the flag to true.
-    has_unsent_results_ = i == n && pull_result();
+    for (; !n || batch_i_ < n; ++batch_i_) {
+      const auto step = do_pull();
+      if (step == StepResult::Parked) {
+        resuming_from_park_ = true;
+        return PullOutcome::Parked;  // batch_i_ saved in the member; add_time fires via OnScopeExit
+      }
+      if (step == StepResult::Done) break;
+      if (!output_symbols.empty()) stream_values();
+    }
 
-    execution_time_ += timer.Elapsed();
-  }
+    // If we streamed exactly n results, probe for one more to set has_unsent_results_.
+    // This probe can also yield a park (batch_i_ == n disambiguates: the loop above cannot
+    // re-run on resume because the `!n || batch_i_ < n` condition is false after resume).
+    if (batch_i_ == n) {
+      const auto step = do_pull();
+      if (step == StepResult::Parked) {
+        resuming_from_park_ = true;
+        return PullOutcome::Parked;
+      }
+      has_unsent_results_ = (step == StepResult::HasRow);
+    } else {
+      has_unsent_results_ = false;
+    }
+  }  // add_time and reset_query_limit fire here on normal (non-park) exit
 
   if (has_unsent_results_) {
     return PullOutcome::BatchContinues;
@@ -3491,6 +3566,7 @@ PullOutcome PullPlan::Pull(AnyStream *stream, std::optional<int> n, const std::v
     }
     summary->insert_or_assign("stats", std::move(stats));
   }
+  shutdown_called_ = true;
   cursor_->Shutdown();
   // NOTE: += because each thread adds its own execution time to the total execution time
   ctx_.profile_execution_time += execution_time_;
@@ -3505,6 +3581,8 @@ PullOutcome PullPlan::Pull(AnyStream *stream, std::optional<int> n, const std::v
   if (memgraph::logging::IsSessionTraceEnabled()) {
     memgraph::logging::EmitSessionTraceEvent("Profile plan\n{}", ProfilingStatsToJson(*last_stats_).dump());
   }
+
+  driver_scope_.reset();  // query drive done; frees the slot_ and restores ctx_ yield pointers
 
   return PullOutcome::Finished;
 }
@@ -3828,7 +3906,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
           case PullOutcome::BatchContinues:
             return std::nullopt;
           case PullOutcome::Parked:
-            // c-core-1: unreachable — drive never emits Parked yet. c-core-2 wires the park return.
+            // c-core-2: the coroutine suspended at a cooperative-yield point; propagate upward.
             return PullResult::Parked();
         }
         // Unreachable but GCC demands an explicit return on non-void functions with enum switches.
