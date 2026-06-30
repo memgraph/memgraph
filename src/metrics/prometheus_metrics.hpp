@@ -281,13 +281,10 @@ struct GlobalMetricHandles {
 
   // Hot/cold tenants (global — the cold set is process-wide, not per-database since a COLD tenant has no
   // live storage to attribute a per-db series to). suspends/resumes count user-driven operations; the
-  // gauge tracks the current COLD set size; the boot-recovery counters surface databases left COLD because
-  // their HOT recovery failed at startup (the OOM split mirrors the degraded-boot safety valve).
+  // gauge tracks the current COLD set size.
   prometheus::Counter *database_suspends;
   prometheus::Counter *database_resumes;
   prometheus::Gauge *cold_databases;
-  prometheus::Counter *database_boot_recovery_failures;
-  prometheus::Counter *database_boot_recovery_oom_failures;
   // Wall-clock latency of a successful SUSPEND / RESUME (observed once per successful operation, on the
   // same path as the counters above). Global for the same reason: a COLD tenant has no live storage.
   prometheus::Histogram *database_suspend_latency_seconds;
@@ -573,8 +570,6 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &database_suspends_family_;
   prometheus::Family<prometheus::Counter> &database_resumes_family_;
   prometheus::Family<prometheus::Gauge> &cold_databases_family_;
-  prometheus::Family<prometheus::Counter> &database_boot_recovery_failures_family_;
-  prometheus::Family<prometheus::Counter> &database_boot_recovery_oom_failures_family_;
   prometheus::Family<prometheus::Histogram> &database_suspend_latency_family_;
   prometheus::Family<prometheus::Histogram> &database_resume_latency_family_;
 

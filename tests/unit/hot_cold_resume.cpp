@@ -586,57 +586,36 @@ TEST_F(HotColdResume, SuspendResumeMoveObservabilityMetrics) {
       << "the cold-tenant gauge returns to its pre-test level after resume";
 }
 
-// A tenant whose HOT recovery FAILS at boot must be left COLD (not abort the process) and marked
-// with a 'recovery failed' status in the cold-aware SHOW surface — degraded-but-alive. An intact
-// tenant in the same boot must recover HOT with its data. (The OOM-specific branch shares this exact
-// plumbing, differing only in the caught exception type → status string; real OOM is exercised under
-// the memory-ceiling stress tests, not deterministically injectable here.)
-TEST_F(HotColdResume, BootRecoveryFailureLeavesTenantColdWithMarker) {
+// A HOT tenant whose recovery FAILS at boot must ABORT the process — fail loud, exactly as on master
+// (and on a single-tenant instance). It is never silently demoted to COLD: a HOT database that cannot
+// be brought up at boot must surface the problem rather than serve a tenant that lost data. (A
+// user-initiated RESUME is the recoverable counterpart: it fails + returns ResumeError::RECOVERY_FAILED
+// and leaves the tenant COLD/retriable — see the ResumeRecoveryFailure tests above.) Death test uses
+// the "threadsafe" style: the DbmsHandler ctor has already spawned storage threads by the time the
+// assert fires, so a plain fork()-based death test could deadlock (see toolchain notes).
+TEST_F(HotColdResume, BootRecoveryFailureAbortsProcess) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   constexpr int kBadNodes = 5;
-  constexpr int kGoodNodes = 3;
   auto bad = CreateAndPopulate("recover_fail", kBadNodes);
-  auto good = CreateAndPopulate("recover_ok", kGoodNodes);
 
-  // Both are HOT (durable cold:false). Capture the bad tenant's uuid to locate its on-disk data.
+  // HOT (durable cold:false). Capture its uuid to locate the on-disk data.
   std::string bad_uuid;
   {
     auto acc = handler_->Get(bad);
     bad_uuid = static_cast<std::string>(acc->storage()->uuid());
   }
 
-  // A non-OOM recovery failure increments the generic boot-recovery-failure counter (delta, since
-  // the counter is a process-global monotonic singleton shared across tests in this binary).
-  const double boot_fail0 = memgraph::metrics::Metrics().global.database_boot_recovery_failures->Value();
-
-  // Tear down (flush + close), corrupt the bad tenant's durability, then reconstruct so its recovery
-  // throws while the good tenant recovers cleanly.
+  // Tear down (flush + close), corrupt the HOT tenant's durability, then reconstructing the handler
+  // must die: a HOT database that cannot be recovered at boot aborts the process.
   handler_.reset();
   CorruptTenantDurability(bad_uuid);
-  handler_ = std::make_unique<DbmsHandler>(conf_);
 
-  EXPECT_DOUBLE_EQ(memgraph::metrics::Metrics().global.database_boot_recovery_failures->Value() - boot_fail0, 1.0)
-      << "a failed (non-OOM) hot recovery at boot must increment the boot-recovery-failure counter";
-
-  // The corrupt tenant is left COLD (process did not abort) with a 'recovery failed' SHOW marker.
-  EXPECT_TRUE(handler_->IsSuspended(bad)) << "a tenant whose recovery fails must be left COLD, not dropped";
-  EXPECT_FALSE(InAll(bad)) << "a recovery-failed tenant is COLD, so excluded from All()";
-  bool found = false;
-  for (const auto &[n, st] : handler_->AllWithHotColdStatus()) {
-    if (n == bad) {
-      EXPECT_THAT(st, ::testing::HasSubstr("recovery failed"))
-          << "SHOW DATABASES must mark the failed tenant degraded, got: " << st;
-      found = true;
-    }
-  }
-  EXPECT_TRUE(found) << "the recovery-failed tenant must still appear in the cold-aware listing";
-
-  // The intact tenant recovered HOT with its data.
-  ASSERT_TRUE(InAll(good)) << "an intact tenant must recover HOT in the same (degraded) boot";
-  auto good_acc = handler_->Get(good);
-  EXPECT_EQ(CountNodes(good_acc), kGoodNodes);
-
-  // Querying DATA on the cold (recovery-failed) tenant still errors (cold access is an error).
-  EXPECT_THROW(handler_->Get(bad), std::exception);
+  ASSERT_DEATH(
+      {
+        auto h = std::make_unique<DbmsHandler>(conf_);
+        (void)h;
+      },
+      "Failed while recovering database");
 }
 
 // Regression: a durable cold entry that is VALID JSON but has a WRONG-TYPED optional metadata field

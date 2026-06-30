@@ -237,8 +237,8 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
 
   // Restore databases. A tenant is restored HOT (storage built + recovered) unless its durable entry
   // carries `cold:true`, in which case only a no-value COLD shell + suspended_ metadata is restored
-  // (no storage build). A HOT recovery that fails is left COLD rather than aborting the process:
-  // OOM failures get specific detection/metrics on top of this leave-cold infrastructure.
+  // (no storage build). A HOT recovery that fails ABORTS the process (fail loud, like master) — a HOT
+  // database is never silently demoted to COLD at boot.
   // If a durable entry fails to parse we cannot learn its data directory, so we must NOT run the
   // cleanup pass below (it would delete every dir not in the keep-set, including the one this corrupt
   // entry owned). Track that the durable view is incomplete and skip cleanup for this boot.
@@ -298,92 +298,32 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
       continue;
     }
 
-    // HOT: build + recover the storage. On failure, leave the tenant COLD instead of aborting.
+    // HOT: build + recover the storage. A recovery failure here is FATAL — the instance aborts, exactly
+    // as on master and on a single-tenant instance. A HOT database that cannot be brought up at boot is
+    // NEVER silently demoted to COLD: failing loud surfaces the problem (corruption / OOM / bad config)
+    // and refuses to serve a tenant that has silently lost data. (A user-initiated RESUME, by contrast,
+    // is recoverable — it fails + returns an error and leaves the tenant COLD/retriable; see Resume_.)
+    // A genuinely suspended tenant never reaches here: it is restored as a COLD shell above (cold:true).
+    // Recovery can fail two ways: New_ returns an `unexpected` (the assert below) OR it throws
+    // (on-disk corruption, bad_alloc, OutOfMemoryException). Both are fatal; the catch turns a throw into
+    // the same clean fatal log instead of an opaque uncaught-exception terminate out of the ctor.
     spdlog::info("Restoring database {} at {}.", name, rel_dir);
-    bool recovered = false;
-    // Classify the failure. OOM (out-of-memory during recovery — bad_alloc or the tracker's
-    // OutOfMemoryException) is the case the boot-OOM safety valve exists for: the instance comes up
-    // DEGRADED with the tenant left cold + loudly logged + marked in SHOW, rather than bricking.
-    auto reason = SuspendedEntry::ColdReason::kRecoveryFailed;
     try {
+      // New_ registers the database as a side effect; the returned handle is intentionally dropped and
+      // only its success is checked here (do not "fix" the unused value by storing it).
       auto new_db = New_(name, uuid, nullptr, rel_dir);
-      recovered = new_db.has_value();
-      if (!recovered) {
-        spdlog::error("Failed while recovering database {} (error {}); leaving it suspended (cold).",
-                      name,
-                      static_cast<int>(new_db.error()));
-      }
-    } catch (const utils::OutOfMemoryException &e) {
-      reason = SuspendedEntry::ColdReason::kRecoveryFailedOom;
-      spdlog::error(
-          "OUT OF MEMORY while recovering database {} ({}). Leaving it SUSPENDED (cold): the instance is "
-          "starting DEGRADED — this database is unavailable until memory is freed and it is RESUMEd (or the "
-          "instance is restarted with more memory). SHOW DATABASES marks it 'recovery failed: out of memory'.",
-          name,
-          e.what());
-    } catch (const std::bad_alloc &e) {
-      reason = SuspendedEntry::ColdReason::kRecoveryFailedOom;
-      spdlog::error(
-          "OUT OF MEMORY (bad_alloc) while recovering database {} ({}). Leaving it SUSPENDED (cold); the "
-          "instance is starting DEGRADED and this database is resumable once memory frees up.",
-          name,
-          e.what());
+      MG_ASSERT(new_db.has_value(),
+                "Failed while recovering database {} (error {}); aborting.",
+                name,
+                static_cast<int>(new_db.error()));
     } catch (const std::exception &e) {
-      spdlog::error("Exception while recovering database {} ({}); leaving it suspended (cold).", name, e.what());
+      LOG_FATAL("Failed while recovering database {} ({}); aborting.", name, e.what());
     }
-    if (recovered) {
-      spdlog::info("Database {} restored.", name);
-    } else if (name == kDefaultDB) {
-      // The default database is the system database (it backs auth, multi-tenancy metadata, etc.) and is
-      // never suspendable. It MUST come up or the instance must fail loudly — leaving it cold would make
-      // SetupDefault_ silently recreate it with a fresh UUID. A recovery failure here is fatal, exactly as
-      // on a single-tenant instance.
-      MG_ASSERT(recovered, "Failed while recovering the default database; aborting.");
-    } else {
-      // Leave-cold: emplace a COLD shell so the process stays up and the tenant is resumable later.
-      // The instance starts DEGRADED rather than aborting. The durable entry is left HOT (no cold marker)
-      // so a future restart retries HOT recovery; the metadata is rebuilt from defaults (no
-      // heartbeat/cold_stats for a failed recovery). Tag the in-memory entry with WHY it is cold so SHOW
-      // surfaces the degraded marker.
-      //
-      // make_cold_entry can throw nlohmann::json::type_error when an optional metadata field is
-      // present but wrong-typed. Guard it: if it throws, erase the shell we just emplaced (no
-      // orphan), mark the view incomplete, and continue — the same degradation pattern as the
-      // parse guard above. std::bad_alloc / OOM are not caught here so they keep their propagation.
-      db_handler_.EmplaceColdShell(name);
-      try {
-        auto entry = make_cold_entry(name, uuid, rel_dir, json);
-        entry.cold_reason = reason;
-        suspended_.insert_or_assign(std::string{name}, std::move(entry));
-      } catch (const nlohmann::json::exception &e) {
-        durability_view_incomplete = true;
-        db_handler_.EraseColdShell(name);
-        spdlog::warn(
-            "HOT-recovery-failed tenant '{}' has a wrong-typed metadata field ({}); skipping cold-shell "
-            "registration. Its on-disk data is left untouched and directory cleanup is SKIPPED this boot.",
-            name,
-            e.what());
-        // Increment the boot-recovery failure metric before continuing — the degraded-boot event
-        // must be counted even though the cold-shell registration was skipped.
-        if (reason == SuspendedEntry::ColdReason::kRecoveryFailedOom) {
-          metrics::Metrics().global.database_boot_recovery_oom_failures->Increment();
-        } else {
-          metrics::Metrics().global.database_boot_recovery_failures->Increment();
-        }
-        continue;
-      }
-      // Surface tenants left cold by a failed hot recovery; the OOM split mirrors the degraded marker
-      // so ops can alert on a degraded boot.
-      if (reason == SuspendedEntry::ColdReason::kRecoveryFailedOom) {
-        metrics::Metrics().global.database_boot_recovery_oom_failures->Increment();
-      } else {
-        metrics::Metrics().global.database_boot_recovery_failures->Increment();
-      }
-    }
+    spdlog::info("Database {} restored.", name);
   }
   // Set the cold-tenant gauge ONCE after the restore loop (a per-iteration Set would be repeatedly
-  // overwritten; no scrape endpoint is live during construction anyway). Covers both the cold-shell and
-  // failed-recovery leave-cold paths above.
+  // overwritten; no scrape endpoint is live during construction anyway). Counts the cold-shell tenants
+  // restored above (a failed HOT recovery aborts, so it never contributes a COLD entry here).
   UpdateColdGauge_();
 
   /*

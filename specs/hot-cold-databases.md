@@ -264,21 +264,24 @@ retry.
 *Rationale.* A footprint pre-check would be both unreliable (memory is shared and moving)
 and redundant with the rollback path that has to exist anyway for genuine recovery
 failures. Attempt-and-roll-back is simpler, and it degrades gracefully: a failed resume
-is a clean, retriable error, never a half-built database or a downed instance. The same
-philosophy extends to startup: if recovering a hot database at boot would exhaust memory,
-that database is left cold (with a clear marker in `SHOW DATABASES`) and the instance
-comes up degraded-but-alive rather than failing to boot. (Whether a hot database that
-fails to recover at boot should instead abort startup may become a configurable policy in
-a future release; today the safe default is to keep the instance alive and surface the
-per-database failure.)
+is a clean, retriable error, never a half-built database or a downed instance.
 
-> **Note (review follow-up).** At *runtime*, a failed `RESUME` is non-terminal by design —
-> it rolls back to cold and is retriable, so the instance must never abort on it. At *boot*,
-> a hot database that fails its recovery is currently **terminal for that tenant**: it is
-> left cold and surfaced, and there is no opt-in yet to tolerate (or, conversely, to hard-fail
-> on) such a failure. A future `--storage-allow-recovery-failure`-style flag could let an
-> operator choose the boot-time policy per the broader tenant-failure-tolerance work; this
-> path is flagged for the developer who picks that up.
+**Boot recovery is different — and deliberately so.** At *startup*, a hot database that
+fails to recover **aborts the process** (`MG_ASSERT`), exactly as on master and on a
+single-tenant instance. A hot database is never silently demoted to cold at boot: failing
+loud surfaces the problem (corruption, OOM, bad config) and refuses to serve a tenant that
+has silently lost data. The two failure modes are intentionally asymmetric:
+
+| When | Recovery fails | Why |
+|---|---|---|
+| User `RESUME` (runtime) | Roll back to **cold**, return a retriable error; instance stays up. | The tenant was already cold; the user can free memory and retry. No data is at risk. |
+| Boot / restart recovery | **Abort** the process (fail loud, like master). | A hot tenant that cannot be brought up is a correctness problem; coming up serving it (or silently cold) would mask data loss. |
+
+> **Note.** A genuinely *suspended* (cold) tenant is restored as a metadata-only shell at
+> boot and is never "recovered" — so this only applies to tenants durably marked hot. If a
+> future release wants to tolerate a boot-time hot-recovery failure (e.g. a
+> `--storage-allow-recovery-failure`-style flag for the broader tenant-failure-tolerance
+> work), that would be an explicit opt-in *away* from this fail-loud default.
 
 ---
 
@@ -320,8 +323,6 @@ per-database failure.)
 | `memgraph_database_suspend_latency_seconds` | histogram | Wall-clock latency of a successful suspend. |
 | `memgraph_database_resume_latency_seconds` | histogram | Wall-clock latency of a successful resume. |
 | `memgraph_cold_databases` | gauge | Currently-cold database count. |
-| `memgraph_database_boot_recovery_failures_total` | counter | Databases left cold at boot due to a recovery failure. |
-| `memgraph_database_boot_recovery_oom_failures_total` | counter | Databases left cold at boot due to an out-of-memory recovery failure (disjoint from the row above — OOM failures count here only; sum both rows for the total). |
 
 The suspend/resume counts and latencies are the set product asked for. The latency
 histograms are observed once per **successful** operation (on the same code path as the

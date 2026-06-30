@@ -278,8 +278,6 @@ EXPECTED_JSON_METRICS = {
         "DatabaseSuspends",
         "DatabaseResumes",
         "ColdDatabases",
-        "DatabaseBootRecoveryFailures",
-        "DatabaseBootRecoveryOomFailures",
         "DatabaseSuspendLatency_us_50p",
         "DatabaseSuspendLatency_us_90p",
         "DatabaseSuspendLatency_us_99p",

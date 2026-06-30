@@ -131,8 +131,6 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "WalFilesRpc_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "WalFilesRpc_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
         # HotCold (sorted by metric type, name)
-        {"name": "DatabaseBootRecoveryFailures", "type": "HotCold", "metric type": "Counter"},
-        {"name": "DatabaseBootRecoveryOomFailures", "type": "HotCold", "metric type": "Counter"},
         {"name": "DatabaseResumes", "type": "HotCold", "metric type": "Counter"},
         {"name": "DatabaseSuspends", "type": "HotCold", "metric type": "Counter"},
         {"name": "ColdDatabases", "type": "HotCold", "metric type": "Gauge"},

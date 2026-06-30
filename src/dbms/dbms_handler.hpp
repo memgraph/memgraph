@@ -490,11 +490,10 @@ class DbmsHandler {
     auto rd = std::shared_lock{lock_};
     std::vector<std::pair<std::string, std::string>> out;
     out.reserve(suspended_.size() + db_handler_.size());
-    // The COLD status string distinguishes a user-suspended tenant ("COLD") from one left cold by
-    // a failed boot recovery ("COLD (recovery failed[: out of memory])") — the degraded-but-alive
-    // marker so the instance never silently drops a tenant.
+    // Every suspended tenant is a user-initiated (or restored) COLD shell: a HOT recovery that fails at
+    // boot aborts the process, so a degraded "recovery failed" tenant can never appear here.
     for (const auto &[name, entry] : suspended_) {
-      out.emplace_back(name, std::string{ColdReasonBaseLabel(entry.cold_reason)});
+      out.emplace_back(name, "COLD");
     }
     for (auto &name : db_handler_.All()) {  // HOT names only (Handler::All() skips no-value shells)
       if (!suspended_.contains(name)) out.emplace_back(std::move(name), "HOT");
@@ -506,7 +505,7 @@ class DbmsHandler {
   struct ColdShowInfo {
     utils::UUID uuid;
     storage::StorageInfo stats;  //!< as-of-suspend snapshot (on MAIN); physical fields are MAIN-relative
-    std::string status;          //!< "COLD (as-of-suspend snapshot)" or "COLD (recovery failed[...])"
+    std::string status;          //!< "COLD (as-of-suspend snapshot)"
   };
 
   /**
@@ -514,19 +513,14 @@ class DbmsHandler {
    *
    * Lets SHOW STORAGE INFO ON <cold> serve the durable cold_stats instead of tripping the Get_ cold
    * seam. The numbers are MAIN's as-of-suspend snapshot, labeled as such by the caller.
-   * For a tenant left cold by a failed recovery the stats are defaults (no snapshot was captured),
-   * so `status` reports the failure instead of an "as-of-suspend" label.
    */
   std::optional<ColdShowInfo> GetColdShowInfo(std::string_view name) const {
     auto rd = std::shared_lock{lock_};
     if (auto it = suspended_.find(name); it != suspended_.end()) {
-      const auto reason = it->second.cold_reason;
-      // kSuspended carries a captured as-of-suspend snapshot; a recovery-failed tenant never captured
-      // one, so it reuses the shared base label (SHOW DATABASES status) plus a "stats unavailable" note.
-      std::string st = reason == SuspendedEntry::ColdReason::kSuspended
-                           ? std::string{"COLD (as-of-suspend snapshot)"}
-                           : std::string{ColdReasonBaseLabel(reason)} + "; stats unavailable";
-      return ColdShowInfo{.uuid = it->second.salient.uuid, .stats = it->second.cold_stats, .status = std::move(st)};
+      // A suspended tenant always carries a captured as-of-suspend snapshot (a failed HOT recovery
+      // aborts the boot rather than leaving a snapshot-less COLD shell behind).
+      return ColdShowInfo{
+          .uuid = it->second.salient.uuid, .stats = it->second.cold_stats, .status = "COLD (as-of-suspend snapshot)"};
     }
     return std::nullopt;
   }
@@ -832,29 +826,7 @@ class DbmsHandler {
     storage::SalientConfig salient;   //!< salient config to recreate the storage
     std::filesystem::path rel_dir;    //!< durability dir relative to the instance root
     storage::StorageInfo cold_stats;  //!< last-hot stats snapshot (cold SHOW STORAGE INFO display cache)
-    // Why this tenant is COLD. RUNTIME-ONLY (never serialized): a tenant left cold by a failed boot
-    // recovery keeps its durable entry HOT, so the next restart retries; this only drives the SHOW
-    // marker + log for the current (degraded) process lifetime. A user SUSPEND / restored cold entry is
-    // kSuspended.
-    enum class ColdReason : uint8_t { kSuspended, kRecoveryFailed, kRecoveryFailedOom };
-    ColdReason cold_reason{ColdReason::kSuspended};
   };
-
-  // Single source of truth for the COLD-reason -> base SHOW status string, shared by
-  // AllWithHotColdStatus (SHOW DATABASES) and GetColdShowInfo (SHOW STORAGE INFO). The switch is
-  // exhaustive over ColdReason, so the post-switch std::unreachable() both satisfies -Wreturn-type
-  // and documents that an out-of-range enum value is impossible.
-  static constexpr std::string_view ColdReasonBaseLabel(SuspendedEntry::ColdReason reason) {
-    switch (reason) {
-      case SuspendedEntry::ColdReason::kSuspended:
-        return "COLD";
-      case SuspendedEntry::ColdReason::kRecoveryFailed:
-        return "COLD (recovery failed)";
-      case SuspendedEntry::ColdReason::kRecoveryFailedOom:
-        return "COLD (recovery failed: out of memory)";
-    }
-    std::unreachable();
-  }
 
   /// @brief Implementation of Suspend. See Suspend() for semantics.
   /// On success records a SuspendDatabase system action on @p txn (if non-null) for ordered replication.
