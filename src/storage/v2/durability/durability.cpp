@@ -705,8 +705,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     }
     if (error_code) {
       if (config.durability.allow_recovery_failure) {
-        throw RecoveryFailure(
-            fmt::format("Couldn't recover data because an error occurred: {}!", error_code.message()));
+        throw RecoveryFailure("Couldn't recover data because an error occurred: {}!", error_code.message());
       }
       LOG_FATAL("Couldn't recover data because an error occurred: {}!", error_code.message());
     }
@@ -828,8 +827,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
       } catch (const RecoveryFailure &e) {
         if (config.durability.allow_recovery_failure) {
-          throw RecoveryFailure(
-              fmt::format("Couldn't recover WAL deltas from {} because of: {}", wal_file.path.string(), e.what()));
+          throw RecoveryFailure("Couldn't recover WAL deltas from {} because of: {}", wal_file.path.string(), e.what());
         }
         LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
       }
