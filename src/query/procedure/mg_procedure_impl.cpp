@@ -4435,9 +4435,11 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
   vertices_with_scores.reserve(text_search_results.size());
   for (const auto &result : text_search_results) {
     auto *vertex_ptr = GetVertexByGid(graph, result.vertex_gid, memory);
-    if (vertex_ptr) {
-      vertices_with_scores.emplace_back(vertex_ptr, result.score);
-    }
+    if (!vertex_ptr) continue;
+#ifdef MG_ENTERPRISE
+    if (!VertexHasReadPermission(vertex_ptr->getImpl(), *graph)) continue;
+#endif
+    vertices_with_scores.emplace_back(vertex_ptr, result.score);
   }
 
   mgp_list *search_results{};
@@ -4545,9 +4547,14 @@ void WrapTextEdgeSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **r
   edges_with_scores.reserve(text_edge_search_results.size());
   for (const auto &[edge_gid, from_vertex_gid, _, score] : text_edge_search_results) {
     auto *edge_ptr = GetEdgeByGid(graph, edge_gid, from_vertex_gid, memory);
-    if (edge_ptr) {
-      edges_with_scores.emplace_back(edge_ptr, score);
+    if (!edge_ptr) continue;
+#ifdef MG_ENTERPRISE
+    if (const auto *edge_acc = std::get_if<memgraph::query::EdgeAccessor>(&edge_ptr->impl);
+        edge_acc && !EdgeHasReadPermission(*edge_acc, *graph)) {
+      continue;
     }
+#endif
+    edges_with_scores.emplace_back(edge_ptr, score);
   }
 
   mgp_list *search_results{};
@@ -4624,14 +4631,6 @@ mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, 
                                                      .fuzzy_transpositions = fuzzy_transpositions != 0};
     try {
       text_search_results = graph->getImpl()->TextIndexSearch(index_name, search_query, search_mode, config);
-#ifdef MG_ENTERPRISE
-      if (graph->ctx && graph->ctx->auth_checker) {
-        std::erase_if(text_search_results, [&](const memgraph::storage::TextSearchResult &r) {
-          const auto maybe_vertex = graph->getImpl()->FindVertex(r.vertex_gid, graph->view);
-          return !maybe_vertex || !VertexHasReadPermission(*maybe_vertex, *graph);
-        });
-      }
-#endif
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
@@ -4709,14 +4708,6 @@ mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *
                                                      .fuzzy_transpositions = fuzzy_transpositions != 0};
     try {
       text_edge_search_results = graph->getImpl()->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
-#ifdef MG_ENTERPRISE
-      if (graph->ctx && graph->ctx->auth_checker) {
-        std::erase_if(text_edge_search_results, [&](const memgraph::storage::TextEdgeSearchResult &r) {
-          const auto maybe_edge = graph->getImpl()->FindEdge(r.edge_gid, r.from_vertex_gid, graph->view);
-          return !maybe_edge || !EdgeHasReadPermission(*maybe_edge, *graph);
-        });
-      }
-#endif
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
