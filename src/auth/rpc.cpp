@@ -30,6 +30,12 @@ auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   memgraph::auth::MigrateAuthJson(json);
   return memgraph::auth::Role::Deserialize(json);
 }
+
+std::string LoadRoleJsonRaw(memgraph::slk::Reader *reader) {
+  std::string tmp;
+  memgraph::slk::Load(&tmp, reader);
+  return tmp;
+}
 }  // namespace
 
 // Deserialize code for auth::Role
@@ -118,7 +124,75 @@ void Load(auth::Auth::Config *self, memgraph::slk::Reader *reader) {
   *self = auth::Auth::Config{std::move(name_regex_str), std::move(password_regex_str), password_permit_null};
 }
 
-// Serialize code for UpdateAuthDataReq
+void Save(const memgraph::replication::UpdateAuthDataReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.expected_group_timestamp, builder);
+  memgraph::slk::Save(self.new_group_timestamp, builder);
+  bool has_user = self.user_json.has_value();
+  memgraph::slk::Save(has_user, builder);
+  if (has_user) {
+    memgraph::slk::Save(*self.user_json, builder);
+    auto const &role_jsons = self.user_role_jsons.value_or(std::vector<std::string>{});
+    memgraph::slk::Save(static_cast<uint64_t>(role_jsons.size()), builder);
+    for (auto const &rj : role_jsons) {
+      memgraph::slk::Save(rj, builder);
+    }
+#ifdef MG_ENTERPRISE
+    memgraph::slk::Save(
+        self.user_mt_mappings.value_or(std::unordered_map<std::string, std::unordered_set<std::string>>{}), builder);
+#endif
+  }
+  bool has_role = self.role_json.has_value();
+  memgraph::slk::Save(has_role, builder);
+  if (has_role) {
+    memgraph::slk::Save(*self.role_json, builder);
+  }
+  memgraph::slk::Save(self.profile, builder);
+}
+
+void Load(memgraph::replication::UpdateAuthDataReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->expected_group_timestamp, reader);
+  memgraph::slk::Load(&self->new_group_timestamp, reader);
+
+  // Read optional<User> in raw form: same wire format as slk::Load<optional<User>>
+  bool has_user = false;
+  memgraph::slk::Load(&has_user, reader);
+  if (has_user) {
+    // User JSON string
+    std::string user_json;
+    memgraph::slk::Load(&user_json, reader);
+    self->user_json = std::move(user_json);
+
+    // Roles vector: slk encodes as uint64_t size followed by each element
+    uint64_t num_roles = 0;
+    memgraph::slk::Load(&num_roles, reader);
+    std::vector<std::string> role_jsons;
+    role_jsons.reserve(num_roles);
+    for (uint64_t i = 0; i < num_roles; ++i) {
+      role_jsons.push_back(LoadRoleJsonRaw(reader));
+    }
+    self->user_role_jsons = std::move(role_jsons);
+
+#ifdef MG_ENTERPRISE
+    // MT role mappings
+    std::unordered_map<std::string, std::unordered_set<std::string>> mt_map;
+    memgraph::slk::Load(&mt_map, reader);
+    self->user_mt_mappings = std::move(mt_map);
+#endif
+  }
+
+  // Read optional<Role> in raw form
+  bool has_role = false;
+  memgraph::slk::Load(&has_role, reader);
+  if (has_role) {
+    self->role_json = LoadRoleJsonRaw(reader);
+  }
+
+  // Profile (unchanged format)
+  memgraph::slk::Load(&self->profile, reader);
+}
+
 void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
@@ -137,7 +211,14 @@ void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->profile, reader);
 }
 
-// Serialize code for UpdateAuthDataRes
+void Save(const memgraph::replication::UpdateAuthDataResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.success, builder);
+}
+
+void Load(memgraph::replication::UpdateAuthDataResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->success, reader);
+}
+
 void Save(const memgraph::replication::UpdateAuthDataRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
 }
@@ -180,11 +261,85 @@ void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *r
 
 namespace memgraph::replication {
 
+UpdateAuthDataReq UpdateAuthDataReq::Upgrade(UpdateAuthDataReqV1 const &v1) {
+  UpdateAuthDataReq req;
+  req.main_uuid = v1.main_uuid;
+  req.expected_group_timestamp = v1.expected_group_timestamp;
+  req.new_group_timestamp = v1.new_group_timestamp;
+
+  if (v1.user_json) {
+    auto user_json = nlohmann::json::parse(*v1.user_json);
+    auth::MigrateAuthJson(user_json);
+    auto user = auth::User::Deserialize(user_json);
+    user.ClearAllRoles();
+
+    // Migrate and reconstruct roles
+    std::vector<auth::Role> roles;
+    if (v1.user_role_jsons) {
+      roles.reserve(v1.user_role_jsons->size());
+      for (auto const &rj : *v1.user_role_jsons) {
+        auto rj_json = nlohmann::json::parse(rj);
+        auth::MigrateAuthJson(rj_json);
+        roles.push_back(auth::Role::Deserialize(rj_json));
+      }
+    }
+
+#ifdef MG_ENTERPRISE
+    // Restore MT role mappings
+    if (v1.user_mt_mappings) {
+      for (auto const &[db, role_names] : *v1.user_mt_mappings) {
+        for (auto const &role_name : role_names) {
+          if (auto it = std::ranges::find_if(roles, [&role_name](auto const &r) { return r.rolename() == role_name; });
+              it != roles.end()) {
+            user.AddMultiTenantRole(*it, db);
+          }
+        }
+      }
+    }
+#endif
+
+    // Add global roles
+    for (auto const &role : roles) {
+      try {
+        user.AddRole(role);
+      } catch (auth::AuthException const &) {
+        continue;
+      }
+    }
+    req.user = std::move(user);
+  }
+
+  if (v1.role_json) {
+    auto rj = nlohmann::json::parse(*v1.role_json);
+    auth::MigrateAuthJson(rj);
+    req.role = auth::Role::Deserialize(rj);
+  }
+
+  req.profile = v1.profile;
+  return req;
+}
+
+void UpdateAuthDataReqV1::Save(const UpdateAuthDataReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void UpdateAuthDataReqV1::Load(UpdateAuthDataReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 void UpdateAuthDataReq::Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
 
 void UpdateAuthDataReq::Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void UpdateAuthDataResV1::Save(const UpdateAuthDataResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void UpdateAuthDataResV1::Load(UpdateAuthDataResV1 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
