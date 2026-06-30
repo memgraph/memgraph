@@ -73,7 +73,7 @@ def test_storage_info_reports_ready_then_defunct(test_name):
     interactive_mg_runner.start(instances, "default")
 
     cursor = connect(host="localhost", port=7687).cursor()
-    assert storage_info(cursor)["status"] == "defunct"
+    assert storage_info(cursor)["status"] == "broken"
     interactive_mg_runner.stop_all()
 
 
@@ -120,7 +120,7 @@ def test_show_databases_reports_status(test_name):
 
     cursor = connect(host="localhost", port=7687).cursor()
     rows = {row[0]: row[1] for row in execute_and_fetch_all(cursor, "SHOW DATABASES")}
-    assert rows.get("broken_db") == "defunct"
+    assert rows.get("broken_db") == "broken"
     assert rows.get("memgraph") == "ready"
     interactive_mg_runner.stop_all()
 

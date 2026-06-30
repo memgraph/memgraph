@@ -384,7 +384,7 @@ def test_main_corrupt_cured_with_recover_snapshot(test_name):
 
     main_cursor = connect(host="localhost", port=7687).cursor()
     use_tenant(main_cursor)
-    assert storage_info(main_cursor)["status"] == "defunct"
+    assert storage_info(main_cursor)["status"] == "broken"
 
     # Operator cures the main in place with the known-good snapshot copy.
     execute_and_fetch_all(main_cursor, f"RECOVER SNAPSHOT '{good_snapshot}'")
@@ -443,7 +443,7 @@ def test_both_corrupt_status_then_cure(test_name):
     wait_main(coord_cursor, "instance_1")
     main_cursor = connect(host="localhost", port=7687).cursor()
     use_tenant(main_cursor)
-    assert storage_info(main_cursor)["status"] == "defunct"
+    assert storage_info(main_cursor)["status"] == "broken"
 
     interactive_mg_runner.start(instances, "instance_2")
     wait_replica(coord_cursor, "instance_2")
@@ -451,10 +451,10 @@ def test_both_corrupt_status_then_cure(test_name):
     use_tenant(replica_cursor)
 
     # Verify defunct on BOTH instances via BOTH SHOW STORAGE INFO and SHOW DATABASES.
-    assert storage_info(main_cursor)["status"] == "defunct"
-    assert storage_info(replica_cursor)["status"] == "defunct"
-    assert databases_status(main_cursor).get(TENANT) == "defunct"
-    assert databases_status(replica_cursor).get(TENANT) == "defunct"
+    assert storage_info(main_cursor)["status"] == "broken"
+    assert storage_info(replica_cursor)["status"] == "broken"
+    assert databases_status(main_cursor).get(TENANT) == "broken"
+    assert databases_status(replica_cursor).get(TENANT) == "broken"
     # The default database stayed healthy on both.
     assert databases_status(main_cursor).get("memgraph") == "ready"
     assert databases_status(replica_cursor).get("memgraph") == "ready"
@@ -511,7 +511,7 @@ def test_main_corrupt_cured_with_reset_database_and_import(test_name):
     # RESET DATABASE resets the tenant to an empty, ready state on instance_1 while it is main.
     main1_cursor = connect(host="localhost", port=7687).cursor()
     use_tenant(main1_cursor)
-    assert storage_info(main1_cursor)["status"] == "defunct"
+    assert storage_info(main1_cursor)["status"] == "broken"
     execute_and_fetch_all(main1_cursor, "RESET DATABASE")
     assert storage_info(main1_cursor)["status"] == "ready"
     assert get_vertex_count(main1_cursor) == 0
