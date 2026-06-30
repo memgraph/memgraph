@@ -241,5 +241,28 @@ def test_vector_search_edges_allowed_when_indexed_property_not_denied():
     assert len(res) >= 1
 
 
+# WILDCARD vector index (CREATE VECTOR INDEX wild_vec ON (embedding))
+# label precheck stays permissive; row filter handles partial label access
+
+
+def test_wildcard_vector_search_allowed_for_label_restricted_user():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL vector_search.search('wild_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
+    )
+    titles = {row[0].properties.get("title") for row in res}
+    # :Document-only nodes are denied; :Public nodes (including the multi-label Hybrid via DENY :Document) excluded
+    assert "Secret" not in titles
+    assert "Internal" not in titles
+
+
+def test_wildcard_vector_search_blocked_under_property_rbac():
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(
+            user_prop_cursor(),
+            "CALL vector_search.search('wild_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
+        )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

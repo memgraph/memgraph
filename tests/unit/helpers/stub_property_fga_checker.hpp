@@ -74,6 +74,10 @@ class StubPropertyFGAChecker final : public query::FineGrainedAuthChecker {
     return !denied_.contains({resolver_->EdgeTypeToName(edge_type), resolver_->PropertyToName(property)});
   }
 
+  bool HasAnyVertexPropertyRule() const override { return !denied_.empty(); }
+
+  bool HasAnyEdgeTypePropertyRule() const override { return !denied_.empty(); }
+
  private:
   NameResolver const *resolver_;
   DenySet denied_;
