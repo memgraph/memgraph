@@ -372,7 +372,7 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V1UserWithOldFGA_MigratedOnUpgrade) {
   ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
   // V3 perm=1 (READ) → V4 global_grants=1 (READ bit), but label perms also
   // expand UPDATE→multiple bits. READ=1 stays as 1.
-  EXPECT_EQ(label_perms.GetGlobalGrants().value(), 1);
+  EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
 
   // Check the embedded role was also migrated
   auto const &roles = v2.user->roles();
@@ -402,7 +402,7 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V1RoleWithOldFGA_MigratedOnUpgrade) {
 
   auto const &label_perms = v2.role->fine_grained_access_handler().label_permissions();
   ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
-  EXPECT_EQ(label_perms.GetGlobalGrants().value(), 1);
+  EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
 }
 
 // V2 request round-trips without migration.
