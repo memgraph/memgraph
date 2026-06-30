@@ -123,6 +123,32 @@ inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
+/// Tri-state outcome of a single `query_handler` invocation.
+/// c-core-1: `Parked` is present but NEVER produced in this stage (drive unchanged).
+/// c-core-2 will wire the drive to emit `Parked` on a cooperative-yield stash.
+enum class PullOutcome : uint8_t { Finished, BatchContinues, Parked };
+
+/// Return type for `PreparedQuery::query_handler`.
+/// Implicit constructors keep every existing `PullPlanVector` handler UNEDITED:
+///   `return QueryHandlerResult::COMMIT;`  → hits `PullResult(QueryHandlerResult)` → Finished
+///   `return std::nullopt;`                → hits `PullResult(std::nullopt_t)` → BatchContinues
+/// Only the real Cypher `PullPlan` handler (interpreter.cpp:~3809) is hand-edited to switch on
+/// `PullOutcome` and emit `PullResult::Parked()` (unreachable until c-core-2).
+struct PullResult {
+  PullOutcome outcome{PullOutcome::BatchContinues};
+  std::optional<QueryHandlerResult> result{};  // set iff outcome == Finished
+
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  PullResult(QueryHandlerResult r) : outcome(PullOutcome::Finished), result(r) {}
+
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  PullResult(std::nullopt_t) {}  // BatchContinues, result stays nullopt
+
+  PullResult(PullOutcome o, std::optional<QueryHandlerResult> r) : outcome(o), result(std::move(r)) {}
+
+  static PullResult Parked() { return {PullOutcome::Parked, std::nullopt}; }
+};
+
 #ifdef MG_ENTERPRISE
 class CoordinatorQueryHandler {
  public:
@@ -208,7 +234,7 @@ class AnalyzeGraphQueryHandler {
 struct PreparedQuery {
   std::vector<std::string> header;
   std::vector<AuthQuery::Privilege> privileges;
-  std::move_only_function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
+  std::move_only_function<PullResult(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
   std::optional<std::string> db{};
   utils::Priority priority{utils::Priority::LOW};
@@ -419,9 +445,13 @@ class Interpreter final {
    * @throw utils::BasicException
    * @throw query::QueryException
    */
+  /// Pull results from the current query.
+  /// @param parked  If non-null and the query handler returns `PullOutcome::Parked`, sets `*parked = true` and
+  ///                returns an empty map. The caller must re-invoke Pull() to resume. This output parameter is
+  ///                unused in c-core-1 (Parked is never produced yet); it is the extension point for c-core-2.
   template <typename TStream>
-  std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},
-                                         std::optional<int> qid = {});
+  std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {}, std::optional<int> qid = {},
+                                         bool *parked = nullptr);
 
   void BeginTransaction(QueryExtras const &extras = {});
 
@@ -636,7 +666,7 @@ class Interpreter final {
 
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
-                                                    std::optional<int> qid) {
+                                                    std::optional<int> qid, bool *parked) {
   // Update the TLS arena index used to route allocations to the correct database arena.
   // The previous arena is restored on scope exit so pool threads are unaffected.
   std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;
@@ -682,70 +712,82 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // first.
     stream.~AnyStream();
 
-    // If the query finished executing, we have received a value which tells
-    // us what to do after.
-    if (maybe_res) {
-      // Save its summary
-      maybe_summary.emplace(std::move(query_execution->summary));
-      captured_query_string = std::move(query_execution->query_string);
+    switch (maybe_res.outcome) {
+      case PullOutcome::Parked: {
+        // c-core-1: Parked is NEVER produced yet (drive unchanged; this branch is unreachable).
+        // c-core-2 wires the real park: caller re-enters to resume the suspended coroutine.
+        // Write NOTHING — no commit, no reset, execution context stays live.
+        if (parked) *parked = true;
+        return {};
+      }
+      case PullOutcome::BatchContinues:
+        // More results remain; fall through to the has_more:true return below.
+        break;
+      case PullOutcome::Finished: {
+        // Query finished executing. maybe_res.result carries the post-execution action.
+        // Save its summary
+        maybe_summary.emplace(std::move(query_execution->summary));
+        captured_query_string = std::move(query_execution->query_string);
 
-      // Evaluate the gate now, while the renderer's DbAccessor is alive (Commit /
-      // ResetInterpreter tear it down). For autocommit, emit is deferred to after
-      // Commit() so a commit failure is logged as failed, not slow.
-      {
-        const auto threshold_ms = flags::run_time::GetEffectiveLogMinDurationMs(session_log_ctx_);
-        if (threshold_ms >= 0) {
-          auto duration_seconds = [&](const char *key) -> double {
-            auto it = maybe_summary->find(key);
-            if (it == maybe_summary->end() || !it->second.IsDouble()) return 0.0;
-            return it->second.ValueDouble();
-          };
-          const double total_sec = duration_seconds("parsing_time") + duration_seconds("planning_time") +
-                                   duration_seconds("plan_execution_time");
-          slow_query_duration_ms = static_cast<int64_t>(total_sec * 1000.0);
-          if (slow_query_duration_ms >= threshold_ms) {
-            emit_slow_query = true;
-            auto &renderer = query_execution->prepared_query->slow_query_plan_renderer;
-            if (renderer && flags::run_time::GetEffectiveLogQueryPlan(session_log_ctx_)) {
-              captured_plan_text = renderer();
+        // Evaluate the gate now, while the renderer's DbAccessor is alive (Commit /
+        // ResetInterpreter tear it down). For autocommit, emit is deferred to after
+        // Commit() so a commit failure is logged as failed, not slow.
+        {
+          const auto threshold_ms = flags::run_time::GetEffectiveLogMinDurationMs(session_log_ctx_);
+          if (threshold_ms >= 0) {
+            auto duration_seconds = [&](const char *key) -> double {
+              auto it = maybe_summary->find(key);
+              if (it == maybe_summary->end() || !it->second.IsDouble()) return 0.0;
+              return it->second.ValueDouble();
+            };
+            const double total_sec = duration_seconds("parsing_time") + duration_seconds("planning_time") +
+                                     duration_seconds("plan_execution_time");
+            slow_query_duration_ms = static_cast<int64_t>(total_sec * 1000.0);
+            if (slow_query_duration_ms >= threshold_ms) {
+              emit_slow_query = true;
+              auto &renderer = query_execution->prepared_query->slow_query_plan_renderer;
+              if (renderer && flags::run_time::GetEffectiveLogQueryPlan(session_log_ctx_)) {
+                captured_plan_text = renderer();
+              }
             }
           }
         }
-      }
 
-      if (!query_execution->notifications.empty()) {
-        std::vector<TypedValue> notifications;
-        notifications.reserve(query_execution->notifications.size());
-        for (const auto &notification : query_execution->notifications) {
-          notifications.emplace_back(notification.ConvertToMap());
-        }
-        maybe_summary->insert_or_assign("notifications", std::move(notifications));
-      }
-      if (!in_explicit_transaction_) {
-        switch (*maybe_res) {
-          case QueryHandlerResult::COMMIT:
-            Commit();
-            break;
-          case QueryHandlerResult::ABORT:
-            Abort();
-            break;
-          case QueryHandlerResult::NOTHING: {
-            // The only cases in which we have nothing to do are those where
-            // we're either in an explicit transaction or the query is such that
-            // a transaction wasn't started on a call to `Prepare()`.
-            MG_ASSERT(!current_db_.db_transactional_accessor_);
-            break;
+        if (!query_execution->notifications.empty()) {
+          std::vector<TypedValue> notifications;
+          notifications.reserve(query_execution->notifications.size());
+          for (const auto &notification : query_execution->notifications) {
+            notifications.emplace_back(notification.ConvertToMap());
           }
+          maybe_summary->insert_or_assign("notifications", std::move(notifications));
         }
-        // As the transaction is done we can clear all the executions
-        // NOTE: we cannot clear query_execution inside the Abort and Commit
-        // methods as we will delete summary contained in them which we need
-        // after our query finished executing.
-        ResetInterpreter();
-      } else {
-        // We can only clear this execution as some of the queries
-        // in the transaction can be in unfinished state
-        query_execution.reset(nullptr);
+        if (!in_explicit_transaction_) {
+          switch (*maybe_res.result) {
+            case QueryHandlerResult::COMMIT:
+              Commit();
+              break;
+            case QueryHandlerResult::ABORT:
+              Abort();
+              break;
+            case QueryHandlerResult::NOTHING: {
+              // The only cases in which we have nothing to do are those where
+              // we're either in an explicit transaction or the query is such that
+              // a transaction wasn't started on a call to `Prepare()`.
+              MG_ASSERT(!current_db_.db_transactional_accessor_);
+              break;
+            }
+          }
+          // As the transaction is done we can clear all the executions
+          // NOTE: we cannot clear query_execution inside the Abort and Commit
+          // methods as we will delete summary contained in them which we need
+          // after our query finished executing.
+          ResetInterpreter();
+        } else {
+          // We can only clear this execution as some of the queries
+          // in the transaction can be in unfinished state
+          query_execution.reset(nullptr);
+        }
+        break;
       }
     }
   } catch (const ExplicitTransactionUsageException &e) {
