@@ -144,13 +144,11 @@ class PackageMageSetup:
         # ("true"/"false"); keep the fallbacks as strings too so the matrix
         # always serialises booleans consistently — see MATRIX_BUILDS comment.
         common = {
-            "memgraph_download_link": self.workflow_inputs.get("memgraph_download_link", ""),
             "push_to_s3": self.workflow_inputs.get("push_to_s3", "false"),
             "s3_dest_dir": self.workflow_inputs.get("s3_dest_dir", "mage-unofficial"),
             "run_smoke_tests": self.workflow_inputs.get("run_smoke_tests", "false"),
             "run_tests": self.workflow_inputs.get("run_tests", "false"),
             "package_mage": self.workflow_inputs.get("package_mage", "default"),
-            "generate_sbom": self.workflow_inputs.get("generate_sbom", "false"),
             "ref": self.workflow_inputs.get("ref", ""),
         }
         if self.workflow_inputs.get("matrix_build") == "true":
@@ -174,6 +172,8 @@ class PackageMageSetup:
                 "malloc": self.workflow_inputs.get("malloc", "false"),
                 "os": os,
                 "build_docker_image": _build_docker_image(os, cugraph),
+                "memgraph_download_link": self.workflow_inputs.get("memgraph_download_link", ""),
+                "generate_sbom": self.workflow_inputs.get("generate_sbom", "false"),
                 **common,
             }
         ]
