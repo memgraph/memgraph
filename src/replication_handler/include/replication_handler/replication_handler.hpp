@@ -92,10 +92,14 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     if (is_enterprise) {
       auto configs = std::vector<storage::SalientConfig>{};
       auto repaired_uuids = std::vector<utils::UUID>{};
-      dbms_handler.ForEach([&configs, &repaired_uuids](dbms::DatabaseAccess acc) {
+      dbms_handler.ForEach([&configs, &repaired_uuids, &client](dbms::DatabaseAccess acc) {
         configs.emplace_back(acc->config().salient);
-        // Advertise repaired tenants so a replica that missed the RepairDatabaseRpc resets them.
-        if (acc->storage()->WasRepaired()) repaired_uuids.emplace_back(acc->config().salient.uuid);
+        // Advertise a repaired tenant only to a replica that has not yet confirmed resetting it, so a
+        // replica that already reset and re-synced is never asked to wipe its data again.
+        auto *storage = acc->storage();
+        if (storage->WasRepaired() && !storage->RepairConfirmedBy(client.name_)) {
+          repaired_uuids.emplace_back(acc->config().salient.uuid);
+        }
       });
       // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
 #ifdef MG_ENTERPRISE
@@ -112,9 +116,9 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp(), {}};
   });
 #ifdef MG_ENTERPRISE
-  // Copy before db_info.repaired_uuids is moved into the stream below; used to clear the repaired flag
-  // once the replica has received the SystemRecoveryRpc.
-  auto const repaired_to_clear = db_info.repaired_uuids;
+  // Copy before db_info.repaired_uuids is moved into the stream below; used to record this replica's
+  // confirmation once it has applied the SystemRecoveryRpc.
+  auto const advertised_repaired_uuids = db_info.repaired_uuids;
 #endif
   try {
     metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
@@ -155,23 +159,24 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
 #endif
     });
     auto const response = stream.SendAndWait();
-#ifdef MG_ENTERPRISE
-    // The replica has received the SystemRecoveryRpc; clear the repaired flag for the advertised tenants
-    // regardless of the result. This stops a later reconnect from needlessly resetting a tenant the replica
-    // has since re-synced. A genuinely stale replica that missed this advertisement is still corrected by
-    // the standard epoch-mismatch recovery path.
-    for (auto const &uuid : repaired_to_clear) {
-      try {
-        dbms_handler.Get(uuid)->storage()->SetRepaired(false);
-      } catch (const dbms::UnknownDatabaseException &) {
-        spdlog::debug("SystemRestore: repaired tenant {} no longer present; nothing to clear.", std::string{uuid});
-      }
-    }
-#endif
     if (response.result == SystemRecoveryRes::Result::FAILURE) {
+      // System recovery failed; do not record confirmations so the repair is re-advertised on the next
+      // SystemRestore.
       client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
       return;
     }
+#ifdef MG_ENTERPRISE
+    // System recovery succeeded: this replica has applied the repaired_uuids resets. Record its
+    // confirmation so these tenants are not advertised to it again on a later reconnect, while a replica
+    // that has not yet confirmed keeps being advertised until it resets.
+    for (auto const &uuid : advertised_repaired_uuids) {
+      try {
+        dbms_handler.Get(uuid)->storage()->MarkRepairConfirmedBy(client.name_);
+      } catch (const dbms::UnknownDatabaseException &) {
+        spdlog::debug("SystemRestore: repaired tenant {} no longer present; nothing to confirm.", std::string{uuid});
+      }
+    }
+#endif
   } catch (rpc::RpcFailedException const &) {  // intentionally RpcFailedException and not Generic because we want to
                                                // handle both Generic and timeout type of errors
     client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
