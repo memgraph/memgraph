@@ -95,6 +95,12 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   bolt_map_t Pull(std::optional<int> n, std::optional<int> qid);
 
+  /// Returns true iff the query identified by @p qid (or the last query when nullopt) was
+  /// prepared with a Coro-mode root cursor.  Forwards to Interpreter::IsCursorCoroDriven().
+  /// Called by the Bolt dispatch layer (d1b) to choose between the inline sync path and a
+  /// resumable pool task.  NOT called anywhere yet — this is d1a plumbing only.
+  bool IsPullCoroDriven(std::optional<int> qid) const;
+
   bolt_map_t Discard(std::optional<int> n, std::optional<int> qid);
 
   void Abort();

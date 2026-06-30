@@ -403,6 +403,13 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
   }
 }
 
+bool SessionHL::IsPullCoroDriven(std::optional<int> qid) const {
+  // Forward directly to the interpreter's accessor.  The qid semantics are identical to Pull():
+  // nullopt = last query; out-of-range / unprepared = false (handled defensively in
+  // Interpreter::IsCursorCoroDriven).  NOT called anywhere yet — d1a plumbing only.
+  return interpreter_.IsCursorCoroDriven(qid);
+}
+
 void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {

@@ -3253,6 +3253,17 @@ struct PullPlan {
     return *last_stats_;
   }
 
+  /// Returns true iff this plan's root cursor is Coro-mode AND it is not a profile query.
+  /// This is the same predicate Pull() uses for `drive_coro` (interpreter.cpp, the `const bool
+  /// drive_coro = ...` line).  Factored here so PrepareCypherQuery can stamp
+  /// PreparedQuery::is_coro_driven once at construction time, making the flag stable for the
+  /// lifetime of the query execution without re-evaluating cursor_ after move.
+  ///
+  /// cursor_ mode is fixed at construction by MakeRootCursorWithPolicy (called in the ctor
+  /// initialiser list), so this returns the same value on every call.  ctx_.is_profile_query
+  /// is also fixed at construction (set unconditionally from the `is_profile_query` ctor arg).
+  bool WillDriveCoro() const noexcept { return cursor_->mode() == plan::CursorMode::Coro && !ctx_.is_profile_query; }
+
   /// Shutdown guard: if the cursor was never shut down on the normal Finished path (e.g. the client
   /// disconnected while the query was parked), call Shutdown() here so CallProcedure's cleanup
   /// lambda runs and the suspended coroutine frames are freed cleanly by ~cursor_.
@@ -3895,6 +3906,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               user_resource
 #endif
   );
+  // Capture the coro-drive flag BEFORE pull_plan is moved into the query_handler closure below.
+  // WillDriveCoro() reads cursor_->mode() and ctx_.is_profile_query, both fixed at PullPlan
+  // construction; the result is stable for the entire query lifetime.
+  const bool is_coro_driven = pull_plan->WillDriveCoro();
   return PreparedQuery{
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),
@@ -3915,7 +3930,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       .rw_type = rw_type,
       .db = current_db.db_acc_->get()->name(),
       .priority = utils::Priority::LOW,  // Default to LOW priority for all Cypher queries
-      .slow_query_plan_renderer = std::move(slow_query_plan_renderer)};
+      .slow_query_plan_renderer = std::move(slow_query_plan_renderer),
+      .is_coro_driven = is_coro_driven};
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notification> *notifications,
@@ -9519,6 +9535,21 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
 }  // namespace
 
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
+
+bool Interpreter::IsCursorCoroDriven(std::optional<int> qid) const {
+  // Resolve qid using the same logic as the template Pull() (interpreter.hpp:678).
+  // nullopt → last query execution; out-of-range → false (defensive).
+  MG_ASSERT(in_explicit_transaction_ || !qid, "qid can be only used in explicit transaction!");
+  const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
+  if (qid_value < 0 || qid_value >= static_cast<int>(query_executions_.size())) {
+    return false;
+  }
+  const auto &qe = query_executions_[qid_value];
+  if (!qe || !qe->prepared_query) {
+    return false;
+  }
+  return qe->prepared_query->is_coro_driven;
+}
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();

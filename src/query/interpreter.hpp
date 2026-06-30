@@ -241,6 +241,11 @@ struct PreparedQuery {
   // Lazily renders the EXPLAIN plan for the slow-query log; empty unless slow logging may
   // apply. Pull invokes it past the duration gate, while the plan's DbAccessor is alive.
   std::function<std::string()> slow_query_plan_renderer{};
+  // True iff the PullPlan driving this query has a Coro-mode root cursor and is not a profile
+  // query (i.e. PullPlan::WillDriveCoro() == true at construction time).  Set once in
+  // PrepareCypherQuery; remains false for all non-Cypher handlers (they never build a
+  // PullPlan and can never park).  Read by Interpreter::IsCursorCoroDriven().
+  bool is_coro_driven{false};
 };
 
 /**
@@ -452,6 +457,16 @@ class Interpreter final {
   template <typename TStream>
   std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {}, std::optional<int> qid = {},
                                          bool *parked = nullptr);
+
+  /// Returns true iff the query identified by @p qid was prepared with a Coro-mode root cursor
+  /// (i.e. PreparedQuery::is_coro_driven is true).  Used by the Bolt session dispatch layer (d1b)
+  /// to decide whether to route a PULL through a resumable task.
+  ///
+  /// Resolves @p qid exactly like Pull() does: nullopt → last query execution.
+  /// Returns false if the qid is out of range, the execution was already reset, or the query
+  /// was not prepared with a PullPlan (e.g. DDL, auth, PullPlanVector handlers).
+  /// This method is NEVER called yet (d1a is additive/plumbing only; the dispatch site is d1b).
+  bool IsCursorCoroDriven(std::optional<int> qid) const;
 
   void BeginTransaction(QueryExtras const &extras = {});
 
