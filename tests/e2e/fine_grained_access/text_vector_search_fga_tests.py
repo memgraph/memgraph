@@ -15,6 +15,10 @@ import common
 import mgclient
 import pytest
 
+# `user` has GRANT READ on :Public + :LINKS_PUB + :MIXED and DENY READ on :Document + :LINKS_DOC.
+# Indexed data: pub/doc text + vector indexes on labels, edge variants on edge types,
+# plus a :Public:Document multi-label "Hybrid" node and a :MIXED edge spanning Public→Document.
+
 
 def admin_cursor():
     return common.connect(username="admin", password="test").cursor()
@@ -22,6 +26,9 @@ def admin_cursor():
 
 def user_cursor():
     return common.connect(username="user", password="test").cursor()
+
+
+# text_search on vertices -----------------------------------------------------
 
 
 def test_text_search_filters_denied_label():
@@ -56,6 +63,7 @@ def test_text_regex_search_filters_denied_label():
     assert res == []
 
 
+# Hybrid is :Public:Document — visible via pub_text index but DENY :Document wins per-row.
 def test_text_search_skips_multi_label_node_with_denied_label():
     res = common.execute_and_fetch_all(
         user_cursor(),
@@ -70,6 +78,9 @@ def test_admin_text_search_returns_results_on_denied_index():
         "CALL text_search.search('doc_text', 'data.title:Secret') YIELD node RETURN node;",
     )
     assert len(res) >= 1
+
+
+# text_search on edges -------------------------------------------------------
 
 
 def test_text_search_edges_filters_denied_type():
@@ -88,12 +99,16 @@ def test_text_search_edges_returns_allowed_type():
     assert len(res) == 1
 
 
+# :MIXED edge is allowed by edge-type READ, but its endpoint is :Document — endpoint deny wins.
 def test_text_search_edges_skips_when_endpoint_denied():
     res = common.execute_and_fetch_all(
         user_cursor(),
         "CALL text_search.search_edges('mixed_etext', 'data.label:CrossOver') YIELD edge RETURN edge;",
     )
     assert res == []
+
+
+# vector_search on vertices --------------------------------------------------
 
 
 def test_vector_search_filters_denied_label():
@@ -129,6 +144,9 @@ def test_admin_vector_search_returns_results_on_denied_index():
     assert len(res) >= 1
 
 
+# vector_search on edges -----------------------------------------------------
+
+
 def test_vector_search_edges_filters_denied_type():
     res = common.execute_and_fetch_all(
         user_cursor(),
@@ -151,6 +169,9 @@ def test_vector_search_edges_skips_when_endpoint_denied():
         "CALL vector_search.search_edges('mixed_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
     )
     assert res == []
+
+
+# aggregate procs — blocked under any fine-grained restriction since Tantivy can't honor per-row perms
 
 
 def test_aggregate_blocked_for_restricted_user():
