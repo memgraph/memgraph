@@ -30,6 +30,7 @@
 #include <atomic>
 
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 
 // These Python C API functions are part of the stable ABI per the official
 // docs, but the limited-API headers (as of Python 3.14) only declare them in
@@ -90,7 +91,20 @@ class EnsureGIL final {
   PyGILState_STATE gil_state_;
 
  public:
-  EnsureGIL() noexcept : gil_state_(PyGILState_Ensure()) {}
+  EnsureGIL() noexcept {
+    // Acquiring the GIL can make the interpreter allocate (e.g. Python 3.14
+    // (re)creates a thread state inside `PyGILState_Ensure`). When this happens
+    // on a worker thread running under an active `QUERY MEMORY LIMIT`, the
+    // thread-local MemoryTracker would charge that allocation to the query and
+    // can reject it once the limit is hit. CPython treats a failed thread-state
+    // creation as fatal (`Py_FatalError`), which kills the whole server instead
+    // of just failing the query. Exempt the interpreter's own GIL-acquisition
+    // allocations from the query limit; the blocker is released the moment
+    // `PyGILState_Ensure` returns, so the procedure's actual work stays subject
+    // to the limit.
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
+    gil_state_ = PyGILState_Ensure();
+  }
 
   ~EnsureGIL() noexcept { PyGILState_Release(gil_state_); }
 
