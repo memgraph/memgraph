@@ -15,7 +15,6 @@
 #include "parameters/parameters.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
-#include "utils/enum.hpp"
 
 namespace memgraph::slk {
 
@@ -35,45 +34,27 @@ void Load(memgraph::parameters::ParameterInfo *self, memgraph::slk::Reader *read
 
 // Serialize code for storage::StorageInfo (flat POD; carried in SystemRecoveryReq V3 for COLD tenants).
 // Driven by the single storage::StorageInfoForEachField list (storage.hpp) so adding a field updates
-// this wire path AND the durability cold_stats JSON at once. Enums go over the wire as their underlying
-// integer (each enum's base is uint8_t), exactly as before.
+// this wire path AND the durability cold_stats JSON at once. Each field forwards to the generic
+// slk::Save/Load, which already encodes an enum as its underlying integer (and on Load validates enums
+// that carry an ::N sentinel, e.g. StorageMode, via NumToEnum) — see the enum overloads in
+// serialization.hpp. No per-field enum dispatch is needed here.
 //
-// Wire-contract tripwire: the StorageInfo SLK Save/Load below write/read each enum as
-// std::underlying_type_t<T>, and a peer must agree on that width. The encoding has always assumed a
-// 1-byte base; widening any of these enums would silently change the wire width and desync a same-version
-// peer. Make that a COMPILE error instead of a runtime corruption.
+// Wire-contract tripwire: those generic enum overloads write/read each enum as std::underlying_type_t<T>,
+// and a peer must agree on that width. The encoding has always assumed a 1-byte base; widening any of
+// these enums would silently change the wire width and desync a same-version peer. Make that a COMPILE
+// error instead of a runtime corruption.
 static_assert(sizeof(std::underlying_type_t<memgraph::storage::StorageMode>) == 1);
 static_assert(sizeof(std::underlying_type_t<memgraph::storage::IsolationLevel>) == 1);
 static_assert(sizeof(std::underlying_type_t<memgraph::utils::CompressionLevel>) == 1);
 
 void Save(const memgraph::storage::StorageInfo &self, memgraph::slk::Builder *builder) {
-  memgraph::storage::StorageInfoForEachField(self, [&](const char * /*key*/, const auto &v) {
-    using T = std::remove_cvref_t<decltype(v)>;
-    if constexpr (std::is_enum_v<T>) {
-      memgraph::slk::Save(std::to_underlying(v), builder);
-    } else {
-      memgraph::slk::Save(v, builder);
-    }
-  });
+  memgraph::storage::StorageInfoForEachField(
+      self, [&](const char * /*key*/, const auto &v) { memgraph::slk::Save(v, builder); });
 }
 
 void Load(memgraph::storage::StorageInfo *self, memgraph::slk::Reader *reader) {
-  memgraph::storage::StorageInfoForEachField(*self, [&](const char * /*key*/, auto &v) {
-    using T = std::remove_cvref_t<decltype(v)>;
-    if constexpr (std::is_enum_v<T>) {
-      std::underlying_type_t<T> raw = 0;
-      memgraph::slk::Load(&raw, reader);
-      // storage_mode has an Enum::N sentinel (NumToEnum-validatable); IsolationLevel / CompressionLevel
-      // do not, so direct-cast — the value comes from a same-version MAIN.
-      if constexpr (std::is_same_v<T, storage::StorageMode>) {
-        if (!utils::NumToEnum(raw, v)) throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-      } else {
-        v = static_cast<T>(raw);
-      }
-    } else {
-      memgraph::slk::Load(&v, reader);
-    }
-  });
+  memgraph::storage::StorageInfoForEachField(*self,
+                                             [&](const char * /*key*/, auto &v) { memgraph::slk::Load(&v, reader); });
 }
 
 // One COLD tenant's recovery payload — salient + as-of-suspend stats.
