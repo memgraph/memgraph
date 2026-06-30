@@ -169,7 +169,7 @@ class InMemoryStorage final : public Storage {
   };
 
   enum class ResetError : uint8_t {
-    NotDefunct,
+    NotBroken,
     BackupFailure,
   };
 
@@ -766,16 +766,22 @@ class InMemoryStorage final : public Storage {
       std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
       std::optional<utils::S3Config> s3_config = std::nullopt);
 
-  // Cures a defunct tenant by resetting it to an empty working state. The corrupt
+  // Cures a broken tenant by resetting it to an empty working state. The corrupt
   // snapshots/ and wal/ files are moved to a .old directory when backup directories
   // are enabled, otherwise deleted, leaving the durability directory restart-clean.
-  // The defunct flag is cleared on success. Rejected on a healthy (non-defunct) storage.
-  std::expected<void, InMemoryStorage::ResetError> ResetDefunct();
+  // The broken flag is cleared on success. Rejected on a healthy (non-broken) storage.
+  [[nodiscard]] std::expected<void, InMemoryStorage::ResetError> ResetBroken();
 
-  // Completely resets the tenant to an empty working state: clears the graph, the name-id mapper and
-  // the description store, drops the defunct flag and resets the replication epoch/timestamp. Used on a
-  // replica when the main resets a tenant (RESET DATABASE): the replica wipes its stale data so it can
-  // re-sync from the main's fresh, empty epoch. Unlike ResetDefunct() this does not touch durability files.
+  // Clears the tenant's durability files (moving snapshots/ and wal/ to a .old directory when backup
+  // directories are enabled, otherwise deleting them) and then resets it to an empty working state via
+  // ResetTenant(). Shared by RepairBroken() (main, after its broken-state check) and the replica's
+  // RepairDatabaseRpc handler, so both wipe the tenant with identical on-disk semantics and it stays empty
+  // across a restart. Unlike RepairBroken() this does not require the storage to be broken.
+  [[nodiscard]] std::expected<void, InMemoryStorage::RepairError> ClearDurabilityAndReset();
+
+  // Completely resets the tenant to an empty in-memory working state: clears the graph, the name-id mapper
+  // and the description store, drops the broken flag and resets the replication epoch/timestamp. Does not
+  // touch durability files -- callers that need the reset to survive a restart use ClearDurabilityAndReset().
   void ResetTenant();
 
   std::vector<SnapshotFileInfo> ShowSnapshots();

@@ -398,7 +398,7 @@ struct DropDatabase : memgraph::system::ISystemAction {
 // from the main (their commit timestamp is back to 0, so no branching point is detected) and become
 // ready to accept the main's subsequent commits.
 struct ResetDatabaseAction : memgraph::system::ISystemAction {
-  ResetDatabaseAction(utils::UUID uuid, DatabaseAccess db_acc) : uuid_{uuid} {}
+  ResetDatabaseAction(utils::UUID uuid, DatabaseAccess db_acc) : uuid_{uuid}, db_acc_{std::move(db_acc)} {}
 
   void DoDurability() override { /* Done during DBMS execution */ }
 
@@ -410,14 +410,22 @@ struct ResetDatabaseAction : memgraph::system::ISystemAction {
       return response.result != storage::replication::ResetDatabaseRes::Result::FAILURE;
     };
 
-    return client.StreamAndFinalizeDelta<storage::replication::ResetDatabaseRpc>(
+    auto const completed = client.StreamAndFinalizeDelta<storage::replication::ResetDatabaseRpc>(
         check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
+    if (completed) {
+      // The replica applied the reset; record its confirmation so the repair is not re-advertised in a
+      // later SystemRecoveryReq and the replica isn't needlessly reset again after it has re-synced.
+      auto acc = db_acc_;
+      acc->storage()->MarkRepairConfirmedBy(client.name_);
+    }
+    return completed;
   }
 
   void PostReplication(replication::RoleMainData &mainData) const override {}
 
  private:
   utils::UUID uuid_;
+  DatabaseAccess db_acc_;
 };
 
 struct RenameDatabase : memgraph::system::ISystemAction {
@@ -891,12 +899,12 @@ std::optional<std::string> DbmsHandler::ResetDatabase(DatabaseAccess db_acc,
                                                       [[maybe_unused]] system::Transaction *txn) {
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
   // MAIN-side local reset: move the corrupt durability files aside, clear the tenant and drop the
-  // defunct flag. The tenant comes back empty with a fresh epoch. Available in Community and Enterprise.
-  if (auto resetted = mem_storage->ResetDefunct(); !resetted.has_value()) {
-    switch (resetted.error()) {
+  // broken flag. The tenant comes back empty with a fresh epoch. Available in Community and Enterprise.
+  if (auto repaired = mem_storage->ResetBroken(); !repaired.has_value()) {
+    switch (repaired.error()) {
       using enum storage::InMemoryStorage::ResetError;
-      case NotDefunct:
-        return "RESET DATABASE can only be run on a database in the defunct state.";
+      case NotBroken:
+        return "REPAIR DATABASE can only be run on a database in the broken state.";
       case BackupFailure:
         return "Failed to move aside the corrupt durability files. Please clean them manually.";
     }
@@ -905,11 +913,7 @@ std::optional<std::string> DbmsHandler::ResetDatabase(DatabaseAccess db_acc,
 #ifdef MG_ENTERPRISE
   // Replicate the reset to the replicas so they wipe their stale tenant data and re-sync from the main.
   if (txn) {
-<<<<<<< HEAD
-    txn->AddAction<ResetDatabaseAction>(mem_storage->uuid(), std::move(db_acc));
-=======
-    txn->AddAction<RepairDatabaseAction>(mem_storage->uuid());
->>>>>>> f8f6c2b02 (fix: Unused db_acc)
+    txn->AddAction<ResetDatabaseAction>(mem_storage->uuid(), db_acc);
   }
 #endif
 

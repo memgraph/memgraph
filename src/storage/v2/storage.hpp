@@ -12,6 +12,8 @@
 #pragma once
 
 #include <optional>
+#include <set>
+#include <string>
 
 #include "common_function_signatures.hpp"
 #include "memory/db_arena_fwd.hpp"
@@ -40,6 +42,8 @@
 #include "storage/v2/vertices_chunked_iterable.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 
 namespace memgraph::metrics {
@@ -264,12 +268,12 @@ class Storage {
 
   auto uuid() -> utils::UUID & { return config_.salient.uuid; }
 
-  // A storage is defunct when it failed durability recovery on startup and was
-  // brought up empty (see --storage-allow-recovery-failure). A defunct storage
-  // rejects data queries until recovered via RECOVER SNAPSHOT or RESET DATABASE.
-  bool IsDefunct() const noexcept { return defunct_.load(std::memory_order_acquire); }
+  // A storage is broken when it failed durability recovery on startup and was
+  // brought up empty (see --storage-allow-recovery-failure). A broken storage
+  // rejects data queries until recovered via RECOVER SNAPSHOT or REPAIR DATABASE.
+  bool IsBroken() const noexcept { return broken_.load(std::memory_order_acquire); }
 
-  void SetDefunct(bool value) noexcept { defunct_.store(value, std::memory_order_release); }
+  void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
 
   // A storage is marked resetted when it was reset to an empty working state via RESET DATABASE
   // (locally on the main or through the ResetDatabaseRpc on a replica). The main advertises its
@@ -420,10 +424,15 @@ class Storage {
   std::atomic<uint64_t> edge_count_{0};
 
   // Set when durability recovery failed and the storage was brought up empty.
-  std::atomic<bool> defunct_{false};
+  std::atomic<bool> broken_{false};
 
   // Set when the tenant was reset to an empty state via RESET DATABASE (see WasResetted()).
   std::atomic<bool> was_resetted_{false};
+
+  // Replica names that confirmed the most recent repair of this tenant (see MarkRepairConfirmedBy()).
+  // Used so a repaired tenant is advertised in SystemRecoveryReq only to replicas that have not yet
+  // reset it. In-memory, per run.
+  utils::Synchronized<std::set<std::string, std::less<>>, utils::RWSpinLock> repaired_confirmed_replicas_;
 
   std::unique_ptr<NameIdMapper> name_id_mapper_;
   Config config_;

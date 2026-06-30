@@ -108,7 +108,7 @@ def test_drop_defunct_database(test_name):
     execute_and_fetch_all(cursor, "USE DATABASE broken_db")
     with pytest.raises(mgclient.DatabaseError) as exc_info:
         execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")
-    assert "defunct" in str(exc_info.value).lower()
+    assert "broken" in str(exc_info.value).lower()
 
     # Switch back to the default database (we cannot drop the database in use).
     execute_and_fetch_all(cursor, "USE DATABASE memgraph")

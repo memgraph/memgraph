@@ -664,7 +664,7 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] u
           throw RecoveryFailure(
               "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database. "
               "The "
-              "database is now in the defunct state.");
+              "database is now in the broken state.");
         }
         LOG_FATAL(
             "The database is configured to recover on startup, but couldn't "
@@ -836,7 +836,8 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] u
 
         } catch (const RecoveryFailure &e) {
           if (config.durability.allow_recovery_failure) {
-            throw RecoveryFailure("Couldn't recover WAL deltas from {} because of: {}", wal_file.path.string(), e.what());
+            throw RecoveryFailure(
+                "Couldn't recover WAL deltas from {} because of: {}", wal_file.path.string(), e.what());
           }
           LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
         }

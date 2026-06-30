@@ -302,6 +302,12 @@ constexpr std::string_view kSocketErrorExplanation =
     "The socket address must be a string defining the address and port, delimited by a "
     "single colon. The address must be valid and the port must be an integer.";
 
+constexpr std::string_view kBrokenDatabaseError =
+    "Database is in the broken state because the recovery process failed. Please recover your database "
+    "using the RECOVER SNAPSHOT query or REPAIR DATABASE query + run your import queries. If you have a "
+    "backup of the whole data directory, please replace the current data directory with the backup one and "
+    "restart the process.";
+
 #ifdef MG_ENTERPRISE
 void EnsureMainInstance(InterpreterContext *interpreter_context, const std::string &operation_name) {
   if (interpreter_context->repl_state->ReadLock()->IsReplica()) {
@@ -3423,6 +3429,12 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         expect_rollback_ = false;
         if (!current_db_.db_acc_)
           throw DatabaseContextRequiredException("No current database for transaction defined.");
+        // Fail-closed on a broken database: an explicit transaction opens a data accessor and its queries
+        // bypass the per-query broken gate (which only runs outside explicit transactions), so reject the
+        // BEGIN itself. The tenant must first be recovered via RECOVER SNAPSHOT or REPAIR DATABASE.
+        if ((*current_db_.db_acc_)->storage()->IsBroken()) {
+          throw QueryException(std::string{kBrokenDatabaseError});
+        }
         SetupDatabaseTransaction(true,
                                  extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE);
       };
@@ -6319,9 +6331,9 @@ PreparedQuery PrepareResetDatabaseQuery(ParsedQuery parsed_query, bool in_explic
     throw QueryException("RESET DATABASE can only be run on the MAIN instance.");
   }
 
-  // Defunct-only: reject on a healthy database to prevent accidental data loss.
-  if (!storage->IsDefunct()) {
-    throw QueryException("RESET DATABASE can only be run on a database in the defunct state.");
+  // Broken-only: reject on a healthy database to prevent accidental data loss.
+  if (!storage->IsBroken()) {
+    throw QueryException("REPAIR DATABASE can only be run on a database in the broken state.");
   }
 
   auto const db_name = current_db.db_acc_->get()->name();
@@ -7456,7 +7468,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                TypedValue(tenant_limit > 0 ? utils::GetReadableSize(static_cast<double>(tenant_limit))
                                            : std::string("unlimited"))},
               {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
-              {TypedValue("status"), TypedValue(storage->IsDefunct() ? "broken" : "ready")},
+              {TypedValue("status"), TypedValue(storage->IsBroken() ? "broken" : "ready")},
           };
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
@@ -8322,8 +8334,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     // --storage-allow-recovery-failure); report that so operators can spot it.
     auto health_of = [db_handler](std::string_view name) -> std::string {
       try {
-        return db_handler->Get(name)->storage()->IsDefunct() ? "broken" : "ready";
-      } catch (...) {
+        return db_handler->Get(name)->storage()->IsBroken() ? "broken" : "ready";
+      } catch (const memgraph::dbms::UnknownDatabaseException &) {
+        // The database was dropped between listing and querying; treat it as ready (it is gone).
         return "ready";
       }
     };
@@ -9981,50 +9994,45 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // the current database's data is rejected until it is recovered via RECOVER SNAPSHOT
       // or RESET DATABASE. Meta queries (USE/SHOW DATABASES, SHOW STORAGE INFO, auth,
       // replication, ...) do not touch the tenant graph and are allowed through.
-      if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsDefunct()) {
+      if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsBroken()) {
         auto *q = parsed_query.query;
-<<<<<<< HEAD
-        // Allowlist: in the broken state only RECOVER SNAPSHOT (the cure) and read-only meta/info
-        // queries that never touch the tenant graph are permitted. Everything else (Cypher, DDL,
-        // CREATE SNAPSHOT, ...) is rejected until the database is recovered.
-        const bool is_allowed =
-            utils::Downcast<RecoverSnapshotQuery>(q) != nullptr || utils::Downcast<ResetDatabaseQuery>(q) != nullptr ||
-            utils::Downcast<DatabaseInfoQuery>(q) != nullptr || utils::Downcast<SystemInfoQuery>(q) != nullptr ||
-            utils::Downcast<ReplicationInfoQuery>(q) != nullptr || utils::Downcast<ShowConfigQuery>(q) != nullptr ||
-      }
-      .template operator()<RecoverSnapshotQuery,
-                           RepairDatabaseQuery,
-                           DatabaseInfoQuery,
-                           SystemInfoQuery,
-                           ReplicationInfoQuery,
-                           ShowConfigQuery,
-                           ShowQueryCallableMappingsQuery,
-                           SettingQuery,
-                           VersionQuery,
-                           UseDatabaseQuery,
-                           MultiDatabaseQuery,
-                           ShowDatabaseQuery,
-                           ShowDatabasesQuery,
-                           ShowMemoryInfoQuery,
-                           SessionTraceQuery,
-                           SessionSettingQuery,
-                           AuthQuery,
-                           ReplicationQuery,
-                           UserProfileQuery,
-                           TenantProfileQuery,
-                           ParameterQuery,
-                           TransactionQueueQuery,
-                           LockPathQuery,
-                           FreeMemoryQuery,
-                           CoordinatorQuery,
-                           ReloadSSLQuery>();
->>>>>>> 9b6254fb2 (fix: PR fixes)
-      if (!is_allowed) {
-        throw QueryException(
-            "Database is in the broken state because the recovery process failed. Please recover your database "
-            "using the RECOVER SNAPSHOT query or RESET DATABASE query + run your import queries. If you have a "
-            "backup of the whole data directory, please replace the current data directory with the backup one and "
-            "restart the process.");
+        // Allowlist: in the broken state only the cure queries (RECOVER SNAPSHOT / REPAIR DATABASE)
+        // and meta/admin queries that never touch the tenant graph are permitted. Everything else
+        // (Cypher, DDL, CREATE SNAPSHOT, ...) is rejected until the database is recovered. Auth,
+        // replication, profile and other instance-level queries operate on system state rather than
+        // the tenant graph, so they remain available for remediation while a tenant is broken.
+        auto const is_allowed =
+            [q]<typename... Ts>() {
+              return (... || (utils::Downcast<Ts>(q) != nullptr));
+            }.template operator()<RecoverSnapshotQuery,
+                                  RepairDatabaseQuery,
+                                  DatabaseInfoQuery,
+                                  SystemInfoQuery,
+                                  ReplicationInfoQuery,
+                                  ShowConfigQuery,
+                                  ShowQueryCallableMappingsQuery,
+                                  SettingQuery,
+                                  VersionQuery,
+                                  UseDatabaseQuery,
+                                  MultiDatabaseQuery,
+                                  ShowDatabaseQuery,
+                                  ShowDatabasesQuery,
+                                  ShowMemoryInfoQuery,
+                                  SessionTraceQuery,
+                                  SessionSettingQuery,
+                                  AuthQuery,
+                                  ReplicationQuery,
+                                  UserProfileQuery,
+                                  TenantProfileQuery,
+                                  ParameterQuery,
+                                  TransactionQueueQuery,
+                                  LockPathQuery,
+                                  FreeMemoryQuery,
+                                  CoordinatorQuery,
+                                  ReloadSSLQuery>();
+        if (!is_allowed) {
+          throw QueryException(std::string{kBrokenDatabaseError});
+        }
       }
 
       if (transaction_requirements.accessor_type_) {
@@ -10140,7 +10148,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                        current_db_,
                                        interpreter_context_);
 #else
-        throw EnterpriseOnlyException();
+      throw EnterpriseOnlyException();
 #endif  // MG_ENTERPRISE
     } else if (utils::Downcast<ReloadSSLQuery>(parsed_query.query)) {
       prepared_query = PrepareReloadSSLQuery(
@@ -10203,7 +10211,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                                *interpreter_context_->coordinator_state_,
                                                interpreter_context_->config);
 #else
-        throw EnterpriseOnlyException();
+      throw EnterpriseOnlyException();
 #endif
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
@@ -10743,7 +10751,7 @@ void Interpreter::Commit() {
       }
       return system_transaction_->Commit(memgraph::system::DoNothing{});
 #else
-        return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
+      return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
 #endif
     };
 
@@ -10997,11 +11005,11 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
   }
 }
 #else
-  void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
-    user_or_role_ = std::move(user_or_role);
-    session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
-                                                                          : std::string{});
-  }
+void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
+  user_or_role_ = std::move(user_or_role);
+  session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
+                                                                        : std::string{});
+}
 #endif
 
 void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
