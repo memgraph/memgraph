@@ -96,6 +96,11 @@ class FineGrainedAuthChecker {
                                                    memgraph::storage::PropertyId property,
                                                    AuthQuery::PropertyPermissionType type) const = 0;
 
+  /// True iff the user has any property-level rule (global or per-label). False means property-RBAC
+  /// is unconfigured and label-level checks alone govern property visibility.
+  [[nodiscard]] virtual bool HasAnyVertexPropertyRule() const = 0;
+  [[nodiscard]] virtual bool HasAnyEdgeTypePropertyRule() const = 0;
+
   // Used to make the auth checker thread safe
   // throw if not possible
   virtual void MakeThreadSafe() const = 0;
@@ -164,6 +169,10 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
                              AuthQuery::PropertyPermissionType /*type*/) const override {
     return true;
   }
+
+  bool HasAnyVertexPropertyRule() const override { return false; }
+
+  bool HasAnyEdgeTypePropertyRule() const override { return false; }
 
   void MakeThreadSafe() const override {
     // No-op

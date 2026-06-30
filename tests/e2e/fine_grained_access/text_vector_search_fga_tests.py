@@ -28,6 +28,10 @@ def user_cursor():
     return common.connect(username="user", password="test").cursor()
 
 
+def user_prop_cursor():
+    return common.connect(username="user_prop", password="test").cursor()
+
+
 # text_search on vertices -----------------------------------------------------
 
 
@@ -199,6 +203,42 @@ def test_admin_aggregate_works():
         '\'{"c":{"value_count":{"field":"data.title"}}}\') YIELD aggregation RETURN aggregation;',
     )
     assert len(res) == 1
+
+
+# property-level RBAC — blocks search on indexes whose backing property the user can't read
+
+
+def test_text_search_blocked_on_property_denied():
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(
+            user_prop_cursor(),
+            "CALL text_search.search('doc_text', 'data.title:Secret') YIELD node RETURN node;",
+        )
+
+
+def test_text_search_edges_blocked_on_property_denied():
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(
+            user_prop_cursor(),
+            "CALL text_search.search_edges('doc_etext', 'data.label:Confidential') YIELD edge RETURN edge;",
+        )
+
+
+# vector indexes are on .embedding (not denied for user_prop) — search must still work
+def test_vector_search_allowed_when_indexed_property_not_denied():
+    res = common.execute_and_fetch_all(
+        user_prop_cursor(),
+        "CALL vector_search.search('doc_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
+    )
+    assert len(res) >= 1
+
+
+def test_vector_search_edges_allowed_when_indexed_property_not_denied():
+    res = common.execute_and_fetch_all(
+        user_prop_cursor(),
+        "CALL vector_search.search_edges('doc_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
+    )
+    assert len(res) >= 1
 
 
 if __name__ == "__main__":

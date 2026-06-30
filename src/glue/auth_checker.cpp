@@ -406,6 +406,16 @@ bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &ed
   return level == auth::PermissionLevel::GRANT;
 }
 
+bool FineGrainedAuthChecker::HasAnyVertexPropertyRule() const {
+  auto const &perms = GetCachedPropertyLabelPermissions();
+  return !perms.GetRules().empty() || !perms.GetGlobalRules().empty();
+}
+
+bool FineGrainedAuthChecker::HasAnyEdgeTypePropertyRule() const {
+  auto const &perms = GetCachedPropertyEdgeTypePermissions();
+  return !perms.GetRules().empty() || !perms.GetGlobalRules().empty();
+}
+
 void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
 
 bool FineGrainedAuthChecker::IsThreadSafe() const { return IsCachedPermissionsPopulated(); }
