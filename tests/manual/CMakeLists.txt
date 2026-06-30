@@ -58,3 +58,9 @@ target_link_libraries(${test_prefix}ssl_client mg-communication)
 
 add_manual_test(ssl_server.cpp)
 target_link_libraries(${test_prefix}ssl_server mg-communication)
+
+# Rewrite each binary's versioned libpython DT_NEEDED to the abi3 SONAME
+# (libpython3.so), like memgraph and the other test suites, so they keep loading
+# when the runtime Python is swapped. No-op for binaries without a libpython
+# dependency.
+mg_apply_python_abi3_rewrite_dir_executables()
