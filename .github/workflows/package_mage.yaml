@@ -72,7 +72,7 @@ on:
 
   workflow_call:
     inputs:
-      arch:
+      build_arch:
         type: string
         description: "Architecture to build the image for"
         required: true

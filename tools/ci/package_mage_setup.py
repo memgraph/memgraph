@@ -57,12 +57,12 @@ MATRIX_BUILDS = [
 ]
 
 
-def _build_docker_image(os: str, cugraph: str) -> str:
+def _build_docker_image(distro: str, cugraph: str) -> str:
     # Builds produce a debug MAGE image so the docker smoke + e2e tests have
     # something to run against. Only ubuntu-24.04 publishes a MAGE image; rpm
     # distros build none (smoke-tested via the rpm smoke image) and cugraph can't
     # be smoke/e2e-tested in CI (GPU), so it gets no image either.
-    return "debug" if (os == "ubuntu-24.04" and cugraph != "true") else "none"
+    return "debug" if (distro == "ubuntu-24.04" and cugraph != "true") else "none"
 
 
 class PackageMageSetup:
@@ -162,7 +162,7 @@ class PackageMageSetup:
                 }
                 for build in MATRIX_BUILDS
             ]
-        os = self.workflow_inputs.get("os", "ubuntu-24.04")
+        distro = self.workflow_inputs.get("os", "ubuntu-24.04")
         cugraph = self.workflow_inputs.get("cugraph", "false")
         return [
             {
@@ -170,8 +170,8 @@ class PackageMageSetup:
                 "cuda": self.workflow_inputs.get("cuda", "false"),
                 "cugraph": cugraph,
                 "malloc": self.workflow_inputs.get("malloc", "false"),
-                "os": os,
-                "build_docker_image": _build_docker_image(os, cugraph),
+                "os": distro,
+                "build_docker_image": _build_docker_image(distro, cugraph),
                 "memgraph_download_link": self.workflow_inputs.get("memgraph_download_link", ""),
                 "generate_sbom": self.workflow_inputs.get("generate_sbom", "false"),
                 **common,
