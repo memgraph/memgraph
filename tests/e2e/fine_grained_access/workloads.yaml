@@ -150,6 +150,7 @@ property_fga_cluster: &property_fga_cluster
       validation_queries: []
 
 text_vector_search_fga_setup_queries: &text_vector_search_fga_setup_queries
+  # users
   - "CREATE ROLE _dummy_role;"
   - "CREATE USER admin IDENTIFIED BY 'test';"
   - "CREATE USER user IDENTIFIED BY 'test';"
@@ -159,24 +160,29 @@ text_vector_search_fga_setup_queries: &text_vector_search_fga_setup_queries
   - "GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;"
   - "GRANT ALL PRIVILEGES TO user;"
   - "GRANT DATABASE * TO user;"
+  # fine-grained perms: user sees :Public + :LINKS_PUB; :Document + :LINKS_DOC are denied; :MIXED edge is granted but its endpoints aren't
   - "GRANT READ ON NODES CONTAINING LABELS :Public TO user;"
   - "DENY READ ON NODES CONTAINING LABELS :Document TO user;"
   - "GRANT READ ON EDGES OF TYPE :LINKS_PUB TO user;"
   - "DENY READ ON EDGES OF TYPE :LINKS_DOC TO user;"
   - "GRANT READ ON EDGES OF TYPE :MIXED TO user;"
+  # vertices: pure Public, pure Document, and a multi-label Hybrid that DENY :Document must hide
   - "CREATE (:Public {title: 'Welcome', embedding: [1.0, 0.0]});"
   - "CREATE (:Public {title: 'Hello', embedding: [0.5, 0.5]});"
   - "CREATE (:Document {title: 'Secret', embedding: [1.0, 0.0]});"
   - "CREATE (:Document {title: 'Internal', embedding: [0.0, 1.0]});"
   - "CREATE (:Public:Document {title: 'Hybrid', embedding: [1.0, 0.0]});"
+  # edges: same-tier links + a :MIXED edge Public->Document for the endpoint-denied test
   - "MATCH (a:Public {title:'Welcome'}), (b:Public {title:'Hello'}) CREATE (a)-[:LINKS_PUB {label:'Open', embedding:[1.0, 0.0]}]->(b);"
   - "MATCH (a:Document {title:'Secret'}), (b:Document {title:'Internal'}) CREATE (a)-[:LINKS_DOC {label:'Confidential', embedding:[1.0, 0.0]}]->(b);"
   - "CREATE (p:Public {title:'CrossSrc', embedding:[1.0, 0.0]}), (d:Document {title:'CrossDst', embedding:[1.0, 0.0]}) CREATE (p)-[:MIXED {label:'CrossOver', embedding:[1.0, 0.0]}]->(d);"
+  # text indexes
   - "CREATE TEXT INDEX pub_text ON :Public;"
   - "CREATE TEXT INDEX doc_text ON :Document;"
   - "CREATE TEXT EDGE INDEX pub_etext ON :LINKS_PUB;"
   - "CREATE TEXT EDGE INDEX doc_etext ON :LINKS_DOC;"
   - "CREATE TEXT EDGE INDEX mixed_etext ON :MIXED;"
+  # vector indexes
   - 'CREATE VECTOR INDEX pub_vec ON :Public(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
   - 'CREATE VECTOR INDEX doc_vec ON :Document(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
   - 'CREATE VECTOR EDGE INDEX pub_evec ON :LINKS_PUB(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
