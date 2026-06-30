@@ -46,6 +46,7 @@ env:
   CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
   CLUSTER_ENV: "ci-diff-debug"
 
+
 jobs:
   core:
     if: ${{ inputs.run_core == 'true' }}
@@ -83,6 +84,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build debug binary
         run: |
@@ -170,6 +179,19 @@ jobs:
           name: "Code coverage(Debug build)${{ env.RUN_ID }}"
           path: tools/github/cppcheck_and_clang_format.txt
 
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -226,6 +248,14 @@ jobs:
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
+
       - name: Build debug binary
         run: |
           LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.5)
@@ -262,6 +292,19 @@ jobs:
           --cluster-id $CLUSTER_ID \
           --cluster-env $CLUSTER_ENV \
           test-memgraph integration
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()

@@ -1,3 +1,14 @@
+# Raise the core-dump size limit (ulimit -c) in every build container so a
+# Memgraph that crashes during a CI test actually writes a core into
+# /tmp/mg-cores for collection. Equivalent to `docker run --ulimit core=-1`;
+# without it the in-container soft limit is 0 and no core is produced. The
+# host's kernel.core_pattern (pointing at /tmp/mg-cores) is configured
+# out-of-band on the runners.
+x-mgbuild-ulimits: &mgbuild-ulimits
+  core:
+    soft: -1
+    hard: -1
+
 services:
   # NOTE: build > context > args are injected via mgbuild.sh script.
 
@@ -9,6 +20,7 @@ services:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v7_centos-9"
 
   mgbuild_v7_centos-10:
@@ -19,6 +31,7 @@ services:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v7_centos-10"
 
   mgbuild_v7_debian-12:
@@ -29,6 +42,7 @@ services:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v7_debian-12"
 
   mgbuild_v7_debian-13:
@@ -39,6 +53,7 @@ services:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v7_debian-13"
 
   mgbuild_v7_fedora-42:
@@ -49,6 +64,7 @@ services:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v7_fedora-42"
 
   mgbuild_v7_rocky-10:
@@ -59,6 +75,7 @@ services:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v7_rocky-10"
 
   mgbuild_v7_ubuntu-22.04:
@@ -69,6 +86,7 @@ services:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v7_ubuntu-22.04"
 
   mgbuild_v7_ubuntu-24.04:
@@ -81,6 +99,7 @@ services:
       - "bench-graph-api:100.124.112.121"
     cap_add:
       - NET_ADMIN
+    ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v7_ubuntu-24.04"
 
   mgbuild_v7_ubuntu-24.04-cugraph:
@@ -91,4 +110,5 @@ services:
         TOOLCHAIN_VERSION: "v7"
     extra_hosts:
       - "bench-graph-api:100.124.112.121"
+    ulimits: *mgbuild-ulimits
     container_name: "mgbuild_v7_ubuntu-24.04-cugraph"

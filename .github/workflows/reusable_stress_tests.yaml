@@ -89,6 +89,14 @@ jobs:
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
+
       - name: Build enterprise binary
         run: |
           ./release/package/mgbuild.sh \
@@ -141,6 +149,19 @@ jobs:
           name: stress-logs-native-standalone
           path: build/stress/logs/
           if-no-files-found: warn
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()
@@ -199,6 +220,14 @@ jobs:
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
+
       - name: Build enterprise binary
         run: |
           ./release/package/mgbuild.sh \
@@ -222,6 +251,9 @@ jobs:
           init-tests
 
       - name: Run stress tests (native HA)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -235,9 +267,6 @@ jobs:
           --cluster-env $CLUSTER_ENV \
           --service-name stress-native-ha \
           test-memgraph stress-native-ha
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
 
       - name: Copy stress test logs
         if: always()
@@ -255,6 +284,19 @@ jobs:
           name: stress-logs-native-ha
           path: build/stress/logs/
           if-no-files-found: warn
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()
@@ -349,6 +391,31 @@ jobs:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          # The ha/docker deployment bind-mounts /tmp/mg-cores from each memgraph
+          # container, so cores land on the host and survive container teardown.
+          # Analyze them in a throwaway container from the (debug) image.
+          ./tools/ci/core-dumps/collect_from_image.sh \
+          --host-cores-dir /tmp/mg-cores \
+          --image "$MEMGRAPH_IMAGE" \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}" \
+          --upload-core true
+
+      - name: Clean up core dumps
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/core-dumps/clean_host_cores.sh \
+          --cores-dir /tmp/mg-cores \
+          --image "$MEMGRAPH_IMAGE"
 
       - name: Upload stress test logs
         if: always()

@@ -90,7 +90,11 @@ jobs:
     with:
       arch: amd
       build_type: RelWithDebInfo
-      build_docker_image: prod
+      # debug (not prod/both): the diff path tests the relwithdebinfo image so a
+      # crash here produces an analyzable core dump (gdb + symbols). prod and
+      # debug build from the same binary; the prod image is built and
+      # smoke/e2e-tested on daily builds and RCs (build_docker_image: both).
+      build_docker_image: debug
       push_to_github: false
       push_to_s3: ${{ github.event_name == 'merge_group' }}
       s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}
@@ -107,7 +111,10 @@ jobs:
     with:
       arch: arm
       build_type: RelWithDebInfo
-      build_docker_image: prod
+      # debug (not prod/both): see the amd_mage_tests note — diff path tests the
+      # relwithdebinfo image for analyzable core dumps; prod is covered on
+      # daily builds and RCs.
+      build_docker_image: debug
       push_to_github: false
       push_to_s3: ${{ github.event_name == 'merge_group' }}
       s3_dest_dir: ${{ needs.get-pr-number.outputs.s3_dest_dir }}

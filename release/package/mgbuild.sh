@@ -101,6 +101,7 @@ print_help () {
   echo -e "  run [OPTIONS]                      Run mgbuild container"
   echo -e "  stop [OPTIONS]                     Stop mgbuild container"
   echo -e "  test-memgraph TEST                 Run a selected test TEST (see supported tests below) inside mgbuild container"
+  echo -e "  check-core-dumps                   Check the runner is configured to produce Memgraph core dumps (warn-only)"
   echo -e "  test-mage TEST                     Run a selected test TEST (see supported tests below) inside MAGE docker image"
   echo -e "  generate-memgraph-build-sbom       Generate Memgraph build SBOM"
   echo -e "  generate-mage-image-sbom [OPTIONS] Generate MAGE image SBOM"
@@ -2526,6 +2527,66 @@ build_ssl() {
   echo "OpenSSL built and uploaded to conan cache"
 }
 
+check_core_dumps() {
+  # Verify the runner is configured to produce analyzable Memgraph core dumps.
+  # This is warn-only: it never fails the build, it just emits a GitHub warning
+  # annotation so we can see which runners still need configuring.
+  local expected_core_pattern='/tmp/mg-cores/core.%t.%P.%s'
+  local cores_dir='/tmp/mg-cores'
+  local ok=true
+
+  echo -e "${GREEN_BOLD}Checking core dump configuration...${RESET}"
+
+  # kernel.core_pattern is a host-wide setting shared with containers.
+  local actual_core_pattern=""
+  if [[ -r /proc/sys/kernel/core_pattern ]]; then
+    actual_core_pattern="$(cat /proc/sys/kernel/core_pattern)"
+  fi
+  if [[ "$actual_core_pattern" != "$expected_core_pattern" ]]; then
+    ok=false
+    echo "::warning title=Core dumps not configured::kernel.core_pattern is '${actual_core_pattern:-<unreadable>}', expected '${expected_core_pattern}'. Memgraph crashes in this run will not produce analyzable core dumps. Configure the runner with: sysctl -w kernel.core_pattern='${expected_core_pattern}'"
+  else
+    echo "  kernel.core_pattern OK: ${actual_core_pattern}"
+  fi
+
+  # The process that dumps is Memgraph running INSIDE the build container, so
+  # both the core size limit and the dump directory must be checked/prepared
+  # there. The host shell's ulimit is irrelevant to a containerized crash.
+  if docker inspect "$build_container" >/dev/null 2>&1; then
+    # A zero core size soft limit silently disables core dumps.
+    local core_limit
+    core_limit="$(docker exec -u mg "$build_container" bash -c 'ulimit -c' 2>/dev/null)"
+    if [[ -z "$core_limit" ]]; then
+      ok=false
+      echo "::warning title=Core dump ulimit unknown::Could not read 'ulimit -c' inside ${build_container} (empty result); cannot confirm core dumps are enabled."
+    elif [[ "$core_limit" == "0" ]]; then
+      ok=false
+      echo "::warning title=Core dumps disabled by ulimit::core file size limit (ulimit -c) is 0 inside ${build_container}; core dumps will be suppressed. Start the container with --ulimit core=-1."
+    else
+      echo "  core file size limit (ulimit -c) OK inside ${build_container}: ${core_limit}"
+    fi
+
+    # The crash writes into the container filesystem at $cores_dir, so make sure
+    # it exists and is world-writable there.
+    if docker exec -u root "$build_container" bash -c "mkdir -p '$cores_dir' && chmod 1777 '$cores_dir'" >/dev/null 2>&1; then
+      echo "  ${cores_dir} ready inside ${build_container}"
+    else
+      echo "::warning title=Core dump directory not writable::Could not create ${cores_dir} inside ${build_container}."
+    fi
+  else
+    echo "  Container ${build_container} not running yet; skipping in-container ulimit/${cores_dir} checks."
+  fi
+
+  if [[ "$ok" == true ]]; then
+    echo -e "${GREEN_BOLD}Core dumps are configured (${expected_core_pattern}).${RESET}"
+  else
+    echo -e "${YELLOW_BOLD}Core dumps are NOT fully configured on this runner (see warnings above).${RESET}"
+  fi
+
+  # Warn-only: never fail the build.
+  return 0
+}
+
 start_monitoring() {
   local metrics_targets="${MEMGRAPH_METRICS_TARGETS:-$build_container:9091}"
   local log_ws_targets="${MEMGRAPH_LOG_WS_TARGETS:-$build_container:7444}"
@@ -2985,6 +3046,9 @@ case $command in
     ;;
     test-memgraph)
       test_memgraph $@
+    ;;
+    check-core-dumps)
+      check_core_dumps $@
     ;;
     copy)
       copy_memgraph $@
