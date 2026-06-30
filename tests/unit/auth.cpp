@@ -3955,6 +3955,8 @@ TEST(MigrateAuthJson, MigratingCurrentVersionIsIdempotent) {
   EXPECT_EQ(data, original);
 }
 
+#endif  // MG_ENTERPRISE
+
 TEST(MigrateAuthJson, V2MigrationToCurrentVersion) {
   // CREATE_DELETE (7) -> full label grants
   {
@@ -4163,5 +4165,3 @@ TEST(MigrateAuthJson, NoFgaFieldNeedsNoMigration) {
     EXPECT_EQ(data[key], value) << "Mismatch for key: " << key;
   }
 }
-
-#endif  // MG_ENTERPRISE
