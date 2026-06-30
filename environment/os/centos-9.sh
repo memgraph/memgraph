@@ -57,7 +57,13 @@ MEMGRAPH_BUILD_DEPS=(
     wget # for downloading libs
     libuuid-devel java-11-openjdk # required by antlr
     readline-devel # for memgraph console
-    python3-devel # for query modules
+    # MAGE's query-module python deps (torch/PyG/DGL wheels) are python 3.12
+    # only, so memgraph embeds python 3.12 here (built with
+    # -DMG_PYTHON_VERSION=3.12) rather than the distro-default 3.9. Needs the
+    # 3.12 dev headers/libs to link against, plus the interpreter + pip to
+    # install the module deps at package time.
+    python3.12-devel python3.12 python3.12-pip # for query modules
+    python3-devel # for build tooling that still targets the system python
     openssl-devel
     libseccomp-devel
     python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
@@ -82,6 +88,7 @@ MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp
+    python3.12 # embedded interpreter for query modules (see MEMGRAPH_BUILD_DEPS)
     krb5-libs # runtime for python gssapi (kerberos auth module)
 )
 

@@ -44,6 +44,9 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -funsafe-math-optimizations -fvect-cost-model=dynamic -DNDEBUG")
 set(CMAKE_SHARED_LIBRARY_PREFIX "")
 
+# Emit a GNU build-id in every module.
+add_link_options(LINKER:--build-id)
+
 find_package(Threads REQUIRED)
 include(ExternalProject)
 

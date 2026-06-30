@@ -81,8 +81,18 @@ It aims to deliver developers the speed, simplicity and scale required to build
 the next generation of applications driver by real-time connected data.")
 
 # Add `openssl` package to dependencies list. Used to generate SSL certificates.
-# We also depend on `python3` because we embed it in Memgraph.
-set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, logrotate")
+# We also depend on `python3` because we embed it in Memgraph. `libatomic` is a
+# runtime dependency of the binary; since CPACK_RPM_PACKAGE_AUTOREQ is off
+# (above), soname deps aren't auto-detected and must be listed explicitly.
+set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, logrotate, libatomic")
+
+# When memgraph is built against an explicit Python (currently CentOS Stream 9,
+# where it embeds python 3.12 instead of the distro-default 3.9 — see
+# -DMG_PYTHON_VERSION), require that interpreter's package so the embedded
+# libpython is present and the MAGE %post (which runs python<ver> -m pip) works.
+if(NOT "${MG_PYTHON_VERSION}" STREQUAL "")
+    set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "${CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES}, python${MG_PYTHON_VERSION}")
+endif()
 
 # Configure CPack to build mgconsole using the unified install script
 set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")

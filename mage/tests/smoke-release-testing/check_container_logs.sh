@@ -9,6 +9,9 @@ check_container_logs() {
     if echo "$logs" | grep -q "\[error\]"; then
         echo "Error(s) found in container logs:"
         echo "$logs" | grep "\[error\]"
+        echo "----- full memgraph log (memgraph_next_data) -----"
+        echo "$logs"
+        echo "----- end memgraph log -----"
         exit 1
     else
         echo "No errors found in container logs"

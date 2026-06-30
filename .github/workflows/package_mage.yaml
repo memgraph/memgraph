@@ -55,6 +55,16 @@ on:
         type: string
         description: "Branch or tag to build"
         default: ''
+      os:
+        type: choice
+        description: Target OS
+        default: ubuntu-24.04
+        # Only Python-3.12 distros are currently supported (MAGE's deps are
+        # cp312-only); see tools/ci/package_mage_setup.py for the full note.
+        options:
+          - ubuntu-24.04
+          - centos-9
+          - centos-10
 
   workflow_call:
     inputs:
@@ -106,6 +116,10 @@ on:
         type: string
         description: "Branch or tag to build"
         default: ''
+      os:
+        type: string
+        description: Target OS
+        default: ubuntu-24.04
 
 
 jobs:
@@ -143,6 +157,10 @@ jobs:
     with:
       arch: ${{ matrix.arch }}
       build_type: RelWithDebInfo
+      # All matrix values come from tools/ci/package_mage_setup.py — the workflow
+      # just passes them through. build_docker_image defaults to 'none' (rpm
+      # distros publish no MAGE image; PR builds set 'debug' for ubuntu there).
+      build_docker_image: ${{ matrix.build_docker_image || 'none' }}
       memgraph_download_link: ${{ matrix.memgraph_download_link }}
       s3_dest_dir: ${{ matrix.s3_dest_dir }}
       cuda: ${{ matrix.cuda == 'true' }}
@@ -152,8 +170,9 @@ jobs:
       malloc: ${{ matrix.malloc == 'true' }}
       run_smoke_tests: ${{ matrix.run_smoke_tests == 'true' }}
       run_tests: ${{ matrix.run_tests == 'true' }}
-      package_deb: ${{ matrix.package_deb }}
+      package_mage: ${{ matrix.package_mage }}
       generate_sbom: ${{ matrix.generate_sbom == 'true' }}
       build_offline_installer: ${{ inputs.build_offline_installer == true }}
       ref: ${{ matrix.ref }}
+      os: ${{ matrix.os }}
     secrets: inherit

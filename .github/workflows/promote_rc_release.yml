@@ -562,6 +562,28 @@ jobs:
           aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" --recursive --exclude "*" --include "memgraph-mage*_${RELEASE_VERSION}-1_*.deb"
           echo "Copied Ubuntu 24.04 MAGE packages (main + debuginfo) to s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
 
+      - name: Promote MAGE rpm packages to release bucket
+        if: ${{ matrix.image_ext == '' }}
+        run: |
+          # MAGE rpms are stored flat in the RC dir with the distro encoded in
+          # the filename (memgraph-mage*-1.<distro>.<arch>.rpm — main + debuginfo).
+          # Promote each distro's rpms into the matching per-distro subdir of the
+          # release bucket, mirroring the ubuntu-24.04 deb layout above. Extend
+          # the list as new distros are enabled for MAGE.
+          for os in centos-9 centos-10; do
+            dst="s3://${release_bucket}/${mage_release_dir}/${os}/"
+            existing=$(aws s3 ls "$dst" 2>/dev/null | awk '/memgraph-mage.*\.rpm/ {print}')
+            if [[ -n "${existing}" && "$FORCE_PROMOTE" != "true" ]]; then
+              echo "MAGE rpm packages already exist under ${dst}"
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            # --recursive copy is a no-op when a distro produced no rpm (e.g. only
+            # centos-9 was built), so missing distros are skipped gracefully.
+            aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "${dst}" --recursive --exclude "*" --include "memgraph-mage*-1.${os}.*.rpm"
+            echo "Copied ${os} MAGE rpms (main + debuginfo) to ${dst}"
+          done
+
       - name: Setup offline installer paths
         run: |
           offline_run_amd="memgraph-mage-offline-${RELEASE_VERSION}-amd64${{ matrix.image_ext }}.run"
