@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 
 #include "query/parameters.hpp"
@@ -276,7 +277,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanParallel & /* op */) override {
-    cardinality_ *= db_accessor_->VerticesCount();
+    const auto factor = static_cast<double>(db_accessor_->VerticesCount());
+    cardinality_ *= factor;
+    CapParallelismToCardinality(factor);
     IncrementCost(CostParam::kScanAll);
     num_threads_ = 1;  // End of parallel section
     return true;
@@ -285,10 +288,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanParallelByLabel &op) override {
     auto index_stats = db_accessor_->GetIndexStats(op.label_);
     last_index_stats_ = index_stats ? std::make_optional(std::move(index_stats.value())) : std::nullopt;
-    cardinality_ *= db_accessor_->VerticesCount(op.label_);
+    const auto factor = static_cast<double>(db_accessor_->VerticesCount(op.label_));
+    cardinality_ *= factor;
     if (index_hints_.HasLabelIndex(db_accessor_, op.label_)) {
       use_index_hints_ = true;
     }
+    CapParallelismToCardinality(factor);
     IncrementCost(CostParam::kScanAllByLabel);
     num_threads_ = 1;  // End of parallel section
     return true;
@@ -297,54 +302,67 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanParallelByLabelProperties &op) override {
     auto index_stats = db_accessor_->GetIndexStats(op.label_, op.properties_);
     last_index_stats_ = index_stats ? std::make_optional(std::move(index_stats.value())) : std::nullopt;
-    cardinality_ *= EstimateLabelPropertiesCardinality(op.label_, op.properties_, op.expression_ranges_);
+    const auto factor = EstimateLabelPropertiesCardinality(op.label_, op.properties_, op.expression_ranges_);
+    cardinality_ *= factor;
     if (index_hints_.HasLabelPropertiesIndex(db_accessor_, op.label_, op.properties_)) {
       use_index_hints_ = true;
     }
+    CapParallelismToCardinality(factor);
     IncrementCost(CostParam::kScanAllByLabelProperties);
     num_threads_ = 1;  // End of parallel section
     return true;
   }
 
   bool PostVisit(ScanParallelByEdgeType &op) override {
-    cardinality_ *= db_accessor_->EdgesCount(op.edge_type_);
+    const auto factor = static_cast<double>(db_accessor_->EdgesCount(op.edge_type_));
+    cardinality_ *= factor;
+    CapParallelismToCardinality(factor);
     IncrementCost(CostParam::kScanAllByEdgeType);
     num_threads_ = 1;  // End of parallel section
     return true;
   }
 
   bool PostVisit(ScanParallelByEdgeTypeProperty &op) override {
-    const auto factor = db_accessor_->EdgesCount(op.edge_type_, op.property_);
+    const auto factor = static_cast<double>(db_accessor_->EdgesCount(op.edge_type_, op.property_));
     cardinality_ *= factor;
+    CapParallelismToCardinality(factor);
     IncrementCost(CostParam::kScanAllByEdgeTypeProperty);
     num_threads_ = 1;  // End of parallel section
     return true;
   }
 
   bool PostVisit(ScanParallelByEdgeTypePropertyRange &op) override {
-    cardinality_ *= EstimateEdgePropertyRangeCardinality(op.edge_type_, op.property_, op.lower_bound_, op.upper_bound_);
+    const auto factor =
+        EstimateEdgePropertyRangeCardinality(op.edge_type_, op.property_, op.lower_bound_, op.upper_bound_);
+    cardinality_ *= factor;
+    CapParallelismToCardinality(factor);
     IncrementCost(CostParam::kScanAllByEdgeTypePropertyRange);
     num_threads_ = 1;  // End of parallel section
     return true;
   }
 
   bool PostVisit(ScanParallelByEdgeProperty &op) override {
-    const auto factor = db_accessor_->EdgesCount(op.property_);
+    const auto factor = static_cast<double>(db_accessor_->EdgesCount(op.property_));
     cardinality_ *= factor;
+    CapParallelismToCardinality(factor);
     IncrementCost(CostParam::kScanAllByEdgeProperty);
     num_threads_ = 1;  // End of parallel section
     return true;
   }
 
   bool PostVisit(ScanParallelByEdgePropertyValue &op) override {
-    cardinality_ *= EstimateEdgePropertyValueCardinality(op.property_, op.expression_);
+    const auto factor = EstimateEdgePropertyValueCardinality(op.property_, op.expression_);
+    cardinality_ *= factor;
+    CapParallelismToCardinality(factor);
     IncrementCost(CostParam::kScanAllByEdgePropertyValue);
     num_threads_ = 1;  // End of parallel section
     return true;
   }
 
   bool PostVisit(ScanParallelByEdgePropertyRange &op) override {
-    cardinality_ *= EstimateEdgePropertyRangeCardinality(op.property_, op.lower_bound_, op.upper_bound_);
+    const auto factor = EstimateEdgePropertyRangeCardinality(op.property_, op.lower_bound_, op.upper_bound_);
+    cardinality_ *= factor;
+    CapParallelismToCardinality(factor);
     IncrementCost(CostParam::kScanAllByEdgePropertyRange);
     num_threads_ = 1;  // End of parallel section
     return true;
@@ -359,7 +377,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanParallelByEdgeTypePropertyValue &op) override {
-    cardinality_ *= EstimateEdgePropertyValueCardinality(op.edge_type_, op.property_, op.expression_);
+    const auto factor = EstimateEdgePropertyValueCardinality(op.edge_type_, op.property_, op.expression_);
+    cardinality_ *= factor;
+    CapParallelismToCardinality(factor);
     IncrementCost(CostParam::kScanAllByEdgeTypePropertyValue);
     num_threads_ = 1;  // End of parallel section
     return true;
@@ -575,6 +595,17 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   void IncrementCost(double param) {
     const auto delta = std::max(CostParam::kMinimumCost, param * cardinality_);
     cost_ += delta / num_threads_;
+  }
+
+  // A parallel scan is split into at most `num_threads_` chunks, but it can
+  // never produce more useful chunks than it has matching elements. A scan that
+  // yields a single element (e.g. a unique-property lookup) fills one chunk and
+  // leaves the remaining threads idle, so it must not be credited the full
+  // num_threads speedup. Cap the effective parallelism at the scan's own
+  // estimated cardinality before its cost is charged.
+  void CapParallelismToCardinality(double scan_factor) {
+    const auto chunks = static_cast<size_t>(std::max(1.0, std::ceil(scan_factor)));
+    num_threads_ = std::min(num_threads_, chunks);
   }
 
   void IncrementOrderByCost() {
