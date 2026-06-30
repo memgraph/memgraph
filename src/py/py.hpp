@@ -27,6 +27,32 @@
 #error "py/py.hpp expects Py_LIMITED_API >= 0x030a0000 (Python 3.10 stable ABI floor)"
 #endif
 
+// abi3 portability: force the `Py_RETURN_*` singleton helpers to take a real
+// reference at runtime.
+//
+// When compiled against Python >= 3.12 headers these macros expand to a bare
+// `return Py_<singleton>` with NO incref, because None/True/False/NotImplemented
+// are immortal there and refcounting them is a no-op. That decision is baked
+// into the binary. Since an abi3 build runs against ANY libpython >= the 3.10
+// floor, a 3.12-built binary executed against a 3.10/3.11 libpython — where the
+// singletons are still mortal — hands out a "new reference" without taking one
+// on every call. The caller still decrefs it, so the singleton's refcount
+// drifts to zero and the interpreter aborts (e.g. "Fatal Python error:
+// none_dealloc: deallocating None").
+//
+// `Py_NewRef` always emits a runtime incref (a no-op on versions where the
+// object is immortal, a real increment where it is mortal), so the new-reference
+// contract holds on every supported runtime. Defined here, after <Python.h>, so
+// every translation unit that talks to Python through this header is covered.
+#undef Py_RETURN_NONE
+#define Py_RETURN_NONE return Py_NewRef(Py_None)
+#undef Py_RETURN_TRUE
+#define Py_RETURN_TRUE return Py_NewRef(Py_True)
+#undef Py_RETURN_FALSE
+#define Py_RETURN_FALSE return Py_NewRef(Py_False)
+#undef Py_RETURN_NOTIMPLEMENTED
+#define Py_RETURN_NOTIMPLEMENTED return Py_NewRef(Py_NotImplemented)
+
 #include <atomic>
 
 #include "utils/logging.hpp"
