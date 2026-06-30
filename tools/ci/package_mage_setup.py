@@ -138,14 +138,32 @@ class PackageMageSetup:
         return None
 
     def _check_workflow_input(self) -> list:
-        if self.workflow_inputs.get("matrix_build") == "true":
-            return [
-                {**build, "build_docker_image": _build_docker_image(build["os"], build["cugraph"])}
-                for build in MATRIX_BUILDS
-            ]
+        # Inputs that apply uniformly to every build in the suite (i.e. not the
+        # per-build arch/os/flavour that define a matrix entry).
         # GitHub passes workflow_dispatch/workflow_call inputs as strings
         # ("true"/"false"); keep the fallbacks as strings too so the matrix
         # always serialises booleans consistently — see MATRIX_BUILDS comment.
+        common = {
+            "memgraph_download_link": self.workflow_inputs.get("memgraph_download_link", ""),
+            "push_to_s3": self.workflow_inputs.get("push_to_s3", "false"),
+            "s3_dest_dir": self.workflow_inputs.get("s3_dest_dir", "mage-unofficial"),
+            "run_smoke_tests": self.workflow_inputs.get("run_smoke_tests", "false"),
+            "run_tests": self.workflow_inputs.get("run_tests", "false"),
+            "package_mage": self.workflow_inputs.get("package_mage", "default"),
+            "generate_sbom": self.workflow_inputs.get("generate_sbom", "false"),
+            "ref": self.workflow_inputs.get("ref", ""),
+        }
+        if self.workflow_inputs.get("matrix_build") == "true":
+            # arch/os/cuda/cugraph/malloc come from each MATRIX_BUILDS entry; the
+            # remaining inputs above are applied uniformly across the matrix.
+            return [
+                {
+                    **build,
+                    **common,
+                    "build_docker_image": _build_docker_image(build["os"], build["cugraph"]),
+                }
+                for build in MATRIX_BUILDS
+            ]
         os = self.workflow_inputs.get("os", "ubuntu-24.04")
         cugraph = self.workflow_inputs.get("cugraph", "false")
         return [
@@ -154,16 +172,9 @@ class PackageMageSetup:
                 "cuda": self.workflow_inputs.get("cuda", "false"),
                 "cugraph": cugraph,
                 "malloc": self.workflow_inputs.get("malloc", "false"),
-                "memgraph_download_link": self.workflow_inputs.get("memgraph_download_link", ""),
-                "push_to_s3": self.workflow_inputs.get("push_to_s3", "false"),
-                "s3_dest_dir": self.workflow_inputs.get("s3_dest_dir", "mage-unofficial"),
-                "run_smoke_tests": self.workflow_inputs.get("run_smoke_tests", "false"),
-                "run_tests": self.workflow_inputs.get("run_tests", "false"),
-                "package_mage": self.workflow_inputs.get("package_mage", "default"),
-                "generate_sbom": self.workflow_inputs.get("generate_sbom", "false"),
-                "ref": self.workflow_inputs.get("ref", ""),
                 "os": os,
                 "build_docker_image": _build_docker_image(os, cugraph),
+                **common,
             }
         ]
 
