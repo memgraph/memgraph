@@ -266,6 +266,28 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       return true;
     };
 
+    // R6 Guard — Nested-parallel prevention.
+    //
+    // (a) Ancestor guard: if any operator already on the ancestor stack is a parallel coordinator
+    //     (AggregateParallel, OrderByParallel, ParallelMerge, or ScanParallel*), we are already
+    //     inside a parallel region.  Adding a second coordinator here would create nested parallel
+    //     regions whose coordinators could later deadlock when both try to PARK.
+    for (const LogicalOperator *ancestor : prev_ops_) {
+      const auto &ancestor_type = ancestor->GetTypeInfo();
+      if (ancestor_type == AggregateParallel::kType || ancestor_type == OrderByParallel::kType ||
+          ancestor_type == ParallelMerge::kType || utils::IsSubtype(ancestor_type, ScanParallel::kType)) {
+        return failure("nested parallelization not allowed (R6 ancestor guard)");
+      }
+    }
+
+    // (b) Subtree guard: if the subtree below op.input() already contains a parallel node (i.e.
+    //     an earlier pass of this visitor already rewrote part of the plan), bail out.  This
+    //     catches cases where the ancestor stack does not directly contain a coordinator (e.g. the
+    //     parallelized inner region is in a sibling branch seen before this op was pushed).
+    if (SubtreeContainsParallel(op.input().get())) {
+      return failure("nested parallelization not allowed (R6 subtree guard)");
+    }
+
     // Find the Scan operator that produces the required symbols
     LogicalOperator *target_scan = nullptr;
     LogicalOperator *scan_parent = &op;
@@ -656,6 +678,69 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     // For other operators without expressions we can analyze,
     // return empty set - caller will fall back to using ModifiedSymbols from input
     return input_symbols;
+  }
+
+  // Returns true if 'node' (or any operator reachable from it) is a parallel coordinator or
+  // a ScanParallel variant. Used by the R6 nested-parallel guard.
+  //
+  // Note: ScanParallelBy* all inherit from ScanParallel, so utils::IsSubtype covers the whole
+  // ScanParallel family with a single check.
+  static bool SubtreeContainsParallel(const LogicalOperator *node) {
+    if (!node) {
+      return false;
+    }
+    const auto &type = node->GetTypeInfo();
+    // Check against all 4 coordinator base types (ScanParallel covers all ScanParallelBy* subtypes)
+    if (type == AggregateParallel::kType || type == OrderByParallel::kType || type == ParallelMerge::kType ||
+        utils::IsSubtype(type, ScanParallel::kType)) {
+      return true;
+    }
+    // Recurse into all reachable children
+    if (node->HasSingleInput()) {
+      // Single-input: check optional embedded branches, then main input
+      if (const auto *periodic_subquery_op = dynamic_cast<const PeriodicSubquery *>(node)) {
+        if (SubtreeContainsParallel(periodic_subquery_op->subquery_.get())) {
+          return true;
+        }
+      } else if (const auto *apply_op = dynamic_cast<const Apply *>(node)) {
+        if (SubtreeContainsParallel(apply_op->subquery_.get())) {
+          return true;
+        }
+      } else if (const auto *optional_op = dynamic_cast<const Optional *>(node)) {
+        if (SubtreeContainsParallel(optional_op->optional_.get())) {
+          return true;
+        }
+      } else if (const auto *filter_op = dynamic_cast<const Filter *>(node)) {
+        for (const auto &pf : filter_op->pattern_filters_) {
+          if (SubtreeContainsParallel(pf.get())) {
+            return true;
+          }
+        }
+      }
+      return SubtreeContainsParallel(node->input().get());
+    }
+    // Multi-input: check every branch
+    if (const auto *cartesian_op = dynamic_cast<const Cartesian *>(node)) {
+      return SubtreeContainsParallel(cartesian_op->left_op_.get()) ||
+             SubtreeContainsParallel(cartesian_op->right_op_.get());
+    }
+    if (const auto *hash_join_op = dynamic_cast<const HashJoin *>(node)) {
+      return SubtreeContainsParallel(hash_join_op->left_op_.get()) ||
+             SubtreeContainsParallel(hash_join_op->right_op_.get());
+    }
+    if (const auto *indexed_join_op = dynamic_cast<const IndexedJoin *>(node)) {
+      return SubtreeContainsParallel(indexed_join_op->main_branch_.get()) ||
+             SubtreeContainsParallel(indexed_join_op->sub_branch_.get());
+    }
+    if (const auto *rollup_apply_op = dynamic_cast<const RollUpApply *>(node)) {
+      return SubtreeContainsParallel(rollup_apply_op->input_.get()) ||
+             SubtreeContainsParallel(rollup_apply_op->list_collection_branch_.get());
+    }
+    if (const auto *union_op = dynamic_cast<const Union *>(node)) {
+      return SubtreeContainsParallel(union_op->left_op_.get()) || SubtreeContainsParallel(union_op->right_op_.get());
+    }
+    // Terminal or unknown — no parallel children
+    return false;
   }
 
   static constexpr auto update_types = std::array{Skip::kType, Limit::kType, Distinct::kType};

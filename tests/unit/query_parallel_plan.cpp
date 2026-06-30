@@ -106,8 +106,10 @@ struct LicenseWrapper {
   LicenseWrapper() {
     memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
   }
+
   ~LicenseWrapper() { memgraph::license::global_license_checker.DisableTesting(); }
 };
+
 void DeleteListContent(std::list<BaseOpChecker *> *list) {
   for (BaseOpChecker *ptr : *list) {
     delete ptr;
@@ -124,8 +126,14 @@ TYPED_TEST(TestPlanner, ParallelExecutionAggregation) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-            ExpectAggregate({count_agg}, {}), ExpectAggregateParallel(), ExpectProduce());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectAggregate({count_agg}, {}),
+            ExpectAggregateParallel(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, CountWithFilter) {
@@ -140,8 +148,15 @@ TYPED_TEST(TestPlanner, CountWithFilter) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-            ExpectFilter(), ExpectAggregate({count_agg}, {}), ExpectAggregateParallel(), ExpectProduce());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectFilter(),
+            ExpectAggregate({count_agg}, {}),
+            ExpectAggregateParallel(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, AvgWithAlias) {
@@ -155,8 +170,15 @@ TYPED_TEST(TestPlanner, AvgWithAlias) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-            ExpectProduce(), ExpectAggregate({avg_agg}, {}), ExpectAggregateParallel(), ExpectProduce());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectProduce(),
+            ExpectAggregate({avg_agg}, {}),
+            ExpectAggregateParallel(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, AvgCountFilter) {
@@ -172,26 +194,59 @@ TYPED_TEST(TestPlanner, AvgCountFilter) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-            ExpectFilter(), ExpectAggregate({avg_agg, count_agg}, {}), ExpectAggregateParallel(), ExpectProduce());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectFilter(),
+            ExpectAggregate({avg_agg, count_agg}, {}),
+            ExpectAggregateParallel(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MinMaxWithMatch) {
   LicenseWrapper license_wrapper;
   // Test MATCH (n) WITH min(n.p) AS minp MATCH (m) RETURN max(m.p)
+  //
+  // R6 guard: the outer Aggregate(max) is parallelized first (no parallel ancestors). After
+  // its rewrite, the visitor descends into the rewritten subtree which contains ScanParallel(m)
+  // and ParallelMerge in prev_ops_.  When Aggregate(min) is visited, the R6 ancestor guard fires
+  // (ScanParallel + ParallelMerge are in prev_ops_) → Aggregate(min) stays serial.
+  //
+  // Plan after rewrite (root → leaf):
+  //   Produce(maxp)
+  //    └─ AggregateParallel(max)
+  //        └─ Aggregate(max)
+  //            └─ ScanChunk(m)
+  //                └─ ParallelMerge
+  //                    └─ ScanParallel(m)
+  //                        └─ Produce(minp)     ← WITH output
+  //                            └─ Aggregate(min) ← SERIAL — blocked by R6 ancestor guard
+  //                                └─ ScanAll(n)
   FakeDbAccessor dba;
   auto prop_p = dba.Property("p");
   auto min_agg = AGG_MIN(PROPERTY_LOOKUP(dba, "n", prop_p), false);
   auto max_agg = AGG_MAX(PROPERTY_LOOKUP(dba, "m", prop_p), false);
-  auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(NEXPR("minp", min_agg)),
-                                            MATCH(PATTERN(NODE("m"))), RETURN(NEXPR("maxp", max_agg))));
+  auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                            WITH(NEXPR("minp", min_agg)),
+                                            MATCH(PATTERN(NODE("m"))),
+                                            RETURN(NEXPR("maxp", max_agg))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-            ExpectAggregate({min_agg}, {}), ExpectAggregateParallel(), ExpectProduce(), ExpectScanParallel(),
-            ExpectParallelMerge(), ExpectScanChunk(), ExpectAggregate({max_agg}, {}), ExpectAggregateParallel(),
-            ExpectProduce());
+  // Only the outer Aggregate(max) is parallelized; inner Aggregate(min) stays serial.
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),                 // ScanAll(n) — inner scan stays serial
+            ExpectAggregate({min_agg}, {}),  // Aggregate(min) — serial (R6 ancestor guard)
+            ExpectProduce(),                 // Produce(minp / WITH)
+            ExpectScanParallel(),            // ScanParallel(m) — outer parallel scan
+            ExpectParallelMerge(),           // ParallelMerge
+            ExpectScanChunk(),               // ScanChunk(m)
+            ExpectAggregate({max_agg}, {}),  // Aggregate(max)
+            ExpectAggregateParallel(),       // AggregateParallel(max)
+            ExpectProduce());                // root Produce(maxp)
 }
 
 TYPED_TEST(TestPlanner, MultiMatchCount) {
@@ -204,12 +259,16 @@ TYPED_TEST(TestPlanner, MultiMatchCount) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> left_cartesian_ops{new ExpectScanParallel(), new ExpectParallelMerge(),
-                                                new ExpectScanChunk()};
+  std::list<BaseOpChecker *> left_cartesian_ops{
+      new ExpectScanParallel(), new ExpectParallelMerge(), new ExpectScanChunk()};
   std::list<BaseOpChecker *> right_cartesian_ops{new ExpectScanAll()};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectCartesian(left_cartesian_ops, right_cartesian_ops),
-            ExpectAggregate({count_agg}, {}), ExpectAggregateParallel(), ExpectProduce());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectCartesian(left_cartesian_ops, right_cartesian_ops),
+            ExpectAggregate({count_agg}, {}),
+            ExpectAggregateParallel(),
+            ExpectProduce());
   DeleteListContent(&left_cartesian_ops);
   DeleteListContent(&right_cartesian_ops);
 }
@@ -220,8 +279,8 @@ TYPED_TEST(TestPlanner, MultiMatchCreateCount) {
   // Write operators should inhibit parallelization even with Cartesian joins
   FakeDbAccessor dba;
   auto count_agg = COUNT(nullptr, false);
-  auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("b")), PATTERN(NODE("t"))), CREATE(PATTERN(NODE("x"))),
-                                            RETURN(NEXPR("count", count_agg))));
+  auto *query = PARALLEL_QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("b")), PATTERN(NODE("t"))), CREATE(PATTERN(NODE("x"))), RETURN(NEXPR("count", count_agg))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
@@ -230,8 +289,13 @@ TYPED_TEST(TestPlanner, MultiMatchCreateCount) {
   std::list<BaseOpChecker *> left_cartesian_ops{new ExpectScanAll()};
   std::list<BaseOpChecker *> right_cartesian_ops{new ExpectScanAll()};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectCartesian(left_cartesian_ops, right_cartesian_ops), ExpectCreateNode(),
-            ExpectAccumulate({}), ExpectAggregate({count_agg}, {}), ExpectProduce());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectCartesian(left_cartesian_ops, right_cartesian_ops),
+            ExpectCreateNode(),
+            ExpectAccumulate({}),
+            ExpectAggregate({count_agg}, {}),
+            ExpectProduce());
   DeleteListContent(&left_cartesian_ops);
   DeleteListContent(&right_cartesian_ops);
 }
@@ -249,8 +313,14 @@ TYPED_TEST(TestPlanner, MultiAgg) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-            ExpectAggregate({min_agg, max_agg, count_agg}, {}), ExpectAggregateParallel(), ExpectProduce());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectAggregate({min_agg, max_agg, count_agg}, {}),
+            ExpectAggregateParallel(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, BranchedSubqueries) {
@@ -262,24 +332,37 @@ TYPED_TEST(TestPlanner, BranchedSubqueries) {
   auto min_agg = AGG_MIN(PROPERTY_LOOKUP(dba, "m", prop_p), false);
   auto max_agg = AGG_MAX(PROPERTY_LOOKUP(dba, "m", prop_p), false);
 
-  auto *query = PARALLEL_QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN(min_agg, AS("minp")))),
-      WITH("n", "minp"), CALL_SUBQUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN(max_agg, AS("maxp")))),
-      RETURN("*")));
+  auto *query =
+      PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                  CALL_SUBQUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN(min_agg, AS("minp")))),
+                                  WITH("n", "minp"),
+                                  CALL_SUBQUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN(max_agg, AS("maxp")))),
+                                  RETURN("*")));
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> subquery1_plan{new ExpectScanParallel(),      new ExpectParallelMerge(),
-                                            new ExpectScanChunk(),         new ExpectAggregate({min_agg}, {}),
-                                            new ExpectAggregateParallel(), new ExpectProduce()};
+  std::list<BaseOpChecker *> subquery1_plan{new ExpectScanParallel(),
+                                            new ExpectParallelMerge(),
+                                            new ExpectScanChunk(),
+                                            new ExpectAggregate({min_agg}, {}),
+                                            new ExpectAggregateParallel(),
+                                            new ExpectProduce()};
 
-  std::list<BaseOpChecker *> subquery2_plan{new ExpectScanParallel(),      new ExpectParallelMerge(),
-                                            new ExpectScanChunk(),         new ExpectAggregate({max_agg}, {}),
-                                            new ExpectAggregateParallel(), new ExpectProduce()};
+  std::list<BaseOpChecker *> subquery2_plan{new ExpectScanParallel(),
+                                            new ExpectParallelMerge(),
+                                            new ExpectScanChunk(),
+                                            new ExpectAggregate({max_agg}, {}),
+                                            new ExpectAggregateParallel(),
+                                            new ExpectProduce()};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(subquery1_plan), ExpectProduce(),
-            ExpectApply(subquery2_plan), ExpectProduce());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectApply(subquery1_plan),
+            ExpectProduce(),
+            ExpectApply(subquery2_plan),
+            ExpectProduce());
   DeleteListContent(&subquery1_plan);
   DeleteListContent(&subquery2_plan);
 }
@@ -291,19 +374,27 @@ TYPED_TEST(TestPlanner, NesetedSubqueries) {
   auto count_m = COUNT(IDENT("m"), false);
   auto count_n = COUNT(IDENT("n"), false);
 
-  auto *query = PARALLEL_QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN(count_m, AS("c")))),
-      RETURN(count_n, AS("cn"))));
+  auto *query =
+      PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                  CALL_SUBQUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN(count_m, AS("c")))),
+                                  RETURN(count_n, AS("cn"))));
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   // Parallelize only the subquery (nested aggregation cannot be parallelized)
-  std::list<BaseOpChecker *> subquery_plan{new ExpectScanParallel(),      new ExpectParallelMerge(),
-                                           new ExpectScanChunk(),         new ExpectAggregate({count_m}, {}),
-                                           new ExpectAggregateParallel(), new ExpectProduce()};
+  std::list<BaseOpChecker *> subquery_plan{new ExpectScanParallel(),
+                                           new ExpectParallelMerge(),
+                                           new ExpectScanChunk(),
+                                           new ExpectAggregate({count_m}, {}),
+                                           new ExpectAggregateParallel(),
+                                           new ExpectProduce()};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(subquery_plan), ExpectAggregate({count_n}, {}),
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectApply(subquery_plan),
+            ExpectAggregate({count_n}, {}),
             ExpectProduce());
   DeleteListContent(&subquery_plan);
 }
@@ -321,7 +412,12 @@ TYPED_TEST(TestPlanner, MatchSetCount) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   // Expect serial plan because SET inhibits parallelization (path not read-only)
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectSetLabels(), acc, ExpectAggregate({count_agg}, {}),
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectSetLabels(),
+            acc,
+            ExpectAggregate({count_agg}, {}),
             ExpectProduce());
 }
 
@@ -331,15 +427,27 @@ TYPED_TEST(TestPlanner, MatchSetWithMatchCount) {
   FakeDbAccessor dba;
   auto *n = IDENT("n");
   auto count_agg = COUNT(nullptr, false);
-  auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), SET("n", {"A"}), WITH(n, AS("n")),
-                                            MATCH(PATTERN(NODE("m"))), RETURN(NEXPR("count", count_agg))));
+  auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                            SET("n", {"A"}),
+                                            WITH(n, AS("n")),
+                                            MATCH(PATTERN(NODE("m"))),
+                                            RETURN(NEXPR("count", count_agg))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*n)});
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectSetLabels(), acc, ExpectProduce(),
-            ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(), ExpectAggregate({count_agg}, {}),
-            ExpectAggregateParallel(), ExpectProduce());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectSetLabels(),
+            acc,
+            ExpectProduce(),
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectAggregate({count_agg}, {}),
+            ExpectAggregateParallel(),
+            ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, ParallelExecutionIndexScan) {
@@ -365,27 +473,50 @@ TYPED_TEST(TestPlanner, ParallelExecutionIndexScan) {
   // No index
   {
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-              ExpectFilter(), ExpectExpand(), ExpectFilter(), ExpectAggregate({count_agg}, {}),
-              ExpectAggregateParallel(), ExpectProduce());
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanParallel(),
+              ExpectParallelMerge(),
+              ExpectScanChunk(),
+              ExpectFilter(),
+              ExpectExpand(),
+              ExpectFilter(),
+              ExpectAggregate({count_agg}, {}),
+              ExpectAggregateParallel(),
+              ExpectProduce());
   }
 
   // Label index
   {
     dba.SetIndexCount(label, 1000);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanParallelByLabel(), ExpectParallelMerge(), ExpectScanChunk(),
-              ExpectFilter(), ExpectExpand(), ExpectFilter(), ExpectAggregate({count_agg}, {}),
-              ExpectAggregateParallel(), ExpectProduce());
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanParallelByLabel(),
+              ExpectParallelMerge(),
+              ExpectScanChunk(),
+              ExpectFilter(),
+              ExpectExpand(),
+              ExpectFilter(),
+              ExpectAggregate({count_agg}, {}),
+              ExpectAggregateParallel(),
+              ExpectProduce());
   }
 
   // LabelProperty index (loses the node filter)
   {
     dba.SetIndexCount(label, node_property.second, 1000);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanParallelByLabelProperties(), ExpectParallelMerge(),
-              ExpectScanChunk(), ExpectExpand(), ExpectFilter(), ExpectAggregate({count_agg}, {}),
-              ExpectAggregateParallel(), ExpectProduce());
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanParallelByLabelProperties(),
+              ExpectParallelMerge(),
+              ExpectScanChunk(),
+              ExpectExpand(),
+              ExpectFilter(),
+              ExpectAggregate({count_agg}, {}),
+              ExpectAggregateParallel(),
+              ExpectProduce());
   }
 }
 
@@ -398,17 +529,25 @@ TYPED_TEST(TestPlanner, ParallelExecutionEdgeIndexScan) {
   const auto edge_property = PROPERTY_PAIR(dba, "eprop");
   auto count_agg = COUNT(nullptr, false);
 
-  auto *query = PARALLEL_QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("e", Direction::OUT, {edge_type_name}), NODE("anon1"))),
-      WHERE(EQ(PROPERTY_LOOKUP(dba, "e", edge_property.second), LITERAL(true))), RETURN(count_agg, AS("count"))));
+  auto *query =
+      PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("e", Direction::OUT, {edge_type_name}), NODE("anon1"))),
+                                  WHERE(EQ(PROPERTY_LOOKUP(dba, "e", edge_property.second), LITERAL(true))),
+                                  RETURN(count_agg, AS("count"))));
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
 
   // No index
   {
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-              ExpectExpand(), ExpectFilter(), ExpectAggregate({count_agg}, {}), ExpectAggregateParallel(),
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanParallel(),
+              ExpectParallelMerge(),
+              ExpectScanChunk(),
+              ExpectExpand(),
+              ExpectFilter(),
+              ExpectAggregate({count_agg}, {}),
+              ExpectAggregateParallel(),
               ExpectProduce());
   }
 
@@ -416,8 +555,14 @@ TYPED_TEST(TestPlanner, ParallelExecutionEdgeIndexScan) {
   {
     dba.SetIndexCount(edge_type, 1000);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanParallelByEdgeType(), ExpectParallelMerge(),
-              ExpectScanChunkByEdge(), ExpectFilter(), ExpectAggregate({count_agg}, {}), ExpectAggregateParallel(),
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanParallelByEdgeType(),
+              ExpectParallelMerge(),
+              ExpectScanChunkByEdge(),
+              ExpectFilter(),
+              ExpectAggregate({count_agg}, {}),
+              ExpectAggregateParallel(),
               ExpectProduce());
   }
 
@@ -425,8 +570,14 @@ TYPED_TEST(TestPlanner, ParallelExecutionEdgeIndexScan) {
   {
     dba.SetIndexCount(edge_type, edge_property.second, 1000);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanParallelByEdgeTypePropertyValue(), ExpectParallelMerge(),
-              ExpectScanChunkByEdge(), ExpectAggregate({count_agg}, {}), ExpectAggregateParallel(), ExpectProduce());
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanParallelByEdgeTypePropertyValue(),
+              ExpectParallelMerge(),
+              ExpectScanChunkByEdge(),
+              ExpectAggregate({count_agg}, {}),
+              ExpectAggregateParallel(),
+              ExpectProduce());
   }
 }
 
@@ -445,8 +596,14 @@ TYPED_TEST(TestPlanner, ParallelExecutionOrderBy) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-            ExpectProduce(), ExpectOrderBy(), ExpectOrderByParallel());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectProduce(),
+            ExpectOrderBy(),
+            ExpectOrderByParallel());
 }
 
 TYPED_TEST(TestPlanner, ParallelExecutionOrderByWithFilter) {
@@ -461,8 +618,15 @@ TYPED_TEST(TestPlanner, ParallelExecutionOrderByWithFilter) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-            ExpectFilter(), ExpectProduce(), ExpectOrderBy(), ExpectOrderByParallel());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectFilter(),
+            ExpectProduce(),
+            ExpectOrderBy(),
+            ExpectOrderByParallel());
 }
 
 TYPED_TEST(TestPlanner, ParallelExecutionOrderByMultipleProperties) {
@@ -477,8 +641,14 @@ TYPED_TEST(TestPlanner, ParallelExecutionOrderByMultipleProperties) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-            ExpectProduce(), ExpectOrderBy(), ExpectOrderByParallel());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectProduce(),
+            ExpectOrderBy(),
+            ExpectOrderByParallel());
 }
 
 // ============================================================================
@@ -496,8 +666,15 @@ TYPED_TEST(TestPlanner, ParallelExecutionAggregationWithOrderBy) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   // Aggregation gets parallelized, then ORDER BY follows (serial since only one row after aggregation)
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-            ExpectAggregate({count_agg}, {}), ExpectAggregateParallel(), ExpectProduce(), ExpectOrderBy());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectAggregate({count_agg}, {}),
+            ExpectAggregateParallel(),
+            ExpectProduce(),
+            ExpectOrderBy());
 }
 
 TYPED_TEST(TestPlanner, ParallelExecutionAggregationGroupByWithOrderBy) {
@@ -515,8 +692,15 @@ TYPED_TEST(TestPlanner, ParallelExecutionAggregationGroupByWithOrderBy) {
 
   // GROUP BY with aggregation, then ORDER BY on aggregated result
   // ORDER BY is NOT parallelized because the sort symbol (aggregate result) is not from ScanParallel
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(), aggr,
-            ExpectAggregateParallel(), ExpectProduce(), ExpectOrderBy());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            aggr,
+            ExpectAggregateParallel(),
+            ExpectProduce(),
+            ExpectOrderBy());
 }
 
 TYPED_TEST(TestPlanner, ParallelExecutionMinMaxWithOrderBy) {
@@ -531,8 +715,15 @@ TYPED_TEST(TestPlanner, ParallelExecutionMinMaxWithOrderBy) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-            ExpectAggregate({min_agg, max_agg}, {}), ExpectAggregateParallel(), ExpectProduce(), ExpectOrderBy());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectAggregate({min_agg, max_agg}, {}),
+            ExpectAggregateParallel(),
+            ExpectProduce(),
+            ExpectOrderBy());
 }
 
 TYPED_TEST(TestPlanner, ParallelExecutionSumGroupByWithOrderBy) {
@@ -551,8 +742,15 @@ TYPED_TEST(TestPlanner, ParallelExecutionSumGroupByWithOrderBy) {
 
   // SUM with GROUP BY - aggregation is parallelized
   // ORDER BY on aggregate result is NOT parallelized (sort symbol not from scan)
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(), aggr,
-            ExpectAggregateParallel(), ExpectProduce(), ExpectOrderBy());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            aggr,
+            ExpectAggregateParallel(),
+            ExpectProduce(),
+            ExpectOrderBy());
 }
 
 TYPED_TEST(TestPlanner, ParallelExecutionAvgGroupByWithOrderByAndLimit) {
@@ -571,8 +769,16 @@ TYPED_TEST(TestPlanner, ParallelExecutionAvgGroupByWithOrderByAndLimit) {
 
   // AVG with GROUP BY - aggregation is parallelized
   // ORDER BY on aggregate result is NOT parallelized (sort symbol not from scan)
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(), aggr,
-            ExpectAggregateParallel(), ExpectProduce(), ExpectOrderBy(), ExpectLimit());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            aggr,
+            ExpectAggregateParallel(),
+            ExpectProduce(),
+            ExpectOrderBy(),
+            ExpectLimit());
 }
 
 TYPED_TEST(TestPlanner, ParallelExecutionGroupByWithOrderByOnGroupKey) {
@@ -592,8 +798,15 @@ TYPED_TEST(TestPlanner, ParallelExecutionGroupByWithOrderByOnGroupKey) {
   // COUNT with GROUP BY - aggregation is parallelized
   // ORDER BY on group key (n.type) - but the symbol after Produce is a new named expression symbol,
   // not the original scan symbol, so OrderBy is NOT parallelized
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(), aggr,
-            ExpectAggregateParallel(), ExpectProduce(), ExpectOrderBy());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            aggr,
+            ExpectAggregateParallel(),
+            ExpectProduce(),
+            ExpectOrderBy());
 }
 
 TYPED_TEST(TestPlanner, ParallelExecutionOrderByWithSkipLimit) {
@@ -607,8 +820,16 @@ TYPED_TEST(TestPlanner, ParallelExecutionOrderByWithSkipLimit) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table, ExpectScanParallel(), ExpectParallelMerge(), ExpectScanChunk(),
-            ExpectProduce(), ExpectOrderBy(), ExpectOrderByParallel(), ExpectSkip(), ExpectLimit());
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectProduce(),
+            ExpectOrderBy(),
+            ExpectOrderByParallel(),
+            ExpectSkip(),
+            ExpectLimit());
 }
 
 TYPED_TEST(TestPlanner, ParallelExecutionOrderByInSubquery) {
@@ -624,9 +845,12 @@ TYPED_TEST(TestPlanner, ParallelExecutionOrderByInSubquery) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> subquery_plan{new ExpectScanParallel(), new ExpectParallelMerge(),
-                                           new ExpectScanChunk(),    new ExpectProduce(),
-                                           new ExpectOrderBy(),      new ExpectOrderByParallel()};
+  std::list<BaseOpChecker *> subquery_plan{new ExpectScanParallel(),
+                                           new ExpectParallelMerge(),
+                                           new ExpectScanChunk(),
+                                           new ExpectProduce(),
+                                           new ExpectOrderBy(),
+                                           new ExpectOrderByParallel()};
 
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(subquery_plan), ExpectProduce());
   DeleteListContent(&subquery_plan);
@@ -673,8 +897,202 @@ TYPED_TEST(TestPlanner, ParallelExecutionOrderByAfterWrite) {
 
   // Write operation inhibits parallelization for the scan
   // ORDER BY is also NOT parallelized because the data flow is serial after Accumulate
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectSetLabels(), acc, ExpectProduce(), ExpectProduce(),
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectSetLabels(),
+            acc,
+            ExpectProduce(),
+            ExpectProduce(),
             ExpectOrderBy());
+}
+
+// ============================================================================
+// R6 NESTED-PARALLEL GUARD TESTS
+// ============================================================================
+
+// R6.1: Regression — the ancestor guard must NOT prevent normal single-level aggregate parallelization.
+// This is identical to ParallelExecutionAggregation but exists explicitly to document that the R6
+// guard does not over-fire on a clean single-level plan.
+TYPED_TEST(TestPlanner, R6_SingleLevelAggregateStillParallelizes) {
+  LicenseWrapper license_wrapper;
+  // USING PARALLEL EXECUTION MATCH (n) RETURN count(*) -- must still parallelize
+  FakeDbAccessor dba;
+  auto count_agg = COUNT(nullptr, false);
+  auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(NEXPR("count", count_agg))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Must produce exactly ONE parallel region (ScanParallel + ParallelMerge + ScanChunk +
+  // Aggregate + AggregateParallel). No regression from the R6 ancestor guard.
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectAggregate({count_agg}, {}),
+            ExpectAggregateParallel(),
+            ExpectProduce());
+}
+
+// R6.2: Regression — the ancestor guard must NOT prevent normal single-level order-by parallelization.
+TYPED_TEST(TestPlanner, R6_SingleLevelOrderByStillParallelizes) {
+  LicenseWrapper license_wrapper;
+  // USING PARALLEL EXECUTION MATCH (n) RETURN n ORDER BY n.p -- must still parallelize
+  FakeDbAccessor dba;
+  auto prop_p = dba.Property("p");
+  auto *as_n = NEXPR("n", IDENT("n"));
+  auto ret = RETURN(as_n, ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_p)));
+  auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ret));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Must produce exactly ONE parallel region. No regression from the R6 ancestor guard.
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanParallel(),
+            ExpectParallelMerge(),
+            ExpectScanChunk(),
+            ExpectProduce(),
+            ExpectOrderBy(),
+            ExpectOrderByParallel());
+}
+
+// R6.3: Subtree guard — if the operator's input subtree ALREADY contains a ScanParallel node
+// (i.e. a prior rewrite pass already parallelized part of the plan), TryParallelizeOperator
+// must bail out with the R6 subtree guard rather than creating a second parallel region.
+//
+// This test constructs the situation DIRECTLY by calling RewriteParallelExecution on a manually
+// built operator tree that already has a ScanParallel node in it, then places a fresh Aggregate
+// on top and asks for another rewrite.
+//
+// Plan shape fed to the second RewriteParallelExecution call:
+//   Produce
+//    └─ Aggregate(count(*))          ← the operator we want to try to parallelize
+//        └─ AggregateParallel        ← already-rewritten inner parallel region
+//            └─ Aggregate(count(m))
+//                └─ ScanChunk
+//                    └─ ParallelMerge
+//                        └─ ScanParallel
+//                            └─ Once
+//
+// The R6 SUBTREE guard must fire (ScanParallel is in the subtree below Aggregate).
+// Result: the outer Aggregate remains SERIAL (no second AggregateParallel appears).
+TEST(ParallelRewriteR6, SubtreeGuardPreventsDuplicateParallelRegion) {
+  memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
+
+  struct Guard {
+    ~Guard() { memgraph::license::global_license_checker.DisableTesting(); }
+  } guard;
+
+  AstStorage storage;
+  SymbolTable symbol_table;
+  FakeDbAccessor dba;
+
+  // Build the inner already-rewritten plan manually:
+  //   ScanParallel(Once) → ParallelMerge → ScanChunk(m) → Aggregate(count(m)) → AggregateParallel
+  auto state_sym = symbol_table.CreateAnonymousSymbol();
+  auto m_sym = symbol_table.CreateSymbol("m", true);
+  auto once = std::make_shared<Once>();
+  auto scan_parallel = std::make_shared<ScanParallel>(once, memgraph::storage::View::OLD, 4, state_sym);
+  auto parallel_merge = std::make_shared<ParallelMerge>(scan_parallel);
+  auto scan_chunk = std::make_shared<ScanChunk>(parallel_merge, m_sym, memgraph::storage::View::OLD, state_sym);
+
+  // Inner Aggregate: count(m) with no group-by
+  auto count_m_sym = symbol_table.CreateSymbol("count_m", true);
+  auto inner_agg = std::make_shared<Aggregate>(
+      scan_chunk,
+      std::vector<Aggregate::Element>{{nullptr, nullptr, memgraph::query::Aggregation::Op::COUNT, count_m_sym, false}},
+      std::vector<memgraph::query::Expression *>{},
+      std::vector<Symbol>{count_m_sym});
+  auto agg_parallel = std::make_shared<AggregateParallel>(inner_agg, 4);
+
+  // Outer Aggregate: count(*) with no group-by (on top of the already-parallelized subtree)
+  auto count_outer_sym = symbol_table.CreateSymbol("count_outer", true);
+  auto outer_agg = std::make_shared<Aggregate>(
+      agg_parallel,
+      std::vector<Aggregate::Element>{
+          {nullptr, nullptr, memgraph::query::Aggregation::Op::COUNT, count_outer_sym, false}},
+      std::vector<memgraph::query::Expression *>{},
+      std::vector<Symbol>{count_outer_sym});
+
+  // Wrap in Produce so the plan has a valid root
+  auto produce = std::make_unique<Produce>(outer_agg, std::vector<memgraph::query::NamedExpression *>{});
+
+  // Now run RewriteParallelExecution on this already-partially-parallelized tree.
+  // The outer Aggregate sees a ScanParallel in its subtree → R6 subtree guard fires → no second AggregateParallel.
+  memgraph::query::Parameters params;
+  memgraph::query::PreQueryDirectives directives;
+  directives.parallel_execution_ = true;
+
+  auto rewritten = RewriteParallelExecution(std::move(produce), &symbol_table, &storage, &dba, directives, params);
+
+  // Walk the rewritten plan and count AggregateParallel nodes by traversing the shared_ptr tree
+  // directly (avoids needing a full HierarchicalLogicalOperatorVisitor implementation).
+  // Expected: exactly ONE AggregateParallel (the already-inserted inner one) — NOT two.
+  int agg_parallel_count = 0;
+  std::function<void(const LogicalOperator *)> count_agg_parallel = [&](const LogicalOperator *node) {
+    if (!node) return;
+    if (node->GetTypeInfo() == AggregateParallel::kType) {
+      ++agg_parallel_count;
+    }
+    // Traverse via HasSingleInput / input()
+    if (node->HasSingleInput()) {
+      count_agg_parallel(node->input().get());
+    } else {
+      // Handle known multi-input operators present in this plan (none in this case,
+      // but be safe with a fallback via GetTypeInfo)
+      if (const auto *cartesian = dynamic_cast<const Cartesian *>(node)) {
+        count_agg_parallel(cartesian->left_op_.get());
+        count_agg_parallel(cartesian->right_op_.get());
+      }
+    }
+  };
+  count_agg_parallel(rewritten.get());
+
+  EXPECT_EQ(agg_parallel_count, 1) << "R6 subtree guard must prevent a second AggregateParallel from being inserted "
+                                      "when the input subtree already contains a parallel region.";
+}
+
+// R6.4: Verify that nested subqueries are still handled correctly — the inner subquery
+// is parallelized while the outer aggregate remains serial (same as NesetedSubqueries test).
+// This confirms that the R6 guards do not interfere with the existing ConflictingOperators
+// path that prevents the outer aggregate from seeing the inner scan.
+TYPED_TEST(TestPlanner, R6_NestedSubqueryInnerParallelOuterSerial) {
+  LicenseWrapper license_wrapper;
+  // MATCH (n) CALL { MATCH (m) RETURN count(*) AS c } RETURN count(*)
+  // Inner subquery: count(*) parallelized over m.
+  // Outer count(*): NOT parallelized (inner AggregateParallel is in its subtree via Apply).
+  FakeDbAccessor dba;
+  auto count_m = COUNT(IDENT("m"), false);
+  auto count_n = COUNT(IDENT("n"), false);
+
+  auto *query =
+      PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                  CALL_SUBQUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN(count_m, AS("c")))),
+                                  RETURN(count_n, AS("cn"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Inner subquery plan is parallelized; outer Aggregate stays serial.
+  // The outer Aggregate is rejected by the existing ConflictingOperators check in FindScanForSymbols
+  // (it sees Aggregate(count_m) in the Apply subquery and stops there — before R6 even fires).
+  // The R6 guards do NOT fire here; this test confirms R6 does not break the existing path.
+  std::list<BaseOpChecker *> subquery_plan{new ExpectScanParallel(),
+                                           new ExpectParallelMerge(),
+                                           new ExpectScanChunk(),
+                                           new ExpectAggregate({count_m}, {}),
+                                           new ExpectAggregateParallel(),
+                                           new ExpectProduce()};
+
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectApply(subquery_plan),
+            ExpectAggregate({count_n}, {}),
+            ExpectProduce());
+  DeleteListContent(&subquery_plan);
 }
 
 }  // namespace
