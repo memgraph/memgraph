@@ -114,6 +114,27 @@ void HeapTypeFree(PyObject *self) {
   Py_DECREF(tp);
 }
 
+// Allocate an instance of one of our heap types. The counterpart to the
+// type-refcount handling on teardown (`HeapTypeFree`, or the default
+// `subtype_dealloc` for types without a custom one): a heap-type instance owns
+// a strong reference to its type, so destruction always does `Py_DECREF(type)`.
+//
+// We must NOT use `PyObject_New` here: it only increments a heap type's
+// refcount (via `_PyObject_Init`) on Python >= 3.12. Because the binary is
+// built once (against one Python) but must run against any libpython >= the
+// abi3 floor, a binary built on 3.12 would, when run against a 3.10/3.11
+// libpython, never take that incref while teardown still decrements — the
+// type's refcount underflows, the type object is freed mid-run, and the
+// resulting heap corruption shows up as unrelated fatal errors (e.g.
+// "none_dealloc: deallocating None"). `PyType_GenericAlloc` increments the
+// heap type's refcount exactly once on every supported version, keeping
+// creation and destruction balanced. It also zero-initialises the instance,
+// which our call sites overwrite immediately.
+template <class T>
+T *MakeHeapInstance(PyTypeObject *type) {
+  return reinterpret_cast<T *>(PyType_GenericAlloc(type, 0));
+}
+
 // Set this as a __reduce__ special method on our types to prevent `pickle` and
 // `copy` module operations on our types.
 PyObject *DisallowPickleAndCopy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
@@ -511,7 +532,7 @@ PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   if (RaiseExceptionFromErrorCode(mgp_graph_iter_vertices(self->graph, self->memory, &vertices_it))) {
     return nullptr;
   }
-  auto *py_vertices_it = PyObject_New(PyVerticesIterator, PyVerticesIteratorType);
+  auto *py_vertices_it = MakeHeapInstance<PyVerticesIterator>(PyVerticesIteratorType);
   if (!py_vertices_it) {
     mgp_vertices_iterator_destroy(vertices_it);
     return nullptr;
@@ -587,7 +608,7 @@ static PyTypeObject *PyGraphType = nullptr;
 
 PyObject *MakePyGraph(mgp_graph *graph, mgp_memory *memory) {
   MG_ASSERT(!graph || (graph && memory));
-  auto *py_graph = PyObject_New(PyGraph, PyGraphType);
+  auto *py_graph = MakeHeapInstance<PyGraph>(PyGraphType);
   if (!py_graph) return nullptr;
   py_graph->graph = graph;
   py_graph->memory = memory;
@@ -622,7 +643,7 @@ static PyTypeObject *PyCypherTypeType = nullptr;
 
 PyObject *MakePyCypherType(mgp_type *type) {
   MG_ASSERT(type);
-  auto *py_type = PyObject_New(PyCypherType, PyCypherTypeType);
+  auto *py_type = MakeHeapInstance<PyCypherType>(PyCypherTypeType);
   if (!py_type) return nullptr;
   py_type->type = type;
   return reinterpret_cast<PyObject *>(py_type);
@@ -1000,7 +1021,7 @@ PyObject *PyMessagesGetMessageAt(PyMessages *self, PyObject *args) {
   if (id < 0 || id >= self->messages->messages.size()) return nullptr;
   auto *message = &self->messages->messages[id];
   // NOLINTNEXTLINE
-  auto *py_message = PyObject_New(PyMessage, PyMessageType);
+  auto *py_message = MakeHeapInstance<PyMessage>(PyMessageType);
   if (!py_message) {
     return nullptr;
   }
@@ -1061,7 +1082,7 @@ static PyTypeObject *PyMessagesType = nullptr;
 PyObject *MakePyMessages(mgp_messages *msgs, mgp_memory *memory) {
   MG_ASSERT(!msgs || (msgs && memory));
   // NOLINTNEXTLINE
-  auto *py_messages = PyObject_New(PyMessages, PyMessagesType);
+  auto *py_messages = MakeHeapInstance<PyMessages>(PyMessagesType);
   if (!py_messages) return nullptr;
   py_messages->messages = msgs;
   py_messages->memory = memory;
@@ -1580,7 +1601,7 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
     return nullptr;
   }
-  auto *py_proc = PyObject_New(PyQueryProc, PyQueryProcType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  auto *py_proc = MakeHeapInstance<PyQueryProc>(PyQueryProcType);
   if (!py_proc) return nullptr;
   py_proc->callable = &proc_it->second;
   return reinterpret_cast<PyObject *>(py_proc);
@@ -1627,7 +1648,7 @@ PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *args, bo
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
     return nullptr;
   }
-  auto *py_proc = PyObject_New(PyQueryProc, PyQueryProcType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  auto *py_proc = MakeHeapInstance<PyQueryProc>(PyQueryProcType);
   if (!py_proc) return nullptr;
   py_proc->callable = &proc_it->second;
   return reinterpret_cast<PyObject *>(py_proc);
@@ -1707,7 +1728,7 @@ PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
     PyErr_SetString(PyExc_ValueError, "Already registered a function with the same name.");
     return nullptr;
   }
-  auto *py_func = PyObject_New(PyMagicFunc, PyMagicFuncType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  auto *py_func = MakeHeapInstance<PyMagicFunc>(PyMagicFuncType);
   if (!py_func) return nullptr;
   py_func->callable = &func_it->second;
   return reinterpret_cast<PyObject *>(py_func);
@@ -1763,7 +1784,7 @@ static PyTypeObject *PyQueryModuleType = nullptr;
 
 PyObject *MakePyQueryModule(mgp_module *module) {
   MG_ASSERT(module);
-  auto *py_query_module = PyObject_New(PyQueryModule, PyQueryModuleType);
+  auto *py_query_module = MakeHeapInstance<PyQueryModule>(PyQueryModuleType);
   if (!py_query_module) return nullptr;
   py_query_module->module = module;
   return reinterpret_cast<PyObject *>(py_query_module);
@@ -2041,7 +2062,7 @@ PyObject *PyEdgeIterProperties(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   if (RaiseExceptionFromErrorCode(mgp_edge_iter_properties(self->edge, self->py_graph->memory, &properties_it))) {
     return nullptr;
   }
-  auto *py_properties_it = PyObject_New(PyPropertiesIterator, PyPropertiesIteratorType);
+  auto *py_properties_it = MakeHeapInstance<PyPropertiesIterator>(PyPropertiesIteratorType);
   if (!py_properties_it) {
     mgp_properties_iterator_destroy(properties_it);
     return nullptr;
@@ -2203,7 +2224,7 @@ PyObject *MakePyEdgeWithoutCopy(mgp_edge &edge, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
   MG_ASSERT(py_graph->graph && py_graph->memory);
   MG_ASSERT(edge.GetMemoryResource() == py_graph->memory->impl);
-  auto *py_edge = PyObject_New(PyEdge, PyEdgeType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  auto *py_edge = MakeHeapInstance<PyEdge>(PyEdgeType);
   if (!py_edge) return nullptr;
   py_edge->edge = &edge;
   py_edge->py_graph = py_graph;
@@ -2326,7 +2347,7 @@ PyObject *PyVertexIterInEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   if (RaiseExceptionFromErrorCode(mgp_vertex_iter_in_edges(self->vertex, self->py_graph->memory, &edges_it))) {
     return nullptr;
   }
-  auto *py_edges_it = PyObject_New(PyEdgesIterator, PyEdgesIteratorType);
+  auto *py_edges_it = MakeHeapInstance<PyEdgesIterator>(PyEdgesIteratorType);
   if (!py_edges_it) {
     mgp_edges_iterator_destroy(edges_it);
     return nullptr;
@@ -2346,7 +2367,7 @@ PyObject *PyVertexIterOutEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   if (RaiseExceptionFromErrorCode(mgp_vertex_iter_out_edges(self->vertex, self->py_graph->memory, &edges_it))) {
     return nullptr;
   }
-  auto *py_edges_it = PyObject_New(PyEdgesIterator, PyEdgesIteratorType);
+  auto *py_edges_it = MakeHeapInstance<PyEdgesIterator>(PyEdgesIteratorType);
   if (!py_edges_it) {
     mgp_edges_iterator_destroy(edges_it);
     return nullptr;
@@ -2366,7 +2387,7 @@ PyObject *PyVertexIterProperties(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   if (RaiseExceptionFromErrorCode(mgp_vertex_iter_properties(self->vertex, self->py_graph->memory, &properties_it))) {
     return nullptr;
   }
-  auto *py_properties_it = PyObject_New(PyPropertiesIterator, PyPropertiesIteratorType);
+  auto *py_properties_it = MakeHeapInstance<PyPropertiesIterator>(PyPropertiesIteratorType);
   if (!py_properties_it) {
     mgp_properties_iterator_destroy(properties_it);
     return nullptr;
@@ -2579,7 +2600,7 @@ PyObject *MakePyVertexWithoutCopy(mgp_vertex &vertex, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
   MG_ASSERT(py_graph->graph && py_graph->memory);
   MG_ASSERT(vertex.GetMemoryResource() == py_graph->memory->impl);
-  auto *py_vertex = PyObject_New(PyVertex, PyVertexType);
+  auto *py_vertex = MakeHeapInstance<PyVertex>(PyVertexType);
   if (!py_vertex) return nullptr;
   py_vertex->vertex = &vertex;
   py_vertex->py_graph = py_graph;
@@ -2764,7 +2785,7 @@ PyObject *MakePyPath(mgp_path *path, PyGraph *py_graph) {
   MG_ASSERT(path);
   MG_ASSERT(py_graph->graph && py_graph->memory);
   MG_ASSERT(path->GetMemoryResource() == py_graph->memory->impl);
-  auto *py_path = PyObject_New(PyPath, PyPathType);
+  auto *py_path = MakeHeapInstance<PyPath>(PyPathType);
   if (!py_path) return nullptr;
   py_path->path = path;
   py_path->py_graph = py_graph;
@@ -3076,7 +3097,7 @@ auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
   MG_ASSERT(py_mgp.SetAttr("_MODULE", py_query_module));
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
-  auto *py_logger = reinterpret_cast<PyObject *>(PyObject_New(PyLogger, PyLoggerType));
+  auto *py_logger = reinterpret_cast<PyObject *>(MakeHeapInstance<PyLogger>(PyLoggerType));
   MG_ASSERT(py_mgp.SetAttr("_LOGGER", py_logger));
 
   auto ret = fun();
