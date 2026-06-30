@@ -652,9 +652,10 @@ class DbmsHandler {
    *
    * @param db_acc access to the database to repair
    * @param txn system transaction for replication (may be nullptr)
-   * @return error message on failure, std::nullopt on success
+   * @return empty on success, an error message on failure
    */
-  static std::optional<std::string> RepairDatabase(DatabaseAccess db_acc, system::Transaction *txn = nullptr);
+  [[nodiscard]] static std::expected<void, std::string> RepairDatabase(DatabaseAccess db_acc,
+                                                                       system::Transaction *txn = nullptr);
 
   /**
    * @brief Return all active databases.

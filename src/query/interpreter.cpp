@@ -6338,9 +6338,9 @@ PreparedQuery PrepareRepairDatabaseQuery(ParsedQuery parsed_query, bool in_expli
         // Repair the tenant locally on the MAIN (reset to an empty state with a fresh epoch) and record a
         // system action that replicates the reset to every replica: each replica wipes its stale tenant data
         // and re-syncs from the main's fresh epoch, leaving a clean empty tenant ready for the main's commits.
-        if (auto const err = memgraph::dbms::DbmsHandler::RepairDatabase(db_acc, &*interpreter->system_transaction_);
-            err.has_value()) {
-          throw QueryException("{}", *err);
+        if (auto const result = memgraph::dbms::DbmsHandler::RepairDatabase(db_acc, &*interpreter->system_transaction_);
+            !result.has_value()) {
+          throw QueryException("{}", result.error());
         }
         notifications->emplace_back(
             SeverityLevel::INFO,
@@ -8320,10 +8320,11 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 
     // A database that failed durability recovery comes up defunct (see
     // --storage-allow-recovery-failure); report that so operators can spot it.
-    auto status_of = [db_handler](std::string_view name) -> std::string {
+    auto status_of = [db_handler](std::string_view name) -> std::string_view {
       try {
         return db_handler->Get(name)->storage()->IsDefunct() ? "defunct" : "ready";
-      } catch (...) {
+      } catch (const memgraph::dbms::UnknownDatabaseException &) {
+        // The database was dropped between listing and querying; treat it as ready (it is gone).
         return "ready";
       }
     };
@@ -9983,19 +9984,40 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // replication, ...) do not touch the tenant graph and are allowed through.
       if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsDefunct()) {
         auto *q = parsed_query.query;
-        // Allowlist: in the defunct state only RECOVER SNAPSHOT (the cure) and read-only meta/info
-        // queries that never touch the tenant graph are permitted. Everything else (Cypher, DDL,
-        // CREATE SNAPSHOT, ...) is rejected until the database is recovered.
-        const bool is_allowed =
-            utils::Downcast<RecoverSnapshotQuery>(q) != nullptr || utils::Downcast<RepairDatabaseQuery>(q) != nullptr ||
-            utils::Downcast<DatabaseInfoQuery>(q) != nullptr || utils::Downcast<SystemInfoQuery>(q) != nullptr ||
-            utils::Downcast<ReplicationInfoQuery>(q) != nullptr || utils::Downcast<ShowConfigQuery>(q) != nullptr ||
-            utils::Downcast<ShowQueryCallableMappingsQuery>(q) != nullptr ||
-            utils::Downcast<SettingQuery>(q) != nullptr || utils::Downcast<VersionQuery>(q) != nullptr ||
-            utils::Downcast<UseDatabaseQuery>(q) != nullptr || utils::Downcast<MultiDatabaseQuery>(q) != nullptr ||
-            utils::Downcast<ShowDatabaseQuery>(q) != nullptr || utils::Downcast<ShowDatabasesQuery>(q) != nullptr ||
-            utils::Downcast<ShowMemoryInfoQuery>(q) != nullptr || utils::Downcast<SessionTraceQuery>(q) != nullptr ||
-            utils::Downcast<SessionSettingQuery>(q) != nullptr;
+        // Allowlist: in the defunct state only the cure queries (RECOVER SNAPSHOT / REPAIR DATABASE)
+        // and meta/admin queries that never touch the tenant graph are permitted. Everything else
+        // (Cypher, DDL, CREATE SNAPSHOT, ...) is rejected until the database is recovered. Auth,
+        // replication, profile and other instance-level queries operate on system state rather than
+        // the tenant graph, so they remain available for remediation while a tenant is defunct.
+        auto const is_allowed =
+            [q]<typename... Ts>() {
+              return (... || (utils::Downcast<Ts>(q) != nullptr));
+            }.template operator()<RecoverSnapshotQuery,
+                                  RepairDatabaseQuery,
+                                  DatabaseInfoQuery,
+                                  SystemInfoQuery,
+                                  ReplicationInfoQuery,
+                                  ShowConfigQuery,
+                                  ShowQueryCallableMappingsQuery,
+                                  SettingQuery,
+                                  VersionQuery,
+                                  UseDatabaseQuery,
+                                  MultiDatabaseQuery,
+                                  ShowDatabaseQuery,
+                                  ShowDatabasesQuery,
+                                  ShowMemoryInfoQuery,
+                                  SessionTraceQuery,
+                                  SessionSettingQuery,
+                                  AuthQuery,
+                                  ReplicationQuery,
+                                  UserProfileQuery,
+                                  TenantProfileQuery,
+                                  ParameterQuery,
+                                  TransactionQueueQuery,
+                                  LockPathQuery,
+                                  FreeMemoryQuery,
+                                  CoordinatorQuery,
+                                  ReloadSSLQuery>();
         if (!is_allowed) {
           throw QueryException(
               "Database is in the defunct state because the recovery process failed. Please recover your database "
