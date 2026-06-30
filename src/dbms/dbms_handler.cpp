@@ -889,7 +889,7 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
 #endif
 
 std::optional<std::string> DbmsHandler::ResetDatabase(DatabaseAccess db_acc,
-                                                       [[maybe_unused]] system::Transaction *txn) {
+                                                      [[maybe_unused]] system::Transaction *txn) {
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
   // MAIN-side local reset: move the corrupt durability files aside, clear the tenant and drop the
   // defunct flag. The tenant comes back empty with a fresh epoch. Available in Community and Enterprise.
@@ -910,7 +910,7 @@ std::optional<std::string> DbmsHandler::ResetDatabase(DatabaseAccess db_acc,
   }
 #endif
 
-  return std::nullopt;
+  return {};
 }
 
 std::optional<memgraph::metrics::StorageSnapshot> DbmsHandler::TryGetStorageSnapshotForMetrics(utils::UUID const &uuid

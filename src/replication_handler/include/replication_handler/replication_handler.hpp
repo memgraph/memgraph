@@ -110,6 +110,11 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     // No license -> send only default config
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp(), {}};
   });
+#ifdef MG_ENTERPRISE
+  // Copy before db_info.repaired_uuids is moved into the stream below; used to clear the repaired flag
+  // once the replica has received the SystemRecoveryRpc.
+  auto const repaired_to_clear = db_info.repaired_uuids;
+#endif
   try {
     metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();
@@ -148,7 +153,21 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                           params_snapshot);
 #endif
     });
-    if (const auto response = stream.SendAndWait(); response.result == SystemRecoveryRes::Result::FAILURE) {
+    auto const response = stream.SendAndWait();
+#ifdef MG_ENTERPRISE
+    // The replica has received the SystemRecoveryRpc; clear the repaired flag for the advertised tenants
+    // regardless of the result. This stops a later reconnect from needlessly resetting a tenant the replica
+    // has since re-synced. A genuinely stale replica that missed this advertisement is still corrected by
+    // the standard epoch-mismatch recovery path.
+    for (auto const &uuid : repaired_to_clear) {
+      try {
+        dbms_handler.Get(uuid)->storage()->SetRepaired(false);
+      } catch (const dbms::UnknownDatabaseException &) {
+        spdlog::debug("SystemRestore: repaired tenant {} no longer present; nothing to clear.", std::string{uuid});
+      }
+    }
+#endif
+    if (response.result == SystemRecoveryRes::Result::FAILURE) {
       client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
       return;
     }
