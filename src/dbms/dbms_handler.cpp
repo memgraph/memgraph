@@ -400,7 +400,7 @@ struct DropDatabase : memgraph::system::ISystemAction {
 struct RepairDatabaseAction : memgraph::system::ISystemAction {
   // db_acc is retained for the lifetime of the action to keep the database alive while the reset is
   // replicated asynchronously.
-  RepairDatabaseAction(utils::UUID uuid, DatabaseAccess db_acc) : uuid_{uuid}, db_acc_{std::move(db_acc)} {}
+  RepairDatabaseAction(utils::UUID uuid) : uuid_{uuid} {}
 
   void DoDurability() override { /* Done during DBMS execution */ }
 
@@ -420,7 +420,6 @@ struct RepairDatabaseAction : memgraph::system::ISystemAction {
 
  private:
   utils::UUID uuid_;
-  DatabaseAccess db_acc_;
 };
 
 struct RenameDatabase : memgraph::system::ISystemAction {
@@ -908,7 +907,7 @@ std::expected<void, std::string> DbmsHandler::RepairDatabase(DatabaseAccess db_a
 #ifdef MG_ENTERPRISE
   // Replicate the reset to the replicas so they wipe their stale tenant data and re-sync from the main.
   if (txn) {
-    txn->AddAction<RepairDatabaseAction>(mem_storage->uuid(), std::move(db_acc));
+    txn->AddAction<RepairDatabaseAction>(mem_storage->uuid());
   }
 #endif
 
