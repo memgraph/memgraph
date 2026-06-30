@@ -230,6 +230,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                                      .num_committed_txns_ = heartbeat_res.num_txns_committed_},
                         std::memory_order_release);
   spdlog::trace("Set num committed txns to {}", heartbeat_res.num_txns_committed_);
+  spdlog::trace("Current num committed tnxs on main: {}",
+                main_repl_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
 
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
