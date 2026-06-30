@@ -369,7 +369,7 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
   }
 }
 
-bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid, bool *parked) {
+bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid, bool *parked, bool *event_parked) {
   try {
     using TEncoder =
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
@@ -389,7 +389,10 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid, bool *p
     }
 #endif
     TypedValueResultStream<TEncoder> stream(&encoder_, storage, auth_checker.get());
-    return DecodeSummary(interpreter_.Pull(&stream, n, qid, parked));
+    // c3.0: thread event_parked through to interpreter_.Pull so the pull-task body can distinguish
+    // event-kind park (do NOT self-reschedule; NotifyProgress will re-enqueue) from yield-kind park
+    // (self-reschedule: return true from the resumable wrapper body).
+    return DecodeSummary(interpreter_.Pull(&stream, n, qid, parked, event_parked));
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {

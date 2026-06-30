@@ -150,6 +150,10 @@ class PullDriverScope {
                  "ExecutionContext. Only one Enabled scope may be active per context; use Suppressed "
                  "for inner pulls.");
       ctx_.enabled_driver_active = true;
+      // Reset the event-park flag so each fresh drive starts clean.  On park-resume the flag is
+      // already false (cleared by ResumePullStep on the previous drive); resetting here is a
+      // belt-and-suspenders guard against a future misuse that forgets to clear it.
+      ctx_.event_parked = false;
     }
 
     // Always wire the handle-channel to our owned slot.

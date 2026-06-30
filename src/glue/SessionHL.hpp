@@ -96,7 +96,13 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   /// Sync Pull — existing inline path.  Called by the Bolt handler directly for non-coro queries
   /// and by FinishPull internally.  The parked out-param is forwarded into Interpreter::Pull;
   /// it is set to true if the pull parked (d2+), left false (d1: parks are dormant).
-  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid, bool *parked = nullptr);
+  ///
+  /// @param event_parked  c3.0 out-param.  If non-null and the pull returns EventParked
+  ///                      (event-kind park via ProgressAwaitable), *event_parked is set true.
+  ///                      The caller (pull-task body) must NOT self-reschedule in this case;
+  ///                      NotifyProgress will re-enqueue.  When *parked is true but
+  ///                      *event_parked is false the park is yield-kind: self-reschedule applies.
+  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid, bool *parked = nullptr, bool *event_parked = nullptr);
 
   /// Returns true iff the query identified by @p qid (or the last query when nullopt) was
   /// prepared with a Coro-mode root cursor.  Forwards to Interpreter::IsCursorCoroDriven().

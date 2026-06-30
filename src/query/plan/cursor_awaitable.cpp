@@ -115,7 +115,23 @@ PullRunResult ResumePullStep(PullAwaitable::ResumeAwaitable &ra, ExecutionContex
   // unhandled_exception via final_suspend→SymmetricTransfer→parent chain).
   ra.RethrowIfException();
 
-  // A leaf that yielded wrote its handle into the slot during this resume call.
+  // ── EVENT-PARK check (c3.0) — MUST come before the Yielded slot check. ──────────────────
+  //
+  // ProgressAwaitable::await_suspend sets ctx.event_parked = true when RegisterProgressWaiter
+  // succeeds (the coro is suspended on an external progress event, NOT on a yield point).
+  // It does NOT write the slot (suspended_task_handle_ptr), so the Yielded path below would
+  // NOT fire — we need this independent check to distinguish the two park kinds.
+  //
+  // INVARIANT: only one of {event_parked, slot filled} can be true after a single resume():
+  //   • YieldPointAwaitable writes the slot and does NOT touch event_parked.
+  //   • ProgressAwaitable sets event_parked and does NOT write the slot.
+  // Checking event_parked first is safe because if it is false the slot check is unchanged.
+  if (ctx.event_parked) [[unlikely]] {
+    ctx.event_parked = false;  // consume; one-shot per suspend
+    return PullRunResult::EventParked();
+  }
+
+  // ── YIELD-KIND park — leaf wrote its handle into the slot. ───────────────────────────────
   // The void await_suspend in YieldPointAwaitable terminates the symmetric-transfer
   // chain, so target.resume() returns here (not at a co_yield/co_return).
   if (ctx.suspended_task_handle_ptr && *ctx.suspended_task_handle_ptr) {

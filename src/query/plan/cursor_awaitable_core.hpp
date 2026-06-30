@@ -64,7 +64,19 @@ struct CoroSplitPolicy {
 
 /// Result status for the scheduler/driver.
 struct PullRunResult {
-  enum class Status : uint8_t { HasRow, Done, Yielded };
+  enum class Status : uint8_t {
+    HasRow,
+    Done,
+    /// YIELD-KIND park (c-core-1/S1): a YieldPointAwaitable suspended the leaf before producing a
+    /// row.  The leaf handle is stashed in the PullDriverScope slot; the pull-task body must
+    /// self-reschedule (return true) so the wrapper re-enqueues it pinned on the same worker.
+    Yielded,
+    /// EVENT-KIND park (c3.0): a ProgressAwaitable::await_suspend registered a progress waiter
+    /// and set ctx.event_parked.  The coroutine is suspended; no handle is in the slot; the
+    /// pull-task body must NOT self-reschedule — NotifyProgress will re-enqueue it when the last
+    /// branch finishes.  Distinct from Yielded so the session layer can react differently.
+    EventParked,
+  };
   Status status{Status::Done};
 
   [[nodiscard]] static PullRunResult Row() noexcept { return {Status::HasRow}; }
@@ -72,6 +84,9 @@ struct PullRunResult {
   [[nodiscard]] static PullRunResult Done() noexcept { return {Status::Done}; }
 
   [[nodiscard]] static PullRunResult Yielded() noexcept { return {Status::Yielded}; }
+
+  /// c3.0: returned by ResumePullStep when ctx.event_parked was set by ProgressAwaitable.
+  [[nodiscard]] static PullRunResult EventParked() noexcept { return {Status::EventParked}; }
 };
 
 /// Base promise layout shared by all pull coroutines.

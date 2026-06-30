@@ -193,6 +193,19 @@ struct ExecutionContext {
   /// runs on the same worker. Suppressed scopes do not touch it.
   bool enabled_driver_active{false};
 
+  /// EVENT-PARK flag (c3.0). Set to true by ProgressAwaitable::await_suspend when it successfully
+  /// registers a progress waiter and suspends (i.e. RegisterProgressWaiter returned true). Read and
+  /// cleared by ResumePullStep immediately after target.resume() returns, BEFORE the existing Yielded
+  /// slot check. Maps to PullRunResult::EventParked in the driver, which propagates up as
+  /// PullOutcome::EventParked — distinct from the yield-kind PullOutcome::Parked.
+  ///
+  /// INVARIANT: only written by ProgressAwaitable::await_suspend (deep in the coro); only read/cleared
+  /// by ResumePullStep (the sole driver). No cross-thread race: both sides run on the same worker while
+  /// the coroutine is suspended.
+  ///
+  /// Reset to false by PullDriverScope(Enabled) at scope construction so each drive starts clean.
+  bool event_parked{false};
+
   auto commit_args() -> storage::CommitArgs;
 };
 

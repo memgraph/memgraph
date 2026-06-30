@@ -424,10 +424,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                         // Use std::optional to hold the summary without a default constructor
                         // dependency on the concrete bolt map type (template-safe).
                         bool parked = false;
+                        // c3.0: event_parked distinguishes event-kind park (do NOT self-reschedule;
+                        // NotifyProgress will re-enqueue) from yield-kind park (self-reschedule).
+                        bool event_parked = false;
                         std::optional<decltype(shared_this->session_.Pull(pend.n, pend.qid))> maybe_summary;
                         try {
                           if (pend.is_pull) {
-                            maybe_summary = shared_this->session_.Pull(pend.n, pend.qid, &parked);
+                            maybe_summary = shared_this->session_.Pull(pend.n, pend.qid, &parked, &event_parked);
                           } else {
                             // DISCARD is never coro-driven, but wire for symmetry.
                             maybe_summary = shared_this->session_.Discard(pend.n, pend.qid);
@@ -447,10 +450,26 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                         }
 
                         if (parked) {
+                          if (event_parked) {
+                            // c3.0 EVENT-KIND park: ProgressAwaitable suspended on an external
+                            // progress event. The continuation is already registered with
+                            // CollectionScheduler/NotifyProgress which will re-enqueue this task
+                            // (pinned) when the last branch finishes.  We must NOT self-reschedule
+                            // (return true) — that would race with NotifyProgress and potentially
+                            // double-enqueue.
+                            //
+                            // Returning false signals the ResumableWrapper that the task is done for
+                            // this invocation.  The wrapper's WasParked() check (set by
+                            // RegisterProgressWaiter → SetParked) suppresses the normal "finished,
+                            // re-arm decode loop" path.  NotifyProgress calls RescheduleTaskOnWorker
+                            // to re-enqueue pinned on the same worker; that next invocation hits
+                            // this body again (fresh entry, parked/event_parked cleared to false).
+                            return false;  // no self-reschedule; NotifyProgress re-enqueues
+                          }
                           // d1: parks are DORMANT — nothing sets yield_requested, so this branch
                           // never fires.  Wire it anyway for d2 (park return → wrapper reschedules
                           // pinned on same worker; continuation re-enters this body on resume).
-                          return true;  // yielded; resumable wrapper re-queues pinned
+                          return true;  // yield-kind: resumable wrapper re-queues pinned
                         }
 
                         // Pull completed (BatchContinues or Finished).  Send the summary and

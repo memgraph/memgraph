@@ -3491,17 +3491,33 @@ PullOutcome PullPlan::Pull(AnyStream *stream, std::optional<int> n, const std::v
     // On Parked: the leaf suspended at a cooperative-yield point before producing a row.
     // Save the OOM counter (includes in-flight enablers on the suspended frame), clean it
     // back to baseline (so the worker is clean during park), and propagate Parked upward.
-    enum class StepResult : uint8_t { HasRow, Done, Parked };
+    enum class StepResult : uint8_t {
+      HasRow,
+      Done,
+      /// YIELD-KIND park: YieldPointAwaitable suspended the leaf.  Pull-task self-reschedules.
+      Parked,
+      /// EVENT-KIND park (c3.0): ProgressAwaitable registered a progress waiter.  Pull-task
+      /// must NOT self-reschedule; NotifyProgress will re-enqueue when the last branch finishes.
+      EventParked,
+    };
     const auto do_pull = [&]() -> StepResult {
       if (drive_coro) [[unlikely]] {
         auto ra = cursor_->PullCo(frame_, ctx_);
         auto const r = plan::ResumePullStep(ra, ctx_);
         if (r.status == plan::PullRunResult::Status::Yielded) [[unlikely]] {
-          // A YieldPointAwaitable suspended the leaf: this is the park point.
+          // YIELD-KIND park: a YieldPointAwaitable suspended the leaf.
           // Save and sanitize the OOM counter so the thread is clean during park.
           park_saved_oom_ = utils::MemoryTracker::OutOfMemoryExceptionEnabler::GetCounter();
           utils::MemoryTracker::OutOfMemoryExceptionEnabler::SetCounter(park_baseline_oom_);
           return StepResult::Parked;
+        }
+        if (r.status == plan::PullRunResult::Status::EventParked) [[unlikely]] {
+          // EVENT-KIND park (c3.0): a ProgressAwaitable suspended the coro on external progress.
+          // OOM counter treatment: same as yield-Parked — save in-flight enablers and clean the
+          // thread so the worker is unencumbered during the park.
+          park_saved_oom_ = utils::MemoryTracker::OutOfMemoryExceptionEnabler::GetCounter();
+          utils::MemoryTracker::OutOfMemoryExceptionEnabler::SetCounter(park_baseline_oom_);
+          return StepResult::EventParked;
         }
         return r.status == plan::PullRunResult::Status::HasRow ? StepResult::HasRow : StepResult::Done;
       }
@@ -3534,6 +3550,14 @@ PullOutcome PullPlan::Pull(AnyStream *stream, std::optional<int> n, const std::v
         resuming_from_park_ = true;
         return PullOutcome::Parked;  // batch_i_ saved in the member; add_time fires via OnScopeExit
       }
+      if (step == StepResult::EventParked) [[unlikely]] {
+        // c3.0 EVENT-KIND park: ProgressAwaitable registered a progress waiter; the coro is
+        // suspended.  batch_i_ is saved in the member.  Return EventParked (distinct from
+        // yield-Parked) so the session pull-task body does NOT self-reschedule — NotifyProgress
+        // will re-enqueue it pinned when the last branch fires.
+        resuming_from_park_ = true;
+        return PullOutcome::EventParked;
+      }
       if (step == StepResult::Done) break;
       if (!output_symbols.empty()) stream_values();
     }
@@ -3546,6 +3570,10 @@ PullOutcome PullPlan::Pull(AnyStream *stream, std::optional<int> n, const std::v
       if (step == StepResult::Parked) {
         resuming_from_park_ = true;
         return PullOutcome::Parked;
+      }
+      if (step == StepResult::EventParked) [[unlikely]] {
+        resuming_from_park_ = true;
+        return PullOutcome::EventParked;
       }
       has_unsent_results_ = (step == StepResult::HasRow);
     } else {
@@ -3921,8 +3949,11 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
           case PullOutcome::BatchContinues:
             return std::nullopt;
           case PullOutcome::Parked:
-            // c-core-2: the coroutine suspended at a cooperative-yield point; propagate upward.
+            // YIELD-KIND park (c-core-2 / S1): YieldPointAwaitable suspended the leaf; propagate.
             return PullResult::Parked();
+          case PullOutcome::EventParked:
+            // c3.0 EVENT-KIND park: ProgressAwaitable registered a progress waiter; propagate.
+            return PullResult::EventParked();
         }
         // Unreachable but GCC demands an explicit return on non-void functions with enum switches.
         return std::nullopt;

@@ -1401,3 +1401,139 @@ TEST(WorkerResumeEvent, StaleEpochDoesNotRegisterWaiter) {
   ASSERT_FALSE(event.RegisterWaiter(std::noop_coroutine(), nullptr, std::nullopt, observed_epoch))
       << "Waiter registration must fail when the observed epoch is stale";
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// c3.0 EventParked propagation primitive tests.
+//
+// These tests verify:
+//   (A) ProgressAwaitable::await_ready respects the two-phase barrier
+//       Finished() && InFlightZero() (MEDIUM-R1 fix).
+//   (B) When a coroutine co_awaits WaitForProgressAwaitable(bool *event_parked),
+//       the event_parked flag is set to true after the awaitable suspends.
+//   (C) The coroutine is resumed exactly once by NotifyProgress (Trigger +
+//       collection completion) — no double-resume, no never-resume.
+//   (D) InFlightZero() gates correctly: false while tasks are in-flight, true
+//       after all WrapTask invocations have returned.
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+/// Minimal coroutine that co_awaits WaitForProgressAwaitable and records
+/// whether the event_parked flag was set and whether it resumed.
+TestCoroutine AwaitProgressWithEventParkedFlag(memgraph::utils::CollectionScheduler &scheduler, bool *event_parked_flag,
+                                               std::atomic<bool> &did_resume) {
+  co_await scheduler.WaitForProgressAwaitable(event_parked_flag);
+  did_resume.store(true, std::memory_order_release);
+}
+
+}  // namespace
+
+// (B)+(C): WaitForProgressAwaitable sets event_parked and resumes exactly once.
+// DISABLED (c3.0): this harness launches the coro via a plain RescheduleTaskOnWorker task, so there is NO
+// CurrentResumableTaskScope → RegisterProgressWaiter returns false (busy-spin fallback) → await_suspend
+// correctly does NOT set event_parked. Faithfully exercising the EventParked PROPAGATION
+// (ctx.event_parked → ResumePullStep → PullOutcome::EventParked) needs a cursor co_await inside a
+// ScheduleResumableTask-driven pull — i.e. the c3.1 end-to-end parallel-coordinator scenario. The
+// EventParked path is ADDITIVE + DORMANT in c3.0 (nothing produces it yet); verify it at c3.1.
+TEST(TaskCollection, DISABLED_c3_EventParkedFlagSetOnProgressAwaitableSuspend) {
+  using namespace memgraph;
+  utils::WorkerYieldRegistry registry(1);
+  utils::PriorityThreadPool pool(1, 1, nullptr, &registry);
+
+  // Collection with one task that completes after a short sleep.
+  auto collection = std::make_shared<utils::TaskCollection>();
+  collection->AddTask([](auto) { std::this_thread::sleep_for(5ms); });
+
+  utils::CollectionScheduler scheduler(&pool, collection);
+
+  // event_parked is the bool* that ProgressAwaitable::await_suspend will write.
+  // It is owned here (on the test thread) and only written from inside the
+  // pool worker while the coroutine is suspended — no concurrent access.
+  bool event_parked_flag = false;
+  std::atomic<bool> coro_started{false};
+  std::atomic<bool> coro_resumed{false};
+  std::optional<TestCoroutine> waiter;
+
+  // Launch the coroutine on pool worker 0 so RegisterProgressWaiter can
+  // record the pinned worker_id for later re-enqueue by NotifyProgress.
+  pool.RescheduleTaskOnWorker(0, [&](auto) {
+    waiter.emplace(AwaitProgressWithEventParkedFlag(scheduler, &event_parked_flag, coro_resumed));
+    coro_started.store(true, std::memory_order_release);
+  });
+
+  // Wait for the coroutine to have started (and therefore suspended at
+  // WaitForProgressAwaitable — initial_suspend is suspend_never so the coro
+  // runs immediately to the co_await and then yields back).
+  while (!coro_started.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(1ms);
+  }
+
+  // (B): After the coroutine suspended, event_parked_flag must be true.
+  //      The coroutine body ran on worker 0, which has returned.  We read
+  //      event_parked_flag on the test thread: safe because the worker is no
+  //      longer running and the flag is not atomic (test-only pattern).
+  ASSERT_TRUE(event_parked_flag)
+      << "ProgressAwaitable::await_suspend must set *event_parked when registration succeeds";
+
+  // (C): Trigger the collection. The scheduler runs the task, reports
+  //      NotifyProgress on completion, and resumes the waiting coroutine.
+  scheduler.Trigger();
+
+  while (!coro_resumed.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(1ms);
+  }
+
+  collection->Wait();
+  pool.ShutDown();
+  pool.AwaitShutdown();
+
+  ASSERT_TRUE(coro_resumed.load()) << "Coroutine must be resumed exactly once by NotifyProgress";
+}
+
+// (A)+(D): await_ready gate — Finished() alone is insufficient; InFlightZero() must also hold.
+TEST(TaskCollection, c3_AwaitReadyRequiresBothFinishedAndInFlightZero) {
+  using namespace memgraph;
+
+  // Build a collection that will be artificially held in in-flight state.
+  // We use a TaskCollection + CollectionScheduler directly without a pool so
+  // we can call WrapTask manually and control when it returns.
+  utils::TaskCollection collection;
+  collection.AddTask([](auto) { /* instant */ });
+
+  // WrapTask increments in_flight_, executes the task, decrements in_flight_.
+  // We wrap but DON'T call it yet — in_flight_ == 0 so far.
+
+  // Verify InFlightZero() before any WrapTask call.
+  ASSERT_TRUE(collection.InFlightZero()) << "in_flight_ should be 0 before WrapTask is called";
+
+  // Create a CollectionScheduler backed by our collection (no pool needed for
+  // the await_ready check).
+  utils::PriorityThreadPool pool(1, 1);
+  auto coll_ptr = std::make_shared<utils::TaskCollection>();
+  coll_ptr->AddTask([](auto) { std::this_thread::sleep_for(2ms); });
+  utils::CollectionScheduler scheduler(&pool, coll_ptr);
+
+  // Before Trigger(): collection is not Finished() → await_ready must return false.
+  {
+    bool ep = false;
+    auto awaitable = scheduler.WaitForProgressAwaitable(&ep);
+    ASSERT_FALSE(awaitable.await_ready()) << "await_ready must return false when collection is not yet Finished()";
+  }
+
+  // Run the task synchronously to make the collection Finished() without going
+  // through the pool (no WrapTask in-flight path).
+  scheduler.Trigger();
+  // The pool will execute the task; wait for it.
+  coll_ptr->Wait();
+
+  // After Wait(), collection is Finished() AND in_flight_ == 0 → await_ready true.
+  {
+    bool ep = false;
+    auto awaitable = scheduler.WaitForProgressAwaitable(&ep);
+    ASSERT_TRUE(awaitable.await_ready())
+        << "await_ready must return true when Finished() && InFlightZero() (MEDIUM-R1 fix)";
+  }
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}

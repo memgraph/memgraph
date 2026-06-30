@@ -123,10 +123,24 @@ inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
-/// Tri-state outcome of a single `query_handler` invocation.
-/// c-core-1: `Parked` is present but NEVER produced in this stage (drive unchanged).
-/// c-core-2 will wire the drive to emit `Parked` on a cooperative-yield stash.
-enum class PullOutcome : uint8_t { Finished, BatchContinues, Parked };
+/// Outcome of a single `query_handler` invocation.
+/// c-core-1: `Parked` is present but was NEVER produced in that stage (drive unchanged).
+/// c-core-2 (S1) wires the yield-kind Parked.
+/// c3.0 adds EventParked for the event-kind park (ProgressAwaitable).
+enum class PullOutcome : uint8_t {
+  Finished,
+  BatchContinues,
+  /// YIELD-KIND park: a YieldPointAwaitable suspended the leaf coroutine.  The pull-task
+  /// body must self-reschedule (return true from the WrapTask closure) so the resumable
+  /// wrapper re-enqueues it pinned on the same worker.
+  Parked,
+  /// EVENT-KIND park (c3.0): a ProgressAwaitable suspended the coroutine on an external
+  /// progress event (CollectionScheduler / parallel branches).  The continuation was already
+  /// registered with NotifyProgress; the pull-task body must NOT self-reschedule — returning
+  /// false from the WrapTask closure lets the wrapper see WasParked()=true and exit cleanly;
+  /// NotifyProgress will re-enqueue the task when the last branch finishes.
+  EventParked,
+};
 
 /// Return type for `PreparedQuery::query_handler`.
 /// Implicit constructors keep every existing `PullPlanVector` handler UNEDITED:
@@ -147,6 +161,9 @@ struct PullResult {
   PullResult(PullOutcome o, std::optional<QueryHandlerResult> r) : outcome(o), result(std::move(r)) {}
 
   static PullResult Parked() { return {PullOutcome::Parked, std::nullopt}; }
+
+  /// c3.0: produced when ProgressAwaitable registered a progress waiter (event-kind park).
+  static PullResult EventParked() { return {PullOutcome::EventParked, std::nullopt}; }
 };
 
 #ifdef MG_ENTERPRISE
@@ -451,12 +468,17 @@ class Interpreter final {
    * @throw query::QueryException
    */
   /// Pull results from the current query.
-  /// @param parked  If non-null and the query handler returns `PullOutcome::Parked`, sets `*parked = true` and
-  ///                returns an empty map. The caller must re-invoke Pull() to resume. This output parameter is
-  ///                unused in c-core-1 (Parked is never produced yet); it is the extension point for c-core-2.
+  /// @param parked        If non-null and the query handler returns PullOutcome::Parked OR
+  ///                      PullOutcome::EventParked, sets *parked = true and returns an empty map.
+  ///                      The caller must re-invoke Pull() to resume.  Unused in c-core-1.
+  /// @param event_parked  c3.0 out-param.  If non-null and the query handler returns
+  ///                      PullOutcome::EventParked (event-kind park via ProgressAwaitable), sets
+  ///                      *event_parked = true in ADDITION to *parked = true.  The session pull-task
+  ///                      body uses this to distinguish: event-park → return false (no self-reschedule,
+  ///                      NotifyProgress will re-enqueue); yield-park → return true (self-reschedule).
   template <typename TStream>
   std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {}, std::optional<int> qid = {},
-                                         bool *parked = nullptr);
+                                         bool *parked = nullptr, bool *event_parked = nullptr);
 
   /// Returns true iff the query identified by @p qid was prepared with a Coro-mode root cursor
   /// (i.e. PreparedQuery::is_coro_driven is true).  Used by the Bolt session dispatch layer (d1b)
@@ -681,7 +703,7 @@ class Interpreter final {
 
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
-                                                    std::optional<int> qid, bool *parked) {
+                                                    std::optional<int> qid, bool *parked, bool *event_parked) {
   // Update the TLS arena index used to route allocations to the correct database arena.
   // The previous arena is restored on scope exit so pool threads are unaffected.
   std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;
@@ -729,10 +751,25 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
 
     switch (maybe_res.outcome) {
       case PullOutcome::Parked: {
-        // c-core-1: Parked is NEVER produced yet (drive unchanged; this branch is unreachable).
-        // c-core-2 wires the real park: caller re-enters to resume the suspended coroutine.
+        // YIELD-KIND park (c-core-2 / S1): a YieldPointAwaitable suspended the leaf.
         // Write NOTHING — no commit, no reset, execution context stays live.
+        // The pull-task body must self-reschedule (return true) so the wrapper re-enqueues
+        // it pinned on the same worker; the scheduler will re-invoke Pull() to resume.
         if (parked) *parked = true;
+        return {};
+      }
+      case PullOutcome::EventParked: {
+        // c3.0 EVENT-KIND park (ProgressAwaitable registered a progress waiter).
+        // The continuation is already registered with CollectionScheduler/NotifyProgress;
+        // the pull-task body must NOT self-reschedule — NotifyProgress will re-enqueue it.
+        // Write NOTHING — no commit, no reset, execution context stays live.
+        //
+        // Signal via BOTH out-params so the session pull-task body can distinguish:
+        //   *parked = true  →  something parked (return empty map; don't try to send a summary)
+        //   *event_parked = true  →  it was event-kind; pull-task returns false (no self-reschedule)
+        // When only *parked is true the pull-task returns true (yield-kind self-reschedule).
+        if (parked) *parked = true;
+        if (event_parked) *event_parked = true;
         return {};
       }
       case PullOutcome::BatchContinues:

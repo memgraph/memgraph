@@ -181,6 +181,14 @@ class TaskCollection : public std::enable_shared_from_this<TaskCollection> {
 
   bool Finished() const;
 
+  /// True when no WrapTask invocation is currently executing on this collection.
+  /// Used by CollectionScheduler::InFlightZero() → ProgressAwaitable::await_ready as a
+  /// two-phase barrier (MEDIUM-R1): a coordinator must not resume until every branch
+  /// worker has left WrapTask, because a worker still inside WrapTask can access
+  /// progress_cv_ (via NotifyProgress) after the coordinator resumes and destroys
+  /// the collection → UAF.
+  bool InFlightZero() const noexcept { return in_flight_.load(std::memory_order_acquire) == 0; }
+
   /// Returns true only when ALL tasks are in FINISHED state.
   /// This is the proper join predicate - no task can run later.
   bool AllTerminal() const;
@@ -405,10 +413,27 @@ class CollectionScheduler {
  public:
   class ProgressAwaitable {
    public:
-    explicit ProgressAwaitable(CollectionScheduler *scheduler)
-        : scheduler_(scheduler), observed_epoch_(scheduler ? scheduler->ProgressEpoch() : 0) {}
+    /// @param scheduler    The collection scheduler to wait on (may be nullptr → busy-spin no-op).
+    /// @param event_parked Non-owning pointer to ExecutionContext::event_parked. When
+    ///                     RegisterProgressWaiter succeeds (the coro truly suspends), this flag is
+    ///                     set to true so ResumePullStep can detect the event-park path without
+    ///                     relying on the slot-based Yielded mechanism (which requires a stored
+    ///                     coroutine handle that ProgressAwaitable does NOT provide). May be nullptr
+    ///                     when called outside the coroutine drive context (e.g. WaitOrSteal paths).
+    explicit ProgressAwaitable(CollectionScheduler *scheduler, bool *event_parked = nullptr)
+        : scheduler_(scheduler),
+          event_parked_(event_parked),
+          observed_epoch_(scheduler ? scheduler->ProgressEpoch() : 0) {}
 
-    bool await_ready() const { return !scheduler_ || scheduler_->Finished(); }
+    /// MEDIUM-R1 fix: guard on both Finished() AND InFlightZero().
+    ///
+    /// Checking Finished() alone is insufficient: a branch worker that stored the last
+    /// FINISHED state (releasing Wait()) is still physically inside WrapTask and can touch
+    /// progress_cv_ inside NotifyProgress().  If the coordinator resumes here and destroys
+    /// the TaskCollection, the worker's NotifyProgress() writes into freed memory (UAF).
+    /// By also checking in_flight_ == 0 we ensure every WrapTask invocation has exited before
+    /// the coordinator is allowed to proceed.
+    bool await_ready() const { return !scheduler_ || (scheduler_->Finished() && scheduler_->InFlightZero()); }
 
     bool await_suspend(std::coroutine_handle<> /*handle*/) const {
       // Real wait: register the WrapTask re-entry closure (captured from TLS) as the
@@ -420,13 +445,22 @@ class CollectionScheduler {
       //   - collection already Finished()
       // In all those cases await_ready() will re-check on the next busy-spin iteration.
       if (!scheduler_) return false;
-      return scheduler_->RegisterProgressWaiter(observed_epoch_);
+      const bool registered = scheduler_->RegisterProgressWaiter(observed_epoch_);
+      // c3.0 event-park propagation: if we successfully registered (RegisterProgressWaiter
+      // calls SetParked internally → WrapTask will NOT reschedule), signal the driver via
+      // the ctx.event_parked flag so ResumePullStep knows the coro suspended on an external
+      // event (not a yield-point) and emits PullRunResult::EventParked instead of Yielded.
+      if (registered && event_parked_) {
+        *event_parked_ = true;
+      }
+      return registered;
     }
 
     void await_resume() const {}
 
    private:
     CollectionScheduler *scheduler_{nullptr};
+    bool *event_parked_{nullptr};  // non-owning; points into ExecutionContext::event_parked
     uint64_t observed_epoch_{0};
   };
 
@@ -455,10 +489,24 @@ class CollectionScheduler {
     return collection_ && collection_->WaitForProgress(timeout);
   }
 
-  auto WaitForProgressAwaitable() { return ProgressAwaitable(this); }
+  /// Returns a ProgressAwaitable for co_await use inside a coroutine cursor.
+  /// @param event_parked  Pointer to ExecutionContext::event_parked (c3.0).  When
+  ///                      non-null and registration succeeds, the awaitable sets this
+  ///                      flag so ResumePullStep can emit PullRunResult::EventParked
+  ///                      without relying on the slot-based Yielded mechanism.
+  ///                      Pass nullptr when used outside the coro-driver path.
+  auto WaitForProgressAwaitable(bool *event_parked = nullptr) { return ProgressAwaitable(this, event_parked); }
 
   bool Finished() const {
     if (collection_) return collection_->Finished();
+    return true;
+  }
+
+  /// True when no WrapTask invocation is currently executing on this collection (c3.0 MEDIUM-R1).
+  /// Exposed by CollectionScheduler so ProgressAwaitable::await_ready can apply the two-phase
+  /// barrier (Finished() && InFlightZero()) without a direct dependency on TaskCollection.
+  bool InFlightZero() const noexcept {
+    if (collection_) return collection_->InFlightZero();
     return true;
   }
 
