@@ -14321,27 +14321,24 @@ class ParallelMergeCursor : public Cursor {
  * Derived classes should override MergeResults() to implement domain-specific merging logic.
  */
 // ─────────────────────────────────────────────────────────────────────────────
-// COROUTINE-CURSOR SEAM — enterprise PARALLEL cursors (coroutine cursors v2 / PR-14).
+// COROUTINE-CURSOR SEAM — enterprise PARALLEL cursors (coroutine cursors v2).
 //
-// The parallel cursors (ScanParallel, DistinctParallel, ParallelMerge, ParallelBranch and its derived
-// AggregateParallel/OrderByParallel) intentionally do NOT use MG_COROUTINE_CURSOR_PULLCO and have NO
-// DoPull/gen_ coroutine body. They ride the base Cursor::PullCo() default == Immediate(Pull()) ("approach
-// A"): a Coro parent pulling one via PullChild gets a frame-less Immediate wrap of the synchronous Pull()
-// — re-entrant, no shared coroutine frame. This is REQUIRED, not a shortcut:
-//   • ScanParallel/DistinctParallel are SHARED producers pulled CONCURRENTLY by every branch worker (via
-//     plan_creation_helper_ / shared_state_). A persistent gen_ frame cannot be Resumed concurrently
-//     without corrupting coroutine state; Immediate(Pull()) has no shared frame and Pull() is
-//     mutex/shared-state guarded.
-//   • The coordinators (ParallelBranch / Aggregate / OrderByParallel) drive their branch sub-cursors via
-//     plain synchronous cursor->Pull() (branch-0 inline + the worker branches) and block on
-//     collection_scheduler_->WaitOrSteal(). There is NO PullCo/co_await anywhere in the parallel region,
-//     so nothing here yields and no per-branch yield-suppression is needed (the p3 stack drove branches
-//     via PullCo and DID need it; v2 does not).
-// They also never call SelectCoroMode, so they stay CursorMode::Sync regardless of the
-// --query-coroutine-yield-ops knob; even under "All" the parallel region runs fully synchronously while
-// any Coro-mode branch sub-cursors are still driven by their (mode-agnostic) Pull(). DO NOT add
-// MG_COROUTINE_CURSOR_PULLCO to these cursors. The self-park coordinator model (cooperative yield for
-// throughput) is the deferred "approach B" follow-up.
+// ScanParallel, DistinctParallel, ParallelMerge intentionally do NOT use MG_COROUTINE_CURSOR_PULLCO
+// and have NO DoPull/gen_ coroutine body. They ride the base Cursor::PullCo() default ==
+// Immediate(Pull()) ("approach A"): a Coro parent pulling one via PullChild gets a frame-less
+// Immediate wrap of the synchronous Pull() — re-entrant, no shared coroutine frame. This is REQUIRED:
+//   • ScanParallel/DistinctParallel are SHARED producers pulled CONCURRENTLY by every branch worker
+//     (via plan_creation_helper_ / shared_state_). A persistent gen_ frame cannot be Resumed
+//     concurrently without corrupting coroutine state; Immediate(Pull()) has no shared frame and
+//     Pull() is mutex/shared-state guarded.
+//   • ParallelMergeCursor drives ScanParallel via a shared_ptr<Cursor>; same constraint applies.
+// DO NOT add MG_COROUTINE_CURSOR_PULLCO to ScanParallel / DistinctParallel / ParallelMerge.
+//
+// AggregateParallelCursor and OrderByParallelCursor ARE coroutine coordinators (approach B /
+// self-park model): they drive branch sub-cursors via the ParallelExecState split helpers, then
+// park on co_await WaitForProgressAwaitable instead of blocking in WaitOrSteal. Branch sub-cursors
+// themselves remain synchronous (Pull()). The coordinator's DoPull carries the coro frame with
+// branch_aggregations / st / etc. alive across the park.
 // ─────────────────────────────────────────────────────────────────────────────
 class ParallelBranchCursor : public Cursor {
  public:
@@ -14369,18 +14366,36 @@ class ParallelBranchCursor : public Cursor {
     for (const auto &cursor : branch_cursors_) cursor->Reset();
   }
 
+ public:
+  /// State for one parallel-branch execution round.
+  /// Lives either on the stack (sync path) or in the coroutine frame (coro path) so that
+  /// branch task closures can capture it by reference across a co_await park.
+  /// NOTE: std::atomic_int is non-copyable/non-movable — always pass ParallelExecState by reference.
+  struct ParallelExecState {
+    std::atomic_int pull_result{0};
+    std::vector<std::exception_ptr> exceptions;
+    std::vector<ExecutionContext> branch_contexts;
+    std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors;
+    std::vector<std::optional<FrameChangeCollector>> branch_frame_collectors;
+  };
+
  protected:
   /**
-   * Execute all branches in parallel and unify context fields.
-   * The first branch (index 0) runs on the main thread, others run in parallel tasks.
+   * Build and enqueue branch tasks 1..N into collection_scheduler_, then run branch 0 inline.
    *
-   * @param frame Frame for the main branch (branch 0)
-   * @param context Execution context (will be modified to unify branch results)
-   * @param self Reference to the operator for profiling
-   * @return true if any branch returned true from Pull(), false otherwise
+   * All mutable state that branch task closures touch lives in `st` (passed by reference) so it
+   * outlives any co_await park that follows this call in the coroutine path.
+   *
+   * @param schedule_on_pool  When true, calls collection_scheduler_->Trigger() immediately after
+   *                          SetCollection/SetPool so branch tasks are dispatched to the pool and the
+   *                          caller can co_await WaitForProgressAwaitable instead of WaitOrSteal.
+   *                          When false (sync path) Trigger() is suppressed; WaitOrSteal steals idle
+   *                          tasks inline, preserving byte-identical behaviour with the old code.
+   * @return false on the empty-branch early-out; true after branch-0 inline completes.
    */
-  bool ExecuteBranchesInParallel(Frame &frame, ExecutionContext &context, const LogicalOperator &self, auto &&profile,
-                                 auto &&pre_pull_func, auto &&post_pull_func) {
+  bool ScheduleBranchesAndRunMain(ParallelExecState &st, Frame &frame, ExecutionContext &context,
+                                  const LogicalOperator &self, auto &&profile, auto &&pre_pull_func,
+                                  auto &&post_pull_func, bool schedule_on_pool) {
     if (branch_cursors_.empty()) {
       return false;
     }
@@ -14392,17 +14407,18 @@ class ParallelBranchCursor : public Cursor {
 
     AbortCheck(context);
 
-    std::atomic_int pull_result = 0;
     const auto num_branches = branch_cursors_.size();
     const auto num_branches_without_main = num_branches - 1;
 
     utils::TaskCollection tasks(num_branches);
-    std::vector<std::exception_ptr> exceptions(num_branches, nullptr);
-    // Store context copies from each branch for unification after execution
-    std::vector<ExecutionContext> branch_contexts(num_branches_without_main);
-    // Store collector copies for each branch (they're not thread-safe, so each branch needs its own)
-    std::vector<std::optional<TriggerContextCollector>> branch_trigger_collectors(num_branches_without_main);
-    std::vector<std::optional<FrameChangeCollector>> branch_frame_collectors(num_branches_without_main);
+    // Size vectors in st exactly as the original code did. Use the sized vector constructor +
+    // move-assign (a pointer swap) rather than resize()/assign(): TriggerContextCollector and
+    // FrameChangeCollector are non-movable, so resize()'s reallocation path won't instantiate, but
+    // the sized constructor value-initializes the optionals in place (no element move/copy required).
+    st.exceptions = std::vector<std::exception_ptr>(num_branches, nullptr);
+    st.branch_contexts = std::vector<ExecutionContext>(num_branches_without_main);
+    st.branch_trigger_collectors = std::vector<std::optional<TriggerContextCollector>>(num_branches_without_main);
+    st.branch_frame_collectors = std::vector<std::optional<FrameChangeCollector>>(num_branches_without_main);
 
     // Execute branches 1..N in parallel
     for (size_t i = 1; i < num_branches; i++) {
@@ -14429,7 +14445,7 @@ class ParallelBranchCursor : public Cursor {
         const auto metadata_i = i - 1;
         if (context.frame_change_collector != nullptr) {
           auto &collector =
-              branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
+              st.branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
           // Copy the cache structure (keys and invalidators) from the main collector so that
           // cache invalidation works correctly when frame values change in this branch.
           collector.CopyStructureFrom(*context.frame_change_collector);
@@ -14438,7 +14454,7 @@ class ParallelBranchCursor : public Cursor {
         if (context.trigger_context_collector != nullptr) {
           // Create an empty collector with same config for this branch (don't copy existing data)
           // Main branch retains its own data, this branch will only receive new changes.
-          auto &collector = branch_trigger_collectors[metadata_i].emplace(
+          auto &collector = st.branch_trigger_collectors[metadata_i].emplace(
               context.trigger_context_collector->CreateEmptyWithSameConfig());
           context.trigger_context_collector = &collector;
         }
@@ -14466,19 +14482,19 @@ class ParallelBranchCursor : public Cursor {
           // NOTE: hops limit is shared between threads, so we need to free the leftover quota
           context.hops_limit.Free();
           // Move current context to the branch context for unification
-          branch_contexts[metadata_i] = std::move(context);
+          st.branch_contexts[metadata_i] = std::move(context);
         });
 
         try {
           pre_pull_func(cursor.get());
-          pull_result.fetch_add((int)cursor->Pull(frame_local, context));
+          st.pull_result.fetch_add((int)cursor->Pull(frame_local, context));
           post_pull_func(cursor.get(), &frame_local);
         } catch (const std::exception &e) {
           // Stop all other threads
           DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
           if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
             // Set exception occurred flag and pass exception to the main thread
-            exceptions[i] = std::current_exception();
+            st.exceptions[i] = std::current_exception();
           }
           return;
         }
@@ -14494,6 +14510,13 @@ class ParallelBranchCursor : public Cursor {
     collection_scheduler_->SetCollection(std::make_shared<utils::TaskCollection>(std::move(tasks)));
     collection_scheduler_->SetPool(context.worker_pool);
 
+    // Coro path: dispatch tasks to the pool NOW so the coordinator can park (co_await
+    // WaitForProgressAwaitable) instead of blocking in WaitOrSteal.  Sync path skips this;
+    // WaitOrSteal will steal idle tasks inline.
+    if (schedule_on_pool) {
+      collection_scheduler_->Trigger();
+    }
+
     // TODO Reuse the same logic as each thread
     // Execute branch 0 on the main thread
     // Set plan quotas for the hops limit (this is needed for parallel execution to avoid deadlock in case multiple
@@ -14504,7 +14527,7 @@ class ParallelBranchCursor : public Cursor {
     const auto &cursor = branch_cursors_[0];
     try {
       pre_pull_func(cursor.get());
-      pull_result.fetch_add((int)cursor->Pull(frame, context));
+      st.pull_result.fetch_add((int)cursor->Pull(frame, context));
       // NOTE: hops limit is shared between threads, so we need to free the leftover quota
       context.hops_limit.Free();
       post_pull_func(cursor.get(), &frame);
@@ -14512,30 +14535,70 @@ class ParallelBranchCursor : public Cursor {
       DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
       if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
         // Exception occurred on the main thread, set flag and pass exception to the main thread
-        exceptions[0] = std::current_exception();
+        st.exceptions[0] = std::current_exception();
       }
     }
 
-    collection_scheduler_->WaitOrSteal();
+    return true;
+  }
 
+  /**
+   * Wait for all branch tasks to finish (sync path: steals idle tasks), then validate results and
+   * unify context fields.  Call only after ScheduleBranchesAndRunMain (sync path) or after
+   * co_await WaitForProgressAwaitable (coro path).
+   *
+   * @return false if no branch produced a row; true after UnifyContexts.
+   */
+  bool FinalizeBranches(ParallelExecState &st, ExecutionContext &context, auto &&profile) {
     // Check for exceptions
     if (const auto exception_it = std::find_if(
-            exceptions.begin(), exceptions.end(), [](const std::exception_ptr &e) { return e != nullptr; });
-        exception_it != exceptions.end()) {
+            st.exceptions.begin(), st.exceptions.end(), [](const std::exception_ptr &e) { return e != nullptr; });
+        exception_it != st.exceptions.end()) {
       // Just rethrow the first exception
       std::rethrow_exception(*exception_it);
     }
 
     // Nothing to pull, return
-    if (pull_result.load() == 0) return false;
+    if (st.pull_result.load() == 0) return false;
 
     // Unify context fields from all branches
     plan::ProfilingStats *parallel_stats = context.stats_root;  // save before resetting the profile
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
     const_cast<std::optional<ScopedProfile> &>(profile).reset();
-    UnifyContexts(context, branch_contexts, branch_trigger_collectors, branch_frame_collectors, parallel_stats);
+    UnifyContexts(
+        context, st.branch_contexts, st.branch_trigger_collectors, st.branch_frame_collectors, parallel_stats);
 
     return true;
+  }
+
+  /**
+   * Execute all branches in parallel and unify context fields.
+   * The first branch (index 0) runs on the main thread, others run in parallel tasks.
+   *
+   * This is the synchronous (blocking) wrapper used by the legacy Pull() path.  The coro path
+   * (DoPull) calls ScheduleBranchesAndRunMain + co_await WaitForProgressAwaitable + FinalizeBranches
+   * directly to avoid blocking the worker thread.
+   *
+   * @param frame Frame for the main branch (branch 0)
+   * @param context Execution context (will be modified to unify branch results)
+   * @param self Reference to the operator for profiling
+   * @return true if any branch returned true from Pull(), false otherwise
+   */
+  bool ExecuteBranchesInParallel(Frame &frame, ExecutionContext &context, const LogicalOperator &self, auto &&profile,
+                                 auto &&pre_pull_func, auto &&post_pull_func) {
+    ParallelExecState st;
+    if (!ScheduleBranchesAndRunMain(st,
+                                    frame,
+                                    context,
+                                    self,
+                                    profile,
+                                    pre_pull_func,
+                                    post_pull_func,
+                                    /*schedule_on_pool=*/false)) {
+      return false;
+    }
+    collection_scheduler_->WaitOrSteal();
+    return FinalizeBranches(st, context, profile);
   }
 
   /**
@@ -14903,14 +14966,20 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
 }
 }  // namespace
 
-// Coroutine-cursor seam: coordinator that drives branch sub-cursors via synchronous Pull() + WaitOrSteal.
-// Rides the base PullCo()=Immediate(Pull()); NO gen_/DoPull. See the seam note on ParallelBranchCursor —
-// do NOT add MG_COROUTINE_CURSOR_PULLCO.
+// Coroutine-cursor: this coordinator drives its branch sub-cursors via the split helper path.
+// In Coro mode (the default when the scheduler is live) it parks via co_await WaitForProgressAwaitable
+// instead of blocking in WaitOrSteal, activating the dormant c3.0 EventParked propagation.
+// Branch sub-cursors stay synchronous (Pull()); only the coordinator frame is a coroutine.
 class AggregateParallelCursor : public ParallelBranchCursor {
  public:
   AggregateParallelCursor(const AggregateParallel &self, utils::MemoryResource *mem,
                           metrics::DatabaseMetricHandles &metric_handles)
-      : ParallelBranchCursor(self.input_, self.num_threads_, mem, metric_handles), self_(self) {}
+      : ParallelBranchCursor(self.input_, self.num_threads_, mem, metric_handles), self_(self) {
+    // Tag as the Aggregate split point (same as serial AggregateCursor): under the active policy this
+    // selects Coro so the query is coro-driven and the coordinator can co_await-park; an empty knob
+    // (kill switch) leaves it Sync → the legacy WaitOrSteal Pull() path. Branches are driven internally.
+    SelectCoroMode({}, CoroOp::Aggregate);
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
@@ -15002,7 +15071,122 @@ class AggregateParallelCursor : public ParallelBranchCursor {
     return true;
   }
 
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master AggregateParallelCursor::Pull().
+    // oom/profile/frame_writer are per-iteration; they die before co_yield/co_return so the coro
+    // frame holds no live OOM guard across suspend.  The init block (initialized_==false) uses the
+    // split helpers + co_await WaitForProgressAwaitable to park without blocking the worker thread;
+    // branch_aggregations / branch_aggregations_mutex / pre_pull_func / post_pull_func / st are all
+    // declared as locals of the init block INSIDE the coro frame so they outlive the co_await park.
+    while (true) {
+      bool produced = false;
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+        if (branch_cursors_.empty()) co_return false;
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+        const auto &remember = static_cast<AggregateCursor *>(branch_cursors_[0].get())->self_.remember_;
+        const auto &aggregations = static_cast<AggregateCursor *>(branch_cursors_[0].get())->self_.aggregations_;
+
+        if (!initialized_) {
+          initialized_ = true;
+
+          // These locals are part of the coroutine frame and MUST outlive the co_await below.
+          std::mutex branch_aggregations_mutex;
+          std::queue<decltype(main_aggregation_)> branch_aggregations;
+
+          auto pre_pull_func = [&branch_aggregations_mutex, &branch_aggregations](Cursor *cursor) {
+            // Try to find a free aggregation to reuse
+            decltype(main_aggregation_) complete_aggregation = nullptr;
+            {
+              const std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
+              if (!branch_aggregations.empty()) {
+                complete_aggregation = branch_aggregations.front();
+                branch_aggregations.pop();
+              }
+            }
+            // Reuse already completed section if available
+            if (complete_aggregation != nullptr) {
+              static_cast<AggregateCursor *>(cursor)->aggregation_ = std::move(*complete_aggregation);
+            }
+          };
+          auto post_pull_func = [&branch_aggregations_mutex, &aggregations, &branch_aggregations](Cursor *cursor,
+                                                                                                  Frame * /*frame*/) {
+            auto *aggregation = &static_cast<AggregateCursor *>(cursor)->aggregation_;
+            decltype(main_aggregation_) complete_aggregation = nullptr;
+
+            while (true) {
+              complete_aggregation = nullptr;
+              // Phase 1: find a free aggregation
+              {
+                const std::lock_guard<std::mutex> lock(branch_aggregations_mutex);
+                if (!branch_aggregations.empty()) {
+                  complete_aggregation = branch_aggregations.front();
+                  branch_aggregations.pop();
+                } else {
+                  branch_aggregations.push(aggregation);
+                  return;
+                }
+              }
+              // Phase 2: unify the aggregation
+              UnifyAggregation(*aggregation, *complete_aggregation, aggregations);
+            }
+          };
+
+          ParallelExecState st;
+          if (!ScheduleBranchesAndRunMain(st,
+                                          frame,
+                                          context,
+                                          self_,
+                                          profile,
+                                          pre_pull_func,
+                                          post_pull_func,
+                                          /*schedule_on_pool=*/true)) {
+            co_return false;
+          }
+          // Park until ALL branch tasks finish. A single co_await resumes on the FIRST progress
+          // event (one branch finishing / any NotifyProgress), NOT when every branch is done —
+          // co_await checks await_ready only once and does not loop. So we MUST loop on the
+          // two-phase barrier (Finished() && InFlightZero(), R1). Otherwise FinalizeBranches +
+          // row emit + query teardown (Interpreter::Commit destroying the cursor tree) would race
+          // still-running branch tasks → heap-use-after-free on the shared producer (ASan-confirmed).
+          while (!(collection_scheduler_->Finished() && collection_scheduler_->InFlightZero())) {
+            co_await collection_scheduler_->WaitForProgressAwaitable(&context.event_parked);
+          }
+          if (!FinalizeBranches(st, context, profile)) co_return false;
+
+          DMG_ASSERT(branch_aggregations.size() == 1, "There should be only one aggregation left in the list");
+          main_aggregation_ = branch_aggregations.front();
+          aggregation_it_ = main_aggregation_->begin();
+          if (main_aggregation_->empty()) {
+            DefaultAggregation(context, aggregations, remember, frame_writer);
+            produced = true;  // emit default aggregation values
+          }
+        }
+
+        if (!produced) {
+          if (aggregation_it_ == main_aggregation_->end()) co_return false;
+          // place aggregation values on the frame
+          size_t pos = 0;
+          for (const auto &aggregation_elem : aggregations)
+            frame_writer.Write(aggregation_elem.output_sym, aggregation_it_->second.values_[pos++]);
+          // place remember values on the frame
+          pos = 0;
+          for (const Symbol &remember_sym : remember)
+            frame_writer.Write(remember_sym, aggregation_it_->second.remember_[pos++]);
+          aggregation_it_++;
+          produced = true;
+        }
+      }
+      co_yield true;
+    }
+  }
+
   void Reset() override {
+    ResetGen();  // destroy the coroutine generator frame first (mirrors AggregateCursor::Reset)
     for (const auto &cursor : branch_cursors_) cursor->Reset();
     initialized_ = false;
     main_aggregation_ = nullptr;
@@ -15057,14 +15241,20 @@ std::vector<Symbol> AggregateParallel::ModifiedSymbols(const SymbolTable &table)
 ACCEPT_WITH_INPUT(AggregateParallel);
 
 #ifdef MG_ENTERPRISE
-// Coroutine-cursor seam: coordinator that drives branch sub-cursors via synchronous Pull() + WaitOrSteal.
-// Rides the base PullCo()=Immediate(Pull()); NO gen_/DoPull. See the seam note on ParallelBranchCursor —
-// do NOT add MG_COROUTINE_CURSOR_PULLCO.
+// Coroutine-cursor: this coordinator drives its branch sub-cursors via the split helper path.
+// In Coro mode it parks via co_await WaitForProgressAwaitable instead of blocking in WaitOrSteal,
+// activating the dormant c3.0 EventParked propagation.  Branch sub-cursors (OrderByCursor) stay
+// synchronous; only the coordinator frame is a coroutine.
 class OrderByParallelCursor : public ParallelBranchCursor {
  public:
   OrderByParallelCursor(const OrderByParallel &self, utils::MemoryResource *mem,
                         metrics::DatabaseMetricHandles &metric_handles)
-      : ParallelBranchCursor(self.input_, self.num_threads_, mem, metric_handles), self_(self) {}
+      : ParallelBranchCursor(self.input_, self.num_threads_, mem, metric_handles), self_(self) {
+    // Tag as the OrderBy split point (same as serial OrderByCursor): under the active policy this
+    // selects Coro so the query is coro-driven and the coordinator can co_await-park; an empty knob
+    // (kill switch) leaves it Sync → the legacy WaitOrSteal Pull() path. Branches are driven internally.
+    SelectCoroMode({}, CoroOp::OrderBy);
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     const OOMExceptionEnabler oom_exception;
@@ -15142,6 +15332,111 @@ class OrderByParallelCursor : public ParallelBranchCursor {
     }
 
     return true;
+  }
+
+  MG_COROUTINE_CURSOR_PULLCO
+
+  PullAwaitable DoPull(Frame &frame, ExecutionContext &context) override {
+    // FIDELITY: each outer while-iteration reproduces one master OrderByParallelCursor::Pull().
+    // oom/profile/frame_writer/output_symbols/compare/heap_cmp are per-iteration and die before
+    // co_yield/co_return.  The init block (initialized_==false) uses the split helpers + co_await
+    // WaitForProgressAwaitable to park without blocking the worker thread; st (ParallelExecState)
+    // lives in the coro frame and outlives the co_await park.
+    while (true) {
+      {
+        OOMExceptionEnabler oom_exception;
+        SCOPED_PROFILE_OP_BY_REF(self_);
+        co_await YieldPointAwaitable{context, maybe_check_abort};
+        if (branch_cursors_.empty()) co_return false;
+
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+        const auto &output_symbols = static_cast<OrderByCursor *>(branch_cursors_[0].get())->self_.output_symbols_;
+        const auto &compare = static_cast<OrderByCursor *>(branch_cursors_[0].get())->self_.compare_;
+        // heap_cmp captures compare by reference; compare outlives this scope (it points into self_)
+        auto heap_cmp = [&compare](const auto &a, const auto &b) {
+          return !compare.lex_cmp()(*std::get<1>(a), *std::get<1>(b));
+        };
+
+        if (!initialized_) {
+          initialized_ = true;
+
+          auto pre_pull_func = [](Cursor * /*cursor*/) {};
+          auto post_pull_func = [](Cursor * /*cursor*/, Frame * /*frame*/) {};
+
+          ParallelExecState st;
+          if (!ScheduleBranchesAndRunMain(st,
+                                          frame,
+                                          context,
+                                          self_,
+                                          profile,
+                                          pre_pull_func,
+                                          post_pull_func,
+                                          /*schedule_on_pool=*/true)) {
+            co_return false;
+          }
+          // Park until ALL branch tasks finish. A single co_await resumes on the FIRST progress
+          // event, NOT when every branch is done (co_await checks await_ready only once, no loop).
+          // Loop on the two-phase barrier (Finished() && InFlightZero(), R1) so FinalizeBranches +
+          // heap build + query teardown can't race still-running branches → heap-use-after-free.
+          while (!(collection_scheduler_->Finished() && collection_scheduler_->InFlightZero())) {
+            co_await collection_scheduler_->WaitForProgressAwaitable(&context.event_parked);
+          }
+          if (!FinalizeBranches(st, context, profile)) co_return false;
+
+          // Initialize heap with iterators from each branch's sorted cache
+          // Each element is (cache_it, order_by_it, cache_end, order_by_end, branch_index)
+          for (size_t i = 0UZ; i < branch_cursors_.size(); ++i) {
+            auto *orderby_cursor = static_cast<OrderByCursor *>(branch_cursors_[i].get());
+            if (orderby_cursor->cache_.begin() != orderby_cursor->cache_.end()) {
+              branch_iters_.emplace_back(orderby_cursor->cache_.begin(),
+                                         orderby_cursor->order_by_cache_.begin(),
+                                         orderby_cursor->cache_.end(),
+                                         orderby_cursor->order_by_cache_.end(),
+                                         i);
+            }
+          }
+
+          // Build a min-heap based on the compare function
+          // NOLINTNEXTLINE(boost-use-ranges,modernize-use-ranges)
+          std::make_heap(branch_iters_.begin(), branch_iters_.end(), heap_cmp);
+        }
+
+        if (branch_iters_.empty()) co_return false;
+
+        AbortCheck(context);
+
+        // Pop the smallest element from the heap (based on order_by values)
+        // NOLINTNEXTLINE(boost-use-ranges,modernize-use-ranges)
+        std::pop_heap(branch_iters_.begin(), branch_iters_.end(), heap_cmp);
+        auto &[cache_it, order_by_it, cache_end, order_by_end, branch_idx] = branch_iters_.back();
+
+        // Place the output values on the frame (from cache_, not order_by_cache_)
+        DMG_ASSERT(output_symbols.size() == cache_it->size(),
+                   "Number of values does not match the number of output symbols in OrderByParallel");
+        auto output_sym_it = output_symbols.begin();
+        for (auto &&output : *cache_it) {
+          frame_writer.Write(*output_sym_it++, std::move(output));
+        }
+
+        // Advance both iterators and reheapify if there are more elements
+        ++cache_it;
+        ++order_by_it;
+        if (cache_it != cache_end) {
+          // NOLINTNEXTLINE(boost-use-ranges,modernize-use-ranges)
+          std::push_heap(branch_iters_.begin(), branch_iters_.end(), heap_cmp);
+        } else {
+          branch_iters_.pop_back();
+        }
+      }
+      co_yield true;
+    }
+  }
+
+  void Reset() override {
+    ResetGen();  // destroy the coroutine generator frame first (mirrors AggregateCursor::Reset)
+    ParallelBranchCursor::Reset();
+    initialized_ = false;
+    branch_iters_.clear();
   }
 
  private:

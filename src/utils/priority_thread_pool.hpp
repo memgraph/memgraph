@@ -472,8 +472,9 @@ class CollectionScheduler {
   void SetCollection(std::shared_ptr<TaskCollection> collection) { collection_ = std::move(collection); }
 
   void Trigger() {
+    if (triggered_) return;
     if (auto *p = pool_.load(std::memory_order_relaxed); p && collection_) p->ScheduledCollection(*collection_);
-    pool_.store(nullptr, std::memory_order_release);
+    triggered_ = true;  // idempotency guard; do NOT null pool_ — RegisterProgressWaiter needs a live pool_
   }
 
   void WaitOrSteal() {
@@ -533,6 +534,7 @@ class CollectionScheduler {
 
   std::atomic<PriorityThreadPool *> pool_{nullptr};
   std::shared_ptr<TaskCollection> collection_;
+  bool triggered_{false};  // single-threaded idempotency guard for Trigger(); plain bool is correct
 };
 
 }  // namespace memgraph::utils
