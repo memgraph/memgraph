@@ -4603,6 +4603,8 @@ void InMemoryStorage::ResetTenant() {
   name_id_mapper_->Clear();
   description_store_.Clear();
   SetDefunct(false);
+  // Fresh repair: drop prior confirmations so every replica is advertised this repair until it re-confirms.
+  ClearRepairConfirmations();
   SetRepaired(true);
 }
 
