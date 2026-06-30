@@ -18,6 +18,31 @@
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
 
+namespace {
+void AttachRolesToUser(
+    memgraph::auth::User &user, std::vector<memgraph::auth::Role> const &roles,
+    [[maybe_unused]] std::unordered_map<std::string, std::unordered_set<std::string>> const &mt_map) {
+  user.ClearAllRoles();
+#ifdef MG_ENTERPRISE
+  for (auto const &[db, role_names] : mt_map) {
+    for (auto const &role_name : role_names) {
+      if (auto it = std::ranges::find_if(roles, [&role_name](auto const &r) { return r.rolename() == role_name; });
+          it != roles.end()) {
+        user.AddMultiTenantRole(*it, db);
+      }
+    }
+  }
+#endif
+  for (auto const &role : roles) {
+    try {
+      user.AddRole(role);
+    } catch (memgraph::auth::AuthException const &) {
+      continue;
+    }
+  }
+}
+}  // namespace
+
 namespace memgraph::slk {
 // Serialize code for auth::Role
 void Save(const auth::Role &self, Builder *builder) { memgraph::slk::Save(self.Serialize().dump(), builder); }
@@ -73,35 +98,11 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
   *self = memgraph::auth::User::Deserialize(json);
   std::vector<auth::Role> roles;
   memgraph::slk::Load(&roles, reader);
-  self->ClearAllRoles();
-
+  std::unordered_map<std::string, std::unordered_set<std::string>> mt_map;
 #ifdef MG_ENTERPRISE
-  // Handle multi-tenant roles (has to be done before adding all roles)
-  std::unordered_map<std::string, std::unordered_set<std::string>> db_role_map;
-  memgraph::slk::Load(&db_role_map, reader);
-  for (const auto &[db, role_names] : db_role_map) {
-    for (const auto &role : role_names) {
-      if (auto role_it = std::ranges::find_if(roles, [&role](const auto &r) { return r.rolename() == role; });
-          role_it != roles.end()) {
-        self->AddMultiTenantRole(*role_it, db);
-      }
-    }
-  }
+  memgraph::slk::Load(&mt_map, reader);
 #endif
-
-  // Handle global roles
-  for (const auto &role : roles) {
-    try {
-      self->AddRole(role);
-    } catch (const auth::AuthException &e) {
-      // Absorb the exception and continue with the next role (role already set as multi-tenant role)
-      continue;
-    }
-  }
-
-#ifdef MG_ENTERPRISE
-  // Profile management moved to UserProfiles class
-#endif
+  AttachRolesToUser(*self, roles, mt_map);
 }
 
 // Serialize code for auth::Auth::Config
@@ -132,14 +133,15 @@ void Save(const memgraph::replication::UpdateAuthDataReqV1 &self, memgraph::slk:
   memgraph::slk::Save(has_user, builder);
   if (has_user) {
     memgraph::slk::Save(*self.user_json, builder);
-    auto const &role_jsons = self.user_role_jsons.value_or(std::vector<std::string>{});
+    static std::vector<std::string> const kEmptyRoleJsons;
+    auto const &role_jsons = self.user_role_jsons ? *self.user_role_jsons : kEmptyRoleJsons;
     memgraph::slk::Save(static_cast<uint64_t>(role_jsons.size()), builder);
     for (auto const &rj : role_jsons) {
       memgraph::slk::Save(rj, builder);
     }
 #ifdef MG_ENTERPRISE
-    memgraph::slk::Save(
-        self.user_mt_mappings.value_or(std::unordered_map<std::string, std::unordered_set<std::string>>{}), builder);
+    static std::unordered_map<std::string, std::unordered_set<std::string>> const kEmptyMtMap;
+    memgraph::slk::Save(self.user_mt_mappings ? *self.user_mt_mappings : kEmptyMtMap, builder);
 #endif
   }
   bool const has_role = self.role_json.has_value();
@@ -271,9 +273,7 @@ UpdateAuthDataReq UpdateAuthDataReq::Upgrade(UpdateAuthDataReqV1 const &v1) {
     auto user_json = nlohmann::json::parse(*v1.user_json);
     auth::MigrateAuthJson(user_json);
     auto user = auth::User::Deserialize(user_json);
-    user.ClearAllRoles();
 
-    // Migrate and reconstruct roles
     std::vector<auth::Role> roles;
     if (v1.user_role_jsons) {
       roles.reserve(v1.user_role_jsons->size());
@@ -284,28 +284,7 @@ UpdateAuthDataReq UpdateAuthDataReq::Upgrade(UpdateAuthDataReqV1 const &v1) {
       }
     }
 
-#ifdef MG_ENTERPRISE
-    // Restore MT role mappings
-    if (v1.user_mt_mappings) {
-      for (auto const &[db, role_names] : *v1.user_mt_mappings) {
-        for (auto const &role_name : role_names) {
-          if (auto it = std::ranges::find_if(roles, [&role_name](auto const &r) { return r.rolename() == role_name; });
-              it != roles.end()) {
-            user.AddMultiTenantRole(*it, db);
-          }
-        }
-      }
-    }
-#endif
-
-    // Add global roles
-    for (auto const &role : roles) {
-      try {
-        user.AddRole(role);
-      } catch (auth::AuthException const &) {
-        continue;
-      }
-    }
+    AttachRolesToUser(user, roles, v1.user_mt_mappings.value_or({}));
     req.user = std::move(user);
   }
 
