@@ -434,4 +434,53 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V2Request_NoMigrationNeeded) {
   EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
 }
 
+// V1 request with user but no roles (user_role_jsons = nullopt).
+TEST(RpcVersioning, UpdateAuthDataRpc_V1UserNoRoles_UpgradesCleanly) {
+  auto user_json = MakeV3UserJson("bob", /*label_perm=*/1, /*edge_perm=*/1);
+
+  memgraph::replication::UpdateAuthDataReqV1 v1;
+  v1.main_uuid = memgraph::utils::UUID{};
+  v1.expected_group_timestamp = 1;
+  v1.new_group_timestamp = 2;
+  v1.user_json = user_json.dump();
+  // user_role_jsons and user_mt_mappings left as nullopt
+
+  auto v2 = RoundTripV1ToV2(v1);
+
+  ASSERT_TRUE(v2.user.has_value());
+  EXPECT_EQ(v2.user->username(), "bob");
+  EXPECT_TRUE(v2.user->roles().empty());
+
+  auto const &label_perms = v2.user->fine_grained_access_handler().label_permissions();
+  ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+}
+
+// V1 request with user and MT role mappings.
+TEST(RpcVersioning, UpdateAuthDataRpc_V1UserWithMtMappings_RolesAttachedPerDb) {
+  auto user_json = MakeV3UserJson("carol", /*label_perm=*/-1, /*edge_perm=*/-1);
+  auto role_json = MakeV3RoleJson("dbrole", /*label_perm=*/1, /*edge_perm=*/1);
+
+  memgraph::replication::UpdateAuthDataReqV1 v1;
+  v1.main_uuid = memgraph::utils::UUID{};
+  v1.expected_group_timestamp = 100;
+  v1.new_group_timestamp = 101;
+  v1.user_json = user_json.dump();
+  v1.user_role_jsons = std::vector<std::string>{role_json.dump()};
+  v1.user_mt_mappings = std::unordered_map<std::string, std::unordered_set<std::string>>{{"testdb", {"dbrole"}}};
+
+  auto v2 = RoundTripV1ToV2(v1);
+
+  ASSERT_TRUE(v2.user.has_value());
+  EXPECT_EQ(v2.user->username(), "carol");
+
+  // The role should be attached both as a regular role and as an MT mapping
+  EXPECT_EQ(v2.user->roles().size(), 1);
+  EXPECT_EQ(v2.user->roles().begin()->rolename(), "dbrole");
+
+  auto const &mt = v2.user->GetMultiTenantRoleMappings();
+  ASSERT_EQ(mt.count("testdb"), 1);
+  EXPECT_EQ(mt.at("testdb").count("dbrole"), 1);
+}
+
 #endif  // MG_ENTERPRISE
