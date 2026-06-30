@@ -412,8 +412,8 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
     const auto name = std::string{*config.name.str_view()};
     // MAIN lists this name HOT but the replica holds it COLD. Update() would throw
     // UnknownDatabaseException on the COLD shell, so handle the COLD shell first.
-    if (dbms_handler.IsSuspended(name)) {
-      if (dbms_handler.IsSuspendedWithUuid(name, config.uuid)) {
+    if (const auto cold_uuid = dbms_handler.GetColdUuid(name)) {
+      if (*cold_uuid == config.uuid) {
         // Same tenant still COLD: resume it so Update() below can refresh the HOT config.
         if (!dbms_handler.ResumeForRecovery(name).has_value()) {
           spdlog::debug("SystemRecoveryHandler: failed to resume COLD database \"{}\" to match MAIN (HOT).", name);
@@ -458,10 +458,10 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
     // now lists COLD must be reconciled to COLD, not dropped.
     std::erase(old, name);
 
-    if (dbms_handler.IsSuspended(name)) {
+    if (const auto cold_uuid = dbms_handler.GetColdUuid(name)) {
       // Same tenant still COLD here: refresh MAIN's as-of-suspend stats snapshot so cold SHOW STORAGE
       // INFO / SHOW DATABASES on this replica match MAIN.
-      if (dbms_handler.IsSuspendedWithUuid(name, config.uuid)) {
+      if (*cold_uuid == config.uuid) {
         dbms_handler.ApplyColdRecoveryMeta(name, cold);
         continue;
       }
@@ -481,7 +481,7 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
     // The AbortTwoPCForTenant(config.uuid) after Update uses the NEW uuid and runs after the free, so it
     // cannot cover the OLD uuid; this guard does. Same-uuid Update is a no-op refresh whose in-flight 2PC
     // must NOT be aborted here (the config.uuid abort before ForceSuspendForRecovery handles it) — hence
-    // the *local != config.uuid guard. A HOT-under-different-uuid tenant is NOT caught by the IsSuspended
+    // the *local != config.uuid guard. A HOT-under-different-uuid tenant is NOT caught by the GetColdUuid
     // block above (it is HOT, not in suspended_), so without this it would reach Update unguarded.
     if (const auto local = dbms_handler.GetHotUuid(name); local && *local != config.uuid) {
       InMemoryReplicationHandlers::AbortTwoPCForTenant(*local);

@@ -427,29 +427,29 @@ class DbmsHandler {
   ResumeResult ResumeByUUID(utils::UUID uuid, system::Transaction *txn = nullptr);
 
   /**
-   * @brief True iff @p name currently holds a COLD shell (is in the suspended-set).
+   * @brief The UUID of the COLD shell currently held under @p name, or nullopt if @p name is not
+   * suspended here.
    *
-   * Replica SystemRecovery reconcile uses this to branch: a name MAIN lists HOT that this replica
-   * holds COLD must be resumed before Update() can proceed; a name MAIN lists COLD that is already
-   * suspended here is already converged.
+   * suspended_ is keyed by name (most lookups — USE/SHOW/Drop/Resume — arrive with a name; the
+   * durable cold marker is name-keyed too), so this is the single name->cold primitive. Returning the
+   * uuid (rather than a bare bool) lets a caller distinguish, in ONE lookup, the same COLD tenant
+   * (uuid matches -> refresh its metadata) from one MAIN drop+recreated under the same name while this
+   * replica kept the OLD shell COLD (uuid differs -> stale shell, must be dropped and rebuilt;
+   * otherwise per-uuid Suspend/Resume RPC for the new uuid misses forever and the replica stays
+   * permanently BEHIND). The replica SystemRecovery reconcile branches on exactly that.
    */
-  bool IsSuspended(std::string_view name) const {
+  std::optional<utils::UUID> GetColdUuid(std::string_view name) const {
     auto rd = std::shared_lock{lock_};
-    return suspended_.contains(name);
+    auto it = suspended_.find(name);
+    if (it == suspended_.end()) return std::nullopt;
+    return it->second.salient.uuid;
   }
 
   /**
-   * @brief Is @p name suspended here AND under this exact @p uuid? Distinguishes a tenant that is
-   * still the same COLD tenant (refresh its metadata) from one MAIN drop+recreated under the same
-   * name while this replica kept the OLD one COLD (a stale shell that must be dropped and rebuilt —
-   * otherwise per-uuid Suspend/Resume RPC for the new uuid misses forever and the replica stays
-   * permanently BEHIND).
+   * @brief True iff @p name currently holds a COLD shell (is in the suspended-set). Thin predicate
+   * over GetColdUuid for call sites that only need existence (e.g. tests, SHOW branching).
    */
-  bool IsSuspendedWithUuid(std::string_view name, const utils::UUID &uuid) const {
-    auto rd = std::shared_lock{lock_};
-    auto it = suspended_.find(name);
-    return it != suspended_.end() && it->second.salient.uuid == uuid;
-  }
+  bool IsSuspended(std::string_view name) const { return GetColdUuid(name).has_value(); }
 
   /**
    * @brief Does this node know @p uuid AT ALL — HOT (db_handler_) or COLD (suspended_)?
