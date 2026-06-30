@@ -179,10 +179,8 @@ void RpcMessageDeliverer::Execute() {
   // NOLINTNEXTLINE
   catch (const slk::SlkReaderLeftoverDataException &) {
     // Skip, it may fail because not all data has been read, that's fine.
-  } catch (const std::exception &e) {
-    spdlog::error("Error occurred in the callback: {}", e.what());
-    throw SlkRpcFailedException();
   }
+  // other exceptions will be caught in session.hpp and its HandleException function
 }
 
 }  // namespace memgraph::rpc
