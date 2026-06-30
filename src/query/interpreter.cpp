@@ -3656,7 +3656,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               std::move(stopping_context),
                                               dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
                                               *(*current_db.db_acc_)->metric_handles(),
-                                              interpreter.cached_auth_checker_,
+                                              interpreter.cached_auth_checker_.get(),
                                               trigger_context_collector,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
@@ -3867,9 +3867,9 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          db_acc = *current_db.db_acc_,
                                          hops_limit,
                                          db_arena_pool = &current_db.db_acc_->get()->Arena(),
-                                         cached_auth_checker = interpreter.cached_auth_checker_
+                                         cached_auth_checker = interpreter.cached_auth_checker_.get()
 #ifdef MG_ENTERPRISE
-                                         ,
+                                             ,
                                          parallel_execution,
                                          user_resource = std::move(user_resource)
 #endif
@@ -9787,6 +9787,26 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           .exception_occurred = parallel_execution ? std::make_shared<std::atomic<uint8_t>>(false) : nullptr,
       };
     };
+
+#ifdef MG_ENTERPRISE
+    if (current_db_.execution_db_accessor_ && interpreter_context_->auth_checker && user_or_role_ && *user_or_role_) {
+      auto *dba = &*current_db_.execution_db_accessor_;
+      auto const current_db = dba->DatabaseName();
+      if (cached_auth_checker_ && auth_checker_db_name_ == current_db) {
+        cached_auth_checker_->UpdateDbAccessor(dba);
+      } else {
+        cached_auth_checker_ = interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*user_or_role_, dba);
+        DMG_ASSERT(cached_auth_checker_, "Auth checker should not be null");
+        if (!cached_auth_checker_->NeedsFineGrainedAuthChecker()) {
+          cached_auth_checker_.reset();
+        }
+        auth_checker_db_name_ = current_db;
+      }
+    } else {
+      cached_auth_checker_.reset();
+      auth_checker_db_name_.clear();
+    }
+#endif
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query),

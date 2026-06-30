@@ -20,6 +20,7 @@
 #include "dbms/database_protector.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
+#include "query/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/plan_v2/frontend/query_planner_context.hpp"
@@ -307,7 +308,8 @@ class Interpreter final {
 #ifdef MG_ENTERPRISE
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif
-  FineGrainedAuthChecker const *cached_auth_checker_{nullptr};
+  std::unique_ptr<FineGrainedAuthChecker> cached_auth_checker_;
+  std::string auth_checker_db_name_;
   SessionInfo session_info_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;

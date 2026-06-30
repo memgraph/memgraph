@@ -343,9 +343,8 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
 }
 
 void SessionHL::LogOff() {
-  interpreter_.cached_auth_checker_ = nullptr;
-  cached_auth_checker_.reset();
-  auth_checker_db_name_.clear();
+  interpreter_.cached_auth_checker_.reset();
+  interpreter_.auth_checker_db_name_.clear();
 #ifdef MG_ENTERPRISE
   interpreter_.ResetDB();
 #endif
@@ -354,9 +353,8 @@ void SessionHL::LogOff() {
 }
 
 void SessionHL::Abort() {
-  interpreter_.cached_auth_checker_ = nullptr;
-  cached_auth_checker_.reset();
-  auth_checker_db_name_.clear();
+  interpreter_.cached_auth_checker_.reset();
+  interpreter_.auth_checker_db_name_.clear();
   interpreter_.Abort();
 }
 
@@ -383,7 +381,7 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
-    TypedValueResultStream<TEncoder> stream(&encoder_, storage, cached_auth_checker_.get());
+    TypedValueResultStream<TEncoder> stream(&encoder_, storage, interpreter_.cached_auth_checker_.get());
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
@@ -446,32 +444,6 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
     auto result =
         interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
     interpreter_.CheckAuthorized(result.privileges, result.db);
-
-#ifdef MG_ENTERPRISE
-    interpreter_.cached_auth_checker_ = nullptr;
-    auto &db = interpreter_.current_db_.db_acc_;
-    auto *storage = db ? db->get()->storage() : nullptr;
-    if (storage && interpreter_context_->auth_checker && interpreter_.user_or_role_ && *interpreter_.user_or_role_ &&
-        interpreter_.current_db_.execution_db_accessor_) {
-      auto *dba = &*interpreter_.current_db_.execution_db_accessor_;
-      auto const current_db = dba->DatabaseName();
-      if (cached_auth_checker_ && auth_checker_db_name_ == current_db) {
-        cached_auth_checker_->UpdateDbAccessor(dba);
-      } else {
-        cached_auth_checker_ =
-            interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*interpreter_.user_or_role_, dba);
-        DMG_ASSERT(cached_auth_checker_, "Auth checker should not be null");
-        if (!cached_auth_checker_->NeedsFineGrainedAuthChecker()) {
-          cached_auth_checker_.reset();
-        }
-        auth_checker_db_name_ = current_db;
-      }
-      interpreter_.cached_auth_checker_ = cached_auth_checker_.get();
-    } else {
-      cached_auth_checker_.reset();
-      auth_checker_db_name_.clear();
-    }
-#endif
 
     return {std::move(result.headers), result.qid};
   } catch (const memgraph::query::QueryException &e) {
@@ -640,9 +612,8 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // Runtime config is sent at the beginning of the transaction, but is missing during the transaction
   if (in_explicit_tx || (previous_run_time_info_ && run_time_info == *previous_run_time_info_)) return;
 
-  session_->cached_auth_checker_.reset();
-  session_->auth_checker_db_name_.clear();
-  session_->interpreter_.cached_auth_checker_ = nullptr;
+  session_->interpreter_.cached_auth_checker_.reset();
+  session_->interpreter_.auth_checker_db_name_.clear();
 
   db_explicit_ = false;
   user_explicit_ = false;
