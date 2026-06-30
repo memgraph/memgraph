@@ -199,19 +199,25 @@ queryable, which is confusing and operationally fragile. Treating it as replicat
 makes the behavior predictable: the cluster has one hot/cold map, and it is the MAIN's.
 
 A consequence, accepted deliberately: suspending a database on the MAIN also tears it
-down on replicas, evicting any reader connected to a replica's copy. That is the price of
-a single coherent cluster-wide state, and it is consistent with how other DDL behaves.
+down on replicas, so a client reading that database through a replica loses access to it.
+That is the price of a single coherent cluster-wide state, and it is consistent with how
+other DDL behaves.
 
 This is also why hot/cold is the MAIN's decision rather than a per-node or consensus one.
 A database that is idle on the MAIN but actively read on a replica still follows the MAIN
-when the MAIN suspends it — the replica's readers lose access to it: in-flight transactions
-drain first (suspend waits for them), then the database goes COLD on the replica too and any
-further query against it is rejected until it is resumed (client sessions stay connected; the
-database itself is simply no longer queryable on that replica). A node-local or quorum
-decision would let the cluster hold divergent hot/cold maps (a replica believing a
-database is queryable while the MAIN considers it cold), which is exactly the operational
-ambiguity this design rules out. An operator who needs a tenant resident for replica-side
-reads keeps it HOT.
+when the MAIN suspends it. "Loses access" is specific, and it is *not* a forced disconnect:
+the client's session stays connected and an in-flight transaction on the replica is never
+force-aborted. The replica applies the suspend with the same bounded accessor drain used on
+the MAIN (decision **D6**) — it waits a short, fixed window for the database's accessors to
+drain. Once they have, the database goes COLD on the replica and any further query against
+it is rejected with the usual "suspended; `RESUME` it first" error until the MAIN resumes
+it. If a replica-side reader does not finish within that bounded window, the replica neither
+forces it off nor defers the suspend indefinitely — the apply simply fails on that node,
+which latches it BEHIND so the ordered recovery path converges it to COLD on the next
+re-sync. A node-local or quorum decision would let the cluster hold divergent hot/cold maps
+(a replica believing a database is queryable while the MAIN considers it cold), which is
+exactly the operational ambiguity this design rules out. An operator who needs a tenant
+resident for replica-side reads keeps it HOT.
 
 ### D5 — Hot/cold state is durable. On restart, only HOT databases are recovered.
 
