@@ -34,6 +34,24 @@ namespace memgraph::dbms {
 
 #ifdef MG_ENTERPRISE
 
+namespace {
+// Reject an enterprise system-RPC apply when there is no valid enterprise license: log, send the
+// caller's already-built FAILURE response, and signal the caller to return (true iff rejected).
+// Registration happens unlicensed (a license may be added at runtime), so the gate is per-apply here.
+// Handlers with a bespoke no-license path (e.g. SystemRecoveryHandler, which still applies the default
+// DB) deliberately do NOT use this.
+bool RejectIfNoLicense(std::string_view rpc_name, uint64_t request_version, slk::Builder *res_builder,
+                       const auto &res) {
+  if (license::global_license_checker.IsEnterpriseValidFast()) return false;
+  spdlog::error(
+      "Handling {}, an enterprise RPC message, without license. Check your license status by running "
+      "SHOW LICENSE INFO.",
+      rpc_name);
+  rpc::SendFinalResponse(res, request_version, res_builder);
+  return true;
+}
+}  // namespace
+
 void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                            uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -214,13 +232,7 @@ void SuspendDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &syste
   SuspendDatabaseRes res(SuspendDatabaseRes::Result::FAILURE);
 
   // Ignore if no license
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error(
-        "Handling SuspendDatabase, an enterprise RPC message, without license. Check your license status by running "
-        "SHOW LICENSE INFO.");
-    rpc::SendFinalResponse(res, request_version, res_builder);
-    return;
-  }
+  if (RejectIfNoLicense("SuspendDatabase", request_version, res_builder, res)) return;
 
   memgraph::storage::replication::SuspendDatabaseReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
@@ -280,13 +292,7 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   ResumeDatabaseRes res(ResumeDatabaseRes::Result::FAILURE);
 
   // Ignore if no license
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error(
-        "Handling ResumeDatabase, an enterprise RPC message, without license. Check your license status by running "
-        "SHOW LICENSE INFO.");
-    rpc::SendFinalResponse(res, request_version, res_builder);
-    return;
-  }
+  if (RejectIfNoLicense("ResumeDatabase", request_version, res_builder, res)) return;
 
   memgraph::storage::replication::ResumeDatabaseReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
