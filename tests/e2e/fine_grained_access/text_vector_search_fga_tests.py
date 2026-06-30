@@ -35,12 +35,12 @@ def user_prop_cursor():
 # text_search on vertices -----------------------------------------------------
 
 
-def test_text_search_filters_denied_label():
-    res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL text_search.search('doc_text', 'data.title:Secret') YIELD node RETURN node;",
-    )
-    assert res == []
+def test_text_search_blocked_on_denied_label():
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(
+            user_cursor(),
+            "CALL text_search.search('doc_text', 'data.title:Secret') YIELD node RETURN node;",
+        )
 
 
 def test_text_search_returns_allowed_label():
@@ -51,20 +51,20 @@ def test_text_search_returns_allowed_label():
     assert len(res) == 1
 
 
-def test_text_search_all_filters_denied_label():
-    res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL text_search.search_all('doc_text', 'Secret') YIELD node RETURN node;",
-    )
-    assert res == []
+def test_text_search_all_blocked_on_denied_label():
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(
+            user_cursor(),
+            "CALL text_search.search_all('doc_text', 'Secret') YIELD node RETURN node;",
+        )
 
 
-def test_text_regex_search_filters_denied_label():
-    res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL text_search.regex_search('doc_text', 'Sec.*') YIELD node RETURN node;",
-    )
-    assert res == []
+def test_text_regex_search_blocked_on_denied_label():
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(
+            user_cursor(),
+            "CALL text_search.regex_search('doc_text', 'Sec.*') YIELD node RETURN node;",
+        )
 
 
 # Hybrid is :Public:Document — visible via pub_text index but DENY :Document wins per-row.
@@ -87,12 +87,12 @@ def test_admin_text_search_returns_results_on_denied_index():
 # text_search on edges -------------------------------------------------------
 
 
-def test_text_search_edges_filters_denied_type():
-    res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL text_search.search_edges('doc_etext', 'data.label:Confidential') YIELD edge RETURN edge;",
-    )
-    assert res == []
+def test_text_search_edges_blocked_on_denied_type():
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(
+            user_cursor(),
+            "CALL text_search.search_edges('doc_etext', 'data.label:Confidential') YIELD edge RETURN edge;",
+        )
 
 
 def test_text_search_edges_returns_allowed_type():
@@ -115,12 +115,12 @@ def test_text_search_edges_skips_when_endpoint_denied():
 # vector_search on vertices --------------------------------------------------
 
 
-def test_vector_search_filters_denied_label():
-    res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL vector_search.search('doc_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
-    )
-    assert res == []
+def test_vector_search_blocked_on_denied_label():
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(
+            user_cursor(),
+            "CALL vector_search.search('doc_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
+        )
 
 
 def test_vector_search_returns_allowed_label():
@@ -151,12 +151,12 @@ def test_admin_vector_search_returns_results_on_denied_index():
 # vector_search on edges -----------------------------------------------------
 
 
-def test_vector_search_edges_filters_denied_type():
-    res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL vector_search.search_edges('doc_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
-    )
-    assert res == []
+def test_vector_search_edges_blocked_on_denied_type():
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(
+            user_cursor(),
+            "CALL vector_search.search_edges('doc_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
+        )
 
 
 def test_vector_search_edges_returns_allowed_type():
