@@ -128,7 +128,7 @@ void Save(const memgraph::replication::UpdateAuthDataReqV1 &self, memgraph::slk:
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
-  bool has_user = self.user_json.has_value();
+  bool const has_user = self.user_json.has_value();
   memgraph::slk::Save(has_user, builder);
   if (has_user) {
     memgraph::slk::Save(*self.user_json, builder);
@@ -142,7 +142,7 @@ void Save(const memgraph::replication::UpdateAuthDataReqV1 &self, memgraph::slk:
         self.user_mt_mappings.value_or(std::unordered_map<std::string, std::unordered_set<std::string>>{}), builder);
 #endif
   }
-  bool has_role = self.role_json.has_value();
+  bool const has_role = self.role_json.has_value();
   memgraph::slk::Save(has_role, builder);
   if (has_role) {
     memgraph::slk::Save(*self.role_json, builder);
