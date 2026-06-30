@@ -216,31 +216,37 @@ jobs:
             malloc: false
             cuda: false
             cugraph: false
+            os: "ubuntu-24.04"
           - build_arch: "arm"
             build_docker_image: "both"
             malloc: false
             cuda: false
             cugraph: false
+            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "both"
             malloc: true
             cuda: false
             cugraph: false
+            os: "ubuntu-24.04"
           - build_arch: "arm"
             build_docker_image: "debug"
             malloc: true
             cuda: false
             cugraph: false
+            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "debug"
             cuda: true
             malloc: false
             cugraph: false
+            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "debug"
             cuda: false
             malloc: false
             cugraph: true
+            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "none"
             cuda: false
@@ -257,9 +263,9 @@ jobs:
       arch: ${{ matrix.build_arch }}
       build_type: RelWithDebInfo
       build_docker_image: ${{ matrix.build_docker_image }}
-      os: ${{ matrix.os || 'ubuntu-24.04' }}
+      os: ${{ matrix.os }}
       memgraph_download_link: >-
-        ${{ startsWith(matrix.os || 'ubuntu-24.04', 'centos') && format(
+        ${{ startsWith(matrix.os, 'centos') && format(
           'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}/memgraph-{3}_1-1.x86_64.rpm',
           inputs.mock && '-mock-rc' || '',
           needs.PrepareReleaseBranch.outputs.tag_name,
@@ -295,8 +301,8 @@ jobs:
       upload_debug_symbols: true
       run_tests: true
       package_mage: "default"
-      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os || 'ubuntu-24.04', 'centos') }}
-      build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os || 'ubuntu-24.04', 'centos') }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
+      build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
       version: ${{ inputs.version }}
     secrets: inherit
