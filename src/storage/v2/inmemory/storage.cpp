@@ -4543,7 +4543,10 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 
   // A successful recovery cures a defunct tenant: the durability directory is now
   // restart-clean (prior/corrupt files moved to .old or deleted), so background
-  // durability can resume.
+  // durability can resume. Unlike REPAIR DATABASE, this does not set was_repaired_:
+  // the tenant is repopulated with real data (not reset to empty), so replicas
+  // re-sync through the standard epoch-mismatch recovery path rather than via the
+  // repaired_uuids reset hint.
   SetDefunct(false);
 
   return {};
@@ -4566,6 +4569,12 @@ std::expected<void, InMemoryStorage::ResetError> InMemoryStorage::ResetDefunct()
       auto const backup_dir = dir / old_dir;
       if (std::filesystem::exists(backup_dir)) {
         std::filesystem::remove_all(backup_dir, ec);
+        if (ec) {
+          spdlog::warn("Failed to clear stale backup directory {}; it should be cleaned manually. Err: {}",
+                       backup_dir,
+                       ec.message());
+          return std::unexpected{InMemoryStorage::RepairError::BackupFailure};
+        }
       }
       std::filesystem::create_directory(backup_dir, ec);
       if (ec) {
@@ -4597,6 +4606,9 @@ std::expected<void, InMemoryStorage::ResetError> InMemoryStorage::ResetDefunct()
 }
 
 void InMemoryStorage::ResetTenant() {
+  // Mututally exclusive with periodic snapshot
+  auto snapshot_lock = std::lock_guard{snapshot_lock_};
+  auto main_lock = std::lock_guard{main_lock_};  // needed for Clear()
   Clear();
   name_id_mapper_->Clear();
   description_store_.Clear();

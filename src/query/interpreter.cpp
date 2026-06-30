@@ -6301,8 +6301,8 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
 }
 
 PreparedQuery PrepareResetDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
-                                         replication_coordination_glue::ReplicationRole replication_role,
-                                         Interpreter &interpreter, std::vector<Notification> *notifications) {
+                                        replication_coordination_glue::ReplicationRole replication_role,
+                                        Interpreter &interpreter, std::vector<Notification> *notifications) {
   if (in_explicit_transaction) {
     throw ResetDatabaseInMulticommandTxException();
   }
@@ -9983,6 +9983,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // replication, ...) do not touch the tenant graph and are allowed through.
       if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsDefunct()) {
         auto *q = parsed_query.query;
+<<<<<<< HEAD
         // Allowlist: in the broken state only RECOVER SNAPSHOT (the cure) and read-only meta/info
         // queries that never touch the tenant graph are permitted. Everything else (Cypher, DDL,
         // CREATE SNAPSHOT, ...) is rejected until the database is recovered.
@@ -9990,19 +9991,40 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
             utils::Downcast<RecoverSnapshotQuery>(q) != nullptr || utils::Downcast<ResetDatabaseQuery>(q) != nullptr ||
             utils::Downcast<DatabaseInfoQuery>(q) != nullptr || utils::Downcast<SystemInfoQuery>(q) != nullptr ||
             utils::Downcast<ReplicationInfoQuery>(q) != nullptr || utils::Downcast<ShowConfigQuery>(q) != nullptr ||
-            utils::Downcast<ShowQueryCallableMappingsQuery>(q) != nullptr ||
-            utils::Downcast<SettingQuery>(q) != nullptr || utils::Downcast<VersionQuery>(q) != nullptr ||
-            utils::Downcast<UseDatabaseQuery>(q) != nullptr || utils::Downcast<MultiDatabaseQuery>(q) != nullptr ||
-            utils::Downcast<ShowDatabaseQuery>(q) != nullptr || utils::Downcast<ShowDatabasesQuery>(q) != nullptr ||
-            utils::Downcast<ShowMemoryInfoQuery>(q) != nullptr || utils::Downcast<SessionTraceQuery>(q) != nullptr ||
-            utils::Downcast<SessionSettingQuery>(q) != nullptr;
-        if (!is_allowed) {
-          throw QueryException(
-              "Database is in the broken state because the recovery process failed. Please recover your database "
-              "using the RECOVER SNAPSHOT query or RESET DATABASE query + run your import queries. If you have a "
-              "backup of the whole data directory, please replace the current data directory with the backup one and "
-              "restart the process.");
-        }
+      }
+      .template operator()<RecoverSnapshotQuery,
+                           RepairDatabaseQuery,
+                           DatabaseInfoQuery,
+                           SystemInfoQuery,
+                           ReplicationInfoQuery,
+                           ShowConfigQuery,
+                           ShowQueryCallableMappingsQuery,
+                           SettingQuery,
+                           VersionQuery,
+                           UseDatabaseQuery,
+                           MultiDatabaseQuery,
+                           ShowDatabaseQuery,
+                           ShowDatabasesQuery,
+                           ShowMemoryInfoQuery,
+                           SessionTraceQuery,
+                           SessionSettingQuery,
+                           AuthQuery,
+                           ReplicationQuery,
+                           UserProfileQuery,
+                           TenantProfileQuery,
+                           ParameterQuery,
+                           TransactionQueueQuery,
+                           LockPathQuery,
+                           FreeMemoryQuery,
+                           CoordinatorQuery,
+                           ReloadSSLQuery>();
+>>>>>>> 9b6254fb2 (fix: PR fixes)
+      if (!is_allowed) {
+        throw QueryException(
+            "Database is in the broken state because the recovery process failed. Please recover your database "
+            "using the RECOVER SNAPSHOT query or RESET DATABASE query + run your import queries. If you have a "
+            "backup of the whole data directory, please replace the current data directory with the backup one and "
+            "restart the process.");
       }
 
       if (transaction_requirements.accessor_type_) {
@@ -10118,7 +10140,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                        current_db_,
                                        interpreter_context_);
 #else
-      throw EnterpriseOnlyException();
+        throw EnterpriseOnlyException();
 #endif  // MG_ENTERPRISE
     } else if (utils::Downcast<ReloadSSLQuery>(parsed_query.query)) {
       prepared_query = PrepareReloadSSLQuery(
@@ -10181,7 +10203,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                                *interpreter_context_->coordinator_state_,
                                                interpreter_context_->config);
 #else
-      throw EnterpriseOnlyException();
+        throw EnterpriseOnlyException();
 #endif
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
@@ -10218,11 +10240,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<ResetDatabaseQuery>(parsed_query.query)) {
       auto const replication_role = interpreter_context_->repl_state->ReadLock()->GetRole();
       prepared_query = PrepareResetDatabaseQuery(std::move(parsed_query),
-                                                  in_explicit_transaction_,
-                                                  current_db_,
-                                                  replication_role,
-                                                  *this,
-                                                  &query_execution->notifications);
+                                                 in_explicit_transaction_,
+                                                 current_db_,
+                                                 replication_role,
+                                                 *this,
+                                                 &query_execution->notifications);
     } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
       prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<ShowNextSnapshotQuery>(parsed_query.query)) {
@@ -10721,7 +10743,7 @@ void Interpreter::Commit() {
       }
       return system_transaction_->Commit(memgraph::system::DoNothing{});
 #else
-      return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
+        return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
 #endif
     };
 
@@ -10975,11 +10997,11 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
   }
 }
 #else
-void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
-  user_or_role_ = std::move(user_or_role);
-  session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
-                                                                        : std::string{});
-}
+  void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
+    user_or_role_ = std::move(user_or_role);
+    session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
+                                                                          : std::string{});
+  }
 #endif
 
 void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
