@@ -29,7 +29,19 @@ PullPlan construction (where `cursor_->mode()` is known, interpreter.cpp:3398-34
 radius (the thing B avoids). Instead use a **side-channel flag on SessionHL** (NOT on `bolt::Session`):
 `bool pull_task_dispatched_`. Set it in the HandlePull path when a coro pull is dispatched; the DoWork
 lambda reads it after each `Execute()` and, if set, returns WITHOUT DoRead and WITHOUT the priority-
-reschedule. bolt::Session is untouched.
+reschedule.
+
+**Dispatch-stop nuance (pipelining):** HandlePull does NOT call Pull; it stashes `(n,qid,is_pull)` on
+SessionHL, sets `pull_task_dispatched_`, and returns. But `Execute_`'s loop would otherwise `GetChunk()`
+the NEXT buffered message and process it inline before DoWork ever sees the flag — breaking sequential for
+a pipelined client (RUN+PULL+RUN+PULL in one TCP segment). So `Execute_` needs a MINIMAL additive guard:
+after the per-message switch, `if (impl.PullTaskDispatched()) return;` (break the decode loop immediately).
+This reads an impl-side flag (Execute_ already calls impl methods) — it is NOT a return-type/State change,
+so the shared bolt v1/v4/v5 protocol semantics are untouched (Correction-2 intent preserved). DoWork then
+sees the flag and dispatches. The DISPATCH itself lives in DoWork (it creates the pull-task closure
+capturing shared_this + the stashed n/qid — DoWork can reach the private DoWork/DoRead/pull_in_flight_;
+HandlePull cannot, so HandlePull only stashes + flags). The pull-task does the HandlePull TAIL
+(MessageSuccess + set Bolt State) itself, on completion, before re-arm.
 
 **REQUIRED CONCURRENCY MECHANISMS (all in v2 Session / SessionHL — pool infra B1 is sufficient):**
 - **`std::atomic<bool> pull_in_flight_` on `Session`.** Set (release) before dispatching the pull-task;

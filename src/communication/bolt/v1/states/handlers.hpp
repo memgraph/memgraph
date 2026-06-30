@@ -106,6 +106,23 @@ namespace details {
 template <bool is_pull, typename TSession>
 State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<int> qid) {
   try {
+    // d1b: for PULL requests on coro-driven queries, stash the pull params and signal DoWork to
+    // dispatch a resumable pool task.  The task performs the actual Pull() + FinishPull() tail.
+    // DISCARD is never coro-driven (no PullPlan coroutine drive on discard path), so it always
+    // takes the inline sync path below.
+    if constexpr (is_pull) {
+      if (session.IsPullCoroDriven(qid)) {
+        // Stash (n, qid, is_pull) on SessionHL; DoWork will dispatch the pull-task.
+        session.StashPendingPull(n, qid, true);
+        session.SetPullTaskDispatched();
+        // Return State::Result to preserve the Bolt state machine invariant: the session is still
+        // "in a result stream" — the pull-task will set the actual final state (Result/Idle/Close)
+        // via SetBoltState() before re-arming DoWork.
+        return State::Result;
+      }
+    }
+
+    // ── Inline sync path (unchanged) ──────────────────────────────────────────────────────────
     map_t summary;
     if constexpr (is_pull) {
       // Pull can throw.

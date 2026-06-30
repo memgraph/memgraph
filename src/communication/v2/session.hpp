@@ -364,6 +364,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
 
     input_buffer_.write_end()->Written(bytes_transferred);
+
+    // d1b: if a coro pull-task is in flight, suppress the DoWork dispatch — the pull-task
+    // owns the session until it re-arms.  OnRead is strand-bound; pull_in_flight_ is acquire.
+    if (pull_in_flight_.load(std::memory_order_acquire)) {
+      return;  // pull-task's re-arm (DoWork call) will drain the newly arrived bytes
+    }
+
     DoWork();
   }
 
@@ -393,10 +400,106 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           try {
             while (true) {
               if (shared_this->session_.Execute()) {
-                // Check if we can just steal this task (loop through)
+                // d1b: HandlePullDiscard may have stashed a coro pull and returned early.
+                // Check BEFORE the priority-reschedule branch so we never arm a second task or
+                // DoRead while a pull-task is being dispatched.
+                if (shared_this->session_.PullTaskDispatched()) {
+                  auto pend = shared_this->session_.TakePendingPull();
+
+                  // Serialization assert: pull_in_flight_ must be false here (one task at a time).
+                  // We do the CAS 0→1; if it fails the invariant is broken — terminate loudly.
+                  bool expected = false;
+                  const bool swapped = shared_this->pull_in_flight_.compare_exchange_strong(
+                      expected, true, std::memory_order_release, std::memory_order_relaxed);
+                  MG_ASSERT(swapped, "BUG: pull_in_flight_ was already set — two concurrent pull-tasks!");
+
+                  // Dispatch the resumable pull-task.  It captures shared_this (session lifetime)
+                  // and the stashed pend.  The task runs on a LOW pool worker (pinned by the
+                  // ScheduleResumableTask wrapper on park/yield).
+                  shared_this->session_context_->ScheduleResumableTask(
+                      [shared_this, pend]() mutable -> bool {
+                        // Pull-task body.  Re-enter via SessionHL::Pull on EVERY invocation
+                        // (fresh + park-resume) so DbArenaScope + StartTrackingCurrentThread are
+                        // re-established each call.
+                        // Use std::optional to hold the summary without a default constructor
+                        // dependency on the concrete bolt map type (template-safe).
+                        bool parked = false;
+                        std::optional<decltype(shared_this->session_.Pull(pend.n, pend.qid))> maybe_summary;
+                        try {
+                          if (pend.is_pull) {
+                            maybe_summary = shared_this->session_.Pull(pend.n, pend.qid, &parked);
+                          } else {
+                            // DISCARD is never coro-driven, but wire for symmetry.
+                            maybe_summary = shared_this->session_.Discard(pend.n, pend.qid);
+                          }
+                        } catch (const std::exception & /* unused */) {
+                          // Exception from the pull. Clear pull_in_flight_ + handle the exception ON THE
+                          // STRAND, so they serialize with OnRead: while pull_in_flight_ is still true (until
+                          // the strand lambda runs) OnRead early-returns, so no second task can start in the
+                          // half-thrown Bolt state. (This is why the bolt state_ left at Result by HandlePull
+                          // is harmless — HandleException → DoShutdown runs strand-serialized, after which no
+                          // Execute() runs.)
+                          boost::asio::post(shared_this->strand_, [shared_this, eptr = std::current_exception()]() {
+                            shared_this->pull_in_flight_.store(false, std::memory_order_release);
+                            shared_this->HandleException(eptr);
+                          });
+                          return false;  // task done (error path)
+                        }
+
+                        if (parked) {
+                          // d1: parks are DORMANT — nothing sets yield_requested, so this branch
+                          // never fires.  Wire it anyway for d2 (park return → wrapper reschedules
+                          // pinned on same worker; continuation re-enters this body on resume).
+                          return true;  // yielded; resumable wrapper re-queues pinned
+                        }
+
+                        // Pull completed (BatchContinues or Finished).  Send the summary and
+                        // update the Bolt state machine.  FinishPull sets session_.state_ directly
+                        // (avoids naming bolt::State in the generic template) and returns false on
+                        // send failure.
+                        const bool send_ok = shared_this->session_.FinishPull(std::move(*maybe_summary), pend.is_pull);
+
+                        if (!send_ok) [[unlikely]] {
+                          // FinishPull couldn't send — shut down (clear in-flight + shut down ON THE STRAND,
+                          // serialized with OnRead — see the re-arm note below).
+                          boost::asio::post(shared_this->strand_, [shared_this]() {
+                            shared_this->pull_in_flight_.store(false, std::memory_order_release);
+                            shared_this->DoShutdown();
+                          });
+                          return false;
+                        }
+
+                        // Re-arm ON THE STRAND. Clearing pull_in_flight_ and posting the next DoWork both
+                        // run on strand_, which is the SAME executor as OnRead — so they are serialized and
+                        // a concurrent OnRead can NEVER observe pull_in_flight_==false in a clear→DoWork
+                        // window and enqueue a duplicate pool task. (Calling DoWork() directly off the pull
+                        // worker was safe in d1 only by the fragile invariant "no async read is armed during
+                        // the pull-task"; routing through the strand makes it unconditionally race-free for
+                        // both the d1 no-park case and the d2 park-resume case. DoWork() internally drains
+                        // buffered messages or arms DoRead — we never call DoRead directly here.)
+                        boost::asio::post(shared_this->strand_, [shared_this]() {
+                          shared_this->pull_in_flight_.store(false, std::memory_order_release);
+                          shared_this->DoWork();
+                        });
+                        return false;  // task done
+                      },
+                      utils::Priority::LOW);
+
+                  return;  // decode task done; pull-task owns continuation
+                }
+
+                // Normal priority-reschedule path (no pull-task dispatched).
                 if (thread_priority > shared_this->session_.ApproximateQueryPriority()) {
-                  // Task priority lower; reschedule
-                  shared_this->DoWork();
+                  // d1b safety: never reschedule while a pull-task is in flight.
+                  // pull_in_flight_ was cleared above (or never set for non-coro), so this
+                  // check is purely defensive.
+                  if (!shared_this->pull_in_flight_.load(std::memory_order_acquire)) {
+                    // Task priority lower; reschedule
+                    shared_this->DoWork();
+                    return;
+                  }
+                  // pull_in_flight_ is set — should not reach here given the dispatch branch above,
+                  // but be safe: just return and let the pull-task re-arm.
                   return;
                 }
               } else {
@@ -529,5 +632,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
+
+  // d1b: serialization guard for the coro pull-task dispatch.
+  //
+  // Invariant: at most ONE pool task touches this Session at any instant.
+  //   - Set (release) by DoWork before dispatching the pull-task.
+  //   - Cleared (release) by the pull-task's re-arm, sequenced BEFORE DoWork() re-arm.
+  //   - Checked (acquire) by OnRead: if set, suppress the DoWork dispatch.
+  //   - Checked (acquire) by the priority-reschedule branch in DoWork: never reschedule
+  //     while a pull-task is live.
+  // A CAS 0→1 on dispatch acts as a release-build assert (MG_ASSERT on failure).
+  // alignas(64) prevents false sharing with execution_active_ on the same cache line.
+  alignas(64) std::atomic<bool> pull_in_flight_{false};
 };
 }  // namespace memgraph::communication::v2

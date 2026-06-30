@@ -93,13 +93,56 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
              std::optional<std::string> const &db, bolt_map_t const &extra) -> bolt_map_t;
 #endif
 
-  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid);
+  /// Sync Pull — existing inline path.  Called by the Bolt handler directly for non-coro queries
+  /// and by FinishPull internally.  The parked out-param is forwarded into Interpreter::Pull;
+  /// it is set to true if the pull parked (d2+), left false (d1: parks are dormant).
+  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid, bool *parked = nullptr);
 
   /// Returns true iff the query identified by @p qid (or the last query when nullopt) was
   /// prepared with a Coro-mode root cursor.  Forwards to Interpreter::IsCursorCoroDriven().
   /// Called by the Bolt dispatch layer (d1b) to choose between the inline sync path and a
-  /// resumable pool task.  NOT called anywhere yet — this is d1a plumbing only.
+  /// resumable pool task.
   bool IsPullCoroDriven(std::optional<int> qid) const;
+
+  // ── d1b: pull-task dispatch plumbing ─────────────────────────────────────────────────────────
+  //
+  // When HandlePullDiscard detects a coro pull it does NOT call Pull inline.  Instead it stashes
+  // the (n, qid, is_pull) triple on SessionHL and sets pull_task_dispatched_.  DoWork sees the
+  // flag, dispatches a resumable pool task, and stops the decode loop.  The pull-task re-arms
+  // DoWork on completion.  Sequential per session is guaranteed by pull_in_flight_ in v2::Session.
+
+  /// Stash for a pending coro pull dispatched by HandlePullDiscard.
+  struct PendingPull {
+    std::optional<int> n;
+    std::optional<int> qid;
+    bool is_pull{true};  ///< true = PULL, false = DISCARD (DISCARD never coro, but wire for symmetry)
+  };
+
+  /// Called by HandlePullDiscard when a coro pull is detected: stash the pull params.
+  void StashPendingPull(std::optional<int> n, std::optional<int> qid, bool is_pull) noexcept {
+    pending_pull_ = PendingPull{n, qid, is_pull};
+  }
+
+  /// Called by HandlePullDiscard immediately after StashPendingPull to signal DoWork to dispatch.
+  void SetPullTaskDispatched() noexcept { pull_task_dispatched_ = true; }
+
+  /// Read by the Execute_ decode-loop guard and by DoWork.  Non-atomic: both callers are on the
+  /// same pool task (the one running Execute_/DoWork), so no data race here.
+  [[nodiscard]] bool PullTaskDispatched() const noexcept { return pull_task_dispatched_; }
+
+  /// DoWork calls this to atomically take the stash and clear the dispatched flag.
+  /// Returns the stashed pull params; the stash is cleared so it cannot be taken twice.
+  [[nodiscard]] PendingPull TakePendingPull() noexcept {
+    pull_task_dispatched_ = false;
+    return std::exchange(pending_pull_, PendingPull{});
+  }
+
+  /// Execute the HandlePullDiscard TAIL for a completed (non-parked) pull:
+  ///   encoder_.MessageSuccess(summary)  → sets Bolt State (Result if has_more, else Idle).
+  /// Returns false if sending the summary failed (caller should shut down the session).
+  /// The Bolt state_ is updated internally, so the caller does NOT need to call SetBoltState.
+  /// Called by the pull-task after Pull() returns with parked==false.
+  bool FinishPull(bolt_map_t summary, bool is_pull);
 
   bolt_map_t Discard(std::optional<int> n, std::optional<int> qid);
 
@@ -156,6 +199,11 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   metrics::ScopedGauge bolt_session_gauge_;
   std::optional<ParseRes> parsed_res_;  // SessionHL corresponds to a single connection (we do not support out of order
                                         // execution, so a single query can be prepared/executed)
+
+  // ── d1b: pending coro pull stash ─────────────────────────────────────────────────────────────
+  // Both fields are touched exclusively by the in-flight DoWork/pull-task — no data race.
+  PendingPull pending_pull_{};        ///< Stashed (n, qid, is_pull) from HandlePullDiscard.
+  bool pull_task_dispatched_{false};  ///< Set by HandlePullDiscard; cleared by TakePendingPull.
 };
 
 }  // namespace memgraph::glue

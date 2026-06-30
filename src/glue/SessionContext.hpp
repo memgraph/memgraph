@@ -49,5 +49,12 @@ struct Context {
     MG_ASSERT(worker_pool_, "Trying to add task to a non-existent worker pool");
     return worker_pool_->ScheduledAddTask(std::forward<decltype(task)>(task), priority);
   }
+
+  /// Schedule a resumable task (returns true if it yielded, false when done).
+  /// Only Priority::LOW is supported (pool assertion mirrors PriorityThreadPool::ScheduleResumableTask).
+  void ScheduleResumableTask(utils::ResumableTaskSignature task, utils::Priority priority) {
+    MG_ASSERT(worker_pool_, "Trying to schedule resumable task on a non-existent worker pool");
+    worker_pool_->ScheduleResumableTask(std::move(task), priority);
+  }
 };
 }  // namespace memgraph::glue

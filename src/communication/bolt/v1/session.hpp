@@ -157,6 +157,13 @@ class Session {
         return true;  // more data to process
       }
 
+      // d1b pipelining guard: a coro PULL was stashed by HandlePullDiscard.  Break the decode loop
+      // immediately so DoWork sees pull_task_dispatched_ and dispatches the resumable pull-task
+      // BEFORE processing any further buffered messages (RUN+PULL+RUN+PULL pipelining safety).
+      // This is a SIDE-CHANNEL read on the impl (SessionHL) — it does NOT change Execute_'s bool
+      // return type and does NOT touch shared bolt v1/v4/v5 State (Correction-2 compliance).
+      if (impl.PullTaskDispatched()) return true;  // more data buffered; DoWork stops the loop
+
       if (state_ == State::Close) [[unlikely]] {
         // State::Close is handled here because we always want to check for
         // it after the above select. If any of the states above return a

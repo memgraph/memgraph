@@ -369,7 +369,7 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
   }
 }
 
-bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
+bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid, bool *parked) {
   try {
     using TEncoder =
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
@@ -389,7 +389,7 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     }
 #endif
     TypedValueResultStream<TEncoder> stream(&encoder_, storage, auth_checker.get());
-    return DecodeSummary(interpreter_.Pull(&stream, n, qid));
+    return DecodeSummary(interpreter_.Pull(&stream, n, qid, parked));
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
@@ -401,6 +401,27 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     // could succeed if executed again.
     throw;
   }
+}
+
+bool SessionHL::FinishPull(bolt_map_t summary, bool /*is_pull*/) {
+  // This is the HandlePullDiscard TAIL, factored out so the pull-task and the inline sync path
+  // use identical logic.  The is_pull flag is reserved for future DISCARD asymmetry; currently
+  // both PULL and DISCARD share the same tail (the summary already contains has_more).
+  //
+  // Returns false if sending the summary failed (caller should shut down the session);
+  // true on success.  Updates state_ directly so the caller needs no access to bolt::State.
+  if (!encoder_.MessageSuccess(summary)) {
+    spdlog::trace("Couldn't send query summary!");
+    state_ = communication::bolt::State::Close;
+    return false;  // send failure — caller should DoShutdown
+  }
+  auto has_more_it = summary.find("has_more");
+  if (has_more_it != summary.end() && has_more_it->second.IsBool() && has_more_it->second.ValueBool()) {
+    state_ = communication::bolt::State::Result;
+  } else {
+    state_ = communication::bolt::State::Idle;
+  }
+  return true;  // success
 }
 
 bool SessionHL::IsPullCoroDriven(std::optional<int> qid) const {
