@@ -398,7 +398,7 @@ struct DropDatabase : memgraph::system::ISystemAction {
 // from the main (their commit timestamp is back to 0, so no branching point is detected) and become
 // ready to accept the main's subsequent commits.
 struct ResetDatabaseAction : memgraph::system::ISystemAction {
-  ResetDatabaseAction(utils::UUID uuid, DatabaseAccess db_acc) : uuid_{uuid}, db_acc_{std::move(db_acc)} {}
+  ResetDatabaseAction(utils::UUID uuid, DatabaseAccess db_acc) : uuid_{uuid} {}
 
   void DoDurability() override { /* Done during DBMS execution */ }
 
@@ -418,7 +418,6 @@ struct ResetDatabaseAction : memgraph::system::ISystemAction {
 
  private:
   utils::UUID uuid_;
-  DatabaseAccess db_acc_;
 };
 
 struct RenameDatabase : memgraph::system::ISystemAction {
@@ -906,7 +905,11 @@ std::optional<std::string> DbmsHandler::ResetDatabase(DatabaseAccess db_acc,
 #ifdef MG_ENTERPRISE
   // Replicate the reset to the replicas so they wipe their stale tenant data and re-sync from the main.
   if (txn) {
+<<<<<<< HEAD
     txn->AddAction<ResetDatabaseAction>(mem_storage->uuid(), std::move(db_acc));
+=======
+    txn->AddAction<RepairDatabaseAction>(mem_storage->uuid());
+>>>>>>> f8f6c2b02 (fix: Unused db_acc)
   }
 #endif
 
