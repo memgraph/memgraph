@@ -56,6 +56,7 @@
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
+#include "query/plan/cursor_awaitable.hpp"  // SetForceYieldForTesting (DEBUG-only B3 d2 test hook)
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
@@ -274,6 +275,17 @@ int main(int argc, char **argv) {
 
   // Publish worker count early so allocators can pre-size thread-local structures
   memgraph::utils::SetNumWorkers(FLAGS_bolt_num_workers);
+
+#ifndef NDEBUG
+  // DEBUG-only test hook (B3 d2): force every coroutine-cursor checkpoint to cooperatively yield, so the
+  // end-to-end park/resume path (session dispatch -> resumable pool task -> park -> pinned re-arm -> resume)
+  // is exercised through the real server. No production effect (compiled out under NDEBUG / off unless the
+  // env var is set). Enable with MG_FORCE_YIELD_FOR_TESTING=1.
+  if (std::getenv("MG_FORCE_YIELD_FOR_TESTING") != nullptr) {
+    memgraph::query::plan::SetForceYieldForTesting(true);
+    spdlog::warn("MG_FORCE_YIELD_FOR_TESTING is set: every coroutine checkpoint will yield (TEST BUILD ONLY).");
+  }
+#endif
 
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);

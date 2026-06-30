@@ -67,11 +67,18 @@ assert is satisfied by construction, no runtime guard needed (document it). `has
 `Parked` never conflate (a BatchContinues pull-task already returned DONE; a fresh next-PULL is a new
 dispatch, a park-resume re-enters the same task). Sequential invariant IS achievable with the above.
 
-**d2-ONLY (parks dormant in d1, so deferred):** shutdown-while-parked — `ShutDown()` must `NotifyAll()` all
-live `WorkerResumeEvent` waiters (else a parked continuation holding `shared_from_this` leaks the Session +
-suspended coroutine frame) + handle the `DoShutdown`-vs-socket-write TOCTOU (Write already converts a
-closed-socket send to OnError, but the concurrent close on the fd is UB → gate the write or drain on
-shutdown). Ties to the c-core-2 `~PullPlan` shutdown guard.
+**d2 OUTCOME (2026-06-30): the yield-kind cross-task park is LIVE + proven end-to-end.** The mechanism was
+already wired by d1b: pull-task sees `parked` → `return true` → B1 `ScheduleResumableTask` wrapper
+reschedules the continuation PINNED to the same worker (work_pinned_) → worker re-runs the pull-task body
+→ re-enters SessionHL::Pull → resumes the stashed coro. d2 added only a DEBUG-gated startup hook
+(`MG_FORCE_YIELD_FOR_TESTING` env → SetForceYieldForTesting) so the server force-yields, and PROVED it:
+with force-yield ON (every coro checkpoint parks), the real-Bolt smoke (serial batched n=1,2,7,100,1000
+over ORDER BY+aggregate + 8-way concurrent sessions) is result-identical, clean log, no deadlock.
+**CORRECTION to the deferred item:** the shutdown-while-parked `WorkerResumeEvent::NotifyAll` cancellation
+is a **c3 (park-kind) concern, NOT d2** — the YIELD-kind continuation lives in `work_pinned_`, which the
+worker loop DRAINS on shutdown (B1), so yield-kind shutdown is already safe. The `WorkerResumeEvent` leak
+only applies when the coordinator park (c3) actually registers an event waiter. The `DoShutdown`-vs-write
+TOCTOU is pre-existing (Write→OnError handles it). So d2 needs no shutdown cancellation.
 
 ## Ground facts (verified)
 - `Session::DoWork()` (communication/v2/session.hpp:390) posts ONE pool task: `while (session_.Execute()) {...}`;
