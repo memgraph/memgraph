@@ -213,4 +213,18 @@ class AllowEverythingAuthChecker final : public AuthChecker {
   }
 };
 
+struct CachedFineGrainedAuth {
+  std::unique_ptr<FineGrainedAuthChecker> checker;
+  std::string db_name;
+  bool checked{false};
+
+  FineGrainedAuthChecker *get() const { return checker.get(); }
+
+  void Reset() {
+    checker.reset();
+    db_name.clear();
+    checked = false;
+  }
+};
+
 }  // namespace memgraph::query

@@ -3651,7 +3651,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               std::move(stopping_context),
                                               dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
                                               *(*current_db.db_acc_)->metric_handles(),
-                                              interpreter.cached_auth_checker_.get(),
+                                              interpreter.cached_fga_.get(),
                                               trigger_context_collector,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
@@ -3862,7 +3862,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          db_acc = *current_db.db_acc_,
                                          hops_limit,
                                          db_arena_pool = &current_db.db_acc_->get()->Arena(),
-                                         cached_auth_checker = interpreter.cached_auth_checker_.get()
+                                         cached_auth_checker = interpreter.cached_fga_.get()
 #ifdef MG_ENTERPRISE
                                              ,
                                          parallel_execution,
@@ -9948,19 +9948,19 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (current_db_.execution_db_accessor_ && interpreter_context_->auth_checker && user_or_role_ && *user_or_role_) {
       auto *dba = &*current_db_.execution_db_accessor_;
       auto const current_db = dba->DatabaseName();
-      if (cached_auth_checker_ && auth_checker_db_name_ == current_db) {
-        cached_auth_checker_->UpdateDbAccessor(dba);
+      if (cached_fga_.checked && cached_fga_.db_name == current_db) {
+        if (cached_fga_.checker) cached_fga_.checker->UpdateDbAccessor(dba);
       } else {
-        cached_auth_checker_ = interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*user_or_role_, dba);
-        DMG_ASSERT(cached_auth_checker_, "Auth checker should not be null");
-        if (!cached_auth_checker_->NeedsFineGrainedAuthChecker()) {
-          cached_auth_checker_.reset();
+        cached_fga_.checker = interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*user_or_role_, dba);
+        DMG_ASSERT(cached_fga_.checker, "Auth checker should not be null");
+        if (!cached_fga_.checker->NeedsFineGrainedAuthChecker()) {
+          cached_fga_.checker.reset();
         }
-        auth_checker_db_name_ = current_db;
+        cached_fga_.db_name = current_db;
+        cached_fga_.checked = true;
       }
     } else {
-      cached_auth_checker_.reset();
-      auth_checker_db_name_.clear();
+      cached_fga_.Reset();
     }
 #endif
 
