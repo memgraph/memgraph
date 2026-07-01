@@ -260,6 +260,23 @@ COPY_FILES() {
        $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
        $docker_exec "touch /opt/memgraph/memgraph.log"
 
+       # The memgraph binary carries an abi3-portable DT_NEEDED of `libpython3.so`
+       # (the CMake POST_BUILD patchelf rewrite). Jepsen node images ship only the
+       # versioned libpython (e.g. libpython3.11.so.1.0), so create the unversioned
+       # SONAME symlink the loader needs. Idempotent; never aborts the run.
+       $docker_exec '
+         libdir=""
+         for d in "/usr/lib/$(uname -m)-linux-gnu" /usr/lib64 /usr/lib; do
+           if ls "$d"/libpython3.*.so.1.0 >/dev/null 2>&1; then libdir="$d"; break; fi
+         done
+         if [ -n "$libdir" ] && [ ! -e "$libdir/libpython3.so" ]; then
+           target=$(ls -1 "$libdir"/libpython3.*.so.1.0 | sort -V | tail -1)
+           ln -sf "$(basename "$target")" "$libdir/libpython3.so"
+           ldconfig || true
+           echo "Created $libdir/libpython3.so -> $(basename "$target")"
+         fi
+       ' || true
+
        # Copy intra-cluster TLS certs (n1..n3 -> instanceN, n4..n6 -> coord(N-3)),
        # placed under a canonical path so support.clj can hard-code it.
        if [ "$INTRA_CLUSTER_TLS" = "true" ]; then
