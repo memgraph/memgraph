@@ -151,7 +151,7 @@ print_help () {
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
   echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
-  echo -e "  --python-build-version string       Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
+  echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
   echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
   echo -e "  --conan-username string       Specify conan username (default \"\")"
@@ -639,19 +639,11 @@ build_memgraph () {
         shift 1
       ;;
       --python-build-version)
-        # Override the Python the binary is built against. Empty/unset keeps the
-        # container's default Python. Maps to find_package(Python3 <v> EXACT) in
-        # src/query/CMakeLists.txt. The version is also installed from deadsnakes
-        # (Ubuntu) before the build, see below.
         python_build_version="$2"
         python_build_version_flag="-DMG_PYTHON_VERSION=$2"
         shift 2
       ;;
       --python-runtime-version)
-        # After building (and reporting the build-time link), remove the build
-        # Python and install this version instead, so the test steps that follow
-        # run the binary against a libpython it was NOT built against — proving
-        # the abi3 (stable-ABI) portability promise.
         python_runtime_version="$2"
         shift 2
       ;;
@@ -1882,33 +1874,20 @@ test_memgraph() {
     e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
       docker exec -u root $build_container bash -c "apt-get update && apt-get install -y lsof" # TODO(matt): install within mgbuild container
-      if [[ -n "$python_runtime_version" ]]; then
-        # Memgraph embeds the runtime-swapped libpython, so install the deps for
-        # that interpreter (ensurepip bootstraps pip into its --user site).
-        local PY="python${python_runtime_version}"
-        docker exec -u mg $build_container bash -c "$PY -m pip install --user --break-system-packages --upgrade pip"
-        docker exec -u mg $build_container bash -c "$PY -m pip install --user --break-system-packages networkx==2.5.1"
-      else
-        docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
-        docker exec -u mg $build_container bash -c "pip install --break-system-packages --user networkx==2.5.1"
-      fi
+      local pycmd="python${python_runtime_version:-3}"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user networkx==2.5.1"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE && ./run.sh"
     ;;
     query_modules_e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
-      if [[ -n "$python_runtime_version" ]]; then
-        # Memgraph embeds the runtime-swapped libpython, so install the deps for
-        if [[ "$python_runtime_version" == "3.13" || "$python_runtime_version" == "3.14" ]]; then
-            # We currently depend on an older version of scipy which only has binaries for up to Python 3.12
-            docker exec -u root $build_container bash -c "apt install -y gfortran"
-        fi
-        local PY="python${python_runtime_version}"
-        docker exec -u mg $build_container bash -c "$PY -m pip install --user --break-system-packages --upgrade pip"
-        docker exec -u mg $build_container bash -c "$PY -m pip install --user --break-system-packages -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
-      else
-        docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
-        docker exec -u mg $build_container bash -c "pip install --break-system-packages --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
+      if [[ "$python_runtime_version" == "3.13" || "$python_runtime_version" == "3.14" ]]; then
+        # We currently depend on an older version of scipy which only has binaries for up to Python 3.12
+        docker exec -u root $build_container bash -c "apt install -y gfortran"
       fi
+      local pycmd="python${python_runtime_version:-3}"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests/query_modules && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 -m pytest ."
     ;;
     query_modules_unit)
