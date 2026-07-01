@@ -218,7 +218,7 @@ struct CachedFineGrainedAuth {
   std::string db_name;
   bool checked{false};
 
-  FineGrainedAuthChecker *get() const { return checker.get(); }
+  FineGrainedAuthChecker const *get() const { return checker.get(); }
 
   void Reset() {
     checker.reset();
