@@ -4127,7 +4127,7 @@ bool HasFineGrainedEdgeRestrictions(const mgp_graph &graph) {
 // access), but property precheck conservatively blocks once property RBAC is active — we can't
 // certify a property's readability across every possible label.
 
-std::optional<std::string> PrecheckVertexTextSearchAccess(const mgp_graph &graph, const std::string &index_name) {
+std::optional<std::string> PrecheckVertexTextSearchAccess(const mgp_graph &graph, std::string_view index_name) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return std::nullopt;
   const auto *auth_checker = ctx->auth_checker.get();
@@ -4137,8 +4137,8 @@ std::optional<std::string> PrecheckVertexTextSearchAccess(const mgp_graph &graph
   });
   if (it == indices.text_indices.end()) return std::nullopt;
 
-  const auto labels = std::span<const memgraph::storage::LabelId>(&it->label, 1);
-  if (!auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+  const auto label_span = std::span<const memgraph::storage::LabelId>(&it->label, 1);
+  if (!auth_checker->Has(label_span, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
     return std::string{"text_search.* is unavailable for this index because the caller lacks READ on its bound label."};
   }
   if (!auth_checker->HasAnyVertexPropertyRule()) return std::nullopt;
@@ -4149,7 +4149,7 @@ std::optional<std::string> PrecheckVertexTextSearchAccess(const mgp_graph &graph
   }
   const bool all_readable = std::ranges::all_of(it->properties, [&](const memgraph::storage::PropertyId property) {
     return auth_checker->HasPropertyPermission(
-        labels, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
+        label_span, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
   });
   if (!all_readable) {
     return std::string{
@@ -4159,7 +4159,7 @@ std::optional<std::string> PrecheckVertexTextSearchAccess(const mgp_graph &graph
   return std::nullopt;
 }
 
-std::optional<std::string> PrecheckEdgeTextSearchAccess(const mgp_graph &graph, const std::string &index_name) {
+std::optional<std::string> PrecheckEdgeTextSearchAccess(const mgp_graph &graph, std::string_view index_name) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return std::nullopt;
   const auto *auth_checker = ctx->auth_checker.get();
@@ -4191,7 +4191,7 @@ std::optional<std::string> PrecheckEdgeTextSearchAccess(const mgp_graph &graph, 
   return std::nullopt;
 }
 
-std::optional<std::string> PrecheckVertexVectorSearchAccess(const mgp_graph &graph, const std::string &index_name) {
+std::optional<std::string> PrecheckVertexVectorSearchAccess(const mgp_graph &graph, std::string_view index_name) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return std::nullopt;
   const auto *auth_checker = ctx->auth_checker.get();
@@ -4239,7 +4239,7 @@ std::optional<std::string> PrecheckVertexVectorSearchAccess(const mgp_graph &gra
   return std::nullopt;
 }
 
-std::optional<std::string> PrecheckEdgeVectorSearchAccess(const mgp_graph &graph, const std::string &index_name) {
+std::optional<std::string> PrecheckEdgeVectorSearchAccess(const mgp_graph &graph, std::string_view index_name) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return std::nullopt;
   const auto *auth_checker = ctx->auth_checker.get();
