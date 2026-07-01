@@ -43,6 +43,10 @@ on:
         type: boolean
         description: "Run smoke tests on images after building (tests against previous tagged image)"
         default: false
+      run_tests:
+        type: boolean
+        description: "Run MAGE tests (unit/e2e) after building"
+        default: false
       build_offline_installer:
         type: boolean
         description: "Build offline installer (.run) for Ubuntu 24.04"
@@ -68,7 +72,7 @@ on:
 
   workflow_call:
     inputs:
-      arch:
+      build_arch:
         type: string
         description: "Architecture to build the image for"
         required: true
@@ -103,6 +107,10 @@ on:
       run_smoke_tests:
         type: boolean
         description: "Run smoke tests on images after building (tests against previous tagged image)"
+        default: false
+      run_tests:
+        type: boolean
+        description: "Run MAGE tests (unit/e2e) after building"
         default: false
       build_offline_installer:
         type: boolean
