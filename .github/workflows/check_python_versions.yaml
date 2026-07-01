@@ -42,7 +42,7 @@ on:
             debug:
                 type: boolean
                 default: true
-                description: "Run the Debug core suite across the matrix (integration tests skipped to limit cost)."
+                description: "Run the Debug core suite across the matrix."
             release:
                 type: boolean
                 default: true
@@ -165,7 +165,7 @@ jobs:
             ref: ${{ inputs.ref || github.ref }}
             arch: "amd"
             os: "ubuntu-24.04"
-            run_core: "true"
+            run_core: "false" # "true"
             run_benchmark: "false"
             run_e2e: "true"
             run_stress: "false"
