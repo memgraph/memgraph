@@ -88,7 +88,7 @@ struct UpdateAuthDataResV1 {
 
   explicit UpdateAuthDataResV1(bool success) : success{success} {}
 
-  bool success;
+  bool success{};
 };
 
 struct UpdateAuthDataRes {
@@ -103,7 +103,7 @@ struct UpdateAuthDataRes {
 
   UpdateAuthDataResV1 Downgrade() const { return UpdateAuthDataResV1{success}; }
 
-  bool success;
+  bool success{};
 };
 
 using UpdateAuthDataRpc = rpc::RequestResponse<UpdateAuthDataReq, UpdateAuthDataRes>;

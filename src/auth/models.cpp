@@ -1946,22 +1946,22 @@ void MigrateAuthJson(nlohmann::json &data) {
       auto &perm_data = *perm_it;
 
       auto global_it = perm_data.find("global_permission");
-      if (global_it == perm_data.end() || !global_it->is_number_integer()) continue;
-
-      auto const old_perm = global_it->template get<int64_t>();
-      if (old_perm == 0) {
-        perm_data["global_grants"] = -1;
-        perm_data["global_denies"] = static_cast<int64_t>(is_label ? kAllLabelPerms : kAllEdgeTypePerms);
-      } else if (old_perm == -1) {
-        perm_data["global_grants"] = -1;
-        perm_data["global_denies"] = -1;
-      } else {
-        auto new_perm = static_cast<uint64_t>(old_perm);
-        if (is_label) new_perm = migrate_label_permissions(new_perm);
-        perm_data["global_grants"] = new_perm;
-        perm_data["global_denies"] = -1;
+      if (global_it != perm_data.end() && global_it->is_number_integer()) {
+        auto const old_perm = global_it->template get<int64_t>();
+        if (old_perm == 0) {
+          perm_data["global_grants"] = -1;
+          perm_data["global_denies"] = static_cast<int64_t>(is_label ? kAllLabelPerms : kAllEdgeTypePerms);
+        } else if (old_perm == -1) {
+          perm_data["global_grants"] = -1;
+          perm_data["global_denies"] = -1;
+        } else {
+          auto new_perm = static_cast<uint64_t>(old_perm);
+          if (is_label) new_perm = migrate_label_permissions(new_perm);
+          perm_data["global_grants"] = new_perm;
+          perm_data["global_denies"] = -1;
+        }
+        perm_data.erase("global_permission");
       }
-      perm_data.erase("global_permission");
 
       auto perms_it = perm_data.find("permissions");
       if (perms_it == perm_data.end() || !perms_it->is_array()) continue;
