@@ -391,8 +391,8 @@ struct DropDatabase : memgraph::system::ISystemAction {
   utils::UUID uuid_;
 };
 
-// REPAIR DATABASE on a defunct main: the main resets the tenant to an empty state with a fresh epoch
-// (storage->RepairDefunct() done locally before this action is recorded). This action replicates the
+// REPAIR DATABASE on a broken main: the main resets the tenant to an empty state with a fresh epoch
+// (storage->RepairBroken() done locally before this action is recorded). This action replicates the
 // reset to every replica via RepairDatabaseRpc so each replica completely wipes its stale tenant data.
 // Both main and replica end up empty at commit timestamp 0 sharing the same fresh epoch, so no branching
 // point is detected and the replicas are ready to accept the main's subsequent commits without a
@@ -893,12 +893,12 @@ std::expected<void, std::string> DbmsHandler::RepairDatabase(DatabaseAccess db_a
                                                              [[maybe_unused]] system::Transaction *txn) {
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
   // MAIN-side local reset: move the corrupt durability files aside, clear the tenant and drop the
-  // defunct flag. The tenant comes back empty with a fresh epoch. Available in Community and Enterprise.
-  if (auto repaired = mem_storage->RepairDefunct(); !repaired.has_value()) {
+  // broken flag. The tenant comes back empty with a fresh epoch. Available in Community and Enterprise.
+  if (auto repaired = mem_storage->RepairBroken(); !repaired.has_value()) {
     switch (repaired.error()) {
       using enum storage::InMemoryStorage::RepairError;
-      case NotDefunct:
-        return std::unexpected{"REPAIR DATABASE can only be run on a database in the defunct state."};
+      case NotBroken:
+        return std::unexpected{"REPAIR DATABASE can only be run on a database in the broken state."};
       case BackupFailure:
         return std::unexpected{"Failed to move aside the corrupt durability files. Please clean them manually."};
     }

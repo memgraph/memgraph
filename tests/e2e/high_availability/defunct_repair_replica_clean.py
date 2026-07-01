@@ -282,7 +282,7 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
 
     # broken_db on the (still) main is defunct.
     instance_3_cursor = connect(host="localhost", port=7687).cursor()
-    mg_sleep_and_assert("defunct", lambda: tenant_status(instance_3_cursor).get(TENANT))
+    mg_sleep_and_assert("broken", lambda: tenant_status(instance_3_cursor).get(TENANT))
 
     # 4: REPAIR DATABASE on the (defunct) main. Resets broken_db to empty and force-resyncs every replica.
     main_cursor = connect(host="localhost", port=7687).cursor()

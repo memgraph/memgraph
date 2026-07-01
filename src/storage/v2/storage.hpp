@@ -268,12 +268,12 @@ class Storage {
 
   auto uuid() -> utils::UUID & { return config_.salient.uuid; }
 
-  // A storage is defunct when it failed durability recovery on startup and was
-  // brought up empty (see --storage-allow-recovery-failure). A defunct storage
+  // A storage is broken when it failed durability recovery on startup and was
+  // brought up empty (see --storage-allow-recovery-failure). A broken storage
   // rejects data queries until recovered via RECOVER SNAPSHOT or REPAIR DATABASE.
-  bool IsDefunct() const noexcept { return defunct_.load(std::memory_order_acquire); }
+  bool IsBroken() const noexcept { return broken_.load(std::memory_order_acquire); }
 
-  void SetDefunct(bool value) noexcept { defunct_.store(value, std::memory_order_release); }
+  void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
 
   // A storage is marked repaired when it was reset to an empty working state via REPAIR DATABASE
   // (locally on the main or through the RepairDatabaseRpc on a replica). The main advertises its
@@ -442,7 +442,7 @@ class Storage {
   std::atomic<uint64_t> edge_count_{0};
 
   // Set when durability recovery failed and the storage was brought up empty.
-  std::atomic<bool> defunct_{false};
+  std::atomic<bool> broken_{false};
 
   // Set when the tenant was reset to an empty state via REPAIR DATABASE (see WasRepaired()).
   std::atomic<bool> was_repaired_{false};
