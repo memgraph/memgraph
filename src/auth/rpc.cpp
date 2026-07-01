@@ -89,7 +89,7 @@ auth::User LoadAndMigrateUser(memgraph::slk::Reader *reader) {
   return user;
 }
 
-std::string LoadRoleJsonRaw(memgraph::slk::Reader *reader) {
+std::string LoadJsonStringRaw(memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
   return tmp;
@@ -203,7 +203,7 @@ void Load(memgraph::replication::UpdateAuthDataReqV1 *self, memgraph::slk::Reade
     std::vector<std::string> role_jsons;
     role_jsons.reserve(num_roles);
     for (uint64_t i = 0; i < num_roles; ++i) {
-      role_jsons.push_back(LoadRoleJsonRaw(reader));
+      role_jsons.push_back(LoadJsonStringRaw(reader));
     }
     self->user_role_jsons = std::move(role_jsons);
 
@@ -216,7 +216,7 @@ void Load(memgraph::replication::UpdateAuthDataReqV1 *self, memgraph::slk::Reade
   bool has_role = false;
   memgraph::slk::Load(&has_role, reader);
   if (has_role) {
-    self->role_json = LoadRoleJsonRaw(reader);
+    self->role_json = LoadJsonStringRaw(reader);
   }
 
   // Profile (unchanged format)
