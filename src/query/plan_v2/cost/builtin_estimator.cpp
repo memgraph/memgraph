@@ -33,9 +33,8 @@ auto TryReadIntLiteral(EGraph const &eg, planner::core::EClassId eclass_id) -> s
 
   auto const &val = *expr->known_constant_value;
   if (val.IsInt()) return val.ValueInt();
-  // Tolerate doubles that exactly represent an integer (e.g. range(0.0,
-  // 5.0) coming from a parser that promoted ints to doubles).  Reject
-  // non-integral doubles - they're not what range expects anyway.
+  // Tolerate doubles that exactly represent an integer (e.g. range(0.0, 5.0));
+  // reject non-integral doubles - not what range expects anyway.
   if (val.IsDouble()) {
     auto const d = val.ValueDouble();
     if (std::isfinite(d) && std::trunc(d) == d) return static_cast<int64_t>(d);

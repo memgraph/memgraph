@@ -13,6 +13,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -22,12 +23,10 @@ import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::rewrite {
 
-/// A graph the rewrite engine can drive. It exposes its symbol and analysis
+/// A graph the rewrite engine can drive: it exposes its symbol and analysis
 /// types and a `core()` returning the underlying `EGraph`. A bare `EGraph` is
-/// its own core; a `TypedEGraph` returns the `EGraph` it wraps and additionally
-/// offers typed `Make<S>` interning. The engine drives either through this one
-/// concept, deriving `Symbol`/`Analysis` from the graph - it never names the
-/// domain's symbols itself.
+/// its own core; a `TypedEGraph` returns the one it wraps. The engine derives
+/// `Symbol`/`Analysis` from the graph and never names the domain's symbols.
 template <typename G>
 concept RewritableGraph = ENodeSymbol<typename G::symbol_type> && requires(G &g) {
   typename G::symbol_type;
@@ -54,8 +53,12 @@ class RuleContext {
 
   [[nodiscard]] auto rewrites() const -> std::size_t { return rewrites_; }
 
-  /// Add e-node, auto-tracking new e-classes.
-  auto emplace(Symbol symbol, utils::small_vector<EClassId> children) -> EmplaceResult {
+  /// Add an e-node, auto-tracking new e-classes. Seed-less, so constrained to
+  /// analysis-free graphs; a stateful analysis must be seeded via `Make<S>` (a
+  /// seed-less insert would default the arm to the wrong kind/facts).
+  auto emplace(Symbol symbol, utils::small_vector<EClassId> children) -> EmplaceResult
+    requires std::is_empty_v<Analysis>
+  {
     auto result = core().emplace(symbol, std::move(children));
     if (result.did_insert) {
       new_eclasses_.push_back(result.eclass_id);
@@ -63,7 +66,9 @@ class RuleContext {
     return result;
   }
 
-  auto emplace(Symbol symbol, uint64_t disambiguator) -> EmplaceResult {
+  auto emplace(Symbol symbol, uint64_t disambiguator) -> EmplaceResult
+    requires std::is_empty_v<Analysis>
+  {
     auto result = core().emplace(symbol, disambiguator);
     if (result.did_insert) {
       new_eclasses_.push_back(result.eclass_id);
@@ -71,17 +76,18 @@ class RuleContext {
     return result;
   }
 
-  /// Construct (or find) the e-class for `S(args...)` through the graph's typed
-  /// `Make<S>`, so the new node is interned and its analysis seeded by the
-  /// symbol's own trait. The resulting e-class is tracked for matcher reindex.
-  /// Available only over a graph that actually interns; on a bare `EGraph` the
-  /// constraint removes it from overload resolution.
+  /// Construct (or find) `S(args...)` through the graph's typed `Make<S>`, so
+  /// the node is interned and its analysis seeded by the symbol's trait. A fresh
+  /// insert is tracked for matcher reindex; a hash-cons hit is already indexed.
+  /// Constrained to graphs that intern - absent on a bare `EGraph`.
   template <Symbol S, typename... Args>
-    requires requires(Graph &g, Args &&...args) { g.template Make<S>(std::forward<Args>(args)...); }
+    requires requires(Graph &g) { g.template Make<S>(std::declval<Args>()...); }
   auto Make(Args &&...args) -> EClassId {
-    auto id = graph_.template Make<S>(std::forward<Args>(args)...);
-    new_eclasses_.push_back(id);
-    return id;
+    auto result = graph_.template Make<S>(std::forward<Args>(args)...);
+    if (result.did_insert) {
+      new_eclasses_.push_back(result.eclass_id);
+    }
+    return result.eclass_id;
   }
 
   /// Merge e-classes, auto-counting rewrites.
@@ -95,13 +101,14 @@ class RuleContext {
 
   [[nodiscard]] auto find(EClassId id) const -> EClassId { return core().find(id); }
 
-  /// The analysis facts of `id`'s e-class. This is the read a fact-gated rule
-  /// uses to route a semantic precondition through analysis rather than e-node
-  /// shape.
+  /// The analysis facts of `id`'s e-class - the read a fact-gated rule uses to
+  /// route a precondition through analysis rather than e-node shape.
   [[nodiscard]] auto analysis(EClassId id) const -> Analysis const & { return core().analysis_of(id); }
 
  private:
-  auto core() const -> EGraph<Symbol, Analysis> & { return graph_.core(); }
+  auto core() -> EGraph<Symbol, Analysis> & { return graph_.core(); }
+
+  auto core() const -> EGraph<Symbol, Analysis> const & { return graph_.core(); }
 
   Graph &graph_;
   std::vector<EClassId> &new_eclasses_;

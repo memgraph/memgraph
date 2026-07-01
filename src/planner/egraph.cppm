@@ -33,6 +33,7 @@ module;
 #include <optional>
 #include <ranges>
 #include <span>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -442,6 +443,14 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator, An
   auto it = hashcons_.find(ENodeRef{canonical_node});
   if (it != hashcons_.end()) {
     auto updated = it->second.UpdatedInfo(union_find_);
+    // Seed-purity check (see SymbolMakeTraits): merge the kept analysis into the
+    // discarded seed - no-op on agreement, throws if a trait broke the contract.
+    // Catches a mismatch only when the kept class already holds the fact.
+    // TODO: the `if constexpr` exists only to support empty analyses (NoAnalysis
+    // has no merge); drop it if the core always carries a mergeable analysis.
+    if constexpr (!std::is_empty_v<Analysis>) {
+      seed.merge(eclass(updated.current_eclassid).analysis());
+    }
     return {.eclass_id = updated.current_eclassid, .enode_id = updated.enode_id, .did_insert = false};
   }
 
@@ -468,6 +477,10 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
   auto it = hashcons_.find(ENodeRef{canonical_node});
   if (it != hashcons_.end()) {
     auto updated = it->second.UpdatedInfo(union_find_);
+    // Same seed-purity check as the leaf overload above.
+    if constexpr (!std::is_empty_v<Analysis>) {
+      seed.merge(eclass(updated.current_eclassid).analysis());
+    }
     return {.eclass_id = updated.current_eclassid, .enode_id = updated.enode_id, .did_insert = false};
   }
 
