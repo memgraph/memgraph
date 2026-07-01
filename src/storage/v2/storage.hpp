@@ -173,8 +173,8 @@ void StorageInfoForEachField(Self &s, Visit &&visit) {
 // earlier two parallel (salient, stats) vectors; bundling them keeps the 1:1 pairing structural (no
 // length-mismatch guard). Composed of storage:: types only, so it can sit in both the dbms and
 // replication_handler signatures without a layer cycle. A resumed cold tenant trusts its own
-// on-disk WAL/snapshot epoch (BuildDetached); no epoch is carried here — see hot_cold_review_responses
-// #20 for the rationale (cold-tenant epoch machinery removed).
+// on-disk WAL/snapshot epoch (BuildDetached); no epoch is carried here (cold-tenant epoch machinery
+// was intentionally removed — a cold tenant accumulates no divergent commits to reconcile).
 struct ColdTenantRecovery {
   SalientConfig salient;
   StorageInfo stats{};  // value-init: a default-constructed recovery carries zeroed stats

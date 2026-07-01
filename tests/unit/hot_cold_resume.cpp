@@ -492,7 +492,7 @@ TEST_F(HotColdResume, CrossRestartResumedTenantRecoversHot) {
 
 // A COLD tenant restarted+resumed keeps its original epoch — resume rebuilds the storage from disk
 // (BuildDetached) and runs the epoch recovered from the tenant's own WAL/snapshot, unchanged. (The
-// cold-tenant epoch-rewrite-on-promotion machinery was removed; see hot_cold_review_responses #20.)
+// cold-tenant epoch-rewrite-on-promotion machinery was intentionally removed.)
 TEST_F(HotColdResume, CrossRestartColdTenantWithoutPromotionKeepsEpoch) {
   constexpr int kNodes = 3;
   auto cold = CreateAndPopulate("unpromoted_cold", kNodes);
@@ -516,7 +516,7 @@ TEST_F(HotColdResume, CrossRestartColdTenantWithoutPromotionKeepsEpoch) {
 
 // On a replica, MAIN's authoritative as-of-suspend stats arrive over the V3 SystemRecovery wire and
 // ApplyColdRecoveryMeta installs them into the cold entry, so cold SHOW STORAGE INFO / SHOW DATABASES
-// on the replica match MAIN. (No epoch is carried; see hot_cold_review_responses #20.)
+// on the replica match MAIN. (No epoch is carried; cold-tenant epoch machinery was removed.)
 TEST_F(HotColdResume, AppliedWireStatsRefreshColdEntry) {
   constexpr int kNodes = 4;
   auto cold = CreateAndPopulate("wire_stats_cold", kNodes);

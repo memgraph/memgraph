@@ -32,7 +32,7 @@
 #        RESUMEs the tenant, it runs the epoch recovered from its own disk (BuildDetached) — the same
 #        epoch every other copy holds — so a returning replica converges via the normal continuous-history
 #        check, no special cold-tenant epoch bump needed. Exercised by test_promotion_cold_tenant_convergence.
-#        (The earlier eager-epoch machinery was removed; see hot_cold_review_responses #20.)
+#        (The earlier eager cold-tenant epoch machinery was intentionally removed.)
 #
 #   Hot/cold is observable: SHOW DATABASES lists a COLD tenant with a HOT/COLD status column
 #        (it would otherwise vanish, being excluded from All()), and SHOW STORAGE INFO ON <cold>
@@ -413,7 +413,7 @@ def test_promotion_cold_tenant_convergence(connection, test_name):
     #   2. SUSPEND A -> both COLD; A's data sits on disk at E1 on both.
     #   3. Kill main. replica_1 is the survivor, holding COLD A at E1.
     #   4. Promote replica_1 -> MAIN: hot tenants get a new epoch; the COLD tenant A keeps its disk
-    #      epoch E1 (no cold-tenant epoch bump — see hot_cold_review_responses #20).
+    #      epoch E1 (no cold-tenant epoch bump — that machinery was intentionally removed).
     #   5. RESUME A on the new MAIN -> HOT at E1 (recovered from disk by BuildDetached), data intact.
     #   6. Restart the old main as a REPLICA of the new MAIN. It still holds A at E1. The new MAIN also
     #      runs A at E1, so the continuous-history check matches -> the replica converges to the new

@@ -1329,7 +1329,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           // move commits the gatekeeper to HOT.
           auto wr = std::unique_lock{lock_};
           // The resumed tenant runs its own on-disk epoch+history (recovered by BuildDetached) — the
-          // cold entry carries no epoch to restore (see hot_cold_review_responses #20).
+          // cold entry carries no epoch to restore (cold-tenant epoch machinery was intentionally removed).
           auto it = suspended_.find(name);  // valid across the move below (it touches db_handler_, not suspended_)
           // Overwriting the RESUMING shell here is deadlock-free because Gatekeeper's move-assign tears
           // the old state down via ~GKInternals (non-blocking), NOT the count-waiting ~Gatekeeper — see
