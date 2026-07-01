@@ -256,8 +256,9 @@ continuous-history check because both sides are at the same frozen epoch).
 idle tenant. Force-reheating the entire cold set on every failover would cause a
 memory spike at the worst possible moment and contradict D1 (no automatic reheat). Keeping
 cold databases cold preserves the memory benefit; resume is safe without special epoch
-handling because a cold tenant accumulates no divergent commits to reconcile. (The earlier
-per-promotion cold-epoch rewrite was removed — see hot_cold_review_responses #20.)
+handling because a cold tenant accumulates no divergent commits to reconcile. (An earlier
+design that rewrote a cold database's epoch on every promotion was dropped as unnecessary
+for exactly this reason.)
 
 ### D8 — Resume is an attempt-and-roll-back, not a pre-check.
 
