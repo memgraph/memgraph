@@ -12,8 +12,12 @@
 #pragma once
 
 #include <cmath>
+#include <cstddef>
+#include <functional>
 
-#include "storage/v2/property_value.hpp"
+#include <boost/container_hash/hash.hpp>
+
+import memgraph.storage.property_value;
 
 namespace memgraph::query::plan::v2 {
 
@@ -60,6 +64,53 @@ struct ConstantIdentityEq {
       return true;
     }
     return a == b;
+  }
+};
+
+/// Hash companion to `ConstantIdentityEq`. Mixes the type tag into every hash
+/// (load-bearing: it partitions `1` from `1.0`, which `std::hash` coerces),
+/// unifies every NaN and normalizes `-0.0` to `+0.0` to match the equality,
+/// and hashes Int/Bool/List/Map without the coercing fallback. Other scalars
+/// fall back to `std::hash`, where it agrees with `==`. The typed list variants
+/// would not (e.g. `DoubleList{-0.0}` vs `{0.0}`) - revisit if those become
+/// iterable.
+struct ConstantIdentityHash {
+  auto operator()(this ConstantIdentityHash self, storage::ExternalPropertyValue const &v) -> std::size_t {
+    std::size_t h = static_cast<std::size_t>(v.type());  // seed with the type tag: partitions `1` from `1.0`
+    if (v.IsDouble()) {
+      double const d = v.ValueDouble();
+      // Unify every NaN (fold a fixed sentinel, not the varying bit pattern) and
+      // normalize -0.0 to +0.0, so doubles equal under Eq hash alike.
+      if (std::isnan(d)) {
+        boost::hash_combine(h, std::size_t{0x7ff8000000000000ULL});
+      } else {
+        boost::hash_combine(h, d == 0.0 ? 0.0 : d);
+      }
+      return h;
+    }
+    // Hash Int/Bool by their own type: std::hash<ExternalPropertyValue> hashes
+    // Int as double, so large int64s (>2^53) would collide as doubles.
+    if (v.IsInt()) {
+      boost::hash_combine(h, v.ValueInt());
+      return h;
+    }
+    if (v.IsBool()) {
+      boost::hash_combine(h, v.ValueBool());
+      return h;
+    }
+    if (v.IsList()) {
+      for (auto const &elem : v.ValueList()) boost::hash_combine(h, self(elem));
+      return h;
+    }
+    if (v.IsMap()) {
+      for (auto const &[key, value] : v.ValueMap()) {
+        boost::hash_combine(h, key);
+        boost::hash_combine(h, self(value));
+      }
+      return h;
+    }
+    boost::hash_combine(h, std::hash<storage::ExternalPropertyValue>{}(v));
+    return h;
   }
 };
 

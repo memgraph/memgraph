@@ -32,10 +32,9 @@ struct LoweredNode {
   std::optional<std::uint64_t> disambiguator;
 };
 
-/// What `make()` returns: the lowered e-node plus the analysis seed for the
-/// e-class it lands in (the make half of e-class analysis). `seed` is
-/// default-constructed when a symbol attaches no facts; for `NoAnalysis` it is
-/// empty. `TypedEGraph::Make<S>` shuttles both into `EGraph::emplace`.
+/// What `make()` returns: the lowered e-node plus the new e-class's analysis
+/// seed. `seed` is default-constructed when a symbol attaches no facts (empty
+/// for `NoAnalysis`). `TypedEGraph::Make<S>` passes both to `EGraph::emplace`.
 template <typename Analysis>
 struct MakeResult {
   LoweredNode lowered;
@@ -49,12 +48,12 @@ struct MakeResult {
 ///     lowers the user's per-symbol arguments and seeds the new e-class's
 ///     analysis, updating storage as needed.
 ///
-/// The `seed` must be a pure function of the lowered e-node's identity (its
-/// symbol, children, and disambiguator). When `make` hits an existing e-node,
-/// the new seed is discarded and the existing e-class keeps its own; equal
-/// identity must therefore imply an equal seed, or the kept fact goes stale. A
-/// fact derived from anything outside that identity (insertion order, mutable
-/// counters, ambient state) breaks this.
+/// The `seed` must be a pure function of the e-node's identity (symbol,
+/// children, disambiguator): on a hash-cons hit the new seed is discarded and
+/// the existing e-class keeps its own, so equal identity must imply an agreeing
+/// seed (a fact from insertion order or ambient state breaks this).
+/// `EGraph::emplace` enforces it on every hit by merging the discarded seed
+/// against the kept analysis, throwing on contradiction.
 ///
 /// The concept is parameterised on `Args` so that calls with the wrong
 /// arity or wrong types fail at the constraint with a clear message
@@ -99,9 +98,8 @@ using SymbolStorageFor = typename detail::CombinedStorageFor<Seq, Traits>::type;
 /// trait storage, and the one place where lowered nodes are emplaced into
 /// the core.
 ///
-/// `Make<S>(args...)` returns the resulting `EClassId`. Callers that want
-/// strong-typed e-class wrappers should wrap the returned id at the
-/// boundary (the trait protocol itself talks in raw `EClassId`).
+/// `Make<S>` returns the full `EmplaceResult`, so callers can tell a fresh
+/// insert from a hash-cons hit; most just take `.eclass_id`.
 template <typename Symbol, typename Analysis, typename SymbolSeq, template <auto> class Traits>
 class TypedEGraph {
  public:
@@ -119,10 +117,10 @@ class TypedEGraph {
   /// then emplaces into the core e-graph.
   template <Symbol S, typename... Args>
     requires SymbolMakeTraits<Traits<S>, Analysis, Args...>
-  auto Make(Args &&...args) -> EClassId {
+  auto Make(Args &&...args) -> EmplaceResult {
     auto made = Traits<S>::make(storage<S>(), std::forward<Args>(args)...);
     auto const disambiguator = made.lowered.disambiguator.value_or(0);
-    return core_.emplace(S, std::move(made.lowered.children), disambiguator, std::move(made.seed)).eclass_id;
+    return core_.emplace(S, std::move(made.lowered.children), disambiguator, std::move(made.seed));
   }
 
   /// Typed read/write access to one symbol's side-data. Callers use this

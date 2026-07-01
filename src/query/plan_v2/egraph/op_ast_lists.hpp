@@ -12,17 +12,14 @@
 #pragma once
 
 // The operator registry: one `X(Symbol, Frontend-AST-type, fold-op)` row per
-// expression operator, grouped by cost class. Each row is everything the
-// planner needs to know about that operator:
-//   - column 1: the e-graph symbol name.
-//   - column 2: the v1 frontend AST node it lowers to / reconstructs from.
-//   - column 3: the constant fold, an expression over the operand TypedValues
-//     `lhs`/`rhs` (binary) or `operand` (unary), in Cypher's own value
-//     semantics. fold.cpp generates EvalBinary/EvalUnary from this column.
-// Rule generation and fold evaluation read the same rows, so an operator
-// cannot get a fold rule without also getting its evaluation.
-// `EGRAPH_BINARY_OPS = arithmetic + comparison + boolean`. A consumer that
-// only wants some columns ignores the rest via a trailing `, ...)`.
+// expression operator, grouped by cost class. Columns:
+//   1: the e-graph symbol name.
+//   2: the v1 frontend AST node it lowers to / reconstructs from.
+//   3: the constant fold - an expression over operand TypedValues `lhs`/`rhs`
+//      (binary) or `operand` (unary); fold.cpp generates Eval* from it.
+// Rule generation and fold evaluation read the same rows, so an operator cannot
+// get a fold rule without its evaluation. `EGRAPH_BINARY_OPS = arithmetic +
+// comparison + boolean`; a consumer drops unwanted columns via trailing `, ...)`.
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
 

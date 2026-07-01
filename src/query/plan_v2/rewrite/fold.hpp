@@ -19,15 +19,12 @@
 
 namespace memgraph::query::plan::v2 {
 
-/// Evaluate a foldable operator over constant operands, returning the result as
-/// a constant. Folds the arithmetic, comparison, and boolean operators (unary
-/// or binary) using Cypher's own value semantics.
-///
-/// Returns nullopt when the symbol is not a foldable operator, the operand
-/// count does not match its arity, the result is not a scalar constant, or
-/// evaluation would raise a runtime error (e.g. division by zero, a type
-/// mismatch). Declining on error leaves the expression for runtime, so folding
-/// never changes a query's observable error behaviour.
+/// Evaluate a foldable operator (arithmetic, comparison, boolean; unary or
+/// binary) over constant operands using Cypher's value semantics. Returns
+/// nullopt when `op` is not foldable, the operand count is wrong, the result is
+/// not a scalar constant, or evaluation would raise a runtime error (e.g.
+/// division by zero). Declining on error leaves it for runtime, so folding
+/// never changes observable error behaviour.
 auto FoldConstant(symbol op, std::span<storage::ExternalPropertyValue const> operands)
     -> std::optional<storage::ExternalPropertyValue>;
 

@@ -75,20 +75,21 @@ struct BadTraits {
 
 TEST(TypedEGraph, MakeMatchesRawEmplace) {
   test::TypedTestEGraph eg;
-  auto const x = eg.Make<test::Op::Var>();
-  auto const y = eg.Make<test::Op::Const>();
+  auto const x = eg.Make<test::Op::Var>().eclass_id;
+  auto const y = eg.Make<test::Op::Const>().eclass_id;
 
   // Make<S>(args...) lowers to exactly the node a caller would emplace by hand.
-  auto const sum = eg.Make<test::Op::Add>(x, y);
+  auto const sum = eg.Make<test::Op::Add>(x, y).eclass_id;
   auto const sum_raw = eg.core().emplace(test::Op::Add, utils::small_vector<EClassId>{x, y}).eclass_id;
   EXPECT_EQ(sum, sum_raw);
 
   // Children are positional: the wrapper does not canonicalise their order.
-  EXPECT_NE(sum, eg.Make<test::Op::Add>(y, x));
+  EXPECT_NE(sum, eg.Make<test::Op::Add>(y, x).eclass_id);
 
   // A vector-argument trait forwards its children the same way, so identical
   // n-ary nodes hash-cons to one class.
-  EXPECT_EQ(eg.Make<test::Op::F>(std::vector<EClassId>{x, y}), eg.Make<test::Op::F>(std::vector<EClassId>{x, y}));
+  EXPECT_EQ(eg.Make<test::Op::F>(std::vector<EClassId>{x, y}).eclass_id,
+            eg.Make<test::Op::F>(std::vector<EClassId>{x, y}).eclass_id);
 }
 
 // === Make: the disambiguator branch via interning (S2, S3) ===
@@ -97,7 +98,10 @@ TEST(TypedEGraph, InterningReusesClassForSameKey) {
   ToyEGraph eg;
   auto const x1 = eg.Make<ToyOp::Symbol>(std::string_view{"x"});
   auto const x2 = eg.Make<ToyOp::Symbol>(std::string_view{"x"});
-  EXPECT_EQ(x1, x2);
+  // Make surfaces the hash-cons outcome: a reused key is a hit, not an insert.
+  EXPECT_TRUE(x1.did_insert);
+  EXPECT_FALSE(x2.did_insert);
+  EXPECT_EQ(x1.eclass_id, x2.eclass_id);
   EXPECT_EQ(eg.core().num_classes(), 1u);
 }
 
@@ -105,7 +109,7 @@ TEST(TypedEGraph, InterningSeparatesDistinctKeys) {
   ToyEGraph eg;
   auto const x = eg.Make<ToyOp::Symbol>(std::string_view{"x"});
   auto const y = eg.Make<ToyOp::Symbol>(std::string_view{"y"});
-  EXPECT_NE(x, y);
+  EXPECT_NE(x.eclass_id, y.eclass_id);
   EXPECT_EQ(eg.core().num_classes(), 2u);
 }
 
@@ -142,5 +146,20 @@ concept CtxCanMakeVar = requires(Ctx ctx) { ctx.template Make<test::Op::Var>(); 
 // overload resolution over a bare EGraph, which has no Make.
 static_assert(!CtxCanMakeVar<rewrite::RuleContext<EGraph<test::Op, test::NoAnalysis>>>);
 static_assert(CtxCanMakeVar<rewrite::RuleContext<test::TypedTestEGraph>>);
+
+// A stand-in stateful analysis: emplace is seed-less, so it must be absent here.
+struct StatefulAnalysis {
+  int fact;
+
+  void merge(StatefulAnalysis const &) {}
+};
+
+template <typename Ctx>
+concept CtxCanEmplaceVar = requires(Ctx ctx) { ctx.emplace(test::Op::Var, 0U); };
+
+// Seed-less emplace is offered over an analysis-free graph and removed once the
+// graph carries a stateful analysis, which must be seeded through Make<S>.
+static_assert(CtxCanEmplaceVar<rewrite::RuleContext<EGraph<test::Op, test::NoAnalysis>>>);
+static_assert(!CtxCanEmplaceVar<rewrite::RuleContext<EGraph<test::Op, StatefulAnalysis>>>);
 
 }  // namespace memgraph::planner::core
