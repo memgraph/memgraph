@@ -84,7 +84,6 @@ void Save(const auth::User &self, memgraph::slk::Builder *builder) {
   std::vector<auth::Role> roles{self.roles().cbegin(), self.roles().cend()};
   memgraph::slk::Save(roles, builder);
 #ifdef MG_ENTERPRISE
-  // MT roles
   memgraph::slk::Save(self.GetMultiTenantRoleMappings(), builder);
 #endif
 }
@@ -98,11 +97,13 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
   *self = memgraph::auth::User::Deserialize(json);
   std::vector<auth::Role> roles;
   memgraph::slk::Load(&roles, reader);
-  std::unordered_map<std::string, std::unordered_set<std::string>> mt_map;
 #ifdef MG_ENTERPRISE
+  std::unordered_map<std::string, std::unordered_set<std::string>> mt_map;
   memgraph::slk::Load(&mt_map, reader);
-#endif
   AttachRolesToUser(*self, roles, mt_map);
+#else
+  AttachRolesToUser(*self, roles, {});
+#endif
 }
 
 // Serialize code for auth::Auth::Config
@@ -139,10 +140,8 @@ void Save(const memgraph::replication::UpdateAuthDataReqV1 &self, memgraph::slk:
     for (auto const &rj : role_jsons) {
       memgraph::slk::Save(rj, builder);
     }
-#ifdef MG_ENTERPRISE
     static std::unordered_map<std::string, std::unordered_set<std::string>> const kEmptyMtMap;
     memgraph::slk::Save(self.user_mt_mappings ? *self.user_mt_mappings : kEmptyMtMap, builder);
-#endif
   }
   bool const has_role = self.role_json.has_value();
   memgraph::slk::Save(has_role, builder);
@@ -176,12 +175,9 @@ void Load(memgraph::replication::UpdateAuthDataReqV1 *self, memgraph::slk::Reade
     }
     self->user_role_jsons = std::move(role_jsons);
 
-#ifdef MG_ENTERPRISE
-    // MT role mappings
     std::unordered_map<std::string, std::unordered_set<std::string>> mt_map;
     memgraph::slk::Load(&mt_map, reader);
     self->user_mt_mappings = std::move(mt_map);
-#endif
   }
 
   // Read optional<Role> in raw form
