@@ -232,6 +232,11 @@ void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::B
   memgraph::slk::Save(self.profile, builder);
 }
 
+// Migrating helpers are used instead of slk::Load<User/Role> so that a future
+// entity version (e.g. V5) is automatically migrated on reception without
+// requiring a new RPC version. Currently, as Auth RPC is version 2, we know
+// this corresponds to auth entity version 4 and so the actual upgrade is a
+// no-op.
 void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
