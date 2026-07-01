@@ -112,6 +112,12 @@ class FineGrainedAuthChecker {
   [[nodiscard]] virtual bool HasVertexPropertyDeny(memgraph::storage::PropertyId property) const = 0;
   [[nodiscard]] virtual bool HasEdgeTypePropertyDeny(memgraph::storage::PropertyId property) const = 0;
 
+  /// True iff the user has any DENY on any property, scoped to the given label / edge type
+  /// (a per-entity rule targeting it, or a global DENY that applies to every entity). Used by
+  /// aggregate prechecks to avoid blocking users whose property rules do not touch this index.
+  [[nodiscard]] virtual bool HasAnyVertexPropertyDenyForLabel(memgraph::storage::LabelId label) const = 0;
+  [[nodiscard]] virtual bool HasAnyEdgeTypePropertyDenyForType(memgraph::storage::EdgeTypeId edge_type) const = 0;
+
   // Used to make the auth checker thread safe
   // throw if not possible
   virtual void MakeThreadSafe() const = 0;
@@ -192,6 +198,10 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
   bool HasVertexPropertyDeny(memgraph::storage::PropertyId /*property*/) const override { return false; }
 
   bool HasEdgeTypePropertyDeny(memgraph::storage::PropertyId /*property*/) const override { return false; }
+
+  bool HasAnyVertexPropertyDenyForLabel(memgraph::storage::LabelId /*label*/) const override { return false; }
+
+  bool HasAnyEdgeTypePropertyDenyForType(memgraph::storage::EdgeTypeId /*edge_type*/) const override { return false; }
 
   void MakeThreadSafe() const override {
     // No-op

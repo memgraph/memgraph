@@ -4279,10 +4279,10 @@ void PrecheckVertexTextAggregateAccess(const mgp_graph &graph, std::string_view 
         "text_search.aggregate is unavailable: label-level DENY rules could mask multi-label nodes the aggregate "
         "would still count.");
   }
-  if (auth_checker->HasAnyVertexPropertyRule()) {
+  if (auth_checker->HasAnyVertexPropertyDenyForLabel(it->label)) {
     ThrowSearchAuthError(
-        "text_search.aggregate is unavailable: property-level RBAC is active and Tantivy cannot honor it. Use "
-        "text_search.search and aggregate the filtered results in Cypher.");
+        "text_search.aggregate is unavailable: a property-level DENY on this label could cause Tantivy to count "
+        "values RBAC would otherwise hide. Use text_search.search and aggregate in Cypher.");
   }
 }
 
@@ -4300,16 +4300,17 @@ void PrecheckEdgeTextAggregateAccess(const mgp_graph &graph, std::string_view in
     ThrowSearchAuthError(
         "text_search.aggregate_edges is unavailable for this index: caller lacks READ on its edge type.");
   }
-  // vertex-label DENY could hide edges whose endpoints the caller can't read but the index still counts
-  if (auth_checker->HasAnyVertexLabelDeny() || auth_checker->HasAnyEdgeTypeDeny()) {
+  // vertex-label DENY could hide edges whose endpoints the caller can't read but the index still counts;
+  // an edge-type DENY on a *different* type doesn't affect this index — edges are single-typed
+  if (auth_checker->HasAnyVertexLabelDeny()) {
     ThrowSearchAuthError(
-        "text_search.aggregate_edges is unavailable: label/edge-type DENY rules could mask edges the aggregate "
-        "would still count.");
+        "text_search.aggregate_edges is unavailable: vertex-label DENY rules could mask edges whose endpoints the "
+        "aggregate would still count.");
   }
-  if (auth_checker->HasAnyEdgeTypePropertyRule()) {
+  if (auth_checker->HasAnyEdgeTypePropertyDenyForType(it->edge_type)) {
     ThrowSearchAuthError(
-        "text_search.aggregate_edges is unavailable: property-level RBAC is active and Tantivy cannot honor it. "
-        "Use text_search.search_edges and aggregate the filtered results in Cypher.");
+        "text_search.aggregate_edges is unavailable: a property-level DENY on this edge type could cause Tantivy "
+        "to count values RBAC would otherwise hide. Use text_search.search_edges and aggregate in Cypher.");
   }
 }
 }  // namespace

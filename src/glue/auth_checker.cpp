@@ -462,6 +462,30 @@ bool FineGrainedAuthChecker::HasEdgeTypePropertyDeny(storage::PropertyId propert
   return AnyReadDenyForProperty(GetCachedPropertyEdgeTypePermissions(), dba_->PropertyToName(property));
 }
 
+namespace {
+bool AnyReadDenyInMap(std::unordered_map<std::string, auth::PropertyPermission> const &props) {
+  return std::ranges::any_of(props, [](auto const &kv) {
+    return (static_cast<uint8_t>(kv.second.denies) & static_cast<uint8_t>(auth::PropertyPermissionType::READ)) != 0U;
+  });
+}
+
+bool AnyReadDenyOnEntity(auth::PropertyAccessPermissions const &perms, std::string const &entity_name) {
+  // a global DENY (in any global rule map) applies to every entity
+  if (AnyReadDenyInMap(perms.GetGlobalRules())) return true;
+  return std::ranges::any_of(perms.GetRules(), [&](auth::PropertyAccessRule const &rule) {
+    return rule.entities.contains(entity_name) && AnyReadDenyInMap(rule.properties);
+  });
+}
+}  // namespace
+
+bool FineGrainedAuthChecker::HasAnyVertexPropertyDenyForLabel(storage::LabelId label) const {
+  return AnyReadDenyOnEntity(GetCachedPropertyLabelPermissions(), dba_->LabelToName(label));
+}
+
+bool FineGrainedAuthChecker::HasAnyEdgeTypePropertyDenyForType(storage::EdgeTypeId edge_type) const {
+  return AnyReadDenyOnEntity(GetCachedPropertyEdgeTypePermissions(), dba_->EdgeTypeToName(edge_type));
+}
+
 void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
 
 bool FineGrainedAuthChecker::IsThreadSafe() const { return IsCachedPermissionsPopulated(); }
