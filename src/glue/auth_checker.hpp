@@ -102,6 +102,12 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
   bool HasAnyVertexPropertyRule() const override;
   bool HasAnyEdgeTypePropertyRule() const override;
 
+  bool HasAnyVertexLabelDeny() const override;
+  bool HasAnyEdgeTypeDeny() const override;
+
+  bool HasVertexPropertyDeny(storage::PropertyId property) const override;
+  bool HasEdgeTypePropertyDeny(storage::PropertyId property) const override;
+
   void MakeThreadSafe() const override;
   bool IsThreadSafe() const override;
 

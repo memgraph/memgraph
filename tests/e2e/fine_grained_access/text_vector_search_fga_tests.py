@@ -32,6 +32,14 @@ def user_prop_cursor():
     return common.connect(username="user_prop", password="test").cursor()
 
 
+def user_grant_only_cursor():
+    return common.connect(username="user_grant_only", password="test").cursor()
+
+
+def user_prop_deny_indexed_cursor():
+    return common.connect(username="user_prop_deny_indexed", password="test").cursor()
+
+
 # text_search on vertices -----------------------------------------------------
 
 
@@ -258,11 +266,54 @@ def test_wildcard_vector_search_allowed_for_label_restricted_user():
     assert all(labels == frozenset({"Public"}) for labels in labels_per_row)
 
 
-def test_wildcard_vector_search_blocked_under_property_rbac():
+# user_prop has DENY {title} but that doesn't affect the indexed property (.embedding), and a global
+# GRANT {*} covers embedding — wildcard search should be allowed
+def test_wildcard_vector_search_allowed_when_unrelated_property_denied():
+    res = common.execute_and_fetch_all(
+        user_prop_cursor(),
+        "CALL vector_search.search('wild_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
+    )
+    assert len(res) >= 1
+
+
+# user_prop_deny_indexed has DENY {embedding} :Public — a per-label DENY on the actually-indexed property
+# masks WILDCARD; the search must be blocked
+def test_wildcard_vector_search_blocked_when_indexed_property_has_per_label_deny():
     with pytest.raises(mgclient.DatabaseError):
         common.execute_and_fetch_all(
-            user_prop_cursor(),
+            user_prop_deny_indexed_cursor(),
             "CALL vector_search.search('wild_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
+        )
+
+
+# user_grant_only has label GRANT :Public + edge GRANT :LINKS_PUB with zero denies and no property rules —
+# the aggregate over :Public and :LINKS_PUB indexes should now work under the relaxed gate.
+
+
+def test_aggregate_allowed_for_pure_grant_user_on_granted_label():
+    res = common.execute_and_fetch_all(
+        user_grant_only_cursor(),
+        "CALL text_search.aggregate('pub_text', 'data.title:Welcome', "
+        '\'{"c":{"value_count":{"field":"data.title"}}}\') YIELD aggregation RETURN aggregation;',
+    )
+    assert len(res) == 1
+
+
+def test_aggregate_edges_allowed_for_pure_grant_user_on_granted_type():
+    res = common.execute_and_fetch_all(
+        user_grant_only_cursor(),
+        "CALL text_search.aggregate_edges('pub_etext', 'data.label:Open', "
+        '\'{"c":{"value_count":{"field":"data.label"}}}\') YIELD aggregation RETURN aggregation;',
+    )
+    assert len(res) == 1
+
+
+def test_aggregate_still_blocked_on_denied_label():
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(
+            user_grant_only_cursor(),
+            "CALL text_search.aggregate('doc_text', 'data.title:Secret', "
+            '\'{"c":{"value_count":{"field":"data.title"}}}\') YIELD aggregation RETURN aggregation;',
         )
 
 

@@ -416,6 +416,52 @@ bool FineGrainedAuthChecker::HasAnyEdgeTypePropertyRule() const {
   return !perms.GetRules().empty() || !perms.GetGlobalRules().empty();
 }
 
+namespace {
+bool AnyReadDenyInLabelPerms(auth::FineGrainedAccessPermissions const &perms) {
+  const auto has_read_deny = [](auth::FineGrainedPermission bits) {
+    return (static_cast<uint64_t>(bits) & static_cast<uint64_t>(auth::FineGrainedPermission::READ)) != 0U;
+  };
+  if (const auto &globals = perms.GetGlobalDenies();
+      globals && (*globals & static_cast<uint64_t>(auth::FineGrainedPermission::READ)) != 0U) {
+    return true;
+  }
+  return std::ranges::any_of(perms.GetRules(),
+                             [&](auth::FineGrainedAccessRule const &rule) { return has_read_deny(rule.denies); });
+}
+
+bool AnyReadDenyInPropertyMap(std::string const &prop_name,
+                              std::unordered_map<std::string, auth::PropertyPermission> const &props) {
+  const auto has_read_deny = [](auth::PropertyPermission const &perm) {
+    return (static_cast<uint8_t>(perm.denies) & static_cast<uint8_t>(auth::PropertyPermissionType::READ)) != 0U;
+  };
+  if (auto it = props.find(prop_name); it != props.end() && has_read_deny(it->second)) return true;
+  // "*" wildcard entry with DENY applies to every property, including this one
+  if (auto it = props.find("*"); it != props.end() && has_read_deny(it->second)) return true;
+  return false;
+}
+
+bool AnyReadDenyForProperty(auth::PropertyAccessPermissions const &perms, std::string const &prop_name) {
+  if (AnyReadDenyInPropertyMap(prop_name, perms.GetGlobalRules())) return true;
+  return std::ranges::any_of(perms.GetRules(), [&](auth::PropertyAccessRule const &rule) {
+    return AnyReadDenyInPropertyMap(prop_name, rule.properties);
+  });
+}
+}  // namespace
+
+bool FineGrainedAuthChecker::HasAnyVertexLabelDeny() const {
+  return AnyReadDenyInLabelPerms(GetCachedLabelPermissions());
+}
+
+bool FineGrainedAuthChecker::HasAnyEdgeTypeDeny() const { return AnyReadDenyInLabelPerms(GetCachedEdgePermissions()); }
+
+bool FineGrainedAuthChecker::HasVertexPropertyDeny(storage::PropertyId property) const {
+  return AnyReadDenyForProperty(GetCachedPropertyLabelPermissions(), dba_->PropertyToName(property));
+}
+
+bool FineGrainedAuthChecker::HasEdgeTypePropertyDeny(storage::PropertyId property) const {
+  return AnyReadDenyForProperty(GetCachedPropertyEdgeTypePermissions(), dba_->PropertyToName(property));
+}
+
 void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
 
 bool FineGrainedAuthChecker::IsThreadSafe() const { return IsCachedPermissionsPopulated(); }
