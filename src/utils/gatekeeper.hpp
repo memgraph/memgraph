@@ -414,6 +414,12 @@ struct Gatekeeper {
   // the transition.  Call abort_resume() if loading fails.
   bool begin_resume() {
     auto guard = std::unique_lock{pimpl_->mutex_};
+    // NOT an assert (unlike the single-caller abort_suspend/abort_resume below): the mutex makes this
+    // check-and-set atomic, which is exactly what makes it a single-flight token — it does NOT mean the
+    // state is always COLD on entry. Concurrent resumers (e.g. a client RESUME racing a replica
+    // ResumeDatabase apply) legitimately arrive here; the loser sees RESUMING (or an already-HOT racer)
+    // and MUST get false so Resume_ takes its poll-until-HOT loser path. MG_ASSERT here would terminate
+    // the process on a legal race.
     if (pimpl_->state_ != GatekeeperState::COLD) return false;
     pimpl_->state_ = GatekeeperState::RESUMING;
     pimpl_->cv_.notify_all();
