@@ -91,6 +91,4 @@ function(add_unit_test exec_name)
     endif()
 
     add_dependencies(memgraph__unit ${target_name})
-    # NOTE: the abi3 DT_NEEDED rewrite is attached automatically by the
-    # add_executable() override in cmake/functions.cmake.
 endfunction()

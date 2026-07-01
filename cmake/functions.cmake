@@ -169,19 +169,11 @@ endfunction()
 
 # Wrap add_executable() so every executable defined after this point gets the
 # abi3 DT_NEEDED rewrite attached automatically, in its own directory (which is
-# where `add_custom_command(TARGET ...)` must live). This removes the need to
-# sprinkle a per-CMakeLists rewrite call across every suite that builds a binary
-# linking (transitively) libpython.
+# where `add_custom_command(TARGET ...)` must live).
 #
 # Safe to apply to all executables: mg_apply_python_abi3_rewrite is a no-op when
 # the option is off or patchelf/libpython3.so are missing, and the underlying
 # script is a no-op for binaries whose DT_NEEDED has no versioned libpython.
-# Third-party dependencies build as separate CMake projects (libs/*), so they
-# are unaffected by this override.
-#
-# `_add_executable` is CMake's built-in, exposed automatically once a command is
-# overridden by a same-named function. ALIAS and IMPORTED executables are not
-# real build targets, so there is nothing to attach a POST_BUILD step to.
 function(add_executable name)
     _add_executable(${name} ${ARGN})
     if("${ARGN}" MATCHES "(^|;)(ALIAS|IMPORTED)(;|$)")

@@ -35,7 +35,7 @@ if(NOT rc EQUAL 0)
     message(FATAL_ERROR "patchelf --print-needed failed (exit ${rc})")
 endif()
 
-# Match e.g. libpython3.12.so.1.0, libpython3.10.so.1.0, libpython3.7m.so.1.0.
+# Match e.g. libpython3.12.so.1.0, libpython3.10.so.1.0.
 string(REGEX MATCH "libpython3\\.[0-9]+m?\\.so\\.[0-9.]+" versioned "${needed_libs}")
 
 if(NOT versioned)
