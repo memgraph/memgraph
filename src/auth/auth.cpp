@@ -1608,14 +1608,24 @@ Auth::Result Auth::SetMainDatabase(std::string_view db, const std::string &name,
 
 void Auth::SetMainDatabase(std::string_view db, User &user, system::Transaction *system_tx) {
   if (!user.db_access().SetMain(db)) {
-    throw AuthException("Couldn't set default database '{}' for '{}'!", db, user.username());
+    throw AuthException(
+        "Cannot set default database '{}' for user '{}': either access has not been granted or it is explicitly "
+        "denied. Run `SHOW DATABASE PRIVILEGES FOR {}` to inspect current user privileges.",
+        db,
+        user.username(),
+        user.username());
   }
   SaveUser(user, system_tx);
 }
 
 void Auth::SetMainDatabase(std::string_view db, Role &role, system::Transaction *system_tx) {
   if (!role.db_access().SetMain(db)) {
-    throw AuthException("Couldn't set default database '{}' for '{}'!", db, role.rolename());
+    throw AuthException(
+        "Cannot set default database '{}' for role '{}': either access has not been granted or it is explicitly "
+        "denied. Run `SHOW DATABASE PRIVILEGES FOR {}` to inspect current role privileges.",
+        db,
+        role.rolename(),
+        role.rolename());
   }
   SaveRole(role, system_tx);
 }
