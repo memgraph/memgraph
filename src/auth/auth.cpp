@@ -206,11 +206,15 @@ const std::string kMtLinkPrefix = "mtlink:";
 // Profile linking is now handled by UserProfiles class
 const std::string kVersion = "version";
 
-constexpr auto kVersionV1 = "V1";
-constexpr auto kVersionV2 = "V2";
-constexpr auto kVersionV3 = "V3";
-constexpr auto kVersionV4 = "V4";
-constexpr auto kVersionV5 = "V5";
+// Auth KV store versions. These track structural changes to the store layout
+// (key prefixes, link format, etc.). Entity-level schema changes (e.g. FGA
+// format) are handled per-entity via MigrateAuthJson and the entity "version"
+// field: do NOT bump the store version for those (anymore).
+constexpr auto kVersionV1 = "V1";  // Added password hash algorithm field
+constexpr auto kVersionV2 = "V2";  // Single role links, to JSON arrays for multi-role support
+constexpr auto kVersionV3 = "V3";  // V2 FGA -> V3 FGA (fine_grained_access_handler to fine_grained_permissions)
+constexpr auto kVersionV4 = "V4";  // V3 FGA -> V4 FGA (global_permission → global_grants/global_denies)
+constexpr auto kVersionV5 = "V5";  // Eagerly migrates entity JSON via MigrateAuthJson over RPC (V3/V4 -> current)
 }  // namespace
 
 /**
