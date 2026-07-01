@@ -311,11 +311,31 @@ void MigrateVersions(kvstore::KVStore &store) {
     spdlog::info("Auth storage migration to V2 completed successfully");
   }
 
-  // V3/V4 entity-level migrations (FGA schema changes) are handled lazily by
-  // MigrateAuthJson on each Deserialize. Just bump the store version.
+  // V3/V4 entity-level migrations (FGA schema changes)
   if (version_str == kVersionV2 || version_str == kVersionV3 || version_str == kVersionV4) {
-    store.Put(kVersion, kVersionV5);
+    spdlog::info("Migrating auth storage to V5: migrating entity JSON schemas");
+
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV5}};
+
+    auto const migrate_entities = [&](auto const &prefix) {
+      for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
+        auto const &[key, value] = *it;
+        auto data = nlohmann::json::parse(value);
+        auto const original = data;
+        auth::MigrateAuthJson(data);
+        if (data != original) {
+          puts.emplace(key, data.dump());
+        }
+      }
+    };
+
+    migrate_entities(kUserPrefix);
+    migrate_entities(kRolePrefix);
+
+    store.PutMultiple(puts);
     version_str = kVersionV5;
+
+    spdlog::info("Auth storage migration to V5 completed successfully");
   }
 }
 
