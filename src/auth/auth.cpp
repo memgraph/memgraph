@@ -328,11 +328,15 @@ void MigrateVersions(kvstore::KVStore &store) {
     auto const migrate_entities = [&](auto const &prefix) {
       for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
         auto const &[key, value] = *it;
-        auto data = nlohmann::json::parse(value);
-        auto const original = data;
-        auth::MigrateAuthJson(data);
-        if (data != original) {
-          puts.emplace(key, data.dump());
+        try {
+          auto data = nlohmann::json::parse(value);
+          auto const original = data;
+          auth::MigrateAuthJson(data);
+          if (data != original) {
+            puts.emplace(key, data.dump());
+          }
+        } catch (nlohmann::json::exception const &e) {
+          throw auth::AuthException("Failed to migrate auth data for '{}': {}", key, e.what());
         }
       }
     };
