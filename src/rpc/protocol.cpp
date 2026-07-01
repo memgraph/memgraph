@@ -180,7 +180,7 @@ void RpcMessageDeliverer::Execute() {
   catch (const slk::SlkReaderLeftoverDataException &) {
     // Skip, it may fail because not all data has been read, that's fine.
   }
-  // other exceptions will be caught in session.hpp and its HandleException function
+  // other exceptions will be caught in session.hpp
 }
 
 }  // namespace memgraph::rpc
