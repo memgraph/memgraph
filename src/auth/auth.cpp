@@ -317,7 +317,11 @@ void MigrateVersions(kvstore::KVStore &store) {
 
   // V3/V4 entity-level migrations (FGA schema changes)
   if (version_str == kVersionV2 || version_str == kVersionV3 || version_str == kVersionV4) {
-    spdlog::info("Migrating auth storage to V5: migrating entity JSON schemas");
+    spdlog::info("Migrating auth storage from {} to V5: migrating entity JSON schemas", *version_str);
+    if (version_str == kVersionV2) {
+      spdlog::warn(
+          "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
+    }
 
     auto puts = std::map<std::string, std::string>{{kVersion, kVersionV5}};
 
