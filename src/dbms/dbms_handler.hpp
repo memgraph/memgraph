@@ -430,8 +430,7 @@ class DbmsHandler {
   SuspendResult SuspendByUUID(utils::UUID uuid, system::Transaction *txn = nullptr);
 
   /**
-   * @brief Resume a tenant identified by UUID (replica-apply path for ResumeDatabaseRpc and the
-   *        inline self-resume barrier in GetDatabaseAccessor).
+   * @brief Resume a tenant identified by UUID (replica-apply path for ResumeDatabaseRpc).
    *
    * Resolves the UUID to a name from the suspended-set, then runs Resume_ with
    * rewire_replication=false (the caller holds the repl_state read lock; the post-publish

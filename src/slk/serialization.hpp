@@ -15,7 +15,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -71,11 +70,6 @@ template <typename T>
 void Save(const std::vector<T> &obj, Builder *builder);
 template <typename T>
 void Load(std::vector<T> *obj, Reader *reader);
-
-template <typename T>
-void Save(const std::deque<T> &obj, Builder *builder);
-template <typename T>
-void Load(std::deque<T> *obj, Reader *reader);
 
 template <typename T>
 void Save(const std::unordered_set<T> &obj, Builder *builder);
@@ -249,25 +243,6 @@ inline void Load(utils::small_vector<T> *obj, Reader *reader) {
   obj->resize(size);
   for (uint64_t i = 0; i < size; ++i) {
     Load(&(*obj)[i], reader);
-  }
-}
-
-template <typename T>
-inline void Save(const std::deque<T> &obj, Builder *builder) {
-  uint64_t size = obj.size();
-  Save(size, builder);
-  for (const auto &x : obj) Save(x, builder);
-}
-
-template <typename T>
-inline void Load(std::deque<T> *obj, Reader *reader) {
-  uint64_t size = 0;
-  Load(&size, reader);
-  obj->clear();
-  for (uint64_t i = 0; i < size; ++i) {
-    T elem;
-    Load(&elem, reader);
-    obj->push_back(std::move(elem));
   }
 }
 

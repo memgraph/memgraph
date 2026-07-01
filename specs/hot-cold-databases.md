@@ -391,8 +391,10 @@ In addition, `SHOW DATABASES` shows each database's `HOT`/`COLD` state, and
   carry hot/cold state; this is not downgrade-safe, which is an accepted trade-off.
 - **Best-effort durable-marker persistence.** The hot/cold *state* marker is persisted
   best-effort: a storage write failure while writing it (at suspend or resume) is logged but
-  does not roll back or crash. No data is ever lost — the snapshot is written before teardown —
-  and the tenant simply recovers to its last durably-recorded hot/cold state on restart (a
+  does not roll back or crash. No data is ever lost — every committed write is already durable
+  in the WAL (fsync'd per commit); a consolidating snapshot is written before teardown purely as a
+  resume-latency optimization (itself best-effort: if it fails, resume replays the WAL) — and the
+  tenant simply recovers to its last durably-recorded hot/cold state on restart (a
   failed suspend marker recovers HOT; a failed resume marker recovers COLD and is resumable
   again). A resumed cold tenant always runs the epoch recovered from its own on-disk
   WAL/snapshot, so there is no separate cold-epoch durability to lose.
