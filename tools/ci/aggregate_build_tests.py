@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 from typing import List
 from urllib.parse import quote
@@ -58,14 +59,20 @@ def parse_file_os_arch(file, image_type):
     """
 
     if image_type == "mage":
+        # MAGE packages sit in a flat S3 prefix (no per-os subdir), so the os is
+        # derived from the file type: Docker tarballs -> Docker (<arch>), debs ->
+        # ubuntu-24.04, and rpms -> the distro encoded in the filename dist-tag
+        # slot (memgraph-mage[-debuginfo]-<ver>-1.<os>.<arch>[<suffix>].rpm).
         is_deb = file.endswith(".deb")
+        is_rpm = file.endswith(".rpm")
 
-        if "arm64" in file:
-            arch = "arm64"
-            os = "Docker (arm64)" if not is_deb else "ubuntu-24.04"
+        # rpms use `aarch64`, debs/docker tarballs use `arm64`
+        if "aarch64" in file or "arm64" in file:
+            base_arch = "arm64"
         else:
-            arch = "x86_64"
-            os = "Docker (x86_64)" if not is_deb else "ubuntu-24.04"
+            base_arch = "x86_64"
+
+        arch = base_arch
 
         if "relwithdebinfo" in file:
             arch = f"{arch}-relwithdebinfo"
@@ -79,6 +86,17 @@ def parse_file_os_arch(file, image_type):
         if "cugraph" in file:
             arch = f"{arch}-cugraph"
 
+        if "-debuginfo" in file:
+            arch = f"{arch}-debuginfo"
+
+        if is_rpm:
+            match = re.search(r"-1\.([a-z]+-\d+)\.(?:x86_64|aarch64)", file)
+            os = match.group(1) if match else "unknown"
+        elif is_deb:
+            os = "ubuntu-24.04"
+        else:
+            os = f"Docker ({base_arch})"
+
     elif image_type == "memgraph":
         if "aarch64" in file:
             arch = "arm64"
@@ -90,6 +108,13 @@ def parse_file_os_arch(file, image_type):
 
         if "malloc" in file:
             arch = f"{arch}-malloc"
+
+        # debuginfo rpms share the os dir + arch of the main package, so suffix
+        # the arch to give them their own key (e.g. centos-10.x86_64-debuginfo)
+        # instead of overwriting the main package. `-debuginfo` (with the hyphen)
+        # never matches `-relwithdebinfo`.
+        if "-debuginfo" in file:
+            arch = f"{arch}-debuginfo"
 
         os = file.split("/")[3].replace("-malloc", "").replace("-aarch64", "").replace("-relwithdebinfo", "")
     else:
