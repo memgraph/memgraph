@@ -4091,6 +4091,8 @@ bool VertexHasReadPermission(const memgraph::query::VertexAccessor &v, const mgp
   return ctx->auth_checker->Has(v, graph.view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
 }
 
+// checks both endpoints (unlike NextPermittedEdge, which trusts the known source vertex) —
+// search returns raw matches with no known source, so a partial check would leak.
 bool EdgeHasReadPermission(const memgraph::query::EdgeAccessor &e, const mgp_graph &graph) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return true;
@@ -4191,6 +4193,10 @@ void PrecheckVertexVectorSearchAccess(const mgp_graph &graph, std::string_view i
   if (!auth_checker->HasAnyVertexPropertyRule()) return;
   const auto property = it->property;
   if (filter.mode == memgraph::storage::VectorMatchMode::WILDCARD) {
+    // no bound label list to iterate, so we need a per-row-invariant proxy:
+    //   global GRANT on the property (applies to every label by fallback)
+    //   + no per-label DENY that could override the global grant
+    // together they guarantee HasPropertyPermission would return GRANT for any label combo.
     const auto empty_span = std::span<const memgraph::storage::LabelId>{};
     const bool globally_readable = auth_checker->HasPropertyPermission(
         empty_span, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
@@ -4235,6 +4241,9 @@ void PrecheckEdgeVectorSearchAccess(const mgp_graph &graph, std::string_view ind
   if (!auth_checker->HasAnyEdgeTypePropertyRule()) return;
   const auto property = it->property;
   if (filter.mode == memgraph::storage::VectorMatchMode::WILDCARD) {
+    // no empty-span global-grant path exists for edge-type property permissions the way it does
+    // for labels (see PrecheckVertexVectorSearchAccess). Absent that, the only safe relaxation is
+    // when the caller has property rules but none of them DENY the indexed property.
     if (!auth_checker->HasEdgeTypePropertyDeny(property)) return;
     ThrowSearchAuthError(
         "vector_search.search_edges is unavailable for this WILDCARD index: property-level RBAC denies the indexed "
