@@ -262,18 +262,23 @@ COPY_FILES() {
 
        # The memgraph binary carries an abi3-portable DT_NEEDED of `libpython3.so`
        # (the CMake POST_BUILD patchelf rewrite). Jepsen node images ship only the
-       # versioned libpython (e.g. libpython3.11.so.1.0), so create the unversioned
-       # SONAME symlink the loader needs. Idempotent; never aborts the run.
+       # versioned libpython (e.g. libpython3.11.so.1.0) — and on Debian it lives
+       # under /lib, not /usr/lib — so create the unversioned SONAME symlink next
+       # to whichever versioned libpython the node has. We locate it via the
+       # loader cache (ldconfig -p) plus a filesystem sweep so we do not depend on
+       # a particular directory. Idempotent; never aborts the run.
        $docker_exec '
-         libdir=""
-         for d in "/usr/lib/$(uname -m)-linux-gnu" /usr/lib64 /usr/lib; do
-           if ls "$d"/libpython3.*.so.1.0 >/dev/null 2>&1; then libdir="$d"; break; fi
-         done
-         if [ -n "$libdir" ] && [ ! -e "$libdir/libpython3.so" ]; then
-           target=$(ls -1 "$libdir"/libpython3.*.so.1.0 | sort -V | tail -1)
-           ln -sf "$(basename "$target")" "$libdir/libpython3.so"
-           ldconfig || true
-           echo "Created $libdir/libpython3.so -> $(basename "$target")"
+         libs=$( { ldconfig -p 2>/dev/null | grep -oE "/[^ ]*libpython3\.[0-9]+[a-z]*\.so\.1\.0";
+                   find /lib /usr/lib /usr/lib64 /usr/local/lib -name "libpython3.*.so.1.0" 2>/dev/null; } | sort -u )
+         if [ -z "$libs" ]; then
+           echo "WARNING: no libpython3.*.so.1.0 found on node; the abi3 memgraph binary will fail to load libpython3.so" >&2
+         else
+           echo "$libs" | while read -r lib; do
+             dir=$(dirname "$lib")
+             ln -sf "$(basename "$lib")" "$dir/libpython3.so"
+             echo "Created $dir/libpython3.so -> $(basename "$lib")"
+           done
+           ldconfig 2>/dev/null || true
          fi
        ' || true
 
