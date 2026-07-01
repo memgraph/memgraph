@@ -151,7 +151,7 @@ print_help () {
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
   echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
-  echo -e "  --python-version string       Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
+  echo -e "  --python-build-version string       Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
   echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
   echo -e "  --conan-username string       Specify conan username (default \"\")"
@@ -573,8 +573,8 @@ build_memgraph () {
   local build_dependency=""
   local link_threads=0
   local split_debug=false
-  local python_version=""
-  local python_version_flag=""
+  local python_build_version=""
+  local python_build_version_flag=""
   local python_runtime_version=""
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -638,13 +638,13 @@ build_memgraph () {
         split_debug=true
         shift 1
       ;;
-      --python-version)
+      --python-build-version)
         # Override the Python the binary is built against. Empty/unset keeps the
         # container's default Python. Maps to find_package(Python3 <v> EXACT) in
         # src/query/CMakeLists.txt. The version is also installed from deadsnakes
         # (Ubuntu) before the build, see below.
-        python_version="$2"
-        python_version_flag="-DMG_PYTHON_VERSION=$2"
+        python_build_version="$2"
+        python_build_version_flag="-DMG_PYTHON_VERSION=$2"
         shift 2
       ;;
       --python-runtime-version)
@@ -695,12 +695,12 @@ build_memgraph () {
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
-  # Install the requested build-time Python (--python-version) from deadsnakes
+  # Install the requested build-time Python (--python-build-version) from deadsnakes
   # and point libpython3.so at it, so the build links against exactly that
   # version. This overrides ensure_libpython3_so_symlink's "highest installed"
   # default below (which no-ops once libpython3.so already exists).
-  if [[ -n "$python_version" ]]; then
-    install_python_from_deadsnakes "$python_version"
+  if [[ -n "$python_build_version" ]]; then
+    install_python_from_deadsnakes "$python_build_version"
   fi
 
   # The abi3 DT_NEEDED rewrite (cmake/RewriteDtNeededAbi3.cmake) only fires when
@@ -834,7 +834,7 @@ build_memgraph () {
 
   # Add additional CMake options if any are specified
   local additional_options=""
-  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_version_flag")
+  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_build_version_flag")
 
   for flag in "${flags[@]}"; do
     if [[ -n "$flag" ]]; then
@@ -929,9 +929,9 @@ build_memgraph () {
   # the binary against a libpython it was NOT built against. The container
   # persists across workflow steps, so the new symlink is in effect for them.
   if [[ -n "$python_runtime_version" ]]; then
-    echo "Swapping runtime Python: removing build version '${python_version:-<container default>}', installing '$python_runtime_version' ..."
-    if [[ -n "$python_version" ]]; then
-      remove_python_version "$python_version"
+    echo "Swapping runtime Python: removing build version '${python_build_version:-<container default>}', installing '$python_runtime_version' ..."
+    if [[ -n "$python_build_version" ]]; then
+      remove_python_version "$python_build_version"
     fi
     install_python_from_deadsnakes "$python_runtime_version"
     report_libpython_link "runtime"
@@ -3072,7 +3072,7 @@ case $command in
       node_version_flag="--build-arg NODE_VERSION=20"
       rapids_version_flag="--build-arg RAPIDS_VERSION=25.12"
       cuda_version_minor="13.1.0"
-      python_version_flag="--build-arg PY_VERSION=3.12"
+      python_build_version_flag="--build-arg PY_VERSION=3.12"
       while [[ "$#" -gt 0 ]]; do
         case "$1" in
             --git-ref)
@@ -3095,8 +3095,8 @@ case $command in
               cuda_version_minor=$2
               shift 2
             ;;
-            --python-version)
-              python_version_flag="--build-arg PY_VERSION=$2"
+            --python-build-version)
+              python_build_version_flag="--build-arg PY_VERSION=$2"
               shift 2
             ;;
             *)
@@ -3116,7 +3116,7 @@ case $command in
         cuda_version="${cuda_version_minor%%.*}"
         cuda_version_flag="--build-arg CUDA_VERSION=${cuda_version}"
         cuda_version_minor_flag="--build-arg CUDA_VERSION_MINOR=${cuda_version_minor}"
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $rapids_version_flag $cuda_version_flag $cuda_version_minor_flag $python_version_flag $build_container
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $rapids_version_flag $cuda_version_flag $cuda_version_minor_flag $python_build_version_flag $build_container
       elif [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag
       else

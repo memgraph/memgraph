@@ -23,7 +23,7 @@ on:
         type: string
         description: "The ID of the run that triggered this workflow."
         default: ''
-      python_version:
+      python_build_version:
         type: string
         description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the container's default Python."
         default: ''
@@ -43,7 +43,7 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
-  PYTHON_VERSION: ${{ inputs.python_version }}
+  PYTHON_BUILD_VERSION: ${{ inputs.python_build_version }}
   PYTHON_RUNTIME_VERSION: ${{ inputs.python_runtime_version }}
   TOOLCHAIN: v7
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
@@ -121,7 +121,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --no-ccache \
           build-memgraph --init-only \
-          ${PYTHON_VERSION:+--python-version $PYTHON_VERSION} \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
@@ -149,7 +149,7 @@ jobs:
           --no-ccache \
           build-memgraph --coverage --asan --ubsan \
           --link-threads $LINK_THREADS \
-          ${PYTHON_VERSION:+--python-version $PYTHON_VERSION} \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
@@ -283,7 +283,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --no-ccache \
           build-memgraph --cmake-only --community \
-          ${PYTHON_VERSION:+--python-version $PYTHON_VERSION} \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
@@ -383,7 +383,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --no-ccache \
           build-memgraph --cmake-only \
-          ${PYTHON_VERSION:+--python-version $PYTHON_VERSION} \
+          ${PYTHON_BUILD_VERSION:+--python-build-version $PYTHON_BUILD_VERSION} \
           ${PYTHON_RUNTIME_VERSION:+--python-runtime-version $PYTHON_RUNTIME_VERSION} \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
