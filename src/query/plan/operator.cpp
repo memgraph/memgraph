@@ -14408,20 +14408,20 @@ class ParallelBranchCursor : public Cursor {
     AbortCheck(context);
 
     const auto num_branches = branch_cursors_.size();
-    const auto num_branches_without_main = num_branches - 1;
 
     utils::TaskCollection tasks(num_branches);
-    // Size vectors in st exactly as the original code did. Use the sized vector constructor +
-    // move-assign (a pointer swap) rather than resize()/assign(): TriggerContextCollector and
-    // FrameChangeCollector are non-movable, so resize()'s reallocation path won't instantiate, but
-    // the sized constructor value-initializes the optionals in place (no element move/copy required).
+    // Size vectors in st for ALL N branches (uniform: branch-0 is a peer pool task, not inline). Use the
+    // sized vector constructor + move-assign (a pointer swap) rather than resize()/assign():
+    // TriggerContextCollector and FrameChangeCollector are non-movable, so resize()'s reallocation path
+    // won't instantiate, but the sized constructor value-initializes the optionals in place.
     st.exceptions = std::vector<std::exception_ptr>(num_branches, nullptr);
-    st.branch_contexts = std::vector<ExecutionContext>(num_branches_without_main);
-    st.branch_trigger_collectors = std::vector<std::optional<TriggerContextCollector>>(num_branches_without_main);
-    st.branch_frame_collectors = std::vector<std::optional<FrameChangeCollector>>(num_branches_without_main);
+    st.branch_contexts = std::vector<ExecutionContext>(num_branches);
+    st.branch_trigger_collectors = std::vector<std::optional<TriggerContextCollector>>(num_branches);
+    st.branch_frame_collectors = std::vector<std::optional<FrameChangeCollector>>(num_branches);
 
-    // Execute branches 1..N in parallel
-    for (size_t i = 1; i < num_branches; i++) {
+    // Execute ALL N branches as equal pool tasks (branch-0 is no longer run inline on the coordinator;
+    // the coordinator schedules everything then parks — uniform scheduler-driven execution).
+    for (size_t i = 0; i < num_branches; i++) {
       tasks.AddTask([&,
                      i,
                      context,
@@ -14438,11 +14438,18 @@ class ParallelBranchCursor : public Cursor {
         // Create parallel operator entry in branch's stats tree
         context.stats_root = nullptr;
         context.stats = plan::ProfilingStats();
+        // Per-branch accumulator reset: each task's context copy captured the coordinator's pre-parallel
+        // baseline; zero it so UnifyContexts sums only per-branch deltas into the (baseline-holding) base.
+        // Required now that branch-0 is a task too (was implicitly correct when branch-0 ran inline).
+        context.number_of_hops = 0;
+        context.execution_stats.counters.fill(0);
+        context.evaluation_context.counters.clear();
+        context.profile_execution_time = {};
         SCOPED_PROFILE_OP_BY_REF(self);
 
         DMG_ASSERT(!context.auth_checker || context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
         const auto &cursor = branch_cursors_[i];
-        const auto metadata_i = i - 1;
+        const auto metadata_i = i;
         if (context.frame_change_collector != nullptr) {
           auto &collector =
               st.branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
@@ -14517,27 +14524,11 @@ class ParallelBranchCursor : public Cursor {
       collection_scheduler_->Trigger();
     }
 
-    // TODO Reuse the same logic as each thread
-    // Execute branch 0 on the main thread
-    // Set plan quotas for the hops limit (this is needed for parallel execution to avoid deadlock in case multiple
-    // shared quotas are used)
-    if (branch_plan_quotas_[0] && context.hops_limit.IsUsed() && context.hops_limit.shared_quota_) {
-      context.hops_limit.shared_quota_->SetPlanQuotas(branch_plan_quotas_[0]);
-    }
-    const auto &cursor = branch_cursors_[0];
-    try {
-      pre_pull_func(cursor.get());
-      st.pull_result.fetch_add((int)cursor->Pull(frame, context));
-      // NOTE: hops limit is shared between threads, so we need to free the leftover quota
-      context.hops_limit.Free();
-      post_pull_func(cursor.get(), &frame);
-    } catch (const std::exception &e) {
-      DMG_ASSERT(context.stopping_context.exception_occurred != nullptr, "Exception occurred must be set");
-      if (!context.stopping_context.exception_occurred->fetch_or(true, std::memory_order::acq_rel)) {
-        // Exception occurred on the main thread, set flag and pass exception to the main thread
-        st.exceptions[0] = std::current_exception();
-      }
-    }
+    // Branch-0 is now a uniform pool task (added in the i=0 loop above) — no inline execution here.
+    // Coro path: the coordinator has dispatched all N branches and will park. Sync path: WaitOrSteal
+    // (in ExecuteBranchesInParallel) steals and runs all N tasks inline. For both parallel coordinators
+    // (Aggregate/OrderBy) the output is read from the merged result (main_aggregation_ / branch caches)
+    // after the join, not from the coordinator frame, so no caller depends on branch-0 populating `frame`.
 
     return true;
   }
