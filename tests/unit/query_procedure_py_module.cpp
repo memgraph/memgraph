@@ -464,8 +464,6 @@ int main(int argc, char **argv) {
     Py_END_ALLOW_THREADS;
   }
   // NOTE: Skip Py_Finalize() — see comment in memgraph.cpp (bpo-42969).
-  // `PyMem_RawFree` only entered the stable ABI in Python 3.13; with our
-  // floor of 3.10 the OS reclaim on process exit is the right approach.
   (void)program_name;
   return test_result;
 }
