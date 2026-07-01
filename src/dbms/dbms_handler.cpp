@@ -556,6 +556,17 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
     return std::unexpected{RenameError::SUSPENDED};
   }
 
+  // A tenant mid-transition must not be renamed either. Suspend_ holds a raw pointer to the in-map
+  // gatekeeper across its lock-free phase; db_handler_.Rename would move-erase that node out from
+  // under it (use-after-free, or the post-rename Get MG_ASSERT). The suspended_ check above already
+  // covers COLD and RESUMING (their suspended_ entry is live), so this closes the remaining SUSPENDING
+  // window. Mirrors the DROP sibling DeleteCold_, which likewise refuses a non-HOT gatekeeper under
+  // this same exclusive lock_. Safety here is otherwise external (all DDL is serialized by the system
+  // transaction) — this makes it local and robust to any future finer-grained DDL locking.
+  if (auto *gk = db_handler_.GetGatekeeper(old_name); gk && gk->state() != utils::GatekeeperState::HOT) {
+    return std::unexpected{RenameError::USING};
+  }
+
   // Perform the rename operation in the handler
   if (auto rename_result = db_handler_.Rename(old_name, new_name); !rename_result.has_value()) {
     return std::unexpected{rename_result.error()};
