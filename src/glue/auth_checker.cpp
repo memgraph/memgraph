@@ -212,6 +212,11 @@ bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgr
 FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba)
     : user_or_role_{std::move(user_or_role)}, dba_(dba), db_name_{dba_->DatabaseName()} {};
 
+void FineGrainedAuthChecker::UpdateDbAccessor(query::DbAccessor const *dba) {
+  DMG_ASSERT(dba->DatabaseName() == db_name_, "UpdateDbAccessor called with mismatched database name");
+  dba_ = dba;
+}
+
 auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedLabelPermissions() const {
   if (!cached_label_permissions_) {
     cached_label_permissions_ = std::visit(memgraph::utils::Overloaded{[this](auto const &user_or_role) {
