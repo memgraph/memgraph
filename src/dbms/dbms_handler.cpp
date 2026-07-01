@@ -800,7 +800,14 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
 
   {
     auto db = db_handler_.Get(db_name);
-    if (!db) return std::unexpected{DeleteError::NON_EXISTENT};
+    if (!db) {
+      // Get() is HOT-gated, so a tenant caught mid-SUSPEND (state SUSPENDING, not yet in `suspended_`)
+      // lands here too. Mirrors the Rename guard: report USING for any non-HOT gatekeeper instead of
+      // misreporting NON_EXISTENT for a tenant that in fact exists.
+      auto *gk = db_handler_.GetGatekeeper(db_name);
+      if (gk && gk->state() != utils::GatekeeperState::HOT) return std::unexpected{DeleteError::USING};
+      return std::unexpected{DeleteError::NON_EXISTENT};
+    }
     // TODO: ATM we assume REPLICA won't have streams,
     //       this is a best effort approach just in case they do
     //       there is still subtle data race we stream manipulation
@@ -994,10 +1001,11 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // would always fail ACTIVE_CONNECTIONS. on_suspend_ runs Streams::Shutdown() which stops the consumers
   // and releases those accessors WITHOUT deleting the durable stream metadata (resume rebuilds it).
   //
-  // This MUST run with lock_ NOT held: Shutdown() joins consumer threads, and a consumer's in-flight batch
-  // can re-enter db_handler_.Get() (a shared lock_) — joining while we hold lock_ would deadlock (and on a
-  // replica's single-threaded apply thread it would stall all replication). We take a brief shared lock_
-  // only to mint the accessor, then release it before joining.
+  // This MUST run with lock_ NOT held: Streams::Shutdown() performs an unbounded blocking join() of the
+  // consumer threads, and joining while we hold lock_ would stall ALL db_handler_ access for however long
+  // that join takes (and on a replica's single-threaded replication-apply thread it would stall
+  // replication entirely). We take a brief shared lock_ only to mint the accessor, then release it before
+  // joining.
   bool streams_stopped = false;
   {
     std::optional<DatabaseAccess> sacc;
@@ -1037,6 +1045,13 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     // during that wait is acceptable: suspend is rare/background; accessor release and
     // access() use the gatekeeper's own mutex, not lock_, so count can still drain; only
     // exclusive-lock writers (Drop/New) briefly wait on lock_.
+    //
+    // CONCURRENCY ASSUMPTION: at this primitive level, two concurrent Suspend_ calls for the SAME
+    // tenant would each mint their own accessor above, so each sees the other's accessor and both fail
+    // try_begin_suspend()'s ACTIVE_CONNECTIONS check — single-winner exclusivity is NOT enforced by this
+    // primitive itself. It relies on DDL being serialized upstream by the system transaction. A future
+    // caller that bypasses that serialization (e.g. an asynchronous/direct resume-triggered suspend) must
+    // add its own per-tenant exclusion before reaching this point.
     auto rd = std::shared_lock{lock_};
     auto a = db_handler_.Get(name);  // nullopt if absent OR not HOT (already cold)
     if (!a) return std::unexpected{SuspendError::NON_EXISTENT};
@@ -1284,6 +1299,13 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
     // winner is stuck-alive (holds RESUMING but never completes). We poll by NAME (not the gatekeeper
     // cv_): the winner publishes via `*gk = std::move(fresh)`, which destroys the old GKInternals (and
     // its cv_), so waiting on that cv_ would be a use-after-free.
+    //
+    // KNOWN LIMITATION: liveness is inferred purely from the RESUMING state, not an independent probe of
+    // the winner thread. A winner that is alive but HUNG in recovery I/O (e.g. a stuck disk) keeps every
+    // loser re-arming its deadline and waiting up to resume_retry_policy_.max_wait, repeatedly, forever.
+    // This is an accepted blocking-I/O limitation (same class as finish_suspend()'s unbounded teardown
+    // join, see the comment above Suspend_'s on_suspend_ call) — a stuck-RESUMING observability metric is
+    // a planned follow-up, not implemented here.
     if (!won_resume) {
       constexpr auto kPollStep = std::chrono::milliseconds(5);
       // How long to wait after the LAST confirmed-RESUMING observation before concluding the winner
@@ -1307,8 +1329,15 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           auto *live_gk = db_handler_.GetGatekeeper(name);
           if (!live_gk || live_gk->state() == utils::GatekeeperState::COLD) {
             retry_after_cold_fallback = true;
-          } else if (live_gk->state() == utils::GatekeeperState::RESUMING) {
-            // Winner is demonstrably still alive — extend the liveness deadline.
+          } else if (live_gk->state() == utils::GatekeeperState::RESUMING ||
+                     live_gk->state() == utils::GatekeeperState::SUSPENDING) {
+            // Winner is demonstrably still alive — extend the liveness deadline. SUSPENDING is a live,
+            // bounded wait-state too (not a COLD-fallback): Suspend_ inserts into `suspended_` (Phase B,
+            // before finish_suspend()) BEFORE the SUSPENDING -> COLD flip, so by the time any observer
+            // sees COLD the `suspended_` entry is guaranteed present. Treating SUSPENDING as a fallback
+            // here would restart Phase A into the freeze-visible-but-not-yet-in-`suspended_` window,
+            // which would spuriously return NON_EXISTENT for a tenant that in fact exists (racing a
+            // concurrent SUSPEND against this RESUME).
             deadline = std::chrono::steady_clock::now() + resume_retry_policy_.winner_liveness_window;
           }
         }
@@ -1322,12 +1351,16 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         if (!live_gk) return std::unexpected{ResumeError::NON_EXISTENT};  // dropped mid-resume
         // HOT: the winner just published — share its accessor.
         if (auto a = db_handler_.Get(name)) return std::move(*a);
-        // RESUMING: a concurrent winner is still actively rebuilding. A demonstrably-live winner must
-        // NEVER be turned into a RECOVERY_FAILED, however long its rebuild takes (a huge tenant replaying
-        // a long WAL is legitimately slow). Restart Phase A to keep waiting WITHOUT counting this toward
-        // the abort bound — the bound guards only a winner that actually ABORTED, not one still alive.
-        winner_still_resuming = live_gk->state() == utils::GatekeeperState::RESUMING;
-        // COLD / any other non-terminal state: the winner aborted (or a SUSPEND raced in) — the bounded
+        // RESUMING: a concurrent winner is still actively rebuilding. SUSPENDING: a DIFFERENT tenant
+        // transition is live (see the loser-poll SUSPENDING note above) — its `suspended_` entry is
+        // guaranteed present once it reaches COLD, so this is also just "still alive, keep waiting", not
+        // a fallback. A demonstrably-live winner must NEVER be turned into a RECOVERY_FAILED, however
+        // long its rebuild takes (a huge tenant replaying a long WAL is legitimately slow). Restart
+        // Phase A to keep waiting WITHOUT counting this toward the abort bound — the bound guards only a
+        // winner that actually ABORTED, not one still alive.
+        winner_still_resuming = (live_gk->state() == utils::GatekeeperState::RESUMING ||
+                                 live_gk->state() == utils::GatekeeperState::SUSPENDING);
+        // COLD / any other non-terminal state: the winner aborted (or a SUSPEND completed) — the bounded
         // COLD-fallback path restarts Phase A and counts it, so a persistent on_resume_ failure (e.g.
         // corrupt trigger metadata) is surfaced as RECOVERY_FAILED instead of looping forever.
       }
@@ -1456,7 +1489,12 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       return acc;
     } catch (...) {
       // Recovery (BuildDetached) threw before `acc`/`fresh` existed. No live accessor to release.
-      gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
+      // Guarded by state(): reachable today only from a pre-publish BuildDetached throw, where state is
+      // still RESUMING (behavior unchanged). The guard is defense-in-depth against a hypothetical future
+      // post-publish escape reaching this outer catch — calling abort_resume() on an already-HOT
+      // gatekeeper would (under NDEBUG) silently force it back to COLD.
+      // RESUMING -> COLD; suspended_ untouched => retriable.
+      if (gk->state() == utils::GatekeeperState::RESUMING) gk->abort_resume();
       return std::unexpected{ResumeError::RECOVERY_FAILED};
     }
   }  // end outer while(true) — all winner exits are `return`, so falling out is unreachable

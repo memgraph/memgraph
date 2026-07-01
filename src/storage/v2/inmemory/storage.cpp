@@ -438,7 +438,12 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   }
 
   if (config_.durability.recover_on_startup) {
-    // Disable ttl until after recovery and role switch / write enabled
+    // Disable TTL until after recovery and the role switch / write-enabled check.
+    // LOAD-BEARING for hot/cold RESUME: a resumed tenant is rebuilt through this ctor
+    // (recover_on_startup=true), so this deny-default (false) is what prevents TTL from
+    // running under the permissive struct-default in the window between the TTL scheduler
+    // starting (inside RecoverData) and on_resume_ rewiring the MAIN-only user check.
+    // Do not move or remove this call.
     ttl_.SetUserCheck([]() -> bool { return false; });
     // Recover data
     utils::Timer const recovery_timer;

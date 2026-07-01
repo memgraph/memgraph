@@ -85,19 +85,19 @@ using InstanceStatusResolver = std::function<std::vector<coordination::InstanceS
 struct GaugeHandle {
   prometheus::Gauge *gauge{nullptr};
 
-  void Increment(double v = 1.0) const {
+  void Increment(double v = 1.0) const noexcept {
     if (gauge) gauge->Increment(v);
   }
 
-  void Decrement(double v = 1.0) const {
+  void Decrement(double v = 1.0) const noexcept {
     if (gauge) gauge->Decrement(v);
   }
 
-  void Set(double v) const {
+  void Set(double v) const noexcept {
     if (gauge) gauge->Set(v);
   }
 
-  double Value() const { return gauge ? gauge->Value() : 0.0; }
+  double Value() const noexcept { return gauge ? gauge->Value() : 0.0; }
 
   prometheus::Gauge *get() const {
     DMG_ASSERT(gauge);
@@ -108,11 +108,11 @@ struct GaugeHandle {
 struct CounterHandle {
   prometheus::Counter *counter{nullptr};
 
-  void Increment(double v = 1.0) const {
+  void Increment(double v = 1.0) const noexcept {
     if (counter) counter->Increment(v);
   }
 
-  double Value() const { return counter ? counter->Value() : 0.0; }
+  double Value() const noexcept { return counter ? counter->Value() : 0.0; }
 
   prometheus::Counter *get() const {
     DMG_ASSERT(counter);

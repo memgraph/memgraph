@@ -400,6 +400,7 @@ struct Gatekeeper {
       // and held here, so re-entry (e.g. a pre-destruction hook calling access()/try_*()) would
       // self-deadlock. Verified today: the ~Database/~InMemoryStorage chain takes no gatekeeper
       // path. Anyone adding a destruction-time DBMS callback must preserve this.
+      DMG_ASSERT(pimpl_->count_ == 0, "finish_suspend() must not destroy value_ while accessors are live");
       pimpl_->value_ = std::nullopt;
     }
     pimpl_->state_ = GatekeeperState::COLD;
