@@ -4434,6 +4434,32 @@ antlrcpp::Any CypherMainVisitor::visitRenameDatabase(MemgraphCypher::RenameDatab
   return rename_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitSuspendDatabase(MemgraphCypher::SuspendDatabaseContext *ctx) {
+  auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
+  mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
+  mdb_query->action_ = MultiDatabaseQuery::Action::SUSPEND;
+  mdb_query->force_ = ctx->FORCE() != nullptr;
+  query_ = mdb_query;
+  return mdb_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitResumeDatabase(MemgraphCypher::ResumeDatabaseContext *ctx) {
+  auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
+  mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
+  mdb_query->action_ = MultiDatabaseQuery::Action::RESUME;
+  query_ = mdb_query;
+  return mdb_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRestartDatabase(MemgraphCypher::RestartDatabaseContext *ctx) {
+  auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
+  mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
+  mdb_query->action_ = MultiDatabaseQuery::Action::RESTART;
+  mdb_query->force_ = ctx->FORCE() != nullptr;
+  query_ = mdb_query;
+  return mdb_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) {
   auto *query = storage_->Create<UseDatabaseQuery>();
   query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));

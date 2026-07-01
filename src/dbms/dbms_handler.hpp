@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -124,6 +125,9 @@ class DbmsHandler {
   using NewResultT = std::expected<DatabaseAccess, NewError>;
   using DeleteResult = std::expected<void, DeleteError>;
   using RenameResult = std::expected<void, RenameError>;
+  using SuspendResult = std::expected<void, SuspendError>;
+  using ResumeResult = std::expected<void, ResumeError>;
+  using RestartResult = std::expected<void, RestartError>;
 
   /**
    * @brief Initialize the handler.
@@ -159,6 +163,10 @@ class DbmsHandler {
    */
   NewResultT New(const std::string &name, system::Transaction *txn = nullptr) {
     auto wr = std::lock_guard{lock_};
+    // A suspended (cold storage) database still owns its name and on-disk data.
+    if (cold_dbs_.contains(name)) {
+      return std::unexpected{NewError::EXISTS};
+    }
     const auto uuid = utils::UUID{};
     return New_(name, uuid, txn);
   }
@@ -306,6 +314,59 @@ class DbmsHandler {
    * @return RenameResult error on failure
    */
   RenameResult Rename(std::string_view old_name, std::string_view new_name, system::Transaction *txn = nullptr);
+
+  /**
+   * @brief Move a database to cold storage: destroy its in-memory storage while keeping its
+   *        on-disk durability so it can be resumed later. The default database cannot be suspended.
+   *
+   * @param db_name database name
+   * @param force when false, suspend gracefully and fail if the database is currently in use; when
+   *              true, destroy the in-memory storage even if sessions still reference it (deferred)
+   * @return SuspendResult error on failure
+   */
+  SuspendResult Suspend(std::string_view db_name, bool force);
+
+  /**
+   * @brief Bring a suspended database back online, recovering it from its on-disk durability.
+   *
+   * @param db_name database name
+   * @param ic global InterpreterContext, used to restore triggers and streams
+   * @return ResumeResult error on failure
+   */
+  ResumeResult Resume(std::string_view db_name, query::InterpreterContext *ic);
+
+  /**
+   * @brief Restart a database: synchronously tear down its in-memory storage (keeping on-disk
+   *        durability) and immediately bring it back up, recovering from disk. Useful for
+   *        defragmenting the in-memory storage. The default database cannot be restarted, and a
+   *        suspended database must be resumed instead.
+   *
+   * @param db_name database name
+   * @param ic global InterpreterContext, used to restore triggers and streams
+   * @return RestartResult error on failure
+   */
+  RestartResult Restart(std::string_view db_name, query::InterpreterContext *ic);
+
+  /**
+   * @brief Return all suspended (cold storage) databases.
+   *
+   * @return std::vector<std::string>
+   */
+  std::vector<std::string> Suspended() const {
+    auto rd = std::shared_lock{lock_};
+    std::vector<std::string> res;
+    res.reserve(cold_dbs_.size());
+    for (const auto &[name, _] : cold_dbs_) res.push_back(name);
+    return res;
+  }
+
+  /**
+   * @brief Check whether a database is currently suspended (in cold storage).
+   */
+  bool IsSuspended(std::string_view db_name) const {
+    auto rd = std::shared_lock{lock_};
+    return cold_dbs_.contains(db_name);
+  }
 #endif
 
   /**
@@ -588,6 +649,19 @@ class DbmsHandler {
   DeleteResult Delete_(std::string_view db_name);
 
   /**
+   * @brief If db_name refers to a suspended (cold storage) database, remove its durability entry
+   *        and on-disk data and forget it. Caller must hold lock_.
+   *
+   * @return true if db_name was suspended and has been removed, false otherwise.
+   */
+  bool DeleteCold_(std::string_view db_name, system::Transaction *transaction);
+
+  /**
+   * @brief Restore triggers and streams for a single (freshly resumed) database. Caller must hold lock_.
+   */
+  void RestoreTriggersAndStreams_(DatabaseAccess &db_acc, query::InterpreterContext *ic);
+
+  /**
    * @brief Create a new Database associated with the default database
    *
    * @return NewResultT context on success, error on failure
@@ -683,6 +757,12 @@ class DbmsHandler {
     if (db) {
       return *db;
     }
+    if (cold_dbs_.contains(name)) {
+      throw DatabaseInColdStorageException(
+          "Database \"{}\" is suspended (in cold storage). Run RESUME DATABASE {} to bring it back online.",
+          name,
+          name);
+    }
     throw UnknownDatabaseException("Tried to retrieve an unknown database \"{}\".", name);
   }
 
@@ -712,6 +792,14 @@ class DbmsHandler {
   // TODO: move to be common
   std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
   std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)
+
+  //!< Salient info needed to resume a suspended (cold storage) database
+  struct ColdInfo {
+    utils::UUID uuid;
+    std::filesystem::path rel_dir;
+  };
+
+  std::map<std::string, ColdInfo, std::less<>> cold_dbs_;  //!< suspended databases, name -> resume info
 #endif
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper

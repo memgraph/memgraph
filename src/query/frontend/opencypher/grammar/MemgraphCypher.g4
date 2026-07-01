@@ -178,6 +178,8 @@ memgraphCypherKeyword : cypherKeyword
                       | REQUIRE
                       | RESET
                       | RESOURCE
+                      | RESTART
+                      | RESUME
                       | REVOKE
                       | ROLE
                       | ROLES
@@ -206,6 +208,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TENANT
                       | STRICT_SYNC
                       | STRING
+                      | SUSPEND
                       | SYNC
                       | TERMINATE
                       | TEXT
@@ -805,6 +808,9 @@ transactionId : literal ;
 multiDatabaseQuery : createDatabase
                    | dropDatabase
                    | renameDatabase
+                   | suspendDatabase
+                   | resumeDatabase
+                   | restartDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
@@ -812,6 +818,12 @@ createDatabase : CREATE DATABASE databaseName ;
 dropDatabase: DROP DATABASE databaseName ( FORCE)?;
 
 renameDatabase : RENAME DATABASE databaseName TO databaseName ;
+
+suspendDatabase : SUSPEND DATABASE databaseName ( FORCE )? ;
+
+resumeDatabase : RESUME DATABASE databaseName ;
+
+restartDatabase : RESTART DATABASE databaseName ( FORCE )? ;
 
 useDatabase : USE DATABASE databaseName ;
 

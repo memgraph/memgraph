@@ -95,10 +95,13 @@ struct Durability {
 
   static auto GenKey(std::string_view name) -> std::string { return fmt::format("{}{}", kDBPrefix, name); }
 
-  static auto GenVal(utils::UUID uuid, std::filesystem::path rel_dir) {
+  static auto GenVal(utils::UUID uuid, std::filesystem::path rel_dir, bool cold = false) {
     nlohmann::json json;
     json["uuid"] = uuid;
     json["rel_dir"] = rel_dir;
+    // A suspended (cold storage) database is persisted but not recovered into memory on startup.
+    // The flag is only written when true so existing (hot) entries remain byte-compatible.
+    if (cold) json["cold"] = true;
     // TODO: Serialize the configuration
     return json.dump();
   }
@@ -175,10 +178,18 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
     auto json = nlohmann::json::parse(config_json);
     const auto uuid = json.at("uuid").get<utils::UUID>();
     const auto rel_dir = json.at("rel_dir").get<std::filesystem::path>();
+    const auto cold = json.value("cold", false);
+    // Keep the on-disk directory regardless of state so the cleanup step below does not remove it.
+    directories.emplace(rel_dir.filename());
+    if (cold) {
+      // Suspended (cold storage) database: keep it known and resumable, but do not load it into memory.
+      spdlog::info("Database {} is suspended (cold storage); skipping recovery.", name);
+      cold_dbs_.emplace(name, ColdInfo{uuid, rel_dir});
+      continue;
+    }
     spdlog::info("Restoring database {} at {}.", name, rel_dir);
     auto new_db = New_(name, uuid, nullptr, rel_dir);
     MG_ASSERT(new_db.has_value(), "Failed while creating database {}.", name);
-    directories.emplace(rel_dir.filename());
     spdlog::info("Database {} restored.", name);
   }
 
@@ -268,6 +279,11 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
     return std::unexpected{DeleteError::DEFAULT_DB};
   }
 
+  // A suspended (cold storage) database has no in-memory presence; clean up its metadata/disk directly.
+  if (DeleteCold_(db_name, transaction)) {
+    return {};
+  }
+
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
   if (!conf) {
@@ -314,6 +330,11 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
 
 DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::Transaction *transaction) {
   auto wr = std::lock_guard(lock_);
+
+  // A suspended (cold storage) database has no in-memory presence; clean up its metadata/disk directly.
+  if (DeleteCold_(db_name, transaction)) {
+    return {};
+  }
 
   // Get DB config for the UUID and disk clean up
   const auto conf = db_handler_.GetConfig(db_name);
@@ -593,6 +614,179 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   });
 
   return {};  // Success
+}
+
+bool DbmsHandler::DeleteCold_(std::string_view db_name, system::Transaction *transaction) {
+  auto it = cold_dbs_.find(db_name);
+  if (it == cold_dbs_.end()) return false;
+
+  const auto uuid = it->second.uuid;
+  const auto storage_path = default_config_.durability.storage_directory / it->second.rel_dir;
+
+  // Remove from durability list
+  if (durability_) durability_->Delete(Durability::GenKey(db_name));
+
+  // Detach from tenant profile (no-op if not attached)
+  if (tenant_profiles_) {
+    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(db_name);
+  }
+
+  // Delete disk storage
+  std::error_code ec;
+  (void)std::filesystem::remove_all(storage_path, ec);
+  if (ec) {
+    spdlog::error(
+        R"(Failed to clean disk while deleting suspended database "{}" stored in {})", db_name, storage_path.string());
+  }
+
+  cold_dbs_.erase(it);
+
+  // Save delta
+  if (transaction) {
+    transaction->AddAction<DropDatabase>(uuid);
+  }
+
+  return true;
+}
+
+DbmsHandler::SuspendResult DbmsHandler::Suspend(std::string_view db_name, bool force) {
+  auto wr = std::lock_guard{lock_};
+  if (db_name == kDefaultDB) {
+    // The default database cannot be suspended
+    return std::unexpected{SuspendError::DEFAULT_DB};
+  }
+  if (cold_dbs_.contains(db_name)) {
+    return std::unexpected{SuspendError::ALREADY_SUSPENDED};
+  }
+
+  // Get DB config for the UUID and the relative directory needed to resume later
+  const auto conf = db_handler_.GetConfig(db_name);
+  if (!conf) {
+    return std::unexpected{SuspendError::NON_EXISTENT};
+  }
+  const auto uuid = conf->salient.uuid;
+  const auto rel_dir =
+      std::filesystem::relative(conf->durability.storage_directory, default_config_.durability.storage_directory);
+
+  if (force) {
+    // Stop background work and destroy the in-memory storage (deferred until all accessors release),
+    // keeping the on-disk durability so the database can be resumed later.
+    {
+      auto db = db_handler_.Get(db_name);
+      if (!db) return std::unexpected{SuspendError::NON_EXISTENT};
+      db->prepare_for_deletion();
+      auto &database = *db->get();
+      database.StopAllBackgroundTasks();
+      // NOTE: intentionally NOT calling streams()->DropAll(); stream definitions are kept on disk
+      //       so they are restored when the database is resumed.
+    }
+    db_handler_.DeferDelete(db_name, []() { /* keep on-disk durability for a later resume */ });
+  } else {
+    // Graceful: only suspend if no session is currently using the database. TryDelete destroys the
+    // in-memory Database object only when no other accessor holds it; it never touches disk files.
+    try {
+      if (!db_handler_.TryDelete(db_name)) {
+        return std::unexpected{SuspendError::USING};
+      }
+    } catch (const utils::BasicException &) {
+      return std::unexpected{SuspendError::NON_EXISTENT};
+    }
+  }
+
+  // Persist the cold state (survives restart) and remember how to resume it.
+  cold_dbs_.emplace(std::string{db_name}, ColdInfo{uuid, rel_dir});
+  if (durability_) {
+    durability_->Put(Durability::GenKey(db_name), Durability::GenVal(uuid, rel_dir, /*cold=*/true));
+  }
+
+  return {};
+}
+
+DbmsHandler::ResumeResult DbmsHandler::Resume(std::string_view db_name, query::InterpreterContext *ic) {
+  auto wr = std::lock_guard{lock_};
+  auto it = cold_dbs_.find(db_name);
+  if (it == cold_dbs_.end()) {
+    // Distinguish a live database from a non-existent one
+    if (db_handler_.GetConfig(db_name)) return std::unexpected{ResumeError::NOT_SUSPENDED};
+    return std::unexpected{ResumeError::NON_EXISTENT};
+  }
+
+  const auto uuid = it->second.uuid;
+  const auto rel_dir = it->second.rel_dir;
+
+  // Reconstruct the Database; this reopens the on-disk durability and recovers data/indices/constraints.
+  // New_ rewrites the durability entry via UpdateDurability (without the cold flag), clearing the cold state.
+  auto new_db = New_(db_name, uuid, nullptr, rel_dir);
+  if (!new_db) {
+    return std::unexpected{ResumeError::FAIL};
+  }
+
+  cold_dbs_.erase(it);
+
+  // Restore triggers and streams that were kept on disk while suspended.
+  if (ic) {
+    RestoreTriggersAndStreams_(*new_db, ic);
+  }
+
+  return {};
+}
+
+DbmsHandler::RestartResult DbmsHandler::Restart(std::string_view db_name, query::InterpreterContext *ic) {
+  auto wr = std::lock_guard{lock_};
+  if (db_name == kDefaultDB) {
+    // The default database cannot be restarted (it cannot be brought down)
+    return std::unexpected{RestartError::DEFAULT_DB};
+  }
+  if (cold_dbs_.contains(db_name)) {
+    // A suspended database has no in-memory storage to restart; it must be resumed instead.
+    return std::unexpected{RestartError::SUSPENDED};
+  }
+
+  const auto conf = db_handler_.GetConfig(db_name);
+  if (!conf) {
+    return std::unexpected{RestartError::NON_EXISTENT};
+  }
+  const auto uuid = conf->salient.uuid;
+  const auto rel_dir =
+      std::filesystem::relative(conf->durability.storage_directory, default_config_.durability.storage_directory);
+
+  // Synchronously tear down the in-memory Database (TryDelete waits for accessors to release and then
+  // destroys it in place). On-disk durability is kept, so we can immediately recover from it.
+  try {
+    if (!db_handler_.TryDelete(db_name)) {
+      return std::unexpected{RestartError::USING};
+    }
+  } catch (const utils::BasicException &) {
+    return std::unexpected{RestartError::NON_EXISTENT};
+  }
+
+  // Bring it straight back up from disk.
+  auto new_db = New_(db_name, uuid, nullptr, rel_dir);
+  if (!new_db) {
+    // The on-disk data is intact and the durability entry still exists, so the database will be
+    // recovered on the next startup; it is just unavailable in this process.
+    spdlog::error("Failed to bring database \"{}\" back up after teardown during RESTART.", db_name);
+    return std::unexpected{RestartError::FAIL};
+  }
+
+  // Restore triggers and streams that were kept on disk.
+  if (ic) {
+    RestoreTriggersAndStreams_(*new_db, ic);
+  }
+
+  return {};
+}
+
+void DbmsHandler::RestoreTriggersAndStreams_(DatabaseAccess &db_acc, query::InterpreterContext *ic) {
+  spdlog::debug("Restoring triggers for resumed database \"{}\"", db_acc->name());
+  {
+    auto storage_accessor = db_acc->Access(memgraph::storage::WRITE);
+    auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
+    db_acc->trigger_store()->RestoreTriggers(
+        &ic->ast_cache, &dba, ic->config.query, ic->auth_checker, db_acc->name(), ic->parameters);
+  }
+  spdlog::debug("Restoring streams for resumed database \"{}\"", db_acc->name());
+  db_acc->streams()->RestoreStreams(db_acc, ic);
 }
 
 void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir) {

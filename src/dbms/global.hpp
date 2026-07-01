@@ -41,6 +41,28 @@ enum class RenameError : uint8_t {
   FAIL,
   SAME_NAME,
 };
+
+enum class SuspendError : uint8_t {
+  DEFAULT_DB,
+  NON_EXISTENT,
+  ALREADY_SUSPENDED,
+  USING,
+  FAIL,
+};
+
+enum class ResumeError : uint8_t {
+  NON_EXISTENT,
+  NOT_SUSPENDED,
+  FAIL,
+};
+
+enum class RestartError : uint8_t {
+  DEFAULT_DB,
+  NON_EXISTENT,
+  SUSPENDED,
+  USING,
+  FAIL,
+};
 #endif
 
 /**
@@ -63,6 +85,19 @@ class UnknownDatabaseException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
   SPECIALIZE_GET_EXCEPTION_NAME(UnknownDatabaseException)
+};
+
+/**
+ * DatabaseInColdStorage Exception
+ *
+ * Used to indicate that a database is suspended (in cold storage) and must be
+ * resumed before it can be used. Derives from UnknownDatabaseException so that
+ * existing handlers which catch UnknownDatabaseException keep working.
+ */
+class DatabaseInColdStorageException : public UnknownDatabaseException {
+ public:
+  using UnknownDatabaseException::UnknownDatabaseException;
+  SPECIALIZE_GET_EXCEPTION_NAME(DatabaseInColdStorageException)
 };
 
 }  // namespace memgraph::dbms
