@@ -250,10 +250,12 @@ def test_wildcard_vector_search_allowed_for_label_restricted_user():
         user_cursor(),
         "CALL vector_search.search('wild_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
     )
-    titles = {row[0].properties.get("title") for row in res}
-    # :Document-only nodes are denied; :Public nodes (including the multi-label Hybrid via DENY :Document) excluded
-    assert "Secret" not in titles
-    assert "Internal" not in titles
+    # 7 nodes carry .embedding: 3 pure :Public (Welcome, Hello, CrossSrc), 3 pure :Document
+    # (Secret, Internal, CrossDst), 1 multi-label :Public:Document (Hybrid). DENY :Document strips
+    # every :Document-bearing node; user has no property GRANT so titles come back null.
+    labels_per_row = [frozenset(row[0].labels) for row in res]
+    assert len(labels_per_row) == 3
+    assert all(labels == frozenset({"Public"}) for labels in labels_per_row)
 
 
 def test_wildcard_vector_search_blocked_under_property_rbac():
