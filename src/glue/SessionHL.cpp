@@ -343,8 +343,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
 }
 
 void SessionHL::LogOff() {
-  interpreter_.cached_auth_checker_.reset();
-  interpreter_.auth_checker_db_name_.clear();
+  interpreter_.cached_fga_.Reset();
 #ifdef MG_ENTERPRISE
   interpreter_.ResetDB();
 #endif
@@ -353,8 +352,7 @@ void SessionHL::LogOff() {
 }
 
 void SessionHL::Abort() {
-  interpreter_.cached_auth_checker_.reset();
-  interpreter_.auth_checker_db_name_.clear();
+  interpreter_.cached_fga_.Reset();
   interpreter_.Abort();
 }
 
@@ -381,7 +379,7 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
-    TypedValueResultStream<TEncoder> stream(&encoder_, storage, interpreter_.cached_auth_checker_.get());
+    TypedValueResultStream<TEncoder> stream(&encoder_, storage, interpreter_.cached_fga_.get());
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
@@ -612,8 +610,7 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // Runtime config is sent at the beginning of the transaction, but is missing during the transaction
   if (in_explicit_tx || (previous_run_time_info_ && run_time_info == *previous_run_time_info_)) return;
 
-  session_->interpreter_.cached_auth_checker_.reset();
-  session_->interpreter_.auth_checker_db_name_.clear();
+  session_->interpreter_.cached_fga_.Reset();
 
   db_explicit_ = false;
   user_explicit_ = false;
