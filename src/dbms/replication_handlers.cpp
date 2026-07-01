@@ -472,9 +472,20 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
         continue;
       }
       // Same name, DIFFERENT uuid: MAIN drop+recreated this tenant while this replica kept the OLD
-      // one COLD. The local shell points at the old tenant's data — drop it so the rebuild below
-      // recreates MAIN's new tenant. Leaving it would make every per-uuid Suspend/Resume RPC for the
-      // new uuid return NON_EXISTENT, latching this replica BEHIND permanently with no self-heal.
+      // one COLD. This is a genuinely different database, not a config change, so we DROP-and-rebuild
+      // rather than Update in place:
+      //   - The old shell owns the OLD uuid's on-disk data; Delete (DeleteCold_) clears its data dir +
+      //     durable marker so the rebuild below starts clean for MAIN's new uuid.
+      //   - Update() cannot touch a cold shell anyway — it operates on the HOT map (db_handler_) and
+      //     throws UnknownDatabaseException for a suspended tenant, with no path to rewrite the
+      //     suspended_ entry's uuid.
+      // The tenant is NOT left without a db: the SAME reconcile pass immediately rebuilds it below
+      // (Update() creates it HOT, then ForceSuspendForRecovery drops it back to COLD). A failure
+      // between the drop and the rebuild returns false, leaving the replica BEHIND so the next recovery
+      // round recreates it (MAIN still lists it) — the replica only advertises converged state after
+      // this handler returns true. Leaving the stale shell instead would make every per-uuid
+      // Suspend/Resume RPC for the new uuid return NON_EXISTENT, latching this replica BEHIND
+      // permanently with no self-heal.
       if (const auto del = dbms_handler.Delete(name); !del && del.error() != DeleteError::NON_EXISTENT) {
         spdlog::debug("SystemRecoveryHandler: failed to drop stale COLD database \"{}\" before recreate.", name);
         return false;
