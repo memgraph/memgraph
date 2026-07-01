@@ -119,6 +119,15 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
   return res;
 }
 
+// Retry/timeout knobs for Resume_'s single-flight loser loop. Defaults are the production values;
+// a test can shrink them (via SetResumeRetryPolicyForTest) to exercise the bounded-retry path in
+// milliseconds instead of the ~minutes the production constants require.
+struct ResumeRetryPolicy {
+  int max_cold_fallback_restarts = 16;
+  std::chrono::milliseconds winner_liveness_window = std::chrono::seconds(30);
+  std::chrono::milliseconds max_wait = std::chrono::minutes(10);
+};
+
 /**
  * @brief Multi-database session contexts handler.
  */
@@ -355,6 +364,13 @@ class DbmsHandler {
    * consumers run on their own threads); a future arm must too.
    */
   void SetOnResume(std::function<void(DatabaseAccess)> cb) { on_resume_ = std::move(cb); }
+
+  /**
+   * @brief Test-only override of Resume_'s retry/timeout knobs (see ResumeRetryPolicy). Defaults to
+   *        the production values; a test can shrink them to exercise the bounded single-flight
+   *        loser-retry path deterministically in milliseconds instead of minutes.
+   */
+  void SetResumeRetryPolicyForTest(ResumeRetryPolicy policy) { resume_retry_policy_ = policy; }
 
   /**
    * @brief Set the pre-teardown suspend arm: stop the per-database features that pin the tenant HOT
@@ -1080,6 +1096,7 @@ class DbmsHandler {
   std::function<void(DatabaseAccess)>
       restore_streams_;  //!< streams-only restore (undo a stopped suspend); empty default
   std::function<void(DatabaseAccess)> on_resume_repl_;  //!< post-publish resume arm (replication); empty default
+  ResumeRetryPolicy resume_retry_policy_{};  //!< Resume_ retry/timeout knobs; test-overridable, production defaults
 #endif
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper

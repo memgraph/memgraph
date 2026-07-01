@@ -1215,7 +1215,6 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
   // failure) are `return`s; only the COLD-fallback path `continue`s.
   // Bound the retry count: a transient single abort retries; a persistent on_resume_ failure is
   // surfaced as RECOVERY_FAILED instead of looping forever.
-  constexpr int kMaxColdFallbackRestarts = 16;
   int cold_fallback_restarts = 0;
   // Wall-clock start for the resume-latency histogram; observed only on the winner's successful publish
   // below (the path that bumps the resume counter), so loser/error returns do not skew the distribution.
@@ -1261,11 +1260,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       // How long to wait after the LAST confirmed-RESUMING observation before concluding the winner
       // is dead. Large enough for a healthy rebuild under IO pressure, small enough to surface a
       // crashed winner before a client request timeout.
-      constexpr auto kWinnerLivenessWindow = std::chrono::seconds(30);
       // Absolute ceiling from poll entry: bounds a stuck-alive winner (RESUMING forever).
-      constexpr auto kMaxWait = std::chrono::minutes(10);
-      const auto absolute_ceiling = std::chrono::steady_clock::now() + kMaxWait;
-      auto deadline = std::chrono::steady_clock::now() + kWinnerLivenessWindow;
+      const auto absolute_ceiling = std::chrono::steady_clock::now() + resume_retry_policy_.max_wait;
+      auto deadline = std::chrono::steady_clock::now() + resume_retry_policy_.winner_liveness_window;
       while (std::chrono::steady_clock::now() < deadline && std::chrono::steady_clock::now() < absolute_ceiling) {
         bool retry_after_cold_fallback = false;
         {
@@ -1283,27 +1280,35 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
             retry_after_cold_fallback = true;
           } else if (live_gk->state() == utils::GatekeeperState::RESUMING) {
             // Winner is demonstrably still alive — extend the liveness deadline.
-            deadline = std::chrono::steady_clock::now() + kWinnerLivenessWindow;
+            deadline = std::chrono::steady_clock::now() + resume_retry_policy_.winner_liveness_window;
           }
         }
         if (retry_after_cold_fallback) break;  // exit poll loop; outer `continue` restarts Phase A
         std::this_thread::sleep_for(kPollStep);
       }
+      bool winner_still_resuming = false;
       {
         auto rd = std::shared_lock{lock_};
         auto *live_gk = db_handler_.GetGatekeeper(name);
         if (!live_gk) return std::unexpected{ResumeError::NON_EXISTENT};  // dropped mid-resume
         // HOT: the winner just published — share its accessor.
         if (auto a = db_handler_.Get(name)) return std::move(*a);
-        // RESUMING: a second concurrent winner has taken over and is actively rebuilding — do not
-        // return RECOVERY_FAILED for a live winner; fall through to the bounded retry instead.
-        // COLD: the winner aborted and the COLD-fallback path restarts Phase A (bounded retry).
-        // Any other state is treated as COLD (bounded retry).
-        // Only RECOVERY_FAILED if the retry bound is exceeded (handled just below).
+        // RESUMING: a concurrent winner is still actively rebuilding. A demonstrably-live winner must
+        // NEVER be turned into a RECOVERY_FAILED, however long its rebuild takes (a huge tenant replaying
+        // a long WAL is legitimately slow). Restart Phase A to keep waiting WITHOUT counting this toward
+        // the abort bound — the bound guards only a winner that actually ABORTED, not one still alive.
+        winner_still_resuming = live_gk->state() == utils::GatekeeperState::RESUMING;
+        // COLD / any other non-terminal state: the winner aborted (or a SUSPEND raced in) — the bounded
+        // COLD-fallback path restarts Phase A and counts it, so a persistent on_resume_ failure (e.g.
+        // corrupt trigger metadata) is surfaced as RECOVERY_FAILED instead of looping forever.
       }
+      // A live (RESUMING) winner: keep waiting — do NOT advance the abort bound (this is the HC-1 fix:
+      // the absolute_ceiling can fire purely because the winner stayed RESUMING, and that must not count).
+      if (winner_still_resuming) continue;
       // Bound the retry — a single transient abort is retried; a persistent on_resume_ failure
       // (e.g. corrupt trigger metadata) is surfaced as RECOVERY_FAILED instead of looping forever.
-      if (++cold_fallback_restarts > kMaxColdFallbackRestarts) return std::unexpected{ResumeError::RECOVERY_FAILED};
+      if (++cold_fallback_restarts > resume_retry_policy_.max_cold_fallback_restarts)
+        return std::unexpected{ResumeError::RECOVERY_FAILED};
       continue;  // COLD-fallback confirmed (lock released): restart Phase A
     }
 
