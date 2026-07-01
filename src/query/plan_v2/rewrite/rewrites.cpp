@@ -74,11 +74,9 @@ constexpr PatternVar kFoldArg1{2};
 /// merge `root` with the interned result. A non-constant operand or an
 /// evaluation that declines (runtime error, non-scalar) leaves `root` alone.
 void TryFold(FoldCtx &ctx, symbol op, EClassId root, std::span<EClassId const> operand_classes) {
-  // Already folded: the root's class carries the constant. A folded root keeps
-  // matching this rule (the operator e-node stays in the merged class), so
-  // without this guard every re-match re-evaluates and re-interns the result
-  // only to re-attempt a merge that is already done. The guard turns that into
-  // one analysis read.
+  // Already folded: the root carries the constant. A folded root keeps matching
+  // (the operator e-node stays in the merged class), so without this guard every
+  // re-match re-evaluates and re-interns only to redo a merge that is done.
   if (auto const *root_expr = ctx.analysis(root).expression();
       root_expr != nullptr && root_expr->known_constant_value) {
     return;
@@ -96,21 +94,21 @@ void TryFold(FoldCtx &ctx, symbol op, EClassId root, std::span<EClassId const> o
 }
 
 template <symbol Op>
-auto MakeBinaryFoldRule() -> RewriteRule<typed_egraph> {
-  return RewriteRule<typed_egraph>::Builder{"fold"}
+auto MakeBinaryFoldRule(std::string name) -> RewriteRule<typed_egraph> {
+  return RewriteRule<typed_egraph>::Builder{std::move(name)}
       .pattern(Pattern<symbol>::build(kFoldRoot, Op, {Var{kFoldArg0}, Var{kFoldArg1}}))
       .apply([](FoldCtx &ctx, Match const &match) {
-        EClassId const operands[] = {match[kFoldArg0], match[kFoldArg1]};
+        std::array<EClassId, 2> const operands = {match[kFoldArg0], match[kFoldArg1]};
         TryFold(ctx, Op, match[kFoldRoot], operands);
       });
 }
 
 template <symbol Op>
-auto MakeUnaryFoldRule() -> RewriteRule<typed_egraph> {
-  return RewriteRule<typed_egraph>::Builder{"fold"}
+auto MakeUnaryFoldRule(std::string name) -> RewriteRule<typed_egraph> {
+  return RewriteRule<typed_egraph>::Builder{std::move(name)}
       .pattern(Pattern<symbol>::build(kFoldRoot, Op, {Var{kFoldArg0}}))
       .apply([](FoldCtx &ctx, Match const &match) {
-        EClassId const operands[] = {match[kFoldArg0]};
+        std::array<EClassId, 1> const operands = {match[kFoldArg0]};
         TryFold(ctx, Op, match[kFoldRoot], operands);
       });
 }
@@ -120,10 +118,10 @@ auto DefaultRules() -> RuleSet<typed_egraph> const & {
   static auto const rules = [] {
     RuleSet<typed_egraph>::Builder builder;
     builder.add_rule(InlineRule::Make());
-#define MG_ADD_BINARY_FOLD(Name, ...) builder.add_rule(MakeBinaryFoldRule<symbol::Name>());
+#define MG_ADD_BINARY_FOLD(Name, ...) builder.add_rule(MakeBinaryFoldRule<symbol::Name>("fold/" #Name));
     EGRAPH_BINARY_OPS(MG_ADD_BINARY_FOLD)
 #undef MG_ADD_BINARY_FOLD
-#define MG_ADD_UNARY_FOLD(Name, ...) builder.add_rule(MakeUnaryFoldRule<symbol::Name>());
+#define MG_ADD_UNARY_FOLD(Name, ...) builder.add_rule(MakeUnaryFoldRule<symbol::Name>("fold/" #Name));
     EGRAPH_UNARY_OPS(MG_ADD_UNARY_FOLD)
 #undef MG_ADD_UNARY_FOLD
     return builder.build();
