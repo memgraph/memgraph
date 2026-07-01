@@ -315,7 +315,7 @@ void MigrateVersions(kvstore::KVStore &store) {
     spdlog::info("Auth storage migration to V2 completed successfully");
   }
 
-  // V3/V4 entity-level migrations (FGA schema changes)
+  // V2/V3/V4 entity-level migrations (FGA schema changes)
   if (version_str == kVersionV2 || version_str == kVersionV3 || version_str == kVersionV4) {
     spdlog::info("Migrating auth storage from {} to V5: migrating entity JSON schemas", *version_str);
     if (version_str == kVersionV2) {

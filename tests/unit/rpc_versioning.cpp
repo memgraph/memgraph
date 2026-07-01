@@ -381,7 +381,8 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V1UserWithOldFGA_MigratedOnUpgrade) {
   EXPECT_EQ(role.rolename(), "testrole");
   auto const &role_label_perms = role.fine_grained_access_handler().label_permissions();
   ASSERT_TRUE(role_label_perms.GetGlobalGrants().has_value());
-  EXPECT_EQ(role_label_perms.GetGlobalGrants().value(), 1);
+  EXPECT_EQ(role_label_perms.GetGlobalGrants().value(),
+            static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
 }
 
 // V1 request with V3-format FGA standalone Role → upgraded with migration.
