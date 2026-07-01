@@ -64,6 +64,7 @@
 #include "memory/query_memory_control.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
+#include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/common.hpp"
 #include "query/config.hpp"
@@ -3372,15 +3373,24 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
 
 }  // namespace
 
-Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
+Interpreter::Interpreter(InterpreterContext *interpreter_context)
+    : cached_fga_(std::make_unique<CachedFineGrainedAuth>()), interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
-    : current_db_{std::move(db)}, interpreter_context_(interpreter_context) {
+    : cached_fga_(std::make_unique<CachedFineGrainedAuth>()),
+      current_db_{std::move(db)},
+      interpreter_context_(interpreter_context) {
   MG_ASSERT(current_db_.db_acc_, "Database accessor needs to be valid");
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
+
+Interpreter::~Interpreter() { Abort(); }
+
+void Interpreter::ResetCachedFga() { cached_fga_->Reset(); }
+
+FineGrainedAuthChecker const *Interpreter::GetCachedFga() const { return cached_fga_->get(); }
 
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
   using double_seconds = std::chrono::duration<double>;
@@ -3651,7 +3661,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               std::move(stopping_context),
                                               dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
                                               *(*current_db.db_acc_)->metric_handles(),
-                                              interpreter.cached_fga_.get(),
+                                              interpreter.GetCachedFga(),
                                               trigger_context_collector,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
@@ -3862,7 +3872,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          db_acc = *current_db.db_acc_,
                                          hops_limit,
                                          db_arena_pool = &current_db.db_acc_->get()->Arena(),
-                                         cached_auth_checker = interpreter.cached_fga_.get()
+                                         cached_auth_checker = interpreter.GetCachedFga()
 #ifdef MG_ENTERPRISE
                                              ,
                                          parallel_execution,
@@ -9948,19 +9958,19 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (current_db_.execution_db_accessor_ && interpreter_context_->auth_checker && user_or_role_ && *user_or_role_) {
       auto *dba = &*current_db_.execution_db_accessor_;
       auto const current_db = dba->DatabaseName();
-      if (cached_fga_.checked && cached_fga_.db_name == current_db) {
-        if (cached_fga_.checker) cached_fga_.checker->UpdateDbAccessor(dba);
+      if (cached_fga_->checked && cached_fga_->db_name == current_db) {
+        if (cached_fga_->checker) cached_fga_->checker->UpdateDbAccessor(dba);
       } else {
-        cached_fga_.checker = interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*user_or_role_, dba);
-        DMG_ASSERT(cached_fga_.checker, "Auth checker should not be null");
-        if (!cached_fga_.checker->NeedsFineGrainedAuthChecker()) {
-          cached_fga_.checker.reset();
+        cached_fga_->checker = interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*user_or_role_, dba);
+        DMG_ASSERT(cached_fga_->checker, "Auth checker should not be null");
+        if (!cached_fga_->checker->NeedsFineGrainedAuthChecker()) {
+          cached_fga_->checker.reset();
         }
-        cached_fga_.db_name = current_db;
-        cached_fga_.checked = true;
+        cached_fga_->db_name = current_db;
+        cached_fga_->checked = true;
       }
     } else {
-      cached_fga_.Reset();
+      cached_fga_->Reset();
     }
 #endif
 
