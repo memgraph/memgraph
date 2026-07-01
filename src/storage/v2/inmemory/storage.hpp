@@ -921,6 +921,11 @@ class InMemoryStorage final : public Storage {
   // DisableExitSnapshot() so the destructor (triggered by finish_suspend()) does NOT write a
   // second snapshot-on-exit that would push the WAL position past the consolidated snapshot's
   // durable timestamp and break fast resume (WAL replay must start from after the snapshot).
+  // Not atomic on purpose: it is written exactly once (DisableExitSnapshot(), from Suspend_) strictly
+  // before finish_suspend() destroys this storage on the SAME thread, and read exactly once in that
+  // destructor. No other thread reads or writes it (the suspend/drop race is serialized by the
+  // gatekeeper state machine); unlike snapshot_running_/abort_snapshot_ below, it is not shared with
+  // the snapshot runner, so a plain bool is sufficient.
   bool exit_snapshot_enabled_{true};
 
   utils::Scheduler snapshot_runner_;
