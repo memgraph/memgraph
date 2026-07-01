@@ -1020,7 +1020,7 @@ const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermission
 
 nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
-  data[kVersion] = kCurrentAuthVersion;
+  data[kVersion] = kCurrentEntityVersion;
   data[kRoleName] = rolename_;
   data[kBuiltIn] = is_builtin_;
   data[kPermissions] = permissions_.Serialize();
@@ -1487,7 +1487,7 @@ PropertyAccessHandler &User::property_access_handler() { return property_access_
 nlohmann::json User::Serialize() const {
   // NOTE: Role and Profile are stored as links to the role and profile lists.
   nlohmann::json data = nlohmann::json::object();
-  data[kVersion] = kCurrentAuthVersion;
+  data[kVersion] = kCurrentEntityVersion;
   data[kUsername] = username_;
   data[kUUID] = uuid_;
   if (password_hash_) {
@@ -1852,8 +1852,8 @@ void MigrateAuthJson(nlohmann::json &data) {
   if (!data.is_object()) return;
 
   auto version = DeduceVersion(data);
-  if (!version.has_value() || version == kCurrentAuthVersion) {
-    if (!data.contains(kVersion)) data[kVersion] = kCurrentAuthVersion;
+  if (!version.has_value() || version == kCurrentEntityVersion) {
+    if (!data.contains(kVersion)) data[kVersion] = kCurrentEntityVersion;
     return;
   }
 
@@ -1863,7 +1863,7 @@ void MigrateAuthJson(nlohmann::json &data) {
   if (version == 2) {
     auto fg_it = data.find("fine_grained_access_handler");
     if (fg_it == data.end() || !fg_it->is_object()) {
-      data[kVersion] = kCurrentAuthVersion;
+      data[kVersion] = kCurrentEntityVersion;
       return;
     }
     // V2 permissions used bit_0 for read, bit_1 for update, and bit_2 for
@@ -1988,7 +1988,7 @@ void MigrateAuthJson(nlohmann::json &data) {
     }
   }
 
-  data[kVersion] = kCurrentAuthVersion;
+  data[kVersion] = kCurrentEntityVersion;
 }
 
 }  // namespace memgraph::auth

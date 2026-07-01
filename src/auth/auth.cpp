@@ -204,17 +204,17 @@ const std::string kRolePrefix = "role:";
 const std::string kRoleLinkPrefix = "link:";
 const std::string kMtLinkPrefix = "mtlink:";
 // Profile linking is now handled by UserProfiles class
-const std::string kVersion = "version";
+const std::string kStoreVersionKey = "version";
 
 // Auth KV store versions. These track structural changes to the store layout
 // (key prefixes, link format, etc.). Entity-level schema changes (e.g. FGA
 // format) are handled per-entity via MigrateAuthJson and the entity "version"
 // field: do NOT bump the store version for those (anymore).
-constexpr auto kVersionV1 = "V1";  // Added password hash algorithm field
-constexpr auto kVersionV2 = "V2";  // Single role links, to JSON arrays for multi-role support
-constexpr auto kVersionV3 = "V3";  // V2 FGA -> V3 FGA (fine_grained_access_handler to fine_grained_permissions)
-constexpr auto kVersionV4 = "V4";  // V3 FGA -> V4 FGA (global_permission → global_grants/global_denies)
-constexpr auto kVersionV5 = "V5";  // Eagerly migrates entity JSON via MigrateAuthJson over RPC (V3/V4 -> current)
+constexpr auto kStoreV1 = "V1";  // Added password hash algorithm field
+constexpr auto kStoreV2 = "V2";  // Single role links, to JSON arrays for multi-role support
+constexpr auto kStoreV3 = "V3";  // V2 FGA -> V3 FGA (fine_grained_access_handler to fine_grained_permissions)
+constexpr auto kStoreV4 = "V4";  // V3 FGA -> V4 FGA (global_permission → global_grants/global_denies)
+constexpr auto kStoreV5 = "V5";  // Eagerly migrates entity JSON via MigrateAuthJson over RPC (V3/V4 -> current)
 }  // namespace
 
 /**
@@ -237,13 +237,13 @@ constexpr auto kVersionV5 = "V5";  // Eagerly migrates entity JSON via MigrateAu
 namespace {
 void MigrateVersions(kvstore::KVStore &store) {
   static constexpr auto kPasswordHashV0V1 = "password_hash";
-  auto version_str = store.Get(kVersion);
+  auto version_str = store.Get(kStoreVersionKey);
 
   if (!version_str) {
     using namespace std::string_literals;
 
     // pre versioning, add version to the store
-    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV1}};
+    auto puts = std::map<std::string, std::string>{{kStoreVersionKey, kStoreV1}};
 
     // also add hash kind into durability
 
@@ -278,14 +278,14 @@ void MigrateVersions(kvstore::KVStore &store) {
 
     // Perform migration to V1
     store.PutMultiple(puts);
-    version_str = kVersionV1;
+    version_str = kStoreV1;
   }
 
   // Migrate from V1 to V2: convert single role links to JSON arrays
-  if (version_str == kVersionV1) {
+  if (version_str == kStoreV1) {
     spdlog::info("Migrating auth storage from V1 to V2: converting single role links to JSON arrays");
 
-    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV2}};
+    auto puts = std::map<std::string, std::string>{{kStoreVersionKey, kStoreV2}};
     auto deletes = std::vector<std::string>{};
 
     // Migrate all link entries from single role format to JSON array format
@@ -310,20 +310,20 @@ void MigrateVersions(kvstore::KVStore &store) {
     if (!deletes.empty()) {
       store.DeleteMultiple(deletes);
     }
-    version_str = kVersionV2;
+    version_str = kStoreV2;
 
     spdlog::info("Auth storage migration to V2 completed successfully");
   }
 
   // V2/V3/V4 entity-level migrations (FGA schema changes)
-  if (version_str == kVersionV2 || version_str == kVersionV3 || version_str == kVersionV4) {
+  if (version_str == kStoreV2 || version_str == kStoreV3 || version_str == kStoreV4) {
     spdlog::info("Migrating auth storage from {} to V5: migrating entity JSON schemas", *version_str);
-    if (version_str == kVersionV2) {
+    if (version_str == kStoreV2) {
       spdlog::warn(
           "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
     }
 
-    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV5}};
+    auto puts = std::map<std::string, std::string>{{kStoreVersionKey, kStoreV5}};
 
     auto const migrate_entities = [&](auto const &prefix) {
       for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
@@ -345,7 +345,7 @@ void MigrateVersions(kvstore::KVStore &store) {
     migrate_entities(kRolePrefix);
 
     store.PutMultiple(puts);
-    version_str = kVersionV5;
+    version_str = kStoreV5;
 
     spdlog::info("Auth storage migration to V5 completed successfully");
   }
@@ -398,7 +398,7 @@ Auth::Auth(std::string storage_directory, Config config
     MigrateVersions(storage_);
   } else {
     // Clean storage; put the version
-    storage_.Put(kVersion, kVersionV5);
+    storage_.Put(kStoreVersionKey, kStoreV5);
   }
 
 #ifdef MG_ENTERPRISE
