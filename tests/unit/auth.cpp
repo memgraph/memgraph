@@ -3965,9 +3965,11 @@ constexpr uint64_t kSetProperty = 2;
 constexpr uint64_t kReadOrSetProperty = kRead | kSetProperty;  // 3
 constexpr uint64_t kAllLabel = 507;
 constexpr uint64_t kAllEdgeType = 27;
-constexpr uint64_t kLabelUpdateExpanded =
-    kRead | kSetProperty | 32 | 64 | 128 |
-    256;  // 483 (READ | SET_PROPERTY | SET_LABEL | REMOVE_LABEL | DELETE_EDGE | CREATE_EDGE)
+constexpr uint64_t kSetLabel = 32;
+constexpr uint64_t kRemoveLabel = 64;
+constexpr uint64_t kDeleteEdge = 128;
+constexpr uint64_t kCreateEdge = 256;
+constexpr uint64_t kLabelUpdateExpanded = kRead | kSetProperty | kSetLabel | kRemoveLabel | kDeleteEdge | kCreateEdge;
 constexpr int64_t kUnset = -1;
 }  // namespace
 
