@@ -282,6 +282,9 @@ struct Transaction {
 
   /// Last durable timestamp at the moment of transaction creation
   std::optional<uint64_t> last_durable_ts_;
+  /// Number of committed txns paired with last_durable_ts_, captured from the same atomic load so a snapshot
+  /// writes a mutually consistent (durable_timestamp, num_committed_txns) pair.
+  uint64_t last_durable_num_committed_txns_{0};
 
   /// Concurrent safe indices that existed at the beginning of the transaction
   /// Used to insert new entries, and during planning to speed up scans
