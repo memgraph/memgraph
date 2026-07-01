@@ -166,14 +166,19 @@ void Save(const memgraph::replication::UpdateAuthDataReqV1 &self, memgraph::slk:
   memgraph::slk::Save(has_user, builder);
   if (has_user) {
     memgraph::slk::Save(*self.user_json, builder);
-    static std::vector<std::string> const kEmptyRoleJsons;
-    auto const &role_jsons = self.user_role_jsons ? *self.user_role_jsons : kEmptyRoleJsons;
-    memgraph::slk::Save(static_cast<uint64_t>(role_jsons.size()), builder);
-    for (auto const &rj : role_jsons) {
-      memgraph::slk::Save(rj, builder);
+    if (self.user_role_jsons) {
+      memgraph::slk::Save(static_cast<uint64_t>(self.user_role_jsons->size()), builder);
+      for (auto const &rj : *self.user_role_jsons) {
+        memgraph::slk::Save(rj, builder);
+      }
+    } else {
+      memgraph::slk::Save(static_cast<uint64_t>(0), builder);
     }
-    static std::unordered_map<std::string, std::unordered_set<std::string>> const kEmptyMtMap;
-    memgraph::slk::Save(self.user_mt_mappings ? *self.user_mt_mappings : kEmptyMtMap, builder);
+    if (self.user_mt_mappings) {
+      memgraph::slk::Save(*self.user_mt_mappings, builder);
+    } else {
+      memgraph::slk::Save(std::unordered_map<std::string, std::unordered_set<std::string>>{}, builder);
+    }
   }
   bool const has_role = self.role_json.has_value();
   memgraph::slk::Save(has_role, builder);
