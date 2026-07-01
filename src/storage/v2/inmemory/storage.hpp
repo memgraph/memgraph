@@ -169,7 +169,7 @@ class InMemoryStorage final : public Storage {
   };
 
   enum class RepairError : uint8_t {
-    NotDefunct,
+    NotBroken,
     BackupFailure,
   };
 
@@ -766,16 +766,16 @@ class InMemoryStorage final : public Storage {
       std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
       std::optional<utils::S3Config> s3_config = std::nullopt);
 
-  // Cures a defunct tenant by resetting it to an empty working state. The corrupt
+  // Cures a broken tenant by resetting it to an empty working state. The corrupt
   // snapshots/ and wal/ files are moved to a .old directory when backup directories
   // are enabled, otherwise deleted, leaving the durability directory restart-clean.
-  // The defunct flag is cleared on success. Rejected on a healthy (non-defunct) storage.
-  [[nodiscard]] std::expected<void, InMemoryStorage::RepairError> RepairDefunct();
+  // The broken flag is cleared on success. Rejected on a healthy (non-broken) storage.
+  [[nodiscard]] std::expected<void, InMemoryStorage::RepairError> RepairBroken();
 
   // Completely resets the tenant to an empty working state: clears the graph, the name-id mapper and
-  // the description store, drops the defunct flag and resets the replication epoch/timestamp. Used on a
+  // the description store, drops the broken flag and resets the replication epoch/timestamp. Used on a
   // replica when the main repairs a tenant (REPAIR DATABASE): the replica wipes its stale data so it can
-  // re-sync from the main's fresh, empty epoch. Unlike RepairDefunct() this does not touch durability files.
+  // re-sync from the main's fresh, empty epoch. Unlike RepairBroken() this does not touch durability files.
   void ResetTenant();
 
   std::vector<SnapshotFileInfo> ShowSnapshots();

@@ -87,7 +87,7 @@ def test_repair_database_cures_defunct(test_name):
     interactive_mg_runner.start(instances, "default")
 
     cursor = connect(host="localhost", port=7687).cursor()
-    assert storage_info(cursor)["status"] == "defunct"
+    assert storage_info(cursor)["status"] == "broken"
 
     # Cure the defunct database in place with REPAIR DATABASE and assert the success
     # notification is present in the query summary.
@@ -135,7 +135,7 @@ def test_repair_database_rejected_on_healthy(test_name):
 
     with pytest.raises(Exception) as exc_info:
         execute_and_fetch_all(cursor, "REPAIR DATABASE")
-    assert "defunct" in str(exc_info.value)
+    assert "broken" in str(exc_info.value)
 
     # The data is untouched.
     assert execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN count(n)")[0][0] == 100

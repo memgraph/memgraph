@@ -6324,9 +6324,9 @@ PreparedQuery PrepareRepairDatabaseQuery(ParsedQuery parsed_query, bool in_expli
     throw QueryException("REPAIR DATABASE can only be run on the MAIN instance.");
   }
 
-  // Defunct-only: reject on a healthy database to prevent accidental data loss.
-  if (!storage->IsDefunct()) {
-    throw QueryException("REPAIR DATABASE can only be run on a database in the defunct state.");
+  // Broken-only: reject on a healthy database to prevent accidental data loss.
+  if (!storage->IsBroken()) {
+    throw QueryException("REPAIR DATABASE can only be run on a database in the broken state.");
   }
 
   auto const db_name = current_db.db_acc_->get()->name();
@@ -7413,7 +7413,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                TypedValue(tenant_limit > 0 ? utils::GetReadableSize(static_cast<double>(tenant_limit))
                                            : std::string("unlimited"))},
               {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
-              {TypedValue("status"), TypedValue(storage->IsDefunct() ? "defunct" : "ready")},
+              {TypedValue("status"), TypedValue(storage->IsBroken() ? "broken" : "ready")},
           };
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
@@ -8167,11 +8167,11 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
-    // A database that failed durability recovery comes up defunct (see
+    // A database that failed durability recovery comes up broken (see
     // --storage-allow-recovery-failure); report that so operators can spot it.
     auto status_of = [db_handler](std::string_view name) -> std::string_view {
       try {
-        return db_handler->Get(name)->storage()->IsDefunct() ? "defunct" : "ready";
+        return db_handler->Get(name)->storage()->IsBroken() ? "broken" : "ready";
       } catch (const memgraph::dbms::UnknownDatabaseException &) {
         // The database was dropped between listing and querying; treat it as ready (it is gone).
         return "ready";
@@ -9820,18 +9820,18 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
 
-      // Fail-closed gate for defunct databases (those that failed durability recovery and
+      // Fail-closed gate for broken databases (those that failed durability recovery and
       // came up empty under --storage-allow-recovery-failure). Any query that operates on
       // the current database's data is rejected until it is recovered via RECOVER SNAPSHOT
       // or REPAIR DATABASE. Meta queries (USE/SHOW DATABASES, SHOW STORAGE INFO, auth,
       // replication, ...) do not touch the tenant graph and are allowed through.
-      if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsDefunct()) {
+      if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsBroken()) {
         auto *q = parsed_query.query;
-        // Allowlist: in the defunct state only the cure queries (RECOVER SNAPSHOT / REPAIR DATABASE)
+        // Allowlist: in the broken state only the cure queries (RECOVER SNAPSHOT / REPAIR DATABASE)
         // and meta/admin queries that never touch the tenant graph are permitted. Everything else
         // (Cypher, DDL, CREATE SNAPSHOT, ...) is rejected until the database is recovered. Auth,
         // replication, profile and other instance-level queries operate on system state rather than
-        // the tenant graph, so they remain available for remediation while a tenant is defunct.
+        // the tenant graph, so they remain available for remediation while a tenant is broken.
         auto const is_allowed =
             [q]<typename... Ts>() {
               return (... || (utils::Downcast<Ts>(q) != nullptr));
@@ -9863,7 +9863,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                   ReloadSSLQuery>();
         if (!is_allowed) {
           throw QueryException(
-              "Database is in the defunct state because the recovery process failed. Please recover your database "
+              "Database is in the broken state because the recovery process failed. Please recover your database "
               "using the RECOVER SNAPSHOT query or REPAIR DATABASE query + run your import queries. If you have a "
               "backup of the whole data directory, please replace the current data directory with the backup one and "
               "restart the process.");

@@ -309,7 +309,7 @@ class DbmsHandler {
 #endif
 
   /**
-   * @brief Repair a defunct database on the MAIN and replicate the reset to the replicas.
+   * @brief Repair a broken database on the MAIN and replicate the reset to the replicas.
    *
    * Resets the tenant to an empty state with a fresh epoch (moving the corrupt durability files aside)
    * and, when a system transaction is provided (enterprise), records a system action that wipes the stale

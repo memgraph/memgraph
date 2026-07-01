@@ -115,7 +115,7 @@ class NameIdMapper {
   }
 
   // Resets the mapper to its initial empty state. Used when scrubbing a storage
-  // back to empty (e.g. bringing up a defunct database after recovery failure).
+  // back to empty (e.g. bringing up a broken database after recovery failure).
   // Must not be called while other threads hold references returned by IdToName.
   virtual void Clear() {
     name_to_id_.clear();

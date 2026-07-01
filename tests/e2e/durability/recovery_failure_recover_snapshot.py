@@ -83,7 +83,7 @@ def test_recover_snapshot_cures_defunct(test_name):
     interactive_mg_runner.start(instances, "default")
 
     cursor = connect(host="localhost", port=7687).cursor()
-    assert storage_info(cursor)["status"] == "defunct"
+    assert storage_info(cursor)["status"] == "broken"
 
     # Cure the defunct database in place with the known-good snapshot copy.
     execute_and_fetch_all(cursor, f"RECOVER SNAPSHOT '{good_snapshot_copy}'")

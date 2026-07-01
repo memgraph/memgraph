@@ -1774,9 +1774,9 @@ inline void CreateSimpleSnapshot(const std::filesystem::path &storage_directory,
 }
 
 // With --storage-allow-recovery-failure enabled, a database whose snapshots are all
-// corrupt comes up empty and defunct instead of crashing the process, and its on-disk
+// corrupt comes up empty and broken instead of crashing the process, and its on-disk
 // durability files are left untouched (so the operator can RECOVER/REPAIR/restore).
-TEST_P(DurabilityTest, SnapshotCorruptDefunctWhenRecoveryFailureAllowed) {
+TEST_P(DurabilityTest, SnapshotCorruptBrokenWhenRecoveryFailureAllowed) {
   CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
   ASSERT_EQ(GetSnapshotsList().size(), 1);
 
@@ -1798,7 +1798,7 @@ TEST_P(DurabilityTest, SnapshotCorruptDefunctWhenRecoveryFailureAllowed) {
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
-  EXPECT_TRUE(db.storage()->IsDefunct());
+  EXPECT_TRUE(db.storage()->IsBroken());
   auto const info = db.storage()->GetBaseInfo();
   EXPECT_EQ(info.vertex_count, 0);
   EXPECT_EQ(info.edge_count, 0);
@@ -1812,9 +1812,9 @@ TEST_P(DurabilityTest, SnapshotCorruptDefunctWhenRecoveryFailureAllowed) {
   }
 }
 
-// RECOVER SNAPSHOT cures a defunct tenant: loading a known-good snapshot into the empty
-// defunct placeholder clears the defunct flag and brings the data back.
-TEST_P(DurabilityTest, RecoverSnapshotCuresDefunct) {
+// RECOVER SNAPSHOT cures a broken tenant: loading a known-good snapshot into the empty
+// broken placeholder clears the broken flag and brings the data back.
+TEST_P(DurabilityTest, RecoverSnapshotCuresBroken) {
   CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
   ASSERT_EQ(GetSnapshotsList().size(), 1);
 
@@ -1843,7 +1843,7 @@ TEST_P(DurabilityTest, RecoverSnapshotCuresDefunct) {
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
-  ASSERT_TRUE(db.storage()->IsDefunct());
+  ASSERT_TRUE(db.storage()->IsBroken());
   ASSERT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
 
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
@@ -1851,8 +1851,8 @@ TEST_P(DurabilityTest, RecoverSnapshotCuresDefunct) {
       good_snapshot_copy, true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);
   ASSERT_TRUE(res.has_value());
 
-  // The cure clears defunct and the recovered data is present.
-  EXPECT_FALSE(db.storage()->IsDefunct());
+  // The cure clears broken and the recovered data is present.
+  EXPECT_FALSE(db.storage()->IsBroken());
   EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 1000);
 
   // The durability directory is restart-clean: a single recovered snapshot file remains
@@ -1867,10 +1867,10 @@ TEST_P(DurabilityTest, RecoverSnapshotCuresDefunct) {
   std::filesystem::remove(good_snapshot_copy);
 }
 
-// REPAIR DATABASE cures a defunct tenant: it resets the placeholder to an empty working
-// state, clears the defunct flag, and moves the corrupt durability files to the .old backup
+// REPAIR DATABASE cures a broken tenant: it resets the placeholder to an empty working
+// state, clears the broken flag, and moves the corrupt durability files to the .old backup
 // directory (backup dirs enabled by default), leaving the directory restart-clean.
-TEST_P(DurabilityTest, RepairDefunctCuresDefunct) {
+TEST_P(DurabilityTest, RepairBrokenCuresBroken) {
   CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
   ASSERT_EQ(GetSnapshotsList().size(), 1);
 
@@ -1887,15 +1887,15 @@ TEST_P(DurabilityTest, RepairDefunctCuresDefunct) {
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
-  ASSERT_TRUE(db.storage()->IsDefunct());
+  ASSERT_TRUE(db.storage()->IsBroken());
   ASSERT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
 
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
-  auto const res = storage->RepairDefunct();
+  auto const res = storage->RepairBroken();
   ASSERT_TRUE(res.has_value());
 
-  // The cure clears defunct and leaves the tenant empty.
-  EXPECT_FALSE(db.storage()->IsDefunct());
+  // The cure clears broken and leaves the tenant empty.
+  EXPECT_FALSE(db.storage()->IsBroken());
   EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
   EXPECT_EQ(db.storage()->GetBaseInfo().edge_count, 0);
 
@@ -1914,8 +1914,8 @@ TEST_P(DurabilityTest, RepairDefunctCuresDefunct) {
   }
 }
 
-// REPAIR DATABASE is rejected on a healthy (non-defunct) storage.
-TEST_P(DurabilityTest, RepairDefunctRejectedOnHealthy) {
+// REPAIR DATABASE is rejected on a healthy (non-broken) storage.
+TEST_P(DurabilityTest, RepairBrokenRejectedOnHealthy) {
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
@@ -1923,12 +1923,12 @@ TEST_P(DurabilityTest, RepairDefunctRejectedOnHealthy) {
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
-  ASSERT_FALSE(db.storage()->IsDefunct());
+  ASSERT_FALSE(db.storage()->IsBroken());
 
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
-  auto const res = storage->RepairDefunct();
+  auto const res = storage->RepairBroken();
   ASSERT_FALSE(res.has_value());
-  EXPECT_EQ(res.error(), memgraph::storage::InMemoryStorage::RepairError::NotDefunct);
+  EXPECT_EQ(res.error(), memgraph::storage::InMemoryStorage::RepairError::NotBroken);
 }
 
 // With the flag off (default), the same corruption still aborts startup.
@@ -1973,9 +1973,9 @@ inline void CreateMultiWalChain(const std::filesystem::path &storage_directory, 
   }
 }
 
-// With the flag on, a corrupt WAL delta brings the database up defunct + empty instead of
+// With the flag on, a corrupt WAL delta brings the database up broken + empty instead of
 // crashing, leaving the on-disk WAL files untouched.
-TEST_P(DurabilityTest, WalDeltaCorruptDefunctWhenRecoveryFailureAllowed) {
+TEST_P(DurabilityTest, WalDeltaCorruptBrokenWhenRecoveryFailureAllowed) {
   CreateMultiWalChain(storage_directory, GetParam(), 100);
   ASSERT_EQ(GetSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 3);
@@ -2000,7 +2000,7 @@ TEST_P(DurabilityTest, WalDeltaCorruptDefunctWhenRecoveryFailureAllowed) {
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
-  EXPECT_TRUE(db.storage()->IsDefunct());
+  EXPECT_TRUE(db.storage()->IsBroken());
   auto const info = db.storage()->GetBaseInfo();
   EXPECT_EQ(info.vertex_count, 0);
   EXPECT_EQ(info.edge_count, 0);
@@ -2034,9 +2034,9 @@ TEST_P(DurabilityTest, WalDeltaCorruptCrashesWhenRecoveryFailureNotAllowed) {
                "");
 }
 
-// A WAL-only set whose first (seq_num == 0) file is missing must produce a defunct tenant with
+// A WAL-only set whose first (seq_num == 0) file is missing must produce a broken tenant with
 // the flag on (missing prefix WAL), and remain fatal with the flag off.
-TEST_P(DurabilityTest, WalMissingPrefixDefunctWhenRecoveryFailureAllowed) {
+TEST_P(DurabilityTest, WalMissingPrefixBrokenWhenRecoveryFailureAllowed) {
   CreateMultiWalChain(storage_directory, GetParam(), 100);
   ASSERT_EQ(GetSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 3);
@@ -2056,7 +2056,7 @@ TEST_P(DurabilityTest, WalMissingPrefixDefunctWhenRecoveryFailureAllowed) {
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
-  EXPECT_TRUE(db.storage()->IsDefunct());
+  EXPECT_TRUE(db.storage()->IsBroken());
   EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
 }
 
@@ -2079,9 +2079,9 @@ TEST_P(DurabilityTest, WalMissingPrefixCrashesWhenRecoveryFailureNotAllowed) {
                "");
 }
 
-// A WAL chain with a sequence-number gap (a middle WAL removed) must produce a defunct tenant
+// A WAL chain with a sequence-number gap (a middle WAL removed) must produce a broken tenant
 // with the flag on, and remain fatal with the flag off.
-TEST_P(DurabilityTest, WalSeqNumGapDefunctWhenRecoveryFailureAllowed) {
+TEST_P(DurabilityTest, WalSeqNumGapBrokenWhenRecoveryFailureAllowed) {
   CreateMultiWalChain(storage_directory, GetParam(), 100);
   ASSERT_EQ(GetSnapshotsList().size(), 0);
   ASSERT_GE(GetWalsList().size(), 3);
@@ -2102,7 +2102,7 @@ TEST_P(DurabilityTest, WalSeqNumGapDefunctWhenRecoveryFailureAllowed) {
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
-  EXPECT_TRUE(db.storage()->IsDefunct());
+  EXPECT_TRUE(db.storage()->IsBroken());
   EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
 }
 
@@ -2126,9 +2126,9 @@ TEST_P(DurabilityTest, WalSeqNumGapCrashesWhenRecoveryFailureNotAllowed) {
 }
 
 // Byte-flip robustness: copy a real WAL file, flip the byte at each offset in turn, and attempt
-// recovery with the flag on. The corruption must always be detected (defunct + empty) rather than
+// recovery with the flag on. The corruption must always be detected (broken + empty) rather than
 // crashing the process.
-TEST_P(DurabilityTest, WalByteFlipDefunctRobustness) {
+TEST_P(DurabilityTest, WalByteFlipBrokenRobustness) {
   CreateMultiWalChain(storage_directory, GetParam(), 200);
   ASSERT_GE(GetWalsList().size(), 1);
 
@@ -2164,8 +2164,8 @@ TEST_P(DurabilityTest, WalByteFlipDefunctRobustness) {
 
     // Recover with the flag on: this must never abort/crash the process. A flipped length byte can
     // make a delta request an absurd allocation; the ReadSize bound turns that into a RecoveryFailure
-    // (-> defunct) instead of an escaping std::bad_alloc, so bad_alloc must never escape here. When
-    // construction succeeds, a failed recovery must yield a defunct + empty DB.
+    // (-> broken) instead of an escaping std::bad_alloc, so bad_alloc must never escape here. When
+    // construction succeeds, a failed recovery must yield a broken + empty DB.
     memgraph::storage::Config config{
         .durability = {.storage_directory = storage_directory,
                        .recover_on_startup = true,
@@ -2175,12 +2175,12 @@ TEST_P(DurabilityTest, WalByteFlipDefunctRobustness) {
     try {
       memgraph::dbms::Database db{config};
       const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-      if (db.storage()->IsDefunct()) {
-        EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0) << "defunct DB at byte offset " << offset;
+      if (db.storage()->IsBroken()) {
+        EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0) << "broken DB at byte offset " << offset;
       }
     } catch (const std::bad_alloc &) {
       ADD_FAILURE() << "std::bad_alloc escaped recovery at byte offset " << offset
-                    << "; a corrupt length field must surface as RecoveryFailure (defunct), not bad_alloc";
+                    << "; a corrupt length field must surface as RecoveryFailure (broken), not bad_alloc";
     } catch (const std::exception &) {
       // Other corruption shapes may still be reported via a thrown exception during construction;
       // the guarantee tested here is process survival plus no bad_alloc from length fields.
