@@ -366,13 +366,16 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V1UserWithOldFGA_MigratedOnUpgrade) {
   EXPECT_EQ(v2.expected_group_timestamp, 42);
   EXPECT_EQ(v2.new_group_timestamp, 43);
 
-  // Verify FGA migrated: global_grants should be set (not nullopt),
-  // and the old global_permission field should be gone.
+  // Verify FGA migrated: global_grants should be set, global_denies unset.
   auto const &label_perms = v2.user->fine_grained_access_handler().label_permissions();
   ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
-  // V3 perm=1 (READ) → V4 global_grants=1 (READ bit), but label perms also
-  // expand UPDATE→multiple bits. READ=1 stays as 1.
   EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+  EXPECT_FALSE(label_perms.GetGlobalDenies().has_value());
+
+  auto const &edge_perms = v2.user->fine_grained_access_handler().edge_type_permissions();
+  ASSERT_TRUE(edge_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(edge_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+  EXPECT_FALSE(edge_perms.GetGlobalDenies().has_value());
 
   // Check the embedded role was also migrated
   auto const &roles = v2.user->roles();
@@ -383,6 +386,13 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V1UserWithOldFGA_MigratedOnUpgrade) {
   ASSERT_TRUE(role_label_perms.GetGlobalGrants().has_value());
   EXPECT_EQ(role_label_perms.GetGlobalGrants().value(),
             static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+  EXPECT_FALSE(role_label_perms.GetGlobalDenies().has_value());
+
+  auto const &role_edge_perms = role.fine_grained_access_handler().edge_type_permissions();
+  ASSERT_TRUE(role_edge_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(role_edge_perms.GetGlobalGrants().value(),
+            static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+  EXPECT_FALSE(role_edge_perms.GetGlobalDenies().has_value());
 }
 
 // V1 request with V3-format FGA standalone Role → upgraded with migration.
@@ -474,6 +484,11 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V1UserWithMtMappings_RolesAttachedPerDb) {
 
   ASSERT_TRUE(v2.user.has_value());
   EXPECT_EQ(v2.user->username(), "carol");
+
+  // Carol's own FGA was -1 (unset) → should remain unset after migration
+  auto const &label_perms = v2.user->fine_grained_access_handler().label_permissions();
+  EXPECT_FALSE(label_perms.GetGlobalGrants().has_value());
+  EXPECT_FALSE(label_perms.GetGlobalDenies().has_value());
 
   // The role should be attached both as a regular role and as an MT mapping
   EXPECT_EQ(v2.user->roles().size(), 1);
