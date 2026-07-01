@@ -630,28 +630,32 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
     // assert a subset here: a stolen (STOLEN) or already-finished (FINISHED) closure reaching this point
     // is expected, and the CAS-and-skip below is the real guard.
 
+    // Claim EXCLUSIVE execution (RUNNING). Exactly-once invariant: only the CAS winner reaches task().
+    //   IDLE→RUNNING       : fresh dispatch.
+    //   SCHEDULED→RUNNING   : resume after a yield. Legit resumes are SEQUENTIAL — the prior WrapTask
+    //                         stored SCHEDULED and RETURNED before the reschedule re-enqueued this closure
+    //                         — so SCHEDULED here means "suspended, not running", safe to claim.
+    //   PARKED→RUNNING      : an external event woke the task and requeued it.
+    //   RUNNING             : a CONCURRENT DUPLICATE dispatch — the task is already executing on another
+    //                         worker. MUST skip; re-running task() would corrupt its shared state.
+    //   STOLEN / FINISHED   : claimed by WaitOrSteal / already done — skip.
     auto expected = Task::State::IDLE;
-    if (!state->compare_exchange_strong(expected, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
-      // SCHEDULED means this is a resume after a yield.
-      // PARKED means an external event woke the task and requeued it.
-      // STOLEN means WaitOrSteal claimed it for direct execution — don't double-run.
-      // FINISHED means already done — skip.
-      if (expected != Task::State::SCHEDULED && expected != Task::State::PARKED) {
-        return false;
-      }
-      // If resuming from PARKED, transition to SCHEDULED so Wait() can track progress correctly.
-      // Without this transition, the task remains in PARKED state indefinitely,
-      // causing TaskCollection::Wait() to timeout waiting for FINISHED.
-      if (expected == Task::State::PARKED) {
-        // EC-6 fix: use CAS instead of plain store.  A plain store would silently
-        // overwrite any state written by a concurrent actor between our failed CAS
-        // (which read PARKED) and this store.  If a future writer (e.g. a timeout
-        // → FINISHED transition) races here, the CAS detects it and skips.
-        auto parked = Task::State::PARKED;
-        if (!state->compare_exchange_strong(parked, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
-          // State changed while we weren't looking — honour the new state.
-          return false;
+    if (!state->compare_exchange_strong(expected, Task::State::RUNNING, std::memory_order_acq_rel)) {
+      // CAS failed; `expected` now holds the observed state. Use a fresh CAS from that state to RUNNING
+      // (EC-6: CAS, not a plain store, so a concurrent transition — e.g. a timeout→FINISHED — is detected).
+      if (expected == Task::State::SCHEDULED) {
+        auto scheduled = Task::State::SCHEDULED;
+        if (!state->compare_exchange_strong(scheduled, Task::State::RUNNING, std::memory_order_acq_rel)) {
+          return false;  // state changed under us — honour the new state
         }
+      } else if (expected == Task::State::PARKED) {
+        auto parked = Task::State::PARKED;
+        if (!state->compare_exchange_strong(parked, Task::State::RUNNING, std::memory_order_acq_rel)) {
+          return false;  // state changed under us — honour the new state
+        }
+      } else {
+        // RUNNING (concurrent duplicate → exactly-once guard) / STOLEN / FINISHED → do not run.
+        return false;
       }
     }
 
@@ -671,6 +675,9 @@ ResumableTaskSignature TaskCollection::WrapTask(size_t index, PriorityThreadPool
         return false;
       }
       if (yielded) {
+        // Leave RUNNING for SCHEDULED = "suspended between yield-resume cycles". The ResumableWrapper
+        // reschedules this same closure AFTER we return; that re-invocation claims SCHEDULED→RUNNING.
+        state->store(Task::State::SCHEDULED, std::memory_order_release);
         NotifyProgress();
         return true;
       }
@@ -831,8 +838,8 @@ void TaskCollection::DbgVerifyState() const {
     const auto &task = tasks_[i];
     const auto s = task.state_->load(std::memory_order_acquire);
     // State should always be valid
-    DMG_ASSERT(s == Task::State::IDLE || s == Task::State::SCHEDULED || s == Task::State::PARKED ||
-                   s == Task::State::STOLEN || s == Task::State::FINISHED,
+    DMG_ASSERT(s == Task::State::IDLE || s == Task::State::SCHEDULED || s == Task::State::RUNNING ||
+                   s == Task::State::PARKED || s == Task::State::STOLEN || s == Task::State::FINISHED,
                "Task {} has invalid state {}",
                i,
                static_cast<uint8_t>(s));

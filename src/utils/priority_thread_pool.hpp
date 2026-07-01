@@ -135,7 +135,10 @@ class TaskCollection : public std::enable_shared_from_this<TaskCollection> {
 
     enum class State : uint8_t {
       IDLE,
-      SCHEDULED,  // Claimed by pool's WrapTask closure; also "suspended between yield-resume cycles"
+      SCHEDULED,  // Suspended between yield-resume cycles: claimed once, yielded, waiting to be resumed
+      RUNNING,    // Actively executing inside WrapTask (exclusive): a concurrent duplicate dispatch that
+                  // observes RUNNING MUST skip (return false) — this is what makes branch execution
+                  // exactly-once even if the same task closure is dispatched twice.
       PARKED,     // Suspended on external progress; an event will requeue the task
       STOLEN,     // Claimed by WaitOrSteal for direct execution on the calling thread
       FINISHED,
