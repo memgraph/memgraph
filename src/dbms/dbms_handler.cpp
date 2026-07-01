@@ -1471,10 +1471,9 @@ void DbmsHandler::ApplyColdRecoveryMeta(std::string_view name, const storage::Co
   auto wr = std::lock_guard{lock_};
   auto it = suspended_.find(name);
   if (it == suspended_.end()) return;
-  // Strong exception guarantee: copy into a local first, then commit with a noexcept move. A bad_alloc
-  // during the copy leaves it->second untouched (no partial update).
-  auto stats = meta.stats;
-  it->second.cold_stats = std::move(stats);
+  // StorageInfo is a trivially-copyable flat POD, so this assignment allocates nothing and cannot
+  // throw — it->second is never left partially updated.
+  it->second.cold_stats = meta.stats;
 
   // Persist the refreshed COLD marker so MAIN's authoritative stats survive a restart. The Put runs
   // UNDER lock_: releasing the lock between the in-memory mutation and the durable write would let a
