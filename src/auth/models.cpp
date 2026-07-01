@@ -1862,6 +1862,10 @@ void MigrateAuthJson(nlohmann::json &data) {
   //           add empty permissions array per sub-object.
   if (version == 2) {
     auto fg_it = data.find("fine_grained_access_handler");
+    if (fg_it == data.end() || !fg_it->is_object()) {
+      data[kVersion] = kCurrentAuthVersion;
+      return;
+    }
     // V2 permissions used bit_0 for read, bit_1 for update, and bit_2 for
     // create_delete, but note that the trailing bits are also set because the
     // permission formed a hierarchy.
