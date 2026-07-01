@@ -863,11 +863,19 @@ wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-data-1-0 passed successfully"
 
 echo "Waiting for old MAIN to sync auth to upgraded replica..."
-sleep 30
-
-echo "Checking FGA on replica (data-1-0) while old MAIN still running"
 kubectl cp verify_fga_post_upgrade.sh memgraph-data-1-0:/var/lib/memgraph/verify_fga_post_upgrade.sh
-kubectl exec memgraph-data-1-0 -- bash /var/lib/memgraph/verify_fga_post_upgrade.sh --username=system_admin_user --password=admin_password
+for i in $(seq 1 30); do
+  if kubectl exec memgraph-data-1-0 -- bash /var/lib/memgraph/verify_fga_post_upgrade.sh --username=system_admin_user --password=admin_password 2>&1; then
+    echo "FGA synced to replica after ${i} attempt(s)"
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "FAIL: FGA did not sync to replica after 30 attempts"
+    exit 1
+  fi
+  echo "Auth not yet synced (attempt $i/30), retrying in 2s..."
+  sleep 2
+done
 
 echo "Deleting pod memgraph-data-0-0 which serves as main"
 kubectl scale statefulset memgraph-data-0 --replicas=0
