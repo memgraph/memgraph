@@ -15,9 +15,11 @@ import common
 import mgclient
 import pytest
 
-# `user` has GRANT READ on :Public + :LINKS_PUB + :MIXED and DENY READ on :Document + :LINKS_DOC.
-# Indexed data: pub/doc text + vector indexes on labels, edge variants on edge types,
-# plus a :Public:Document multi-label "Hybrid" node and a :MIXED edge spanning Public→Document.
+# Fixture summary (setup lives in workloads.yaml):
+#   user             - GRANT READ :Public + :LINKS_PUB + :MIXED, DENY READ :Document + :LINKS_DOC
+#   user_prop        - full label READ + GRANT READ {*}, DENY {title} :Public/:Document, DENY {label} :LINKS_*
+#   user_grant_only  - GRANT READ :Public + :LINKS_PUB only, no denies, no property rules
+# Indexed data: pub/doc text indexes on :Public/:Document; pub/doc/mixed edge text indexes.
 
 
 def admin_cursor():
@@ -34,10 +36,6 @@ def user_prop_cursor():
 
 def user_grant_only_cursor():
     return common.connect(username="user_grant_only", password="test").cursor()
-
-
-def user_prop_deny_indexed_cursor():
-    return common.connect(username="user_prop_deny_indexed", password="test").cursor()
 
 
 # text_search on vertices -----------------------------------------------------
@@ -120,70 +118,29 @@ def test_text_search_edges_skips_when_endpoint_denied():
     assert res == []
 
 
-# vector_search on vertices --------------------------------------------------
+# property-level RBAC on text search ----------------------------------------
+# text indexes without an explicit property list cover every string property; any property RBAC blocks.
 
 
-def test_vector_search_blocked_on_denied_label():
+def test_text_search_blocked_on_property_denied():
     with pytest.raises(mgclient.DatabaseError):
         common.execute_and_fetch_all(
-            user_cursor(),
-            "CALL vector_search.search('doc_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
+            user_prop_cursor(),
+            "CALL text_search.search('doc_text', 'data.title:Secret') YIELD node RETURN node;",
         )
 
 
-def test_vector_search_returns_allowed_label():
-    res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL vector_search.search('pub_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
-    )
-    assert len(res) >= 1
-
-
-def test_vector_search_skips_multi_label_node_with_denied_label():
-    res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL vector_search.search('pub_vec', 10, [1.0, 0.0]) YIELD node RETURN node.title AS t;",
-    )
-    titles = {row[0] for row in res}
-    assert "Hybrid" not in titles
-
-
-def test_admin_vector_search_returns_results_on_denied_index():
-    res = common.execute_and_fetch_all(
-        admin_cursor(),
-        "CALL vector_search.search('doc_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
-    )
-    assert len(res) >= 1
-
-
-# vector_search on edges -----------------------------------------------------
-
-
-def test_vector_search_edges_blocked_on_denied_type():
+def test_text_search_edges_blocked_on_property_denied():
     with pytest.raises(mgclient.DatabaseError):
         common.execute_and_fetch_all(
-            user_cursor(),
-            "CALL vector_search.search_edges('doc_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
+            user_prop_cursor(),
+            "CALL text_search.search_edges('doc_etext', 'data.label:Confidential') YIELD edge RETURN edge;",
         )
 
 
-def test_vector_search_edges_returns_allowed_type():
-    res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL vector_search.search_edges('pub_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
-    )
-    assert len(res) >= 1
-
-
-def test_vector_search_edges_skips_when_endpoint_denied():
-    res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL vector_search.search_edges('mixed_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
-    )
-    assert res == []
-
-
-# aggregate procs — blocked under any fine-grained restriction since Tantivy can't honor per-row perms
+# aggregate procs -----------------------------------------------------------
+# Tantivy can't honor per-row RBAC, so aggregate is blocked whenever a deny/property rule could
+# alter what the aggregate counts. Pure-GRANT users on a granted label/type may run it.
 
 
 def test_aggregate_blocked_for_restricted_user():
@@ -213,83 +170,7 @@ def test_admin_aggregate_works():
     assert len(res) == 1
 
 
-# property-level RBAC — blocks search on indexes whose backing property the user can't read
-
-
-def test_text_search_blocked_on_property_denied():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_prop_cursor(),
-            "CALL text_search.search('doc_text', 'data.title:Secret') YIELD node RETURN node;",
-        )
-
-
-def test_text_search_edges_blocked_on_property_denied():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_prop_cursor(),
-            "CALL text_search.search_edges('doc_etext', 'data.label:Confidential') YIELD edge RETURN edge;",
-        )
-
-
-# vector indexes are on .embedding (not denied for user_prop) — search must still work
-def test_vector_search_allowed_when_indexed_property_not_denied():
-    res = common.execute_and_fetch_all(
-        user_prop_cursor(),
-        "CALL vector_search.search('doc_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
-    )
-    assert len(res) >= 1
-
-
-def test_vector_search_edges_allowed_when_indexed_property_not_denied():
-    res = common.execute_and_fetch_all(
-        user_prop_cursor(),
-        "CALL vector_search.search_edges('doc_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
-    )
-    assert len(res) >= 1
-
-
-# WILDCARD vector index (CREATE VECTOR INDEX wild_vec ON (embedding))
-# label precheck stays permissive; row filter handles partial label access
-
-
-def test_wildcard_vector_search_allowed_for_label_restricted_user():
-    res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL vector_search.search('wild_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
-    )
-    # 7 nodes carry .embedding: 3 pure :Public (Welcome, Hello, CrossSrc), 3 pure :Document
-    # (Secret, Internal, CrossDst), 1 multi-label :Public:Document (Hybrid). DENY :Document strips
-    # every :Document-bearing node; user has no property GRANT so titles come back null.
-    labels_per_row = [frozenset(row[0].labels) for row in res]
-    assert len(labels_per_row) == 3
-    assert all(labels == frozenset({"Public"}) for labels in labels_per_row)
-
-
-# user_prop has DENY {title} but that doesn't affect the indexed property (.embedding), and a global
-# GRANT {*} covers embedding — wildcard search should be allowed
-def test_wildcard_vector_search_allowed_when_unrelated_property_denied():
-    res = common.execute_and_fetch_all(
-        user_prop_cursor(),
-        "CALL vector_search.search('wild_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
-    )
-    assert len(res) >= 1
-
-
-# user_prop_deny_indexed has DENY {embedding} :Public — a per-label DENY on the actually-indexed property
-# masks WILDCARD; the search must be blocked
-def test_wildcard_vector_search_blocked_when_indexed_property_has_per_label_deny():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_prop_deny_indexed_cursor(),
-            "CALL vector_search.search('wild_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
-        )
-
-
-# user_grant_only has label GRANT :Public + edge GRANT :LINKS_PUB with zero denies and no property rules —
-# the aggregate over :Public and :LINKS_PUB indexes should now work under the relaxed gate.
-
-
+# user_grant_only has label GRANT :Public + edge GRANT :LINKS_PUB with zero denies and no property rules
 def test_aggregate_allowed_for_pure_grant_user_on_granted_label():
     res = common.execute_and_fetch_all(
         user_grant_only_cursor(),

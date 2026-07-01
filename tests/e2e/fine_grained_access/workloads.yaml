@@ -283,8 +283,14 @@ workloads:
     args: ["fine_grained_access/show_db.py"]
     <<: *show_databases_w_user
 
-  - name: "Text and vector search RBAC"
+  - name: "Text search RBAC"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["fine_grained_access/text_vector_search_fga_tests.py"]
+    args: ["fine_grained_access/text_search_fga_tests.py"]
+    proc: "query_modules/"
+    <<: *text_vector_search_fga_cluster
+
+  - name: "Vector search RBAC"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["fine_grained_access/vector_search_fga_tests.py"]
     proc: "query_modules/"
     <<: *text_vector_search_fga_cluster

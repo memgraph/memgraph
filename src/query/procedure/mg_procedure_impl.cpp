@@ -4101,23 +4101,6 @@ bool EdgeHasReadPermission(const memgraph::query::EdgeAccessor &e, const mgp_gra
   return auth_checker->Has(e.To(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
 }
 
-// Each Precheck* helper does the label/edge-type + property checks for one index kind against
-// the caller's fine-grained rules and throws AuthorizationException on denial. Callers catch it
-// alongside QueryException and surface the reason to the client. Idiomatic here — the file
-// already uses AuthorizationException for auth failures and WrapExceptions catches it too.
-//
-// Search prechecks: full denial of the index's bound label/edge type or a denied indexed property
-// throws. Multi-label / endpoint denial is still handled by the per-row filter after storage.
-//
-// Aggregate prechecks: Tantivy computes the aggregate over the whole index without per-row auth,
-// so we must certify that every node/edge the index could contain is fully visible to the caller.
-// That means GRANT on the index label/type, no label/edge-type DENY anywhere (multi-label /
-// endpoint traps), and no property RBAC (Tantivy could aggregate a denied property).
-//
-// WILDCARD vector: label side stays permissive (row filter catches partial access); property side
-// is safe when the caller has a global GRANT on the indexed property and no per-label DENY of it —
-// otherwise blocks.
-
 [[noreturn]] void ThrowSearchAuthError(std::string_view message) { throw AuthorizationException{std::string{message}}; }
 
 void PrecheckVertexTextSearchAccess(const mgp_graph &graph, std::string_view index_name) {
@@ -4208,7 +4191,6 @@ void PrecheckVertexVectorSearchAccess(const mgp_graph &graph, std::string_view i
   if (!auth_checker->HasAnyVertexPropertyRule()) return;
   const auto property = it->property;
   if (filter.mode == memgraph::storage::VectorMatchMode::WILDCARD) {
-    // safe iff caller has a global GRANT on the property AND no per-label DENY of it
     const auto empty_span = std::span<const memgraph::storage::LabelId>{};
     const bool globally_readable = auth_checker->HasPropertyPermission(
         empty_span, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
@@ -4253,10 +4235,6 @@ void PrecheckEdgeVectorSearchAccess(const mgp_graph &graph, std::string_view ind
   if (!auth_checker->HasAnyEdgeTypePropertyRule()) return;
   const auto property = it->property;
   if (filter.mode == memgraph::storage::VectorMatchMode::WILDCARD) {
-    // edges don't have a "global grant applies everywhere" path exposed for the empty edge_type case,
-    // so the safe-relaxation for WILDCARD requires no per-edge-type DENY on the property AND no
-    // property rules that override a global grant. The API only exposes per-edge-type checks, so
-    // absent a per-type DENY we allow when nothing masks the property.
     if (!auth_checker->HasEdgeTypePropertyDeny(property)) return;
     ThrowSearchAuthError(
         "vector_search.search_edges is unavailable for this WILDCARD index: property-level RBAC denies the indexed "
