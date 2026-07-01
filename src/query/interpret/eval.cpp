@@ -568,12 +568,14 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
 
 #ifdef MG_ENTERPRISE
 bool ExpressionEvaluator::CheckPropertyPermission(VertexAccessor const &accessor, storage::PropertyId prop) const {
+  DMG_ASSERT(auth_checker_);
   auto maybe_labels = accessor.Labels(view_);
   if (!maybe_labels) return false;
   return auth_checker_->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
 }
 
 bool ExpressionEvaluator::CheckPropertyPermission(EdgeAccessor const &accessor, storage::PropertyId prop) const {
+  DMG_ASSERT(auth_checker_);
   return auth_checker_->HasPropertyPermission(accessor.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
 }
 
