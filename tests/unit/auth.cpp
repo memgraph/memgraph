@@ -3957,6 +3957,20 @@ TEST(MigrateAuthJson, MigratingCurrentVersionIsIdempotent) {
 
 #endif  // MG_ENTERPRISE
 
+// FineGrainedPermission values for use outside the MG_ENTERPRISE guard.
+// These mirror the enum in models.hpp but are usable in community builds.
+namespace {
+constexpr uint64_t kRead = 1;
+constexpr uint64_t kSetProperty = 2;
+constexpr uint64_t kReadOrSetProperty = kRead | kSetProperty;  // 3
+constexpr uint64_t kAllLabel = 507;
+constexpr uint64_t kAllEdgeType = 27;
+constexpr uint64_t kLabelUpdateExpanded =
+    kRead | kSetProperty | 32 | 64 | 128 |
+    256;  // 483 (READ | SET_PROPERTY | SET_LABEL | REMOVE_LABEL | DELETE_EDGE | CREATE_EDGE)
+constexpr int64_t kUnset = -1;
+}  // namespace
+
 TEST(MigrateAuthJson, V2MigrationToCurrentVersion) {
   // CREATE_DELETE (7) -> full label grants
   {
@@ -3982,14 +3996,13 @@ TEST(MigrateAuthJson, V2MigrationToCurrentVersion) {
     ASSERT_FALSE(lp.contains("global_permission"));
     ASSERT_TRUE(lp.contains("global_grants"));
     ASSERT_TRUE(lp.contains("global_denies"));
-    // V2 CREATE_DELETE (7) -> V3 READ|UPDATE|CREATE|DELETE (27) -> V4 label expansion = 507
-    EXPECT_EQ(lp["global_grants"], 507);
-    EXPECT_EQ(lp["global_denies"], -1);
+    // V2 CREATE_DELETE (7) -> V3 READ|UPDATE|CREATE|DELETE (27) -> V4 label expansion
+    EXPECT_EQ(lp["global_grants"], kAllLabel);
+    EXPECT_EQ(lp["global_denies"], kUnset);
 
     auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
-    // V2 READ (1) -> V3 READ (1) -> V4 READ (1)
-    EXPECT_EQ(ep["global_grants"], 1);
-    EXPECT_EQ(ep["global_denies"], -1);
+    EXPECT_EQ(ep["global_grants"], kRead);
+    EXPECT_EQ(ep["global_denies"], kUnset);
   }
 
   // UPDATE (3) -> label expansion, edge stays as-is
@@ -4010,14 +4023,14 @@ TEST(MigrateAuthJson, V2MigrationToCurrentVersion) {
     ASSERT_EQ(data["version"], kCurrentAuthVersion);
 
     auto const &lp = data["fine_grained_permissions"]["label_permissions"];
-    // V2 UPDATE (3) -> V3 UPDATE|READ (3) -> V4 label expansion = 483
-    EXPECT_EQ(lp["global_grants"], 483);
-    EXPECT_EQ(lp["global_denies"], -1);
+    // V2 UPDATE (3) -> V3 UPDATE|READ (3) -> V4 label expansion
+    EXPECT_EQ(lp["global_grants"], kLabelUpdateExpanded);
+    EXPECT_EQ(lp["global_denies"], kUnset);
 
     auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
-    // V2 UPDATE (3) -> V3 UPDATE|READ (3) -> V4 edge: no expansion, stays 3
-    EXPECT_EQ(ep["global_grants"], 3);
-    EXPECT_EQ(ep["global_denies"], -1);
+    // V2 UPDATE (3) -> V3 UPDATE|READ (3) -> V4 edge: no expansion
+    EXPECT_EQ(ep["global_grants"], kReadOrSetProperty);
+    EXPECT_EQ(ep["global_denies"], kUnset);
   }
 }
 
@@ -4043,13 +4056,13 @@ TEST(MigrateAuthJson, V3MigrationToCurrentVersion) {
 
     auto const &lp = data["fine_grained_permissions"]["label_permissions"];
     ASSERT_FALSE(lp.contains("global_permission"));
-    EXPECT_EQ(lp["global_grants"], 1);   // READ
-    EXPECT_EQ(lp["global_denies"], -1);  // unset
+    EXPECT_EQ(lp["global_grants"], kRead);
+    EXPECT_EQ(lp["global_denies"], kUnset);
 
     auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
     ASSERT_FALSE(ep.contains("global_permission"));
-    EXPECT_EQ(ep["global_grants"], -1);
-    EXPECT_EQ(ep["global_denies"], -1);
+    EXPECT_EQ(ep["global_grants"], kUnset);
+    EXPECT_EQ(ep["global_denies"], kUnset);
   }
 
   // NOTHING -> deny all
@@ -4073,13 +4086,13 @@ TEST(MigrateAuthJson, V3MigrationToCurrentVersion) {
 
     auto const &lp = data["fine_grained_permissions"]["label_permissions"];
     ASSERT_FALSE(lp.contains("global_permission"));
-    EXPECT_EQ(lp["global_grants"], -1);
-    EXPECT_EQ(lp["global_denies"], 507);  // kAllLabelPermissions
+    EXPECT_EQ(lp["global_grants"], kUnset);
+    EXPECT_EQ(lp["global_denies"], kAllLabel);
 
     auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
     ASSERT_FALSE(ep.contains("global_permission"));
-    EXPECT_EQ(ep["global_grants"], -1);
-    EXPECT_EQ(ep["global_denies"], 27);  // kAllEdgeTypePermissions
+    EXPECT_EQ(ep["global_grants"], kUnset);
+    EXPECT_EQ(ep["global_denies"], kAllEdgeType);
   }
 
   // Label UPDATE expands to fine-grained bits; edge UPDATE stays as SET_PROPERTY
@@ -4103,14 +4116,11 @@ TEST(MigrateAuthJson, V3MigrationToCurrentVersion) {
 
     auto const &lp = data["fine_grained_permissions"]["label_permissions"];
     ASSERT_FALSE(lp.contains("global_permission"));
-    // READ(1) | UPDATE(2) -> READ(1) | SET_LABEL(32) | REMOVE_LABEL(64) | SET_PROPERTY(2) | DELETE_EDGE(128) |
-    // CREATE_EDGE(256) = 483
-    EXPECT_EQ(lp["global_grants"], 483);
+    EXPECT_EQ(lp["global_grants"], kLabelUpdateExpanded);
 
     auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
     ASSERT_FALSE(ep.contains("global_permission"));
-    // For edges UPDATE(2) stays as SET_PROPERTY(2), so READ|SET_PROPERTY = 3
-    EXPECT_EQ(ep["global_grants"], 3);
+    EXPECT_EQ(ep["global_grants"], kReadOrSetProperty);
   }
 
   // Per-entity rules gain denied field and label UPDATE is expanded
@@ -4139,13 +4149,11 @@ TEST(MigrateAuthJson, V3MigrationToCurrentVersion) {
     ASSERT_EQ(rules.size(), 2);
     ASSERT_TRUE(rules[0].contains("denied"));
 
-    // granted=0 -> deny all labels
     EXPECT_EQ(rules[0]["granted"], 0);
-    EXPECT_EQ(rules[0]["denied"], 507);
+    EXPECT_EQ(rules[0]["denied"], kAllLabel);
     EXPECT_EQ(rules[0]["matching"], "ANY");
 
-    // granted=3 (READ|UPDATE) -> expanded
-    EXPECT_EQ(rules[1]["granted"], 483);
+    EXPECT_EQ(rules[1]["granted"], kLabelUpdateExpanded);
     EXPECT_EQ(rules[1]["denied"], 0);
     EXPECT_EQ(rules[1]["matching"], "EXACTLY");
   }
