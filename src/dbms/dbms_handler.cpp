@@ -1143,30 +1143,48 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
 
   // PHASE C — record metadata (lock_), then heavy teardown OUTSIDE lock_.
   const auto tenant_uuid = entry.salient.uuid;  // capture before `entry` is moved into suspended_
-  // Serialize the durable COLD marker from `entry` BEFORE it is moved into suspended_.
+  // Serialize the durable COLD marker (key + value) from `entry` BEFORE it is moved into suspended_ and
+  // BEFORE the point of no return. GenKey (fmt::format) allocates, so computing it here — while the
+  // rollback guard can still cleanly restore HOT — keeps the only throwing durability work out of the
+  // post-commit region (HC-2: a throw must not leave a stale suspended_ entry behind).
+  std::string cold_key;
   std::string cold_val;
   if (durability_) {
+    cold_key = Durability::GenKey(name);
     cold_val = Durability::GenColdVal(entry.salient.uuid, entry.rel_dir, entry.cold_stats);
   }
   acc.reset();  // drop our accessor -> count == 0 (state still SUSPENDING)
   {
     auto wr = std::lock_guard{lock_};
-    suspended_.insert_or_assign(std::string{name}, std::move(entry));
-    // The tenant is now COLD. Counts every successful Suspend_ (user SUSPEND, replica RPC apply, and
-    // recovery force-suspend all funnel through here); the gauge tracks the live cold-set size.
-    metrics::Metrics().global.database_suspends->Increment();
-    UpdateColdGauge_();
-    // Persist the durable COLD marker under the SAME lock_ as the suspended_ insert so a concurrent
-    // Resume_ cannot observe a half state. A Put failure degrades to a warning and never rolls back
-    // or throws (the in-memory teardown still proceeds; MAIN's data stays durable on disk).
+    // Persist the durable COLD marker FIRST, before the in-memory commit below. Both run under the SAME
+    // lock_ so a concurrent Resume_ cannot observe a half state (order within the lock is invisible to
+    // observers, who cannot acquire lock_ until we release it). The marker is best-effort: a Put failure
+    // — whether it returns false OR throws (KVStore::Put is not noexcept; bad_alloc under memory pressure)
+    // — degrades to a warning and never rolls back. Doing it BEFORE the suspended_ insert means a throwing
+    // Put unwinds through the rollback guard with suspended_ still clean, so the tenant cleanly stays HOT
+    // instead of becoming HOT-but-listed-COLD (HC-2). A missing marker only makes the tenant recover HOT
+    // on restart; MAIN's data stays durable on disk regardless.
     if (durability_) {
-      if (!durability_->Put(Durability::GenKey(name), cold_val)) {
+      bool marker_persisted = false;
+      try {
+        marker_persisted = durability_->Put(cold_key, cold_val);
+      } catch (...) {  // NOLINT(bugprone-empty-catch) — best-effort marker; fall through to the warning
+        marker_persisted = false;
+      }
+      if (!marker_persisted) {
         spdlog::warn(
             "hot/cold suspend: failed to persist the cold durability marker for '{}'; the database is "
             "suspended in memory but will recover HOT on restart.",
             name);
       }
     }
+    // In-memory commit — the tenant is now COLD. Counts every successful Suspend_ (user SUSPEND, replica
+    // RPC apply, and recovery force-suspend all funnel through here); the gauge tracks the live cold-set
+    // size. insert_or_assign / Increment / UpdateColdGauge_ are all noexcept, so once we reach here the
+    // suspend cannot throw-and-roll-back with a stale suspended_ entry.
+    suspended_.insert_or_assign(std::string{name}, std::move(entry));
+    metrics::Metrics().global.database_suspends->Increment();
+    UpdateColdGauge_();
   }
 
   // Disable the rollback guard BEFORE calling finish_suspend(). finish_suspend() transitions
