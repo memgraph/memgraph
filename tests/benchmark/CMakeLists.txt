@@ -101,9 +101,3 @@ add_test(NAME ${test_prefix}usearch_index_add_simsimd COMMAND $<TARGET_FILE:${te
 set_tests_properties(${test_prefix}usearch_index_add_simsimd PROPERTIES LABELS "benchmark")
 add_dependencies(memgraph__benchmark ${test_prefix}usearch_index_add_simsimd)
 ]]
-
-# Rewrite each binary's versioned libpython DT_NEEDED to the abi3 SONAME
-# (libpython3.so), like memgraph and the other test suites, so they keep loading
-# when the runtime Python is swapped. No-op for binaries without a libpython
-# dependency.
-mg_apply_python_abi3_rewrite_dir_executables()

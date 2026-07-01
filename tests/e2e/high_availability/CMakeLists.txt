@@ -37,9 +37,3 @@ if (MG_ENTERPRISE)
 add_executable(memgraph__e2e__high_availability_rpc_comm rpc_comm.cpp)
 target_link_libraries(memgraph__e2e__high_availability_rpc_comm mg-coordination mg-repl_coord_glue)
 endif()
-
-# Rewrite each e2e helper binary's versioned libpython DT_NEEDED to the abi3
-# SONAME (libpython3.so), like memgraph and the unit/integration tests, so they
-# keep loading when the runtime Python is swapped. No-op for binaries without a
-# libpython dependency.
-mg_apply_python_abi3_rewrite_dir_executables()

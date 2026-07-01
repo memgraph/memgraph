@@ -91,11 +91,6 @@ function(add_unit_test exec_name)
     endif()
 
     add_dependencies(memgraph__unit ${target_name})
-
-    # If the test embeds Python (transitively via `mg-query` or directly), the
-    # linker bakes a versioned libpython SONAME into DT_NEEDED. Apply the same
-    # patchelf rewrite that the memgraph executable gets, so test runs use the
-    # abi3 loader path. The helper is a no-op for targets without a libpython
-    # dependency, so it's safe to apply unconditionally.
-    mg_apply_python_abi3_rewrite(${target_name})
+    # NOTE: the abi3 DT_NEEDED rewrite is attached automatically by the
+    # add_executable() override in cmake/functions.cmake.
 endfunction()

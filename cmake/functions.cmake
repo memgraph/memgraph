@@ -167,19 +167,25 @@ function(mg_apply_python_abi3_rewrite target_name)
         VERBATIM)
 endfunction()
 
-# Apply mg_apply_python_abi3_rewrite to every EXECUTABLE target defined in the
-# directory this is called from. `add_custom_command(TARGET ...)` requires the
-# target to live in the current directory, so this MUST be called from the
-# CMakeLists.txt that defines the targets (e.g. the end of each tests/integration
-# subdir), not from a parent. The per-target helper is a no-op for binaries
-# without a versioned libpython dependency, so applying it to all executables is
-# safe.
-function(mg_apply_python_abi3_rewrite_dir_executables)
-    get_property(dir_targets DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" PROPERTY BUILDSYSTEM_TARGETS)
-    foreach(dir_target ${dir_targets})
-        get_target_property(dir_target_type ${dir_target} TYPE)
-        if(dir_target_type STREQUAL "EXECUTABLE")
-            mg_apply_python_abi3_rewrite(${dir_target})
-        endif()
-    endforeach()
+# Wrap add_executable() so every executable defined after this point gets the
+# abi3 DT_NEEDED rewrite attached automatically, in its own directory (which is
+# where `add_custom_command(TARGET ...)` must live). This removes the need to
+# sprinkle a per-CMakeLists rewrite call across every suite that builds a binary
+# linking (transitively) libpython.
+#
+# Safe to apply to all executables: mg_apply_python_abi3_rewrite is a no-op when
+# the option is off or patchelf/libpython3.so are missing, and the underlying
+# script is a no-op for binaries whose DT_NEEDED has no versioned libpython.
+# Third-party dependencies build as separate CMake projects (libs/*), so they
+# are unaffected by this override.
+#
+# `_add_executable` is CMake's built-in, exposed automatically once a command is
+# overridden by a same-named function. ALIAS and IMPORTED executables are not
+# real build targets, so there is nothing to attach a POST_BUILD step to.
+function(add_executable name)
+    _add_executable(${name} ${ARGN})
+    if("${ARGN}" MATCHES "(^|;)(ALIAS|IMPORTED)(;|$)")
+        return()
+    endif()
+    mg_apply_python_abi3_rewrite(${name})
 endfunction()

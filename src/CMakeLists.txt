@@ -88,14 +88,12 @@ endif()
 
 mg_split_debug(memgraph INSTALL_DESTINATION lib/memgraph)
 
-# Apply the abi3 DT_NEEDED rewrite to the memgraph binary. See
-# cmake/functions.cmake for the helper, cmake/RewriteDtNeededAbi3.cmake for
-# the script that actually invokes patchelf, and src/query/CMakeLists.txt for
-# where `Py_LIMITED_API` is set. The same rewrite is also applied to every
-# `add_unit_test` target (see cmake/unit_tests.cmake) so the test suite
-# exercises the same loader path as the deployment binary.
-mg_apply_python_abi3_rewrite(memgraph)
-
+# The abi3 DT_NEEDED rewrite is attached automatically to the memgraph binary
+# (and every other executable) by the add_executable() override in
+# cmake/functions.cmake; see cmake/RewriteDtNeededAbi3.cmake for the script that
+# invokes patchelf, and src/query/CMakeLists.txt for where `Py_LIMITED_API` is
+# set.
+#
 # Emit the once-per-build configure-time warnings so the developer knows why
 # the rewrite was skipped (the helper itself is silent on the skip).
 find_program(PATCHELF_EXECUTABLE patchelf)
@@ -108,9 +106,9 @@ if(MG_PYTHON_REWRITE_DT_NEEDED AND NOT (PATCHELF_EXECUTABLE AND MG_LIBPYTHON3_SO
         if(NOT MG_LIBPYTHON3_SO)
                 message(WARNING "libpython3.so (unversioned abi3 SONAME) not found; skipping DT_NEEDED rewrite. "
                                 "On Debian/Ubuntu, symlink it manually: "
-                                "`sudo ln -sf libpython3.XX.so.1.0 /usr/lib/x86_64-linux-gnu/libpython3.so`, "
-                                "or run `sudo environment/os/install_deps.sh install MEMGRAPH_BUILD_DEPS`. "
-                                "Without this, binaries keep a versioned libpython dependency.")
+                                "`sudo ln -sf libpython3.XX.so.1.0 /usr/lib/x86_64-linux-gnu/libpython3.so` "
+                                "(or build via release/package/mgbuild.sh, which points it at the chosen "
+                                "--python-build-version). Without this, binaries keep a versioned libpython dependency.")
         endif()
 endif()
 

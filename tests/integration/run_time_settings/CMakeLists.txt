@@ -19,8 +19,3 @@ target_link_libraries(${executor_target_name} mg-communication)
 add_executable(${config_checker_target_name} config_checker.cpp)
 set_target_properties(${config_checker_target_name} PROPERTIES OUTPUT_NAME config_checker)
 target_link_libraries(${config_checker_target_name} mg-communication)
-
-# Rewrite each test binary's versioned libpython DT_NEEDED to the abi3 SONAME
-# (libpython3.so), like memgraph and the unit tests, so they keep loading when the
-# runtime Python is swapped. No-op for binaries without a libpython dependency.
-mg_apply_python_abi3_rewrite_dir_executables()
