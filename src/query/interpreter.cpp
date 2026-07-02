@@ -8099,9 +8099,17 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                       db_name);
               }
             }
+            std::string res;
+            if (result->already_hot) {
+              // Idempotent no-op (#18): keep the operation successful, but surface a distinguishable
+              // STATUS message instead of a plain "Successfully resumed" so the client can tell this
+              // apart from an actual COLD -> HOT rebuild.
+              res = "Database " + std::string(db_name) + " is already resumed (HOT).";
+            } else {
+              res = "Successfully resumed database " + std::string(db_name);
+            }
             std::vector<std::vector<TypedValue>> status;
-            status.emplace_back(
-                std::vector<TypedValue>{TypedValue("Successfully resumed database " + std::string(db_name))});
+            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
             if (pull_plan->Pull(stream, n)) {
               return QueryHandlerResult::COMMIT;

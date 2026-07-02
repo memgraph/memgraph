@@ -158,6 +158,22 @@ class DbmsHandler {
   using ResumeResult = std::expected<DatabaseAccess, ResumeError>;
 
   /**
+   * @brief Outcome of the user-facing Resume() wrapper: the live accessor plus whether the tenant
+   *        was ALREADY hot when Resume() was called (a no-op share of the existing accessor, see the
+   *        Phase A early-exit in Resume_) versus an actual COLD -> HOT rebuild.
+   *
+   * Kept separate from the plain ResumeResult (still used by Resume_/ResumeByUUID/ResumeForRecovery)
+   * so the RPC-apply and recovery paths — which only care about has_value()/error() — are untouched;
+   * only the query-facing Resume() needs to distinguish the two success shapes for the UX (#18).
+   */
+  struct ResumeOutcome {
+    DatabaseAccess db;
+    bool already_hot;  //!< true: tenant was already HOT before this call (idempotent no-op)
+  };
+
+  using ResumeOutcomeResult = std::expected<ResumeOutcome, ResumeError>;
+
+  /**
    * @brief Initialize the handler.
    *
    * @param config storage configuration
@@ -417,10 +433,16 @@ class DbmsHandler {
    * @param name tenant database name
    * @param txn  originating system transaction; the resume is recorded as a system action so it is
    *             ordered + replicated like CREATE/DROP DATABASE. nullptr for node-local callers.
-   * @return ResumeResult — the HOT DatabaseAccess on success, or an error
+   * @return ResumeOutcomeResult — the HOT DatabaseAccess plus an already_hot flag on success (true
+   *         iff the tenant was already HOT — the Phase A early-exit in Resume_ — rather than an
+   *         actual COLD -> HOT rebuild), or an error. Distinguishing the two lets the query-facing
+   *         RESUME DATABASE surface an "already resumed" notification instead of a plain success (#18).
    */
-  ResumeResult Resume(std::string_view name, system::Transaction *txn = nullptr) {
-    return Resume_(name, /*rewire_replication=*/true, txn);
+  ResumeOutcomeResult Resume(std::string_view name, system::Transaction *txn = nullptr) {
+    bool already_hot = false;
+    auto result = Resume_(name, /*rewire_replication=*/true, txn, &already_hot);
+    if (!result) return std::unexpected{result.error()};
+    return ResumeOutcome{.db = std::move(*result), .already_hot = already_hot};
   }
 
   /**
@@ -864,8 +886,15 @@ class DbmsHandler {
    *
    * txn: originating system transaction; on success records a ResumeDatabase system action (if
    * non-null) for ordered replication. Default nullptr keeps node-local callers unchanged.
+   *
+   * already_hot: optional out-param, set on every success return — true iff the Phase A early-exit
+   * fired (tenant was already HOT, idempotent no-op share of the existing accessor), false for an
+   * actual COLD -> HOT rebuild (either as the winner or as a loser sharing the winner's publish).
+   * Left untouched on an error return. Default nullptr for callers that don't care (ResumeByUUID,
+   * ResumeForRecovery, and Resume_'s own internal restarts).
    */
-  ResumeResult Resume_(std::string_view name, bool rewire_replication = true, system::Transaction *txn = nullptr);
+  ResumeResult Resume_(std::string_view name, bool rewire_replication = true, system::Transaction *txn = nullptr,
+                       bool *already_hot = nullptr);
 
   /**
    * @brief return the storage directory of the associated database

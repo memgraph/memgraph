@@ -159,8 +159,29 @@ TEST_F(HotColdResume, ResumeAlreadyHotReturnsAccessor) {
   auto name = CreateTenant("already_hot");
   auto result = handler_->Resume(name);
   ASSERT_TRUE(result.has_value()) << "Resuming a HOT tenant must return its accessor, not error";
-  EXPECT_EQ(result.value()->name(), name);
+  EXPECT_EQ(result.value().db->name(), name);
   EXPECT_TRUE(InAll(name));
+}
+
+// The already_hot outcome flag (#18): resuming a genuinely-COLD tenant reports already_hot == false;
+// resuming a tenant that is already HOT reports already_hot == true. Distinguishes the two success
+// shapes the query-facing RESUME DATABASE surfaces (plain success vs. an "already resumed" notice).
+TEST_F(HotColdResume, ResumeReportsAlreadyHotOutcome) {
+  constexpr int kNodes = 3;
+  auto name = CreateAndPopulate("outcome_flag", kNodes);
+
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+  EXPECT_FALSE(InAll(name)) << "tenant must be COLD before the genuine resume";
+
+  auto genuine = handler_->Resume(name);
+  ASSERT_TRUE(genuine.has_value()) << "resume of a genuinely-COLD tenant must succeed";
+  EXPECT_FALSE(genuine.value().already_hot) << "a real COLD -> HOT rebuild must report already_hot == false";
+  EXPECT_EQ(CountNodes(genuine.value().db), kNodes);
+
+  auto already_hot = handler_->Resume(name);
+  ASSERT_TRUE(already_hot.has_value()) << "resuming an already-HOT tenant must still succeed (idempotent)";
+  EXPECT_TRUE(already_hot.value().already_hot) << "resuming an already-HOT tenant must report already_hot == true";
+  EXPECT_EQ(already_hot.value().db->name(), name);
 }
 
 // The core round-trip: data written before a suspend must be present after the resume (WAL replay).
@@ -174,8 +195,9 @@ TEST_F(HotColdResume, SuspendResumeRoundTripRecoversData) {
   auto result = handler_->Resume(name);
   ASSERT_TRUE(result.has_value()) << "Resume of a populated COLD tenant must succeed";
   EXPECT_TRUE(InAll(name)) << "Tenant must be HOT again after resume";
+  EXPECT_FALSE(result.value().already_hot) << "a real COLD -> HOT resume must report already_hot == false";
 
-  auto acc = result.value();
+  auto acc = result.value().db;
   EXPECT_EQ(CountNodes(acc), kNodes) << "All vertices must survive the HOT -> COLD -> HOT cycle";
 
   // The fresh accessor is independently usable via Get().
@@ -311,7 +333,8 @@ TEST_F(HotColdResume, ConcurrentResumeSingleFlight) {
   auto post_resume = handler_->Resume(name);
   ASSERT_TRUE(post_resume.has_value())
       << "Resume() on an already-HOT tenant must return the live accessor (idempotent HOT fast-path)";
-  EXPECT_EQ(post_resume.value()->name(), name);
+  EXPECT_EQ(post_resume.value().db->name(), name);
+  EXPECT_TRUE(post_resume.value().already_hot) << "the post-flight idempotent resume must report already_hot";
 
   handler_->SetOnResume({});
 }
@@ -502,7 +525,7 @@ TEST_F(HotColdResume, SuspendResumeThroughSystemTransaction) {
     auto result = handler_->Resume(name, &*txn);
     ASSERT_TRUE(result.has_value()) << "Resume via a system transaction must succeed";
     txn->Commit(memgraph::system::DoNothing{});
-    EXPECT_EQ(CountNodes(result.value()), kNodes) << "Data must survive the system-transaction round-trip";
+    EXPECT_EQ(CountNodes(result.value().db), kNodes) << "Data must survive the system-transaction round-trip";
   }
   EXPECT_TRUE(InAll(name)) << "Tenant must be HOT after a system-transaction resume";
 }
@@ -559,7 +582,7 @@ TEST_F(HotColdResume, CreateTenantWhileAnotherSuspended) {
   // And the COLD tenant still resumes cleanly afterward.
   auto resumed = handler_->Resume(cold);
   ASSERT_TRUE(resumed.has_value());
-  EXPECT_EQ(CountNodes(resumed.value()), 3);
+  EXPECT_EQ(CountNodes(resumed.value().db), 3);
 }
 
 // Cross-restart: a tenant suspended before a restart must come back COLD (durable cold marker),
@@ -628,7 +651,7 @@ TEST_F(HotColdResume, CrossRestartColdTenantStaysColdHotTenantRecovers) {
   auto resumed = handler_->Resume(cold);
   ASSERT_TRUE(resumed.has_value()) << "a COLD tenant restored from disk must resume";
   EXPECT_TRUE(InAll(cold));
-  EXPECT_EQ(CountNodes(resumed.value()), kColdNodes) << "all data must survive suspend -> restart -> resume";
+  EXPECT_EQ(CountNodes(resumed.value().db), kColdNodes) << "all data must survive suspend -> restart -> resume";
 }
 
 // A RESUME clears the durable cold marker, so a tenant that was resumed before a restart recovers
@@ -666,9 +689,9 @@ TEST_F(HotColdResume, CrossRestartColdTenantWithoutPromotionKeepsEpoch) {
   Restart();
   auto resumed = handler_->Resume(cold);
   ASSERT_TRUE(resumed.has_value());
-  EXPECT_EQ(CountNodes(resumed.value()), kNodes);
+  EXPECT_EQ(CountNodes(resumed.value().db), kNodes);
 
-  auto &rss = resumed.value()->storage()->repl_storage_state_;
+  auto &rss = resumed.value().db->storage()->repl_storage_state_;
   EXPECT_EQ(std::string{rss.epoch_.id()}, e1) << "a non-promoted resume must preserve the original epoch";
 }
 

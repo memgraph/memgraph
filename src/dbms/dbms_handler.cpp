@@ -1230,8 +1230,8 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   return {};
 }
 
-DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewire_replication,
-                                               system::Transaction *txn) {
+DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewire_replication, system::Transaction *txn,
+                                               bool *already_hot) {
   // Outer loop: a loser that observes a COLD-fallback (the winner aborted) restarts the whole
   // attempt from Phase A. Every restart re-initializes gk/salient/rel_dir/won_resume from the map
   // under a fresh shared lock. All early-exit paths (NON_EXISTENT, already-HOT, timeout, build
@@ -1261,8 +1261,14 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       // This invariant is ENFORCED inside DeleteCold_/EraseColdShell (not merely claimed): both functions
       // check state() under the caller's exclusive lock_ before touching items_ or suspended_.
       auto rd = std::shared_lock{lock_};
-      if (auto a = db_handler_.Get(name)) return std::move(*a);  // already HOT (raced) — share its accessor
-      gk = db_handler_.GetGatekeeper(name);                      // stable pointer to the in-map gatekeeper
+      if (auto a = db_handler_.Get(name)) {
+        // Already HOT (raced) — share its accessor. This is the ONLY already_hot=true exit: the
+        // tenant was HOT before this call did anything (idempotent no-op), as opposed to the
+        // loser-poll / winner-publish exits below which all observe a real COLD -> HOT transition.
+        if (already_hot) *already_hot = true;
+        return std::move(*a);
+      }
+      gk = db_handler_.GetGatekeeper(name);  // stable pointer to the in-map gatekeeper
       if (!gk) return std::unexpected{ResumeError::NON_EXISTENT};
       auto it = suspended_.find(name);
       if (it == suspended_.end()) return std::unexpected{ResumeError::NON_EXISTENT};
@@ -1297,7 +1303,12 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         bool retry_after_cold_fallback = false;
         {
           auto rd = std::shared_lock{lock_};
-          if (auto a = db_handler_.Get(name)) return std::move(*a);  // winner published HOT
+          if (auto a = db_handler_.Get(name)) {
+            // Winner published HOT — this loser observed a real COLD -> HOT transition, not an
+            // already-hot no-op, so already_hot stays false.
+            if (already_hot) *already_hot = false;
+            return std::move(*a);
+          }
           // Re-fetch the gatekeeper by name under THIS shared lock rather than dereferencing the raw
           // `gk` captured in Phase A: a concurrent DROP of the (now-COLD) tenant during a sleep window
           // can free the GKInternals `gk` points at. nullptr (dropped) or COLD => treat as a fallback
@@ -1328,8 +1339,12 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         auto rd = std::shared_lock{lock_};
         auto *live_gk = db_handler_.GetGatekeeper(name);
         if (!live_gk) return std::unexpected{ResumeError::NON_EXISTENT};  // dropped mid-resume
-        // HOT: the winner just published — share its accessor.
-        if (auto a = db_handler_.Get(name)) return std::move(*a);
+        // HOT: the winner just published — share its accessor. Real COLD -> HOT transition, so
+        // already_hot stays false (same reasoning as the in-poll HOT check above).
+        if (auto a = db_handler_.Get(name)) {
+          if (already_hot) *already_hot = false;
+          return std::move(*a);
+        }
         // RESUMING: a concurrent winner is still actively rebuilding. SUSPENDING: a DIFFERENT tenant
         // transition is live (see the loser-poll SUSPENDING note above) — its `suspended_` entry is
         // guaranteed present once it reaches COLD, so this is also just "still alive, keep waiting", not
@@ -1496,6 +1511,8 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
             "and data is intact, but this resume may not replicate until the next system sync.",
             name);
       }
+      // Winner's own successful publish: a real COLD -> HOT rebuild, so already_hot is false.
+      if (already_hot) *already_hot = false;
       return acc;
     } catch (const std::exception &e) {
       // Recovery (BuildDetached) threw before `acc`/`fresh` existed. No live accessor to release.
