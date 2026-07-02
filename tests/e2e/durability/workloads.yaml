@@ -5,9 +5,9 @@ workloads:
   - name: "Recover snapshot"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/snapshot_recovery.py"]
-  - name: "Recovery failure defunct"
+  - name: "Recovery failure broken"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["durability/recovery_failure_defunct.py"]
+    args: ["durability/recovery_failure_broken.py"]
   - name: "Recovery failure status reporting"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/recovery_failure_status.py"]
@@ -17,9 +17,9 @@ workloads:
   - name: "Recovery failure cure via REPAIR DATABASE"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/recovery_failure_repair_database.py"]
-  - name: "Drop defunct database"
+  - name: "Drop broken database"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["durability/drop_defunct_database.py"]
+    args: ["durability/drop_broken_database.py"]
   - name: "Periodic snapshot"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/periodic_snapshot.py"]

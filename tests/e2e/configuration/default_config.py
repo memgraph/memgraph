@@ -253,8 +253,7 @@ startup_config_dict = {
     "storage_allow_recovery_failure": (
         "false",
         "false",
-        "If true, a database that fails to recover on startup comes up in a defunct state instead of crashing the "
-        "process. Defunct databases reject queries until recovered via RECOVER SNAPSHOT or REPAIR DATABASE.",
+        "If true, a database that fails to recover on startup comes up in a broken state instead of crashing the process. Broken databases reject queries until recovered via RECOVER SNAPSHOT or REPAIR DATABASE.",
     ),
     "storage_snapshot_retention_count": ("3", "3", "The number of snapshots that should always be kept."),
     "storage_wal_enabled": (

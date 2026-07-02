@@ -57,20 +57,20 @@ def databases(cursor):
     return {row[0] for row in execute_and_fetch_all(cursor, "SHOW DATABASES")}
 
 
-def test_drop_defunct_database(test_name):
-    """An operator can abandon a defunct tenant via DROP DATABASE: the drop succeeds,
+def test_drop_broken_database(test_name):
+    """An operator can abandon a broken tenant via DROP DATABASE: the drop succeeds,
     the tenant disappears from SHOW DATABASES, its on-disk directory (including the
     corrupt files) is removed, and the healthy default database is unaffected."""
-    data_directory = get_data_path("drop_defunct_database", test_name)
+    data_directory = get_data_path("drop_broken_database", test_name)
     full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
     shutil.rmtree(full_data_directory, ignore_errors=True)
 
     instances = {
         "default": {
             # WAL disabled so the snapshot is the only durability: corrupting it makes
-            # recovery fail at the "no usable snapshot" path, yielding a defunct tenant.
+            # recovery fail at the "no usable snapshot" path, yielding a broken tenant.
             "args": ["--log-level=TRACE", "--data-recovery-on-startup=true", "--storage-wal-enabled=false"],
-            "log_file": "drop_defunct_database.log",
+            "log_file": "drop_broken_database.log",
             "data_directory": data_directory,
         }
     }
@@ -98,13 +98,13 @@ def test_drop_defunct_database(test_name):
     corrupt_snapshots(broken_dir)
     assert os.path.isdir(broken_dir)
 
-    # Restart with the recovery-failure flag so the tenant comes up defunct.
+    # Restart with the recovery-failure flag so the tenant comes up broken.
     instances["default"]["args"].append("--storage-allow-recovery-failure=true")
     interactive_mg_runner.start(instances, "default")
 
     cursor = connect(host="localhost", port=7687).cursor()
 
-    # Confirm the tenant is defunct: a data query against it throws the defunct error.
+    # Confirm the tenant is broken: a data query against it throws the broken error.
     execute_and_fetch_all(cursor, "USE DATABASE broken_db")
     with pytest.raises(mgclient.DatabaseError) as exc_info:
         execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")
@@ -113,7 +113,7 @@ def test_drop_defunct_database(test_name):
     # Switch back to the default database (we cannot drop the database in use).
     execute_and_fetch_all(cursor, "USE DATABASE memgraph")
 
-    # DROP DATABASE on the defunct tenant must succeed.
+    # DROP DATABASE on the broken tenant must succeed.
     execute_and_fetch_all(cursor, "DROP DATABASE broken_db")
 
     # The tenant is gone from SHOW DATABASES; the default database remains.

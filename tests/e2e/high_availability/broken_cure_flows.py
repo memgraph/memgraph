@@ -9,12 +9,12 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-"""Coordinator-based e2e coverage for the defunct-tenant cure flows.
+"""Coordinator-based e2e coverage for the broken-tenant cure flows.
 
 These tests bring up a Raft coordinator cluster with two data instances, create a
 multi-tenant database, corrupt that tenant's durability files on one or both data
 instances, and restart them with --storage-allow-recovery-failure=true so the tenant
-boots defunct. They then verify the operator cure flows (RECOVER SNAPSHOT, REPAIR
+boots broken. They then verify the operator cure flows (RECOVER SNAPSHOT, REPAIR
 DATABASE) and replica self-heal in the HA setting.
 
 HA + multi-tenancy require an enterprise license; the whole module is skipped when no
@@ -48,7 +48,7 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
-file = "defunct_cure_flows"
+file = "broken_cure_flows"
 
 TENANT = "clients"
 
@@ -62,7 +62,7 @@ DB1_COUNT = 2000
 # and CREATE DATABASE is rejected, so skip the whole module rather than report a fake pass.
 pytestmark = pytest.mark.skipif(
     not (os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE") and os.environ.get("MEMGRAPH_ORGANIZATION_NAME")),
-    reason="HA defunct-cure e2e needs an enterprise license (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)",
+    reason="HA broken-cure e2e needs an enterprise license (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)",
 )
 
 
@@ -115,12 +115,12 @@ def _corrupt_data_region(path, head_keep, tail_keep):
 
 
 def corrupt_tenant_durability(instance_data_dir):
-    """Corrupt the tenant's durability so recovery fails and it boots defunct.
+    """Corrupt the tenant's durability so recovery fails and it boots broken.
 
     The main has a snapshot: corrupt its data region and wipe the WAL so the snapshot is the only
     (now broken) source. A replica that received the tenant via replication has only a WAL and no
     snapshot: corrupt the WAL's data region instead. Either way recovery throws and the tenant goes
-    defunct (under --storage-allow-recovery-failure)."""
+    broken (under --storage-allow-recovery-failure)."""
     tdir = tenant_dir(instance_data_dir)
     snapshot_dir = os.path.join(tdir, "snapshots")
     wal_dir = os.path.join(tdir, "wal")
@@ -145,7 +145,7 @@ def plant_corrupt_snapshot(instance_data_dir, source_snapshot):
     """Give a tenant a corruptible snapshot by planting a copy of a real snapshot into its snapshot
     directory, then corrupting it and wiping its WAL. Used for the replica, which received the
     tenant via replication and therefore has only WAL (no snapshot) on disk. This makes the replica
-    fail recovery on the deterministic 'no usable snapshot' path and boot defunct."""
+    fail recovery on the deterministic 'no usable snapshot' path and boot broken."""
     tdir = tenant_dir(instance_data_dir)
     snapshot_dir = os.path.join(tdir, "snapshots")
     wal_dir = os.path.join(tdir, "wal")
@@ -159,7 +159,7 @@ def plant_corrupt_snapshot(instance_data_dir, source_snapshot):
 
 
 def corrupt_default_db_durability(instance_data_dir):
-    """Corrupt the DEFAULT `memgraph` database so it boots defunct. Unlike named tenants (which live under
+    """Corrupt the DEFAULT `memgraph` database so it boots broken. Unlike named tenants (which live under
     databases/<uuid>/), the default db's durability is the data directory root: <data_dir>/snapshots and
     <data_dir>/wal. Corrupt its snapshot data region and wipe its WAL so the snapshot is the only (now
     broken) source and there is no clean replay fallback."""
@@ -330,7 +330,7 @@ def nudge_main_write(cursor, query, timeout=30):
 
     Retries only while the main is transiently non-writeable right after a role change; treats a
     'SYNC replica not reachable / not in sync' error as success, because the write IS committed on
-    the main (the defunct replica will be recovered automatically). The write therefore lands at
+    the main (the broken replica will be recovered automatically). The write therefore lands at
     most once, so it cannot double-insert."""
     start = time.time()
     while True:
@@ -465,8 +465,8 @@ def test_both_corrupt_status_then_cure(test_name):
     # Take both instances down and make the tenant fail recovery on both. The main has its own
     # snapshot to corrupt; the replica received the tenant via replication and has only WAL, so we
     # plant a corrupt copy of the (good) snapshot into its tenant dir. Bring the main up first and
-    # let it settle as a stable defunct main before bringing the replica up, so the cluster does not
-    # churn roles while both tenants are defunct.
+    # let it settle as a stable broken main before bringing the replica up, so the cluster does not
+    # churn roles while both tenants are broken.
     interactive_mg_runner.kill(instances, "instance_1")
     interactive_mg_runner.kill(instances, "instance_2")
     corrupt_tenant_durability(data_dir_of(test_name, "instance_1"))
@@ -485,7 +485,7 @@ def test_both_corrupt_status_then_cure(test_name):
     replica_cursor = connect(host="localhost", port=7688).cursor()
     use_tenant(replica_cursor)
 
-    # Verify defunct on BOTH instances via BOTH SHOW STORAGE INFO and SHOW DATABASES.
+    # Verify broken on BOTH instances via BOTH SHOW STORAGE INFO and SHOW DATABASES.
     assert storage_info(main_cursor)["status"] == "broken"
     assert storage_info(replica_cursor)["status"] == "broken"
     assert databases_status(main_cursor).get(TENANT) == "broken"
@@ -499,14 +499,14 @@ def test_both_corrupt_status_then_cure(test_name):
     assert storage_info(main_cursor)["status"] == "ready"
     assert get_vertex_count(main_cursor) == 5000
 
-    # Nudge the main with a write to the tenant so it drives the defunct replica through recovery.
+    # Nudge the main with a write to the tenant so it drives the broken replica through recovery.
     nudge_main_write(main_cursor, "CREATE (:Node {id: 999999})")
 
-    # Slice 7: the defunct replica self-heals in place. The main notices it is behind and full-syncs
-    # it (snapshot + WAL); the replica-side recovery handlers clear the defunct flag on a successful
+    # Slice 7: the broken replica self-heals in place. The main notices it is behind and full-syncs
+    # it (snapshot + WAL); the replica-side recovery handlers clear the broken flag on a successful
     # load. So the replica reaches ready and serves the tenant WITHOUT a restart. Fresh connections
     # are opened per poll because the self-heal replaces the storage object underneath any session
-    # pinned to the old defunct view.
+    # pinned to the old broken view.
     def replica_storage_status():
         c = connect(host="localhost", port=7688).cursor()
         use_tenant(c)

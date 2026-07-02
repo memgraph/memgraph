@@ -9,17 +9,17 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# Defunct Recovery (HA): REPAIR DATABASE on the MAIN must reconcile replicas. When the main's tenant
-# is defunct and the operator runs REPAIR DATABASE, the main resets that tenant to an empty state with
+# Broken Recovery (HA): REPAIR DATABASE on the MAIN must reconcile replicas. When the main's tenant
+# is broken and the operator runs REPAIR DATABASE, the main resets that tenant to an empty state with
 # a fresh epoch and then force-resyncs every replica. Each replica must therefore WIPE its stale tenant
 # data and converge to the clean empty tenant, ready to accept the main's subsequent commits.
 #
-# This is the inverse of defunct_replica_self_heal.py (there the replica was defunct and self-healed
-# from a healthy main). Here the MAIN is defunct, the replica is healthy and holds the old (now stale)
+# This is the inverse of broken_replica_self_heal.py (there the replica was broken and self-healed
+# from a healthy main). Here the MAIN is broken, the replica is healthy and holds the old (now stale)
 # tenant data; the proof of the fix is that the replica's old data is wiped after REPAIR and that fresh
 # data written on the repaired main replicates to it.
 #
-# Placement note: like defunct_replica_self_heal.py, this needs the coordinator + data-instance harness
+# Placement note: like broken_replica_self_heal.py, this needs the coordinator + data-instance harness
 # from tests/e2e/high_availability/, so it lives next to the other coordinator tests and reuses
 # high_availability/common.py.
 
@@ -43,7 +43,7 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
-file = "defunct_repair_replica_clean"
+file = "broken_repair_replica_clean"
 
 TENANT = "broken_db"
 NUM_NODES = 5000
@@ -126,7 +126,7 @@ def get_memgraph_instances_description(test_name: str):
             "data_directory": f"{get_data_path(file, test_name)}/instance_3",
             "setup_queries": [],
             # The main (instance_3) is the one we corrupt. Write a snapshot of every tenant on graceful
-            # shutdown so the tenant has an on-disk snapshot to corrupt into a defunct boot.
+            # shutdown so the tenant has an on-disk snapshot to corrupt into a broken boot.
             "storage_snapshot_on_exit": True,
         },
         "coordinator_1": {
@@ -209,10 +209,10 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
     # 3. Gracefully stop ALL data instances (keeping the coordinators up), corrupt instance_3's
     #    broken_db snapshot, then restart the data instances keeping their directories. With every data
     #    instance down at once the coordinator has no failover target, so instance_3's MAIN role is
-    #    preserved and restored on restart (no failover); instance_3's broken_db boots defunct
+    #    preserved and restored on restart (no failover); instance_3's broken_db boots broken
     #    (--storage-allow-recovery-failure), while the replicas restore their healthy broken_db data. The
     #    replicas therefore still hold the stale NUM_NODES nodes -- nothing has cleaned them.
-    # 4. REPAIR DATABASE on the (defunct) main: resets broken_db to empty with a fresh epoch and
+    # 4. REPAIR DATABASE on the (broken) main: resets broken_db to empty with a fresh epoch and
     #    force-resyncs every replica (the fix under test).
     # 5. Assert each replica's stale broken_db data is WIPED (0 nodes) and `ready` -- the whole point of
     #    the fix: REPAIR cleans the replicas, not just the main. Without the fix the replicas keep their
@@ -253,7 +253,7 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
     # 3: gracefully stop all three data instances (SIGTERM -> instance_3 writes a snapshot of broken_db
     #    via storage_snapshot_on_exit), leaving the coordinators running. Drop instance_3's tenant WAL so
     #    the corrupted snapshot is the sole durability source on the next boot, then corrupt the
-    #    snapshot's data region so broken_db boots defunct.
+    #    snapshot's data region so broken_db boots broken.
     for name in ("instance_1", "instance_2", "instance_3"):
         interactive_mg_runner.stop(instances, name, keep_directories=True)
 
@@ -266,7 +266,7 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
     corrupt_snapshots(tenant_dir)
 
     # Restart the data instances keeping directories. Clear their setup queries (none anyway) and add the
-    # recovery-failure flag to instance_3 so its corrupted broken_db boots defunct. The coordinators
+    # recovery-failure flag to instance_3 so its corrupted broken_db boots broken. The coordinators
     # stayed up and restore instance_3 as MAIN; with no data instance alive during the gap there was no
     # failover target, so the MAIN role is preserved.
     restart_instances = copy.deepcopy(instances)
@@ -281,7 +281,7 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
     # The coordinators restore the persisted roles: instance_3 stays MAIN, no failover.
     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
 
-    # broken_db on the (still) main is defunct.
+    # broken_db on the (still) main is broken.
     instance_3_cursor = connect(host="localhost", port=7687).cursor()
     mg_sleep_and_assert("broken", lambda: tenant_status(instance_3_cursor).get(TENANT))
 
@@ -293,7 +293,7 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
     with pytest.raises(mgclient.DatabaseError, match="broken state"):
         execute_and_fetch_all(broken_txn_cursor, "BEGIN")
 
-    # 4: REPAIR DATABASE on the (defunct) main. Resets broken_db to empty and force-resyncs every replica.
+    # 4: REPAIR DATABASE on the (broken) main. Resets broken_db to empty and force-resyncs every replica.
     main_cursor = connect(host="localhost", port=7687).cursor()
     execute_and_fetch_all(main_cursor, f"USE DATABASE {TENANT}")
     execute_and_fetch_all(main_cursor, "REPAIR DATABASE")
