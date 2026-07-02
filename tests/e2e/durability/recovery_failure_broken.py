@@ -23,9 +23,9 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
-file = "recovery_failure_defunct"
+file = "recovery_failure_broken"
 
-DEFUNCT_ERROR = "Database is in the defunct state because the recovery process failed."
+BROKEN_ERROR = "Database is in the broken state because the recovery process failed."
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def test_name(request):
     return request.node.name
 
 
-def test_defunct_on_corrupt_snapshot(test_name):
+def test_broken_on_corrupt_snapshot(test_name):
     data_directory = get_data_path(file, test_name)
     full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
 
@@ -61,15 +61,15 @@ def test_defunct_on_corrupt_snapshot(test_name):
     instances["default"]["args"].append("--storage-allow-recovery-failure=true")
     interactive_mg_runner.start(instances, "default")
 
-    # 4. The default database is defunct: data queries throw the defunct error.
+    # 4. The default database is broken: data queries throw the broken error.
     cursor = connect(host="localhost", port=7687).cursor()
     with pytest.raises(Exception) as einfo:
         execute_and_fetch_all(cursor, "MATCH (n) RETURN n")
-    assert DEFUNCT_ERROR in str(einfo.value)
+    assert BROKEN_ERROR in str(einfo.value)
 
     with pytest.raises(Exception) as einfo:
         execute_and_fetch_all(cursor, "CREATE (:Node)")
-    assert DEFUNCT_ERROR in str(einfo.value)
+    assert BROKEN_ERROR in str(einfo.value)
 
     interactive_mg_runner.stop_all()
 

@@ -60,7 +60,7 @@ def corrupt_snapshots(tenant_directory):
     """Corrupt the data (vertex/edge/index) region of every snapshot under `tenant_directory`
     while preserving the offsets block at the start and the metadata section at the end. This keeps
     the file readable by ReadSnapshotInfo (so it is selected for recovery) but makes LoadSnapshot
-    fail, which is the path that yields a defunct database. Mirrors the helper in
+    fail, which is the path that yields a broken database. Mirrors the helper in
     tests/e2e/durability/common.py."""
     snapshot_dir = os.path.join(tenant_directory, "snapshots")
     files = [

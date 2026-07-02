@@ -44,7 +44,7 @@ def corrupt_snapshots(full_data_directory):
     """Corrupt the data (vertex/edge/index) region of every snapshot while preserving the
     offsets block at the start and the metadata section at the end. This keeps the file
     readable by ReadSnapshotInfo (so it is selected for recovery) but makes LoadSnapshot
-    fail, which is the "no usable snapshot" path that yields a defunct database."""
+    fail, which is the "no usable snapshot" path that yields a broken database."""
     snapshot_dir = os.path.join(full_data_directory, "snapshots")
     files = [
         os.path.join(snapshot_dir, f) for f in os.listdir(snapshot_dir) if os.path.isfile(os.path.join(snapshot_dir, f))

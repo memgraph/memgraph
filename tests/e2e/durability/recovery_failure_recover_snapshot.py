@@ -42,10 +42,10 @@ def storage_info(cursor):
     return {row[0]: row[1] for row in rows}
 
 
-def test_recover_snapshot_cures_defunct(test_name):
-    """A defunct default database is cured in place by RECOVER SNAPSHOT: after loading a
+def test_recover_snapshot_cures_broken(test_name):
+    """A broken default database is cured in place by RECOVER SNAPSHOT: after loading a
     known-good snapshot the data comes back, status flips to ready, and the tenant recovers
-    healthy across a restart (it does not re-enter defunct)."""
+    healthy across a restart (it does not re-enter broken)."""
     data_directory = get_data_path("recovery_failure_recover_snapshot", test_name)
     full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
     shutil.rmtree(full_data_directory, ignore_errors=True)
@@ -77,7 +77,7 @@ def test_recover_snapshot_cures_defunct(test_name):
     good_snapshot_copy = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", "recover_snapshot_good_copy")
     shutil.copyfile(snapshot_files[0], good_snapshot_copy)
 
-    # Corrupt the in-place snapshot and restart with the recovery-failure flag -> defunct.
+    # Corrupt the in-place snapshot and restart with the recovery-failure flag -> broken.
     corrupt_snapshots(full_data_directory)
     instances["default"]["args"].append("--storage-allow-recovery-failure=true")
     interactive_mg_runner.start(instances, "default")
@@ -85,7 +85,7 @@ def test_recover_snapshot_cures_defunct(test_name):
     cursor = connect(host="localhost", port=7687).cursor()
     assert storage_info(cursor)["status"] == "broken"
 
-    # Cure the defunct database in place with the known-good snapshot copy.
+    # Cure the broken database in place with the known-good snapshot copy.
     execute_and_fetch_all(cursor, f"RECOVER SNAPSHOT '{good_snapshot_copy}'")
 
     # The data is back and the tenant reports ready.
@@ -95,7 +95,7 @@ def test_recover_snapshot_cures_defunct(test_name):
     interactive_mg_runner.kill_all()
 
     # Restart: the cure left the durability directory restart-clean, so the tenant recovers
-    # healthy with the data intact and does not re-enter the defunct state.
+    # healthy with the data intact and does not re-enter the broken state.
     interactive_mg_runner.start(instances, "default")
     cursor = connect(host="localhost", port=7687).cursor()
     assert storage_info(cursor)["status"] == "ready"
