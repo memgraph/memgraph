@@ -3010,7 +3010,7 @@ case $command in
       # Exercise the instrumented (build-memgraph --pgo generate) binary across the
       # full mgbench query mix so the profile covers reads/writes/aggregates/expansions.
       # %p keeps each server restart's raw profile; pgo-merge combines them.
-      shift 1
+      # NOTE: the main parser already shifted off the command name, so $@ starts at the flags.
       PGO_DATASET='pokec'
       PGO_SIZE='small'
       while [[ $# -gt 0 ]]; do
@@ -3025,7 +3025,6 @@ case $command in
     pgo-merge)
       # Merge raw profiles -> $MGBUILD_HOME_DIR/pgo.profdata (OUTSIDE build/ and the repo,
       # so it survives the 'rm -rf build/*' + repo re-copy the next build-memgraph does).
-      shift 1
       docker exec -u mg $build_container bash -c "source /opt/toolchain-${toolchain_version}/activate && llvm-profdata merge -o $MGBUILD_HOME_DIR/pgo.profdata $MGBUILD_ROOT_DIR/build/pgo-raw/*.profraw && echo 'PGO merged profile:' && ls -la $MGBUILD_HOME_DIR/pgo.profdata"
     ;;
     package-memgraph)
