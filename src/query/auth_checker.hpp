@@ -82,6 +82,14 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool HasUnrestrictedAccessToEdgeTypeProperties() const = 0;
 
+  [[nodiscard]] bool HasPropertyRestrictions() const {
+    if (!has_property_restrictions_) {
+      has_property_restrictions_ =
+          !HasUnrestrictedAccessToVertexProperties() || !HasUnrestrictedAccessToEdgeTypeProperties();
+    }
+    return *has_property_restrictions_;
+  }
+
   /// True when a FineGrainedAuthChecker must be attached for correct
   /// authorization, defined by either per-Label/per-Edge rules, or per-Property
   /// rules. When false, the checker is redundant as no restrictions to labels,
@@ -96,6 +104,8 @@ class FineGrainedAuthChecker {
                                                    memgraph::storage::PropertyId property,
                                                    AuthQuery::PropertyPermissionType type) const = 0;
 
+  virtual void UpdateDbAccessor(DbAccessor const * /*dba*/) {}
+
   // Used to make the auth checker thread safe
   // throw if not possible
   virtual void MakeThreadSafe() const = 0;
@@ -107,6 +117,9 @@ class FineGrainedAuthChecker {
   FineGrainedAuthChecker(FineGrainedAuthChecker &&) noexcept = default;
   FineGrainedAuthChecker &operator=(const FineGrainedAuthChecker &) = default;
   FineGrainedAuthChecker &operator=(FineGrainedAuthChecker &&) noexcept = default;
+
+ private:
+  mutable std::optional<bool> has_property_restrictions_;
 };
 
 class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecker {
@@ -208,6 +221,34 @@ class AllowEverythingAuthChecker final : public AuthChecker {
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const QueryUserOrRole & /*user*/,
                                                                     const DbAccessor * /*dba*/) const override {
     return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
+  }
+};
+
+struct CachedFineGrainedAuth {
+  std::unique_ptr<FineGrainedAuthChecker> checker;
+  std::string db_name;
+  bool checked{false};
+
+  FineGrainedAuthChecker const *get() const { return checker.get(); }
+
+  void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
+               std::string current_db) {
+    if (checked && db_name == current_db) {
+      if (checker) checker->UpdateDbAccessor(dba);
+    } else {
+      checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
+      if (!checker || !checker->NeedsFineGrainedAuthChecker()) {
+        checker.reset();
+      }
+      db_name = std::move(current_db);
+      checked = true;
+    }
+  }
+
+  void Reset() {
+    checker.reset();
+    db_name.clear();
+    checked = false;
   }
 };
 

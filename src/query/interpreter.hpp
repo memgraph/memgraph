@@ -43,6 +43,9 @@
 
 namespace memgraph::query {
 
+class FineGrainedAuthChecker;
+struct CachedFineGrainedAuth;
+
 struct QueryAllocator {
   explicit QueryAllocator(utils::MemoryTracker *db_query_tracker = nullptr)
       : tracked_memory_{db_query_tracker}, upstream_{&tracked_memory_} {}
@@ -279,7 +282,10 @@ class Interpreter final {
   Interpreter(Interpreter &&) = delete;
   Interpreter &operator=(Interpreter &&) = delete;
 
-  ~Interpreter() { Abort(); }
+  ~Interpreter();
+
+  void ResetCachedFga();
+  FineGrainedAuthChecker const *GetCachedFga() const;
 
   struct PrepareResult {
     std::vector<std::string> headers;
@@ -307,6 +313,7 @@ class Interpreter final {
 #ifdef MG_ENTERPRISE
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif
+  std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
   SessionInfo session_info_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;

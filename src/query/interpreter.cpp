@@ -65,6 +65,7 @@
 #include "memory/query_memory_control.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
+#include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/common.hpp"
 #include "query/config.hpp"
@@ -3141,6 +3142,7 @@ struct PullPlan {
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                     storage::DatabaseProtectorPtr protector, metrics::DatabaseMetricHandles &metric_handles,
+                    FineGrainedAuthChecker const *auth_checker = nullptr,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
                     std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr,
@@ -3184,9 +3186,10 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                    storage::DatabaseProtectorPtr protector, metrics::DatabaseMetricHandles &metric_handles,
-                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
-                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   utils::PriorityThreadPool *worker_pool, memory::ArenaPool *db_arena_pool
+                   FineGrainedAuthChecker const *auth_checker, TriggerContextCollector *trigger_context_collector,
+                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
+                   const std::optional<int64_t> hops_limit, utils::PriorityThreadPool *worker_pool,
+                   memory::ArenaPool *db_arena_pool
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
@@ -3228,14 +3231,11 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.edgetypes = NamesToEdgeTypes(plan->ast_storage().edge_types_, dba);
   ctx_.user_or_role = user_or_role;  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
-  if (license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role && dba) {
-    // Create only if an explicit user is defined
-    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
-    DMG_ASSERT(auth_checker, "Auth checker should not be null");
-    if (auth_checker->NeedsFineGrainedAuthChecker()) {
-      ctx_.auth_checker = std::move(auth_checker);
-    }
-  }
+  ctx_.auth_checker = auth_checker;
+#else
+  (void)auth_checker;  // [[maybe_unused]] would be better for this community-only
+                       // warning, but the PullPlan constructor argument list
+                       // is already too dense to read clearly.
 #endif
   ctx_.stopping_context = std::move(stopping_context);
   ctx_.is_profile_query = is_profile_query;
@@ -3374,15 +3374,25 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
 
 }  // namespace
 
-Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
+Interpreter::Interpreter(InterpreterContext *interpreter_context)
+    : cached_fga_(std::make_unique<CachedFineGrainedAuth>()), interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
-    : current_db_{std::move(db)}, interpreter_context_(interpreter_context) {
+    : cached_fga_(std::make_unique<CachedFineGrainedAuth>()),
+      current_db_{std::move(db)},
+      interpreter_context_(interpreter_context) {
   MG_ASSERT(current_db_.db_acc_, "Database accessor needs to be valid");
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
+
+Interpreter::~Interpreter() { Abort(); }
+
+// NOLINTNEXTLINE(readability-make-member-function-const)
+void Interpreter::ResetCachedFga() { cached_fga_->Reset(); }
+
+FineGrainedAuthChecker const *Interpreter::GetCachedFga() const { return cached_fga_->get(); }
 
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
   using double_seconds = std::chrono::duration<double>;
@@ -3653,6 +3663,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               std::move(stopping_context),
                                               dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
                                               *(*current_db.db_acc_)->metric_handles(),
+                                              interpreter.GetCachedFga(),
                                               trigger_context_collector,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
@@ -3862,7 +3873,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          stopping_context = std::move(stopping_context),
                                          db_acc = *current_db.db_acc_,
                                          hops_limit,
-                                         db_arena_pool = &current_db.db_acc_->get()->Arena()
+                                         db_arena_pool = &current_db.db_acc_->get()->Arena(),
+                                         cached_auth_checker = interpreter.GetCachedFga()
 #ifdef MG_ENTERPRISE
                                              ,
                                          parallel_execution,
@@ -3882,6 +3894,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         std::move(stopping_context),
                                         dbms::DatabaseProtector{db_acc}.clone(),
                                         *db_acc->metric_handles(),
+                                        cached_auth_checker,
                                         nullptr,
                                         memory_limit,
                                         frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
@@ -9781,6 +9794,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           .exception_occurred = parallel_execution ? std::make_shared<std::atomic<uint8_t>>(false) : nullptr,
       };
     };
+
+#ifdef MG_ENTERPRISE
+    if (current_db_.execution_db_accessor_ && interpreter_context_->auth_checker && user_or_role_ && *user_or_role_) {
+      auto *dba = &*current_db_.execution_db_accessor_;
+      cached_fga_->Refresh(*interpreter_context_->auth_checker, *user_or_role_, dba, dba->DatabaseName());
+    } else {
+      cached_fga_->Reset();
+    }
+#endif
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query),
