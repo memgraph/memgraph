@@ -205,3 +205,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/show_db.py"]
     <<: *show_databases_w_user
+
+  # Self-managed instance (no `cluster:`): the test strips the license env vars
+  # before starting Memgraph, so the instance runs unlicensed — the only state
+  # in which SessionHL::Pull's fine-grained-auth path could hit a null checker.
+  - name: "Unlicensed user query crash regression"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["fine_grained_access/unlicensed_user_query_crash_tests.py"]
