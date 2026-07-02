@@ -272,7 +272,12 @@ class SkipListGc final {
 
   // Allocate a new head block if the caller's snapshot of head_ still matches.
   // Otherwise another thread already extended the chain; return that new head.
-  Block *AllocateBlock(Block *expected_head) {
+  Block *AllocateBlock(Block *expected_head) noexcept {
+    // Suppress the tracked-OOM path here: ReleaseId runs from noexcept Accessor
+    // destructors / move-assignment, and a tracked OutOfMemoryException escaping a
+    // destructor would std::terminate. (A genuine system bad_alloc still terminates
+    // via the noexcept boundary; this only guards the Memgraph memory-tracker path.)
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
     auto guard = std::lock_guard{lock_};
     Block *curr_head = head_.load(std::memory_order_acquire);
     if (curr_head != expected_head) return curr_head;
@@ -325,7 +330,7 @@ class SkipListGc final {
     return accessor_id_.fetch_add(1, std::memory_order_acq_rel);
   }
 
-  void ReleaseId(uint64_t id) {
+  void ReleaseId(uint64_t id) noexcept {
     // This function only needs to acquire a lock when allocating a new block
     // (in the `AllocateBlock` function), but otherwise doesn't need to acquire
     // a lock because it iterates over the linked list and atomically sets its

@@ -134,6 +134,52 @@ struct StorageInfo {
   uint64_t schema_edge_count;
 };
 
+// Single ordered list of StorageInfo's (de)serializable fields. Every persistence/wire path —
+// the durability cold_stats JSON (Durability::StatsToJson/StatsFromJson) and the V3 SystemRecovery SLK
+// (system_rpc.cpp Save/Load) — drives serialization through this one visitor, so adding a field to
+// StorageInfo extends all of them at once instead of silently drifting (the field-drift hazard flagged
+// in earlier reviews). `visit(key, ref)` is invoked once per field in declaration order; the caller's
+// visitor handles scalars directly and enums via `if constexpr (std::is_enum_v<T>)`. Templated on Self so
+// the SAME field list serves a const StorageInfo (save) and a mutable one (load).
+template <typename Self, typename Visit>
+void StorageInfoForEachField(Self &s, Visit &&visit) {
+  visit("vertex_count", s.vertex_count);
+  visit("edge_count", s.edge_count);
+  visit("average_degree", s.average_degree);
+  visit("memory_res", s.memory_res);
+  visit("peak_memory_res", s.peak_memory_res);
+  visit("unreleased_delta_objects", s.unreleased_delta_objects);
+  visit("disk_usage", s.disk_usage);
+  visit("label_indices", s.label_indices);
+  visit("label_property_indices", s.label_property_indices);
+  visit("text_indices", s.text_indices);
+  visit("vector_indices", s.vector_indices);
+  visit("vector_edge_indices", s.vector_edge_indices);
+  visit("existence_constraints", s.existence_constraints);
+  visit("unique_constraints", s.unique_constraints);
+  visit("type_constraints", s.type_constraints);
+  visit("storage_mode", s.storage_mode);
+  visit("isolation_level", s.isolation_level);
+  visit("durability_snapshot_enabled", s.durability_snapshot_enabled);
+  visit("durability_wal_enabled", s.durability_wal_enabled);
+  visit("property_store_compression_enabled", s.property_store_compression_enabled);
+  visit("property_store_compression_level", s.property_store_compression_level);
+  visit("schema_vertex_count", s.schema_vertex_count);
+  visit("schema_edge_count", s.schema_edge_count);
+}
+
+// Hot/cold: the per-COLD-tenant recovery payload carried in SystemRecoveryReq V3 so a
+// reconnecting/lagging replica converges to MAIN's authoritative {HOT ∪ COLD} set. Replaces the
+// earlier two parallel (salient, stats) vectors; bundling them keeps the 1:1 pairing structural (no
+// length-mismatch guard). Composed of storage:: types only, so it can sit in both the dbms and
+// replication_handler signatures without a layer cycle. A resumed cold tenant trusts its own
+// on-disk WAL/snapshot epoch (BuildDetached); no epoch is carried here (cold-tenant epoch machinery
+// was intentionally removed — a cold tenant accumulates no divergent commits to reconcile).
+struct ColdTenantRecovery {
+  SalientConfig salient;
+  StorageInfo stats{};  // value-init: a default-constructed recovery carries zeroed stats
+};
+
 static inline nlohmann::json ToJson(const StorageInfo &info) {
   nlohmann::json res;
 
@@ -248,6 +294,14 @@ class Storage {
   }
 
   StorageMode GetStorageMode() const noexcept;
+
+  // True iff this storage's durability mode keeps BOTH periodic snapshots AND a WAL
+  // chain — the precondition for hot/cold suspend (suspend tears down RAM and relies
+  // on {snapshot + WAL} on disk to recover). PERIODIC_SNAPSHOT-only or DISABLED is
+  // NOT suspendable.
+  [[nodiscard]] bool IsDurabilityCompleteForSuspend() const {
+    return config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  }
 
   virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) = 0;
 

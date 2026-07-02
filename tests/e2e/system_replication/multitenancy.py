@@ -1772,9 +1772,9 @@ def test_rename_database_replication(connection, test_name):
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
     replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
     results = execute_and_fetch_all(main_cursor, "SHOW DATABASES")
-    assert results == [("memgraph",), ("renamed_test_db",)]
+    assert results == [("memgraph", "HOT"), ("renamed_test_db", "HOT")]
     results = execute_and_fetch_all(replica_cursor, "SHOW DATABASES")
-    assert results == [("memgraph",), ("renamed_test_db",)]
+    assert results == [("memgraph", "HOT"), ("renamed_test_db", "HOT")]
 
 
 def test_rename_database_concurrent_access(connection, test_name):

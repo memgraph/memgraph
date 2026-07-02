@@ -11,12 +11,24 @@
 
 #include "storage_mode.hpp"
 
+#include <type_traits>
 #include <utility>
+
+#include <nlohmann/json.hpp>
+
+#include "utils/enum.hpp"
 
 namespace memgraph::storage {
 
 bool IsTransactional(const StorageMode storage_mode) noexcept {
   return storage_mode != StorageMode::IN_MEMORY_ANALYTICAL;
+}
+
+void to_json(nlohmann::json &j, StorageMode mode) { j = std::to_underlying(mode); }
+
+void from_json(const nlohmann::json &j, StorageMode &mode) {
+  const auto raw = j.get<std::underlying_type_t<StorageMode>>();
+  if (!utils::NumToEnum(raw, mode)) mode = StorageMode::IN_MEMORY_TRANSACTIONAL;
 }
 
 std::string_view StorageModeToString(StorageMode storage_mode) {

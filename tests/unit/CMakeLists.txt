@@ -414,6 +414,24 @@ add_unit_test(utils_algorithm
     LINK_TARGETS mg-utils
 )
 
+# Hot/cold tenants: gatekeeper 4-state lifecycle machine
+add_unit_test(hot_cold_gatekeeper
+    SOURCES hot_cold_gatekeeper.cpp
+    LINK_TARGETS mg-utils
+)
+
+# Hot/cold tenants: node-local suspend engine (HOT -> COLD teardown)
+add_unit_test(hot_cold_suspend
+    SOURCES hot_cold_suspend.cpp
+    LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+)
+
+# Hot/cold tenants: node-local resume engine (COLD -> HOT, single-flight)
+add_unit_test(hot_cold_resume
+    SOURCES hot_cold_resume.cpp
+    LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+)
+
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp

@@ -1,0 +1,1036 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+// Unit tests for the hot/cold RESUME engine (DbmsHandler::Resume_).
+//
+// The NODE-LOCAL synchronous resume engine provides single-flight semantics via the gatekeeper,
+// off-lock recovery, a pre-publish (on_resume_) arm, and the COLD-access query seam (Get() on a
+// suspended tenant errors with an actionable message). Resume is exercised directly here; the
+// interpreter query-seam caller is wired in the same commit but verified via the e2e suite later.
+//
+// Coverage:
+//   ResumeNonExistentRejected             — resuming an absent tenant returns NON_EXISTENT
+//   ResumeAlreadyHotReturnsAccessor       — resuming a HOT tenant is a no-op that shares its accessor
+//   SuspendResumeRoundTripRecoversData    — data survives a HOT -> COLD -> HOT cycle (WAL replay)
+//   SuspendWritesNoSnapshotButResumeStillWorksViaWal — suspend takes no proactive snapshot (default
+//                                            snapshot_on_exit=false leaves the snapshot dir untouched);
+//                                            resume still recovers all data via WAL replay alone
+//   ColdAccessThrowsSuspendedError        — Get() on a COLD tenant throws the suspended-seam message
+//   OnResumePrePublishArmRuns             — the pre-publish arm fires exactly once on a real resume
+//   OnResumeFailureStaysColdRetriable     — a throwing pre-publish arm rolls back to COLD; retriable
+//   ConcurrentResumeSingleFlight          — concurrent resumers rebuild once; all observe HOT
+//   ConcurrentResumeSlowWinnerDoesNotSpuriouslyFail — winner slower than the OLD fixed poll deadline
+//                                            still succeeds for every loser (deadline re-arm)
+//   LoserNeverReturnsRecoveryFailedForLiveWinner — HC-1, mutation-adequate: with the retry policy
+//                                            shrunk via SetResumeRetryPolicy, a loser races a
+//                                            winner held RESUMING across enough liveness-window
+//                                            expirations to trip the OLD (pre-fix) abort bound, then
+//                                            the winner publishes HOT. Post-fix the loser waits and
+//                                            succeeds; pre-fix it would return RECOVERY_FAILED while
+//                                            the winner was still alive. Sub-second wall-clock.
+//   LoserReturnsRecoveryFailedAfterPersistentAborts — counterpart to the above: cold_fallback_restarts
+//                                            (the bound HC-1 left untouched) IS reachable and DOES fire
+//                                            when the winner keeps actually aborting (COLD, not
+//                                            RESUMING) every round. A DEAD/aborting winner is bounded
+//                                            (RECOVERY_FAILED); a LIVE one is not.
+//   WrongTypedColdMetadataBootsDegraded   — valid JSON but wrong-typed metadata field boots degraded, not abort
+
+#ifdef MG_ENTERPRISE
+
+#include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <filesystem>
+#include <fstream>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
+#include "dbms/constants.hpp"
+#include "dbms/dbms_handler.hpp"
+#include "kvstore/kvstore.hpp"
+#include "storage/v2/config.hpp"
+#include "storage/v2/storage.hpp"
+#include "storage/v2/view.hpp"
+#include "system/system.hpp"
+#include "tests/test_commit_args_helper.hpp"
+
+namespace fs = std::filesystem;
+using memgraph::dbms::DbmsHandler;
+
+// Per-test-binary storage root.
+static fs::path g_storage_root{fs::temp_directory_path() / "MG_test_unit_hot_cold_resume"};
+
+class HotColdResume : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    test_dir_ = g_storage_root / ::testing::UnitTest::GetInstance()->current_test_info()->name();
+    fs::remove_all(test_dir_);
+    fs::create_directories(test_dir_);
+
+    memgraph::storage::UpdatePaths(conf_, test_dir_);
+    conf_.durability.snapshot_wal_mode =
+        memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    conf_.durability.recover_on_startup = true;
+    handler_ = std::make_unique<DbmsHandler>(conf_);
+  }
+
+  void TearDown() override {
+    handler_.reset();
+    fs::remove_all(test_dir_);
+  }
+
+  // Simulate a process restart: tear down the handler (closes durability + storage) and reconstruct
+  // it over the SAME data directory, so the new handler runs its restore loop against what the old
+  // one persisted. Used by the cross-restart tests.
+  void Restart() {
+    handler_.reset();
+    handler_ = std::make_unique<DbmsHandler>(conf_);
+  }
+
+  std::string CreateTenant(std::string name) {
+    auto result = handler_->New(name);
+    EXPECT_TRUE(result.has_value()) << "Failed to create tenant: " << name;
+    return name;
+  }
+
+  // Create a tenant and write `n` vertices through a real storage accessor, so the suspend teardown
+  // persists content the resume must replay.
+  std::string CreateAndPopulate(std::string name, int n) {
+    CreateTenant(name);
+    auto db_acc = handler_->Get(name);
+    auto storage_acc = db_acc->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < n; ++i) storage_acc->CreateVertex();
+    EXPECT_TRUE(storage_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    return name;
+  }
+
+  static int64_t CountNodes(memgraph::dbms::DatabaseAccess &db_acc) {
+    auto storage_acc = db_acc->Access(memgraph::storage::READ);
+    int64_t count = 0;
+    for ([[maybe_unused]] auto _ : storage_acc->Vertices(memgraph::storage::View::OLD)) ++count;
+    return count;
+  }
+
+  bool InAll(std::string_view name) {
+    auto all = handler_->All();
+    return std::find(all.begin(), all.end(), name) != all.end();
+  }
+
+  // Clobber every durability file under a tenant's data dir with garbage, so the next boot's
+  // recovery trips a RecoveryFailure (bad magic) instead of recovering — exercising the leave-cold
+  // path deterministically. Call between handler_.reset() and reconstruction (NOT via Restart()): a
+  // live storage holds the WAL open and its dtor would rewrite it.
+  void CorruptTenantDurability(const std::string &uuid_str) {
+    auto dir = test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / uuid_str;
+    ASSERT_TRUE(fs::exists(dir)) << "expected a data dir for the tenant at " << dir;
+    size_t clobbered = 0;
+    for (const auto &f : fs::recursive_directory_iterator(dir)) {
+      if (f.is_regular_file()) {
+        std::ofstream out(f.path(), std::ios::binary | std::ios::trunc);
+        out << "CORRUPTED-BY-TEST-NOT-A-VALID-DURABILITY-MAGIC";
+        ++clobbered;
+      }
+    }
+    ASSERT_GT(clobbered, 0U) << "no durability files to corrupt under " << dir;
+  }
+
+  fs::path test_dir_;
+  memgraph::storage::Config conf_;
+  std::unique_ptr<DbmsHandler> handler_;
+};
+
+// Resuming a tenant that was never created (nor suspended) returns NON_EXISTENT.
+TEST_F(HotColdResume, ResumeNonExistentRejected) {
+  auto result = handler_->Resume("never_existed");
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(), DbmsHandler::ResumeError::NON_EXISTENT);
+}
+
+// Resuming an already-HOT tenant is a no-op: Resume_ races to Get() and returns its live accessor.
+TEST_F(HotColdResume, ResumeAlreadyHotReturnsAccessor) {
+  auto name = CreateTenant("already_hot");
+  auto result = handler_->Resume(name);
+  ASSERT_TRUE(result.has_value()) << "Resuming a HOT tenant must return its accessor, not error";
+  EXPECT_EQ(result.value().db->name(), name);
+  EXPECT_TRUE(InAll(name));
+}
+
+// The already_hot outcome flag (#18): resuming a genuinely-COLD tenant reports already_hot == false;
+// resuming a tenant that is already HOT reports already_hot == true. Distinguishes the two success
+// shapes the query-facing RESUME DATABASE surfaces (plain success vs. an "already resumed" notice).
+TEST_F(HotColdResume, ResumeReportsAlreadyHotOutcome) {
+  constexpr int kNodes = 3;
+  auto name = CreateAndPopulate("outcome_flag", kNodes);
+
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+  EXPECT_FALSE(InAll(name)) << "tenant must be COLD before the genuine resume";
+
+  auto genuine = handler_->Resume(name);
+  ASSERT_TRUE(genuine.has_value()) << "resume of a genuinely-COLD tenant must succeed";
+  EXPECT_FALSE(genuine.value().already_hot) << "a real COLD -> HOT rebuild must report already_hot == false";
+  EXPECT_EQ(CountNodes(genuine.value().db), kNodes);
+
+  auto already_hot = handler_->Resume(name);
+  ASSERT_TRUE(already_hot.has_value()) << "resuming an already-HOT tenant must still succeed (idempotent)";
+  EXPECT_TRUE(already_hot.value().already_hot) << "resuming an already-HOT tenant must report already_hot == true";
+  EXPECT_EQ(already_hot.value().db->name(), name);
+}
+
+// The core round-trip: data written before a suspend must be present after the resume (WAL replay).
+TEST_F(HotColdResume, SuspendResumeRoundTripRecoversData) {
+  constexpr int kNodes = 7;
+  auto name = CreateAndPopulate("round_trip", kNodes);
+
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+  EXPECT_FALSE(InAll(name)) << "Tenant must be COLD after suspend";
+
+  auto result = handler_->Resume(name);
+  ASSERT_TRUE(result.has_value()) << "Resume of a populated COLD tenant must succeed";
+  EXPECT_TRUE(InAll(name)) << "Tenant must be HOT again after resume";
+  EXPECT_FALSE(result.value().already_hot) << "a real COLD -> HOT resume must report already_hot == false";
+
+  auto acc = result.value().db;
+  EXPECT_EQ(CountNodes(acc), kNodes) << "All vertices must survive the HOT -> COLD -> HOT cycle";
+
+  // The fresh accessor is independently usable via Get().
+  auto via_get = handler_->Get(name);
+  EXPECT_EQ(CountNodes(via_get), kNodes);
+}
+
+// Suspend takes NO proactive snapshot (see Suspend_ in dbms_handler.cpp): with the default
+// snapshot_on_exit == false (set by SetUp's conf_), a suspend must leave the tenant's snapshot
+// directory exactly as it was before — no new snapshot appears — yet the tenant still resumes
+// correctly via WAL replay alone. This pins the new contract explicitly; SuspendResumeRoundTripRecoversData
+// above already exercises the data-survives-the-cycle behavior but does not assert on-disk snapshot
+// absence.
+TEST_F(HotColdResume, SuspendWritesNoSnapshotButResumeStillWorksViaWal) {
+  ASSERT_FALSE(conf_.durability.snapshot_on_exit) << "this test assumes the SetUp default (snapshot_on_exit=false)";
+
+  constexpr int kNodes = 5;
+  auto name = CreateAndPopulate("no_snapshot_on_suspend", kNodes);
+  const auto uuid_str = static_cast<std::string>(handler_->Get(name)->storage()->uuid());
+  const auto snap_dir = test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / uuid_str / "snapshots";
+
+  // Baseline: no periodic snapshot has fired yet (CreateAndPopulate's single small commit runs well
+  // under the scheduler's first interval), so the directory is absent or empty before suspend.
+  const bool had_snapshot_before = fs::exists(snap_dir) && !fs::is_empty(snap_dir);
+  ASSERT_FALSE(had_snapshot_before) << "test setup invariant: no snapshot should exist before suspend yet";
+
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+  EXPECT_FALSE(fs::exists(snap_dir) && !fs::is_empty(snap_dir))
+      << "suspend must NOT write a proactive/consolidating snapshot when snapshot_on_exit is false";
+
+  // Resume still works: durability came entirely from the WAL, not a suspend-time snapshot.
+  auto result = handler_->Resume(name);
+  ASSERT_TRUE(result.has_value()) << "resume must succeed via WAL replay alone, with no snapshot to load";
+  EXPECT_EQ(CountNodes(result.value().db), kNodes) << "WAL replay alone must recover all committed data";
+}
+
+// Cold-access query seam: once suspended, Get() throws (it is no longer HOT). The message must point
+// the user at RESUME rather than claim the database is unknown.
+TEST_F(HotColdResume, ColdAccessThrowsSuspendedError) {
+  auto name = CreateTenant("cold_access");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  EXPECT_THROW(
+      {
+        try {
+          handler_->Get(name);
+        } catch (const std::exception &e) {
+          EXPECT_THAT(e.what(), ::testing::HasSubstr("suspended"));
+          throw;
+        }
+      },
+      std::exception);
+}
+
+// The pre-publish arm (on_resume_) runs exactly once on a real COLD -> HOT resume.
+TEST_F(HotColdResume, OnResumePrePublishArmRuns) {
+  auto name = CreateTenant("pre_publish");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  std::atomic<int> arm_calls{0};
+  handler_->SetOnResume([&arm_calls](memgraph::dbms::DatabaseAccess) { ++arm_calls; });
+
+  auto result = handler_->Resume(name);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(arm_calls.load(), 1) << "The pre-publish arm must fire exactly once on a real resume";
+
+  handler_->SetOnResume({});
+}
+
+// A throwing pre-publish arm aborts the resume (RESUMING -> COLD); the tenant stays COLD and a later
+// (non-throwing) resume succeeds.
+TEST_F(HotColdResume, OnResumeFailureStaysColdRetriable) {
+  auto name = CreateTenant("retriable");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  std::atomic<bool> should_throw{true};
+  handler_->SetOnResume([&should_throw](memgraph::dbms::DatabaseAccess) {
+    if (should_throw.load()) throw std::runtime_error("injected pre-publish failure");
+  });
+
+  auto failed = handler_->Resume(name);
+  ASSERT_FALSE(failed.has_value());
+  EXPECT_EQ(failed.error(), DbmsHandler::ResumeError::RECOVERY_FAILED);
+  EXPECT_FALSE(InAll(name)) << "A failed resume must leave the tenant COLD";
+
+  // Retry without the injected failure: the tenant must recover.
+  should_throw.store(false);
+  auto ok = handler_->Resume(name);
+  ASSERT_TRUE(ok.has_value()) << "A COLD tenant must be resumable after a transient pre-publish failure";
+  EXPECT_TRUE(InAll(name));
+
+  handler_->SetOnResume({});
+}
+
+// Concurrent resumers single-flight through the gatekeeper: exactly one thread rebuilds (the
+// on_resume_ arm fires once), and every caller observes the published HOT tenant.
+TEST_F(HotColdResume, ConcurrentResumeSingleFlight) {
+  auto name = CreateTenant("single_flight");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  std::atomic<int> rebuilds{0};
+  handler_->SetOnResume([&rebuilds](memgraph::dbms::DatabaseAccess) {
+    // Hold briefly so the losers are guaranteed to enter the poll path while the winner builds.
+    ++rebuilds;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  });
+
+  constexpr int kThreads = 8;
+  std::atomic<int> successes{0};
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads);
+  for (int i = 0; i < kThreads; ++i) {
+    threads.emplace_back([&] {
+      auto res = handler_->Resume(name);
+      if (res.has_value()) ++successes;
+    });
+  }
+  for (auto &t : threads) t.join();
+
+  EXPECT_EQ(rebuilds.load(), 1) << "Exactly one thread must rebuild the storage (single-flight)";
+  EXPECT_EQ(successes.load(), kThreads) << "Every concurrent resumer must observe the published HOT tenant";
+  EXPECT_TRUE(InAll(name));
+
+  // Post-join deterministic confirmation: the tenant is usable (HOT) for every subsequent caller —
+  // not just the racing threads. Get() would throw if the tenant were COLD; a successful accessor
+  // proves the published state is durable and not a transient winner artifact.
+  // Resume() is also called one more time to confirm the idempotent HOT fast-path works post-flight.
+  EXPECT_NO_THROW({
+    auto post_join_acc = handler_->Get(name);
+    EXPECT_TRUE(post_join_acc) << "Get() after all resumers joined must return a valid accessor";
+  }) << "tenant must be usable (HOT) for all callers after the concurrent single-flight completes";
+
+  auto post_resume = handler_->Resume(name);
+  ASSERT_TRUE(post_resume.has_value())
+      << "Resume() on an already-HOT tenant must return the live accessor (idempotent HOT fast-path)";
+  EXPECT_EQ(post_resume.value().db->name(), name);
+  EXPECT_TRUE(post_resume.value().already_hot) << "the post-flight idempotent resume must report already_hot";
+
+  handler_->SetOnResume({});
+}
+
+// Regression: a loser in the single-flight poll must NOT return RECOVERY_FAILED when the winner is
+// running a slow-but-healthy rebuild that exceeds the OLD fixed kPollTimeout (10 s). The fix re-arms
+// the liveness deadline on each poll iteration where the winner is observably still RESUMING, so a
+// build that takes longer than 10 s but shorter than kWinnerLivenessWindow (30 s) succeeds for all
+// concurrent callers.
+//
+// NOTE: this test intentionally takes ~12 seconds — it must exceed the old 10 s deadline to confirm
+// the regression is closed. The on_resume_ arm sleeps 12 s on the first call only, so only one
+// rebuild stalls; subsequent calls return immediately (idempotent HOT fast-path).
+TEST_F(HotColdResume, ConcurrentResumeSlowWinnerDoesNotSpuriouslyFail) {
+  auto name = CreateTenant("slow_winner");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  std::atomic<int> rebuilds{0};
+  // The arm sleeps 12 s on the first call (winner's on_resume_) to simulate a large-tenant rebuild
+  // that would have tripped the OLD fixed 10 s kPollTimeout. Subsequent calls (there should be none
+  // — single-flight guarantees exactly one rebuild) return immediately.
+  handler_->SetOnResume([&rebuilds](memgraph::dbms::DatabaseAccess) {
+    if (rebuilds.fetch_add(1) == 0) {
+      std::this_thread::sleep_for(std::chrono::seconds(12));
+    }
+  });
+
+  constexpr int kThreads = 4;
+  std::atomic<int> successes{0};
+  std::atomic<int> recovery_failed{0};
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads);
+  for (int i = 0; i < kThreads; ++i) {
+    threads.emplace_back([&] {
+      auto res = handler_->Resume(name);
+      if (res.has_value()) {
+        ++successes;
+      } else if (res.error() == DbmsHandler::ResumeError::RECOVERY_FAILED) {
+        ++recovery_failed;
+      }
+    });
+  }
+  for (auto &t : threads) t.join();
+
+  EXPECT_EQ(rebuilds.load(), 1) << "Exactly one thread must rebuild the storage (single-flight)";
+  EXPECT_EQ(recovery_failed.load(), 0)
+      << "No loser must spuriously return RECOVERY_FAILED when the winner is still alive and building";
+  EXPECT_EQ(successes.load(), kThreads) << "Every concurrent resumer must observe the published HOT tenant";
+  EXPECT_TRUE(InAll(name));
+
+  handler_->SetOnResume({});
+}
+
+// HC-1 regression, MUTATION-ADEQUATE: a loser polling a winner that stays RESUMING must not treat
+// that observation as a COLD-fallback. Pre-fix, the loser's poll loop fell through to the
+// cold_fallback_restarts increment/bound-check on EVERY exit from the inner wait loop, including exits
+// caused by the liveness `deadline`/`absolute_ceiling` timing out while the winner was still alive —
+// so a sufficiently slow (but healthy) winner could, after kMaxColdFallbackRestarts such expirations,
+// make the loser return RECOVERY_FAILED for a tenant that was never COLD. The fix adds an explicit
+// `winner_still_resuming` check that `continue`s (restarts Phase A) WITHOUT incrementing the bound
+// whenever the winner is observed RESUMING, so only an actual COLD (aborted-winner) observation ever
+// counts against the bound.
+//
+// WHY THIS IS MUTATION-ADEQUATE (unlike an earlier version of this test): Resume_'s three retry knobs
+// (kMaxColdFallbackRestarts / kWinnerLivenessWindow / kMaxWait) used to be `constexpr` locals inside
+// Resume_ (src/dbms/dbms_handler.cpp), not test-injectable, and reaching the divergent path required
+// ~8.5 REAL minutes (30s window x 17 expirations) — sleeping that long was ruled out, so the old test
+// could only assert the necessary-but-not-sufficient "loser eventually succeeds" invariant, which also
+// passes against the pre-fix counter-mistracking bug.
+//
+// This test closes that gap via `SetResumeRetryPolicy`: shrinking winner_liveness_window to 20ms
+// and max_cold_fallback_restarts to 2 means the PRE-FIX code exhausts its bound in roughly
+// (max_restarts + 1) * winner_liveness_window ~= 60ms of the winner being observed RESUMING, and would
+// return RECOVERY_FAILED at that point even though the winner is still alive. The POST-FIX code, by
+// contrast, never advances cold_fallback_restarts while winner_still_resuming is true, so it keeps
+// waiting indefinitely (bounded only by max_wait, itself widened to 5s here so the test's own 300ms
+// hold window fits comfortably inside it without racing max_wait). By holding the winner RESUMING for
+// 300ms (comfortably longer than the ~60ms pre-fix exhaustion window, comfortably shorter than the 5s
+// max_wait) before releasing it, this test observably diverges pre-fix (RECOVERY_FAILED) vs. post-fix
+// (success) — the FIX must be present for every loser to succeed here.
+TEST_F(HotColdResume, LoserNeverReturnsRecoveryFailedForLiveWinner) {
+  auto name = CreateTenant("hc1_resuming_winner");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  // Shrink the retry knobs so the pre-fix abort bound is reachable in tens of milliseconds instead of
+  // ~8.5 minutes. NOTE the control flow: winner_liveness_window (the `deadline`) is RE-ARMED on every
+  // poll that observes the winner RESUMING, so while the winner is alive it never fires — the ONLY
+  // thing that ends the inner poll loop with a live winner is the fixed absolute_ceiling (max_wait).
+  // So max_wait must be SMALL here: each ~40ms ceiling expiry drops the loser into the post-loop
+  // winner_still_resuming branch that HC-1 changed. Pre-fix that branch advances cold_fallback_restarts
+  // every ceiling expiry, so after (max_cold_fallback_restarts + 1) ~= 3 cycles (~120ms, << the 300ms
+  // winner-hold below) a loser returns RECOVERY_FAILED for a still-live winner. Post-fix it never does.
+  handler_->SetResumeRetryPolicy({.max_cold_fallback_restarts = 2,
+                                  .winner_liveness_window = std::chrono::milliseconds(20),
+                                  .max_wait = std::chrono::milliseconds(40)});
+
+  std::mutex m;
+  std::condition_variable cv;
+  bool release_winner = false;
+  bool winner_entered = false;
+
+  // The winner's on_resume_ blocks until the test explicitly releases it. This holds the gatekeeper
+  // in RESUMING for as long as the test needs, deterministically (no sleep-guessing a duration).
+  handler_->SetOnResume([&](memgraph::dbms::DatabaseAccess) {
+    std::unique_lock lk(m);
+    winner_entered = true;
+    cv.notify_all();
+    cv.wait(lk, [&] { return release_winner; });
+  });
+
+  std::atomic<bool> winner_thread_done{false};
+  std::thread winner([&] {
+    auto res = handler_->Resume(name);
+    EXPECT_TRUE(res.has_value()) << "the winner's own Resume() call must itself succeed once released";
+    winner_thread_done = true;
+  });
+
+  // Wait for the winner to actually be inside on_resume_ (i.e. gatekeeper is RESUMING) before the
+  // losers start polling, so every loser is guaranteed to race against a live RESUMING winner.
+  {
+    std::unique_lock lk(m);
+    cv.wait(lk, [&] { return winner_entered; });
+  }
+
+  // Race real loser Resume() calls against the still-RESUMING winner.
+  constexpr int kLosers = 6;
+  std::atomic<int> recovery_failed{0};
+  std::atomic<int> successes{0};
+  std::vector<std::thread> losers;
+  losers.reserve(kLosers);
+  for (int i = 0; i < kLosers; ++i) {
+    losers.emplace_back([&] {
+      auto res = handler_->Resume(name);
+      if (res.has_value()) {
+        ++successes;
+      } else if (res.error() == DbmsHandler::ResumeError::RECOVERY_FAILED) {
+        ++recovery_failed;
+      }
+    });
+  }
+
+  // Hold the winner RESUMING long enough that the PRE-FIX code would have exhausted its abort bound —
+  // (max_cold_fallback_restarts + 1) ceiling expirations ~= 3 * max_wait(40ms) ~= 120ms — while the
+  // winner is still alive. 300ms gives ample margin above that pre-fix exhaustion point.
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  EXPECT_FALSE(winner_thread_done.load()) << "winner must still be RESUMING when it is released below";
+
+  {
+    std::unique_lock lk(m);
+    release_winner = true;
+    cv.notify_all();
+  }
+
+  winner.join();
+  for (auto &t : losers) t.join();
+
+  // The crux of HC-1: no loser may have observed RECOVERY_FAILED while the winner was continuously
+  // RESUMING (never COLD). Pre-fix, this fires because cold_fallback_restarts was wrongly advanced on
+  // every liveness-window expiration even though the winner never aborted.
+  EXPECT_EQ(recovery_failed.load(), 0)
+      << "no loser must return RECOVERY_FAILED while the winner was continuously RESUMING (never COLD)";
+  EXPECT_EQ(successes.load(), kLosers) << "every loser must eventually observe the winner's published HOT tenant";
+  EXPECT_TRUE(InAll(name));
+
+  handler_->SetOnResume({});
+  handler_->SetResumeRetryPolicy({});  // restore production defaults for any subsequent test
+}
+
+// Counterpart to LoserNeverReturnsRecoveryFailedForLiveWinner (HC-1): that test proves a LIVE
+// (RESUMING) winner never advances cold_fallback_restarts, so a slow-but-healthy rebuild is never
+// bounded. This test proves the bound at dbms_handler.cpp's `if (++cold_fallback_restarts >
+// resume_retry_policy_.max_cold_fallback_restarts) return RECOVERY_FAILED` IS still reachable and
+// DOES fire when the winner keeps genuinely ABORTING (RESUMING -> COLD via abort_resume(), a real
+// COLD observation) instead of staying alive. Without this test, HC-1's `continue` on
+// winner_still_resuming could regress to "never count anything" (e.g. by mis-classifying COLD as
+// RESUMING, or by dropping the increment) and no test would notice, because the only other test that
+// exercises this arithmetic (LoserNeverReturnsRecoveryFailedForLiveWinner) asserts the bound is NEVER
+// hit.
+//
+// WHY A SINGLE ON_RESUME_ THROW IS NOT ENOUGH: on_resume_ is one process-wide callback (SetOnResume),
+// so making it always throw does not, by itself, isolate a "winner" role from a "loser" role — every
+// Resume() call that happens to win the single-flight token (begin_resume() succeeding on a COLD
+// gatekeeper) will itself run on_resume_, throw, call abort_resume() (RESUMING -> COLD), and `return`
+// RECOVERY_FAILED directly from ITS OWN stack frame (dbms_handler.cpp ~1459-1460) -- that direct
+// return path does NOT touch cold_fallback_restarts at all (see OnResumeFailureStaysColdRetriable,
+// which is exactly this single-threaded case). The counted bound at line ~1409 is reachable ONLY by a
+// thread that took the `!won_resume` (loser) branch of a *given* Resume() call, whose inner poll loop
+// then observed the winner-of-that-round land on COLD (not RESUMING) when its absolute_ceiling fired,
+// and looped back to Phase A -- repeatedly, within that SAME Resume() call -- enough times to exceed
+// max_cold_fallback_restarts.
+//
+// DETERMINISTIC REALIZATION: rather than trying to pin exact winner/loser thread identity (which
+// Resume_'s single-flight token assignment does not expose to a caller), this races several threads
+// that all repeatedly call Resume() against an always-throwing on_resume_ and a policy shrunk so the
+// bound is a handful of iterations, not minutes:
+//   - max_cold_fallback_restarts = 2   (only 3 COLD-fallback observations are tolerated)
+//   - winner_liveness_window     = 5ms  (irrelevant here: on_resume_ throws near-instantly, so no
+//                                        thread is ever observed genuinely RESUMING for long)
+//   - max_wait                   = 10ms (the loser's inner-poll absolute_ceiling; small so each
+//                                        Phase-A restart cycle is cheap and the whole test is fast)
+// Every racer's on_resume_ throw is synchronous and near-instant, so by the time any OTHER thread's
+// inner poll loop samples the gatekeeper state, the erstwhile winner has almost always already
+// abort_resume()'d back to COLD -- winner_still_resuming (RESUMING or SUSPENDING) is essentially never
+// observed true, so essentially every restart of a racer's poll loop counts. With max_wait this small
+// relative to how fast on_resume_ throws, a handful of racers each looping Resume() calls reliably
+// drives SOME call's cold_fallback_restarts past the bound within a couple of Resume() calls per
+// thread. We do not (and per the harness cannot) assert WHICH thread trips it -- only that the bound
+// fires deterministically and quickly, and that the tenant is left COLD/retriable, not stuck RESUMING.
+TEST_F(HotColdResume, LoserReturnsRecoveryFailedAfterPersistentAborts) {
+  auto name = CreateTenant("persistent_abort");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  handler_->SetResumeRetryPolicy({.max_cold_fallback_restarts = 2,
+                                  .winner_liveness_window = std::chrono::milliseconds(5),
+                                  .max_wait = std::chrono::milliseconds(10)});
+
+  // Every winner's pre-publish arm throws, unconditionally and immediately: the tenant never
+  // publishes HOT, and every round ends in a real RESUMING -> COLD abort_resume() -- never a live
+  // RESUMING/SUSPENDING observation.
+  std::atomic<int> abort_count{0};
+  handler_->SetOnResume([&abort_count](memgraph::dbms::DatabaseAccess) {
+    ++abort_count;
+    throw std::runtime_error("injected persistent pre-publish failure");
+  });
+
+  constexpr int kRacers = 6;
+  std::atomic<int> recovery_failed{0};
+  std::atomic<bool> stop{false};
+  std::vector<std::thread> racers;
+  racers.reserve(kRacers);
+  for (int i = 0; i < kRacers; ++i) {
+    racers.emplace_back([&] {
+      // Each racer keeps calling Resume() until it sees the bound fire (RECOVERY_FAILED) or the test's
+      // hard stop flag trips (safety net only -- see the wall-clock guard below). A racer whose own
+      // call happens to win the token and throw returns RECOVERY_FAILED immediately too (the
+      // uncounted, single-abort path); that is a benign, expected outcome and still satisfies the
+      // assertion that Resume() ultimately reports RECOVERY_FAILED for this persistently-aborting
+      // tenant, so no thread loops forever nor needs disambiguating from the counted path.
+      while (!stop.load(std::memory_order_relaxed)) {
+        auto res = handler_->Resume(name);
+        if (!res.has_value()) {
+          ASSERT_EQ(res.error(), DbmsHandler::ResumeError::RECOVERY_FAILED)
+              << "the only failure mode for a persistently-aborting tenant is RECOVERY_FAILED";
+          ++recovery_failed;
+          return;
+        }
+        // on_resume_ always throws before publish, so no call may ever observe success.
+        ADD_FAILURE() << "Resume() must not succeed while on_resume_ unconditionally throws";
+        return;
+      }
+    });
+  }
+
+  // Wall-clock safety net: with the shrunk policy above, the bound must fire within a handful of
+  // Resume() calls (milliseconds), so a few seconds is ample margin without risking a hang on a
+  // genuine regression -- if the bound stops firing, `stop` trips and every racer's ASSERT_EQ above
+  // is never reached, but the join below still completes and the final EXPECT_GT catches the
+  // regression instead of the test hanging.
+  const auto guard_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (recovery_failed.load(std::memory_order_relaxed) == 0 && std::chrono::steady_clock::now() < guard_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  stop.store(true, std::memory_order_relaxed);
+  for (auto &t : racers) t.join();
+
+  EXPECT_GT(recovery_failed.load(), 0)
+      << "the persistent-abort bound (cold_fallback_restarts > max_cold_fallback_restarts) must "
+         "eventually return RECOVERY_FAILED -- unlike a live winner, a genuinely-aborting one is bounded";
+  EXPECT_GT(abort_count.load(), 0) << "on_resume_ must have actually run (and aborted) at least once";
+
+  // The tenant must be left COLD/retriable -- never stuck RESUMING -- regardless of which racer
+  // thread(s) tripped the bound: abort_resume() always rolls RESUMING back to COLD before returning,
+  // so IsSuspended() must hold and a normal (non-throwing) resume must still be able to recover it.
+  EXPECT_TRUE(handler_->IsSuspended(name)) << "a persistently-aborting resume must leave the tenant COLD, not stuck";
+  EXPECT_FALSE(InAll(name)) << "the tenant must not be HOT after every winner's pre-publish arm aborted";
+
+  handler_->SetOnResume({});
+  handler_->SetResumeRetryPolicy({});  // restore production defaults for any subsequent test
+
+  // The tenant remains genuinely retriable: a resume without the injected failure now succeeds.
+  auto ok = handler_->Resume(name);
+  ASSERT_TRUE(ok.has_value()) << "a COLD tenant must still be resumable after the persistent-abort bound fired";
+  EXPECT_TRUE(InAll(name));
+}
+
+// Suspend/resume driven through a real system::Transaction must record their actions and complete
+// the HOT -> COLD -> HOT round-trip. Committing the transaction (DoNothing on a node with no
+// replicas) drives the action's DoDurability + the system-ts finalize without dropping data.
+TEST_F(HotColdResume, SuspendResumeThroughSystemTransaction) {
+  constexpr int kNodes = 5;
+  auto name = CreateAndPopulate("sys_tx_route", kNodes);
+
+  memgraph::system::System sys;
+  {
+    auto txn = sys.TryCreateTransaction();
+    ASSERT_TRUE(txn.has_value());
+    ASSERT_TRUE(handler_->Suspend(name, &*txn).has_value()) << "Suspend via a system transaction must succeed";
+    txn->Commit(memgraph::system::DoNothing{});
+  }
+  EXPECT_FALSE(InAll(name)) << "Tenant must be COLD after a system-transaction suspend";
+
+  {
+    auto txn = sys.TryCreateTransaction();
+    ASSERT_TRUE(txn.has_value());
+    auto result = handler_->Resume(name, &*txn);
+    ASSERT_TRUE(result.has_value()) << "Resume via a system transaction must succeed";
+    txn->Commit(memgraph::system::DoNothing{});
+    EXPECT_EQ(CountNodes(result.value().db), kNodes) << "Data must survive the system-transaction round-trip";
+  }
+  EXPECT_TRUE(InAll(name)) << "Tenant must be HOT after a system-transaction resume";
+}
+
+// The by-UUID entrypoints (used by the replica Suspend/ResumeDatabaseRpc apply handlers, which only
+// carry the tenant UUID on the wire) complete the HOT -> COLD -> HOT round-trip and recover data,
+// identically to the by-name path. Resolved UUID -> name internally.
+TEST_F(HotColdResume, SuspendResumeByUUIDRoundTrip) {
+  constexpr int kNodes = 4;
+  auto name = CreateAndPopulate("by_uuid", kNodes);
+  memgraph::utils::UUID uuid;
+  {
+    auto acc = handler_->Get(name);
+    uuid = acc->config().salient.uuid;
+  }
+
+  ASSERT_TRUE(handler_->SuspendByUUID(uuid).has_value()) << "SuspendByUUID must succeed for a HOT tenant";
+  EXPECT_FALSE(InAll(name)) << "Tenant must be COLD after SuspendByUUID";
+
+  auto result = handler_->ResumeByUUID(uuid);
+  ASSERT_TRUE(result.has_value()) << "ResumeByUUID must succeed for a COLD tenant";
+  EXPECT_EQ(CountNodes(result.value()), kNodes) << "Data must survive the by-UUID round-trip";
+  EXPECT_TRUE(InAll(name)) << "Tenant must be HOT after ResumeByUUID";
+}
+
+// An unknown UUID is rejected cleanly (NON_EXISTENT, not a crash) by both by-UUID entrypoints — this
+// is the idempotent re-apply path the replica handlers map to NO_NEED.
+TEST_F(HotColdResume, SuspendResumeByUnknownUUIDRejected) {
+  const memgraph::utils::UUID unknown{};
+  auto s = handler_->SuspendByUUID(unknown);
+  ASSERT_FALSE(s.has_value());
+  EXPECT_EQ(s.error(), DbmsHandler::SuspendError::NON_EXISTENT);
+
+  auto r = handler_->ResumeByUUID(unknown);
+  ASSERT_FALSE(r.has_value());
+  EXPECT_EQ(r.error(), DbmsHandler::ResumeError::NON_EXISTENT);
+}
+
+// Regression: creating a NEW tenant while another is COLD must not abort. New()'s data-directory
+// collision scan iterates every gatekeeper; a COLD shell yields no accessor, and the old MG_ASSERT
+// there aborted the process. This covers the replica-recovery steady state (materialize an absent
+// tenant while a COLD shell exists), and also a plain CREATE-while-suspended.
+TEST_F(HotColdResume, CreateTenantWhileAnotherSuspended) {
+  auto cold = CreateAndPopulate("cold_one", 3);
+  ASSERT_TRUE(handler_->Suspend(cold).has_value());
+  EXPECT_FALSE(InAll(cold)) << "first tenant must be COLD";
+
+  // New() runs the collision scan across all gatekeepers, including the COLD shell.
+  auto fresh = handler_->New("fresh_one");
+  ASSERT_TRUE(fresh.has_value()) << "creating a tenant while another is COLD must succeed (no abort)";
+  EXPECT_TRUE(InAll("fresh_one"));
+  EXPECT_FALSE(InAll(cold)) << "the COLD tenant stays COLD";
+
+  // And the COLD tenant still resumes cleanly afterward.
+  auto resumed = handler_->Resume(cold);
+  ASSERT_TRUE(resumed.has_value());
+  EXPECT_EQ(CountNodes(resumed.value().db), 3);
+}
+
+// Cross-restart: a tenant suspended before a restart must come back COLD (durable cold marker),
+// not HOT, and must still resume with all its data. A HOT tenant present across the same restart must
+// recover HOT and unchanged — proving the restore loop branches on the marker and the cleanup pass
+// preserves both tenants' data directories.
+TEST_F(HotColdResume, CrossRestartColdTenantStaysColdHotTenantRecovers) {
+  constexpr int kColdNodes = 7;
+  constexpr int kHotNodes = 4;
+  auto cold = CreateAndPopulate("cold_persist", kColdNodes);
+  auto hot = CreateAndPopulate("hot_persist", kHotNodes);
+
+  // Capture the gauge BEFORE the suspend. DbmsHandler's constructor calls Set(suspended_.size()),
+  // so Restart() resets the gauge to the new handler's cold count (1 here). Capturing before
+  // Suspend() means: baseline=N, after_restart=N+1 → delta=1. Capturing after Suspend() would
+  // give baseline=N+1, after_restart=N+1 → delta=0 (wrong). The SetUp() ctor already sets gauge=0
+  // for a fresh test directory, so N=0 in isolation; the delta form is safe even if other tests
+  // in this binary leave residue (each test's SetUp constructs a fresh handler that calls Set(0)).
+  const double cold_gauge_before_suspend = memgraph::metrics::Metrics().global.cold_databases->Value();
+
+  ASSERT_TRUE(handler_->Suspend(cold).has_value());
+  EXPECT_FALSE(InAll(cold)) << "tenant must be COLD before the restart";
+
+  Restart();
+
+  // After restart the new handler sets the gauge to its own cold-tenant count (1).
+  // The delta vs. the pre-suspend baseline is exactly 1 (one tenant restored COLD on boot).
+  EXPECT_DOUBLE_EQ(memgraph::metrics::Metrics().global.cold_databases->Value() - cold_gauge_before_suspend, 1.0)
+      << "the cold-tenant gauge must increase by 1 (net vs. pre-suspend baseline) after restart with one COLD tenant";
+
+  // The cold tenant is restored as a COLD shell: not in All(), and Get() trips the cold seam.
+  EXPECT_FALSE(InAll(cold)) << "a tenant suspended before restart must recover COLD";
+  EXPECT_THROW(
+      {
+        try {
+          handler_->Get(cold);
+        } catch (const std::exception &e) {
+          EXPECT_THAT(e.what(), ::testing::HasSubstr("suspended"));
+          throw;
+        }
+      },
+      std::exception);
+
+  // The hot tenant is restored HOT with its data intact.
+  ASSERT_TRUE(InAll(hot)) << "a HOT tenant must recover HOT across a restart";
+  auto hot_acc = handler_->Get(hot);
+  EXPECT_EQ(CountNodes(hot_acc), kHotNodes);
+
+  // The durable cold_stats round-trips: the COLD tenant's restored StorageInfo (read back through
+  // the public recovery snapshot) carries the as-of-suspend vertex_count. This exercises the 23-field
+  // StatsToJson/StatsFromJson path end-to-end across the restart.
+  {
+    auto cold_set = handler_->SuspendedConfigsForRecovery();
+    bool found_cold_stats = false;
+    for (const auto &c : cold_set) {
+      if (c.salient.name.str() == cold) {
+        EXPECT_EQ(c.stats.vertex_count, static_cast<uint64_t>(kColdNodes))
+            << "the durably-restored cold_stats must carry the as-of-suspend vertex_count";
+        found_cold_stats = true;
+      }
+    }
+    EXPECT_TRUE(found_cold_stats) << "the cold tenant must appear in the recovery snapshot after restart";
+  }
+
+  // The cold tenant resumes from its preserved data directory with all data intact.
+  auto resumed = handler_->Resume(cold);
+  ASSERT_TRUE(resumed.has_value()) << "a COLD tenant restored from disk must resume";
+  EXPECT_TRUE(InAll(cold));
+  EXPECT_EQ(CountNodes(resumed.value().db), kColdNodes) << "all data must survive suspend -> restart -> resume";
+}
+
+// A RESUME clears the durable cold marker, so a tenant that was resumed before a restart recovers
+// HOT (not COLD) on the next boot — the inverse of the test above.
+TEST_F(HotColdResume, CrossRestartResumedTenantRecoversHot) {
+  constexpr int kNodes = 5;
+  auto name = CreateAndPopulate("resumed_persist", kNodes);
+
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+  ASSERT_TRUE(handler_->Resume(name).has_value());
+  EXPECT_TRUE(InAll(name)) << "tenant must be HOT after resume";
+
+  Restart();
+
+  ASSERT_TRUE(InAll(name)) << "a resumed tenant must recover HOT across a restart (cold marker cleared)";
+  auto acc = handler_->Get(name);
+  EXPECT_EQ(CountNodes(acc), kNodes);
+}
+
+// A COLD tenant restarted+resumed keeps its original epoch — resume rebuilds the storage from disk
+// (BuildDetached) and runs the epoch recovered from the tenant's own WAL/snapshot, unchanged. (The
+// cold-tenant epoch-rewrite-on-promotion machinery was intentionally removed.)
+TEST_F(HotColdResume, CrossRestartColdTenantWithoutPromotionKeepsEpoch) {
+  constexpr int kNodes = 3;
+  auto cold = CreateAndPopulate("unpromoted_cold", kNodes);
+
+  std::string e1;
+  {
+    auto acc = handler_->Get(cold);
+    e1 = std::string{acc->storage()->repl_storage_state_.epoch_.id()};
+  }
+  ASSERT_FALSE(e1.empty());
+
+  ASSERT_TRUE(handler_->Suspend(cold).has_value());
+  Restart();
+  auto resumed = handler_->Resume(cold);
+  ASSERT_TRUE(resumed.has_value());
+  EXPECT_EQ(CountNodes(resumed.value().db), kNodes);
+
+  auto &rss = resumed.value().db->storage()->repl_storage_state_;
+  EXPECT_EQ(std::string{rss.epoch_.id()}, e1) << "a non-promoted resume must preserve the original epoch";
+}
+
+// On a replica, MAIN's authoritative as-of-suspend stats arrive over the V3 SystemRecovery wire and
+// ApplyColdRecoveryMeta installs them into the cold entry, so cold SHOW STORAGE INFO / SHOW DATABASES
+// on the replica match MAIN. (No epoch is carried; cold-tenant epoch machinery was removed.)
+TEST_F(HotColdResume, AppliedWireStatsRefreshColdEntry) {
+  constexpr int kNodes = 4;
+  auto cold = CreateAndPopulate("wire_stats_cold", kNodes);
+
+  ASSERT_TRUE(handler_->Suspend(cold).has_value());
+
+  // MAIN's authoritative stats snapshot, distinct from anything the local suspend captured.
+  memgraph::storage::ColdTenantRecovery meta;
+  for (const auto &c : handler_->SuspendedConfigsForRecovery()) {
+    if (c.salient.name.str() == cold) meta.salient = c.salient;
+  }
+  meta.stats.vertex_count = 4242;
+  meta.stats.edge_count = 99;
+  handler_->ApplyColdRecoveryMeta(cold, meta);
+
+  bool found = false;
+  for (const auto &c : handler_->SuspendedConfigsForRecovery()) {
+    if (c.salient.name.str() == cold) {
+      EXPECT_EQ(c.stats.vertex_count, 4242) << "ApplyColdRecoveryMeta must install MAIN's stats snapshot";
+      EXPECT_EQ(c.stats.edge_count, 99);
+      found = true;
+    }
+  }
+  ASSERT_TRUE(found) << "the suspended tenant must appear in the recovery snapshot";
+
+  // The refreshed stats are durable: a restart recovers them (still COLD, no resume).
+  Restart();
+  auto info = handler_->GetColdShowInfo(cold);
+  ASSERT_TRUE(info.has_value()) << "the tenant must recover COLD with its refreshed stats";
+  EXPECT_EQ(info->stats.vertex_count, 4242) << "MAIN's stats must survive a restart via the cold marker";
+}
+
+// Observability: a successful SUSPEND/RESUME pair moves the global hot/cold Prometheus metrics — the
+// suspends/resumes counters and the cold-tenant gauge.
+//   - The counters are process-global monotonic singletons shared across every test in this binary, so
+//     assert on DELTAS captured around the operation.
+//   - The gauge is a process-global singleton too (SET to the live DbmsHandler's suspended_ size), so
+//     it is also asserted as a DELTA: capture the baseline before the operation and assert the change
+//     (+1 after suspend, 0 after resume), rather than an absolute value that would be flaky if sibling
+//     tests in this binary leave residue.
+TEST_F(HotColdResume, SuspendResumeMoveObservabilityMetrics) {
+  auto &m = memgraph::metrics::Metrics().global;
+  const double suspends0 = m.database_suspends->Value();
+  const double resumes0 = m.database_resumes->Value();
+  // Latency-histogram sample-count baselines: a dropped Observe() would leave these unchanged, a
+  // regression the counters alone would NOT catch.
+  const uint64_t suspend_lat0 = m.database_suspend_latency_seconds->Collect().histogram.sample_count;
+  const uint64_t resume_lat0 = m.database_resume_latency_seconds->Collect().histogram.sample_count;
+  // Capture the gauge baseline BEFORE any suspend so both gauge assertions are deltas, not absolutes.
+  // The gauge is a process-global singleton; other tests in this binary may have left residue.
+  const double cold_gauge0 = m.cold_databases->Value();
+
+  auto t = CreateAndPopulate("metrics_tenant", 3);
+  ASSERT_TRUE(handler_->Suspend(t).has_value());
+  EXPECT_DOUBLE_EQ(m.database_suspends->Value() - suspends0, 1.0)
+      << "a successful SUSPEND increments the suspends counter";
+  EXPECT_DOUBLE_EQ(m.cold_databases->Value() - cold_gauge0, 1.0)
+      << "the cold-tenant gauge increases by 1 when the tenant is suspended";
+  EXPECT_EQ(m.database_suspend_latency_seconds->Collect().histogram.sample_count - suspend_lat0, 1u)
+      << "a successful SUSPEND observes the suspend-latency histogram exactly once";
+
+  ASSERT_TRUE(handler_->Resume(t).has_value());
+  EXPECT_DOUBLE_EQ(m.database_resumes->Value() - resumes0, 1.0) << "a successful RESUME increments the resumes counter";
+  EXPECT_EQ(m.database_resume_latency_seconds->Collect().histogram.sample_count - resume_lat0, 1u)
+      << "a successful RESUME observes the resume-latency histogram exactly once";
+  EXPECT_DOUBLE_EQ(m.cold_databases->Value() - cold_gauge0, 0.0)
+      << "the cold-tenant gauge returns to its pre-test level after resume";
+}
+
+// A HOT tenant whose recovery FAILS at boot must ABORT the process — fail loud, exactly as on master
+// (and on a single-tenant instance). It is never silently demoted to COLD: a HOT database that cannot
+// be brought up at boot must surface the problem rather than serve a tenant that lost data. (A
+// user-initiated RESUME is the recoverable counterpart: it fails + returns ResumeError::RECOVERY_FAILED
+// and leaves the tenant COLD/retriable — see the ResumeRecoveryFailure tests above.) Death test uses
+// the "threadsafe" style: the DbmsHandler ctor has already spawned storage threads by the time the
+// assert fires, so a plain fork()-based death test could deadlock (see toolchain notes).
+TEST_F(HotColdResume, BootRecoveryFailureAbortsProcess) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  constexpr int kBadNodes = 5;
+  auto bad = CreateAndPopulate("recover_fail", kBadNodes);
+
+  // HOT (durable cold:false). Capture its uuid to locate the on-disk data.
+  std::string bad_uuid;
+  {
+    auto acc = handler_->Get(bad);
+    bad_uuid = static_cast<std::string>(acc->storage()->uuid());
+  }
+
+  // Tear down (flush + close), corrupt the HOT tenant's durability, then reconstructing the handler
+  // must die: a HOT database that cannot be recovered at boot aborts the process.
+  handler_.reset();
+  CorruptTenantDurability(bad_uuid);
+
+  ASSERT_DEATH(
+      {
+        auto h = std::make_unique<DbmsHandler>(conf_);
+        (void)h;
+      },
+      "Failed while recovering database");
+}
+
+// Regression: a durable cold entry that is VALID JSON but has a WRONG-TYPED optional metadata field
+// (e.g. cold_stats stored as a string instead of an object) must NOT abort the boot. nlohmann's
+// j.value() only provides the default for MISSING keys; calling value() on a non-object throws
+// type_error (306), which previously escaped the parse guard and propagated out of the DbmsHandler
+// ctor → std::terminate.
+//
+// After the fix, make_cold_entry is wrapped in its own nlohmann::json::exception catch so:
+//   (a) the instance boots (no terminate, no throw from the ctor),
+//   (b) a healthy sibling tenant still recovers HOT with its data,
+//   (c) the corrupt tenant's data directory is NOT deleted (durability_view_incomplete → skip cleanup).
+TEST_F(HotColdResume, WrongTypedColdMetadataBootsDegraded) {
+  constexpr int kSiblingNodes = 4;
+  constexpr int kVictimNodes = 7;
+  auto sibling = CreateAndPopulate("sibling_tenant", kSiblingNodes);
+  auto victim = CreateAndPopulate("victim_cold", kVictimNodes);
+
+  // Capture the victim's UUID + data dir before suspending.
+  std::string victim_uuid_str;
+  {
+    auto acc = handler_->Get(victim);
+    victim_uuid_str = static_cast<std::string>(acc->storage()->uuid());
+  }
+  const auto victim_dir = test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / victim_uuid_str;
+  ASSERT_TRUE(fs::exists(victim_dir));
+
+  // Suspend the victim so a real cold durable entry (valid JSON) is written.
+  ASSERT_TRUE(handler_->Suspend(victim).has_value());
+  EXPECT_FALSE(InAll(victim));
+
+  // Tear down (flushes/closes all storage).
+  handler_.reset();
+
+  // Overwrite the victim's durable KVStore value with VALID JSON that has a wrong-typed field:
+  // cold_stats stored as a string instead of an object. StatsFromJson calls j.value(key, ...) on it,
+  // which throws type_error(306) on a non-object. The uuid and rel_dir fields remain correct so the
+  // entry passes the outer parse guard — only make_cold_entry sees the bad type. Constructed as a raw
+  // string to avoid an nlohmann include in the test TU.
+  {
+    // clang-format off
+    const std::string bad_json =
+        std::string(R"({"uuid":")") + victim_uuid_str +
+        R"(","rel_dir":")" + victim_uuid_str +
+        R"(","cold":true,"cold_stats":"not_an_object"})";
+    // clang-format on
+    memgraph::kvstore::KVStore kv(test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / ".durability");
+    ASSERT_TRUE(kv.Put(std::string("database:") + victim, bad_json));
+  }
+
+  // Reconstruct — must not throw or terminate.
+  ASSERT_NO_THROW(handler_ = std::make_unique<DbmsHandler>(conf_))
+      << "DbmsHandler ctor must survive a cold entry with a wrong-typed metadata field (boot must not abort)";
+
+  // (b) The healthy sibling recovered HOT with its data.
+  EXPECT_TRUE(InAll(sibling)) << "the intact sibling must recover HOT despite the victim's wrong-typed entry";
+  auto sibling_acc = handler_->Get(sibling);
+  EXPECT_EQ(CountNodes(sibling_acc), kSiblingNodes);
+
+  // (a) The corrupt entry was skipped — tenant is neither HOT nor suspended.
+  EXPECT_FALSE(InAll(victim)) << "the wrong-typed cold entry is skipped, so its tenant is not recovered";
+  EXPECT_FALSE(handler_->IsSuspended(victim)) << "a skipped entry must not appear as a cold shell";
+
+  // (c) The victim's data directory was NOT deleted (cleanup skipped when view is incomplete).
+  EXPECT_TRUE(fs::exists(victim_dir))
+      << "the victim's data dir must be preserved — cleanup is skipped when durability_view_incomplete";
+}
+
+// A corrupt/truncated durable entry must leave the instance starting DEGRADED — the entry is
+// skipped, the rest of the tenants recover, and (crucially) NO data directory is deleted, because a
+// corrupt entry whose rel_dir we cannot read would otherwise be reaped by the unused-directory cleanup.
+TEST_F(HotColdResume, CorruptDurableEntrySkippedAndDataPreserved) {
+  constexpr int kGoodNodes = 3;
+  constexpr int kVictimNodes = 5;
+  auto good = CreateAndPopulate("good_tenant", kGoodNodes);
+  auto victim = CreateAndPopulate("victim_tenant", kVictimNodes);
+
+  // Capture the victim's on-disk data dir before we corrupt its durable entry.
+  std::string victim_uuid;
+  {
+    auto acc = handler_->Get(victim);
+    victim_uuid = static_cast<std::string>(acc->storage()->uuid());
+  }
+  const auto victim_dir = test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / victim_uuid;
+  ASSERT_TRUE(fs::exists(victim_dir));
+
+  // Tear down, then clobber the victim's durability VALUE (valid key, non-JSON value) so the next boot's
+  // restore loop trips json::parse — a different failure class from data-dir corruption (tested above).
+  handler_.reset();
+  {
+    memgraph::kvstore::KVStore kv(test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / ".durability");
+    ASSERT_TRUE(kv.Put(std::string("database:") + victim, "NOT-VALID-JSON{{{"));
+  }
+
+  handler_ = std::make_unique<DbmsHandler>(conf_);
+
+  // The instance booted (did not abort). The good tenant recovered HOT; the corrupt entry was skipped.
+  EXPECT_TRUE(InAll(good)) << "an intact tenant must recover HOT despite a sibling's corrupt durable entry";
+  auto good_acc = handler_->Get(good);
+  EXPECT_EQ(CountNodes(good_acc), kGoodNodes);
+  EXPECT_FALSE(InAll(victim)) << "the corrupt entry is skipped, so its tenant is not recovered";
+  EXPECT_FALSE(handler_->IsSuspended(victim));
+
+  // CRUCIAL: the victim's data dir must NOT have been deleted — cleanup is skipped when the durable view
+  // is incomplete, so a parse glitch never escalates to data loss.
+  EXPECT_TRUE(fs::exists(victim_dir)) << "a corrupt entry's data dir must be preserved, not reaped by cleanup";
+}
+
+#else
+
+#include <gtest/gtest.h>
+
+TEST(HotColdResume, NotApplicableInCommunity) { GTEST_SKIP() << "hot/cold resume is an enterprise-only feature"; }
+
+#endif  // MG_ENTERPRISE

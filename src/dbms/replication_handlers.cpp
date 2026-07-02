@@ -11,7 +11,15 @@
 
 #include "dbms/replication_handlers.hpp"
 
+#include <algorithm>
+#include <chrono>
+#include <iterator>
+#include <mutex>
+#include <ranges>
+#include <thread>
+
 #include "dbms/dbms_handler.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/rpc.hpp"
 #include "license/license.hpp"
 #include "system/state.hpp"
@@ -25,6 +33,24 @@ class FileReplicationHandler;
 namespace memgraph::dbms {
 
 #ifdef MG_ENTERPRISE
+
+namespace {
+// Reject an enterprise system-RPC apply when there is no valid enterprise license: log, send the
+// caller's already-built FAILURE response, and signal the caller to return (true iff rejected).
+// Registration happens unlicensed (a license may be added at runtime), so the gate is per-apply here.
+// Handlers with a bespoke no-license path (e.g. SystemRecoveryHandler, which still applies the default
+// DB) deliberately do NOT use this.
+bool RejectIfNoLicense(std::string_view rpc_name, uint64_t request_version, slk::Builder *res_builder,
+                       const auto &res) {
+  if (license::global_license_checker.IsEnterpriseValidFast()) return false;
+  spdlog::error(
+      "Handling {}, an enterprise RPC message, without license. Check your license status by running "
+      "SHOW LICENSE INFO.",
+      rpc_name);
+  rpc::SendFinalResponse(res, request_version, res_builder);
+  return true;
+}
+}  // namespace
 
 void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
@@ -116,6 +142,9 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
 
   try {
     // NOTE: Single communication channel can exist at a time, no other database can be deleted/created at the moment.
+    // Symmetric with SuspendDatabaseHandler: drop any cached 2PC commit accessor for this tenant before
+    // its storage is destroyed, otherwise a later DestroyReplAccessor() dereferences a dead Storage*.
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(req.uuid);
     auto new_db = dbms_handler.Delete(req.uuid);
     if (!new_db) {
       if (new_db.error() == DeleteError::NON_EXISTENT) {
@@ -196,7 +225,158 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
-bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs) {
+void SuspendDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
+                            uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using memgraph::storage::replication::SuspendDatabaseRes;
+  SuspendDatabaseRes res(SuspendDatabaseRes::Result::FAILURE);
+
+  // Ignore if no license
+  if (RejectIfNoLicense("SuspendDatabase", request_version, res_builder, res)) return;
+
+  memgraph::storage::replication::SuspendDatabaseReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::SuspendDatabaseReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("SuspendDatabaseHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  try {
+    // TD-3': drop any cached 2PC accessor belonging to THIS tenant before teardown. The accessor is
+    // storage-level (not gatekeeper-counted), so the suspend freeze would not drain it, and tearing
+    // down the storage with it still cached would dangle it.
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(req.uuid);
+
+    // No repl_state lock is held here (we follow the DropDatabase pattern). SuspendByUUID ->
+    // Suspend_ uses the gatekeeper's bounded count==1 drain; suspend does not gate on replication state.
+    auto result = dbms_handler.SuspendByUUID(req.uuid);
+    if (result) {
+      res = SuspendDatabaseRes(SuspendDatabaseRes::Result::SUCCESS);
+      spdlog::debug("SuspendDatabaseHandler: SUCCESS");
+    } else if (result.error() == DbmsHandler::SuspendError::NON_EXISTENT && dbms_handler.IsKnownTenant(req.uuid)) {
+      // NON_EXISTENT means "not HOT". Only treat it as an idempotent NO_NEED when the
+      // tenant is KNOWN (already COLD) — i.e. genuinely already in the target state. If the tenant is
+      // unknown entirely, this is a divergence (MAIN suspended a tenant this replica is missing); leave
+      // the apply FAILURE so the replica latches BEHIND and SystemRecovery supplies it.
+      res = SuspendDatabaseRes(SuspendDatabaseRes::Result::NO_NEED);
+    }
+    // Any other error (e.g. ACTIVE_CONNECTIONS bounded-drain timeout) leaves FAILURE. The
+    // replica does NOT silently diverge — the system timestamp still advances via FinalizeSystemTxRpc
+    // and the failed apply flags this replica BEHIND, so it reconciles on the next ordered re-sync /
+    // SystemRecovery.
+  } catch (const std::exception &e) {
+    // FAILURE: log so a diverged replica has a diagnostic anchor.
+    spdlog::error(
+        "SuspendDatabaseHandler: failed to apply suspend for database {}: {}", std::string{req.uuid}, e.what());
+  } catch (...) {
+    spdlog::error("SuspendDatabaseHandler: failed to apply suspend for database {}", std::string{req.uuid});
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                           const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using memgraph::storage::replication::ResumeDatabaseRes;
+  ResumeDatabaseRes res(ResumeDatabaseRes::Result::FAILURE);
+
+  // Ignore if no license
+  if (RejectIfNoLicense("ResumeDatabase", request_version, res_builder, res)) return;
+
+  memgraph::storage::replication::ResumeDatabaseReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::ResumeDatabaseReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("ResumeDatabaseHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  try {
+    // ResumeByUUID -> Resume_(rewire_replication=false). The apply thread holds no repl_state
+    // lock, so the post-publish replication arm (which would take a repl_state write lock) is skipped.
+    auto result = dbms_handler.ResumeByUUID(req.uuid);
+    if (result) {
+      res = ResumeDatabaseRes(ResumeDatabaseRes::Result::SUCCESS);
+      spdlog::debug("ResumeDatabaseHandler: SUCCESS");
+    } else if (result.error() == DbmsHandler::ResumeError::NON_EXISTENT && dbms_handler.IsKnownTenant(req.uuid)) {
+      // NON_EXISTENT means "not in the suspended-set". Only treat it as an idempotent
+      // NO_NEED when the tenant is KNOWN (already HOT here). If it is unknown entirely, this is a
+      // divergence (MAIN resumed a tenant this replica is missing); leave the apply FAILURE so the replica
+      // latches BEHIND and SystemRecovery supplies it.
+      res = ResumeDatabaseRes(ResumeDatabaseRes::Result::NO_NEED);
+    }
+    // RECOVERY_FAILED leaves FAILURE -> diverge-then-reconcile via SystemRecovery.
+  } catch (const std::exception &e) {
+    // FAILURE: log so a diverged replica has a diagnostic anchor.
+    spdlog::error("ResumeDatabaseHandler: failed to apply resume for database {}: {}", std::string{req.uuid}, e.what());
+  } catch (...) {
+    spdlog::error("ResumeDatabaseHandler: failed to apply resume for database {}", std::string{req.uuid});
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+namespace {
+// Force-suspend a tenant on the replica during recovery. On a replica the only transient
+// suspend failure is ACTIVE_CONNECTIONS (a background accessor — GC/periodic-snapshot — still live;
+// no client write conns exist, and a data-delta accessor cannot be in flight because the same
+// single-threaded RPC server is currently running this recovery). The other SuspendError reasons are
+// structurally unreachable here (DEFAULT_DB/NOT_IN_MEMORY/DURABILITY_INCOMPLETE are config-fixed, and
+// there is no MAIN-side replication-participant gate). The engine's try_begin_suspend() already waits
+// 100ms for count==1; this bounded outer retry covers a slow background accessor. On timeout the caller flags
+// BEHIND and the whole recovery is retried (diverge-then-reconcile via SystemRecovery).
+bool ForceSuspendForRecovery(DbmsHandler &dbms_handler, std::string_view name) {
+  constexpr auto kRetryStep = std::chrono::milliseconds(20);
+  // Bounded so it does not hold the single-threaded replica RPC server (heartbeat/WAL deltas) for
+  // long: the engine's try_begin_suspend() already waits 100ms/attempt, the accessor being drained is
+  // a background GC/snapshot one (drains in well under a second), and the outer BEHIND->reconcile loop
+  // retries the whole recovery anyway, so a short cap costs at most one extra cheap retry.
+  constexpr auto kTimeout = std::chrono::seconds(2);
+  const auto deadline = std::chrono::steady_clock::now() + kTimeout;
+  while (true) {
+    // Recovery bypasses the durability-complete gate (MAIN is authoritative for the cold set and this
+    // replica converges to it regardless of its own durability state; suspend no longer takes a
+    // snapshot, so recoverability of the resulting cold shell rests on this replica's own
+    // periodic-snapshot+WAL durability, not on anything suspend does). Without the bypass a replica
+    // whose durability config differs from MAIN's would fail here with DURABILITY_INCOMPLETE and spin
+    // forever in the BEHIND->reconcile loop.
+    auto res = dbms_handler.SuspendForRecovery(name);
+    if (res.has_value()) return true;
+    if (res.error() != DbmsHandler::SuspendError::ACTIVE_CONNECTIONS) {
+      spdlog::debug("SystemRecoveryHandler: suspend of \"{}\" failed (non-transient).", name);
+      return false;
+    }
+    if (std::chrono::steady_clock::now() >= deadline) {
+      spdlog::debug("SystemRecoveryHandler: suspend of \"{}\" timed out draining accessors.", name);
+      return false;
+    }
+    std::this_thread::sleep_for(kRetryStep);
+  }
+}
+}  // namespace
+
+bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs,
+                           const std::vector<storage::ColdTenantRecovery> &cold_databases) {
   /*
    * NO LICENSE
    */
@@ -221,30 +401,153 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   /*
    * MULTI-TENANCY
    */
-  // Get all current dbs
-  auto old = dbms_handler.All();
-  // Check/create the incoming dbs
+  // The COLD set arrives as one ColdTenantRecovery per tenant (salient + stats + epoch), so the
+  // salient<->stats pairing is structural — the earlier mismatched-length guard is gone.
+
+  // Seed the leftover-delete set from HOT *and* COLD tenants. All() skips COLD shells, so a
+  // tenant MAIN has dropped while this replica holds it COLD would otherwise be in neither the
+  // incoming sets nor `old` and would never be reconciled away (permanent divergence). The DROP of
+  // a COLD tenant is handled cold-aware by Delete() (see DeleteCold_). AllWithHotColdStatus() is
+  // de-duplicated (a SUSPENDING-transient tenant is listed once, as COLD).
+  auto hot_cold = dbms_handler.AllWithHotColdStatus();
+  std::vector<std::string> old;
+  old.reserve(hot_cold.size());
+  std::ranges::transform(
+      hot_cold | std::views::keys, std::back_inserter(old), [](auto &name) { return std::move(name); });
+
+  // Check/create the incoming HOT dbs.
   for (const auto &config : database_configs) {
-    // Missing db
+    const auto name = std::string{*config.name.str_view()};
+    // MAIN lists this name HOT but the replica holds it COLD. Update() would throw
+    // UnknownDatabaseException on the COLD shell, so handle the COLD shell first.
+    if (const auto cold_uuid = dbms_handler.GetColdUuid(name)) {
+      if (*cold_uuid == config.uuid) {
+        // Same tenant still COLD: resume it so Update() below can refresh the HOT config.
+        if (!dbms_handler.ResumeForRecovery(name).has_value()) {
+          spdlog::debug("SystemRecoveryHandler: failed to resume COLD database \"{}\" to match MAIN (HOT).", name);
+          return false;
+        }
+      } else {
+        // Same name, different uuid: MAIN drop+recreated the tenant while this replica kept the
+        // OLD shell COLD. Drop it so Update() below recreates MAIN's new tenant HOT; otherwise
+        // per-uuid Suspend/Resume RPCs for the new uuid would never find it.
+        if (const auto del = dbms_handler.Delete(name); !del && del.error() != DeleteError::NON_EXISTENT) {
+          spdlog::debug("SystemRecoveryHandler: failed to drop stale HOT-loop COLD database \"{}\" before recreate.",
+                        name);
+          return false;
+        }
+      }
+    }
+    // If the replica holds this name HOT under a DIFFERENT uuid, Update() below drops+recreates the
+    // local storage. A stale cached 2PC commit accessor for the LOCAL uuid would then dangle, so abort
+    // it first (mirrors the COLD-loop force-suspend and the Drop/Suspend handlers). Same-uuid Update is
+    // a no-op refresh that must NOT abort an in-flight 2PC for that very tenant — hence the guard.
+    if (const auto local = dbms_handler.GetHotUuid(name); local && *local != config.uuid) {
+      InMemoryReplicationHandlers::AbortTwoPCForTenant(*local);
+    }
     try {
       if (!dbms_handler.Update(config)) {
-        spdlog::debug("SystemRecoveryHandler: Failed to update database \"{}\".", *config.name.str_view());
+        spdlog::debug("SystemRecoveryHandler: Failed to update database \"{}\".", name);
         return false;
       }
     } catch (const UnknownDatabaseException &) {
       spdlog::debug("SystemRecoveryHandler: UnknownDatabaseException");
       return false;
     }
-    std::erase(old, *config.name.str_view());
+    std::erase(old, name);
   }
 
-  // Delete all the leftover old dbs
+  // Reconcile the incoming COLD set: each named tenant must end as a COLD shell carrying MAIN's stats
+  // and epoch metadata.
+  for (const auto &cold : cold_databases) {
+    const auto &config = cold.salient;
+    const auto name = std::string{*config.name.str_view()};
+    // Exempt COLD names from the leftover-delete loop below — a replica-HOT tenant that MAIN
+    // now lists COLD must be reconciled to COLD, not dropped.
+    std::erase(old, name);
+
+    if (const auto cold_uuid = dbms_handler.GetColdUuid(name)) {
+      // Same tenant still COLD here: refresh MAIN's as-of-suspend stats snapshot so cold SHOW STORAGE
+      // INFO / SHOW DATABASES on this replica match MAIN.
+      if (*cold_uuid == config.uuid) {
+        dbms_handler.ApplyColdRecoveryMeta(name, cold);
+        continue;
+      }
+      // Same name, DIFFERENT uuid: MAIN drop+recreated this tenant while this replica kept the OLD
+      // one COLD. This is a genuinely different database, not a config change, so we DROP-and-rebuild
+      // rather than Update in place:
+      //   - The old shell owns the OLD uuid's on-disk data; Delete (DeleteCold_) clears its data dir +
+      //     durable marker so the rebuild below starts clean for MAIN's new uuid.
+      //   - Update() cannot touch a cold shell anyway — it operates on the HOT map (db_handler_) and
+      //     throws UnknownDatabaseException for a suspended tenant, with no path to rewrite the
+      //     suspended_ entry's uuid.
+      // The tenant is NOT left without a db: the SAME reconcile pass immediately rebuilds it below
+      // (Update() creates it HOT, then ForceSuspendForRecovery drops it back to COLD). A failure
+      // between the drop and the rebuild returns false, leaving the replica BEHIND so the next recovery
+      // round recreates it (MAIN still lists it) — the replica only advertises converged state after
+      // this handler returns true. Leaving the stale shell instead would make every per-uuid
+      // Suspend/Resume RPC for the new uuid return NON_EXISTENT, latching this replica BEHIND
+      // permanently with no self-heal.
+      if (const auto del = dbms_handler.Delete(name); !del && del.error() != DeleteError::NON_EXISTENT) {
+        spdlog::debug("SystemRecoveryHandler: failed to drop stale COLD database \"{}\" before recreate.", name);
+        return false;
+      }
+    }
+
+    // If the replica holds this name HOT under a DIFFERENT uuid, Update() below drops+recreates the
+    // local storage (Delete_ frees the OLD-uuid InMemoryStorage). A stale cached 2PC commit accessor
+    // for that LOCAL uuid would then dangle, so abort it FIRST — mirrors the HOT-reconcile loop above.
+    // The AbortTwoPCForTenant(config.uuid) after Update uses the NEW uuid and runs after the free, so it
+    // cannot cover the OLD uuid; this guard does. Same-uuid Update is a no-op refresh whose in-flight 2PC
+    // must NOT be aborted here (the config.uuid abort before ForceSuspendForRecovery handles it) — hence
+    // the *local != config.uuid guard. A HOT-under-different-uuid tenant is NOT caught by the GetColdUuid
+    // block above (it is HOT, not in suspended_), so without this it would reach Update unguarded.
+    if (const auto local = dbms_handler.GetHotUuid(name); local && *local != config.uuid) {
+      InMemoryReplicationHandlers::AbortTwoPCForTenant(*local);
+    }
+    // Currently HOT (force-suspend) or absent (create HOT first, then suspend). Update() creates a
+    // missing tenant and is a no-op-ish salient refresh for an existing HOT one.
+    try {
+      if (!dbms_handler.Update(config)) {
+        spdlog::debug("SystemRecoveryHandler: failed to materialize database \"{}\" before suspend.", name);
+        return false;
+      }
+    } catch (const UnknownDatabaseException &) {
+      spdlog::debug("SystemRecoveryHandler: UnknownDatabaseException creating COLD database \"{}\".", name);
+      return false;
+    }
+    // Mirror Suspend/Drop handlers: force-suspend destroys the tenant's InMemoryStorage, so a
+    // stale cached 2PC commit accessor for this tenant must be aborted first — otherwise a later
+    // DestroyReplAccessor() dereferences the now-freed Storage*.
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(config.uuid);
+    if (!ForceSuspendForRecovery(dbms_handler, name)) {
+      spdlog::debug("SystemRecoveryHandler: failed to suspend database \"{}\" to match MAIN (COLD).", name);
+      return false;
+    }
+    dbms_handler.ApplyColdRecoveryMeta(name, cold);
+  }
+
+  // Delete all the leftover old dbs (neither incoming HOT nor COLD).
   for (const auto &remove_db : old) {
+    // A HOT leftover's Delete frees its storage; abort any cached 2PC accessor for its LOCAL uuid
+    // first so a later DestroyReplAccessor() does not dereference the freed Storage*. COLD shells
+    // return nullopt (no live storage / no cached accessor), so this is a no-op for them.
+    if (const auto local = dbms_handler.GetHotUuid(remove_db)) {
+      InMemoryReplicationHandlers::AbortTwoPCForTenant(*local);
+    }
     const auto del = dbms_handler.Delete(remove_db);
     if (!del) {
-      // Some errors are not terminal
-      if (del.error() == DeleteError::DEFAULT_DB || del.error() == DeleteError::NON_EXISTENT) {
-        spdlog::debug("SystemRecoveryHandler: Dropped database \"{}\".", remove_db);
+      // Some errors are not terminal and must not fail the whole recovery round:
+      //  - DEFAULT_DB / NON_EXISTENT: nothing to drop.
+      //  - USING: the tenant is mid-transition (e.g. a SUSPEND that inserted into suspended_ but whose
+      //    finish_suspend has not run yet, so DeleteCold_ sees state != COLD). This is transient — the
+      //    next recovery round retries once the transition settles. Failing here would needlessly mark
+      //    the replica BEHIND for a self-healing condition.
+      if (del.error() == DeleteError::DEFAULT_DB || del.error() == DeleteError::NON_EXISTENT ||
+          del.error() == DeleteError::USING) {
+        spdlog::debug("SystemRecoveryHandler: leftover database \"{}\" not dropped this round (non-terminal: {}).",
+                      remove_db,
+                      static_cast<int>(del.error()));
         continue;
       }
       spdlog::debug("SystemRecoveryHandler: Failed to drop database \"{}\".", remove_db);
@@ -398,6 +701,22 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
           auto *req_reader,
           auto *res_builder) mutable {
         RenameDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::SuspendDatabaseRpc>(
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
+        SuspendDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::ResumeDatabaseRpc>(
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
+        ResumeDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::TenantProfileRpc>(
       [&data, system_state_access, &dbms_handler](

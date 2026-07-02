@@ -51,7 +51,6 @@
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
-#include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/isolation_level.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -139,10 +138,6 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
-
-#ifdef MG_ENTERPRISE
-#include "flags/experimental.hpp"
-#endif
 
 import memgraph.utils.aws;
 
@@ -7301,6 +7296,42 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       }
 #endif
       auto *dbms_handler = interpreter_context->dbms_handler;
+#ifdef MG_ENTERPRISE
+      // SHOW STORAGE INFO ON <cold> serves the durable as-of-suspend snapshot instead of tripping
+      // the Get_ cold seam (which would otherwise error). The numbers are MAIN's as-of-suspend snapshot;
+      // physical fields (memory/disk) are MAIN-relative and labelled COLD.
+      if (info_query->database_) {
+        if (auto cold = dbms_handler->GetColdShowInfo(*info_query->database_)) {
+          const auto &db_name = *info_query->database_;
+          if (!license::global_license_checker.IsEnterpriseValidFast() && db_name != dbms::kDefaultDB) {
+            throw QueryRuntimeException(license::LicenseCheckErrorToString(
+                license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
+          }
+          handler = [db_name,
+                     cold = std::move(*cold)]() -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
+            const auto &s = cold.stats;
+            const std::vector<std::vector<TypedValue>> results{
+                {TypedValue("name"), TypedValue(db_name)},
+                {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(cold.uuid))},
+                {TypedValue("status"), TypedValue(cold.status)},
+                {TypedValue("storage_mode"), TypedValue(StorageModeToString(s.storage_mode))},
+                {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(s.vertex_count))},
+                {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(s.edge_count))},
+                {TypedValue("average_degree"), TypedValue(s.average_degree)},
+                {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(s.disk_usage)))},
+                {TypedValue("graph_memory_tracked"),
+                 TypedValue(utils::GetReadableSize(static_cast<double>(s.memory_res)))},
+                {TypedValue("tenant_peak_memory_tracked"),
+                 TypedValue(utils::GetReadableSize(static_cast<double>(s.peak_memory_res)))},
+                {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(s.isolation_level))},
+            };
+            return std::pair{results, QueryHandlerResult::NOTHING};
+          };
+          header = {"storage info", "value"};
+          break;
+        }
+      }
+#endif
       auto resolve_database = [&]() -> std::optional<dbms::DatabaseAccess> {
         if (info_query->database_) {
           const auto &db_name = *info_query->database_;
@@ -7980,6 +8011,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                     throw QueryRuntimeException("Failed while renaming {}", old_name);
                   case dbms::RenameError::SAME_NAME:
                     throw QueryRuntimeException("New name cannot be the same as the old name.");
+                  case dbms::RenameError::SUSPENDED:
+                    throw QueryRuntimeException("Cannot rename database {}: it is suspended (cold). RESUME it first.",
+                                                old_name);
                 }
               }
             } catch (const utils::BasicException &e) {
@@ -7993,6 +8027,97 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             }
             return std::nullopt;
           },
+          .rw_type = RWType::W,
+          .db = query->db_name_};
+    }
+    case MultiDatabaseQuery::Action::SUSPEND: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+            auto result = db_handler->Suspend(db_name, &*interpreter->system_transaction_);
+            if (!result) {
+              switch (result.error()) {
+                case dbms::DbmsHandler::SuspendError::DEFAULT_DB:
+                  throw QueryRuntimeException("Cannot suspend the default database.");
+                case dbms::DbmsHandler::SuspendError::NON_EXISTENT:
+                  throw QueryRuntimeException("Database {} does not exist or is already cold.", db_name);
+                case dbms::DbmsHandler::SuspendError::NOT_IN_MEMORY:
+                  throw QueryRuntimeException(
+                      "Database {} is not in-memory mode; only in-memory databases can be suspended.", db_name);
+                case dbms::DbmsHandler::SuspendError::DURABILITY_INCOMPLETE:
+                  throw QueryRuntimeException(
+                      "Database {} does not have periodic snapshot+WAL durability enabled; cannot suspend safely.",
+                      db_name);
+                case dbms::DbmsHandler::SuspendError::ACTIVE_CONNECTIONS:
+                  throw QueryRuntimeException("Database {} has active connections; cannot suspend while in use.",
+                                              db_name);
+              }
+            }
+            std::vector<std::vector<TypedValue>> status;
+            status.emplace_back(
+                std::vector<TypedValue>{TypedValue("Successfully suspended database " + std::string(db_name))});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          // W (like CREATE/DROP/RENAME DATABASE): SUSPEND mutates+replicates DB lifecycle state, so it
+          // must respect the HA IsMainWriteable() gate (rejected on a coordinator-write-disabled MAIN).
+          .rw_type = RWType::W,
+          .db = query->db_name_};
+    }
+    case MultiDatabaseQuery::Action::RESUME: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+            auto result = db_handler->Resume(db_name, &*interpreter->system_transaction_);
+            if (!result) {
+              switch (result.error()) {
+                case dbms::DbmsHandler::ResumeError::NON_EXISTENT:
+                  throw QueryRuntimeException("Database {} does not exist or is not suspended.", db_name);
+                case dbms::DbmsHandler::ResumeError::RECOVERY_FAILED:
+                  throw QueryRuntimeException(
+                      "Database {} failed to recover while resuming; it remains suspended (cold) and the resume can "
+                      "be retried.",
+                      db_name);
+              }
+            }
+            std::string res;
+            if (result->already_hot) {
+              // Idempotent no-op (#18): keep the operation successful, but surface a distinguishable
+              // STATUS message instead of a plain "Successfully resumed" so the client can tell this
+              // apart from an actual COLD -> HOT rebuild.
+              res = "Database " + std::string(db_name) + " is already resumed (HOT).";
+            } else {
+              res = "Successfully resumed database " + std::string(db_name);
+            }
+            std::vector<std::vector<TypedValue>> status;
+            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          // W (like CREATE/DROP/RENAME DATABASE): RESUME mutates+replicates DB lifecycle state, so it
+          // must respect the HA IsMainWriteable() gate (rejected on a coordinator-write-disabled MAIN).
           .rw_type = RWType::W,
           .db = query->db_name_};
     }
@@ -8110,16 +8235,35 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  callback.header = {"Name"};
+  // SHOW DATABASES carries a "status" column (HOT/COLD) and lists COLD tenants (which are excluded from
+  // All() as no-value shells, so they would otherwise vanish).
+  callback.header = std::vector<std::string>{"Name", "status"};
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
+
+    // One atomic, de-duplicated read of the HOT ∪ COLD set. The name list (unrestricted paths) and the
+    // name->status map (tagging any path, incl. the auth allowed-list) both derive from this single
+    // snapshot — no per-row locks, and no duplicate row for a tenant caught mid-suspend
+    // (AllWithHotColdStatus de-dups: suspended_ wins).
+    std::vector<std::string> all_names;
+    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD" | "COLD (recovery failed...)"
+    for (auto &[name, st] : db_handler->AllWithHotColdStatus()) {
+      all_names.push_back(name);
+      status_of.emplace(std::move(name), std::move(st));
+    }
+
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
       Sort(all);
 
       status.reserve(all.size());
       for (const auto &name : all) {
-        status.push_back({TypedValue(name)});
+        // `name` is a std::string (all_names) or a TypedValue (auth allowed-list); normalize.
+        const std::string ns{TypedValue(name).ValueString()};
+        // status_of carries the full HOT/COLD(/recovery-failed) string. A granted name not in the
+        // snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
+        auto it = status_of.find(ns);
+        status.push_back({TypedValue(ns), TypedValue(it != status_of.end() ? it->second : std::string{"HOT"})});
       }
 
       std::erase_if(status, [&](auto const &row) {
@@ -8129,7 +8273,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 
     if (!user_or_role || !*user_or_role) {
       // No user, return all
-      gen_status(db_handler->All(), std::vector<TypedValue>{});
+      gen_status(std::move(all_names), std::vector<TypedValue>{});
     } else {
       // User has a subset of accessible dbs; this is synched with the SessionContextHandler
       const auto &db_priv = auth->GetDatabasePrivileges(user_or_role->username().value(), user_or_role->rolenames());
@@ -8137,7 +8281,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       const auto &denied = db_priv[0][1].ValueList();
       if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
         // All databases are allowed
-        gen_status(db_handler->All(), denied);
+        gen_status(std::move(all_names), denied);
       } else {
         gen_status(allowed.ValueList(), denied);
       }
