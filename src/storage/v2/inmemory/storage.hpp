@@ -168,6 +168,11 @@ class InMemoryStorage final : public Storage {
     FailedOverwritingUUID
   };
 
+  enum class RepairError : uint8_t {
+    NotBroken,
+    BackupFailure,
+  };
+
   /// @throw std::system_error
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
@@ -760,6 +765,24 @@ class InMemoryStorage final : public Storage {
   std::expected<void, InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
       std::optional<utils::S3Config> s3_config = std::nullopt);
+
+  // Cures a broken tenant by resetting it to an empty working state. The corrupt
+  // snapshots/ and wal/ files are moved to a .old directory when backup directories
+  // are enabled, otherwise deleted, leaving the durability directory restart-clean.
+  // The broken flag is cleared on success. Rejected on a healthy (non-broken) storage.
+  [[nodiscard]] std::expected<void, InMemoryStorage::RepairError> RepairBroken();
+
+  // Clears the tenant's durability files (moving snapshots/ and wal/ to a .old directory when backup
+  // directories are enabled, otherwise deleting them) and then resets it to an empty working state via
+  // ResetTenant(). Shared by RepairBroken() (main, after its broken-state check) and the replica's
+  // RepairDatabaseRpc handler, so both wipe the tenant with identical on-disk semantics and it stays empty
+  // across a restart. Unlike RepairBroken() this does not require the storage to be broken.
+  [[nodiscard]] std::expected<void, InMemoryStorage::RepairError> ClearDurabilityAndReset();
+
+  // Completely resets the tenant to an empty in-memory working state: clears the graph, the name-id mapper
+  // and the description store, drops the broken flag and resets the replication epoch/timestamp. Does not
+  // touch durability files -- callers that need the reset to survive a restart use ClearDurabilityAndReset().
+  void ResetTenant();
 
   std::vector<SnapshotFileInfo> ShowSnapshots();
 

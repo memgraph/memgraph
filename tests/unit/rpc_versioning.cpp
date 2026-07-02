@@ -233,7 +233,8 @@ TEST(RpcVersioning, RequestTwoVersionsSingleVersionResponse_ThrowsWhenSendingV1)
   EXPECT_THROW(memgraph::rpc::SaveWithDowngrade(res, 1, &builder), std::runtime_error);
 }
 
-// SystemRecoveryRpc: with ResV1 and Downgrade, both v1 and v2 requests get correct response.
+// SystemRecoveryRpc: requests with and without the optional trailing fields (parameters, repaired
+// tenant uuids) all load and get a correct response.
 TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
   Endpoint const endpoint{"localhost", port};
 
@@ -282,6 +283,20 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
                                                                 std::vector<memgraph::auth::Role>{},
                                                                 std::vector<memgraph::auth::UserProfiles::Profile>{},
                                                                 std::vector<memgraph::parameters::ParameterInfo>{});
+    auto reply = stream.SendAndWait();
+    EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
+  }
+  {
+    auto stream = client.Stream<memgraph::replication::SystemRecoveryRpc>(
+        memgraph::utils::UUID{},
+        0,
+        std::vector<memgraph::storage::SalientConfig>{},
+        memgraph::auth::Auth::Config{},
+        std::vector<memgraph::auth::User>{},
+        std::vector<memgraph::auth::Role>{},
+        std::vector<memgraph::auth::UserProfiles::Profile>{},
+        std::vector<memgraph::parameters::ParameterInfo>{},
+        std::vector<memgraph::utils::UUID>{memgraph::utils::UUID{}, memgraph::utils::UUID{}});
     auto reply = stream.SendAndWait();
     EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
   }

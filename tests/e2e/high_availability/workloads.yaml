@@ -27,6 +27,18 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/durability.py"]
 
+  - name: "Defunct replica self-heal"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/defunct_replica_self_heal.py"]
+
+  - name: "HA defunct cure flows"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/defunct_cure_flows.py"]
+    
+  - name: "Defunct repair replica clean"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/defunct_repair_replica_clean.py"]
+
   - name: "Strict sync mode"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/strict_sync.py"]
@@ -54,7 +66,7 @@ workloads:
   - name: "HA instance metrics"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/instance_metrics.py"]
-    
+
   - name: "HA TLS cluster"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/tls_cluster.py"]

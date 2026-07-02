@@ -16,6 +16,7 @@
 
 namespace memgraph::utils {
 
+// Make sure to append, otherwise values change and we're not backward compatible anymore
 enum class TypeId : uint64_t {
   UNKNOWN = 0,
 
@@ -150,6 +151,8 @@ enum class TypeId : uint64_t {
   REP_UNSET_PARAMETER_RES,
   REP_DELETE_ALL_PARAMETERS_REQ,
   REP_DELETE_ALL_PARAMETERS_RES,
+  REP_REPAIR_DATABASE_REQ,
+  REP_REPAIR_DATABASE_RES,
 
   // Coordinator
   // NOTE: these NEED to be stable in the 2500+ range (see rpc version)
@@ -349,6 +352,7 @@ enum class TypeId : uint64_t {
   AST_TENANT_PROFILE_QUERY,
   AST_SHOW_MEMORY_INFO_QUERY,
   AST_SESSION_SETTING_QUERY,
+  AST_REPAIR_DATABASE_QUERY,
 
   REP_TENANT_PROFILE_REQ,
   REP_TENANT_PROFILE_RES,

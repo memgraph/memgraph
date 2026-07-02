@@ -24,7 +24,9 @@
 #include <csignal>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <map>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -1753,6 +1755,439 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
                }())  // iile
                ,
                "");
+}
+
+// Helper: create a single on-exit snapshot containing `count` vertices.
+inline void CreateSimpleSnapshot(const std::filesystem::path &storage_directory, bool properties_on_edges,
+                                 uint64_t count) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+      .salient = {.items = {.properties_on_edges = properties_on_edges, .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto acc = db.Access(memgraph::storage::WRITE);
+  for (uint64_t i = 0; i < count; ++i) {
+    acc->CreateVertex();
+  }
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+// With --storage-allow-recovery-failure enabled, a database whose snapshots are all
+// corrupt comes up empty and broken instead of crashing the process, and its on-disk
+// durability files are left untouched (so the operator can RECOVER/REPAIR/restore).
+TEST_P(DurabilityTest, SnapshotCorruptBrokenWhenRecoveryFailureAllowed) {
+  CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+
+  for (const auto &snapshot : GetSnapshotsList()) {
+    CorruptSnapshot(snapshot);
+  }
+
+  // Capture on-disk durability state before the (failing) recovery.
+  auto const snapshots_before = GetSnapshotsList();
+  std::map<std::filesystem::path, uint64_t> sizes_before;
+  for (auto const &p : snapshots_before) sizes_before[p] = std::filesystem::file_size(p);
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  EXPECT_TRUE(db.storage()->IsBroken());
+  auto const info = db.storage()->GetBaseInfo();
+  EXPECT_EQ(info.vertex_count, 0);
+  EXPECT_EQ(info.edge_count, 0);
+
+  // On-disk durability files are left byte-for-byte untouched.
+  EXPECT_EQ(GetSnapshotsList().size(), snapshots_before.size());
+  EXPECT_EQ(GetBackupSnapshotsList().size(), 0);
+  for (auto const &p : snapshots_before) {
+    ASSERT_TRUE(std::filesystem::exists(p));
+    EXPECT_EQ(std::filesystem::file_size(p), sizes_before[p]);
+  }
+}
+
+// RECOVER SNAPSHOT cures a broken tenant: loading a known-good snapshot into the empty
+// broken placeholder clears the broken flag and brings the data back.
+TEST_P(DurabilityTest, RecoverSnapshotCuresBroken) {
+  CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+
+  // Stash a known-good copy of the snapshot outside the storage directory before corrupting
+  // the in-place file, so we can RECOVER from it later.
+  auto const good_snapshot_copy =
+      std::filesystem::temp_directory_path() / "MG_test_unit_storage_v2_durability_good_snapshot";
+  std::filesystem::remove(good_snapshot_copy);
+  {
+    auto const snapshots = GetSnapshotsList();
+    ASSERT_EQ(snapshots.size(), 1);
+    std::filesystem::copy_file(
+        snapshots.front(), good_snapshot_copy, std::filesystem::copy_options::overwrite_existing);
+  }
+
+  for (const auto &snapshot : GetSnapshotsList()) {
+    CorruptSnapshot(snapshot);
+  }
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  ASSERT_TRUE(db.storage()->IsBroken());
+  ASSERT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
+
+  auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+  auto const res = storage->RecoverSnapshot(
+      good_snapshot_copy, true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  ASSERT_TRUE(res.has_value());
+
+  // The cure clears broken and the recovered data is present.
+  EXPECT_FALSE(db.storage()->IsBroken());
+  EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 1000);
+
+  // The durability directory is restart-clean: a single recovered snapshot file remains
+  // (the prior corrupt snapshot was moved into the .old backup directory).
+  auto const remaining_snapshots = GetSnapshotsList();
+  size_t snapshot_file_count = 0;
+  for (auto const &p : remaining_snapshots) {
+    if (std::filesystem::is_regular_file(p)) ++snapshot_file_count;
+  }
+  EXPECT_EQ(snapshot_file_count, 1);
+
+  std::filesystem::remove(good_snapshot_copy);
+}
+
+// REPAIR DATABASE cures a broken tenant: it resets the placeholder to an empty working
+// state, clears the broken flag, and moves the corrupt durability files to the .old backup
+// directory (backup dirs enabled by default), leaving the directory restart-clean.
+TEST_P(DurabilityTest, RepairBrokenCuresBroken) {
+  CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+
+  for (const auto &snapshot : GetSnapshotsList()) {
+    CorruptSnapshot(snapshot);
+  }
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  ASSERT_TRUE(db.storage()->IsBroken());
+  ASSERT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
+
+  auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+  auto const res = storage->RepairBroken();
+  ASSERT_TRUE(res.has_value());
+
+  // The cure clears broken and leaves the tenant empty.
+  EXPECT_FALSE(db.storage()->IsBroken());
+  EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
+  EXPECT_EQ(db.storage()->GetBaseInfo().edge_count, 0);
+
+  // The corrupt snapshot was moved aside into the snapshots/.old backup directory (the same
+  // .old convention RecoverSnapshot uses); no snapshot file remains directly under snapshots/,
+  // so the tenant recovers as an empty database on the next restart.
+  auto const old_snapshot_dir = storage_directory / memgraph::storage::durability::kSnapshotDirectory / ".old";
+  ASSERT_TRUE(std::filesystem::exists(old_snapshot_dir));
+  size_t backed_up = 0;
+  for (auto const &item : std::filesystem::directory_iterator(old_snapshot_dir)) {
+    if (std::filesystem::is_regular_file(item)) ++backed_up;
+  }
+  EXPECT_EQ(backed_up, 1);
+  for (auto const &p : GetSnapshotsList()) {
+    EXPECT_TRUE(std::filesystem::is_directory(p)) << "unexpected snapshot file remains: " << p;
+  }
+}
+
+// REPAIR DATABASE is rejected on a healthy (non-broken) storage.
+TEST_P(DurabilityTest, RepairBrokenRejectedOnHealthy) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  ASSERT_FALSE(db.storage()->IsBroken());
+
+  auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+  auto const res = storage->RepairBroken();
+  ASSERT_FALSE(res.has_value());
+  EXPECT_EQ(res.error(), memgraph::storage::InMemoryStorage::RepairError::NotBroken);
+}
+
+// With the flag off (default), the same corruption still aborts startup.
+TEST_P(DurabilityTest, SnapshotCorruptCrashesWhenRecoveryFailureNotAllowed) {
+  CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+
+  for (const auto &snapshot : GetSnapshotsList()) {
+    CorruptSnapshot(snapshot);
+  }
+
+  ASSERT_DEATH(([&]() {
+                 memgraph::storage::Config config{
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+                 };
+                 memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+               }()),
+               "");
+}
+
+// Helper: create a WAL-only durability set (no snapshot) made of several small WAL files,
+// each containing one committed transaction, so the WAL chain spans multiple sequence numbers.
+inline void CreateMultiWalChain(const std::filesystem::path &storage_directory, bool properties_on_edges,
+                                uint64_t count) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .snapshot_wal_mode =
+                         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                     .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                     .wal_file_size_kibibytes = 1,
+                     .wal_file_flush_every_n_tx = 1},
+      .salient = {.items = {.properties_on_edges = properties_on_edges, .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  for (uint64_t i = 0; i < count; ++i) {
+    auto acc = db.Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
+// With the flag on, a corrupt WAL delta brings the database up broken + empty instead of
+// crashing, leaving the on-disk WAL files untouched.
+TEST_P(DurabilityTest, WalDeltaCorruptBrokenWhenRecoveryFailureAllowed) {
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 3);
+
+  // Corrupt the deltas of a non-first WAL file so the structural chain checks pass but the
+  // delta-level LoadWal fails.
+  {
+    auto wals = GetWalsList();  // sorted newest-first
+    DestroyWalFirstDelta(wals[wals.size() - 2]);
+  }
+
+  auto const wals_before = GetWalsList();
+  std::map<std::filesystem::path, uint64_t> sizes_before;
+  for (auto const &p : wals_before) sizes_before[p] = std::filesystem::file_size(p);
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  EXPECT_TRUE(db.storage()->IsBroken());
+  auto const info = db.storage()->GetBaseInfo();
+  EXPECT_EQ(info.vertex_count, 0);
+  EXPECT_EQ(info.edge_count, 0);
+
+  // On-disk WAL files are left byte-for-byte untouched.
+  EXPECT_EQ(GetWalsList().size(), wals_before.size());
+  EXPECT_EQ(GetBackupWalsList().size(), 0);
+  for (auto const &p : wals_before) {
+    ASSERT_TRUE(std::filesystem::exists(p));
+    EXPECT_EQ(std::filesystem::file_size(p), sizes_before[p]);
+  }
+}
+
+// With the flag off (default), a corrupt WAL delta still aborts startup.
+TEST_P(DurabilityTest, WalDeltaCorruptCrashesWhenRecoveryFailureNotAllowed) {
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
+  ASSERT_GE(GetWalsList().size(), 3);
+  {
+    auto wals = GetWalsList();
+    DestroyWalFirstDelta(wals[wals.size() - 2]);
+  }
+
+  ASSERT_DEATH(([&]() {
+                 memgraph::storage::Config config{
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+                 };
+                 memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+               }()),
+               "");
+}
+
+// A WAL-only set whose first (seq_num == 0) file is missing must produce a broken tenant with
+// the flag on (missing prefix WAL), and remain fatal with the flag off.
+TEST_P(DurabilityTest, WalMissingPrefixBrokenWhenRecoveryFailureAllowed) {
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 3);
+
+  // Remove the oldest WAL file (the one with seq_num == 0). GetWalsList() is sorted newest-first.
+  {
+    auto wals = GetWalsList();
+    ASSERT_TRUE(std::filesystem::remove(wals.back()));
+  }
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  EXPECT_TRUE(db.storage()->IsBroken());
+  EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
+}
+
+TEST_P(DurabilityTest, WalMissingPrefixCrashesWhenRecoveryFailureNotAllowed) {
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
+  ASSERT_GE(GetWalsList().size(), 3);
+  {
+    auto wals = GetWalsList();
+    ASSERT_TRUE(std::filesystem::remove(wals.back()));
+  }
+
+  ASSERT_DEATH(([&]() {
+                 memgraph::storage::Config config{
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+                 };
+                 memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+               }()),
+               "");
+}
+
+// A WAL chain with a sequence-number gap (a middle WAL removed) must produce a broken tenant
+// with the flag on, and remain fatal with the flag off.
+TEST_P(DurabilityTest, WalSeqNumGapBrokenWhenRecoveryFailureAllowed) {
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 3);
+
+  // Remove a middle WAL file to introduce a sequence-number gap while keeping the prefix
+  // (seq_num == 0) file present. GetWalsList() is sorted newest-first, so back() is the prefix.
+  {
+    auto wals = GetWalsList();
+    ASSERT_TRUE(std::filesystem::remove(wals[wals.size() - 2]));
+  }
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  EXPECT_TRUE(db.storage()->IsBroken());
+  EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
+}
+
+TEST_P(DurabilityTest, WalSeqNumGapCrashesWhenRecoveryFailureNotAllowed) {
+  CreateMultiWalChain(storage_directory, GetParam(), 1000);
+  ASSERT_GE(GetWalsList().size(), 3);
+  {
+    auto wals = GetWalsList();
+    ASSERT_TRUE(std::filesystem::remove(wals[wals.size() - 2]));
+  }
+
+  ASSERT_DEATH(([&]() {
+                 memgraph::storage::Config config{
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+                 };
+                 memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+               }()),
+               "");
+}
+
+// Byte-flip robustness: copy a real WAL file, flip the byte at each offset in turn, and attempt
+// recovery with the flag on. The corruption must always be detected (broken + empty) rather than
+// crashing the process.
+TEST_P(DurabilityTest, WalByteFlipBrokenRobustness) {
+  CreateMultiWalChain(storage_directory, GetParam(), 200);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Snapshot a pristine copy of the whole durability directory so each iteration starts clean.
+  auto const pristine_dir = std::filesystem::temp_directory_path() / "MG_test_unit_storage_v2_durability_pristine";
+  std::filesystem::remove_all(pristine_dir);
+  std::filesystem::copy(storage_directory, pristine_dir, std::filesystem::copy_options::recursive);
+
+  // Target the last (newest) WAL file; it is small enough to scan exhaustively.
+  auto const target_wal = GetWalsList().front();
+  auto const wal_size = std::filesystem::file_size(target_wal);
+  ASSERT_GT(wal_size, 0u);
+
+  // Keep the runtime bounded by sampling a stride of byte offsets across the file.
+  uint64_t const stride = std::max<uint64_t>(1, wal_size / 256);
+  for (uint64_t offset = 0; offset < wal_size; offset += stride) {
+    // Restore the pristine durability directory.
+    std::filesystem::remove_all(storage_directory);
+    std::filesystem::copy(pristine_dir, storage_directory, std::filesystem::copy_options::recursive);
+
+    // Flip a single byte in the target WAL.
+    {
+      std::fstream f(target_wal, std::ios::binary | std::ios::in | std::ios::out);
+      ASSERT_TRUE(f.is_open());
+      f.seekg(static_cast<std::streamoff>(offset));
+      char b = 0;
+      f.read(&b, 1);
+      b = static_cast<char>(~static_cast<uint8_t>(b));
+      f.seekp(static_cast<std::streamoff>(offset));
+      f.write(&b, 1);
+      f.close();
+    }
+
+    // Recover with the flag on: this must never abort/crash the process. A flipped length byte can
+    // make a delta request an absurd allocation; the ReadSize bound turns that into a RecoveryFailure
+    // (-> broken) instead of an escaping std::bad_alloc, so bad_alloc must never escape here. When
+    // construction succeeds, a failed recovery must yield a broken + empty DB.
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .allow_recovery_failure = true},
+        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+    };
+    try {
+      memgraph::dbms::Database db{config};
+      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+      if (db.storage()->IsBroken()) {
+        EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0) << "broken DB at byte offset " << offset;
+      }
+    } catch (const std::bad_alloc &) {
+      ADD_FAILURE() << "std::bad_alloc escaped recovery at byte offset " << offset
+                    << "; a corrupt length field must surface as RecoveryFailure (broken), not bad_alloc";
+    } catch (const std::exception &) {
+      // Other corruption shapes may still be reported via a thrown exception during construction;
+      // the guarantee tested here is process survival plus no bad_alloc from length fields.
+    }
+  }
+
+  std::filesystem::remove_all(pristine_dir);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

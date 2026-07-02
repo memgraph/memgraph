@@ -454,7 +454,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Destroy is noexcept; deleted_edges_/graveyard are empty at recovery time
     // because the WAL edge-delete replay arm calls LightEdgePool::Destroy
     // directly without queuing).
-    auto info = std::invoke([&] {
+    auto info = std::invoke([&] -> std::optional<durability::RecoveryInfo> {
       try {
         return recovery_.RecoverData(
             uuid(),
@@ -475,6 +475,21 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
             name(),
             &ttl_,
             &description_store_);
+      } catch (const durability::RecoveryFailure &e) {
+        // --storage-allow-recovery-failure: instead of crashing the process, bring this
+        // database up empty and broken. RecoverData only reads durability files, so the
+        // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT,
+        // REPAIR DATABASE, or restore the whole data directory from a backup.
+        if (!config_.durability.allow_recovery_failure) throw;
+        spdlog::warn("Database '{}' failed to recover ({}); bringing it up in the broken state.", name(), e.what());
+        Clear();
+        name_id_mapper_->Clear();
+        description_store_.Clear();
+        // Snapshot recovery may have already started the storage-ttl background thread; stop it so a
+        // broken database doesn't keep firing TTL jobs against cleared storage.
+        ttl_.Disable();
+        SetBroken(true);
+        return std::nullopt;
       } catch (...) {
         // Free any pool-allocated light Edge* already wired into vertex
         // adjacency before the exception propagates out of the constructor.
@@ -516,6 +531,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         }
       }
     }
+
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {
     bool files_moved = false;
@@ -633,7 +649,8 @@ InMemoryStorage::~InMemoryStorage() {
   }
 
   snapshot_runner_.Stop();
-  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
+  // A broken database must not write an exit snapshot over its untouched corrupt files.
+  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler && !IsBroken()) {
     create_snapshot_handler("exit");
   }
   // Leak fix: a deleted light edge whose delta chain was never GC-unlinked
@@ -4177,6 +4194,12 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
 std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
     bool force, std::string_view trigger) {
+  // A broken storage (failed recovery) is empty and must never overwrite the
+  // operator's untouched corrupt durability files with an empty snapshot.
+  if (IsBroken()) {
+    return std::unexpected{CreateSnapshotError::AbortSnapshot};
+  }
+
   auto abort_reset = utils::OnScopeExit([this]() mutable {
     // Abort is a one shot, reset it to false every time
     abort_snapshot_.store(false, std::memory_order_release);
@@ -4502,7 +4525,84 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     throw utils::BasicException("Couldn't recover from the snapshot because of: {}", e.what());
   }
 
+  // A successful recovery cures a broken tenant: the durability directory is now
+  // restart-clean (prior/corrupt files moved to .old or deleted), so background
+  // durability can resume. Unlike REPAIR DATABASE, this does not set was_repaired_:
+  // the tenant is repopulated with real data (not reset to empty), so replicas
+  // re-sync through the standard epoch-mismatch recovery path rather than via the
+  // repaired_uuids reset hint.
+  SetBroken(false);
+
   return {};
+}
+
+std::expected<void, InMemoryStorage::RepairError> InMemoryStorage::RepairBroken() {
+  if (!IsBroken()) {
+    return std::unexpected{InMemoryStorage::RepairError::NotBroken};
+  }
+  return ClearDurabilityAndReset();
+}
+
+std::expected<void, InMemoryStorage::RepairError> InMemoryStorage::ClearDurabilityAndReset() {
+  auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
+  constexpr std::string_view old_dir = ".old";
+
+  // Move the corrupt snapshots and WAL files aside (to .old) when backup directories
+  // are enabled, otherwise delete them. This leaves the durability directory clean so
+  // the tenant recovers as an empty database on the next restart rather than re-breaking.
+  if (use_old_dir) {
+    std::error_code ec{};
+    for (auto const &dir : {recovery_.snapshot_directory_, recovery_.wal_directory_}) {
+      auto const backup_dir = dir / old_dir;
+      if (std::filesystem::exists(backup_dir)) {
+        std::filesystem::remove_all(backup_dir, ec);
+        if (ec) {
+          spdlog::warn("Failed to clear stale backup directory {}; it should be cleaned manually. Err: {}",
+                       backup_dir,
+                       ec.message());
+          return std::unexpected{InMemoryStorage::RepairError::BackupFailure};
+        }
+      }
+      std::filesystem::create_directory(backup_dir, ec);
+      if (ec) {
+        spdlog::warn(
+            "Failed to create backup directory {}; it should be cleaned manually. Err: {}", backup_dir, ec.message());
+        return std::unexpected{InMemoryStorage::RepairError::BackupFailure};
+      }
+    }
+  }
+
+  for (auto const &dir : {recovery_.snapshot_directory_, recovery_.wal_directory_}) {
+    for (auto const &file_path : utils::GetFilesFromDir(dir)) {
+      if (!use_old_dir) {
+        file_retainer_.DeleteFile(file_path);
+      } else {
+        auto const new_path = dir / old_dir / file_path.filename();
+        spdlog::trace("Moving file {} to {}", file_path, new_path);
+        file_retainer_.RenameFile(file_path, new_path);
+      }
+    }
+    std::error_code ec{};
+    std::filesystem::remove(dir / old_dir, ec);  // remove dir if empty
+  }
+
+  // Reset the tenant to an empty working state (mirrors the broken scrub in the constructor).
+  ResetTenant();
+
+  return {};
+}
+
+void InMemoryStorage::ResetTenant() {
+  // Mututally exclusive with periodic snapshot
+  auto snapshot_lock = std::lock_guard{snapshot_lock_};
+  auto main_lock = std::lock_guard{main_lock_};  // needed for Clear()
+  Clear();
+  name_id_mapper_->Clear();
+  description_store_.Clear();
+  SetBroken(false);
+  // Fresh repair: drop prior confirmations so every replica is advertised this repair until it re-confirms.
+  ClearRepairConfirmations();
+  SetRepaired(true);
 }
 
 std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {
@@ -4655,7 +4755,10 @@ void InMemoryStorage::CreateSnapshotHandler(
   snapshot_runner_.SetInterval(config_.durability.snapshot_interval);
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
     const memory::DbArenaScope db_arena_scope{db_arena_};
-    if (!token.stop_requested()) {
+    // Skip broken databases: they are empty and writing a snapshot would overwrite
+    // the operator's untouched corrupt durability files. Skipped silently to avoid
+    // per-tick log spam (CreateSnapshot also guards defensively).
+    if (!token.stop_requested() && !IsBroken()) {
       this->create_snapshot_handler("periodic");
     }
   });

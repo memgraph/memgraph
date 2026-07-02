@@ -12,6 +12,8 @@
 #pragma once
 
 #include <optional>
+#include <set>
+#include <string>
 
 #include "common_function_signatures.hpp"
 #include "memory/db_arena_fwd.hpp"
@@ -40,6 +42,8 @@
 #include "storage/v2/vertices_chunked_iterable.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 
 namespace memgraph::metrics {
@@ -216,6 +220,44 @@ class Storage {
 
   auto uuid() -> utils::UUID & { return config_.salient.uuid; }
 
+  // A storage is broken when it failed durability recovery on startup and was
+  // brought up empty (see --storage-allow-recovery-failure). A broken storage
+  // rejects data queries until recovered via RECOVER SNAPSHOT or REPAIR DATABASE.
+  bool IsBroken() const noexcept { return broken_.load(std::memory_order_acquire); }
+
+  void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
+
+  // A storage is marked repaired when it was reset to an empty working state via REPAIR DATABASE
+  // (locally on the main or through the RepairDatabaseRpc on a replica). The main advertises its
+  // repaired tenants in SystemRecoveryReq so a replica that missed the RepairDatabaseRpc still
+  // learns it must reset that tenant. The flag is in-memory and lives only for the current run.
+  bool WasRepaired() const noexcept { return was_repaired_.load(std::memory_order_acquire); }
+
+  void SetRepaired(bool value) noexcept { was_repaired_.store(value, std::memory_order_release); }
+
+  // Records that replica `replica_name` confirmed (applied) the most recent repair of this tenant, so the
+  // main stops advertising the repair to it (see WasRepaired()). Prevents a replica that already reset and
+  // re-synced from being needlessly reset again on a later reconnect.
+  void MarkRepairConfirmedBy(std::string_view replica_name) {
+    repaired_confirmed_replicas_.WithLock([&](auto &names) { names.emplace(std::string{replica_name}); });
+  }
+
+  // True if `replica_name` already confirmed the most recent repair of this tenant.
+  bool RepairConfirmedBy(std::string_view replica_name) const {
+    return repaired_confirmed_replicas_.WithReadLock([&](auto const &names) { return names.contains(replica_name); });
+  }
+
+  // Clears all repair confirmations. Called on a fresh repair so every replica must re-confirm before the
+  // tenant stops being advertised in SystemRecoveryReq.
+  void ClearRepairConfirmations() {
+    repaired_confirmed_replicas_.WithLock([](auto &names) { names.clear(); });
+  }
+
+  // Last durable timestamp; 0 right after a tenant reset (REPAIR/ResetTenant).
+  uint64_t GetLastDurableTimestamp() const noexcept {
+    return repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+  }
+
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
   using Accessor = memgraph::storage::Accessor;
@@ -342,6 +384,17 @@ class Storage {
   // keep a separate count of edges that is always updated. This counter is also used
   // for disk storage.
   std::atomic<uint64_t> edge_count_{0};
+
+  // Set when durability recovery failed and the storage was brought up empty.
+  std::atomic<bool> broken_{false};
+
+  // Set when the tenant was reset to an empty state via REPAIR DATABASE (see WasRepaired()).
+  std::atomic<bool> was_repaired_{false};
+
+  // Replica names that confirmed the most recent repair of this tenant (see MarkRepairConfirmedBy()).
+  // Used so a repaired tenant is advertised in SystemRecoveryReq only to replicas that have not yet
+  // reset it. In-memory, per run.
+  utils::Synchronized<std::set<std::string, std::less<>>, utils::RWSpinLock> repaired_confirmed_replicas_;
 
   std::unique_ptr<NameIdMapper> name_id_mapper_;
   Config config_;
