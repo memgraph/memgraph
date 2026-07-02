@@ -89,22 +89,28 @@ jobs:
       - name: PGO — instrument, train, merge
         if: ${{ inputs.pgo }}
         run: |
-          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH init-tests
+          # 1) instrumented build — this is what copies the repo into the container
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN --os $OS --arch $ARCH --build-type $BUILD_TYPE \
             build-memgraph --pgo generate \
             --conan-remote $CONAN_REMOTE --conan-username $CONAN_USERNAME --conan-password $CONAN_PASSWORD
+          # 2) datasets + test env for training (repo now present in the container)
+          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH init-tests
+          # 3) train on the full mgbench pokec query mix
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN --os $OS --arch $ARCH \
             --enterprise-license "$MEMGRAPH_ENTERPRISE_LICENSE" --organization-name "$MEMGRAPH_ORGANIZATION_NAME" \
             pgo-train --dataset pokec --size small
+          # 4) merge -> /home/mg/pgo.profdata (outside build/, survives the next build)
           ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH pgo-merge
 
       - name: Build release binary
         run: |
           PGO_ARGS=""
           if [[ "${{ inputs.pgo }}" == "true" ]]; then
-            PGO_ARGS="--pgo use"   # consumes build/pgo.profdata from the step above
+            # --no-copy reuses the prelude's copied source so /home/mg/pgo.profdata
+            # survives; --pgo use reads that merged profile.
+            PGO_ARGS="--pgo use --no-copy"
           fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \

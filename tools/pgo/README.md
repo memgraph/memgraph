@@ -21,15 +21,21 @@ Single `-D` token so it forwards cleanly through `build.sh` / `mgbuild.sh`:
 Via `mgbuild.sh`:
 
 ```bash
-# 1. instrumented build
+# 1. instrumented build (this is what copies the repo into the container)
 mgbuild.sh ... build-memgraph --pgo generate
-# 2. train (exercises the instrumented binary across the full mgbench query mix)
+# 2. datasets + test env for the training workload
+mgbuild.sh ... init-tests
+# 3. train (exercises the instrumented binary across the full mgbench query mix)
 mgbuild.sh ... --enterprise-license "$L" --organization-name "$O" pgo-train --dataset pokec --size small
-# 3. merge raw profiles -> build/pgo.profdata
+# 4. merge raw profiles -> /home/mg/pgo.profdata (OUTSIDE build/, so it survives step 5's clean)
 mgbuild.sh ... pgo-merge
-# 4. optimized build
-mgbuild.sh ... build-memgraph --pgo use --split-debug
+# 5. optimized build; --no-copy reuses the source from step 1, --pgo use reads the merged profile
+mgbuild.sh ... build-memgraph --pgo use --no-copy --split-debug
 ```
+
+Order matters: `build-memgraph` wipes `build/*` (and re-copies the repo unless `--no-copy`),
+so the instrumented build must come first, the profile is stored outside `build/`, and the
+optimized build uses `--no-copy` to keep the source + profile from the earlier steps.
 
 ## The CI / Grafana experiment
 

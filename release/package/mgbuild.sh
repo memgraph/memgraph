@@ -749,6 +749,10 @@ build_memgraph () {
   # PGO: single -D tokens (no spaces) so unquoted forwarding stays intact.
   if [[ -n "$pgo_mode" ]]; then
     additional_options="$additional_options -DMG_PGO=$pgo_mode"
+    # Default 'use' profile to where pgo-merge wrote it (outside build/, survives cleans).
+    if [[ "$pgo_mode" == "use" && -z "$pgo_profile" ]]; then
+      pgo_profile="$MGBUILD_HOME_DIR/pgo.profdata"
+    fi
     if [[ -n "$pgo_profile" ]]; then
       additional_options="$additional_options -DMG_PGO_PROFILE=$pgo_profile"
     fi
@@ -3019,9 +3023,10 @@ case $command in
       docker exec -u mg $build_container bash -c "export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license && export MEMGRAPH_ORGANIZATION_NAME=$organization_name && mkdir -p $MGBUILD_ROOT_DIR/build/pgo-raw && export LLVM_PROFILE_FILE=$MGBUILD_ROOT_DIR/build/pgo-raw/mg_%p_%m.profraw && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 6 $PGO_DATASET/$PGO_SIZE/*/*"
     ;;
     pgo-merge)
-      # Merge raw profiles -> build/pgo.profdata for build-memgraph --pgo use.
+      # Merge raw profiles -> $MGBUILD_HOME_DIR/pgo.profdata (OUTSIDE build/ and the repo,
+      # so it survives the 'rm -rf build/*' + repo re-copy the next build-memgraph does).
       shift 1
-      docker exec -u mg $build_container bash -c "source /opt/toolchain-${toolchain_version}/activate && llvm-profdata merge -o $MGBUILD_ROOT_DIR/build/pgo.profdata $MGBUILD_ROOT_DIR/build/pgo-raw/*.profraw && echo 'PGO merged profile:' && ls -la $MGBUILD_ROOT_DIR/build/pgo.profdata"
+      docker exec -u mg $build_container bash -c "source /opt/toolchain-${toolchain_version}/activate && llvm-profdata merge -o $MGBUILD_HOME_DIR/pgo.profdata $MGBUILD_ROOT_DIR/build/pgo-raw/*.profraw && echo 'PGO merged profile:' && ls -la $MGBUILD_HOME_DIR/pgo.profdata"
     ;;
     package-memgraph)
       package_memgraph $@
