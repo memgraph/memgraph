@@ -30,6 +30,7 @@ inline constexpr std::string_view kInvokerWithFineGrainedSet{"INVOKER_FG_SET"};
 inline constexpr std::string_view kInvokerWithoutFineGrainedSet{"INVOKER_FG_NO_SET"};
 inline constexpr std::string_view kDefinerWithFineGrainedSet{"DEFINER_FG_SET"};
 inline constexpr std::string_view kDefinerWithoutFineGrainedSet{"DEFINER_FG_NO_SET"};
+inline constexpr std::string_view kPbacUser{"PBAC_USER"};
 inline constexpr std::string_view kTriggerProperty{"triggered"};
 
 void CreateUser(mg::Client &client, std::string_view username) {
@@ -158,6 +159,13 @@ class PrivilegeCheckTest : public ::testing::TestWithParam<std::string> {
       admin_client_->Execute(fmt::format("GRANT READ, SET PROPERTY {{*}} ON NODES CONTAINING LABELS * TO {};", user));
       admin_client_->DiscardAll();
     }
+
+    // PBAC test user: full privileges but READ denied on property "secret"
+    CreateUser(*admin_client_, kPbacUser);
+    GrantAllPrivileges(*admin_client_, kPbacUser);
+    admin_client_->Execute(
+        fmt::format("DENY READ {{secret}} ON NODES CONTAINING LABELS :{} TO {};", kVertexLabel, kPbacUser));
+    admin_client_->DiscardAll();
   }
 
   static void TearDownTestSuite() {
@@ -168,6 +176,7 @@ class PrivilegeCheckTest : public ::testing::TestWithParam<std::string> {
     DropUser(*admin_client_, kInvokerWithFineGrainedSet);
     DropUser(*admin_client_, kInvokerWithoutFineGrainedSet);
     DropUser(*admin_client_, kDefinerWithFineGrainedSet);
+    DropUser(*admin_client_, kPbacUser);
 
     admin_client_.reset();
   }
@@ -412,6 +421,47 @@ TEST_P(PrivilegeCheckTest, DefinerFineGrainedNoSet) {
 
   CleanupVertices(*admin_client_);
   DropTrigger(*admin_client_, "DefinerFGNoSet");
+}
+
+TEST_P(PrivilegeCheckTest, InvokerPropertyDeniedRead) {
+  const std::string &phase = GetParam();
+  const bool is_after = (phase == "AFTER");
+
+  auto pbac_client = ConnectWithUser(kPbacUser);
+
+  // Trigger copies v.secret into v.result. If PBAC is enforced, v.secret is
+  // null.
+  pbac_client->Execute(
+      fmt::format("CREATE TRIGGER PbacReadDeny SECURITY INVOKER ON CREATE "
+                  "{} COMMIT EXECUTE "
+                  "UNWIND createdVertices AS v "
+                  "SET v.result = v.secret",
+                  phase));
+  pbac_client->DiscardAll();
+
+  // Create a vertex with a secret property
+  mg::Map params{{"id", mg::Value{kVertexId}}, {"secret", mg::Value{42}}};
+  pbac_client->Execute(fmt::format("CREATE (n:{} {{id: $id, secret: $secret}})", kVertexLabel),
+                       mg::ConstMap{params.ptr()});
+  pbac_client->DiscardAll();
+
+  mg::Map query_params{{"id", mg::Value{kVertexId}}};
+  auto const check_result = [&]() {
+    pbac_client->Execute(fmt::format("MATCH (n:{} {{id: $id}}) RETURN n.result AS result", kVertexLabel),
+                         mg::ConstMap{query_params.ptr()});
+    auto result = pbac_client->FetchAll();
+    if (!result || result->empty()) return false;
+    return result->at(0)[0].type() == mg::Value::Type::Null;
+  };
+
+  if (is_after) {
+    EXPECT_TRUE(PollUntilTrue(check_result)) << "Trigger should not be able to read denied property";
+  } else {
+    EXPECT_TRUE(check_result()) << "Trigger should not be able to read denied property";
+  }
+
+  CleanupVertices(*admin_client_);
+  DropTrigger(*admin_client_, "PbacReadDeny");
 }
 
 INSTANTIATE_TEST_SUITE_P(TriggerPhases, PrivilegeCheckTest, testing::Values("BEFORE", "AFTER"),

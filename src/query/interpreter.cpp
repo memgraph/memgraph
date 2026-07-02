@@ -3227,8 +3227,6 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.user_or_role = user_or_role;  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
   if (auth_checker) {
-    ctx_.has_property_restrictions = !auth_checker->HasUnrestrictedAccessToVertexProperties() ||
-                                     !auth_checker->HasUnrestrictedAccessToEdgeTypeProperties();
     ctx_.auth_checker = auth_checker;
   }
 #else

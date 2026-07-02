@@ -60,8 +60,6 @@ ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, co
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
   context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
   context.auth_checker = auth_checker;
-  context.has_property_restrictions = !auth_checker->HasUnrestrictedAccessToVertexProperties() ||
-                                      !auth_checker->HasUnrestrictedAccessToEdgeTypeProperties();
   context.metric_handles = &TestMetricHandles();
   return context;
 }
