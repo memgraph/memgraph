@@ -11,9 +11,9 @@ concurrency:
 # exercise the binary against a libpython it was NOT built against.
 
 on:
-    # push:
-    #     branches:
-    #         - python-stable-abi
+    push:
+        branches:
+            - python-stable-abi
     workflow_dispatch:
         inputs:
             python_versions:
@@ -60,7 +60,7 @@ jobs:
             - name: Build version matrix
               id: versions
               env:
-                  PYTHON_VERSIONS: ${{ inputs.python_versions }}
+                  PYTHON_VERSIONS: ${{ inputs.python_versions || '3.10,3.11,3.12,3.13,3.14' }}
               run: |
                   # Emit a JSON array of *quoted strings* — quoting matters: bare 3.10
                   # would be parsed as the number 3.1 and lose the trailing zero.
@@ -75,8 +75,8 @@ jobs:
 
     Community:
         needs: Setup
-        # if: ${{ github.event_name != 'push' && inputs.community }}
-        if: ${{ inputs.community }}
+        if: ${{ github.event_name != 'push' && inputs.community }}
+        # if: ${{ inputs.community }}
         strategy:
             fail-fast: false
             max-parallel: 3
@@ -96,8 +96,8 @@ jobs:
 
     Coverage:
         needs: Setup
-        # if: ${{ github.event_name != 'push' && inputs.coverage }}
-        if: ${{ inputs.coverage }}
+        if: ${{ github.event_name != 'push' && inputs.coverage }}
+        # if: ${{ inputs.coverage }}
         strategy:
             fail-fast: false
             max-parallel: 3
@@ -118,8 +118,8 @@ jobs:
 
     Debug:
         needs: Setup
-        # if: ${{ github.event_name != 'push' && inputs.debug }}
-        if: ${{ inputs.debug }}
+        if: ${{ github.event_name != 'push' && inputs.debug }}
+        # if: ${{ inputs.debug }}
         strategy:
             fail-fast: false
             max-parallel: 3
@@ -140,8 +140,8 @@ jobs:
 
     Release:
         needs: Setup
-        # if: ${{ github.event_name == 'push' || inputs.release }}
-        if: ${{ inputs.release }}
+        if: ${{ github.event_name == 'push' || inputs.release }}
+        # if: ${{ inputs.release }}
         strategy:
             fail-fast: false
             max-parallel: 3
@@ -165,8 +165,8 @@ jobs:
 
     Mage:
         needs: Setup
-        # if: ${{ github.event_name != 'push' && inputs.mage }}
-        if: ${{ inputs.mage }}
+        if: ${{ github.event_name != 'push' && inputs.mage }}
+        # if: ${{ inputs.mage }}
         strategy:
             fail-fast: false
             max-parallel: 3
