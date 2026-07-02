@@ -90,7 +90,13 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
       EdgeAccessor current_accessor_;
     };
 
-    Iterator begin() { return {this, index_accessor_.begin()}; }
+    Iterator begin() {
+      if (!bounds_valid_) return {this, index_accessor_.end()};
+      if (lower_bound_) {
+        return {this, index_accessor_.find_equal_or_greater(lower_bound_->value())};
+      }
+      return {this, index_accessor_.begin()};
+    }
 
     Iterator end() { return {this, index_accessor_.end()}; }
 
