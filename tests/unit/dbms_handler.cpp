@@ -317,6 +317,92 @@ TEST(DBMS_Handler, MigratesV1DurabilityAndRestoresTenant) {
   fs::remove_all(root);
 }
 
+TEST(DBMS_Handler, MigratesV0DefaultDbDurabilityAndRestoresTenant) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+  using memgraph::dbms::kDefaultDB;
+
+  const fs::path root = fs::temp_directory_path() / "MG_test_unit_dbms_handler_v0_migration";
+  fs::remove_all(root);
+  fs::create_directories(root);
+
+  // Mirrors the DbmsHandler ctor's own layout (dbms_handler.cpp): <root>/databases/.durability
+  const fs::path db_dir_local = root / std::string(memgraph::dbms::kMultiTenantDir);
+  const fs::path durability_dir = db_dir_local / ".durability";
+  fs::create_directories(durability_dir);
+
+  {
+    // Seed a V0 durability kvstore BEFORE constructing DbmsHandler: no "version" key at all (so
+    // VersionCheck reads V0), and a single BARE (un-prefixed) entry under the default DB's name.
+    // Migrate's V0 loop only reads the key to decide whether/how to rewrite it -- the value itself
+    // is discarded for every V0 entry (see `for (const auto &[key, _] : *durability)` in
+    // dbms_handler.cpp, which binds the value to `_` and never reads it) -- so any placeholder
+    // string is a faithful stand-in for whatever pre-V1 format actually lived there.
+    //
+    // The default DB is the special case in that same loop: `if (key != kDefaultDB)` skips the
+    // directory-rename branch entirely for it, so its storage stays directly under `root` (no
+    // kMultiTenantDir/<uuid> subdirectory, no pre-existing on-disk layout required here) --
+    // identical to how a fresh single-tenant V0 instance is laid out.
+    memgraph::kvstore::KVStore seed_kv{durability_dir};
+    ASSERT_TRUE(seed_kv.Put(std::string{kDefaultDB}, "pre-v1-placeholder-value"));
+  }
+
+  // Construct a fresh DbmsHandler over the pre-seeded durability dir. Migrate() runs first in the
+  // ctor (unconditionally) and must upgrade V0 -> V1 -> V2 in the SAME atomic batch (the fix under
+  // test: version must not advance to V2 while the V0->V1 key rewrite is still pending), rewriting
+  // the bare "memgraph" key into "database:memgraph"; the restore loop must then bring the default
+  // DB up HOT, with no throw/abort.
+  memgraph::storage::Config conf;
+  memgraph::storage::UpdatePaths(conf, root);
+  conf.durability.snapshot_wal_mode =
+      memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf))
+      << "A well-formed V0 default-DB entry must migrate and restore cleanly, not be treated as corrupt";
+  ASSERT_TRUE(handler);
+
+  // The default DB must be restored HOT: present in All(), not suspended, and Get() must yield a
+  // live accessor (a COLD/suspended restore, or a failed-and-skipped corrupt entry, would fail one
+  // of these).
+  const auto all = handler->All();
+  EXPECT_TRUE(std::find(all.begin(), all.end(), std::string{kDefaultDB}) != all.end())
+      << "the default DB must be in the HOT set after restore";
+  EXPECT_FALSE(handler->IsSuspended(kDefaultDB)) << "a V0 entry has no cold marker and must restore HOT, not COLD";
+
+  auto default_acc = handler->Get(kDefaultDB);
+  ASSERT_TRUE(default_acc) << "Get() on the restored default DB must succeed";
+  default_acc.reset();
+
+  // The durability kvstore must now read back "V2", and the bare "memgraph" key must have been
+  // rewritten to the "database:"-prefixed key with a generated uuid + rel_dir -- both landing in the
+  // SAME atomic batch that bumped the version (the fix under test). Re-open only after releasing the
+  // handler (KVStore's one-writer-at-a-time contract).
+  handler.reset();
+  {
+    memgraph::kvstore::KVStore verify_kv{durability_dir};
+    auto version = verify_kv.Get("version");
+    ASSERT_TRUE(version.has_value());
+    EXPECT_EQ(*version, "V2") << "Migrate() must bump a V0 durability store to V2";
+
+    // The bare, un-prefixed key must no longer exist: Migrate's V0 loop unconditionally rewrites it.
+    EXPECT_FALSE(verify_kv.Get(std::string{kDefaultDB}).has_value()) << "the bare V0 key must not survive migration";
+
+    // "database:" is Durability::kDBPrefix (dbms_handler.cpp, file-local) -- mirrored here as a
+    // literal exactly like the V1 test above does for "database:db1", since that prefix isn't
+    // exposed via any header this test can include.
+    const std::string key = std::string{"database:"} + std::string{kDefaultDB};
+    auto entry = verify_kv.Get(key);
+    ASSERT_TRUE(entry.has_value()) << "the migrated default-DB entry must live under the database:-prefixed key";
+    const auto entry_json = nlohmann::json::parse(*entry);
+    EXPECT_TRUE(entry_json.contains("uuid")) << "Migrate's V0->V1 rewrite generates a fresh uuid";
+    EXPECT_TRUE(entry_json.contains("rel_dir")) << "Migrate's V0->V1 rewrite records the tenant's rel_dir";
+    EXPECT_FALSE(entry_json.value("cold", false)) << "a migrated V0 entry must not gain a cold marker";
+  }
+
+  fs::remove_all(root);
+}
+
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   // gtest takes ownership of the TestEnvironment ptr - we don't delete it.

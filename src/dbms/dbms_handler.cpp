@@ -191,9 +191,10 @@ struct Durability {
     // V2 only ADDS optional COLD entries (written by SUSPEND). Reads default `cold` to false and
     // `cold_stats` to zeros, so an unmigrated V1 entry is read correctly with no data movement.
 
-    // Set version to the current schema (V2).
-    durability->Put("version", "V2");
-    // Update to the new key-value pairs
+    // Bump the version inside the SAME atomic batch as the key rewrite: a crash must never leave
+    // version=V2 persisted while the V0->V1 key rewrite is missing (that would permanently skip
+    // migration on the next boot and orphan the un-rewritten keys). Version advances iff the batch lands.
+    to_put.emplace("version", "V2");
     if (!durability->PutAndDeleteMultiple(to_put, to_delete)) {
       throw MigrationException();
     }
