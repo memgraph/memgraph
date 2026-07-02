@@ -121,9 +121,9 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
 
 // Retry/timeout knobs for Resume_'s single-flight loser loop. Defaults are the production values;
 // a test can shrink them (via the DbmsHandler constructor or SetResumeRetryPolicy) to exercise the
-// bounded-retry path in milliseconds instead of the ~minutes the production constants require.
+// liveness-window / absolute-ceiling paths in milliseconds instead of the ~minutes the production
+// constants require.
 struct ResumeRetryPolicy {
-  int max_cold_fallback_restarts = 16;
   std::chrono::milliseconds winner_liveness_window = std::chrono::seconds(30);
   std::chrono::milliseconds max_wait = std::chrono::minutes(10);
 };

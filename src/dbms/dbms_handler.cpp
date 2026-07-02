@@ -1233,13 +1233,12 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
 
 DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewire_replication, system::Transaction *txn,
                                                bool *already_hot) {
-  // Outer loop: a loser that observes a COLD-fallback (the winner aborted) restarts the whole
-  // attempt from Phase A. Every restart re-initializes gk/salient/rel_dir/won_resume from the map
-  // under a fresh shared lock. All early-exit paths (NON_EXISTENT, already-HOT, timeout, build
-  // failure) are `return`s; only the COLD-fallback path `continue`s.
-  // Bound the retry count: a transient single abort retries; a persistent on_resume_ failure is
-  // surfaced as RECOVERY_FAILED instead of looping forever.
-  int cold_fallback_restarts = 0;
+  // Outer loop: a loser keeps `continue`-ing only while the winner is demonstrably alive
+  // (RESUMING/SUSPENDING), re-initializing gk/salient/rel_dir/won_resume from the map under a fresh
+  // shared lock on each pass. All other exits (NON_EXISTENT, already-HOT, timeout, build failure, and
+  // a CONFIRMED-COLD winner abort) are `return`s — a loser that confirms the winner aborted fails fast
+  // with RECOVERY_FAILED rather than auto-retrying; RESUME is idempotent/retriable, so the caller
+  // re-issues.
   // Wall-clock start for the resume-latency histogram; observed only on the winner's successful publish
   // below (the path that bumps the resume counter), so loser/error returns do not skew the distribution.
   const auto resume_start = std::chrono::steady_clock::now();
@@ -1313,10 +1312,10 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           // Re-fetch the gatekeeper by name under THIS shared lock rather than dereferencing the raw
           // `gk` captured in Phase A: a concurrent DROP of the (now-COLD) tenant during a sleep window
           // can free the GKInternals `gk` points at. nullptr (dropped) or COLD => treat as a fallback
-          // and restart Phase A (which then observes NON_EXISTENT and returns cleanly). We must NOT
-          // restart while holding this shared lock (the winner path takes the exclusive lock_ on the
-          // same thread -> self-deadlock on the PREFER_READER rwlock): set a flag, drop the lock, then
-          // continue the outer loop.
+          // and break out of polling to the authoritative post-poll re-check below, which returns
+          // NON_EXISTENT (dropped) or RECOVERY_FAILED (winner aborted). We must NOT re-check while
+          // holding this shared lock (the winner path takes the exclusive lock_ on the same thread ->
+          // self-deadlock on the PREFER_READER rwlock): set a flag, drop the lock, then break.
           auto *live_gk = db_handler_.GetGatekeeper(name);
           if (!live_gk || live_gk->state() == utils::GatekeeperState::COLD) {
             retry_after_cold_fallback = true;
@@ -1332,7 +1331,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
             deadline = std::chrono::steady_clock::now() + resume_retry_policy_.winner_liveness_window;
           }
         }
-        if (retry_after_cold_fallback) break;  // exit poll loop; outer `continue` restarts Phase A
+        if (retry_after_cold_fallback) break;  // exit poll loop; fall through to the post-poll decision
         std::this_thread::sleep_for(kPollStep);
       }
       bool winner_still_resuming = false;
@@ -1350,23 +1349,22 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         // transition is live (see the loser-poll SUSPENDING note above) — its `suspended_` entry is
         // guaranteed present once it reaches COLD, so this is also just "still alive, keep waiting", not
         // a fallback. A demonstrably-live winner must NEVER be turned into a RECOVERY_FAILED, however
-        // long its rebuild takes (a huge tenant replaying a long WAL is legitimately slow). Restart
-        // Phase A to keep waiting WITHOUT counting this toward the abort bound — the bound guards only a
-        // winner that actually ABORTED, not one still alive.
+        // long its rebuild takes (a huge tenant replaying a long WAL is legitimately slow) — only restart
+        // Phase A to keep waiting; a CONFIRMED-COLD (aborted) winner is the only case that fails fast.
         winner_still_resuming = (live_gk->state() == utils::GatekeeperState::RESUMING ||
                                  live_gk->state() == utils::GatekeeperState::SUSPENDING);
-        // COLD / any other non-terminal state: the winner aborted (or a SUSPEND completed) — the bounded
-        // COLD-fallback path restarts Phase A and counts it, so a persistent on_resume_ failure (e.g.
-        // corrupt trigger metadata) is surfaced as RECOVERY_FAILED instead of looping forever.
+        // COLD / any other non-terminal state: the winner aborted (or a SUSPEND completed) — fail fast
+        // below with RECOVERY_FAILED instead of auto-retrying.
       }
-      // A live (RESUMING) winner: keep waiting — do NOT advance the abort bound (this is the HC-1 fix:
-      // the absolute_ceiling can fire purely because the winner stayed RESUMING, and that must not count).
+      // A live (RESUMING/SUSPENDING) winner: keep waiting, bounded by max_wait via the outer loop
+      // re-arming the poll (this is the HC-1 fix: the absolute_ceiling can fire purely because the
+      // winner stayed RESUMING, and that must not be treated as an abort).
       if (winner_still_resuming) continue;
-      // Bound the retry — a single transient abort is retried; a persistent on_resume_ failure
-      // (e.g. corrupt trigger metadata) is surfaced as RECOVERY_FAILED instead of looping forever.
-      if (++cold_fallback_restarts > resume_retry_policy_.max_cold_fallback_restarts)
-        return std::unexpected{ResumeError::RECOVERY_FAILED};
-      continue;  // COLD-fallback confirmed (lock released): restart Phase A
+      // Winner aborted -> tenant went COLD: the resume we were waiting on failed. Fail fast — RESUME is
+      // idempotent and retriable, so the caller re-issues rather than us auto-retrying in-call (which was
+      // a livelock risk under concurrent failing resumes, and needed a bounded counter). suspended_ is
+      // untouched by abort_resume(), so the tenant stays retriable.
+      return std::unexpected{ResumeError::RECOVERY_FAILED};
     }
 
     // WE are the winner (state RESUMING). Build OFF the map and recover (SLOW, NO lock_ held).
@@ -1380,6 +1378,21 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       storage::UpdatePaths(cfg, default_config_.durability.storage_directory / rel_dir);
       auto fresh = db_handler_.BuildDetached(std::move(cfg));  // Database ctor recovers from disk
       DatabaseAccess acc = fresh.access().value();             // fresh gk is HOT => has_value
+      // Roll a failed pre-publish rebuild back to COLD (retriable). CRITICAL ORDERING: fully tear down
+      // `fresh` (its InMemoryStorage closes WAL/snapshot fds; ~Database -> RemoveDatabase deregisters the
+      // uuid-keyed prometheus metrics) BEFORE abort_resume() releases the single-flight RESUMING token.
+      // Releasing the token first would let the next winner BuildDetached a same-uuid Database that
+      // pointer-aliases `fresh`'s not-yet-freed metrics (heap-UAF), or let DeleteCold_ remove_all() the
+      // data dir while `fresh` still holds it open.
+      auto rollback_to_cold = [&] {
+        acc.reset();  // drop our accessor: fresh.count_ -> 0
+        // ~Gatekeeper<Database> runs now (count==0, HOT => no wait): ~Database -> RemoveDatabase(uuid)
+        // + storage teardown complete.
+        {
+          auto dying = std::move(fresh);
+        }
+        gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
+      };
       try {
         if (on_resume_) on_resume_(acc);  // PRE-PUBLISH arm (triggers/streams/TTL re-arm)
         {
@@ -1406,48 +1419,51 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         }
       } catch (const std::exception &e) {
         // PRE-PUBLISH failure: on_resume_ threw and the publish has NOT happened — `fresh` is still
-        // local and HOT. Release `acc` BEFORE `fresh` unwinds so fresh's ~Gatekeeper sees count == 0
-        // instead of self-deadlocking on the outstanding accessor, then roll back to COLD.
+        // local and HOT. rollback_to_cold() releases `acc` and fully tears `fresh` down BEFORE
+        // releasing the single-flight RESUMING token (see the load-bearing comment on the lambda).
         spdlog::warn(
             "hot/cold resume: the pre-publish on_resume_ arm for '{}' threw ({}); rolling back to COLD "
             "(retriable).",
             name,
             e.what());
-        acc.reset();
-        gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
+        rollback_to_cold();
         return std::unexpected{ResumeError::RECOVERY_FAILED};
       } catch (...) {
         // Same as above, for a non-std::exception throw.
-        acc.reset();
-        gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
+        rollback_to_cold();
         return std::unexpected{ResumeError::RECOVERY_FAILED};
       }
-      // Publish committed: the tenant is HOT and queryable. Record resume latency (recovery + publish)
-      // before the best-effort post-publish bookkeeping below so that work is excluded from the metric.
-      // Wrapped in its OWN try/catch like the sibling post-publish arms below: we are STILL inside the
-      // outer try whose catch(...) calls abort_resume() on a now-HOT gatekeeper (DMG_ASSERT(state ==
-      // RESUMING) -> terminate). Histogram::Observe takes a std::mutex lock, whose lock() may throw
-      // std::system_error under OS resource exhaustion, so it must not be allowed to escape to that catch.
-      try {
+      // Publish committed: the tenant is HOT and queryable. Everything below is best-effort
+      // bookkeeping — the gatekeeper is already HOT, so a throw escaping any of these arms must NEVER
+      // reach the outer catch(...): that catch calls abort_resume() on the gatekeeper, and abort_resume()
+      // asserts state == RESUMING, so it would terminate on a HOT gatekeeper instead of degrading
+      // gracefully. `best_effort` wraps each arm in its own try/catch so a failure here only logs — the
+      // database stays live (HOT) and data is intact regardless of whether the bookkeeping succeeds.
+      auto best_effort = [&](std::string_view what, auto &&fn) {
+        try {
+          fn();
+        } catch (const std::exception &e) {
+          spdlog::warn("hot/cold resume: {} for '{}' threw ({}); database is live (HOT).", what, name, e.what());
+        } catch (...) {
+          spdlog::warn("hot/cold resume: {} for '{}' threw; database is live (HOT).", what, name);
+        }
+      };
+
+      // Record resume latency (recovery + publish) before the rest of the best-effort post-publish
+      // bookkeeping so that work is excluded from the metric. Histogram::Observe takes a std::mutex
+      // lock, whose lock() may throw std::system_error under OS resource exhaustion.
+      best_effort("recording resume latency", [&] {
         metrics::Metrics().global.database_resume_latency_seconds->Observe(
             std::chrono::duration<double>(std::chrono::steady_clock::now() - resume_start).count());
-      } catch (const std::exception &e) {
-        spdlog::warn(
-            "hot/cold resume: recording resume latency for '{}' threw ({}); database is live (HOT).", name, e.what());
-      } catch (...) {
-        spdlog::warn("hot/cold resume: recording resume latency for '{}' threw; database is live (HOT).", name);
-      }
+      });
 
       // Flip the durable entry back to HOT (drop the cold marker) so a restart recovers it HOT.
       // Done in a SEPARATE short lock_ scope AFTER the publish. The write is guarded by
       // !suspended_.contains: if a SUSPEND raced in after our publish-erase and re-suspended the tenant,
-      // its under-lock COLD marker must stand. Wrapped in its OWN try/catch (like the two arms below):
-      // the gatekeeper is already HOT here, so any throw escaping to the outer catch(...) would call
-      // abort_resume() on a HOT gatekeeper and trip its DMG_ASSERT(state == RESUMING) -> terminate.
-      // GenKey/GenVal allocate (fmt/nlohmann) and can throw bad_alloc. A failure (bool or throw)
-      // degrades to a warning: the tenant is live HOT regardless; on the next restart a stale cold
-      // marker only makes it recover COLD, and it is resumable again.
-      try {
+      // its under-lock COLD marker must stand. GenKey/GenVal allocate (fmt/nlohmann) and can throw
+      // bad_alloc. A failure (bool or throw) degrades to a warning: the tenant is live HOT regardless;
+      // on the next restart a stale cold marker only makes it recover COLD, and it is resumable again.
+      best_effort("clearing the cold durability marker (recoverable as COLD on restart)", [&] {
         if (durability_) {
           auto wr = std::lock_guard{lock_};
           if (!suspended_.contains(name)) {
@@ -1459,59 +1475,24 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
             }
           }
         }
-      } catch (const std::exception &e) {
-        spdlog::warn(
-            "hot/cold resume: clearing the cold durability marker for '{}' threw ({}); the database is live (HOT) "
-            "and data is intact, but it may recover COLD on restart (resumable).",
-            name,
-            e.what());
-      } catch (...) {
-        spdlog::warn(
-            "hot/cold resume: clearing the cold durability marker for '{}' threw; the database is live (HOT) "
-            "and data is intact, but it may recover COLD on restart (resumable).",
-            name);
-      }
+      });
+
       // POST-PUBLISH arm (replication). The tenant is ALREADY published HOT and erased from
       // suspended_; we must NOT abort_resume() here (the gatekeeper is no longer RESUMING). The arm
       // is independently retriable, so on failure we log and return the live accessor. Skipped when
       // rewire_replication == false (the replica replication-apply caller holds the repl_state read
       // lock and on_resume_repl_ would re-take it as a write lock -> self-deadlock). Wired in a later
       // (replication) commit; on_resume_repl_ is empty by default here, so this is a no-op.
-      try {
+      best_effort("replication re-wiring (may run un-replicated until re-established)", [&] {
         if (rewire_replication && on_resume_repl_) on_resume_repl_(acc);
-      } catch (const std::exception &e) {
-        spdlog::warn(
-            "hot/cold resume: replication re-wiring for database '{}' threw ({}); database is live (HOT) and data "
-            "is intact, but it may run un-replicated until replication is re-established.",
-            name,
-            e.what());
-      } catch (...) {
-        spdlog::warn(
-            "hot/cold resume: replication re-wiring for database '{}' threw; database is live (HOT) and data is "
-            "intact, but it may run un-replicated until replication is re-established.",
-            name);
-      }
+      });
+
       // Record the system action so the resume is ordered + replicated like CREATE/DROP DATABASE.
       // Reached only on the winner's successful publish; the replica wire is filled by DoReplication.
-      // Wrapped in its own try/catch because the gatekeeper is already HOT after the publish block
-      // above: any throw that escaped to the outer catch(...) would call abort_resume() on a HOT
-      // gatekeeper and trip its DMG_ASSERT(state == RESUMING). The database is live regardless of
-      // whether recording or logging succeeds here.
-      try {
+      best_effort("recording the resume system action (may not replicate until the next system sync)", [&] {
         if (txn) txn->AddAction<ResumeDatabase>(salient.uuid);
         spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
-      } catch (const std::exception &e) {
-        spdlog::warn(
-            "hot/cold resume: recording the resume system action for '{}' threw ({}); the database is live (HOT) "
-            "and data is intact, but this resume may not replicate until the next system sync.",
-            name,
-            e.what());
-      } catch (...) {
-        spdlog::warn(
-            "hot/cold resume: recording the resume system action for '{}' threw; the database is live (HOT) "
-            "and data is intact, but this resume may not replicate until the next system sync.",
-            name);
-      }
+      });
       // Winner's own successful publish: a real COLD -> HOT rebuild, so already_hot is false.
       if (already_hot) *already_hot = false;
       return acc;
