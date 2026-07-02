@@ -2095,6 +2095,9 @@ struct PreQueryDirectives {
   /// Parallel execution
   bool parallel_execution_{false};
   memgraph::query::Expression *num_threads_{nullptr};
+  /// One-shot version override (USING VERSION '<name>'): run this query on the named version
+  /// without changing the session's active version. Only valid from master.
+  memgraph::query::Expression *version_{nullptr};
 
   PreQueryDirectives Clone(AstStorage *storage) const {
     PreQueryDirectives object;
@@ -2106,6 +2109,7 @@ struct PreQueryDirectives {
     object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
     object.parallel_execution_ = parallel_execution_;
     object.num_threads_ = num_threads_ ? num_threads_->Clone(storage) : nullptr;
+    object.version_ = version_ ? version_->Clone(storage) : nullptr;
     return object;
   }
 };
@@ -3739,6 +3743,169 @@ class ShowNextSnapshotQuery : public memgraph::query::Query {
     auto *object = storage->Create<ShowNextSnapshotQuery>();
     return object;
   }
+};
+
+// Position the session on a graph version (governs both reads and writes); 'master' selects the base
+// graph. With the optional BRANCH FROM clause it first creates the version (forking from the named
+// parent, like CREATE VERSION) and then positions onto it — a combined create-and-checkout.
+// Backs both CHECKOUT BRANCH and CREATE BRANCH. CHECKOUT positions the session onto the target
+// (position_ == true); when it also carries a parent_ it first creates the branch (create-and-checkout).
+// CREATE BRANCH always carries a parent_ but leaves position_ == false: it forks the branch without
+// switching onto it, so the session stays where it is.
+class CheckoutBranchQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  CheckoutBranchQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<CheckoutBranchQuery>();
+    object->version_name_ = version_name_ ? version_name_->Clone(storage) : nullptr;
+    object->description_ = description_ ? description_->Clone(storage) : nullptr;
+    object->parent_ = parent_ ? parent_->Clone(storage) : nullptr;
+    object->position_ = position_;
+    return object;
+  }
+
+  Expression *version_name_{nullptr};
+  Expression *description_{nullptr};  // optional WITH DESCRIPTION '<str>' (create form only)
+  Expression *parent_{nullptr};       // BRANCH FROM '<parent>' => create; nullptr => switch only
+  bool position_{true};               // CHECKOUT positions the session onto the target; CREATE does not
+};
+
+// List the versions of a database (current DB when database_ is empty).
+class ShowVersionsQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowVersionsQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowVersionsQuery>();
+    object->database_ = database_;
+    return object;
+  }
+
+  std::string database_;
+};
+
+// Report the session's current version (the active branch, or 'master').
+class ShowVersionBranchQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowVersionBranchQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowVersionBranchQuery>();
+    return object;
+  }
+};
+
+// Return a synthetic graph of the version tree (master + branches) for visualization. By default the
+// current database; FOR DATABASE x targets another tenant; FOR ALL DATABASES spans every tenant
+// (each as its own :Database-anchored subtree).
+class ShowVersioningGraphQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowVersioningGraphQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowVersioningGraphQuery>();
+    object->database_ = database_;
+    object->all_databases_ = all_databases_;
+    return object;
+  }
+
+  std::string database_;       // FOR DATABASE x (empty => current database, unless all_databases_)
+  bool all_databases_{false};  // FOR ALL DATABASES
+};
+
+// Dump the overlay delta-chain applied to the session's active version (SHOW BRANCH DIFF).
+class ShowChangesQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  // Output shape: TABLE (default) emits one row per delta; GRAPH builds a virtual graph linking
+  // the affected vertices/edges to virtual delta nodes (like SHOW VERSIONING GRAPH).
+  enum class Format { TABLE, GRAPH };
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowChangesQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowChangesQuery>();
+    object->format_ = format_;
+    return object;
+  }
+
+  Format format_{Format::TABLE};
+};
+
+// Merge a leaf version's changes into its parent (then drop the version).
+class MergeVersionQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  MergeVersionQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<MergeVersionQuery>();
+    object->version_name_ = version_name_ ? version_name_->Clone(storage) : nullptr;
+    return object;
+  }
+
+  Expression *version_name_{nullptr};
+};
+
+// Revert a single committed transaction from the active version's overlay (REVERT BRANCH COMMIT WITH
+// TIMESTAMP x). Drops every delta whose txn_start_timestamp equals the given commit timestamp, then
+// dry-run-replays the remaining overlay to reject the revert if it would orphan surviving deltas.
+class RevertVersionQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  RevertVersionQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<RevertVersionQuery>();
+    object->commit_timestamp_ = commit_timestamp_ ? commit_timestamp_->Clone(storage) : nullptr;
+    return object;
+  }
+
+  Expression *commit_timestamp_{nullptr};
+};
+
+// Discard a named version (removes its versions/<name>/ folder).
+class DropVersionQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  DropVersionQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DropVersionQuery>();
+    object->version_name_ = version_name_ ? version_name_->Clone(storage) : nullptr;
+    return object;
+  }
+
+  Expression *version_name_{nullptr};
 };
 
 class StreamQuery : public memgraph::query::Query {

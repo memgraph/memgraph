@@ -552,6 +552,61 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitVersionQuery(MemgraphCypher::VersionQueryContext *ctx) override;
 
   /**
+   * @return Query* (one of the version-management queries below)
+   */
+  antlrcpp::Any visitVersionManagementQuery(MemgraphCypher::VersionManagementQueryContext *ctx) override;
+
+  /**
+   * @return Expression* (a string PrimitiveLiteral for either a string literal or symbolic name)
+   */
+  antlrcpp::Any visitVersionName(MemgraphCypher::VersionNameContext *ctx) override;
+
+  /**
+   * @return CheckoutBranchQuery*
+   */
+  antlrcpp::Any visitCheckoutVersionQuery(MemgraphCypher::CheckoutVersionQueryContext *ctx) override;
+
+  /**
+   * @return CheckoutBranchQuery*
+   */
+  antlrcpp::Any visitCreateBranchQuery(MemgraphCypher::CreateBranchQueryContext *ctx) override;
+
+  /**
+   * @return ShowVersionsQuery*
+   */
+  antlrcpp::Any visitShowVersionsQuery(MemgraphCypher::ShowVersionsQueryContext *ctx) override;
+
+  /**
+   * @return ShowVersionBranchQuery*
+   */
+  antlrcpp::Any visitShowVersionBranchQuery(MemgraphCypher::ShowVersionBranchQueryContext *ctx) override;
+
+  /**
+   * @return ShowVersioningGraphQuery*
+   */
+  antlrcpp::Any visitShowVersioningGraphQuery(MemgraphCypher::ShowVersioningGraphQueryContext *ctx) override;
+
+  /**
+   * @return ShowChangesQuery*
+   */
+  antlrcpp::Any visitShowChangesQuery(MemgraphCypher::ShowChangesQueryContext *ctx) override;
+
+  /**
+   * @return MergeVersionQuery*
+   */
+  antlrcpp::Any visitMergeVersionQuery(MemgraphCypher::MergeVersionQueryContext *ctx) override;
+
+  /**
+   * @return RevertVersionQuery*
+   */
+  antlrcpp::Any visitRevertVersionQuery(MemgraphCypher::RevertVersionQueryContext *ctx) override;
+
+  /**
+   * @return DropVersionQuery*
+   */
+  antlrcpp::Any visitDropVersionQuery(MemgraphCypher::DropVersionQueryContext *ctx) override;
+
+  /**
    * @return CypherUnion*
    */
   antlrcpp::Any visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) override;

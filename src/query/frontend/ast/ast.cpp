@@ -464,6 +464,32 @@ constexpr utils::TypeInfo query::SessionTraceQuery::kType{
 constexpr utils::TypeInfo query::SessionSettingQuery::kType{
     .id = utils::TypeId::AST_SESSION_SETTING_QUERY, .name = "SessionSettingQuery", .superclass = &query::Query::kType};
 
+constexpr utils::TypeInfo query::CheckoutBranchQuery::kType{
+    .id = utils::TypeId::AST_CHECKOUT_BRANCH_QUERY, .name = "CheckoutBranchQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowVersionsQuery::kType{
+    .id = utils::TypeId::AST_SHOW_VERSIONS_QUERY, .name = "ShowVersionsQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowVersionBranchQuery::kType{.id = utils::TypeId::AST_SHOW_VERSION_BRANCH_QUERY,
+                                                               .name = "ShowVersionBranchQuery",
+                                                               .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowVersioningGraphQuery::kType{.id = utils::TypeId::AST_SHOW_VERSIONING_GRAPH_QUERY,
+                                                                 .name = "ShowVersioningGraphQuery",
+                                                                 .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::MergeVersionQuery::kType{
+    .id = utils::TypeId::AST_MERGE_VERSION_QUERY, .name = "MergeVersionQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowChangesQuery::kType{
+    .id = utils::TypeId::AST_SHOW_CHANGES_QUERY, .name = "ShowChangesQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::RevertVersionQuery::kType{
+    .id = utils::TypeId::AST_REVERT_VERSION_QUERY, .name = "RevertVersionQuery", .superclass = &query::Query::kType};
+
+constexpr utils::TypeInfo query::DropVersionQuery::kType{
+    .id = utils::TypeId::AST_DROP_VERSION_QUERY, .name = "DropVersionQuery", .superclass = &query::Query::kType};
+
 constexpr utils::TypeInfo query::UserProfileQuery::kType{
     .id = utils::TypeId::AST_USER_PROFILE_QUERY, .name = "UserProfileQuery", .superclass = &query::Query::kType};
 

@@ -101,6 +101,7 @@ target_sources(mg-query
     trigger.cpp
     typed_value.cpp
     vertex_accessor.cpp
+    version_overlay.cpp
 
     PUBLIC
     FILE_SET HEADERS

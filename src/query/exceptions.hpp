@@ -205,6 +205,20 @@ class InfoInMulticommandTxException : public MulticommandTxException {
   SPECIALIZE_GET_EXCEPTION_NAME(InfoInMulticommandTxException)
 };
 
+class VersionInMulticommandTxException : public MulticommandTxException {
+ public:
+  VersionInMulticommandTxException() : MulticommandTxException("Version management query") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(VersionInMulticommandTxException)
+};
+
+class VersioningDisabledException : public QueryException {
+ public:
+  VersioningDisabledException()
+      : QueryException(
+            "Graph versioning is disabled. Start Memgraph with --versioning-enabled=true to use version commands.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(VersioningDisabledException)
+};
+
 class UserAlreadyExistsException : public QueryException {
  public:
   using QueryException::QueryException;

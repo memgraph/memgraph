@@ -645,4 +645,15 @@ TriggerContextCollector TriggerContextCollector::CreateEmptyWithSameConfig() con
   empty_collector.edge_registry_.should_register_updated_objects = edge_registry_.should_register_updated_objects;
   return empty_collector;
 }
+
+std::vector<std::tuple<VertexAccessor, storage::LabelId, bool>> TriggerContextCollector::VersioningLabelChanges()
+    const {
+  std::vector<std::tuple<VertexAccessor, storage::LabelId, bool>> result;
+  result.reserve(label_changes_.size());
+  for (const auto &[vertex_label, net] : label_changes_) {
+    if (net == 0) continue;  // added and removed within the txn -> no net change
+    result.emplace_back(vertex_label.first, vertex_label.second, net > 0);
+  }
+  return result;
+}
 }  // namespace memgraph::query
