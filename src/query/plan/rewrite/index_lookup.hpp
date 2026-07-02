@@ -354,7 +354,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::optional<ProvidedScan> provided;
     if (indexed_scan && !has_in_filter) {
       if (auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(indexed_scan.get())) {
-        provided = scan_by_props;
+        // A value scan fed by an Unwind is invoked once per unwound element
+        // (e.g. a user UNWIND driving an equality lookup). When the lookup value
+        // derives from the element the results follow element order, not
+        // property order, so the scan cannot be assumed to provide ordered
+        // iteration and must not eliminate an ORDER BY. Suppressing is
+        // conservative: an element-independent value is still ordered, but at
+        // worst we keep an unnecessary sort. The IN-list lowering is already
+        // covered by has_in_filter.
+        if (!(scan_by_props->input() && scan_by_props->input()->GetTypeInfo() == Unwind::kType)) {
+          provided = scan_by_props;
+        }
       }
     }
     order_by_eliminator_.NotifyScan(provided);
@@ -1599,25 +1609,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     };
 
     // Lower an `x IN list` filter to a per-element index scan: chain
-    // Unwind(toSet(coalesce(list_expr, []))) onto op_input and return the
+    // Unwind(toSet(coalesce(list_expr, []))) onto `input` and return the
     // anonymous identifier bound to each unwound element for the caller's scan.
-    // coalesce turns a null list into zero rows instead of throwing in Unwind
-    // (matching the membership Filter; a non-list scalar still throws), and
-    // toSet dedups so a value repeated in the list drives a single scan. The
-    // dedup collapses whole-number doubles onto their int, safe only because the
-    // downstream scan unifies them too: ScanAllById coerces to an int64 id, and
-    // the label+property index compares numerics cross-type, so a collapsed
-    // value still matches what the raw list would.
-    auto unwind_membership_list = [&](std::shared_ptr<LogicalOperator> &op_input,
-                                      Expression *list_expr) -> Identifier * {
-      auto const &symbol = symbol_table_->CreateAnonymousSymbol();
-      auto *element = ast_storage_->Create<Identifier>(symbol.name());
-      element->MapTo(symbol);
-      auto *empty_list = ast_storage_->Create<ListLiteral>(std::vector<Expression *>{});
-      auto *guarded = ast_storage_->Create<Coalesce>(std::vector<Expression *>{list_expr, empty_list});
-      auto *deduped = ast_storage_->Create<Function>("TOSET", std::vector<Expression *>{guarded});
-      op_input = std::make_shared<Unwind>(op_input, deduped, symbol);
-      return element;
+    auto unwind_membership_list = [&](Expression *list_expr) -> Identifier * {
+      auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, list_expr);
+      input = std::move(unwound.op);
+      return unwound.element;
     };
 
     // TODO(buda): ScanAllByLabelProperty + Filter should be considered
@@ -1627,7 +1624,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto make_unwinds = [&](FilterInfo const &filter_info) -> FilterInfo {
       if (filter_info.property_filter->type_ == PropertyFilter::Type::IN) {
         FilterInfo cpy = filter_info;
-        cpy.property_filter->value_ = unwind_membership_list(input, filter_info.property_filter->value_);
+        cpy.property_filter->value_ = unwind_membership_list(filter_info.property_filter->value_);
         return cpy;
       }
       return filter_info;
@@ -1646,7 +1643,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         if (filter.id_filter->type_ == IdFilter::Type::IN) {
           // has_in_filter is set below so order-by elimination is disabled and
           // an ORDER BY id(n) over the unwound scan is not wrongly elided.
-          auto *element = unwind_membership_list(input, value);
+          auto *element = unwind_membership_list(value);
           return ScanByIndexResult{
               std::make_shared<ScanAllById>(input, node_symbol, element, view, /*expects_string_id=*/false),
               std::move(metadata),
