@@ -252,8 +252,8 @@ mod tests {
     fn chars(s: &str) -> Vec<char> {
         s.chars().collect()
     }
-    fn toks(words: &[&str]) -> Vec<Vec<char>> {
-        words.iter().map(|w| chars(w)).collect()
+    fn toks(words: &[&str]) -> Vec<(usize, Vec<char>)> {
+        words.iter().enumerate().map(|(position, w)| (position, chars(w))).collect()
     }
 
     #[test]
@@ -319,6 +319,19 @@ mod tests {
         // the shared budget is NOT spent on word boundaries: words stay aligned to tokens, so a query
         // does not fuzzy-merge across a space. This keeps the post-filter a subset of the candidate net.
         assert!(!sequence_matches(&toks(&["newyork", "city"]), &toks(&["new", "york"]), 1, true));
+    }
+
+    #[test]
+    fn sequence_matches_respects_position_gaps_from_dropped_tokens() {
+        let mut analyzer = tantivy::tokenizer::TokenizerManager::default().get("default").unwrap();
+        let blob = "x".repeat(45);
+        let gapped_value = analyzer_tokenize(&mut analyzer, &format!("big {blob} bad wolf"));
+        let terms = analyzer_tokenize(&mut analyzer, "big bad wo");
+        assert!(!sequence_matches(&gapped_value, &terms, 0, true));
+        assert!(!sequence_matches(&gapped_value, &terms, 2, true));
+        let gapped_terms = analyzer_tokenize(&mut analyzer, &format!("big {blob} bad wo"));
+        assert!(sequence_matches(&gapped_value, &gapped_terms, 0, true));
+        assert!(!sequence_matches(&analyzer_tokenize(&mut analyzer, "big bad wolf"), &gapped_terms, 0, true));
     }
 
     #[test]
@@ -980,13 +993,14 @@ fn split_property_and_terms(query: &str) -> Result<(String, String), std::io::Er
         })
 }
 
-// Runs the field's own analyzer over `text`, yielding the exact tokens tantivy indexed (Unicode
-// segmentation, RemoveLongFilter, lowercasing -- no approximation).
-fn analyzer_tokenize(analyzer: &mut TextAnalyzer, text: &str) -> Vec<Vec<char>> {
+// Runs the field's own analyzer over `text`, yielding the exact (position, token) pairs tantivy
+// indexed (Unicode segmentation, RemoveLongFilter, lowercasing -- no approximation).
+fn analyzer_tokenize(analyzer: &mut TextAnalyzer, text: &str) -> Vec<(usize, Vec<char>)> {
     let mut tokens = Vec::new();
     let mut stream = analyzer.token_stream(text);
     while stream.advance() {
-        tokens.push(stream.token().text.chars().collect());
+        let token = stream.token();
+        tokens.push((token.position, token.text.chars().collect()));
     }
     tokens
 }
@@ -1026,7 +1040,12 @@ fn prefix_distance(term: &[char], token: &[char], transpositions: bool) -> usize
 
 // True if `terms` appear as an adjacent, in-order window in `value` (leading terms whole-word, last
 // term a prefix). The per-word distances share one budget: their sum must stay within `distance`.
-fn sequence_matches(value: &[Vec<char>], terms: &[Vec<char>], distance: u8, transpositions: bool) -> bool {
+fn sequence_matches(
+    value: &[(usize, Vec<char>)],
+    terms: &[(usize, Vec<char>)],
+    distance: u8,
+    transpositions: bool,
+) -> bool {
     let n = terms.len();
     if n == 0 || value.len() < n {
         return false;
@@ -1035,8 +1054,11 @@ fn sequence_matches(value: &[Vec<char>], terms: &[Vec<char>], distance: u8, tran
     let budget = distance as usize;
     (0..=value.len() - n).any(|start| {
         let mut total = 0usize;
-        for (j, term) in terms.iter().enumerate() {
-            let token = &value[start + j];
+        for (j, (term_position, term)) in terms.iter().enumerate() {
+            let (token_position, token) = &value[start + j];
+            if token_position - value[start].0 != term_position - terms[0].0 {
+                return false;
+            }
             total += if j == last {
                 prefix_distance(term, token, transpositions)
             } else {
@@ -1328,7 +1350,7 @@ fn sequence_matched_docs(
     let subqueries: Vec<(Occur, Box<dyn Query>)> = terms
         .iter()
         .enumerate()
-        .map(|(i, token)| {
+        .map(|(i, (_, token))| {
             let mut term = Term::from_field_json_path(data_field, &property, false);
             term.append_type_and_str(&token.iter().collect::<String>());
             let fuzzy = if i == last {
