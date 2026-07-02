@@ -10,10 +10,12 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <filesystem>
 #include <map>
 #include <set>
+#include <thread>
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
@@ -1876,6 +1878,28 @@ TYPED_TEST(InterpreterTest, AnalyzeGraphDeduplicatesAscDescIndexes) {
   EXPECT_EQ(deleted_labels, (std::set<std::string>{"LabelA", "LabelB"}));
 }
 
+// Sign folding collapses same-length lists that differ only in sign/value onto
+// one cache entry, and each query still returns its own values (the shared AST
+// holds ParameterLookups; the values come from the per-call parameters).
+TYPED_TEST(InterpreterTest, MixedSignListSharesCacheEntryAndKeepsValues) {
+  auto ast_size = [this] {
+    return this->interpreter_context.ast_cache.WithLock([](auto &cache) { return cache.size(); });
+  };
+  auto values = [](const auto &stream) {
+    std::vector<int64_t> out;
+    for (const auto &v : stream.GetResults()[0][0].ValueList()) out.push_back(v.ValueInt());
+    return out;
+  };
+
+  EXPECT_EQ(ast_size(), 0U);
+  auto s1 = this->Interpret("RETURN [-1, 2, -3] AS x");
+  auto s2 = this->Interpret("RETURN [4, -5, 6] AS x");
+  EXPECT_EQ(values(s1), (std::vector<int64_t>{-1, 2, -3}));
+  EXPECT_EQ(values(s2), (std::vector<int64_t>{4, -5, 6}));
+  // Both queries share a single AST cache entry despite different sign patterns.
+  EXPECT_EQ(ast_size(), 1U);
+}
+
 // The AST cache is LRU-bounded. Queries whose stripped form varies each take a
 // distinct entry (here via distinct aliases; the same happens for the verbatim
 // unary-minus tokens of mixed-sign numeric lists), so an unbounded cache would
@@ -1893,4 +1917,35 @@ TEST(AstCacheBounded, EvictsBeyondMaxSize) {
   }
   // Caching is still active (the bound did not disable it).
   EXPECT_EQ(cache_size(), kMaxSize);
+}
+
+// Correctness under eviction and contention: with a size-1 cache every distinct
+// query evicts the previous entry, so concurrent parsers continuously insert and
+// evict. Each ParseQuery must still return a well-formed AST whose stripped
+// literal round-trips to that call's own value, proving entries are not shared
+// or freed out from under an in-flight clone.
+TEST(AstCacheConcurrency, CorrectUnderEvictionContention) {
+  memgraph::query::AstCache cache{1};
+  memgraph::query::InterpreterConfig::Query const query_config{};
+  constexpr int kThreads = 8;
+  constexpr int kIters = 3000;
+  std::atomic<int> failures{0};
+
+  std::vector<std::thread> threads;
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&, t] {
+      for (int i = 0; i < kIters; ++i) {
+        int const value = t * kIters + i;  // disjoint per thread -> all distinct -> constant eviction
+        auto parsed =
+            memgraph::query::ParseQuery("RETURN " + std::to_string(value), {}, &cache, query_config, "uuid", nullptr);
+        // "RETURN <value>" strips to "RETURN 0" with the literal at token position 1.
+        if (parsed.query == nullptr || parsed.parameters.AtTokenPosition(1).ValueInt() != value) {
+          failures.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+    });
+  }
+  for (auto &th : threads) th.join();
+  EXPECT_EQ(failures.load(), 0);
+  EXPECT_LE(cache.WithLock([](auto &c) { return c.size(); }), 1U);
 }

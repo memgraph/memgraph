@@ -104,10 +104,14 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
   // Fold a unary +/- that directly precedes a numeric literal into that literal
   // (the sign is prepended to the number's text and the sign token dropped), so
   // lists differing only in the sign pattern of their numbers strip to the same
-  // text and share one cache entry. This is confined to list literals `[...]`:
-  // that covers the motivating case (embedding vectors) while avoiding clause
-  // operands whose sign is validated from the parse-tree shape (a folded `-1`
-  // would look like a plain positive literal), e.g. `USING PERIODIC COMMIT -1`.
+  // text and share one cache entry. The gate is square-bracket depth, so it
+  // fires anywhere inside `[...]` (list literals, but also indexing, slicing,
+  // comprehensions and variable-length patterns). Folding is value-preserving -
+  // it only rewrites `-<literal>` as a literal of the negated value, which
+  // evaluates identically - so any bracketed context is safe. The bracket gate
+  // exists to stay out of unbracketed clause operands whose sign is validated
+  // from the parse-tree shape, where a folded `-1` would read as a plain
+  // positive literal and slip past the check (e.g. `USING PERIODIC COMMIT -1`).
   // Fold only when the sign is unambiguously unary: adjacent to the number (no
   // whitespace) and not preceded by a value, so a subtraction like `[a-1]` or
   // `[1-1]` is left untouched.
@@ -132,11 +136,11 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     std::vector<std::pair<Token, std::string>> folded;
     folded.reserve(tokens.size());
     bool prev_produces_value = false;  // start of query is a unary context
-    int list_depth = 0;
+    int bracket_depth = 0;
     for (std::size_t i = 0; i < tokens.size(); ++i) {
       const auto &token = tokens[i];
       const bool is_sign = token.first == Token::SPECIAL && (token.second == "-" || token.second == "+");
-      const bool folds = is_sign && list_depth > 0 && !prev_produces_value && i + 1 < tokens.size() &&
+      const bool folds = is_sign && bracket_depth > 0 && !prev_produces_value && i + 1 < tokens.size() &&
                          (tokens[i + 1].first == Token::INT || tokens[i + 1].first == Token::REAL);
       if (folds) {
         const auto &number = tokens[i + 1];
@@ -148,9 +152,9 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       if (token.first != Token::SPACE) prev_produces_value = produces_value(token.first, token.second);
       if (token.first == Token::SPECIAL) {
         if (token.second == "[") {
-          ++list_depth;
-        } else if (token.second == "]" && list_depth > 0) {
-          --list_depth;
+          ++bracket_depth;
+        } else if (token.second == "]" && bracket_depth > 0) {
+          --bracket_depth;
         }
       }
       folded.push_back(token);

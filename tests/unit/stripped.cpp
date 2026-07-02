@@ -14,6 +14,9 @@
 // Created by Florijan Stamenkovic on 07.03.17.
 //
 
+#include <cstdint>
+#include <limits>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -590,6 +593,55 @@ TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
     EXPECT_EQ(stripped.literals().size(), 1);
     EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ a - " + kStrippedIntToken + " ]");
+  }
+}
+
+TEST(QueryStripper, SignFoldStackedSigns) {
+  // Only the sign adjacent to the number folds; the outer sign stays a token.
+  {
+    StrippedQuery stripped("RETURN [--1]");
+    EXPECT_EQ(stripped.literals().size(), 1);
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - " + kStrippedIntToken + " ]");
+  }
+  {
+    StrippedQuery stripped("RETURN [-+1]");
+    EXPECT_EQ(stripped.literals().size(), 1);
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - " + kStrippedIntToken + " ]");
+  }
+}
+
+TEST(QueryStripper, SignFoldIntMinHexOctal) {
+  {
+    StrippedQuery stripped("RETURN [-9223372036854775808]");
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), std::numeric_limits<int64_t>::min());
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " ]");
+  }
+  {
+    StrippedQuery stripped("RETURN [-0x1F]");
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -31);
+  }
+  {
+    StrippedQuery stripped("RETURN [-010]");
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -8);
+  }
+}
+
+TEST(QueryStripper, SignFoldNestedAndBracketedContexts) {
+  {
+    StrippedQuery stripped("RETURN [[1, -2], -3]");  // nested list
+    EXPECT_EQ(stripped.literals().size(), 3);
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
+    EXPECT_EQ(stripped.literals().At(1).second.ValueInt(), -2);
+    EXPECT_EQ(stripped.literals().At(2).second.ValueInt(), -3);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ [ 0 , 0 ] , 0 ]");
+  }
+  {
+    StrippedQuery stripped("RETURN a[-1]");  // indexing: bracket, sign folds into the index
+    EXPECT_EQ(stripped.literals().size(), 1);
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN a [ " + kStrippedIntToken + " ]");
   }
 }
 
