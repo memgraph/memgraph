@@ -52,6 +52,12 @@ file = "defunct_cure_flows"
 
 TENANT = "clients"
 
+# Scenario 4 uses two databases whose broken/ready split is mirrored across the two instances.
+DEFAULT_DB = "memgraph"
+DB1 = "db1"
+DEFAULT_DB_COUNT = 3000
+DB1_COUNT = 2000
+
 # HA + multitenancy are enterprise-only; without a license the cluster cannot be formed
 # and CREATE DATABASE is rejected, so skip the whole module rather than report a fake pass.
 pytestmark = pytest.mark.skipif(
@@ -152,6 +158,21 @@ def plant_corrupt_snapshot(instance_data_dir, source_snapshot):
         os.remove(path)
 
 
+def corrupt_default_db_durability(instance_data_dir):
+    """Corrupt the DEFAULT `memgraph` database so it boots defunct. Unlike named tenants (which live under
+    databases/<uuid>/), the default db's durability is the data directory root: <data_dir>/snapshots and
+    <data_dir>/wal. Corrupt its snapshot data region and wipe its WAL so the snapshot is the only (now
+    broken) source and there is no clean replay fallback."""
+    snapshot_dir = os.path.join(instance_data_dir, "snapshots")
+    wal_dir = os.path.join(instance_data_dir, "wal")
+    snapshot_files = _files_in(snapshot_dir)
+    assert snapshot_files, f"Expected a default-db snapshot to corrupt under {snapshot_dir}"
+    for path in snapshot_files:
+        _corrupt_data_region(path, head_keep=1024, tail_keep=4096)
+    for path in _files_in(wal_dir):
+        os.remove(path)
+
+
 def stash_good_tenant_snapshot(instance_data_dir, dest):
     """Copy a known-good copy of the tenant snapshot aside before corruption."""
     tdir = tenant_dir(instance_data_dir)
@@ -247,6 +268,20 @@ def databases_status(cursor):
 
 def use_tenant(cursor):
     execute_and_fetch_all(cursor, f"USE DATABASE {TENANT}")
+
+
+def db_status_on(port, db):
+    """SHOW STORAGE INFO status for `db` over a fresh connection to the instance on `port`."""
+    c = connect(host="localhost", port=port).cursor()
+    execute_and_fetch_all(c, f"USE DATABASE {db}")
+    return storage_info(c).get("status")
+
+
+def db_count_on(port, db):
+    """Vertex count for `db` over a fresh connection to the instance on `port`."""
+    c = connect(host="localhost", port=port).cursor()
+    execute_and_fetch_all(c, f"USE DATABASE {db}")
+    return get_vertex_count(c)
 
 
 def wait_main(coord_cursor, instance_name):
@@ -537,6 +572,113 @@ def test_main_corrupt_cured_with_repair_database_and_import(test_name):
 
     mg_sleep_and_assert(1234, partial(tenant_imported_count, 7687))
     mg_sleep_and_assert(1234, partial(tenant_imported_count, 7688))
+
+
+def setup_cluster_two_dbs(test_name):
+    """Bring up the cluster with instance_1 MAIN / instance_2 REPLICA, populate and snapshot BOTH the
+    default `memgraph` database and a named `db1`, and confirm both replicated to instance_2. Returns
+    (instances_description, coord_cursor)."""
+    test_data_root = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", get_data_path(file, test_name))
+    shutil.rmtree(test_data_root, ignore_errors=True)
+
+    instances = get_instances_description(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    coord_cursor = connect(host="localhost", port=7692).cursor()
+    for query in get_setup_queries():
+        execute_and_fetch_all(coord_cursor, query)
+
+    wait_main(coord_cursor, "instance_1")
+    wait_replica(coord_cursor, "instance_2")
+
+    main_cursor = connect(host="localhost", port=7687).cursor()
+    # Default db (current on connect): populate + snapshot.
+    execute_and_fetch_all(main_cursor, f"UNWIND range(1, {DEFAULT_DB_COUNT}) AS i CREATE (:Node {{id: i}})")
+    execute_and_fetch_all(main_cursor, "CREATE SNAPSHOT")
+    # Named db1: create, populate + snapshot.
+    execute_and_fetch_all(main_cursor, f"CREATE DATABASE {DB1}")
+    execute_and_fetch_all(main_cursor, f"USE DATABASE {DB1}")
+    execute_and_fetch_all(main_cursor, f"UNWIND range(1, {DB1_COUNT}) AS i CREATE (:Node {{id: i}})")
+    execute_and_fetch_all(main_cursor, "CREATE SNAPSHOT")
+
+    # Confirm both databases replicated to instance_2 before we take the cluster down.
+    mg_sleep_and_assert(DEFAULT_DB_COUNT, partial(db_count_on, 7688, DEFAULT_DB))
+    mg_sleep_and_assert(DB1_COUNT, partial(db_count_on, 7688, DB1))
+
+    return instances, coord_cursor
+
+
+# ---------------------------------------------------------------------------------------------
+# Scenario 4: split broken databases + manual failover converges the whole cluster.
+#
+#   After restart each instance has exactly one broken db and one ready db, mirror images:
+#     instance_1: memgraph BROKEN, db1 READY      instance_2: memgraph READY, db1 BROKEN
+#   Broken-ness is invisible to the coordinator, so either instance may be elected main. Whoever
+#   becomes main automatically heals the replica's copy of the db the main holds READY (a broken db on
+#   the main is intentionally NOT driven, so the other db stays split). A manual failover then makes the
+#   old replica the main, which heals the remaining broken db, converging to all-ready + all data.
+# ---------------------------------------------------------------------------------------------
+def test_split_broken_dbs_manual_failover_converges(test_name):
+    instances, coord_cursor = setup_cluster_two_dbs(test_name)
+
+    # Stash a good db1 snapshot (from the main) to plant a corruptible snapshot on the replica's db1,
+    # which otherwise has only WAL (no snapshot) on disk.
+    good_db1_snapshot = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", f"{file}_{test_name}_good_db1")
+    stash_good_tenant_snapshot(data_dir_of(test_name, "instance_1"), good_db1_snapshot)
+
+    # Take both instances down and corrupt DIFFERENT databases on each: the default `memgraph` db on
+    # instance_1 (its own snapshot at the data-dir root) and `db1` on instance_2 (plant a corrupt
+    # snapshot into its db1 dir). Restart both with --storage-allow-recovery-failure so each boots with
+    # one broken db.
+    interactive_mg_runner.kill(instances, "instance_1")
+    interactive_mg_runner.kill(instances, "instance_2")
+    corrupt_default_db_durability(data_dir_of(test_name, "instance_1"))
+    plant_corrupt_snapshot(data_dir_of(test_name, "instance_2"), good_db1_snapshot)
+    enable_recovery_failure(instances, "instance_1")
+    enable_recovery_failure(instances, "instance_2")
+    interactive_mg_runner.start(instances, "instance_1")
+    interactive_mg_runner.start(instances, "instance_2")
+
+    # Either instance can win the election; adapt to whoever became main.
+    main_name = wait_stable_main(coord_cursor)
+    replica_name = "instance_2" if main_name == "instance_1" else "instance_1"
+    main_port = INSTANCE_BOLT_PORT[main_name]
+    replica_port = INSTANCE_BOLT_PORT[replica_name]
+
+    broken_on = {"instance_1": DEFAULT_DB, "instance_2": DB1}
+    count_of = {DEFAULT_DB: DEFAULT_DB_COUNT, DB1: DB1_COUNT}
+    # With only two dbs, the main's READY db is exactly the db broken on the (mirror) replica, and the
+    # main's BROKEN db is the db that is ready on the replica.
+    main_ready_db = broken_on[replica_name]
+    main_broken_db = broken_on[main_name]
+
+    # The main holds its ready db ready and its own broken db broken; a broken main db is not self-healed.
+    assert db_status_on(main_port, main_ready_db) == "ready"
+    assert db_status_on(main_port, main_broken_db) == "broken"
+
+    # Whoever became main synced the db it holds ready onto the replica (curing the replica's broken copy).
+    mg_sleep_and_assert("ready", partial(db_status_on, replica_port, main_ready_db))
+    mg_sleep_and_assert(count_of[main_ready_db], partial(db_count_on, replica_port, main_ready_db))
+
+    # The other db is still split: broken on the main, ready on the replica. Manual failover: demote the
+    # current main and promote the old replica, which holds that db ready and will heal it on the new
+    # replica (old main).
+    execute_and_fetch_all(coord_cursor, f"DEMOTE INSTANCE {main_name}")
+    execute_and_fetch_all(coord_cursor, f"SET INSTANCE {replica_name} TO MAIN")
+    wait_main(coord_cursor, replica_name)
+    wait_replica(coord_cursor, main_name)
+
+    # The new main heals the previously-broken-on-old-main db on the new replica (old main).
+    mg_sleep_and_assert("ready", partial(db_status_on, main_port, main_broken_db))
+    mg_sleep_and_assert(count_of[main_broken_db], partial(db_count_on, main_port, main_broken_db))
+
+    # Converged: every database is ready with all data present on both instances.
+    for port in (main_port, replica_port):
+        for db in (DEFAULT_DB, DB1):
+            mg_sleep_and_assert("ready", partial(db_status_on, port, db))
+            mg_sleep_and_assert(count_of[db], partial(db_count_on, port, db))
+
+    os.remove(good_db1_snapshot)
 
 
 if __name__ == "__main__":
