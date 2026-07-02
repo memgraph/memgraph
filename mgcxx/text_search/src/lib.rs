@@ -480,11 +480,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // Adaptive candidate paging: 300 real matches exceed SEQUENCE_BASE_PAGE (256), so returning all of
-    // them forces a second page regardless of score order -- exercising the widening + and_offset
-    // boundary. Returning exactly the 300 (no more, no fewer) proves no boundary drop or duplicate; the
-    // interleaved decoys carry every query term in the wrong order, so they must be rejected across
-    // pages by the order/adjacency post-filter.
+    // Adaptive candidate paging: the 10 real matches sit between 150 decoys on each side, so the first
+    // page (limit 10 * SEQUENCE_OVERFETCH_FACTOR = 80 candidates) holds only decoys whichever way score
+    // ties break -- reaching the matches requires widening past the first page via and_offset. The
+    // decoys carry every query term in the wrong order, so the post-filter must reject them across
+    // pages; returning exactly the 10 proves no boundary drop or duplicate.
     #[test]
     fn search_sequence_pages_past_the_first_candidate_page() {
         let dir = std::env::temp_dir().join(format!("mgcxx_seq_paging_{}", std::process::id()));
@@ -497,14 +497,19 @@ mod tests {
             .to_string();
         let mut ctx = create_index(&path, &ffi::IndexConfig { mappings }).unwrap();
 
-        let real: Vec<u64> = (1u64..=300).collect();
-        for &gid in &real {
-            let data = format!(r#"{{"data":{{"name":"big bad wolf"}},"all":"big bad wolf","gid":{gid}}}"#);
+        let mut add_doc = |gid: u64, name: &str| {
+            let data = format!(r#"{{"data":{{"name":"{name}"}},"all":"{name}","gid":{gid}}}"#);
             add_document(&mut ctx, &ffi::DocumentInput { data }, true).unwrap();
+        };
+        for gid in 1u64..=150 {
+            add_doc(gid, "wolf bad big");
         }
-        for gid in 1000u64..=1049 {
-            let data = format!(r#"{{"data":{{"name":"wolf bad big"}},"all":"wolf bad big","gid":{gid}}}"#);
-            add_document(&mut ctx, &ffi::DocumentInput { data }, true).unwrap();
+        let real: Vec<u64> = (1000..1010).collect();
+        for &gid in &real {
+            add_doc(gid, "big bad wolf");
+        }
+        for gid in 2000u64..=2150 {
+            add_doc(gid, "wolf bad big");
         }
         commit(&mut ctx).unwrap();
 
@@ -514,7 +519,7 @@ mod tests {
             search_query: "data.name:big bad wo".to_string(),
             return_fields: vec![],
             aggregation_query: String::new(),
-            limit: 0, // unlimited -> first page is SEQUENCE_BASE_PAGE, must widen to reach all matches
+            limit: 10,
             fuzzy_distance: 0,
             fuzzy_prefix: true,
             fuzzy_transpositions: false,
@@ -971,12 +976,10 @@ fn search_get_fields(
     Ok(result)
 }
 
-// Adaptive candidate paging for search_sequence. The post-filter discards candidates, so we over-fetch
-// the requested limit, then page wider only when starved. SEQUENCE_BASE_PAGE is the first page for an
-// unlimited query; finite limits start at limit * SEQUENCE_OVERFETCH_FACTOR; pages double each round.
+// Adaptive candidate paging for search_sequence. The post-filter discards candidates, so the first page
+// over-fetches the effective limit by SEQUENCE_OVERFETCH_FACTOR and doubles each round when starved.
 // SEQUENCE_MAX_CANDIDATES caps how many score-ranked candidates one query will ever scan.
 // (Future scalability lever: a str/bytes fast field + columnar collector would filter without the store.)
-const SEQUENCE_BASE_PAGE: usize = 256;
 const SEQUENCE_OVERFETCH_FACTOR: usize = 8;
 const SEQUENCE_MAX_CANDIDATES: usize = 50_000;
 
@@ -1360,13 +1363,10 @@ fn sequence_matched_docs(
     // Page through score-ranked candidates, post-filtering each page, until we've collected
     // `result_limit` matches or the candidate stream runs out. Selective queries fill the first page;
     // we widen only when the post-filter is starved, capped at SEQUENCE_MAX_CANDIDATES.
-    let result_limit = if input.limit == 0 { usize::MAX } else { input.limit };
+    let result_limit = input.effective_limit();
     let mut matched: Vec<(f32, TantivyDocument)> = Vec::new();
     let mut scanned = 0usize;
-    let mut page = match input.limit {
-        0 => SEQUENCE_BASE_PAGE,
-        n => n.saturating_mul(SEQUENCE_OVERFETCH_FACTOR).min(SEQUENCE_MAX_CANDIDATES),
-    };
+    let mut page = result_limit.saturating_mul(SEQUENCE_OVERFETCH_FACTOR).min(SEQUENCE_MAX_CANDIDATES);
     while matched.len() < result_limit && scanned < SEQUENCE_MAX_CANDIDATES {
         let page_limit = page.min(SEQUENCE_MAX_CANDIDATES - scanned);
         let top_docs = searcher_ctx
