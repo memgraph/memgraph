@@ -231,6 +231,20 @@ struct CachedFineGrainedAuth {
 
   FineGrainedAuthChecker const *get() const { return checker.get(); }
 
+  void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
+               std::string current_db) {
+    if (checked && db_name == current_db) {
+      if (checker) checker->UpdateDbAccessor(dba);
+    } else {
+      checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
+      if (!checker || !checker->NeedsFineGrainedAuthChecker()) {
+        checker.reset();
+      }
+      db_name = std::move(current_db);
+      checked = true;
+    }
+  }
+
   void Reset() {
     checker.reset();
     db_name.clear();
