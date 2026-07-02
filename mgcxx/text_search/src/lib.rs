@@ -142,14 +142,14 @@ mod ffi {
             searcher: &SearcherContext,
             input: &SearchInput,
         ) -> Result<EdgeGidScoreOutput>;
-        // Ordered, adjacent fuzzy term-sequence search (last term a prefix). search_query is
+        // Fuzzy phrase search: ordered, adjacent terms, last term a prefix. search_query is
         // `data.<property>:<terms>`; fuzzy_distance/transpositions carry the user's exact values.
-        fn search_sequence_gids_pinned(
+        fn fuzzy_phrase_search_gids_pinned(
             context: &Context,
             searcher: &SearcherContext,
             input: &SearchInput,
         ) -> Result<GidScoreOutput>;
-        fn search_sequence_edge_gids_pinned(
+        fn fuzzy_phrase_search_edge_gids_pinned(
             context: &Context,
             searcher: &SearcherContext,
             input: &SearchInput,
@@ -293,46 +293,46 @@ mod tests {
     }
 
     #[test]
-    fn sequence_matches_enforces_order_adjacency_and_prefix() {
+    fn fuzzy_phrase_matches_enforces_order_adjacency_and_prefix() {
         let value = toks(&["big", "bad", "wolf"]);
-        assert!(sequence_matches(&value, &toks(&["big", "bad", "wo"]), 0, true));
-        assert!(!sequence_matches(&value, &toks(&["bad", "big", "wo"]), 0, true)); // order
-        assert!(!sequence_matches(&value, &toks(&["big", "wolf"]), 0, true)); // adjacency
-        assert!(sequence_matches(&toks(&["the", "big", "bad", "wolf"]), &toks(&["big", "bad", "wo"]), 0, true));
+        assert!(fuzzy_phrase_matches(&value, &toks(&["big", "bad", "wo"]), 0, true));
+        assert!(!fuzzy_phrase_matches(&value, &toks(&["bad", "big", "wo"]), 0, true)); // order
+        assert!(!fuzzy_phrase_matches(&value, &toks(&["big", "wolf"]), 0, true)); // adjacency
+        assert!(fuzzy_phrase_matches(&toks(&["the", "big", "bad", "wolf"]), &toks(&["big", "bad", "wo"]), 0, true));
         let world = toks(&["big", "bad", "world"]);
-        assert!(sequence_matches(&world, &toks(&["big", "bad", "wo"]), 0, true)); // wo prefixes world
-        assert!(!sequence_matches(&world, &toks(&["big", "bad", "wolf"]), 0, true)); // wolf does not
-        assert!(!sequence_matches(&toks(&["big"]), &toks(&["big", "bad"]), 0, true)); // too few tokens
+        assert!(fuzzy_phrase_matches(&world, &toks(&["big", "bad", "wo"]), 0, true)); // wo prefixes world
+        assert!(!fuzzy_phrase_matches(&world, &toks(&["big", "bad", "wolf"]), 0, true)); // wolf does not
+        assert!(!fuzzy_phrase_matches(&toks(&["big"]), &toks(&["big", "bad"]), 0, true)); // too few tokens
     }
 
     #[test]
-    fn sequence_matches_budget_is_per_whole_input_not_per_term() {
+    fn fuzzy_phrase_matches_budget_is_per_whole_input_not_per_term() {
         let value = toks(&["big", "bad", "wolf"]);
-        assert!(sequence_matches(&value, &toks(&["big", "bd", "wo"]), 1, true)); // 1 total edit
-        assert!(!sequence_matches(&value, &toks(&["big", "bd", "wo"]), 0, true));
+        assert!(fuzzy_phrase_matches(&value, &toks(&["big", "bd", "wo"]), 1, true)); // 1 total edit
+        assert!(!fuzzy_phrase_matches(&value, &toks(&["big", "bd", "wo"]), 0, true));
         // two single-term typos = 2 total edits: rejected at distance 1 (would pass a per-term budget),
         // accepted at distance 2.
-        assert!(!sequence_matches(&value, &toks(&["bg", "bd", "wo"]), 1, true));
-        assert!(sequence_matches(&value, &toks(&["bg", "bd", "wo"]), 2, true));
+        assert!(!fuzzy_phrase_matches(&value, &toks(&["bg", "bd", "wo"]), 1, true));
+        assert!(fuzzy_phrase_matches(&value, &toks(&["bg", "bd", "wo"]), 2, true));
         // transposition counts as one edit only when enabled.
-        assert!(sequence_matches(&value, &toks(&["big", "abd", "wo"]), 1, true));
-        assert!(!sequence_matches(&value, &toks(&["big", "abd", "wo"]), 1, false));
+        assert!(fuzzy_phrase_matches(&value, &toks(&["big", "abd", "wo"]), 1, true));
+        assert!(!fuzzy_phrase_matches(&value, &toks(&["big", "abd", "wo"]), 1, false));
         // the shared budget is NOT spent on word boundaries: words stay aligned to tokens, so a query
         // does not fuzzy-merge across a space. This keeps the post-filter a subset of the candidate net.
-        assert!(!sequence_matches(&toks(&["newyork", "city"]), &toks(&["new", "york"]), 1, true));
+        assert!(!fuzzy_phrase_matches(&toks(&["newyork", "city"]), &toks(&["new", "york"]), 1, true));
     }
 
     #[test]
-    fn sequence_matches_respects_position_gaps_from_dropped_tokens() {
+    fn fuzzy_phrase_matches_respects_position_gaps_from_dropped_tokens() {
         let mut analyzer = tantivy::tokenizer::TokenizerManager::default().get("default").unwrap();
         let blob = "x".repeat(45);
         let gapped_value = analyzer_tokenize(&mut analyzer, &format!("big {blob} bad wolf"));
         let terms = analyzer_tokenize(&mut analyzer, "big bad wo");
-        assert!(!sequence_matches(&gapped_value, &terms, 0, true));
-        assert!(!sequence_matches(&gapped_value, &terms, 2, true));
+        assert!(!fuzzy_phrase_matches(&gapped_value, &terms, 0, true));
+        assert!(!fuzzy_phrase_matches(&gapped_value, &terms, 2, true));
         let gapped_terms = analyzer_tokenize(&mut analyzer, &format!("big {blob} bad wo"));
-        assert!(sequence_matches(&gapped_value, &gapped_terms, 0, true));
-        assert!(!sequence_matches(&analyzer_tokenize(&mut analyzer, "big bad wolf"), &gapped_terms, 0, true));
+        assert!(fuzzy_phrase_matches(&gapped_value, &gapped_terms, 0, true));
+        assert!(!fuzzy_phrase_matches(&analyzer_tokenize(&mut analyzer, "big bad wolf"), &gapped_terms, 0, true));
     }
 
     #[test]
@@ -481,12 +481,12 @@ mod tests {
     }
 
     // Adaptive candidate paging: the 10 real matches sit between 150 decoys on each side, so the first
-    // page (limit 10 * SEQUENCE_OVERFETCH_FACTOR = 80 candidates) holds only decoys whichever way score
+    // page (limit 10 * FUZZY_PHRASE_OVERFETCH_FACTOR = 80 candidates) holds only decoys whichever way score
     // ties break -- reaching the matches requires widening past the first page via and_offset. The
     // decoys carry every query term in the wrong order, so the post-filter must reject them across
     // pages; returning exactly the 10 proves no boundary drop or duplicate.
     #[test]
-    fn search_sequence_pages_past_the_first_candidate_page() {
+    fn fuzzy_phrase_search_pages_past_the_first_candidate_page() {
         let dir = std::env::temp_dir().join(format!("mgcxx_seq_paging_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.to_str().unwrap().to_string();
@@ -525,7 +525,7 @@ mod tests {
             fuzzy_transpositions: false,
             fuzzy_field: String::new(),
         };
-        let mut gids: Vec<u64> = search_sequence_gids_pinned(&ctx, &searcher, &input)
+        let mut gids: Vec<u64> = fuzzy_phrase_search_gids_pinned(&ctx, &searcher, &input)
             .unwrap()
             .docs
             .iter()
@@ -976,14 +976,14 @@ fn search_get_fields(
     Ok(result)
 }
 
-// Adaptive candidate paging for search_sequence. The post-filter discards candidates, so the first page
-// over-fetches the effective limit by SEQUENCE_OVERFETCH_FACTOR and doubles each round when starved.
-// SEQUENCE_MAX_CANDIDATES caps how many score-ranked candidates one query will ever scan.
+// Adaptive candidate paging for fuzzy_phrase_search. The post-filter discards candidates, so the first page
+// over-fetches the effective limit by FUZZY_PHRASE_OVERFETCH_FACTOR and doubles each round when starved.
+// FUZZY_PHRASE_MAX_CANDIDATES caps how many score-ranked candidates one query will ever scan.
 // (Future scalability lever: a str/bytes fast field + columnar collector would filter without the store.)
-const SEQUENCE_OVERFETCH_FACTOR: usize = 8;
-const SEQUENCE_MAX_CANDIDATES: usize = 50_000;
+const FUZZY_PHRASE_OVERFETCH_FACTOR: usize = 8;
+const FUZZY_PHRASE_MAX_CANDIDATES: usize = 50_000;
 
-// Parses `data.<property>:<terms>` into (property, terms); the field side is trimmed. search_sequence
+// Parses `data.<property>:<terms>` into (property, terms); the field side is trimmed. fuzzy_phrase_search
 // is single-property only, so any other form (no colon, non-`data` prefix, or blank property) is rejected.
 fn split_property_and_terms(query: &str) -> Result<(String, String), std::io::Error> {
     query
@@ -993,7 +993,7 @@ fn split_property_and_terms(query: &str) -> Result<(String, String), std::io::Er
             (!property.is_empty()).then(|| (property.to_string(), terms.to_string()))
         })
         .ok_or_else(|| {
-            Error::new(ErrorKind::Other, format!("search_sequence expects 'data.<property>:<terms>', got: {}", query))
+            Error::new(ErrorKind::Other, format!("fuzzy_phrase_search expects 'data.<property>:<terms>', got: {}", query))
         })
 }
 
@@ -1044,7 +1044,7 @@ fn prefix_distance(term: &[char], token: &[char], transpositions: bool) -> usize
 
 // True if `terms` appear as an adjacent, in-order window in `value` (leading terms whole-word, last
 // term a prefix). The per-word distances share one budget: their sum must stay within `distance`.
-fn sequence_matches(
+fn fuzzy_phrase_matches(
     value: &[(usize, Vec<char>)],
     terms: &[(usize, Vec<char>)],
     distance: u8,
@@ -1084,7 +1084,7 @@ fn extract_property_string(doc: &TantivyDocument, data_field: Field, property: &
         .and_then(|(_, value)| value.as_str().map(str::to_string))
 }
 
-// Reads a stored u64 field (gid / edge gids) from a sequence-search hit's document.
+// Reads a stored u64 field (gid / edge gids) from a fuzzy-phrase-search hit's document.
 fn extract_u64_field(
     doc: &TantivyDocument,
     field: Field,
@@ -1313,9 +1313,10 @@ fn search_edge_gids_pinned(
     Ok(ffi::EdgeGidScoreOutput { docs })
 }
 
-// Runs the candidate query for a sequence search and post-filters to the docs whose `data.<property>`
-// value contains the term sequence (adjacent, in order, last term a prefix), up to the result limit.
-fn sequence_matched_docs(
+// Runs the candidate query for a fuzzy phrase search and post-filters to the docs whose
+// `data.<property>` value contains the phrase (adjacent, in order, last term a prefix), up to the
+// result limit.
+fn fuzzy_phrase_matched_docs(
     context: &ffi::Context,
     searcher_ctx: &SearcherContext,
     input: &ffi::SearchInput,
@@ -1335,7 +1336,7 @@ fn sequence_matched_docs(
     if terms.is_empty() {
         return Err(Error::new(
             ErrorKind::Other,
-            "search_sequence query produced no searchable terms.".to_string(),
+            "fuzzy_phrase_search query produced no searchable terms.".to_string(),
         ));
     }
 
@@ -1362,18 +1363,18 @@ fn sequence_matched_docs(
 
     // Page through score-ranked candidates, post-filtering each page, until we've collected
     // `result_limit` matches or the candidate stream runs out. Selective queries fill the first page;
-    // we widen only when the post-filter is starved, capped at SEQUENCE_MAX_CANDIDATES.
+    // we widen only when the post-filter is starved, capped at FUZZY_PHRASE_MAX_CANDIDATES.
     let result_limit = input.effective_limit();
     let mut matched: Vec<(f32, TantivyDocument)> = Vec::new();
     let mut scanned = 0usize;
-    let mut page = result_limit.saturating_mul(SEQUENCE_OVERFETCH_FACTOR).min(SEQUENCE_MAX_CANDIDATES);
-    while matched.len() < result_limit && scanned < SEQUENCE_MAX_CANDIDATES {
-        let page_limit = page.min(SEQUENCE_MAX_CANDIDATES - scanned);
+    let mut page = result_limit.saturating_mul(FUZZY_PHRASE_OVERFETCH_FACTOR).min(FUZZY_PHRASE_MAX_CANDIDATES);
+    while matched.len() < result_limit && scanned < FUZZY_PHRASE_MAX_CANDIDATES {
+        let page_limit = page.min(FUZZY_PHRASE_MAX_CANDIDATES - scanned);
         let top_docs = searcher_ctx
             .searcher
             .search(&query, &TopDocs::with_limit(page_limit).and_offset(scanned))
             .map_err(|e| {
-                Error::new(ErrorKind::Other, format!("Unable to perform sequence search under {:?} -> {}", index_path, e))
+                Error::new(ErrorKind::Other, format!("Unable to perform fuzzy phrase search under {:?} -> {}", index_path, e))
             })?;
         let fetched = top_docs.len();
         for (score, doc_address) in top_docs {
@@ -1384,7 +1385,7 @@ fn sequence_matched_docs(
                 continue;
             };
             let value_tokens = analyzer_tokenize(&mut analyzer, &value);
-            if sequence_matches(&value_tokens, &terms, input.fuzzy_distance, input.fuzzy_transpositions) {
+            if fuzzy_phrase_matches(&value_tokens, &terms, input.fuzzy_distance, input.fuzzy_transpositions) {
                 matched.push((score, doc));
                 if matched.len() >= result_limit {
                     break;
@@ -1397,22 +1398,22 @@ fn sequence_matched_docs(
         }
         page = page.saturating_mul(2);
     }
-    if matched.len() < result_limit && scanned >= SEQUENCE_MAX_CANDIDATES {
+    if matched.len() < result_limit && scanned >= FUZZY_PHRASE_MAX_CANDIDATES {
         log::warn!(
-            "search_sequence hit the {} candidate scan cap in {:?}; results may be truncated",
-            SEQUENCE_MAX_CANDIDATES,
+            "fuzzy_phrase_search hit the {} candidate scan cap in {:?}; results may be truncated",
+            FUZZY_PHRASE_MAX_CANDIDATES,
             index_path
         );
     }
     Ok(matched)
 }
 
-fn search_sequence_gids_pinned(
+fn fuzzy_phrase_search_gids_pinned(
     context: &ffi::Context,
     searcher_ctx: &SearcherContext,
     input: &ffi::SearchInput,
 ) -> Result<ffi::GidScoreOutput, std::io::Error> {
-    let matched = sequence_matched_docs(context, searcher_ctx, input)?;
+    let matched = fuzzy_phrase_matched_docs(context, searcher_ctx, input)?;
     let index_path = &context.tantivyContext.index_path;
     let gid_field = context.tantivyContext.schema.get_field("gid").map_err(|e| {
         Error::new(ErrorKind::Other, format!("gid field not found in {:?} -> {}", index_path, e))
@@ -1425,12 +1426,12 @@ fn search_sequence_gids_pinned(
     Ok(ffi::GidScoreOutput { docs })
 }
 
-fn search_sequence_edge_gids_pinned(
+fn fuzzy_phrase_search_edge_gids_pinned(
     context: &ffi::Context,
     searcher_ctx: &SearcherContext,
     input: &ffi::SearchInput,
 ) -> Result<ffi::EdgeGidScoreOutput, std::io::Error> {
-    let matched = sequence_matched_docs(context, searcher_ctx, input)?;
+    let matched = fuzzy_phrase_matched_docs(context, searcher_ctx, input)?;
     let index_path = &context.tantivyContext.index_path;
     let schema = &context.tantivyContext.schema;
     let edge_gid_field = schema.get_field("edge_gid").map_err(|e| {

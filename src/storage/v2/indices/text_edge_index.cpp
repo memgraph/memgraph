@@ -332,8 +332,8 @@ std::vector<TextEdgeSearchResult> TextEdgeIndex::ActiveIndices::Search(const std
                                             .fuzzy_transpositions = config.fuzzy_transpositions,
                                             .fuzzy_field = kAllField});
         break;
-      case text_search_mode::SEQUENCE:
-        search_results = mgcxx::text_search::search_sequence_edge_gids_pinned(
+      case text_search_mode::FUZZY_PHRASE:
+        search_results = mgcxx::text_search::fuzzy_phrase_search_edge_gids_pinned(
             context,
             searcher,
             mgcxx::text_search::SearchInput{.search_query = lowered_query,
@@ -346,7 +346,7 @@ std::vector<TextEdgeSearchResult> TextEdgeIndex::ActiveIndices::Search(const std
       default:
         throw query::TextSearchException(
             "Unsupported search mode: please use one of text_search.search_edges, text_search.search_all_edges, "
-            "text_search.search_sequence_edges, or text_search.regex_search_edges.");
+            "text_search.fuzzy_phrase_search_edges, or text_search.regex_search_edges.");
     }
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());

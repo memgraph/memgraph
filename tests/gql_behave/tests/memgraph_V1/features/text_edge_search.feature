@@ -505,11 +505,11 @@ Feature: Text edge search related features
             | 'memgrap'   |
             | 'memgraph'  |
 
-    Scenario: Sequence edge search enforces order with a last-word prefix
+    Scenario: Fuzzy phrase edge search enforces order with a last-word prefix
         Given an empty graph
         And having executed
             """
-            CREATE TEXT EDGE INDEX sequenceEdgeIndex ON :LINK
+            CREATE TEXT EDGE INDEX fuzzyPhraseEdgeIndex ON :LINK
             """
         And having executed
             """
@@ -518,7 +518,7 @@ Feature: Text edge search related features
             """
         When executing query:
             """
-            CALL text_search.search_sequence_edges('sequenceEdgeIndex', 'data.text:big bad wo') YIELD edge
+            CALL text_search.fuzzy_phrase_search_edges('fuzzyPhraseEdgeIndex', 'data.text:big bad wo') YIELD edge
             RETURN edge.text AS text
             ORDER BY text ASC
             """
