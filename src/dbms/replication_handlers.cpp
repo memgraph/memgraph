@@ -169,14 +169,19 @@ void RepairDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   }
 
   try {
-    // Resolve the tenant by UUID and completely reset it so the stale data is wiped. After this the
-    // replica's tenant is empty with commit ts 0; the main then force-recovers it from its fresh epoch.
+    // Resolve the tenant by UUID and completely reset it so the stale data is wiped -- in memory and on
+    // disk (using the same .old backup semantics as the main's RepairBroken()), so the tenant stays empty
+    // across a restart instead of recovering its stale data. After this the replica's tenant is empty with
+    // commit ts 0; the main then force-recovers it from its fresh epoch.
     auto db_acc = dbms_handler.Get(req.uuid);
     auto protector = dbms::DatabaseProtector{db_acc};
     auto *mem = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-    mem->ResetTenant();
-    res = RepairDatabaseRes(RepairDatabaseRes::Result::SUCCESS);
-    spdlog::debug("RepairDatabaseHandler: SUCCESS");
+    if (auto reset = mem->ClearDurabilityAndReset(); !reset.has_value()) {
+      spdlog::error("RepairDatabaseHandler: failed to clear the tenant's durability files.");
+    } else {
+      res = RepairDatabaseRes(RepairDatabaseRes::Result::SUCCESS);
+      spdlog::debug("RepairDatabaseHandler: SUCCESS");
+    }
   } catch (const UnknownDatabaseException &) {
     // The tenant does not exist on this replica; nothing to reset.
     res = RepairDatabaseRes(RepairDatabaseRes::Result::NO_NEED);
@@ -315,8 +320,12 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
       auto protector = dbms::DatabaseProtector{db_acc};
       auto *mem = static_cast<storage::InMemoryStorage *>(db_acc->storage());
       if (mem->GetLastDurableTimestamp() != 0) {
-        mem->ResetTenant();
-        spdlog::debug("SystemRecoveryHandler: reset repaired tenant {}.", std::string{uuid});
+        if (auto reset = mem->ClearDurabilityAndReset(); !reset.has_value()) {
+          spdlog::error("SystemRecoveryHandler: failed to clear durability files while resetting repaired tenant {}.",
+                        std::string{uuid});
+        } else {
+          spdlog::debug("SystemRecoveryHandler: reset repaired tenant {}.", std::string{uuid});
+        }
       }
     } catch (const UnknownDatabaseException &) {
       spdlog::debug("SystemRecoveryHandler: repaired tenant {} not present on this replica; nothing to reset.",

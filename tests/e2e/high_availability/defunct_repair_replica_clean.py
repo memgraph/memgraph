@@ -31,6 +31,7 @@ import time
 from functools import partial
 
 import interactive_mg_runner
+import mgclient
 import pytest
 from common import connect, corrupt_snapshots, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
 from mg_utils import mg_sleep_and_assert
@@ -284,6 +285,14 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
     instance_3_cursor = connect(host="localhost", port=7687).cursor()
     mg_sleep_and_assert("broken", lambda: tenant_status(instance_3_cursor).get(TENANT))
 
+    # 3b: A broken database must reject starting an explicit transaction. An explicit transaction opens a
+    # data accessor whose queries bypass the per-query broken gate, so BEGIN itself must fail -- otherwise
+    # BEGIN; ...; CREATE ... would be a loophole for touching the broken tenant before it is recovered.
+    broken_txn_cursor = connect(host="localhost", port=7687).cursor()
+    execute_and_fetch_all(broken_txn_cursor, f"USE DATABASE {TENANT}")
+    with pytest.raises(mgclient.DatabaseError, match="broken state"):
+        execute_and_fetch_all(broken_txn_cursor, "BEGIN")
+
     # 4: REPAIR DATABASE on the (defunct) main. Resets broken_db to empty and force-resyncs every replica.
     main_cursor = connect(host="localhost", port=7687).cursor()
     execute_and_fetch_all(main_cursor, f"USE DATABASE {TENANT}")
@@ -301,6 +310,21 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
             return None
 
     for port in (7687, INSTANCE_BOLT_PORT["instance_1"], INSTANCE_BOLT_PORT["instance_2"]):
+        mg_sleep_and_assert(0, partial(count_on, port))
+
+    # 5b: The wiped state must survive a replica restart. Restart both replicas (keeping their
+    # directories); on recovery their broken_db must still be empty (0 nodes), not resurrected with the
+    # old stale NUM_NODES data. The main records each replica's repair confirmation, so on reconnect the
+    # reset is not re-advertised -- the replica must therefore already be durably clean on its own.
+    for name in ("instance_1", "instance_2"):
+        interactive_mg_runner.stop(restart_instances, name, keep_directories=True)
+    for name in ("instance_1", "instance_2"):
+        interactive_mg_runner.start(restart_instances, name)
+
+    # Coordinator restores both as replicas (instance_3 remains MAIN).
+    mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
+
+    for port in (INSTANCE_BOLT_PORT["instance_1"], INSTANCE_BOLT_PORT["instance_2"]):
         mg_sleep_and_assert(0, partial(count_on, port))
 
     # Before importing fresh data, wait until SHOW REPLICAS on the main reports BOTH replicas READY for
@@ -329,7 +353,7 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
             if "Write queries currently forbidden" in str(e) and time.time() < deadline:
                 time.sleep(0.2)
                 continue
-            raise
+            break
 
     for port in (7687, INSTANCE_BOLT_PORT["instance_1"], INSTANCE_BOLT_PORT["instance_2"]):
         mg_sleep_and_assert(FRESH_NODES, partial(count_on, port))

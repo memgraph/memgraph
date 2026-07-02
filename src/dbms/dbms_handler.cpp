@@ -245,7 +245,7 @@ struct DropDatabase : memgraph::system::ISystemAction {
 struct RepairDatabaseAction : memgraph::system::ISystemAction {
   // db_acc is retained for the lifetime of the action to keep the database alive while the reset is
   // replicated asynchronously.
-  RepairDatabaseAction(utils::UUID uuid) : uuid_{uuid} {}
+  RepairDatabaseAction(utils::UUID uuid, DatabaseAccess db_acc) : uuid_{uuid}, db_acc_{std::move(db_acc)} {}
 
   void DoDurability() override { /* Done during DBMS execution */ }
 
@@ -257,14 +257,22 @@ struct RepairDatabaseAction : memgraph::system::ISystemAction {
       return response.result != storage::replication::RepairDatabaseRes::Result::FAILURE;
     };
 
-    return client.StreamAndFinalizeDelta<storage::replication::RepairDatabaseRpc>(
+    auto const completed = client.StreamAndFinalizeDelta<storage::replication::RepairDatabaseRpc>(
         check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
+    if (completed) {
+      // The replica applied the reset; record its confirmation so the repair is not re-advertised in a
+      // later SystemRecoveryReq and the replica isn't needlessly reset again after it has re-synced.
+      auto acc = db_acc_;
+      acc->storage()->MarkRepairConfirmedBy(client.name_);
+    }
+    return completed;
   }
 
   void PostReplication(replication::RoleMainData &mainData) const override {}
 
  private:
   utils::UUID uuid_;
+  DatabaseAccess db_acc_;
 };
 
 struct RenameDatabase : memgraph::system::ISystemAction {
@@ -659,7 +667,7 @@ std::expected<void, std::string> DbmsHandler::RepairDatabase(DatabaseAccess db_a
 #ifdef MG_ENTERPRISE
   // Replicate the reset to the replicas so they wipe their stale tenant data and re-sync from the main.
   if (txn) {
-    txn->AddAction<RepairDatabaseAction>(mem_storage->uuid());
+    txn->AddAction<RepairDatabaseAction>(mem_storage->uuid(), db_acc);
   }
 #endif
 
