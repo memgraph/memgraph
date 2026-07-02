@@ -4161,6 +4161,59 @@ TEST(MigrateAuthJson, V3MigrationToCurrentVersion) {
   }
 }
 
+// 3.9 stores V3-style bitmasks and a permissions array under the old
+// `fine_grained_access_handler` key. The migration must not misclassify this
+// as V2 (which would corrupt the bitmasks and wipe the rules array).
+TEST(MigrateAuthJson, V39OldKeyWithV3Content) {
+  auto data = nlohmann::json::parse(R"({
+    "rolename": "system_admin",
+    "permissions": {"grants": 0, "denies": 0},
+    "fine_grained_access_handler": {
+      "label_permissions": {
+        "global_permission": 27,
+        "permissions": [
+          {"symbols": ["Person"], "granted": 1, "matching": "ANY"}
+        ]
+      },
+      "edge_type_permissions": {
+        "global_permission": 27,
+        "permissions": [
+          {"symbols": ["KNOWS"], "granted": 27, "matching": "ANY"}
+        ]
+      }
+    }
+  })");
+  MigrateAuthJson(data);
+  ASSERT_EQ(data["version"], kCurrentEntityVersion);
+
+  ASSERT_FALSE(data.contains("fine_grained_access_handler"));
+  ASSERT_TRUE(data.contains("fine_grained_permissions"));
+
+  auto const &lp = data["fine_grained_permissions"]["label_permissions"];
+  ASSERT_FALSE(lp.contains("global_permission"));
+  // V3 READ|UPDATE|CREATE|DELETE (27) -> V4 label expansion
+  EXPECT_EQ(lp["global_grants"], kAllLabel);
+  EXPECT_EQ(lp["global_denies"], kUnset);
+
+  // Per-entity rule: READ (1) stays as READ, gains denied=0
+  auto const &lp_rules = lp["permissions"];
+  ASSERT_EQ(lp_rules.size(), 1);
+  EXPECT_EQ(lp_rules[0]["granted"], kRead);
+  EXPECT_EQ(lp_rules[0]["denied"], 0);
+
+  auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
+  ASSERT_FALSE(ep.contains("global_permission"));
+  // V3 edge 27 -> V4: no expansion for edge types
+  EXPECT_EQ(ep["global_grants"], kAllEdgeType);
+  EXPECT_EQ(ep["global_denies"], kUnset);
+
+  // Per-entity rule preserved
+  auto const &ep_rules = ep["permissions"];
+  ASSERT_EQ(ep_rules.size(), 1);
+  EXPECT_EQ(ep_rules[0]["granted"], kAllEdgeType);
+  EXPECT_EQ(ep_rules[0]["denied"], 0);
+}
+
 TEST(MigrateAuthJson, NoFgaFieldNeedsNoMigration) {
   auto data = nlohmann::json::parse(R"({
     "username": "basic_user",

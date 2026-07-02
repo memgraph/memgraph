@@ -1835,13 +1835,23 @@ std::optional<int> DeduceVersion(nlohmann::json const &data) {
   if (auto it = data.find(kVersion); it != data.end() && it->is_number_integer()) {
     return it->get<int>();
   }
-  if (data.contains("fine_grained_access_handler")) return 2;
-  if (auto fg = data.find("fine_grained_permissions"); fg != data.end() && fg->is_object()) {
-    for (auto const &key : {"label_permissions", "edge_type_permissions"}) {
-      if (auto sub = fg->find(key); sub != fg->end() && sub->is_object()) {
-        if (sub->contains("global_permission")) return 3;
-        if (sub->contains("global_grants")) return 4;
+  // Check both old and new key names for the fine-grained permissions block.
+  // 3.9 uses `fine_grained_access_handler` but with V3-style content (V3
+  // bitmasks + permissions array); true V2 (pre-3.8) also uses that key but
+  // with V2-style enum values and no permissions array. We must inspect the
+  // sub-objects to distinguish them.
+  for (auto const &fg_key : {"fine_grained_permissions", "fine_grained_access_handler"}) {
+    if (auto fg = data.find(fg_key); fg != data.end() && fg->is_object()) {
+      for (auto const &key : {"label_permissions", "edge_type_permissions"}) {
+        if (auto sub = fg->find(key); sub != fg->end() && sub->is_object()) {
+          if (sub->contains("global_grants")) return 4;
+          if (sub->contains("global_permission") && sub->contains("permissions") && (*sub)["permissions"].is_array())
+            return 3;
+          if (sub->contains("global_permission")) return 2;
+        }
       }
+      // Has the FGA block but no recognisable sub-objects
+      if (std::string_view{fg_key} == "fine_grained_access_handler") return 2;
     }
   }
   return std::nullopt;
@@ -1902,7 +1912,9 @@ void MigrateAuthJson(nlohmann::json &data) {
             *global_it = convert_v2_to_v3(static_cast<uint64_t>(v2_perm));
           }
         }
-        (*perm_it)["permissions"] = nlohmann::json::array();
+        if (!perm_it->contains("permissions") || !(*perm_it)["permissions"].is_array()) {
+          (*perm_it)["permissions"] = nlohmann::json::array();
+        }
       }
     }
 
@@ -1916,6 +1928,11 @@ void MigrateAuthJson(nlohmann::json &data) {
   //           add denied field to per-entity rules,
   //           expand UPDATE bit for labels.
   if (version == 3) {
+    // Handle V3 content stored under the old key name (pre-3.8 transitional)
+    if (data.contains("fine_grained_access_handler") && !data.contains("fine_grained_permissions")) {
+      data["fine_grained_permissions"] = std::move(data["fine_grained_access_handler"]);
+      data.erase("fine_grained_access_handler");
+    }
     auto fg_it = data.find("fine_grained_permissions");
     if (fg_it == data.end() || !fg_it->is_object()) return;
 

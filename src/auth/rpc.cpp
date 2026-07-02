@@ -51,42 +51,9 @@ namespace {
 auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
-  auto const json = nlohmann::json::parse(tmp);
-  return memgraph::auth::Role::Deserialize(json);
-}
-
-auth::Role LoadAndMigrateRole(memgraph::slk::Reader *reader) {
-  std::string tmp;
-  memgraph::slk::Load(&tmp, reader);
   auto json = nlohmann::json::parse(tmp);
   memgraph::auth::MigrateAuthJson(json);
   return memgraph::auth::Role::Deserialize(json);
-}
-
-auth::User LoadAndMigrateUser(memgraph::slk::Reader *reader) {
-  std::string tmp;
-  memgraph::slk::Load(&tmp, reader);
-  auto json = nlohmann::json::parse(tmp);
-  memgraph::auth::MigrateAuthJson(json);
-  auto user = memgraph::auth::User::Deserialize(json);
-
-  // Load roles vector manually so each role gets migrated
-  uint64_t num_roles = 0;
-  memgraph::slk::Load(&num_roles, reader);
-  std::vector<auth::Role> roles;
-  roles.reserve(num_roles);
-  for (uint64_t i = 0; i < num_roles; ++i) {
-    roles.push_back(LoadAndMigrateRole(reader));
-  }
-
-#ifdef MG_ENTERPRISE
-  std::unordered_map<std::string, std::unordered_set<std::string>> mt_map;
-  memgraph::slk::Load(&mt_map, reader);
-  AttachRolesToUser(user, roles, mt_map);
-#else
-  AttachRolesToUser(user, roles, {});
-#endif
-  return user;
 }
 
 std::string LoadJsonStringRaw(memgraph::slk::Reader *reader) {
@@ -125,7 +92,8 @@ void Save(const auth::User &self, memgraph::slk::Builder *builder) {
 void Load(auth::User *self, memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
-  auto const json = nlohmann::json::parse(tmp);
+  auto json = nlohmann::json::parse(tmp);
+  memgraph::auth::MigrateAuthJson(json);
   *self = memgraph::auth::User::Deserialize(json);
   std::vector<auth::Role> roles;
   memgraph::slk::Load(&roles, reader);
@@ -237,30 +205,12 @@ void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::B
   memgraph::slk::Save(self.profile, builder);
 }
 
-// Migrating helpers are used instead of slk::Load<User/Role> so that a future
-// entity version (e.g. V5) is automatically migrated on reception without
-// requiring a new RPC version. Currently, as Auth RPC is version 2, we know
-// this corresponds to auth entity version 4 and so the actual upgrade is a
-// no-op.
 void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
-
-  // User: same wire format as optional<User>, but with migration
-  bool has_user = false;
-  memgraph::slk::Load(&has_user, reader);
-  if (has_user) {
-    self->user = LoadAndMigrateUser(reader);
-  }
-
-  // Role: same wire format as optional<Role>, but with migration
-  bool has_role = false;
-  memgraph::slk::Load(&has_role, reader);
-  if (has_role) {
-    self->role = LoadAndMigrateRole(reader);
-  }
-
+  memgraph::slk::Load(&self->user, reader);
+  memgraph::slk::Load(&self->role, reader);
   memgraph::slk::Load(&self->profile, reader);
 }
 
