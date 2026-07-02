@@ -128,7 +128,7 @@ mg_add_stamped_custom_target(copy_mage_python_query_modules ALL
 install(TARGETS
     convert convert_c example_c example_cpp schema mgps_cpp
     text_search vector_search pagerank_online
-    community_detection_online katz_centrality_online
+    community_detection_online katz_centrality_online node2vec_online
     DESTINATION lib/memgraph/query_modules
 )
 
