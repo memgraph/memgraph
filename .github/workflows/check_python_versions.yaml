@@ -75,7 +75,7 @@ jobs:
 
     Community:
         needs: Setup
-        if: ${{ github.event_name != 'push' && inputs.community }}
+        if: ${{ github.event_name == 'push' && inputs.community }}
         # if: ${{ inputs.community }}
         strategy:
             fail-fast: false
@@ -96,7 +96,7 @@ jobs:
 
     Coverage:
         needs: Setup
-        if: ${{ github.event_name != 'push' && inputs.coverage }}
+        if: ${{ github.event_name == 'push' && inputs.coverage }}
         # if: ${{ inputs.coverage }}
         strategy:
             fail-fast: false
@@ -118,7 +118,7 @@ jobs:
 
     Debug:
         needs: Setup
-        if: ${{ github.event_name != 'push' && inputs.debug }}
+        if: ${{ github.event_name == 'push' && inputs.debug }}
         # if: ${{ inputs.debug }}
         strategy:
             fail-fast: false
@@ -165,7 +165,7 @@ jobs:
 
     Mage:
         needs: Setup
-        if: ${{ github.event_name != 'push' && inputs.mage }}
+        if: ${{ github.event_name == 'push' && inputs.mage }}
         # if: ${{ inputs.mage }}
         strategy:
             fail-fast: false
