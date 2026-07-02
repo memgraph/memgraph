@@ -100,10 +100,13 @@ struct CachedQuery {
   bool using_schema_assert{false};
 };
 
-// Bounded, LRU-evicted cache of parsed ASTs keyed by the stripped-query hash.
-// Entries are shared_ptr because CachedQuery::query points into its own
+// Bounded, LRU-evicted cache of parsed ASTs keyed by the stripped query. The
+// key is the HashedString (not the bare hash) so a 64-bit hash collision is
+// resolved by comparing the query text and can never return a different query's
+// AST. Entries are shared_ptr because CachedQuery::query points into its own
 // AstStorage, so the entry must be stored once and shared, never value-copied.
-using AstCache = utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<CachedQuery>>, utils::RWSpinLock>;
+using AstCache =
+    utils::Synchronized<utils::LRUCache<frontend::HashedString, std::shared_ptr<CachedQuery>>, utils::RWSpinLock>;
 
 /**
  * A container for data related to the parsing of a query.

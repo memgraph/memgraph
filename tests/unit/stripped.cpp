@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <unordered_map>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -676,6 +677,30 @@ TEST(Parameters, CopyPreservesLookup) {
   Parameters copy = params;  // PrepareQueryParameters copies the stripped literals
   EXPECT_EQ(copy.AtTokenPosition(2).ValueInt(), 20);
   EXPECT_EQ(copy.AtTokenPosition(9).ValueInt(), 90);
+}
+
+// The AST cache keys on HashedString, so a 64-bit hash collision must resolve by
+// query text and never return a different query's entry. HashedString equality
+// compares hash and string, and the cache's unordered_map disambiguates a
+// bucket collision via that operator==. Force every key into one bucket to
+// exercise the collision path directly.
+TEST(HashedString, DisambiguatesOnHashCollision) {
+  struct AlwaysCollide {
+    std::size_t operator()(const HashedString & /*unused*/) const { return 0; }
+  };
+
+  std::unordered_map<HashedString, int, AlwaysCollide> map;
+  map.emplace(HashedString{"RETURN 0"}, 1);
+  map.emplace(HashedString{"RETURN 1"}, 2);
+
+  // Distinct query text with a forced hash collision stays two separate entries.
+  ASSERT_EQ(map.size(), 2U);
+  EXPECT_EQ(map.at(HashedString{"RETURN 0"}), 1);
+  EXPECT_EQ(map.at(HashedString{"RETURN 1"}), 2);
+
+  // Same content compares equal (and would share an entry); different content does not.
+  EXPECT_EQ(HashedString{"RETURN 0"}, HashedString{"RETURN 0"});
+  EXPECT_NE(HashedString{"RETURN 0"}, HashedString{"RETURN 1"});
 }
 
 }  // namespace

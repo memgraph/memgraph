@@ -94,10 +94,10 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
   // Cache the query's AST if it isn't already. The entry is held via a
   // shared_ptr so we can release the cache lock before the (potentially heavy)
   // Clone below, and so a concurrent LRU eviction can't free it under us.
-  auto hash = stripped_query.stripped_query().hash();
+  auto const &cache_key = stripped_query.stripped_query();
   std::shared_ptr<CachedQuery> cached;
   cache->WithLock([&](auto &lru) {
-    if (auto entry = lru.get(hash)) cached = *entry;
+    if (auto entry = lru.get(cache_key)) cached = *entry;
   });
   std::unique_ptr<frontend::opencypher::Parser> parser;
 
@@ -155,7 +155,7 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
       cached_query->required_privileges = query::GetRequiredPrivileges(visitor.query());
       cached_query->is_cypher_read = read_check();
       cached_query->using_schema_assert = visitor.GetQueryInfo().has_schema_assert;
-      cache->WithLock([&](auto &lru) { lru.put(hash, cached_query); });
+      cache->WithLock([&](auto &lru) { lru.put(cache_key, cached_query); });
 
       get_information_from_cache(*cached_query);
     } else {
