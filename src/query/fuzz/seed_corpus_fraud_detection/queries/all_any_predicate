@@ -1,0 +1,1 @@
+MATCH (a:Account) WHERE all(x IN [1000, 2000, 3000] WHERE a.balance > x) RETURN a.name

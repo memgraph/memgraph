@@ -1,0 +1,1 @@
+MATCH (a:Account) RETURN a.name, coalesce(a.flagged, false) AS is_flagged, toString(a.balance) AS bal_str, type(a) AS node_type

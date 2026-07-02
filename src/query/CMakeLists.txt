@@ -244,3 +244,5 @@ target_link_libraries(mg-query PUBLIC antlr_opencypher_parser_lib)
 if(MG_ENABLE_TESTING)
   add_subdirectory(plan_v2/test_support)
 endif()
+
+add_subdirectory(fuzz EXCLUDE_FROM_ALL)
