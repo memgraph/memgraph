@@ -43,6 +43,8 @@ namespace memgraph::dbms {
 namespace {
 #ifdef MG_ENTERPRISE
 constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
+constexpr std::string_view kUuidKey = "uuid";        // JSON key for a durable entry's tenant uuid
+constexpr std::string_view kRelDirKey = "rel_dir";   // JSON key for a durable entry's relative data dir
 #endif
 
 // Per storage
@@ -110,8 +112,8 @@ struct Durability {
 
   static auto GenVal(utils::UUID uuid, std::filesystem::path rel_dir) {
     nlohmann::json json;
-    json["uuid"] = uuid;
-    json["rel_dir"] = rel_dir;
+    json[kUuidKey] = uuid;
+    json[kRelDirKey] = rel_dir;
     // TODO: Serialize the configuration
     return json.dump();
   }
@@ -147,8 +149,8 @@ struct Durability {
   static auto GenColdVal(utils::UUID uuid, std::filesystem::path rel_dir, const storage::StorageInfo &cold_stats)
       -> std::string {
     nlohmann::json json;
-    json["uuid"] = uuid;
-    json["rel_dir"] = rel_dir;
+    json[kUuidKey] = uuid;
+    json[kRelDirKey] = rel_dir;
     json["cold"] = true;
     json["cold_stats"] = StatsToJson(cold_stats);
     return json.dump();
@@ -198,7 +200,8 @@ struct Durability {
   }
 };
 
-DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(config)} {
+DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_policy)
+    : default_config_{std::move(config)}, resume_retry_policy_{resume_retry_policy} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
 
@@ -255,8 +258,8 @@ DbmsHandler::DbmsHandler(storage::Config config) : default_config_{std::move(con
     std::filesystem::path rel_dir;
     try {
       json = nlohmann::json::parse(config_json);
-      uuid = json.at("uuid").get<utils::UUID>();
-      rel_dir = json.at("rel_dir").get<std::filesystem::path>();
+      uuid = json.at(kUuidKey).get<utils::UUID>();
+      rel_dir = json.at(kRelDirKey).get<std::filesystem::path>();
     } catch (const nlohmann::json::exception &e) {
       // Catch ONLY JSON parse/type/missing-key errors (genuine corruption). A non-JSON exception
       // (e.g. std::bad_alloc under boot memory pressure) must propagate, not be mislabeled corruption
@@ -413,6 +416,17 @@ struct RenameDatabase : memgraph::system::ISystemAction {
   utils::UUID uuid_;
 };
 
+std::optional<DbmsHandler::DeleteResult> DbmsHandler::TryDeleteColdFastPath_(std::string_view name,
+                                                                             system::Transaction *transaction) {
+  if (!suspended_.contains(name)) return std::nullopt;
+  auto res = DeleteCold_(name);
+  if (!res) return DeleteResult{std::unexpected{res.error()}};
+  if (transaction) {
+    transaction->AddAction<DropDatabase>(*res);
+  }
+  return DeleteResult{};
+}
+
 DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, system::Transaction *transaction) {
   auto wr = std::lock_guard{lock_};
   if (db_name == kDefaultDB) {
@@ -422,13 +436,8 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
 
   // Cold-tenant fast path: drop a COLD (suspended) tenant directly without going through the HOT
   // gatekeeper path (which returns NON_EXISTENT for a no-value shell).
-  if (suspended_.contains(db_name)) {
-    auto res = DeleteCold_(db_name);
-    if (!res) return std::unexpected{res.error()};
-    if (transaction) {
-      transaction->AddAction<DropDatabase>(*res);
-    }
-    return {};
+  if (auto cold_res = TryDeleteColdFastPath_(db_name, transaction)) {
+    return *cold_res;
   }
 
   // Get DB config for the UUID and disk clean up
@@ -479,13 +488,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
   auto wr = std::lock_guard(lock_);
 
   // Cold-tenant fast path.
-  if (suspended_.contains(db_name)) {
-    auto res = DeleteCold_(db_name);
-    if (!res) return std::unexpected{res.error()};
-    if (transaction) {
-      transaction->AddAction<DropDatabase>(*res);
-    }
-    return {};
+  if (auto cold_res = TryDeleteColdFastPath_(db_name, transaction)) {
+    return *cold_res;
   }
 
   // Get DB config for the UUID and disk clean up
@@ -507,10 +511,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::
 
 DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name) {
   auto wr = std::lock_guard(lock_);
-  if (suspended_.contains(db_name)) {
-    auto res = DeleteCold_(db_name);
-    if (!res) return std::unexpected{res.error()};
-    return {};
+  if (auto cold_res = TryDeleteColdFastPath_(db_name, /*transaction=*/nullptr)) {
+    return *cold_res;
   }
   return Delete_(db_name);
 }
@@ -521,9 +523,9 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
   {
     auto it = FindSuspendedByUuid_(uuid);
     if (it != suspended_.end()) {
-      auto res = DeleteCold_(it->first);
-      if (!res) return std::unexpected{res.error()};
-      return {};
+      if (auto cold_res = TryDeleteColdFastPath_(it->first, /*transaction=*/nullptr)) {
+        return *cold_res;
+      }
     }
   }
   std::string db_name;
@@ -1006,7 +1008,9 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // that join takes (and on a replica's single-threaded replication-apply thread it would stall
   // replication entirely). We take a brief shared lock_ only to mint the accessor, then release it before
   // joining.
-  bool streams_stopped = false;
+  // Tracks whether on_suspend_ ran (not specifically "streams" — the callback's scope may grow beyond
+  // stopping streams in the future).
+  bool on_suspend_run = false;
   {
     std::optional<DatabaseAccess> sacc;
     {
@@ -1017,7 +1021,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     }  // release lock_ BEFORE joining consumer threads
     if (on_suspend_) {
       on_suspend_(*sacc);
-      streams_stopped = true;
+      on_suspend_run = true;
     }
   }  // sacc released -> its count contribution is gone before Phase A mints the freeze accessor
   // UNDO guard: a failed/aborted suspend must NOT silently leave the streams stopped. Fires on every path
@@ -1025,7 +1029,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // rollback restores HOT). Declared BEFORE the abort_suspend rollback so it fires AFTER it (LIFO) -> the
   // tenant is HOT again by the time we restore streams. Disabled once finish_suspend() commits the COLD.
   auto stream_restore = utils::OnScopeExit{[&] {
-    if (!streams_stopped || !restore_streams_) return;
+    if (!on_suspend_run || !restore_streams_) return;
     auto rd = std::shared_lock{lock_};
     if (auto a = db_handler_.Get(name)) restore_streams_(*a);
   }};
@@ -1158,22 +1162,32 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     // lock_ so a concurrent Resume_ cannot observe a half state (order within the lock is invisible to
     // observers, who cannot acquire lock_ until we release it). The marker is best-effort: a Put failure
     // — whether it returns false OR throws (KVStore::Put is not noexcept; bad_alloc under memory pressure)
-    // — degrades to a warning and never rolls back. Doing it BEFORE the suspended_ insert means a throwing
-    // Put unwinds through the rollback guard with suspended_ still clean, so the tenant cleanly stays HOT
-    // instead of becoming HOT-but-listed-COLD (HC-2). A missing marker only makes the tenant recover HOT
-    // on restart; MAIN's data stays durable on disk regardless.
+    // — is caught locally right below and degrades to a warning; it never reaches the outer rollback
+    // guard (`rollback` above, which calls gk->abort_suspend()) and never rolls back the suspend. The
+    // throwing durability work that the rollback guard actually protects is the PRE-LOCK GenKey/
+    // GenColdVal serialization above (before acc.reset()/this lock_ scope) — that is what must not run
+    // after suspended_ is populated. Keeping suspended_.insert_or_assign AFTER this Put attempt is
+    // defense-in-depth: it means even a hypothetical future change that let a Put-throw escape this
+    // try/catch still could not leave suspended_ populated for a tenant that stayed HOT. A missing
+    // marker only makes the tenant recover HOT on restart; MAIN's data stays durable on disk regardless.
     if (durability_) {
       bool marker_persisted = false;
+      std::string put_error;  // populated only on a thrown Put(); empty on a clean `false` return
       try {
         marker_persisted = durability_->Put(cold_key, cold_val);
-      } catch (...) {  // NOLINT(bugprone-empty-catch) — best-effort marker; fall through to the warning
+      } catch (const std::exception &e) {  // best-effort marker; fall through to the warning below
+        marker_persisted = false;
+        put_error = e.what();
+      } catch (...) {  // NOLINT(bugprone-empty-catch) — non-std throw; still best-effort
         marker_persisted = false;
       }
       if (!marker_persisted) {
         spdlog::warn(
-            "hot/cold suspend: failed to persist the cold durability marker for '{}'; the database is "
+            "hot/cold suspend: failed to persist the cold durability marker for '{}'{}{}; the database is "
             "suspended in memory but will recover HOT on restart.",
-            name);
+            name,
+            put_error.empty() ? "" : ": ",
+            put_error);
       }
     }
     // In-memory commit — the tenant is now COLD. Counts every successful Suspend_ (user SUSPEND, replica
@@ -1374,10 +1388,20 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
           metrics::Metrics().global.database_resumes->Increment();
           UpdateColdGauge_();
         }
-      } catch (...) {
+      } catch (const std::exception &e) {
         // PRE-PUBLISH failure: on_resume_ threw and the publish has NOT happened — `fresh` is still
         // local and HOT. Release `acc` BEFORE `fresh` unwinds so fresh's ~Gatekeeper sees count == 0
         // instead of self-deadlocking on the outstanding accessor, then roll back to COLD.
+        spdlog::warn(
+            "hot/cold resume: the pre-publish on_resume_ arm for '{}' threw ({}); rolling back to COLD "
+            "(retriable).",
+            name,
+            e.what());
+        acc.reset();
+        gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
+        return std::unexpected{ResumeError::RECOVERY_FAILED};
+      } catch (...) {
+        // Same as above, for a non-std::exception throw.
         acc.reset();
         gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
         return std::unexpected{ResumeError::RECOVERY_FAILED};
@@ -1391,6 +1415,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       try {
         metrics::Metrics().global.database_resume_latency_seconds->Observe(
             std::chrono::duration<double>(std::chrono::steady_clock::now() - resume_start).count());
+      } catch (const std::exception &e) {
+        spdlog::warn(
+            "hot/cold resume: recording resume latency for '{}' threw ({}); database is live (HOT).", name, e.what());
       } catch (...) {
         spdlog::warn("hot/cold resume: recording resume latency for '{}' threw; database is live (HOT).", name);
       }
@@ -1416,6 +1443,12 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
             }
           }
         }
+      } catch (const std::exception &e) {
+        spdlog::warn(
+            "hot/cold resume: clearing the cold durability marker for '{}' threw ({}); the database is live (HOT) "
+            "and data is intact, but it may recover COLD on restart (resumable).",
+            name,
+            e.what());
       } catch (...) {
         spdlog::warn(
             "hot/cold resume: clearing the cold durability marker for '{}' threw; the database is live (HOT) "
@@ -1430,6 +1463,12 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       // (replication) commit; on_resume_repl_ is empty by default here, so this is a no-op.
       try {
         if (rewire_replication && on_resume_repl_) on_resume_repl_(acc);
+      } catch (const std::exception &e) {
+        spdlog::warn(
+            "hot/cold resume: replication re-wiring for database '{}' threw ({}); database is live (HOT) and data "
+            "is intact, but it may run un-replicated until replication is re-established.",
+            name,
+            e.what());
       } catch (...) {
         spdlog::warn(
             "hot/cold resume: replication re-wiring for database '{}' threw; database is live (HOT) and data is "
@@ -1445,6 +1484,12 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       try {
         if (txn) txn->AddAction<ResumeDatabase>(salient.uuid);
         spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
+      } catch (const std::exception &e) {
+        spdlog::warn(
+            "hot/cold resume: recording the resume system action for '{}' threw ({}); the database is live (HOT) "
+            "and data is intact, but this resume may not replicate until the next system sync.",
+            name,
+            e.what());
       } catch (...) {
         spdlog::warn(
             "hot/cold resume: recording the resume system action for '{}' threw; the database is live (HOT) "
@@ -1452,12 +1497,18 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
             name);
       }
       return acc;
-    } catch (...) {
+    } catch (const std::exception &e) {
       // Recovery (BuildDetached) threw before `acc`/`fresh` existed. No live accessor to release.
       // Guarded by state(): reachable today only from a pre-publish BuildDetached throw, where state is
       // still RESUMING (behavior unchanged). The guard is defense-in-depth against a hypothetical future
       // post-publish escape reaching this outer catch — calling abort_resume() on an already-HOT
       // gatekeeper would (under NDEBUG) silently force it back to COLD.
+      spdlog::warn("hot/cold resume: recovering database '{}' failed ({}); staying COLD (retriable).", name, e.what());
+      // RESUMING -> COLD; suspended_ untouched => retriable.
+      if (gk->state() == utils::GatekeeperState::RESUMING) gk->abort_resume();
+      return std::unexpected{ResumeError::RECOVERY_FAILED};
+    } catch (...) {
+      // Same as above (non-std throw): no exception text to log.
       // RESUMING -> COLD; suspended_ untouched => retriable.
       if (gk->state() == utils::GatekeeperState::RESUMING) gk->abort_resume();
       return std::unexpected{ResumeError::RECOVERY_FAILED};

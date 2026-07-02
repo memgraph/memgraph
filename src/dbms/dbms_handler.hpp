@@ -120,8 +120,8 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
 }
 
 // Retry/timeout knobs for Resume_'s single-flight loser loop. Defaults are the production values;
-// a test can shrink them (via SetResumeRetryPolicyForTest) to exercise the bounded-retry path in
-// milliseconds instead of the ~minutes the production constants require.
+// a test can shrink them (via the DbmsHandler constructor or SetResumeRetryPolicy) to exercise the
+// bounded-retry path in milliseconds instead of the ~minutes the production constants require.
 struct ResumeRetryPolicy {
   int max_cold_fallback_restarts = 16;
   std::chrono::milliseconds winner_liveness_window = std::chrono::seconds(30);
@@ -160,9 +160,12 @@ class DbmsHandler {
   /**
    * @brief Initialize the handler.
    *
-   * @param configs storage configuration
+   * @param config storage configuration
+   * @param resume_retry_policy Resume_'s retry/timeout knobs; defaults to production values. Exposed
+   *        here so a test can construct a handler with tightened knobs directly; SetResumeRetryPolicy
+   *        remains available to reconfigure a live handler mid-flight.
    */
-  DbmsHandler(storage::Config config);
+  DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_policy = {});
 #else
   /**
    * @brief Initialize the handler. A single database is supported in community edition.
@@ -366,11 +369,13 @@ class DbmsHandler {
   void SetOnResume(std::function<void(DatabaseAccess)> cb) { on_resume_ = std::move(cb); }
 
   /**
-   * @brief Test-only override of Resume_'s retry/timeout knobs (see ResumeRetryPolicy). Defaults to
-   *        the production values; a test can shrink them to exercise the bounded single-flight
-   *        loser-retry path deterministically in milliseconds instead of minutes.
+   * @brief Reconfigure Resume_'s retry/timeout knobs (see ResumeRetryPolicy) on a live handler. The
+   *        constructor also accepts a ResumeRetryPolicy for construction-time injection; this setter
+   *        exists for callers that need to mutate the policy mid-flight (e.g. a test that shrinks the
+   *        knobs to exercise the bounded single-flight loser-retry path deterministically in
+   *        milliseconds instead of minutes).
    */
-  void SetResumeRetryPolicyForTest(ResumeRetryPolicy policy) { resume_retry_policy_ = policy; }
+  void SetResumeRetryPolicy(ResumeRetryPolicy policy) { resume_retry_policy_ = policy; }
 
   /**
    * @brief Set the pre-teardown suspend arm: stop the per-database features that pin the tenant HOT
@@ -934,6 +939,14 @@ class DbmsHandler {
   //                  will complete (HOT) or abort (COLD), and a retry or the user can re-issue DROP.
   // Caller must hold lock_ (write).
   std::expected<utils::UUID, DeleteError> DeleteCold_(std::string_view name);
+
+  // Cold-tenant fast path shared by every Delete/TryDelete overload: if `name` is currently in
+  // suspended_, drop it via DeleteCold_ (bypassing the HOT gatekeeper path, which would otherwise
+  // return NON_EXISTENT for a no-value shell) and return the DeleteResult. Records a DropDatabase
+  // system action only when `transaction` is non-null, matching each call site's prior behaviour.
+  // Returns std::nullopt when `name` is NOT suspended — the caller should fall through to the HOT
+  // path in that case. Caller must hold lock_ (write).
+  std::optional<DeleteResult> TryDeleteColdFastPath_(std::string_view name, system::Transaction *transaction);
 
   // Refresh the global cold-databases gauge from the live suspended_ size. Caller MUST hold lock_
   // (every call site already does, or runs before any concurrent reader exists).

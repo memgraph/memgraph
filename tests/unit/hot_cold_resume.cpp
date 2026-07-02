@@ -30,7 +30,7 @@
 //   ConcurrentResumeSlowWinnerDoesNotSpuriouslyFail — winner slower than the OLD fixed poll deadline
 //                                            still succeeds for every loser (deadline re-arm)
 //   LoserNeverReturnsRecoveryFailedForLiveWinner — HC-1, mutation-adequate: with the retry policy
-//                                            shrunk via SetResumeRetryPolicyForTest, a loser races a
+//                                            shrunk via SetResumeRetryPolicy, a loser races a
 //                                            winner held RESUMING across enough liveness-window
 //                                            expirations to trip the OLD (pre-fix) abort bound, then
 //                                            the winner publishes HOT. Post-fix the loser waits and
@@ -382,7 +382,7 @@ TEST_F(HotColdResume, ConcurrentResumeSlowWinnerDoesNotSpuriouslyFail) {
 // could only assert the necessary-but-not-sufficient "loser eventually succeeds" invariant, which also
 // passes against the pre-fix counter-mistracking bug.
 //
-// This test closes that gap via `SetResumeRetryPolicyForTest`: shrinking winner_liveness_window to 20ms
+// This test closes that gap via `SetResumeRetryPolicy`: shrinking winner_liveness_window to 20ms
 // and max_cold_fallback_restarts to 2 means the PRE-FIX code exhausts its bound in roughly
 // (max_restarts + 1) * winner_liveness_window ~= 60ms of the winner being observed RESUMING, and would
 // return RECOVERY_FAILED at that point even though the winner is still alive. The POST-FIX code, by
@@ -404,9 +404,9 @@ TEST_F(HotColdResume, LoserNeverReturnsRecoveryFailedForLiveWinner) {
   // winner_still_resuming branch that HC-1 changed. Pre-fix that branch advances cold_fallback_restarts
   // every ceiling expiry, so after (max_cold_fallback_restarts + 1) ~= 3 cycles (~120ms, << the 300ms
   // winner-hold below) a loser returns RECOVERY_FAILED for a still-live winner. Post-fix it never does.
-  handler_->SetResumeRetryPolicyForTest({.max_cold_fallback_restarts = 2,
-                                         .winner_liveness_window = std::chrono::milliseconds(20),
-                                         .max_wait = std::chrono::milliseconds(40)});
+  handler_->SetResumeRetryPolicy({.max_cold_fallback_restarts = 2,
+                                  .winner_liveness_window = std::chrono::milliseconds(20),
+                                  .max_wait = std::chrono::milliseconds(40)});
 
   std::mutex m;
   std::condition_variable cv;
@@ -477,7 +477,7 @@ TEST_F(HotColdResume, LoserNeverReturnsRecoveryFailedForLiveWinner) {
   EXPECT_TRUE(InAll(name));
 
   handler_->SetOnResume({});
-  handler_->SetResumeRetryPolicyForTest({});  // restore production defaults for any subsequent test
+  handler_->SetResumeRetryPolicy({});  // restore production defaults for any subsequent test
 }
 
 // Suspend/resume driven through a real system::Transaction must record their actions and complete
