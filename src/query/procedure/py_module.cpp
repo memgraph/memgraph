@@ -3081,7 +3081,10 @@ PyObject *PyInitMgpModule() {
   // we cannot use the `PyDateTime_IMPORT` capsule from `<datetime.h>`; instead
   // we import `datetime` and stash strong refs to its classes for the rest of
   // the interpreter's lifetime.
-  if (!InitDateTimeRefs()) return nullptr;
+  if (!InitDateTimeRefs()) {
+    Py_DECREF(mgp);
+    return nullptr;
+  }
 
   // Register the at-exit hook that flips `IsPythonFinalizing()` so that
   // destructor paths in `py::Object` skip Python C API calls during shutdown.
