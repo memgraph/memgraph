@@ -153,10 +153,13 @@ class VMExecutor {
   /// @param index MatcherIndex with symbol index for candidate lookup
   /// @param arena MatchArena for storing match bindings
   /// @param results Output vector for matches (appended, not cleared)
-  /// @param active When non-null, restricts a symbol-rooted pattern's root
-  /// candidates to this active set (touched-since-last-pass, closed under parents
-  /// to the max pattern depth). A new match can only root at an active e-class, so
-  /// no match is lost. Null (first pass / ArmAll) matches all candidates.
+  /// @param active When non-null, restricts the root symbol iteration's candidates
+  /// to this active set (touched-since-last-pass, closed under parents to the max
+  /// pattern depth). The caller passes this only for patterns whose sole symbol
+  /// node is the root (RewriteRule::supports_active_root_restriction), so the
+  /// pattern's single IterSymbolEClasses is the root iteration and the active set
+  /// holds the root of every new match - no match is lost. Null (first pass /
+  /// ArmAll / non-qualifying rule) matches all candidates.
   void execute(CompiledMatcher<Symbol> const &pattern, MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
                std::vector<PatternMatch> &results, boost::unordered_flat_set<EClassId> const *active = nullptr);
 
@@ -501,8 +504,10 @@ auto VMExecutor<Symbol, Analysis, DevMode>::active_restricted_roots(Symbol sym,
                                                                     boost::unordered_flat_set<EClassId> const *set)
     -> boost::unordered_flat_set<EClassId> const * {
   // Intersect only when the active set is the smaller side (else the result is
-  // most of the symbol set anyway - match it directly). A new match's root is
-  // always active, so this only prunes; it never drops a match.
+  // most of the symbol set anyway - match it directly). The caller enables this
+  // only for root-entry patterns (RewriteRule::supports_active_root_restriction),
+  // so `sym` is the pattern's root symbol and a new match's root is always in the
+  // active set; this only prunes, it never drops a match.
   if (set == nullptr || active_root_set_->size() >= set->size()) return set;
   root_candidates_.clear();
   for (auto const active_id : *active_root_set_) {

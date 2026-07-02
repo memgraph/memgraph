@@ -296,6 +296,10 @@ class Rewriter {
    * Note: For per-rule statistics, use saturate() with max_iterations=1 and
    * check result.rewrites_per_rule.
    *
+   * Runs ArmAll semantics (every rule, every candidate) and does not manage the
+   * touched-set, so any changes it makes are folded into the arm of a subsequent
+   * latched saturate(). Used as the differential oracle at the end of a run.
+   *
    * @return Total number of rewrites applied across all rules
    */
   auto iterate_once() -> std::size_t {
@@ -324,10 +328,13 @@ class Rewriter {
     auto const &rules = rules_.rules();
     for (std::size_t idx = 0; idx < rules.size(); ++idx) {
       if (armed != nullptr && !armed->contains(idx)) continue;  // latched: skip un-armed rules
-      // The e-class active-set restriction is sound only for a single root
-      // candidate iteration (one pattern); a multi-pattern join has several roots
-      // and falls back to symbol-granularity arming - it matches every candidate.
-      auto const *rule_active = rules[idx]->patterns().size() == 1 ? active : nullptr;
+      // The e-class active-set restriction is sound only when the rule's single
+      // pattern is entered at its root: the active set is closed under parents, so
+      // it holds a new match's root but not a deeper VM entry symbol (the compiler
+      // enters at the deepest symbol and walks up). Rules that don't qualify
+      // (multi-pattern, or a symbol below the root) fall back to symbol-granularity
+      // arming and match every candidate.
+      auto const *rule_active = rules[idx]->supports_active_root_restriction() ? active : nullptr;
       rules[idx]->match(matcher_, vm_executor_, ctx_.matcher_ctx(), rule_active);
       auto rewrites = rules[idx]->apply(ctx_.rule_ctx(), ctx_.matcher_ctx());
       per_rule_stats[idx] += rewrites;
