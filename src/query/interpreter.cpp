@@ -3226,9 +3226,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.edgetypes = NamesToEdgeTypes(plan->ast_storage().edge_types_, dba);
   ctx_.user_or_role = user_or_role;  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
-  if (auth_checker) {
-    ctx_.auth_checker = auth_checker;
-  }
+  ctx_.auth_checker = auth_checker;
 #else
   (void)auth_checker;  // [[maybe_unused]] would be better for this community-only
                        // warning, but the PullPlan constructor argument list
