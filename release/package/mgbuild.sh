@@ -858,6 +858,14 @@ build_memgraph () {
   if [[ "$os" == centos-9* ]]; then
     docker exec -u root "$build_container" bash -c "rpm -q python3.12-devel >/dev/null 2>&1 || dnf install -y python3.12 python3.12-devel python3.12-pip"
     additional_options="$additional_options -DMG_PYTHON_VERSION=3.12"
+    # Do NOT rewrite DT_NEEDED to the abi3 SONAME here. The abi3 rewrite defers
+    # to the host's libpython3.so, but on CentOS 9 that stub is the system
+    # Python 3.9 — below the 3.12 we deliberately pin for MAGE — so the rewrite
+    # would steer the 3.12-built binary onto a 3.9 runtime (an abi3 floor
+    # violation, hence the wrong-ABI query-module load failures). Keeping the
+    # versioned DT_NEEDED (libpython3.12.so.1.0) hard-pins to 3.12 and lets RPM
+    # auto-generate the correct python3.12 dependency.
+    additional_options="$additional_options -DMG_PYTHON_REWRITE_DT_NEEDED=OFF"
   fi
 
   if [[ -n "$additional_options" ]]; then
