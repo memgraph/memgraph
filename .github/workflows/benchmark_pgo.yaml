@@ -25,7 +25,10 @@ jobs:
   benchmark_pgo:
     name: "Benchmark PGO (pokec medium mgbench)"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 240
+    # PGO adds a 2nd full build + the instrumented training run (~110-140 min fixed)
+    # on top of loop_count x ~20 min of pokec-medium mgbench. Generous headroom so a
+    # default (loop_count=3, ~200 min) run — or a somewhat larger one — can't time out.
+    timeout-minutes: 330
     env:
       ARCH: "amd"
       OS: "ubuntu-24.04"

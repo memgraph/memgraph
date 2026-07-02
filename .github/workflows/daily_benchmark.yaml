@@ -22,7 +22,9 @@ jobs:
   release_benchmarks:
     name: "Daily benchmarks"
     runs-on: [self-hosted, Linux, benchmark]
-    timeout-minutes: 550
+    # +90 min when pgo=true for the extra instrumented build + training run, so the
+    # PGO prelude doesn't eat the existing ~50 min headroom and time the job out.
+    timeout-minutes: ${{ inputs.pgo && 640 || 550 }}
     #  The timeout above is calculated based on a previous run where the loop count was 100
     #  Rough times per test:
     #  - macro-benchmark: 3 minutes
