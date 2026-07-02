@@ -147,24 +147,26 @@ struct EGraphBase {
   /**
    * @brief Canonical e-classes changed since the last clear_touched().
    *
-   * Accumulates every newly-inserted e-class and every merge target, including
-   * those produced by the rebuild cascade (cascade merges re-enter merge() and
-   * so are recorded too). Entries are canonicalized on read - a merged-away id
-   * resolves to its survivor - and de-duplicated. The set survives rebuild(); a
-   * caller drains it explicitly with clear_touched() per pass. Complete for
-   * analysis changes too: analysis moves only on merge, and every merge records
-   * its class here.
+   * Every newly-inserted e-class and every merge target, canonicalized and
+   * de-duplicated on read. Cascade merges during rebuild go through merge()/
+   * merge_all(), which also record here, so the set is complete - including for
+   * analysis, which moves only on merge. Survives rebuild(); drain per pass with
+   * clear_touched().
    */
-  [[nodiscard]] auto touched_eclasses() const -> boost::unordered_flat_set<EClassId> {
-    boost::unordered_flat_set<EClassId> out;
+  void touched_eclasses_into(boost::unordered_flat_set<EClassId> &out) const {
+    out.clear();
     out.reserve(touched_.size());
     for (auto id : touched_) out.insert(find(id));
+  }
+
+  /// Allocating convenience over touched_eclasses_into().
+  [[nodiscard]] auto touched_eclasses() const -> boost::unordered_flat_set<EClassId> {
+    boost::unordered_flat_set<EClassId> out;
+    touched_eclasses_into(out);
     return out;
   }
 
-  /**
-   * @brief Forget the touched-set; the next pass starts from empty.
-   */
+  /// Forget the touched-set; the next pass starts from empty.
   void clear_touched() { touched_.clear(); }
 
  protected:
@@ -260,6 +262,7 @@ struct EGraph : private detail::EGraphBase {
   using EGraphBase::num_live_nodes;
   using EGraphBase::num_nodes;
   using EGraphBase::touched_eclasses;
+  using EGraphBase::touched_eclasses_into;
   using EGraphBase::worklist_size;
 
   /// Symbol and analysis recovered from the graph type alone, so generic engine

@@ -106,7 +106,9 @@ TEST(ActiveSet, ParentClosureReachesAncestorsToDepthOnly) {
   auto const ffa = eg.emplace(Op::F, {fa}).eclass_id;
 
   auto closure = [&](std::size_t depth) {
-    return ComputeActiveSet(eg, boost::unordered_flat_set<EClassId>{eg.find(a)}, depth);
+    boost::unordered_flat_set<EClassId> active{eg.find(a)};
+    ComputeActiveSet(eg, active, depth);
+    return active;
   };
 
   auto const d0 = closure(0);
@@ -160,12 +162,51 @@ TEST(RuleLatch, LatchedEqualsArmAll) {
   TestRewriter latched{latched_eg, TestRuleSet::Build(make_double_neg_rule())};
   auto const latched_result = latched.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
 
-  // Same merges discovered, same final shape, both saturated.
+  // Same fixpoint = same final shape (rewrite counts can differ by schedule).
   EXPECT_TRUE(arm_all_result.saturated());
   EXPECT_TRUE(latched_result.saturated());
-  EXPECT_EQ(latched_result.rewrites_applied, arm_all_result.rewrites_applied);
   EXPECT_EQ(latched_eg.num_classes(), arm_all_eg.num_classes());
   EXPECT_EQ(latched_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
+}
+
+TEST(RuleLatch, LatchedEqualsArmAllForMultiPatternRule) {
+  // merge_vars is a two-pattern rule with independent Op::Var roots (a cartesian
+  // join). The per-candidate active-set restriction is unsound for such rules, so
+  // it must not apply here - Latched must still find every pair ArmAll does. The
+  // Op::A padding keeps the post-pass active set a sparse slice of the graph, so
+  // the sparse path (active_sparse_) is exercised rather than short-circuited.
+  auto build = [](EGraph<Op, NoAnalysis> &eg) {
+    for (int i = 0; i < 6; ++i) eg.emplace(Op::Var, static_cast<uint64_t>(i));
+    for (int i = 0; i < 24; ++i) eg.emplace(Op::A, static_cast<uint64_t>(i));
+  };
+  EGraph<Op, NoAnalysis> arm_all_eg;
+  build(arm_all_eg);
+  TestRewriter arm_all{arm_all_eg, TestRuleSet::Build(make_merge_vars_rule())};
+  arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::ArmAll);
+
+  EGraph<Op, NoAnalysis> latched_eg;
+  build(latched_eg);
+  TestRewriter latched{latched_eg, TestRuleSet::Build(make_merge_vars_rule())};
+  auto const latched_result = latched.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+
+  EXPECT_TRUE(latched_result.saturated());
+  EXPECT_EQ(latched_eg.num_classes(), arm_all_eg.num_classes());
+  EXPECT_EQ(latched_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
+  EXPECT_EQ(latched.iterate_once(), 0U);  // sharp oracle: a true fixpoint
+}
+
+TEST(RuleLatch, ReSaturatingASettledGraphDoesNoWork) {
+  EGraph<Op, NoAnalysis> eg;
+  BuildNegChain(eg, 8);
+  TestRewriter rewriter{eg, TestRuleSet::Build(make_double_neg_rule())};
+  rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+
+  // A settled graph has touched nothing, so re-saturating arms nothing and
+  // returns in a single no-op pass - the incremental-saturation payoff.
+  auto const again = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  EXPECT_TRUE(again.saturated());
+  EXPECT_EQ(again.iterations, 1U);
+  EXPECT_EQ(again.rewrites_applied, 0U);
 }
 
 // --- Saturation ---

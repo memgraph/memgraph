@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <optional>
-#include <ranges>
 #include <span>
 #include <vector>
 
@@ -53,7 +52,8 @@ class ArmingIndex {
       }
       for (auto const &root : roots) {
         auto &rules = index.by_symbol_[*root];
-        // A rule with two patterns rooted at the same symbol indexes once.
+        // Rules are processed in one rule-index-increasing batch each, so a
+        // back()-check dedups a rule rooted at the same symbol by two patterns.
         if (rules.empty() || rules.back() != rule_idx) rules.push_back(rule_idx);
       }
     }

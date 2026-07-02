@@ -112,7 +112,7 @@ void BM_PlanV2_NoopSaturation(benchmark::State &state) {
 
   // Guard 1: reach a true fixpoint before timing (default limits could stop a
   // large graph short of saturation).
-  auto const result = rewriter.saturate(RewriteConfig::Unlimited());
+  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::ArmAll);
   MG_ASSERT(result.saturated(),
             "setup saturation did not reach a fixpoint (stop_reason={})",
             static_cast<int>(result.stop_reason));
