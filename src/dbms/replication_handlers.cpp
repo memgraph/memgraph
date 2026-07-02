@@ -354,10 +354,12 @@ bool ForceSuspendForRecovery(DbmsHandler &dbms_handler, std::string_view name) {
   constexpr auto kTimeout = std::chrono::seconds(2);
   const auto deadline = std::chrono::steady_clock::now() + kTimeout;
   while (true) {
-    // Recovery bypasses the durability-complete gate (the tenant is already COLD on MAIN; the
-    // consolidating snapshot is written unconditionally and read back on resume). Without the bypass
-    // a replica whose durability config differs from MAIN's would fail here with
-    // DURABILITY_INCOMPLETE and spin forever in the BEHIND->reconcile loop.
+    // Recovery bypasses the durability-complete gate (MAIN is authoritative for the cold set and this
+    // replica converges to it regardless of its own durability state; suspend no longer takes a
+    // snapshot, so recoverability of the resulting cold shell rests on this replica's own
+    // periodic-snapshot+WAL durability, not on anything suspend does). Without the bypass a replica
+    // whose durability config differs from MAIN's would fail here with DURABILITY_INCOMPLETE and spin
+    // forever in the BEHIND->reconcile loop.
     auto res = dbms_handler.SuspendForRecovery(name);
     if (res.has_value()) return true;
     if (res.error() != DbmsHandler::SuspendError::ACTIVE_CONNECTIONS) {

@@ -600,11 +600,7 @@ InMemoryStorage::~InMemoryStorage() {
   // On destruction, we want to stop snapshot creation unless snapshot_on_exit is set to true.
   // If snapshot on exit is set to true then create_snapshot_handler() will just skip snapshot creation because it
   // will figure out that there are no changes.
-  // Hot/cold suspend: if DisableExitSnapshot() was called (consolidating snapshot already written),
-  // treat the dtor the same as if snapshot_on_exit were false — abort any in-flight snapshot and
-  // do NOT write another exit snapshot.
-  const bool run_exit_snapshot = config_.durability.snapshot_on_exit && exit_snapshot_enabled_;
-  if (!run_exit_snapshot) {
+  if (!config_.durability.snapshot_on_exit) {
     if (snapshot_running_.load(std::memory_order_acquire)) {
       spdlog::info("snapshot aborting: storage is shutting down");
     }
@@ -612,7 +608,7 @@ InMemoryStorage::~InMemoryStorage() {
   }
 
   snapshot_runner_.Stop();
-  if (run_exit_snapshot && this->create_snapshot_handler) {
+  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
     create_snapshot_handler("exit");
   }
   // Leak fix: a deleted light edge whose delta chain was never GC-unlinked
@@ -635,8 +631,6 @@ InMemoryStorage::~InMemoryStorage() {
     ClearLightEdges();
   }
 }
-
-void InMemoryStorage::DisableExitSnapshot() { exit_snapshot_enabled_ = false; }
 
 void InMemoryStorage::UpdateLabelCount(LabelId const label, int64_t const change) {
   if (config_.track_label_counts) {

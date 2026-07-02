@@ -20,6 +20,9 @@
 //   ResumeNonExistentRejected             — resuming an absent tenant returns NON_EXISTENT
 //   ResumeAlreadyHotReturnsAccessor       — resuming a HOT tenant is a no-op that shares its accessor
 //   SuspendResumeRoundTripRecoversData    — data survives a HOT -> COLD -> HOT cycle (WAL replay)
+//   SuspendWritesNoSnapshotButResumeStillWorksViaWal — suspend takes no proactive snapshot (default
+//                                            snapshot_on_exit=false leaves the snapshot dir untouched);
+//                                            resume still recovers all data via WAL replay alone
 //   ColdAccessThrowsSuspendedError        — Get() on a COLD tenant throws the suspended-seam message
 //   OnResumePrePublishArmRuns             — the pre-publish arm fires exactly once on a real resume
 //   OnResumeFailureStaysColdRetriable     — a throwing pre-publish arm rolls back to COLD; retriable
@@ -178,6 +181,35 @@ TEST_F(HotColdResume, SuspendResumeRoundTripRecoversData) {
   // The fresh accessor is independently usable via Get().
   auto via_get = handler_->Get(name);
   EXPECT_EQ(CountNodes(via_get), kNodes);
+}
+
+// Suspend takes NO proactive snapshot (see Suspend_ in dbms_handler.cpp): with the default
+// snapshot_on_exit == false (set by SetUp's conf_), a suspend must leave the tenant's snapshot
+// directory exactly as it was before — no new snapshot appears — yet the tenant still resumes
+// correctly via WAL replay alone. This pins the new contract explicitly; SuspendResumeRoundTripRecoversData
+// above already exercises the data-survives-the-cycle behavior but does not assert on-disk snapshot
+// absence.
+TEST_F(HotColdResume, SuspendWritesNoSnapshotButResumeStillWorksViaWal) {
+  ASSERT_FALSE(conf_.durability.snapshot_on_exit) << "this test assumes the SetUp default (snapshot_on_exit=false)";
+
+  constexpr int kNodes = 5;
+  auto name = CreateAndPopulate("no_snapshot_on_suspend", kNodes);
+  const auto uuid_str = static_cast<std::string>(handler_->Get(name)->storage()->uuid());
+  const auto snap_dir = test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / uuid_str / "snapshots";
+
+  // Baseline: no periodic snapshot has fired yet (CreateAndPopulate's single small commit runs well
+  // under the scheduler's first interval), so the directory is absent or empty before suspend.
+  const bool had_snapshot_before = fs::exists(snap_dir) && !fs::is_empty(snap_dir);
+  ASSERT_FALSE(had_snapshot_before) << "test setup invariant: no snapshot should exist before suspend yet";
+
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+  EXPECT_FALSE(fs::exists(snap_dir) && !fs::is_empty(snap_dir))
+      << "suspend must NOT write a proactive/consolidating snapshot when snapshot_on_exit is false";
+
+  // Resume still works: durability came entirely from the WAL, not a suspend-time snapshot.
+  auto result = handler_->Resume(name);
+  ASSERT_TRUE(result.has_value()) << "resume must succeed via WAL replay alone, with no snapshot to load";
+  EXPECT_EQ(CountNodes(result.value().db), kNodes) << "WAL replay alone must recover all committed data";
 }
 
 // Cold-access query seam: once suspended, Get() throws (it is no longer HOT). The message must point

@@ -303,11 +303,6 @@ class Storage {
     return config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
   }
 
-  // Called by DbmsHandler::Suspend_ after a consolidating snapshot has been written, so that
-  // the InMemoryStorage destructor (triggered by finish_suspend()) does NOT write another
-  // snapshot-on-exit and therefore does NOT corrupt the consolidated snapshot's WAL position.
-  virtual void DisableExitSnapshot() {}
-
   virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) = 0;
 
   void FreeMemory() { FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, false); }

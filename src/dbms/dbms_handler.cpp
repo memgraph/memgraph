@@ -1071,15 +1071,20 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
       if (!for_recovery) return std::unexpected{SuspendError::DURABILITY_INCOMPLETE};
       // In recovery the replica converges to MAIN's AUTHORITATIVE cold set. The durability-complete
       // gate protects a USER-initiated SUSPEND from creating an unrecoverable cold tenant; in recovery
-      // the tenant is already COLD on MAIN, and the consolidating snapshot at suspend is written
-      // unconditionally and read back on resume, so the tenant stays recoverable.
+      // the tenant is already COLD on MAIN, so we bypass the gate and suspend here regardless. Suspend
+      // itself no longer writes a snapshot, so recoverability of the resulting local cold shell rests
+      // entirely on THIS replica's own periodic-snapshot+WAL durability state, not on anything suspend
+      // does — if that state is incomplete, this cold shell may not be locally recoverable (no
+      // snapshot, no/partial WAL). The cluster stays consistent regardless via the higher-level
+      // SystemRecoveryHandler / replica resync from MAIN, not via a suspend-time snapshot.
       // Reachable only when this replica's durability differs from MAIN's (e.g. the WAL/snapshot config
       // is inconsistent across the cluster) — bypass with a loud warning rather than failing recovery
       // and stalling the replica in a BEHIND retry loop.
       spdlog::warn(
           "Force-suspending database {} during recovery although its local durability is incomplete "
-          "(periodic snapshot + WAL not enabled here). It remains recoverable (the consolidating "
-          "snapshot is still written), but this usually means the durability config differs "
+          "(periodic snapshot + WAL not enabled here). MAIN is authoritative for the cold set, so this "
+          "replica converges regardless, but the resulting local cold shell may not be locally "
+          "recoverable (no snapshot, no/partial WAL) — this usually means the durability config differs "
           "from MAIN — align the WAL/snapshot durability flags across the cluster.",
           name);
     }
@@ -1113,52 +1118,12 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // No post-freeze replica-registration re-check either — see Phase A rationale above. A
   // RegisterReplica racing into the A->freeze window only adds replicas, which is now allowed.
 
-  // Consolidating snapshot at suspend. The tenant is frozen (no in-flight txns), so this captures
-  // the full committed state. On resume, recovery loads this snapshot and skips WAL files at/below
-  // its durable timestamp -> near-zero WAL replay (fast reheat).
-  //
-  // Capture the InMemoryStorage pointer in a wider scope so DisableExitSnapshot() can be called
-  // just before finish_suspend() (past the abort point-of-no-return). If DisableExitSnapshot were
-  // called here and the suspend aborted between this point and rollback.Disable(), the rollback
-  // re-HOTs the tenant with exit-snapshot permanently disabled (no EnableExitSnapshot() API).
-  storage::InMemoryStorage *inmem_for_disable = nullptr;
-  if (auto *inmem = dynamic_cast<storage::InMemoryStorage *>((*acc)->storage())) {
-    using CreateSnapshotError = storage::InMemoryStorage::CreateSnapshotError;
-    // The periodic snapshot scheduler is NOT paused by the freeze, so a periodic
-    // snapshot can be mid-flight -> CreateSnapshot returns AlreadyRunning. Briefly wait it out:
-    // once it finishes our call writes the small frozen-state delta or returns NothingNewToWrite.
-    constexpr auto kSnapPollStep = std::chrono::milliseconds(10);
-    constexpr auto kSnapWaitTimeout = std::chrono::seconds(10);
-    auto snap = inmem->CreateSnapshot(/*force=*/false, "suspend");
-    if (!snap.has_value() && snap.error() == CreateSnapshotError::AlreadyRunning) {
-      const auto snap_deadline = std::chrono::steady_clock::now() + kSnapWaitTimeout;
-      while (!snap.has_value() && snap.error() == CreateSnapshotError::AlreadyRunning &&
-             std::chrono::steady_clock::now() < snap_deadline) {
-        std::this_thread::sleep_for(kSnapPollStep);
-        snap = inmem->CreateSnapshot(/*force=*/false, "suspend");
-      }
-    }
-    if (!snap.has_value() && snap.error() != CreateSnapshotError::NothingNewToWrite) {
-      if (inmem->IsDurabilityCompleteForSuspend()) {
-        spdlog::warn(
-            "hot/cold suspend: consolidating snapshot for '{}' was not written ({}); durability "
-            "intact via WAL, resume will replay the WAL delta.",
-            name,
-            storage::InMemoryStorage::CreateSnapshotErrorToString(snap.error()));
-      } else {
-        // On the recovery bypass path durability is incomplete (no WAL), so a failed consolidating
-        // snapshot leaves NOTHING to recover from — do not claim a WAL fallback. The cold shell may
-        // be unrecoverable; the replica re-syncs from MAIN on the next recovery round.
-        spdlog::error(
-            "hot/cold suspend (recovery): consolidating snapshot for '{}' was not written ({}) and "
-            "durability is incomplete (no WAL fallback); the cold shell may be unrecoverable — the "
-            "replica will re-sync from MAIN.",
-            name,
-            storage::InMemoryStorage::CreateSnapshotErrorToString(snap.error()));
-      }
-    }
-    inmem_for_disable = inmem;  // valid until finish_suspend() destroys the storage
-  }
+  // Suspend takes NO proactive/consolidating snapshot. Durability at suspend is whatever the
+  // periodic snapshot + WAL already provide (guaranteed complete by IsDurabilityCompleteForSuspend()
+  // above), plus — if --storage-snapshot-on-exit is enabled — the snapshot InMemoryStorage's own
+  // destructor writes during its normal teardown below (finish_suspend() -> ~InMemoryStorage).
+  // Resume recovers via recover_on_startup (snapshot-if-any + WAL replay from the tenant's own
+  // durability directory); it does not depend on a suspend-time snapshot existing.
 
   // Capture the last-hot stats snapshot POST-freeze (count==1, no concurrent commit can advance it
   // between this read and teardown). Served by cold SHOW STORAGE INFO / SHOW DATABASES. Use GetInfo()
@@ -1225,13 +1190,6 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // state and trip the debug assert.
   rollback.Disable();
 
-  // Disable exit snapshot NOW — past the abort point-of-no-return (rollback is disabled, so the
-  // tenant is committed to teardown). The storage object lives in the gatekeeper until
-  // finish_suspend() destroys it, so inmem_for_disable is still valid here. Doing this after
-  // rollback.Disable() ensures an aborted suspend never leaves the tenant re-HOT with exit-snapshot
-  // permanently disabled (there is no EnableExitSnapshot() API to undo it).
-  if (inmem_for_disable) inmem_for_disable->DisableExitSnapshot();
-
   // OUTSIDE lock_: value_.reset() -> ~Database (stop threads, FinalizeWal, NO exit snapshot).
   // The COLD shell stays in db_handler_ so a later resume can move-assign a fresh gatekeeper.
   gk->finish_suspend();
@@ -1250,7 +1208,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // Done only after the local teardown commits; the replica wire is filled by DoReplication.
   if (txn) txn->AddAction<SuspendDatabase>(tenant_uuid);
 
-  // Successful suspend: record end-to-end latency (includes the consolidating snapshot + teardown).
+  // Successful suspend: record end-to-end latency (includes teardown).
   metrics::Metrics().global.database_suspend_latency_seconds->Observe(
       std::chrono::duration<double>(std::chrono::steady_clock::now() - suspend_start).count());
 

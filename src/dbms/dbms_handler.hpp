@@ -565,10 +565,11 @@ class DbmsHandler {
 
   /**
    * @brief Force-suspend a tenant during replica recovery, bypassing the durability-complete gate.
-   * The gate protects a USER-initiated SUSPEND; in recovery the tenant is already COLD on MAIN
-   * (authoritative) and suspend's consolidating snapshot is written unconditionally, so it stays
-   * recoverable. Bypassing avoids a BEHIND retry loop on a replica whose durability config differs
-   * from MAIN's.
+   * The gate protects a USER-initiated SUSPEND; in recovery MAIN is authoritative for the cold set
+   * and this replica converges to it regardless. Recoverability of the resulting local cold shell
+   * then depends entirely on this replica's own periodic-snapshot+WAL durability state, not on a
+   * suspend-time snapshot (suspend does not take one). Bypassing avoids a BEHIND retry loop on a
+   * replica whose durability config differs from MAIN's.
    */
   SuspendResult SuspendForRecovery(std::string_view name) {
     return Suspend_(name, /*txn=*/nullptr, /*for_recovery=*/true);

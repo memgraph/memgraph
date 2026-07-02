@@ -22,8 +22,9 @@
 //   SuspendNonExistentRejected          — absent tenant returns NON_EXISTENT
 //   SuspendWithActiveAccessorRejected   — live accessor -> ACTIVE_CONNECTIONS, rolls back to HOT
 //   SuspendDurabilityGateRejectsUserButBypassesForRecovery — DISABLED durability: user suspend
-//     rejected with DURABILITY_INCOMPLETE; SuspendForRecovery bypasses the gate, forces COLD, and
-//     writes the consolidating snapshot unconditionally so the shell stays recoverable
+//     rejected with DURABILITY_INCOMPLETE; SuspendForRecovery bypasses the gate and forces COLD.
+//     Suspend itself takes no snapshot, so the forced shell is only locally recoverable if
+//     --storage-snapshot-on-exit is enabled (the exit-snapshot path exercised here)
 //   SuspendSuccessMakesColdShellInaccessible — happy path: Get() throws, name leaves All()
 //   SuspendMultipleTenants              — two independent suspends both succeed
 
@@ -126,8 +127,10 @@ TEST_F(HotColdSuspend, SuspendWithActiveAccessorRejected) {
 //       DURABILITY_INCOMPLETE — the gate prevents creating an unrecoverable cold shell.
 //
 //   (2) SuspendForRecovery() BYPASSES that gate: a replica converging to MAIN's authoritative cold set
-//       must not be stuck in a BEHIND retry loop. The consolidating snapshot is written UNCONDITIONALLY
-//       (even with WAL disabled), so the forced cold shell stays recoverable.
+//       must not be stuck in a BEHIND retry loop. Suspend itself takes no snapshot, so the forced
+//       cold shell is only locally recoverable here because --storage-snapshot-on-exit is enabled:
+//       the exit-snapshot path (InMemoryStorage's destructor, run during finish_suspend()'s teardown)
+//       is the ONLY durability this shell gets with WAL disabled.
 TEST(HotColdSuspendNoDurability, SuspendDurabilityGateRejectsUserButBypassesForRecovery) {
   fs::path dir{g_storage_root / "no_durability_gate_test"};
   fs::remove_all(dir);
@@ -136,6 +139,11 @@ TEST(HotColdSuspendNoDurability, SuspendDurabilityGateRejectsUserButBypassesForR
   memgraph::storage::Config conf;
   memgraph::storage::UpdatePaths(conf, dir);
   conf.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
+  // Suspend no longer takes a proactive snapshot (see Suspend_ in dbms_handler.cpp). With WAL
+  // disabled, snapshot_on_exit is the ONLY thing that can make the forced cold shell below locally
+  // recoverable — it is set here to keep that half of the test meaningful (real hot/cold deployments
+  // that want suspend-time durability without periodic WAL must set this flag).
+  conf.durability.snapshot_on_exit = true;
 
   auto handler = std::make_unique<DbmsHandler>(conf);
   std::string uuid_str;
@@ -162,13 +170,16 @@ TEST(HotColdSuspendNoDurability, SuspendDurabilityGateRejectsUserButBypassesForR
   EXPECT_TRUE(handler->IsSuspended("no_wal_db")) << "the recovery-forced tenant must be COLD";
   EXPECT_THROW(handler->Get("no_wal_db"), std::exception) << "a COLD tenant's Get() must fail";
 
-  // The bypass's whole safety argument is that the consolidating snapshot is written UNCONDITIONALLY
-  // (even with WAL disabled), so the forced cold shell stays recoverable. Lock that invariant in: the
-  // tenant's snapshot directory must hold a snapshot after SuspendForRecovery — otherwise a future
-  // regression that skipped the snapshot on the no-WAL path would silently make the shell unrecoverable.
+  // Suspend takes no proactive snapshot; with WAL disabled the shell's ONLY local durability is the
+  // exit snapshot InMemoryStorage's destructor writes during finish_suspend()'s teardown, gated by
+  // --storage-snapshot-on-exit (set true above). Lock that in: the tenant's snapshot directory must
+  // hold a snapshot after SuspendForRecovery — otherwise a regression that broke the exit-snapshot
+  // path would silently make a no-WAL cold shell unrecoverable.
   const auto snap_dir = dir / std::string(memgraph::dbms::kMultiTenantDir) / uuid_str / "snapshots";
   EXPECT_TRUE(fs::exists(snap_dir) && !fs::is_empty(snap_dir))
-      << "the consolidating snapshot must be written so the recovery-forced cold shell is recoverable: " << snap_dir;
+      << "the exit-snapshot must be written (via --storage-snapshot-on-exit) so the recovery-forced "
+         "cold shell is recoverable: "
+      << snap_dir;
 
   handler.reset();
   fs::remove_all(dir);
