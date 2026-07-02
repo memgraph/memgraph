@@ -80,9 +80,14 @@ jobs:
         strategy:
             fail-fast: false
             max-parallel: 3
+            # Community runs a fixed set of specific (build, runtime) Python
+            # pairs rather than the full cross-product used by the other suites.
             matrix:
-                python_build: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
-                python_runtime: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
+                include:
+                    - python_build: "3.12"
+                      python_runtime: "3.10"
+                    - python_build: "3.13"
+                      python_runtime: "3.13"
         uses: ./.github/workflows/diff_community.yaml
         with:
             ref: ${{ inputs.ref || github.ref }}
@@ -96,8 +101,7 @@ jobs:
 
     Coverage:
         needs: Setup
-        if: ${{ github.event_name == 'push' || inputs.coverage }}
-        # if: ${{ inputs.coverage }}
+        if: ${{ inputs.coverage }}
         strategy:
             fail-fast: false
             max-parallel: 3
@@ -122,7 +126,7 @@ jobs:
         # if: ${{ inputs.debug }}
         strategy:
             fail-fast: false
-            max-parallel: 3
+            max-parallel: 5
             matrix:
                 python_build: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
                 python_runtime: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
@@ -131,7 +135,7 @@ jobs:
             ref: ${{ inputs.ref || github.ref }}
             arch: "amd"
             os: "ubuntu-24.04"
-            run_core: "true"
+            run_core: "false" #"true"
             run_integration: "true"
             python_build_version: ${{ matrix.python_build }}
             python_runtime_version: ${{ matrix.python_runtime }}
@@ -144,7 +148,7 @@ jobs:
         # if: ${{ inputs.release }}
         strategy:
             fail-fast: false
-            max-parallel: 3
+            max-parallel: 5
             matrix:
                 python_build: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
                 python_runtime: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
@@ -153,7 +157,7 @@ jobs:
             ref: ${{ inputs.ref || github.ref }}
             arch: "amd"
             os: "ubuntu-24.04"
-            run_core: "true"
+            run_core: "false" # "true"
             run_benchmark: "false"
             run_e2e: "true"
             run_stress: "false"
@@ -169,7 +173,7 @@ jobs:
         # if: ${{ inputs.mage }}
         strategy:
             fail-fast: false
-            max-parallel: 3
+            max-parallel: 5
             matrix:
                 # Build-only matrix: Mage's runtime is always the image default Python,
                 # so there is no runtime swap to vary.

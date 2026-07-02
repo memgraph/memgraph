@@ -5,7 +5,7 @@ duckdb==1.2.1
 elasticsearch==8.17.0
 filelock==3.29.0
 gekko==1.2.1
-gensim==4.3.3
+gensim==4.4.0
 gqlalchemy==1.8.0
 huggingface-hub==0.35.1
 igraph==0.11.8
