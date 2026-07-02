@@ -21,6 +21,7 @@ use tantivy::aggregation::AggregationCollector;
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
 use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, Query, QueryParser, RegexQuery};
+use tantivy::schema::Value as _;
 use tantivy::schema::*;
 use tantivy::tokenizer::{TextAnalyzer, TokenStream};
 use tantivy::{DocSet, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term, TERMINATED};
@@ -1074,13 +1075,10 @@ fn sequence_matches(
 
 // Reads the string value of `property` from a hit's stored `data` JSON object, if present.
 fn extract_property_string(doc: &TantivyDocument, data_field: Field, property: &str) -> Option<String> {
-    match doc.get_first(data_field)?.into() {
-        OwnedValue::Object(entries) => entries.into_iter().find_map(|(k, v)| match v {
-            OwnedValue::Str(s) if k == property => Some(s),
-            _ => None,
-        }),
-        _ => None,
-    }
+    doc.get_first(data_field)?
+        .as_object()?
+        .find(|(key, _)| *key == property)
+        .and_then(|(_, value)| value.as_str().map(str::to_string))
 }
 
 // Reads a stored u64 field (gid / edge gids) from a sequence-search hit's document.
@@ -1090,16 +1088,12 @@ fn extract_u64_field(
     field_name: &str,
     index_path: &std::path::PathBuf,
 ) -> Result<u64, std::io::Error> {
-    let value = doc.get_first(field).ok_or_else(|| {
-        Error::new(ErrorKind::Other, format!("Document missing {} field in {:?}", field_name, index_path))
-    })?;
-    match value.into() {
-        OwnedValue::U64(n) => Ok(n),
-        other => Err(Error::new(
+    doc.get_first(field).and_then(|value| value.as_u64()).ok_or_else(|| {
+        Error::new(
             ErrorKind::Other,
-            format!("{} field has unexpected type {:?} in {:?}", field_name, other, index_path),
-        )),
-    }
+            format!("Document missing u64 {} field in {:?}", field_name, index_path),
+        )
+    })
 }
 
 pub struct SearcherContext {
