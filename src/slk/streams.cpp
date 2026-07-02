@@ -16,6 +16,7 @@
 #include <utility>
 
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::slk {
 
@@ -65,8 +66,11 @@ void Builder::PrepareForFileSending() {
 void Builder::Finalize() { FlushSegment(true); }
 
 void Builder::FlushInternal(size_t const size, bool const has_more) {
+  // Reset the write position even if write_func_ throws, so a failed flush leaves the builder empty and reusable.
+  // Callers that retry (e.g. recovery progress heartbeats) then start from a clean segment instead of tripping the
+  // "buffer must be empty" guard.
+  utils::OnScopeExit const reset_pos{[this] { pos_ = 0; }};
   write_func_(segment_.data(), size, has_more);
-  pos_ = 0;
 }
 
 // Flushes data and resets position

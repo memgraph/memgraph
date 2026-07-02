@@ -22,9 +22,10 @@ Client::Client(io::network::Endpoint endpoint, communication::ClientContext *con
       connect_timeout_ms_(connect_timeout_ms) {}
 
 void Client::Abort() {
-  // Shut down the socket to abort any pending read, write, or connect
-  // operations on another thread. Does NOT destroy the client object,
-  // so it is safe to call concurrently with an in-flight RPC.
+  // Latch the aborted flag first so any thread that subsequently tries to open a stream fails fast instead of
+  // reconnecting. Then shut down the socket to abort any pending read, write, or connect operations on another thread.
+  // Does NOT destroy the client object, so it is safe to call concurrently with an in-flight RPC.
+  aborted_.store(true, std::memory_order_release);
   if (!client_) return;
   client_->Shutdown();
 }

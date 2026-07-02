@@ -134,7 +134,9 @@ void RpcMessageDeliverer::Execute() {
 
   slk::Reader req_reader = GetReqReader();
   slk::Builder res_builder([&](const uint8_t *data, size_t const size, bool const have_more) {
-    output_stream_->Write(data, size, have_more);
+    if (!output_stream_->Write(data, size, have_more)) {
+      throw SessionException("Failed to write RPC response; peer connection is broken");
+    }
   });
 
   auto const maybe_message_header = std::invoke([&req_reader]() -> std::optional<ProtocolMessageHeader> {
@@ -177,10 +179,8 @@ void RpcMessageDeliverer::Execute() {
   // NOLINTNEXTLINE
   catch (const slk::SlkReaderLeftoverDataException &) {
     // Skip, it may fail because not all data has been read, that's fine.
-  } catch (const std::exception &e) {
-    spdlog::error("Error occurred in the callback: {}", e.what());
-    throw SlkRpcFailedException();
   }
+  // other exceptions will be caught in session.hpp
 }
 
 }  // namespace memgraph::rpc
