@@ -46,6 +46,16 @@ tracked series un-PGO'd for clean history.
 gh workflow run daily_benchmark.yaml --ref experiment/pgo-benchmark -f pgo=true -f loop_count=10
 ```
 
+For a **quick check** (the full daily suite is long), `benchmark_pgo.yaml` runs the same
+PGO train/build but only the pokec-**medium** mgbench, and uploads it tagged by branch:
+
+```
+gh workflow run benchmark_pgo.yaml --ref experiment/pgo-benchmark -f pgo=true -f loop_count=3
+```
+
+Trained the same way (pokec/small, all groups). Run once with `pgo=false` if you want a
+same-machine control alongside master's series.
+
 ## What to train on (the important part)
 
 **Recommendation: train on the full mgbench pokec query mix — `pokec/small/*/*` (all groups).**

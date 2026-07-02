@@ -1,0 +1,139 @@
+name: Benchmark PGO (experiment)
+
+# Quick, on-demand PGO check: instrument -> train on mgbench -> optimize, then run
+# ONLY the pokec-medium mgbench and upload to the bench-graph tagged by branch.
+# Much shorter than the full Daily Benchmark, so it validates the PGO flow and gives
+# a pokec-medium PGO-vs-master signal on Grafana before committing to the long run.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+on:
+  workflow_dispatch:
+    inputs:
+      pgo:
+        type: boolean
+        description: "Build with PGO (instrument -> train on mgbench -> optimize). Off = control run."
+        default: true
+      loop_count:
+        type: number
+        description: "mgbench iterations (keep small for a quick check; each pokec-medium run is ~20 min)."
+        default: 3
+
+jobs:
+  benchmark_pgo:
+    name: "Benchmark PGO (pokec medium mgbench)"
+    runs-on: [self-hosted, Linux, benchmark]
+    timeout-minutes: 240
+    env:
+      ARCH: "amd"
+      OS: "ubuntu-24.04"
+      TOOLCHAIN: "v7"
+      BUILD_TYPE: "RelWithDebInfo"
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
+      LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+      CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+      CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+      CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
+      - name: Log in to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN --os $OS --arch $ARCH \
+          run --custom-mirror $USE_CUSTOM_MIRROR
+
+      # Same training as the Daily Benchmark: instrument, train on the full mgbench
+      # pokec query mix (pokec/small, all groups), merge -> build/pgo.profdata.
+      - name: PGO — instrument, train, merge
+        if: ${{ inputs.pgo }}
+        run: |
+          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH init-tests
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN --os $OS --arch $ARCH --build-type $BUILD_TYPE \
+            build-memgraph --pgo generate \
+            --conan-remote $CONAN_REMOTE --conan-username $CONAN_USERNAME --conan-password $CONAN_PASSWORD
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN --os $OS --arch $ARCH \
+            --enterprise-license "$MEMGRAPH_ENTERPRISE_LICENSE" --organization-name "$MEMGRAPH_ORGANIZATION_NAME" \
+            pgo-train --dataset pokec --size small
+          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH pgo-merge
+
+      - name: Build release binary
+        run: |
+          PGO_ARGS=""
+          if [[ "${{ inputs.pgo }}" == "true" ]]; then
+            PGO_ARGS="--pgo use"   # consumes build/pgo.profdata from the step above
+          fi
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN --os $OS --arch $ARCH --build-type $BUILD_TYPE \
+          build-memgraph \
+          --split-debug \
+          $PGO_ARGS \
+          --conan-remote $CONAN_REMOTE --conan-username $CONAN_USERNAME --conan-password $CONAN_PASSWORD
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH init-tests
+
+      - name: Get branch name
+        shell: bash
+        run: |
+          echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+
+      - name: Force container into first numa group
+        run: |
+          numagroup="$(./tools/ci/numa-0-cores.sh)"
+          echo "Using numa group: $numagroup"
+          docker update \
+          --cpuset-cpus="$numagroup" \
+          --cpuset-mems="0" \
+          "mgbuild_${TOOLCHAIN}_${OS}"
+
+      - name: Run and upload mgbench (pokec medium)
+        id: mgbench
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench \
+            mgbench \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
