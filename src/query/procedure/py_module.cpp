@@ -1245,6 +1245,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
   }};
 
   const Py_ssize_t len = PyList_Size(items.Ptr());
+  if (len < 0) return py::FetchError();
   for (Py_ssize_t i = 0; i < len; ++i) {
     auto *item = PyList_GetItem(items.Ptr(), i);
     if (!item) return py::FetchError();
