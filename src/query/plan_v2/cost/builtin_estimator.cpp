@@ -23,33 +23,21 @@ using enum symbol;
 
 namespace {
 
-/// Best-effort: if `eclass_id` carries a `Literal` e-node whose stored value
-/// is an int, return it.
-///
-/// TODO: replace with EClass Analysis read once analysis_data is live.
-/// Today we walk the e-class for a Literal e-node and index into the
-/// trait's id -> value vector.
-auto TryReadIntLiteral(EGraph const &eg, egraph const &facade, planner::core::EClassId eclass_id)
-    -> std::optional<int64_t> {
-  auto const canonical = eg.find(eclass_id);
-  auto const &cls = eg.eclass(canonical);
-  auto const &lit_info = impl_of(facade).graph.storage<Literal>().info;
+/// Best-effort: if `eclass_id` is statically known to hold an int constant,
+/// return it. Reads `known_constant_value` from the e-class's analysis, so it
+/// fires for any constant-valued e-class (a literal, or a folded expression),
+/// not just one still carrying a `Literal` e-node.
+auto TryReadIntLiteral(EGraph const &eg, planner::core::EClassId eclass_id) -> std::optional<int64_t> {
+  auto const *expr = eg.analysis_of(eclass_id).expression();
+  if (expr == nullptr || !expr->known_constant_value) return std::nullopt;
 
-  for (auto enode_id : cls.nodes()) {
-    auto const &enode = eg.get_enode(enode_id);
-    if (enode.symbol() != Literal) continue;
-    auto const id = enode.disambiguator();
-    if (id >= lit_info.size()) continue;
-    auto const &val = *lit_info[id];
-    if (val.IsInt()) return val.ValueInt();
-    // Tolerate doubles that exactly represent an integer (e.g. range(0.0,
-    // 5.0) coming from a parser that promoted ints to doubles).  Reject
-    // non-integral doubles - they're not what range expects anyway.
-    if (val.IsDouble()) {
-      auto const d = val.ValueDouble();
-      if (std::isfinite(d) && std::trunc(d) == d) return static_cast<int64_t>(d);
-    }
-    return std::nullopt;
+  auto const &val = *expr->known_constant_value;
+  if (val.IsInt()) return val.ValueInt();
+  // Tolerate doubles that exactly represent an integer (e.g. range(0.0, 5.0));
+  // reject non-integral doubles - not what range expects anyway.
+  if (val.IsDouble()) {
+    auto const d = val.ValueDouble();
+    if (std::isfinite(d) && std::trunc(d) == d) return static_cast<int64_t>(d);
   }
   return std::nullopt;
 }
@@ -62,11 +50,10 @@ auto TryReadIntLiteral(EGraph const &eg, egraph const &facade, planner::core::EC
 //       (length of the produced list):
 //         WITH   range(1,100) AS x RETURN x;  -- cardinality 1
 //         UNWIND range(1,100) AS x RETURN x;  -- cardinality 100
-auto EstimateRange(EGraph const &eg, egraph const &facade, std::span<planner::core::EClassId const> arg_eclasses)
-    -> double {
+auto EstimateRange(EGraph const &eg, std::span<planner::core::EClassId const> arg_eclasses) -> double {
   if (arg_eclasses.size() < 2) return kDefaultListSize;
-  auto const a = TryReadIntLiteral(eg, facade, arg_eclasses[0]);
-  auto const b = TryReadIntLiteral(eg, facade, arg_eclasses[1]);
+  auto const a = TryReadIntLiteral(eg, arg_eclasses[0]);
+  auto const b = TryReadIntLiteral(eg, arg_eclasses[1]);
   if (!a || !b) return kDefaultListSize;
   return std::max(0.0, static_cast<double>(*b) - static_cast<double>(*a) + 1.0);
 }
@@ -78,7 +65,7 @@ auto EstimateFunction(EGraph const &eg, egraph const &facade, planner::core::ENo
 
   switch (info->kind) {
     case BuiltinKind::Range:
-      return EstimateRange(eg, facade, arg_eclasses);
+      return EstimateRange(eg, arg_eclasses);
     case BuiltinKind::Unknown:
       return kDefaultListSize;
   }

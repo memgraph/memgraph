@@ -28,10 +28,10 @@ using rewrite::RewriteResult;
 // Rewriter Test Types
 // ============================================================================
 
-using TestRewriteRule = rewrite::RewriteRule<Op, NoAnalysis>;
-using TestRuleSet = rewrite::RuleSet<Op, NoAnalysis>;
-using TestRewriter = rewrite::Rewriter<Op, NoAnalysis>;
-using TestRuleContext = rewrite::RuleContext<Op, NoAnalysis>;
+using TestRewriteRule = rewrite::RewriteRule<EGraph<Op, NoAnalysis>>;
+using TestRuleSet = rewrite::RuleSet<EGraph<Op, NoAnalysis>>;
+using TestRewriter = rewrite::Rewriter<EGraph<Op, NoAnalysis>>;
+using TestRuleContext = rewrite::RuleContext<EGraph<Op, NoAnalysis>>;
 
 // ============================================================================
 // Rewrite Test Fixture

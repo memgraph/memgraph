@@ -33,6 +33,7 @@ module;
 #include <optional>
 #include <ranges>
 #include <span>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -233,17 +234,29 @@ struct EGraph : private detail::EGraphBase {
   using EGraphBase::num_nodes;
   using EGraphBase::worklist_size;
 
+  /// Symbol and analysis recovered from the graph type alone, so generic engine
+  /// code (the rewrite engine) needs only a single graph type parameter.
+  using symbol_type = Symbol;
+  using analysis_type = Analysis;
+
+  /// The underlying core e-graph. A bare e-graph is its own core; a wrapping
+  /// TypedEGraph returns the EGraph it owns. One concept covers both.
+  auto core() -> EGraph & { return *this; }
+
+  auto core() const -> EGraph const & { return *this; }
+
   /**
    * @brief Emplace an e-node directly with canonical children
    * @return EmplaceResult - (eclass_id, enode_id, did_insert)
    */
-  auto emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator = 0) -> EmplaceResult;
+  auto emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator = 0,
+               Analysis seed = Analysis{}) -> EmplaceResult;
 
   /**
    * @brief Emplace leaf nodes with optional disambiguator
    * @return EmplaceResult - (eclass_id, enode_id, did_insert)
    */
-  auto emplace(Symbol symbol, uint64_t disambiguator = 0) -> EmplaceResult;
+  auto emplace(Symbol symbol, uint64_t disambiguator = 0, Analysis seed = Analysis{}) -> EmplaceResult;
 
   /**
    * @brief Convenience overload accepting initializer list for children
@@ -252,8 +265,9 @@ struct EGraph : private detail::EGraphBase {
    * Example: egraph.emplace(Symbol::Plus, {a, b})
    * @return EmplaceResult - (eclass_id, enode_id, did_insert)
    */
-  auto emplace(Symbol symbol, std::initializer_list<EClassId> children, uint64_t disambiguator = 0) -> EmplaceResult {
-    return emplace(std::move(symbol), utils::small_vector(children), disambiguator);
+  auto emplace(Symbol symbol, std::initializer_list<EClassId> children, uint64_t disambiguator = 0,
+               Analysis seed = Analysis{}) -> EmplaceResult {
+    return emplace(std::move(symbol), utils::small_vector(children), disambiguator, std::move(seed));
   }
 
   /**
@@ -278,6 +292,14 @@ struct EGraph : private detail::EGraphBase {
     assert(classes_.contains(id) && "id needs to be canonical");
     return *classes_.find(id)->second;
   }
+
+  /**
+   * @brief Analysis of `id`'s e-class, canonicalising first.
+   *
+   * The one place "canonicalise then fetch analysis" lives; a fact-gated read
+   * takes the arm it needs off the returned Analysis.
+   */
+  auto analysis_of(EClassId id) const -> Analysis const & { return eclass(find(id)).analysis(); }
 
   /**
    * @brief Check if an e-class exists and is canonical
@@ -414,13 +436,21 @@ struct EGraph : private detail::EGraphBase {
 // ========================================================================
 
 template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) -> EmplaceResult {
+auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator, Analysis seed) -> EmplaceResult {
   // construct leaf e-node with disambiguator
   auto canonical_node = ENode{std::move(symbol), {}, disambiguator};
 
   auto it = hashcons_.find(ENodeRef{canonical_node});
   if (it != hashcons_.end()) {
     auto updated = it->second.UpdatedInfo(union_find_);
+    // Seed-purity check (see SymbolMakeTraits): merge the kept analysis into the
+    // discarded seed - no-op on agreement, throws if a trait broke the contract.
+    // Catches a mismatch only when the kept class already holds the fact.
+    // TODO: the `if constexpr` exists only to support empty analyses (NoAnalysis
+    // has no merge); drop it if the core always carries a mergeable analysis.
+    if constexpr (!std::is_empty_v<Analysis>) {
+      seed.merge(eclass(updated.current_eclassid).analysis());
+    }
     return {.eclass_id = updated.current_eclassid, .enode_id = updated.enode_id, .did_insert = false};
   }
 
@@ -430,15 +460,15 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) ->
 
   auto enode_ref = intern_enode(std::move(canonical_node));
   hashcons_[enode_ref] = ENodeInfo{.current_eclassid = new_eclass_id, .enode_id = new_enode_id};
-  classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id));
+  classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id, std::move(seed)));
   canonical_eclasses_.add(new_eclass_id);
 
   return {.eclass_id = new_eclass_id, .enode_id = new_enode_id, .did_insert = true};
 }
 
 template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator)
-    -> EmplaceResult {
+auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator,
+                                       Analysis seed) -> EmplaceResult {
   for (auto &child_id : children) {
     child_id = canonical_eclass(union_find_, child_id);
   }
@@ -447,6 +477,10 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
   auto it = hashcons_.find(ENodeRef{canonical_node});
   if (it != hashcons_.end()) {
     auto updated = it->second.UpdatedInfo(union_find_);
+    // Same seed-purity check as the leaf overload above.
+    if constexpr (!std::is_empty_v<Analysis>) {
+      seed.merge(eclass(updated.current_eclassid).analysis());
+    }
     return {.eclass_id = updated.current_eclassid, .enode_id = updated.enode_id, .did_insert = false};
   }
 
@@ -456,7 +490,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
 
   auto enode_ref = intern_enode(std::move(canonical_node));
   hashcons_[enode_ref] = ENodeInfo{.current_eclassid = new_eclass_id, .enode_id = new_enode_id};
-  classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id));
+  classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id, std::move(seed)));
 
   // Update parent lists for children - ESSENTIAL for congruence closure
   for (EClassId child_id : enode_ref.value().children()) {

@@ -35,7 +35,9 @@ template <Op S>
 struct op_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/) -> LoweredNode { return {.children = {}, .disambiguator = std::nullopt}; }
+  static auto make(storage_type & /*s*/) -> MakeResult<NoAnalysis> {
+    return {.lowered = {.children = {}, .disambiguator = std::nullopt}};
+  }
 };
 
 // Unary nodes: one child.
@@ -44,8 +46,8 @@ template <Op S>
 struct op_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/, EClassId child) -> LoweredNode {
-    return {.children = utils::small_vector<EClassId>{child}, .disambiguator = std::nullopt};
+  static auto make(storage_type & /*s*/, EClassId child) -> MakeResult<NoAnalysis> {
+    return {.lowered = {.children = utils::small_vector<EClassId>{child}, .disambiguator = std::nullopt}};
   }
 };
 
@@ -55,8 +57,8 @@ template <Op S>
 struct op_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/, EClassId lhs, EClassId rhs) -> LoweredNode {
-    return {.children = utils::small_vector<EClassId>{lhs, rhs}, .disambiguator = std::nullopt};
+  static auto make(storage_type & /*s*/, EClassId lhs, EClassId rhs) -> MakeResult<NoAnalysis> {
+    return {.lowered = {.children = utils::small_vector<EClassId>{lhs, rhs}, .disambiguator = std::nullopt}};
   }
 };
 
@@ -66,8 +68,8 @@ template <Op S>
 struct op_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/, EClassId a, EClassId b, EClassId c) -> LoweredNode {
-    return {.children = utils::small_vector<EClassId>{a, b, c}, .disambiguator = std::nullopt};
+  static auto make(storage_type & /*s*/, EClassId a, EClassId b, EClassId c) -> MakeResult<NoAnalysis> {
+    return {.lowered = {.children = utils::small_vector<EClassId>{a, b, c}, .disambiguator = std::nullopt}};
   }
 };
 
@@ -77,8 +79,9 @@ template <Op S>
 struct op_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/, std::vector<EClassId> args) -> LoweredNode {
-    return {.children = utils::small_vector<EClassId>(args.begin(), args.end()), .disambiguator = std::nullopt};
+  static auto make(storage_type & /*s*/, std::vector<EClassId> args) -> MakeResult<NoAnalysis> {
+    return {.lowered = {.children = utils::small_vector<EClassId>(args.begin(), args.end()),
+                        .disambiguator = std::nullopt}};
   }
 };
 
