@@ -543,8 +543,6 @@ class Database {
 
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &db_accessor};
     context.auth_checker = &auth_checker;
-    context.has_property_restrictions = !auth_checker.HasUnrestrictedAccessToVertexProperties() ||
-                                        !auth_checker.HasUnrestrictedAccessToEdgeTypeProperties();
 
     // We run k-shortest paths for all possible source-sink pairs
     std::shared_ptr<memgraph::query::plan::LogicalOperator> input_operator = nullptr;

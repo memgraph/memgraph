@@ -411,7 +411,10 @@ bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &ed
   return level == auth::PermissionLevel::GRANT;
 }
 
-void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
+void FineGrainedAuthChecker::MakeThreadSafe() const {
+  PopulateCachedPermissions();
+  (void)HasPropertyRestrictions();
+}
 
 bool FineGrainedAuthChecker::IsThreadSafe() const { return IsCachedPermissionsPopulated(); }
 

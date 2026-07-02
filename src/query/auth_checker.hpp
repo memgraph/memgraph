@@ -82,6 +82,14 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool HasUnrestrictedAccessToEdgeTypeProperties() const = 0;
 
+  [[nodiscard]] bool HasPropertyRestrictions() const {
+    if (!has_property_restrictions_) {
+      has_property_restrictions_ =
+          !HasUnrestrictedAccessToVertexProperties() || !HasUnrestrictedAccessToEdgeTypeProperties();
+    }
+    return *has_property_restrictions_;
+  }
+
   /// True when a FineGrainedAuthChecker must be attached for correct
   /// authorization, defined by either per-Label/per-Edge rules, or per-Property
   /// rules. When false, the checker is redundant as no restrictions to labels,
@@ -109,6 +117,9 @@ class FineGrainedAuthChecker {
   FineGrainedAuthChecker(FineGrainedAuthChecker &&) noexcept = default;
   FineGrainedAuthChecker &operator=(const FineGrainedAuthChecker &) = default;
   FineGrainedAuthChecker &operator=(FineGrainedAuthChecker &&) noexcept = default;
+
+ private:
+  mutable std::optional<bool> has_property_restrictions_;
 };
 
 class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecker {

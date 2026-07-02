@@ -579,8 +579,6 @@ class Database {
 
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &db_accessor};
     context.auth_checker = &auth_checker;
-    context.has_property_restrictions = !auth_checker.HasUnrestrictedAccessToVertexProperties() ||
-                                        !auth_checker.HasUnrestrictedAccessToEdgeTypeProperties();
     // We run BFS once from each vertex for each blocked entity.
     input_operator = YieldVertices(&db_accessor, vertices, source_symbol, input_operator);
 
