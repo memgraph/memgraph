@@ -25,12 +25,16 @@ on:
   # pull_request uses the PR branch's own workflow file.)
   pull_request:
     types: [labeled]
+  # Direct trigger: every push to the experiment branch runs it. Works while the PR
+  # is a draft and needs no default-branch registration (push != pull_request event).
+  push:
+    branches: [experiment/pgo-benchmark]
 
 jobs:
   benchmark_pgo:
     name: "Benchmark PGO (pokec medium mgbench)"
-    # Manual dispatch, or when the 'run-pgo-benchmark' label is added to the PR.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-pgo-benchmark' }}
+    # Push to the branch, manual dispatch, or the 'run-pgo-benchmark' PR label.
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-pgo-benchmark' }}
     runs-on: [self-hosted, Linux, benchmark]
     # PGO adds a 2nd full build + the instrumented training run (~110-140 min fixed)
     # on top of loop_count x ~20 min of pokec-medium mgbench. Generous headroom so a
