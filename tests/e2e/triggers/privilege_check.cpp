@@ -446,18 +446,21 @@ TEST_P(PrivilegeCheckTest, InvokerPropertyDeniedRead) {
   pbac_client->DiscardAll();
 
   mg::Map query_params{{"id", mg::Value{kVertexId}}};
-  auto const check_result = [&]() {
+  auto const check_result = [&]() -> std::optional<bool> {
     pbac_client->Execute(fmt::format("MATCH (n:{} {{id: $id}}) RETURN n.result AS result", kVertexLabel),
                          mg::ConstMap{query_params.ptr()});
     auto result = pbac_client->FetchAll();
-    if (!result || result->empty()) return false;
+    if (!result || result->empty()) return std::nullopt;
     return result->at(0)[0].type() == mg::Value::Type::Null;
   };
 
   if (is_after) {
-    EXPECT_TRUE(PollUntilTrue(check_result)) << "Trigger should not be able to read denied property";
+    EXPECT_TRUE(PollUntilTrue([&]() { return check_result().value_or(false); }))
+        << "Trigger should not be able to read denied property";
   } else {
-    EXPECT_TRUE(check_result()) << "Trigger should not be able to read denied property";
+    auto res = check_result();
+    ASSERT_TRUE(res.has_value()) << "Vertex should exist after CREATE";
+    EXPECT_TRUE(*res) << "Trigger should not be able to read denied property";
   }
 
   CleanupVertices(*admin_client_);
