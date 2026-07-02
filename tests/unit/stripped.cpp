@@ -593,4 +593,37 @@ TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
   }
 }
 
+TEST(Parameters, LookupByTokenPosition) {
+  Parameters params;
+  params.Add(3, memgraph::storage::ExternalPropertyValue(int64_t{30}));
+  params.Add(7, memgraph::storage::ExternalPropertyValue(int64_t{70}));
+  params.Add(5, memgraph::storage::ExternalPropertyValue(int64_t{50}));
+
+  EXPECT_EQ(params.size(), 3);
+  // Lookup is by token position, independent of insertion order.
+  EXPECT_EQ(params.AtTokenPosition(3).ValueInt(), 30);
+  EXPECT_EQ(params.AtTokenPosition(5).ValueInt(), 50);
+  EXPECT_EQ(params.AtTokenPosition(7).ValueInt(), 70);
+  // At() still addresses storage in insertion order.
+  EXPECT_EQ(params.At(0).first, 3);
+  EXPECT_EQ(params.At(1).first, 7);
+  EXPECT_EQ(params.At(2).first, 5);
+}
+
+TEST(Parameters, DuplicateTokenPositionKeepsFirst) {
+  Parameters params;
+  params.Add(1, memgraph::storage::ExternalPropertyValue(int64_t{100}));
+  params.Add(1, memgraph::storage::ExternalPropertyValue(int64_t{200}));
+  EXPECT_EQ(params.AtTokenPosition(1).ValueInt(), 100);
+}
+
+TEST(Parameters, CopyPreservesLookup) {
+  Parameters params;
+  params.Add(2, memgraph::storage::ExternalPropertyValue(int64_t{20}));
+  params.Add(9, memgraph::storage::ExternalPropertyValue(int64_t{90}));
+  Parameters copy = params;  // PrepareQueryParameters copies the stripped literals
+  EXPECT_EQ(copy.AtTokenPosition(2).ValueInt(), 20);
+  EXPECT_EQ(copy.AtTokenPosition(9).ValueInt(), 90);
+}
+
 }  // namespace
