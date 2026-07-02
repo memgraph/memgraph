@@ -22,13 +22,15 @@
 #include <utility>
 
 #include <cmath>
+#include <cstddef>
 #include <optional>
-
+#include <set>
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 #include "query/plan_v2/resolve/analysis.hpp"
 #include "query/plan_v2/rewrite/fold.hpp"
 #include "query/plan_v2/rewrite/rewrites.hpp"
+#include "query/plan_v2/rewrite/rewrites_internal.hpp"
 
 namespace memgraph::query::plan::v2 {
 namespace {
@@ -526,6 +528,39 @@ TEST_F(ConstantFoldTest, FoldsComparisonToBool) {
   ASSERT_TRUE(folded.has_value());
   ASSERT_TRUE(folded->IsBool());
   EXPECT_TRUE(folded->ValueBool());
+}
+
+// The rule latch keeps a long saturation sparse: an alternating Add/Mul chain of
+// constants folds to a single constant, and across the whole saturation only the
+// Add and Mul fold rules ever fire - the other binary and unary fold rules never
+// do. (The two do not strictly alternate one-per-pass: a fold's merge updates
+// analysis immediately, so once an Add folds the Mul above it folds later in the
+// same pass; both stay active until the chain is exhausted.)
+TEST(RuleLatchAlternation, OnlyTheTwoChainRulesEverFire) {
+  egraph eg;
+  auto const two = eg.MakeLiteral(ExternalPropertyValue{int64_t{2}});
+  eclass cur = eg.MakeLiteral(ExternalPropertyValue{int64_t{1}});
+  for (int level = 0; level < 6; ++level) {
+    cur = (level % 2 == 0) ? eg.MakeAdd(cur, two) : eg.MakeMul(cur, two);
+  }
+
+  planner::core::rewrite::Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
+  auto const result = rewriter.saturate(planner::core::rewrite::RewriteConfig::Unlimited(),
+                                        planner::core::rewrite::ArmingMode::Latched);
+  ASSERT_TRUE(result.saturated());
+
+  std::set<std::size_t> const fired_rules = [&] {
+    std::set<std::size_t> fired;
+    for (std::size_t i = 0; i < result.rewrites_per_rule.size(); ++i) {
+      if (result.rewrites_per_rule[i] > 0) fired.insert(i);
+    }
+    return fired;
+  }();
+  EXPECT_EQ(fired_rules.size(), 2U) << "only the Add and Mul fold rules fire; the other ~17 rules never do";
+
+  auto const *const folded = impl_of(eg).graph.core().analysis_of(to_core(cur)).expression();
+  ASSERT_NE(folded, nullptr);
+  EXPECT_TRUE(folded->known_constant_value.has_value()) << "the chain folds to a single constant";
 }
 
 }  // namespace

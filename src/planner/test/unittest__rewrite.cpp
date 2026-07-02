@@ -11,6 +11,11 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
+#include <vector>
+
+#include "planner/rewrite/active_set.hpp"
+#include "planner/rewrite/arming_index.hpp"
 #include "test_rewriter_fixture.hpp"
 #include "test_rules.hpp"
 
@@ -19,6 +24,149 @@ namespace memgraph::planner::core {
 using namespace test;
 using namespace pattern;
 using namespace rewrite;
+
+// --- Arming index (Stage 2 of the rule latch) ---
+
+TEST(ArmingIndex, RuleExposesEveryPatternRootSymbol) {
+  // Single-pattern rule roots at one symbol.
+  EXPECT_EQ(make_idempotent_f_rule().pattern_root_symbols(), (std::vector<std::optional<Op>>{Op::F}));
+  // Multi-pattern rule exposes all roots, in order, with repeats.
+  EXPECT_EQ(make_chain_join_rule().pattern_root_symbols(), (std::vector<std::optional<Op>>{Op::F, Op::F2, Op::F}));
+  EXPECT_EQ(make_merge_vars_rule().pattern_root_symbols(), (std::vector<std::optional<Op>>{Op::Var, Op::Var}));
+}
+
+auto AsVec(std::span<std::size_t const> s) -> std::vector<std::size_t> { return {s.begin(), s.end()}; }
+
+TEST(ArmingIndex, IndexesBySymbolAndAlwaysArmsSymbollessRoots) {
+  // Rule 0 roots at {F}; rule 1 at {F, F2}; rule 2 has a symbol-less root.
+  std::vector<std::vector<std::optional<Op>>> roots{{Op::F}, {Op::F, Op::F2}, {std::nullopt}};
+  auto const index = ArmingIndex<Op>::from_root_symbols(roots);
+
+  EXPECT_EQ(AsVec(index.rules_for_symbol(Op::F)), (std::vector<std::size_t>{0, 1}));
+  EXPECT_EQ(AsVec(index.rules_for_symbol(Op::F2)), (std::vector<std::size_t>{1}));
+  EXPECT_TRUE(index.rules_for_symbol(Op::Neg).empty());
+  EXPECT_EQ(AsVec(index.always_armed()), (std::vector<std::size_t>{2}));
+}
+
+TEST(ArmingIndex, CollectArmedUnionsAlwaysArmedWithActiveSymbols) {
+  std::vector<std::vector<std::optional<Op>>> roots{{Op::F}, {Op::F, Op::F2}, {std::nullopt}};
+  auto const index = ArmingIndex<Op>::from_root_symbols(roots);
+
+  auto armed = [&](std::vector<Op> const &active) {
+    boost::unordered_flat_set<std::size_t> out;
+    index.collect_armed(active, out);
+    return out;
+  };
+  // F activates rules 0 and 1; the symbol-less rule 2 is always armed.
+  EXPECT_EQ(armed({Op::F}), (boost::unordered_flat_set<std::size_t>{0, 1, 2}));
+  EXPECT_EQ(armed({Op::F2}), (boost::unordered_flat_set<std::size_t>{1, 2}));
+  // No active symbol: only the always-armed rule.
+  EXPECT_EQ(armed({}), (boost::unordered_flat_set<std::size_t>{2}));
+}
+
+TEST(ArmingIndex, DedupesARuleRootedAtOneSymbolTwice) {
+  // merge_vars roots both its patterns at Op::Var; it must index once.
+  auto const rules = RuleSet<EGraph<Op, NoAnalysis>>::Builder{}.add_rule(make_merge_vars_rule()).build();
+  auto const index = BuildArmingIndex(rules);
+  EXPECT_EQ(AsVec(index.rules_for_symbol(Op::Var)), (std::vector<std::size_t>{0}));
+}
+
+TEST(ArmingIndex, BuildsFromRealRuleSetInRuleIndexOrder) {
+  auto const rules = RuleSet<EGraph<Op, NoAnalysis>>::Builder{}
+                         .add_rule(make_idempotent_f_rule())  // index 0: {F}
+                         .add_rule(make_chain_join_rule())    // index 1: {F, F2}
+                         .build();
+  auto const index = BuildArmingIndex(rules);
+  EXPECT_EQ(AsVec(index.rules_for_symbol(Op::F)), (std::vector<std::size_t>{0, 1}));
+  EXPECT_EQ(AsVec(index.rules_for_symbol(Op::F2)), (std::vector<std::size_t>{1}));
+  EXPECT_TRUE(index.always_armed().empty());
+}
+
+// --- Active set: parent-closure to max pattern depth (Stage 3) ---
+
+TEST(ActiveSet, MaxPatternDepthIsTheDeepestRulePattern) {
+  auto const mixed = RuleSet<EGraph<Op, NoAnalysis>>::Builder{}
+                         .add_rule(make_idempotent_f_rule())  // F(?x, ?x): depth 1
+                         .add_rule(make_double_neg_rule())    // Neg(Neg(?x)): depth 2
+                         .build();
+  EXPECT_EQ(MaxRuleSetPatternDepth(mixed), 2U);
+
+  auto const leaf = RuleSet<EGraph<Op, NoAnalysis>>::Builder{}
+                        .add_rule(make_merge_vars_rule())  // Var: depth 0
+                        .build();
+  EXPECT_EQ(MaxRuleSetPatternDepth(leaf), 0U);
+}
+
+TEST(ActiveSet, ParentClosureReachesAncestorsToDepthOnly) {
+  // a <- F(a) <- F(F(a)): a change to `a` should surface its ancestors up to
+  // the closure depth, and no further.
+  EGraph<Op, NoAnalysis> eg;
+  auto const a = eg.emplace(Op::A).eclass_id;
+  auto const fa = eg.emplace(Op::F, {a}).eclass_id;
+  auto const ffa = eg.emplace(Op::F, {fa}).eclass_id;
+
+  auto closure = [&](std::size_t depth) {
+    return ComputeActiveSet(eg, boost::unordered_flat_set<EClassId>{eg.find(a)}, depth);
+  };
+
+  auto const d0 = closure(0);
+  EXPECT_EQ(d0.size(), 1U);
+  EXPECT_TRUE(d0.contains(eg.find(a)));
+
+  auto const d1 = closure(1);
+  EXPECT_EQ(d1.size(), 2U);
+  EXPECT_TRUE(d1.contains(eg.find(a)));
+  EXPECT_TRUE(d1.contains(eg.find(fa)));
+  EXPECT_FALSE(d1.contains(eg.find(ffa))) << "grandparent must not appear at depth 1";
+
+  auto const d2 = closure(2);
+  EXPECT_EQ(d2.size(), 3U);
+  EXPECT_TRUE(d2.contains(eg.find(ffa)));
+}
+
+// --- Rule latch: Latched mode equals ArmAll, and reaches a true fixpoint ---
+
+namespace {
+// Build Neg^depth(Var) into `eg` and return the chain top. double_neg composes
+// across passes, so the latch must re-arm the rule pass after pass.
+auto BuildNegChain(EGraph<Op, NoAnalysis> &eg, int depth) -> EClassId {
+  auto top = eg.emplace(Op::Var, 1).eclass_id;
+  for (int i = 0; i < depth; ++i) top = eg.emplace(Op::Neg, {top}).eclass_id;
+  return top;
+}
+}  // namespace
+
+TEST(RuleLatch, LatchedReachesATrueFixpoint) {
+  EGraph<Op, NoAnalysis> eg;
+  BuildNegChain(eg, 8);
+  TestRewriter rewriter{eg, TestRuleSet::Build(make_double_neg_rule())};
+
+  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  ASSERT_TRUE(result.saturated());
+
+  // The sharp oracle: one all-rules pass on the latched result finds nothing,
+  // i.e. the latch did not stop short of the real fixpoint.
+  EXPECT_EQ(rewriter.iterate_once(), 0U);
+}
+
+TEST(RuleLatch, LatchedEqualsArmAll) {
+  EGraph<Op, NoAnalysis> arm_all_eg;
+  BuildNegChain(arm_all_eg, 8);
+  TestRewriter arm_all{arm_all_eg, TestRuleSet::Build(make_double_neg_rule())};
+  auto const arm_all_result = arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::ArmAll);
+
+  EGraph<Op, NoAnalysis> latched_eg;
+  BuildNegChain(latched_eg, 8);
+  TestRewriter latched{latched_eg, TestRuleSet::Build(make_double_neg_rule())};
+  auto const latched_result = latched.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+
+  // Same merges discovered, same final shape, both saturated.
+  EXPECT_TRUE(arm_all_result.saturated());
+  EXPECT_TRUE(latched_result.saturated());
+  EXPECT_EQ(latched_result.rewrites_applied, arm_all_result.rewrites_applied);
+  EXPECT_EQ(latched_eg.num_classes(), arm_all_eg.num_classes());
+  EXPECT_EQ(latched_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
+}
 
 // --- Saturation ---
 

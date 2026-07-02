@@ -18,6 +18,7 @@
 #include "planner/rewrite/rewriter.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 #include "query/plan_v2/rewrite/fold.hpp"
+#include "query/plan_v2/rewrite/rewrites_internal.hpp"
 
 namespace memgraph::query::plan::v2 {
 
@@ -113,7 +114,9 @@ auto MakeUnaryFoldRule(std::string name) -> RewriteRule<typed_egraph> {
       });
 }
 
-/// Singleton for default plan_v2 rewrite rules
+}  // namespace
+
+/// Singleton for default plan_v2 rewrite rules. Declared in rewrites_internal.hpp.
 auto DefaultRules() -> RuleSet<typed_egraph> const & {
   static auto const rules = [] {
     RuleSet<typed_egraph>::Builder builder;
@@ -128,7 +131,6 @@ auto DefaultRules() -> RuleSet<typed_egraph> const & {
   }();
   return rules;
 }
-}  // namespace
 
 // Public API: creates its own rewriter for standalone use
 auto ApplyInlineRewrite(egraph &eg) -> std::size_t {
@@ -137,7 +139,7 @@ auto ApplyInlineRewrite(egraph &eg) -> std::size_t {
 }
 
 auto ApplyAllRewrites(egraph &eg, RewriteConfig const &config) -> RewriteResult {
-  return Rewriter(impl_of(eg).graph, DefaultRules()).saturate(config);
+  return Rewriter(impl_of(eg).graph, DefaultRules()).saturate(config, planner::core::rewrite::ArmingMode::Latched);
 }
 
 }  // namespace memgraph::query::plan::v2
