@@ -278,41 +278,39 @@ function ensure_libpython3_so_symlink() {
         force=true
     fi
 
-    local libdir=""
-    if command -v dpkg-architecture &>/dev/null; then
-        local multiarch
-        multiarch="$(dpkg-architecture -q DEB_HOST_MULTIARCH 2>/dev/null || true)"
-        if [[ -n "$multiarch" && -d "/usr/lib/$multiarch" ]]; then
-            libdir="/usr/lib/$multiarch"
-        fi
-    fi
-    if [[ -z "$libdir" ]]; then
-        if [[ -d /usr/lib64 ]]; then
-            libdir="/usr/lib64"
-        elif [[ -d /usr/lib ]]; then
-            libdir="/usr/lib"
-        else
-            echo "ensure_libpython3_so_symlink: cannot determine system library directory; skipping"
-            return 0
-        fi
+    # Locate the highest-numbered versioned libpython wherever the distro keeps
+    # it, then create the symlink next to it. We deliberately do NOT rely on
+    # dpkg-architecture (it ships in dpkg-dev, which is not guaranteed to be
+    # installed) to guess a single library directory: on Debian/Ubuntu libpython
+    # lives in a multiarch subdir (e.g. /usr/lib/x86_64-linux-gnu), so guessing
+    # /usr/lib or /usr/lib64 would miss it and wrongly conclude none exists.
+    # Instead search the loader cache plus the common locations directly,
+    # covering multiarch subdirs and flat libdirs (Fedora/RHEL /usr/lib64).
+    # sort -V handles 3.10 > 3.9 correctly.
+    local target
+    target="$( { ldconfig -p 2>/dev/null | grep -oE '/[^ ]*libpython3\.[0-9]+[a-z]*\.so\.1\.0';
+                 ls -1 /usr/lib/*/libpython3.*.so.1.0 \
+                       /lib/*/libpython3.*.so.1.0 \
+                       /usr/lib64/libpython3.*.so.1.0 \
+                       /usr/lib/libpython3.*.so.1.0 2>/dev/null; } \
+               | sort -V | tail -1 )"
+    if [[ -z "$target" ]]; then
+        echo "ensure_libpython3_so_symlink: no libpython3.*.so.1.0 found on the system; skipping"
+        return 0
     fi
 
+    # Create the abi3 SONAME symlink alongside the versioned library. Distros
+    # that ship a real abi3 stub (Fedora, RHEL, conda, manylinux) already have a
+    # libpython3.so here, so we no-op unless --force is given.
+    local libdir
+    libdir="$(dirname "$target")"
     if [[ -e "$libdir/libpython3.so" && "$force" == false ]]; then
         echo "ensure_libpython3_so_symlink: $libdir/libpython3.so already present; nothing to do"
         return 0
     fi
 
-    # Highest-numbered installed libpython3.X.so.1.0 (sort -V handles 3.10 > 3.9 correctly).
-    local target
-    target="$(ls -1 "$libdir"/libpython3.*.so.1.0 2>/dev/null | sort -V | tail -1)"
-    if [[ -z "$target" ]]; then
-        echo "ensure_libpython3_so_symlink: no libpython3.*.so.1.0 found in $libdir; skipping"
-        return 0
-    fi
-
-    target="$(basename "$target")"
-    ln -sf "$target" "$libdir/libpython3.so"
-    echo "ensure_libpython3_so_symlink: $libdir/libpython3.so -> $target"
+    ln -sf "$(basename "$target")" "$libdir/libpython3.so"
+    echo "ensure_libpython3_so_symlink: $libdir/libpython3.so -> $(basename "$target")"
 }
 
 # Function to parse --skip-check flag from command line arguments
