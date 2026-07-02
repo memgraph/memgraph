@@ -459,14 +459,45 @@ TEST(CheckStreamStatus, WholeFileInSegment) {
     for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
   });
 
-  auto const file_data = GetRandomData(5);
+  // Complete file metadata in one segment satisfies the look-ahead.
+  constexpr uint64_t kNameLength = 4;
+  std::vector<uint8_t> metadata;
+  metadata.push_back(0x10);  // string marker
+  metadata.resize(metadata.size() + sizeof(uint64_t));
+  memcpy(metadata.data() + 1, &kNameLength, sizeof(kNameLength));
+  metadata.insert(metadata.end(), {'f', 'i', 'l', 'e'});
+  metadata.push_back(0x20);  // uint marker
+  constexpr uint64_t kFileSize = 12345;
+  metadata.resize(metadata.size() + sizeof(uint64_t));
+  memcpy(metadata.data() + metadata.size() - sizeof(uint64_t), &kFileSize, sizeof(kFileSize));
+
   builder.PrepareForFileSending();
-  builder.SaveFileBuffer(file_data.data(), file_data.size());
+  builder.SaveFileBuffer(metadata.data(), metadata.size());
   builder.Finalize();
 
   auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size());
   ASSERT_EQ(res.status, memgraph::slk::StreamStatus::NEW_FILE);
   ASSERT_EQ(res.pos, sizeof(memgraph::slk::SegmentSize));
+}
+
+// The look-ahead reads the bytes after a mask as [string_marker][string_length];
+// a decoded length <= kSegmentMaxDataSize with the metadata not yet present is
+// treated as a split mask and reported PARTIAL.
+TEST(CheckStreamStatus, FirstFileLookAheadDecodesFileBytesAsMetadata) {
+  std::vector<uint8_t> buffer;
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+  });
+
+  // str_len is read from byte [1] onward (byte [0] is the skipped marker); zeros
+  // there make str_len == 0 <= kSegmentMaxDataSize, with no metadata following.
+  std::array<uint8_t, 5> const file_data{0xAB, 0x00, 0x00, 0x00, 0x00};
+  builder.PrepareForFileSending();
+  builder.SaveFileBuffer(file_data.data(), file_data.size());
+  builder.Finalize();
+
+  auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size());
+  EXPECT_EQ(res.status, memgraph::slk::StreamStatus::PARTIAL);
 }
 
 TEST(CheckStreamStatus, FooterOnly) {
@@ -640,25 +671,4 @@ TEST(CheckStreamStatus, FileTransitionSufficientMetadata) {
   auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size(), kRemainingFileSize);
   ASSERT_EQ(res.status, memgraph::slk::StreamStatus::NEW_FILE);
   ASSERT_EQ(res.pos, kRemainingFileSize + sizeof(memgraph::slk::SegmentSize));
-}
-
-TEST(CheckStreamStatus, FirstFileMaskNotAffectedByCheck) {
-  // The metadata check should NOT apply when remaining_file_size is not set (first file case).
-  // This verifies backward compatibility with WholeFileInSegment-style buffers.
-  std::vector<uint8_t> buffer;
-  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
-    for (size_t i = 0; i < size; ++i) {
-      buffer.push_back(data[i]);
-    }
-  });
-
-  auto const input = GetRandomData(5);
-  builder.PrepareForFileSending();
-  builder.SaveFileBuffer(input.data(), input.size());
-  builder.Finalize();
-
-  // Without remaining_file_size, the mask check is not applied — should still return NEW_FILE
-  auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size());
-  ASSERT_EQ(res.status, memgraph::slk::StreamStatus::NEW_FILE);
-  ASSERT_EQ(res.pos, sizeof(memgraph::slk::SegmentSize));
 }

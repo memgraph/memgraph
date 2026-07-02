@@ -964,6 +964,12 @@ add_unit_test(rpc_in_progress
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
+# Test rpc file framing (receive-buffer duplicate-file bug)
+add_unit_test(rpc_file_framing
+    SOURCES rpc_file_framing.cpp
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+)
+
 # Test replication-rpc-progress
 add_unit_test(replication_rpc_progress
     SOURCES replication_rpc_progress.cpp
