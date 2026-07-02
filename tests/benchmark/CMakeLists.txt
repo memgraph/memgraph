@@ -39,6 +39,9 @@ target_link_libraries(${test_prefix}planner mg-query)
 add_benchmark(query/plan_v2_extract.cpp)
 target_link_libraries(${test_prefix}plan_v2_extract mg-query)
 
+add_benchmark(query/plan_v2_rewrite_saturation.cpp)
+target_link_libraries(${test_prefix}plan_v2_rewrite_saturation mg-query)
+
 add_benchmark(query/profile.cpp)
 target_link_libraries(${test_prefix}profile mg-query)
 

@@ -21,8 +21,12 @@
 #include <span>
 #include <vector>
 
+#include <boost/unordered/unordered_flat_set.hpp>
+
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/vm/executor.hpp"
+#include "planner/rewrite/active_set.hpp"
+#include "planner/rewrite/arming_index.hpp"
 #include "planner/rewrite/rule.hpp"
 #include "planner/rewrite/rule_set.hpp"
 
@@ -94,6 +98,12 @@ struct RewriteResult {
   [[nodiscard]] auto saturated() const -> bool { return stop_reason == StopReason::Saturated; }
 };
 
+/// How `saturate` schedules rules across passes.
+enum class ArmingMode : std::uint8_t {
+  ArmAll,   ///< Every rule every pass. The reference behaviour and differential oracle.
+  Latched,  ///< Run only the rules a pass could newly enable (the rule latch).
+};
+
 /// Reusable buffers for the rewrite process.
 template <RewritableGraph Graph>
 class RewriteContext {
@@ -143,7 +153,7 @@ class RewriteContext {
  *   // RuleSet copy is cheap (shared_ptr increment); the graph type is deduced
  *   Rewriter rewriter(egraph, ruleset);
  *
- *   auto result = rewriter.saturate(RewriteConfig::Default());
+ *   auto result = rewriter.saturate(RewriteConfig::Default(), ArmingMode::Latched);
  *   if (result.saturated()) {
  *     // Fixed point reached
  *   }
@@ -181,14 +191,20 @@ class Rewriter {
         rules_(std::move(rules)),
         matcher_(graph.core()),
         vm_executor_(graph.core()),
-        ctx_(graph) {}
+        ctx_(graph) {
+    rebuild_rule_cache();
+  }
 
   /**
    * @brief Set or replace the rule set
    *
    * @param rules New rule set to use
    */
-  void set_rules(RuleSet<Graph> rules) { rules_ = std::move(rules); }
+  void set_rules(RuleSet<Graph> rules) {
+    rules_ = std::move(rules);
+    rebuild_rule_cache();
+    full_arm_pending_ = true;  // new rules: the next latched saturate arms all once
+  }
 
   /**
    * @brief Run equality saturation with the configured rules
@@ -205,10 +221,27 @@ class Rewriter {
    * @param config Limits and timeout configuration
    * @return Result containing statistics and stop reason
    */
-  auto saturate(RewriteConfig const &config = RewriteConfig::Default()) -> RewriteResult {
+  auto saturate(RewriteConfig const &config, ArmingMode mode) -> RewriteResult {
     RewriteResult result;
     result.rewrites_per_rule.resize(num_rules(), 0);  // Initialize per-rule counters
     auto const start_time = std::chrono::steady_clock::now();
+
+    // Latched-mode scheduling: arm only the rules a pass could newly enable.
+    // The arming index and closure depth are cached (rebuilt only on set_rules).
+    active_sparse_ = false;  // first full-arm pass matches every candidate
+    if (mode == ArmingMode::Latched) {
+      if (full_arm_pending_) {
+        // First latched pass on this graph: every rule must run once. Arm all
+        // directly rather than scan the whole graph to rediscover that.
+        armed_.clear();
+        for (std::size_t i = 0; i < num_rules(); ++i) armed_.insert(i);
+        full_arm_pending_ = false;
+      } else {
+        // A later saturate on the same rewriter: arm only what changed since.
+        // An unchanged graph touched nothing, so this arms nothing.
+        arm_from_touched();
+      }
+    }
 
     for (std::size_t iter = 0; iter < config.max_iterations; ++iter) {
       result.iterations = iter + 1;
@@ -226,13 +259,25 @@ class Rewriter {
         return result;
       }
 
-      auto rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule);
+      std::size_t rewrites_this_iter = 0;
+      if (mode == ArmingMode::ArmAll) {
+        rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule);
+      } else {
+        egraph_->clear_touched();  // capture only this pass's changes
+        rewrites_this_iter =
+            apply_once_with_stats(result.rewrites_per_rule, &armed_, active_sparse_ ? &active_eclasses_ : nullptr);
+      }
       result.rewrites_applied += rewrites_this_iter;
 
       // Fixed point reached
       if (rewrites_this_iter == 0) {
         result.stop_reason = RewriteResult::StopReason::Saturated;
         return result;
+      }
+
+      // Arm the rules the next pass could newly enable from what just changed.
+      if (mode == ArmingMode::Latched) {
+        arm_from_touched();
       }
     }
 
@@ -251,6 +296,10 @@ class Rewriter {
    * Note: For per-rule statistics, use saturate() with max_iterations=1 and
    * check result.rewrites_per_rule.
    *
+   * Runs ArmAll semantics (every rule, every candidate) and does not manage the
+   * touched-set, so any changes it makes are folded into the arm of a subsequent
+   * latched saturate(). Used as the differential oracle at the end of a run.
+   *
    * @return Total number of rewrites applied across all rules
    */
   auto iterate_once() -> std::size_t {
@@ -268,17 +317,27 @@ class Rewriter {
    * @param per_rule_stats Vector to accumulate per-rule counts (must be sized to rules_.size())
    * @return Total number of rewrites applied across all rules
    */
-  auto apply_once_with_stats(std::vector<std::size_t> &per_rule_stats) -> std::size_t {
+  auto apply_once_with_stats(std::vector<std::size_t> &per_rule_stats,
+                             boost::unordered_flat_set<std::size_t> const *armed = nullptr,
+                             boost::unordered_flat_set<EClassId> const *active = nullptr) -> std::size_t {
     assert(!egraph_->needs_rebuild() && "E-graph must be clean at start of rewrite iteration");
 
     ctx_.clear_new_eclasses();
     std::size_t total_rewrites = 0;
-    std::size_t stat_idx = 0;
 
-    for (auto const &rule_ptr : rules_.rules()) {
-      rule_ptr->match(matcher_, vm_executor_, ctx_.matcher_ctx());
-      auto rewrites = rule_ptr->apply(ctx_.rule_ctx(), ctx_.matcher_ctx());
-      per_rule_stats[stat_idx++] += rewrites;
+    auto const &rules = rules_.rules();
+    for (std::size_t idx = 0; idx < rules.size(); ++idx) {
+      if (armed != nullptr && !armed->contains(idx)) continue;  // latched: skip un-armed rules
+      // The e-class active-set restriction is sound only when the rule's single
+      // pattern is entered at its root: the active set is closed under parents, so
+      // it holds a new match's root but not a deeper VM entry symbol (the compiler
+      // enters at the deepest symbol and walks up). Rules that don't qualify
+      // (multi-pattern, or a symbol below the root) fall back to symbol-granularity
+      // arming and match every candidate.
+      auto const *rule_active = rules[idx]->supports_active_root_restriction() ? active : nullptr;
+      rules[idx]->match(matcher_, vm_executor_, ctx_.matcher_ctx(), rule_active);
+      auto rewrites = rules[idx]->apply(ctx_.rule_ctx(), ctx_.matcher_ctx());
+      per_rule_stats[idx] += rewrites;
       total_rewrites += rewrites;
     }
 
@@ -294,6 +353,38 @@ class Rewriter {
     }
 
     return total_rewrites;
+  }
+
+  /// Recompute arming_index_ and closure_depth_ from rules_; both are pure
+  /// functions of the rule set, so they change only when the rules do.
+  void rebuild_rule_cache() {
+    arming_index_ = BuildArmingIndex(rules_);
+    closure_depth_ = MaxRuleSetPatternDepth(rules_);
+  }
+
+  /// Arm the rules the next pass could newly enable: take the e-classes the last
+  /// pass touched, close under parents to the max pattern depth, project to their
+  /// e-node symbols, and map those through the arming index. Fills armed_ and, when
+  /// the change is sparse, retains the active set in active_eclasses_ for
+  /// per-candidate matching. Reuses the member buffers across passes.
+  void arm_from_touched() {
+    egraph_->touched_eclasses_into(active_eclasses_);              // canonical touched (reused buffer)
+    ComputeActiveSet(*egraph_, active_eclasses_, closure_depth_);  // close under parents, in place
+    active_symbols_.clear();
+    for (auto const eclass_id : active_eclasses_) {
+      for (auto const enode_id : egraph_->eclass(eclass_id).nodes()) {
+        active_symbols_.insert(egraph_->get_enode(enode_id).symbol());
+      }
+    }
+    armed_.clear();
+    arming_index_.collect_armed(active_symbols_, armed_);
+
+    // Keep the active set for per-candidate matching only when it is a small
+    // slice of the graph; otherwise there is little to prune and holding it live
+    // only adds cache pressure, so drop the contents (keep capacity) and match
+    // via the symbol-granularity latch alone.
+    active_sparse_ = active_eclasses_.size() * 2 < egraph_->num_classes();
+    if (!active_sparse_) active_eclasses_.clear();
   }
 
  public:
@@ -324,6 +415,20 @@ class Rewriter {
   pattern::vm::VMExecutor<Symbol, Analysis> vm_executor_;  ///< VM pattern matcher
   ProcessingContext<Symbol> proc_ctx_;
   RewriteContext<Graph> ctx_;
+
+  // Latch state (Latched mode only). arming_index_/closure_depth_ are cached from
+  // rules_ (rebuilt on set_rules); the rest is per-pass scratch reused across
+  // passes. full_arm_pending_ is true until this rewriter's first latched pass,
+  // which arms every rule; afterwards arming is driven by the touched-set.
+  // active_eclasses_ holds the active set for per-candidate matching when
+  // active_sparse_, otherwise it is empty and matching uses the latch alone.
+  ArmingIndex<Symbol> arming_index_;
+  std::size_t closure_depth_ = 0;
+  boost::unordered_flat_set<Symbol> active_symbols_;
+  boost::unordered_flat_set<std::size_t> armed_;
+  boost::unordered_flat_set<EClassId> active_eclasses_;
+  bool active_sparse_ = false;
+  bool full_arm_pending_ = true;
 };
 
 /// Deduce the graph type at the construction site, so callers write

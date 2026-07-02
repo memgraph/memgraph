@@ -16,6 +16,8 @@
 #include <type_traits>
 #include <vector>
 
+#include <boost/unordered/unordered_flat_set.hpp>
+
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/match_storage.hpp"
 #include "planner/pattern/vm/compiled_matcher.hpp"
@@ -151,8 +153,15 @@ class VMExecutor {
   /// @param index MatcherIndex with symbol index for candidate lookup
   /// @param arena MatchArena for storing match bindings
   /// @param results Output vector for matches (appended, not cleared)
+  /// @param active When non-null, restricts the root symbol iteration's candidates
+  /// to this active set (touched-since-last-pass, closed under parents to the max
+  /// pattern depth). The caller passes this only for patterns whose sole symbol
+  /// node is the root (RewriteRule::supports_active_root_restriction), so the
+  /// pattern's single IterSymbolEClasses is the root iteration and the active set
+  /// holds the root of every new match - no match is lost. Null (first pass /
+  /// ArmAll / non-qualifying rule) matches all candidates.
   void execute(CompiledMatcher<Symbol> const &pattern, MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
-               std::vector<PatternMatch> &results);
+               std::vector<PatternMatch> &results, boost::unordered_flat_set<EClassId> const *active = nullptr);
 
   /// Get execution stats (only available when DevMode=true)
   [[nodiscard]] auto stats() const -> VMStats const &
@@ -201,6 +210,13 @@ class VMExecutor {
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_symbol_eclasses(Instruction instr) -> bool;
 
+  /// Intersect the root-symbol candidates with the active set (see execute()'s
+  /// `active`). Cold: only reached on a latched pass with a sparse change.
+  /// Returns the set to iterate (the original `set` when filtering would not pay).
+  [[nodiscard]] [[gnu::noinline]] auto active_restricted_roots(Symbol sym,
+                                                               boost::unordered_flat_set<EClassId> const *set)
+      -> boost::unordered_flat_set<EClassId> const *;
+
   [[nodiscard]] [[gnu::always_inline]] auto exec_next_symbol_eclass(Instruction instr) -> bool;
 
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_parents(Instruction instr) -> bool;
@@ -234,6 +250,13 @@ class VMExecutor {
   VMState state_;
   std::span<EClassId const> all_eclasses_;  // Span into e-graph's canonical e-class list (for IterAllEClasses)
 
+  // When set, the root iteration of a symbol-rooted pattern draws only from
+  // these e-classes (see execute()'s `active` parameter).
+  boost::unordered_flat_set<EClassId> const *active_root_set_{nullptr};
+  // Scratch for the active-restricted root set (active intersect carriers of the
+  // root symbol), kept as a member so the root SetIter can reference it.
+  boost::unordered_flat_set<EClassId> root_candidates_;
+
   // Dev mode only: combined stats and tracing (zero overhead when DevMode=false)
   struct NoDevState {};
 
@@ -243,12 +266,14 @@ class VMExecutor {
 template <typename Symbol, typename Analysis, bool DevMode>
 void VMExecutor<Symbol, Analysis, DevMode>::execute(CompiledMatcher<Symbol> const &pattern,
                                                     MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
-                                                    std::vector<PatternMatch> &results) {
+                                                    std::vector<PatternMatch> &results,
+                                                    boost::unordered_flat_set<EClassId> const *active) {
   // Pattern with no slots has nothing to bind - skip execution
   if (pattern.num_slots() == 0) return;
 
   // Store index for IterSymbolEClasses
   matcher_index_ = &index;
+  active_root_set_ = active;
 
   state_.reset(pattern.state_config());
   if constexpr (DevMode) {
@@ -265,6 +290,7 @@ void VMExecutor<Symbol, Analysis, DevMode>::execute(CompiledMatcher<Symbol> cons
   // - Variable/wildcard roots emit IterAllEClasses as outer loop
   state_.pc = 0;
   run_until_halt(arena, results);
+  active_root_set_ = nullptr;  // undefined between calls; don't leave a stale pointer live
 }
 
 template <typename Symbol, typename Analysis, bool DevMode>
@@ -474,9 +500,41 @@ auto VMExecutor<Symbol, Analysis, DevMode>::exec_next_parent(Instruction instr) 
 }
 
 template <typename Symbol, typename Analysis, bool DevMode>
+auto VMExecutor<Symbol, Analysis, DevMode>::active_restricted_roots(Symbol sym,
+                                                                    boost::unordered_flat_set<EClassId> const *set)
+    -> boost::unordered_flat_set<EClassId> const * {
+  // Intersect only when the active set is the smaller side (else the result is
+  // most of the symbol set anyway - match it directly). The caller enables this
+  // only for root-entry patterns (RewriteRule::supports_active_root_restriction),
+  // so `sym` is the pattern's root symbol and a new match's root is always in the
+  // active set; this only prunes, it never drops a match.
+  if (set == nullptr || active_root_set_->size() >= set->size()) return set;
+  root_candidates_.clear();
+  for (auto const active_id : *active_root_set_) {
+    auto const canonical = egraph_->find(active_id);
+    for (auto const enode_id : egraph_->eclass(canonical).nodes()) {
+      if (egraph_->get_enode(enode_id).symbol() == sym) {
+        root_candidates_.insert(canonical);
+        break;
+      }
+    }
+  }
+  return &root_candidates_;
+}
+
+template <typename Symbol, typename Analysis, bool DevMode>
 auto VMExecutor<Symbol, Analysis, DevMode>::exec_iter_symbol_eclasses(Instruction instr) -> bool {
   assert(matcher_index_ && "MatcherIndex must be set for IterSymbolEClasses");
-  auto const *set = matcher_index_->eclasses_set_for_symbol(symbols_[instr.arg]);
+  auto const sym = symbols_[instr.arg];
+  auto const *set = matcher_index_->eclasses_set_for_symbol(sym);
+
+  // When an active set is supplied, restrict the root candidates to it. This is
+  // off the hot path (only latched passes with a sparse change set it), so the
+  // work lives in a cold, non-inlined helper - the common case leaves the
+  // dispatch loop's code untouched.
+  if (active_root_set_ != nullptr) [[unlikely]] {
+    set = active_restricted_roots(sym, set);
+  }
 
   if constexpr (DevMode) {
     collector_.on_iter_symbol_eclasses_start(state_.pc, set ? set->size() : 0);

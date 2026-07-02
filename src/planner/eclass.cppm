@@ -101,7 +101,8 @@ struct EClass : private detail::EClassBase {
 
     // Empty analyses (e.g. NoAnalysis) carry nothing to combine. A stateful
     // Analysis supplies a merge(other) that combines per-e-class facts and
-    // flags any contradiction.
+    // flags any contradiction. This is the sole analysis-mutation path, so
+    // recording every merge in the touched-set keeps latched saturation complete.
     if constexpr (!std::is_empty_v<Analysis>) {
       analysis_data.merge(other.analysis_data);
     }
