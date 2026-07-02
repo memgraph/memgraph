@@ -55,13 +55,24 @@ bool InitDateTimeRefs() {
   if (g_dt_date != nullptr) return true;
   const py::Object module(PyImport_ImportModule("datetime"));
   if (!module) return false;
-  g_dt_date = PyObject_GetAttrString(module.Ptr(), "date");
-  g_dt_time = PyObject_GetAttrString(module.Ptr(), "time");
-  g_dt_datetime = PyObject_GetAttrString(module.Ptr(), "datetime");
-  g_dt_timedelta = PyObject_GetAttrString(module.Ptr(), "timedelta");
-  g_dt_timezone = PyObject_GetAttrString(module.Ptr(), "timezone");
-  return g_dt_date != nullptr && g_dt_time != nullptr && g_dt_datetime != nullptr && g_dt_timedelta != nullptr &&
-         g_dt_timezone != nullptr;
+  // Fetch into owned locals first. If any lookup fails, the py::Object
+  // destructors release the ones that succeeded (no leak) and the globals stay
+  // null — so the `g_dt_date` guard above keeps reflecting "not initialised" and
+  // the function remains safely re-callable. We only publish to the globals once
+  // every lookup has succeeded (all-or-nothing), so callers can never observe a
+  // partially-initialised state.
+  py::Object date(PyObject_GetAttrString(module.Ptr(), "date"));
+  py::Object time(PyObject_GetAttrString(module.Ptr(), "time"));
+  py::Object datetime(PyObject_GetAttrString(module.Ptr(), "datetime"));
+  py::Object timedelta(PyObject_GetAttrString(module.Ptr(), "timedelta"));
+  py::Object timezone(PyObject_GetAttrString(module.Ptr(), "timezone"));
+  if (!date || !time || !datetime || !timedelta || !timezone) return false;
+  g_dt_date = date.Steal();
+  g_dt_time = time.Steal();
+  g_dt_datetime = datetime.Steal();
+  g_dt_timedelta = timedelta.Steal();
+  g_dt_timezone = timezone.Steal();
+  return true;
 }
 
 // Type-check helpers replacing the `PyDate_CheckExact` etc. C macros.
