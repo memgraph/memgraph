@@ -302,6 +302,12 @@ constexpr std::string_view kSocketErrorExplanation =
     "The socket address must be a string defining the address and port, delimited by a "
     "single colon. The address must be valid and the port must be an integer.";
 
+constexpr std::string_view kBrokenDatabaseError =
+    "Database is in the broken state because the recovery process failed. Please recover your database "
+    "using the RECOVER SNAPSHOT query or REPAIR DATABASE query + run your import queries. If you have a "
+    "backup of the whole data directory, please replace the current data directory with the backup one and "
+    "restart the process.";
+
 #ifdef MG_ENTERPRISE
 void EnsureMainInstance(InterpreterContext *interpreter_context, const std::string &operation_name) {
   if (interpreter_context->repl_state->ReadLock()->IsReplica()) {
@@ -3423,6 +3429,12 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         expect_rollback_ = false;
         if (!current_db_.db_acc_)
           throw DatabaseContextRequiredException("No current database for transaction defined.");
+        // Fail-closed on a broken database: an explicit transaction opens a data accessor and its queries
+        // bypass the per-query broken gate (which only runs outside explicit transactions), so reject the
+        // BEGIN itself. The tenant must first be recovered via RECOVER SNAPSHOT or REPAIR DATABASE.
+        if ((*current_db_.db_acc_)->storage()->IsBroken()) {
+          throw QueryException(std::string{kBrokenDatabaseError});
+        }
         SetupDatabaseTransaction(true,
                                  extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE);
       };
@@ -10019,11 +10031,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                   CoordinatorQuery,
                                   ReloadSSLQuery>();
         if (!is_allowed) {
-          throw QueryException(
-              "Database is in the broken state because the recovery process failed. Please recover your database "
-              "using the RECOVER SNAPSHOT query or REPAIR DATABASE query + run your import queries. If you have a "
-              "backup of the whole data directory, please replace the current data directory with the backup one and "
-              "restart the process.");
+          throw QueryException(std::string{kBrokenDatabaseError});
         }
       }
 

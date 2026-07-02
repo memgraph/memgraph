@@ -16,6 +16,7 @@
 
 namespace memgraph::utils {
 
+// Make sure to append, otherwise values change and we're not backward compatible anymore
 enum class TypeId : uint64_t {
   UNKNOWN = 0,
 
@@ -128,8 +129,6 @@ enum class TypeId : uint64_t {
   REP_CREATE_DATABASE_RES,
   REP_DROP_DATABASE_REQ,
   REP_DROP_DATABASE_RES,
-  REP_REPAIR_DATABASE_REQ,
-  REP_REPAIR_DATABASE_RES,
   REP_RENAME_DATABASE_REQ,
   REP_RENAME_DATABASE_RES,
   REP_SYSTEM_HEARTBEAT_REQ,
@@ -152,6 +151,8 @@ enum class TypeId : uint64_t {
   REP_UNSET_PARAMETER_RES,
   REP_DELETE_ALL_PARAMETERS_REQ,
   REP_DELETE_ALL_PARAMETERS_RES,
+  REP_REPAIR_DATABASE_REQ,
+  REP_REPAIR_DATABASE_RES,
 
   // Coordinator
   // NOTE: these NEED to be stable in the 2500+ range (see rpc version)

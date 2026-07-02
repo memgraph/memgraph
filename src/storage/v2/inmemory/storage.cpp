@@ -532,6 +532,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       Clear();
       name_id_mapper_->Clear();
       description_store_.Clear();
+      // Snapshot recovery may have already started the storage-ttl background thread; stop it so a
+      // broken database doesn't keep firing TTL jobs against cleared storage.
+      ttl_.Disable();
       SetBroken(true);
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -4557,7 +4560,10 @@ std::expected<void, InMemoryStorage::RepairError> InMemoryStorage::RepairBroken(
   if (!IsBroken()) {
     return std::unexpected{InMemoryStorage::RepairError::NotBroken};
   }
+  return ClearDurabilityAndReset();
+}
 
+std::expected<void, InMemoryStorage::RepairError> InMemoryStorage::ClearDurabilityAndReset() {
   auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
   constexpr std::string_view old_dir = ".old";
 
