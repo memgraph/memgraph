@@ -9,19 +9,19 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# Slice 7 (Defunct Recovery / HA): a replica that boots with a corrupted tenant snapshot and
-# --storage-allow-recovery-failure=true comes up defunct for that tenant, then self-heals: the
-# main detects the replica is behind (a defunct tenant reports commit-ts 0 with a fresh epoch),
+# Slice 7 (Broken Recovery / HA): a replica that boots with a corrupted tenant snapshot and
+# --storage-allow-recovery-failure=true comes up broken for that tenant, then self-heals: the
+# main detects the replica is behind (a broken tenant reports commit-ts 0 with a fresh epoch),
 # drives it into RECOVERY and sends recovery steps, and the matching replica-side handler clears
-# the defunct flag. After self-heal the replica reports `ready` and serves the tenant's data.
+# the broken flag. After self-heal the replica reports `ready` and serves the tenant's data.
 #
 # The recovery steps the main sends depend on what durability the main holds for the tenant
 # (GetRecoverySteps), so this test is parametrized over both healing paths:
 #   - "snapshot": the main took a CREATE SNAPSHOT, so it sends a full snapshot; SnapshotHandler
-#     clears defunct.
+#     clears broken.
 #   - "wal": the main never snapshotted the tenant, so its WAL chain reaches back to seq 0 and it
-#     sends WAL files / the current WAL only; WalFilesHandler / CurrentWalHandler clear defunct.
-# The replica boots defunct identically in both cases (its own corrupted snapshot is the only
+#     sends WAL files / the current WAL only; WalFilesHandler / CurrentWalHandler clear broken.
+# The replica boots broken identically in both cases (its own corrupted snapshot is the only
 # durability source); only the main-side recovery steps differ.
 #
 # Placement note: the spec suggests tests/e2e/durability/, but this test needs the coordinator +
@@ -47,7 +47,7 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
-file = "defunct_replica_self_heal"
+file = "broken_replica_self_heal"
 
 TENANT = "broken_db"
 NUM_NODES = 5000
@@ -198,16 +198,16 @@ def tenant_vertex_count(cursor):
 
 
 @pytest.mark.parametrize("recovery_path", ["snapshot", "wal"])
-def test_defunct_replica_tenant_self_heals_from_main(test_name, recovery_path):
+def test_broken_replica_tenant_self_heals_from_main(test_name, recovery_path):
     # 1. Bring up a coordinator-managed cluster: instance_3 (7687) MAIN, instance_1 (7688) and
     #    instance_2 (7689) REPLICAs.
     # 2. Create the broken_db tenant and populate it. For the "snapshot" path the main also takes a
     #    CREATE SNAPSHOT; for the "wal" path it does not, so the main's only durability for the
     #    tenant is its WAL chain (which reaches back to seq 0).
     # 3. Kill replica instance_1 and corrupt its broken_db snapshot (written via storage_snapshot_on_exit).
-    # 4. Restart instance_1 with --storage-allow-recovery-failure=true: broken_db boots defunct.
+    # 4. Restart instance_1 with --storage-allow-recovery-failure=true: broken_db boots broken.
     # 5. Assert the main is unaffected, then assert instance_1's broken_db self-heals to `ready`
-    #    (the main's recovery steps clear defunct: a snapshot for the "snapshot" path, WAL files /
+    #    (the main's recovery steps clear broken: a snapshot for the "snapshot" path, WAL files /
     #    current WAL for the "wal" path) and serves the tenant's data.
 
     instances = get_memgraph_instances_description(test_name=test_name)
@@ -257,7 +257,7 @@ def test_defunct_replica_tenant_self_heals_from_main(test_name, recovery_path):
         os.makedirs(wal_dir, exist_ok=True)
     corrupt_snapshots(tenant_dir)
 
-    # 4: restart instance_1 with the recovery-failure flag so the corrupted tenant boots defunct
+    # 4: restart instance_1 with the recovery-failure flag so the corrupted tenant boots broken
     #    instead of crashing the whole instance.
     instances["instance_1"]["args"].append("--storage-allow-recovery-failure=true")
     interactive_mg_runner.start(instances, "instance_1")
@@ -266,10 +266,10 @@ def test_defunct_replica_tenant_self_heals_from_main(test_name, recovery_path):
     assert tenant_status(main_cursor).get(TENANT) == "ready"
 
     # Drive the main to replicate broken_db again. After instance_1 restarts, its broken_db is
-    # defunct and reports commit-ts 0 with a fresh epoch; the next replicated transaction makes the
+    # broken and reports commit-ts 0 with a fresh epoch; the next replicated transaction makes the
     # main see the replica as behind, transition it to RECOVERY and send recovery steps (a snapshot
     # for the "snapshot" path, WAL files / the current WAL for the "wal" path), which the matching
-    # replica-side handler uses to clear the defunct flag. The exact moment the main re-checks the
+    # replica-side handler uses to clear the broken flag. The exact moment the main re-checks the
     # restarted replica's state is timing dependent, so we keep nudging it with writes while polling
     # for the heal. Every write is on broken_db, so the main's broken_db count is the ground truth
     # the healed replica must converge to.
@@ -300,7 +300,7 @@ def test_defunct_replica_tenant_self_heals_from_main(test_name, recovery_path):
     # The default tenant was never affected on the healed replica.
     assert tenant_status(connect(host="localhost", port=7688).cursor()).get("memgraph") == "ready"
 
-    # The untouched replica instance_2 stayed healthy throughout (defunct tenant on one instance
+    # The untouched replica instance_2 stayed healthy throughout (broken tenant on one instance
     # does not disrupt the other healthy instances).
     assert tenant_status(instance_2_cursor).get(TENANT) == "ready"
 

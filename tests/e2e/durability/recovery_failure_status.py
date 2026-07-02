@@ -42,8 +42,8 @@ def storage_info(cursor):
     return {row[0]: row[1] for row in rows}
 
 
-def test_storage_info_reports_ready_then_defunct(test_name):
-    """SHOW STORAGE INFO reports status=ready for a healthy database and status=defunct
+def test_storage_info_reports_ready_then_broken(test_name):
+    """SHOW STORAGE INFO reports status=ready for a healthy database and status=broken
     after recovery fails."""
     data_directory = get_data_path("recovery_failure_status", test_name)
     full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
@@ -78,7 +78,7 @@ def test_storage_info_reports_ready_then_defunct(test_name):
 
 
 def test_show_databases_reports_status(test_name):
-    """SHOW DATABASES shows a Status column: defunct for a tenant whose
+    """SHOW DATABASES shows a Status column: broken for a tenant whose
     recovery failed, ready for a healthy tenant."""
     data_directory = get_data_path("recovery_failure_status", test_name)
     full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
