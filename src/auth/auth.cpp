@@ -204,12 +204,17 @@ const std::string kRolePrefix = "role:";
 const std::string kRoleLinkPrefix = "link:";
 const std::string kMtLinkPrefix = "mtlink:";
 // Profile linking is now handled by UserProfiles class
-const std::string kVersion = "version";
+const std::string kStoreVersionKey = "version";
 
-constexpr auto kVersionV1 = "V1";
-constexpr auto kVersionV2 = "V2";
-constexpr auto kVersionV3 = "V3";
-constexpr auto kVersionV4 = "V4";
+// Auth KV store versions. These track structural changes to the store layout
+// (key prefixes, link format, etc.). Entity-level schema changes (e.g. FGA
+// format) are handled per-entity via MigrateAuthJson and the entity "version"
+// field: do NOT bump the store version for those (anymore).
+constexpr auto kStoreV1 = "V1";  // Added password hash algorithm field
+constexpr auto kStoreV2 = "V2";  // Single role links, to JSON arrays for multi-role support
+constexpr auto kStoreV3 = "V3";  // V2 FGA -> V3 FGA (fine_grained_access_handler to fine_grained_permissions)
+constexpr auto kStoreV4 = "V4";  // V3 FGA -> V4 FGA (global_permission → global_grants/global_denies)
+constexpr auto kStoreV5 = "V5";  // Eagerly migrates entity JSON via MigrateAuthJson over RPC (V3/V4 -> current)
 }  // namespace
 
 /**
@@ -232,13 +237,13 @@ constexpr auto kVersionV4 = "V4";
 namespace {
 void MigrateVersions(kvstore::KVStore &store) {
   static constexpr auto kPasswordHashV0V1 = "password_hash";
-  auto version_str = store.Get(kVersion);
+  auto version_str = store.Get(kStoreVersionKey);
 
   if (!version_str) {
     using namespace std::string_literals;
 
     // pre versioning, add version to the store
-    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV1}};
+    auto puts = std::map<std::string, std::string>{{kStoreVersionKey, kStoreV1}};
 
     // also add hash kind into durability
 
@@ -273,14 +278,14 @@ void MigrateVersions(kvstore::KVStore &store) {
 
     // Perform migration to V1
     store.PutMultiple(puts);
-    version_str = kVersionV1;
+    version_str = kStoreV1;
   }
 
   // Migrate from V1 to V2: convert single role links to JSON arrays
-  if (version_str == kVersionV1) {
+  if (version_str == kStoreV1) {
     spdlog::info("Migrating auth storage from V1 to V2: converting single role links to JSON arrays");
 
-    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV2}};
+    auto puts = std::map<std::string, std::string>{{kStoreVersionKey, kStoreV2}};
     auto deletes = std::vector<std::string>{};
 
     // Migrate all link entries from single role format to JSON array format
@@ -305,210 +310,44 @@ void MigrateVersions(kvstore::KVStore &store) {
     if (!deletes.empty()) {
       store.DeleteMultiple(deletes);
     }
-    version_str = kVersionV2;
+    version_str = kStoreV2;
 
     spdlog::info("Auth storage migration to V2 completed successfully");
   }
 
-  if (version_str == kVersionV2) {
-    spdlog::info("Migrating auth storage from V2 to V3");
-    spdlog::warn(
-        "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
+  // V2/V3/V4 entity-level migrations (FGA schema changes)
+  if (version_str == kStoreV2 || version_str == kStoreV3 || version_str == kStoreV4) {
+    spdlog::info("Migrating auth storage from {} to V5: migrating entity JSON schemas", *version_str);
+    if (version_str == kStoreV2) {
+      spdlog::warn(
+          "IMPORTANT: Review your security policy and explicitly configure finely grained access rules where needed.");
+    }
 
-    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV3}};
+    auto puts = std::map<std::string, std::string>{{kStoreVersionKey, kStoreV5}};
 
-    auto const convert_v2_to_v3_permissions = [](uint64_t const v2_perm) -> uint64_t {
-      // V2 permissions used bit_0 for read, bit_1 for update, and bit_2 for
-      // create_delete, but note that the trailing bits are also set because the
-      // permission formed a hierarchy.
-      constexpr uint64_t kV2Read = 1;
-      constexpr uint64_t kV2Update = 3;
-      constexpr uint64_t kV2CreateDelete = 7;
-
-      // V3 permission bits: NOTHING=0, READ=1, UPDATE=2, CREATE=8, DELETE=16.
-      // Need to duplicate them here as FineGrainedPermission is enterprise only
-      // and duplication is preferable to leaking the enum into community
-      // builds.
-      constexpr uint64_t kV3Nothing = 0;
-      constexpr uint64_t kV3Read = 1;
-      constexpr uint64_t kV3Update = 2;
-      constexpr uint64_t kV3Create = 8;
-      constexpr uint64_t kV3Delete = 16;
-
-      switch (v2_perm) {
-        case 0:
-          return kV3Nothing;
-        case kV2Read:
-          return kV3Read;
-        case kV2Update:
-          return kV3Update | kV3Read;
-        case kV2CreateDelete:
-          return kV3Create | kV3Delete | kV3Update | kV3Read;
-        default:
-          return kV3Nothing;
-      }
-    };
-
-    auto const migrate_entity = [&](auto const &prefix) {
+    auto const migrate_entities = [&](auto const &prefix) {
       for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
         auto const &[key, value] = *it;
         try {
           auto data = nlohmann::json::parse(value);
-
-          auto const fg_it = data.find("fine_grained_access_handler");
-          if (fg_it != data.end() && fg_it->is_object()) {
-            for (auto const &perm_type : {"label_permissions", "edge_type_permissions"}) {
-              auto const perm_it = fg_it->find(perm_type);
-              if (perm_it != fg_it->end() && perm_it->is_object()) {
-                auto &perm_data = *perm_it;
-
-                auto const global_perm_it = perm_data.find("global_permission");
-                if (global_perm_it != perm_data.end() && global_perm_it->is_number_integer()) {
-                  auto const v2_perm = global_perm_it->template get<int64_t>();
-                  if (v2_perm >= 0) {
-                    *global_perm_it = convert_v2_to_v3_permissions(static_cast<uint64_t>(v2_perm));
-                  }
-                }
-
-                perm_data["permissions"] = nlohmann::json::array();
-              }
-            }
-
-            data["fine_grained_permissions"] = std::move(*fg_it);
-            data.erase("fine_grained_access_handler");
+          auto const original = data;
+          auth::MigrateAuthJson(data);
+          if (data != original) {
             puts.emplace(key, data.dump());
           }
-        } catch (const nlohmann::json::exception &e) {
-          throw AuthException("Failed to migrate auth data for '{}': {}", key, e.what());
+        } catch (nlohmann::json::exception const &e) {
+          throw auth::AuthException("Failed to migrate auth data for '{}': {}", key, e.what());
         }
       }
     };
 
-    migrate_entity(kUserPrefix);
-    migrate_entity(kRolePrefix);
+    migrate_entities(kUserPrefix);
+    migrate_entities(kRolePrefix);
 
-    if (!puts.empty()) {
-      store.PutMultiple(puts);
-    }
+    store.PutMultiple(puts);
+    version_str = kStoreV5;
 
-    version_str = kVersionV3;
-    spdlog::info("Auth storage migration to V3 completed successfully");
-  }
-
-  if (version_str == kVersionV3) {
-    spdlog::info("Migrating auth storage from V3 to V4");
-
-    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV4}};
-
-    // V4 changes the fine-grained permissions JSON structure:
-    // - `global_permission` is split into `global_grants`/`global_denies`
-    // - permissions array entries gain a `denied` field
-    // - For labels: UPDATE (bit 1) expands to SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE | CREATE_EDGE
-    // - For edge types: UPDATE (bit 1) becomes SET_PROPERTY (bit 1), which is the
-    //   same bit so no migration needed.
-    // - NOTHING becomes a DENY ALL
-
-    // Local copies of FineGrainedPermission values (defined under MG_ENTERPRISE
-    // in models.hpp). Duplicated here so that this migration runs even in
-    // community builds, which is necessary to correctly migrate data if an
-    // installation downgrades from enterprise to community then upgrades again.
-    // Admittedly unlikely, but easily handled!
-    constexpr uint64_t kUpdate = 2;                   // Old UPDATE bit, no longer exists in enum
-    constexpr uint64_t kSetLabel = 32;                // FineGrainedPermission::SET_LABEL
-    constexpr uint64_t kRemoveLabel = 64;             // FineGrainedPermission::REMOVE_LABEL
-    constexpr uint64_t kSetProperty = 2;              // FineGrainedPermission::SET_PROPERTY
-    constexpr uint64_t kDeleteEdge = 128;             // FineGrainedPermission::DELETE_EDGE
-    constexpr uint64_t kCreateEdge = 256;             // FineGrainedPermission::CREATE_EDGE
-    constexpr uint64_t kAllLabelPermissions = 507;    // kAllLabelPermissions
-    constexpr uint64_t kAllEdgeTypePermissions = 27;  // kAllEdgeTypePermissions
-
-    // For labels: UPDATE -> SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE | CREATE_EDGE
-    auto const migrate_label_permissions = [&](uint64_t const v3_perm) -> uint64_t {
-      uint64_t result = v3_perm;
-      if (result & kUpdate) {
-        result = (result & ~kUpdate) | kSetLabel | kRemoveLabel | kSetProperty | kDeleteEdge | kCreateEdge;
-      }
-      return result;
-    };
-
-    auto const migrate_entity = [&](auto const &prefix) {
-      for (auto it = store.begin(prefix); it != store.end(prefix); ++it) {
-        auto const &[key, value] = *it;
-        try {
-          auto data = nlohmann::json::parse(value);
-
-          auto const fg_it = data.find("fine_grained_permissions");
-          if (fg_it != data.end() && fg_it->is_object()) {
-            for (auto const &perm_type : {"label_permissions", "edge_type_permissions"}) {
-              bool const is_label = std::string_view{perm_type} == "label_permissions";
-              auto const perm_it = fg_it->find(perm_type);
-              if (perm_it != fg_it->end() && perm_it->is_object()) {
-                auto &perm_data = *perm_it;
-
-                // Migrate global_permission -> global_grants/global_denies
-                auto const global_perm_it = perm_data.find("global_permission");
-                if (global_perm_it != perm_data.end()) {
-                  auto const old_perm = global_perm_it->template get<int64_t>();
-                  if (old_perm == 0) {
-                    // NOTHING -> deny all
-                    perm_data["global_grants"] = -1;
-                    perm_data["global_denies"] = (is_label ? kAllLabelPermissions : kAllEdgeTypePermissions);
-                  } else if (old_perm == -1) {
-                    // No global permission set
-                    perm_data["global_grants"] = -1;
-                    perm_data["global_denies"] = -1;
-                  } else {
-                    auto new_perm = static_cast<uint64_t>(old_perm);
-                    if (is_label) new_perm = migrate_label_permissions(new_perm);
-                    perm_data["global_grants"] = new_perm;
-                    perm_data["global_denies"] = -1;
-                  }
-                  perm_data.erase("global_permission");
-                }
-
-                // Migrate permissions: add "denied" field, migrate permission values for labels
-                auto const perms_it = perm_data.find("permissions");
-                if (perms_it != perm_data.end() && perms_it->is_array()) {
-                  nlohmann::json new_permissions = nlohmann::json::array();
-                  for (auto const &old_rule : *perms_it) {
-                    nlohmann::json new_rule;
-                    new_rule["symbols"] = old_rule.value("symbols", nlohmann::json::array());
-                    new_rule["matching"] = old_rule.value("matching", "ANY");
-
-                    auto const granted = old_rule.value("granted", int64_t{0});
-                    if (granted == 0) {
-                      // granted=0 (NOTHING) -> deny all
-                      new_rule["granted"] = 0;
-                      new_rule["denied"] = (is_label ? kAllLabelPermissions : kAllEdgeTypePermissions);
-                    } else {
-                      auto new_granted = static_cast<uint64_t>(granted);
-                      if (is_label) new_granted = migrate_label_permissions(new_granted);
-                      new_rule["granted"] = new_granted;
-                      new_rule["denied"] = 0;
-                    }
-                    new_permissions.push_back(std::move(new_rule));
-                  }
-                  perm_data["permissions"] = std::move(new_permissions);
-                }
-              }
-            }
-            puts.emplace(key, data.dump());
-          }
-        } catch (const nlohmann::json::exception &e) {
-          throw AuthException("Failed to migrate auth data for '{}': {}", key, e.what());
-        }
-      }
-    };
-
-    migrate_entity(kUserPrefix);
-    migrate_entity(kRolePrefix);
-
-    if (!puts.empty()) {
-      store.PutMultiple(puts);
-    }
-
-    version_str = kVersionV4;
-    spdlog::info("Auth storage migration to V4 completed successfully");
+    spdlog::info("Auth storage migration to V5 completed successfully");
   }
 }
 
@@ -535,6 +374,12 @@ auto ParseJson(std::string_view str) {
   return data;
 }
 
+auto ParseAndMigrateJson(std::string_view str) {
+  auto data = ParseJson(str);
+  auth::MigrateAuthJson(data);
+  return data;
+}
+
 };  // namespace
 
 Auth::Auth(std::string storage_directory, Config config
@@ -553,7 +398,7 @@ Auth::Auth(std::string storage_directory, Config config
     MigrateVersions(storage_);
   } else {
     // Clean storage; put the version
-    storage_.Put(kVersion, kVersionV4);
+    storage_.Put(kStoreVersionKey, kStoreV5);
   }
 
 #ifdef MG_ENTERPRISE
@@ -841,7 +686,7 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
   auto existing_user = storage_.Get(kUserPrefix + username);
   if (!existing_user) return std::nullopt;
 
-  auto user = User::Deserialize(ParseJson(*existing_user));
+  auto user = User::Deserialize(ParseAndMigrateJson(*existing_user));
   LinkUser(user);
   return user;
 }
@@ -1008,7 +853,7 @@ std::vector<auth::User> Auth::AllUsers() const {
     auto username = it->first.substr(kUserPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
     try {
-      User user = auth::User::Deserialize(ParseJson(it->second));  // Will throw on failure
+      User user = auth::User::Deserialize(ParseAndMigrateJson(it->second));  // Will throw on failure
       LinkUser(user);
       ret.emplace_back(std::move(user));
     } catch (AuthException &) {
@@ -1025,7 +870,7 @@ std::vector<std::string> Auth::AllUsernames() const {
     if (username != utils::ToLowerCase(username)) continue;
     try {
       // Check if serialized correctly
-      memgraph::auth::User::Deserialize(ParseJson(it->second));  // Will throw on failure
+      memgraph::auth::User::Deserialize(ParseAndMigrateJson(it->second));  // Will throw on failure
       ret.emplace_back(std::move(username));
     } catch (AuthException &) {
       continue;
@@ -1049,7 +894,7 @@ std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
   auto existing_role = storage_.Get(kRolePrefix + rolename);
   if (!existing_role) return std::nullopt;
 
-  auto role = Role::Deserialize(ParseJson(*existing_role));
+  auto role = Role::Deserialize(ParseAndMigrateJson(*existing_role));
   LinkRole(role);
   return role;
 }
@@ -1371,7 +1216,7 @@ std::vector<auth::Role> Auth::AllRoles() const {
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
     if (rolename != utils::ToLowerCase(rolename)) continue;
-    Role role = memgraph::auth::Role::Deserialize(ParseJson(it->second));  // Will throw on failure
+    Role role = memgraph::auth::Role::Deserialize(ParseAndMigrateJson(it->second));  // Will throw on failure
     LinkRole(role);
     ret.emplace_back(std::move(role));
   }
@@ -1385,7 +1230,7 @@ std::vector<std::string> Auth::AllRolenames() const {
     if (rolename != utils::ToLowerCase(rolename)) continue;
     try {
       // Check that the data is serialized correctly
-      memgraph::auth::Role::Deserialize(ParseJson(it->second));
+      memgraph::auth::Role::Deserialize(ParseAndMigrateJson(it->second));
       ret.emplace_back(std::move(rolename));
     } catch (AuthException &) {
       continue;
@@ -1575,7 +1420,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
     try {
-      User user = auth::User::Deserialize(ParseJson(it->second));
+      User user = auth::User::Deserialize(ParseAndMigrateJson(it->second));
       LinkUser(user);
       user.db_access().Revoke(db);
       SaveUser(user, system_tx);
@@ -1586,7 +1431,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
     try {
-      auto role = memgraph::auth::Role::Deserialize(ParseJson(it->second));
+      auto role = memgraph::auth::Role::Deserialize(ParseAndMigrateJson(it->second));
       role.db_access().Revoke(db);
       LinkRole(role);
       SaveRole(role, system_tx);

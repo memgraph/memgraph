@@ -862,6 +862,21 @@ kubectl delete pod memgraph-data-1-0
 wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-data-1-0 passed successfully"
 
+echo "Waiting for old MAIN to sync auth to upgraded replica..."
+kubectl cp verify_fga_post_upgrade.sh memgraph-data-1-0:/var/lib/memgraph/verify_fga_post_upgrade.sh
+for i in $(seq 1 30); do
+  if kubectl exec memgraph-data-1-0 -- bash /var/lib/memgraph/verify_fga_post_upgrade.sh --username=system_admin_user --password=admin_password 2>&1; then
+    echo "FGA synced to replica after ${i} attempt(s)"
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "FAIL: FGA did not sync to replica after 30 attempts"
+    exit 1
+  fi
+  echo "Auth not yet synced (attempt $i/30), retrying in 2s..."
+  sleep 2
+done
+
 echo "Deleting pod memgraph-data-0-0 which serves as main"
 kubectl scale statefulset memgraph-data-0 --replicas=0
 sleep 5
@@ -952,6 +967,10 @@ kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgr
 echo "Running auth post-upgrade tests"
 kubectl cp auth_post_upgrade.cypherl "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/auth_post_upgrade.cypherl"
 kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/auth_post_upgrade.cypherl --username=system_admin_user --password=admin_password"
+
+echo "Verifying FGA grants survived rolling upgrade"
+kubectl cp verify_fga_post_upgrade.sh "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/verify_fga_post_upgrade.sh"
+kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash /var/lib/memgraph/verify_fga_post_upgrade.sh --username=system_admin_user --password=admin_password
 
 # --- Optional routing tests ---
 if [[ "$TEST_ROUTING" == "true" ]]; then
