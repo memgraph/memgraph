@@ -3011,7 +3011,10 @@ PyObject *PyInitMgpModule() {
     return true;
   };
 
-  if (!AddModuleConstants(*mgp)) return nullptr;
+  if (!AddModuleConstants(*mgp)) {
+    Py_DECREF(mgp);  // consistent with register_type below: drop the module ref on failure
+    return nullptr;
+  }
 
   if (!register_type(&PyPropertiesIteratorType, &PyPropertiesIteratorType_spec, "PropertiesIterator")) return nullptr;
   if (!register_type(&PyVerticesIteratorType, &PyVerticesIteratorType_spec, "VerticesIterator")) return nullptr;
