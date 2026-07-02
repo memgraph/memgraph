@@ -317,6 +317,39 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
+# -----------------------------------------------------------------------------
+# Profile-Guided Optimization (PGO).
+# Driven by a single -DMG_PGO=<mode> token so it passes cleanly through
+# mgbuild.sh / build.sh option forwarding (multi-token CMAKE_CXX_FLAGS get
+# word-split by their unquoted expansion; a bare -D token does not).
+#   -DMG_PGO=generate                    instrument; raw profiles -> ${MG_PGO_DIR}
+#   -DMG_PGO=use -DMG_PGO_PROFILE=<file> optimize using the merged .profdata
+# Applies to the in-tree targets defined below (src/, mgcxx, ...); prebuilt
+# Conan deps are unaffected. See tools/pgo/README.md.
+set(MG_PGO "off" CACHE STRING "PGO mode: off | generate | use")
+set(MG_PGO_DIR "${CMAKE_BINARY_DIR}/pgo-raw" CACHE PATH "Directory for -fprofile-generate raw profiles")
+set(MG_PGO_PROFILE "${CMAKE_BINARY_DIR}/pgo.profdata" CACHE FILEPATH
+    "Merged .profdata for -fprofile-use (default: build/pgo.profdata produced by 'mgbuild.sh pgo-merge')")
+string(TOLOWER "${MG_PGO}" _mg_pgo_mode)
+if (_mg_pgo_mode STREQUAL "generate")
+    message(STATUS "MG_PGO=generate: instrumenting (-fprofile-generate=${MG_PGO_DIR})")
+    add_compile_options(-fprofile-generate=${MG_PGO_DIR})
+    add_link_options(-fprofile-generate=${MG_PGO_DIR})
+elseif (_mg_pgo_mode STREQUAL "use")
+    if (NOT EXISTS "${MG_PGO_PROFILE}")
+        message(FATAL_ERROR "MG_PGO=use: profile not found at '${MG_PGO_PROFILE}'. "
+            "Run 'mgbuild.sh build-memgraph --pgo generate', then 'pgo-train' + 'pgo-merge' first, "
+            "or pass -DMG_PGO_PROFILE=<file>.")
+    endif()
+    message(STATUS "MG_PGO=use: optimizing with profile ${MG_PGO_PROFILE}")
+    # Unprofiled/stale functions are expected (partial coverage); keep them warnings, not errors.
+    add_compile_options(-fprofile-use=${MG_PGO_PROFILE}
+        -Wno-error=profile-instr-unprofiled -Wno-error=profile-instr-out-of-date)
+    add_link_options(-fprofile-use=${MG_PGO_PROFILE})
+elseif (NOT _mg_pgo_mode STREQUAL "off")
+    message(FATAL_ERROR "MG_PGO must be one of: off | generate | use (got '${MG_PGO}')")
+endif()
+
 include(SplitDebug)
 
 #debug flags

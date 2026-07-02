@@ -11,6 +11,10 @@ on:
         type: number
         description: "Number of times to run the benchmarks. Default is 10."
         default: 10
+      pgo:
+        type: boolean
+        description: "Build with PGO (instrument -> train on mgbench -> optimize) before benchmarking. Experiment: dispatch on a branch and compare its Grafana series to master."
+        default: false
   schedule:
     - cron: "0 1 * * *"
 
@@ -76,8 +80,30 @@ jobs:
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
+      # PGO experiment (only when dispatched with pgo=true): build an instrumented
+      # binary, train it on the full mgbench query mix, and merge the profile.
+      # The next step then builds the optimized binary via --pgo use. Datasets are
+      # needed for training, so init-tests runs here too (harmless if repeated later).
+      - name: PGO — instrument, train, merge
+        if: ${{ inputs.pgo }}
+        run: |
+          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH init-tests
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN --os $OS --arch $ARCH --build-type $BUILD_TYPE \
+            build-memgraph --pgo generate \
+            --conan-remote $CONAN_REMOTE --conan-username $CONAN_USERNAME --conan-password $CONAN_PASSWORD
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN --os $OS --arch $ARCH \
+            --enterprise-license "$MEMGRAPH_ENTERPRISE_LICENSE" --organization-name "$MEMGRAPH_ORGANIZATION_NAME" \
+            pgo-train --dataset pokec --size small
+          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH pgo-merge
+
       - name: Build release binary
         run: |
+          PGO_ARGS=""
+          if [[ "${{ inputs.pgo }}" == "true" ]]; then
+            PGO_ARGS="--pgo use"   # consumes build/pgo.profdata from the step above
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -85,6 +111,7 @@ jobs:
           --build-type $BUILD_TYPE \
           build-memgraph \
           --split-debug \
+          $PGO_ARGS \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD

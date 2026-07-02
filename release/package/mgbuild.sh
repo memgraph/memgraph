@@ -88,6 +88,8 @@ print_help () {
   echo -e "  build [OPTIONS]                    Build mgbuild image"
   echo -e "  build-memgraph [OPTIONS]           Build memgraph binary inside mgbuild container"
   echo -e "  init-tests                         Initialize tests inside mgbuild container"
+  echo -e "  pgo-train [--dataset D --size S]   Train instrumented binary on mgbench (for PGO); default pokec/small"
+  echo -e "  pgo-merge                          Merge raw PGO profiles into build/pgo.profdata"
   echo -e "  copy [OPTIONS]                     Copy an artifact from mgbuild container to host"
   echo -e "  copy-debug-symbols [OPTIONS]       Copy all .debug sidecars from build tree to host (requires split-debug build)"
   echo -e "  package-memgraph                   Create memgraph package from built binary inside mgbuild container"
@@ -139,6 +141,8 @@ print_help () {
   echo -e "\nbuild-memgraph options:"
   echo -e "  --asan                        Build with ASAN"
   echo -e "  --cmake-only                  Only run cmake configure command"
+  echo -e "  --pgo generate|use            PGO mode: instrument, or optimize with a merged profile"
+  echo -e "  --pgo-profile PATH            Merged .profdata for --pgo use (e.g. build/pgo.profdata)"
   echo -e "  --community                   Build community version"
   echo -e "  --coverage                    Build with code coverage"
   echo -e "  --init-only                   Only run init script"
@@ -486,8 +490,18 @@ build_memgraph () {
   local build_dependency=""
   local link_threads=0
   local split_debug=false
+  local pgo_mode=""
+  local pgo_profile=""
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
+      --pgo)
+        pgo_mode="$2"
+        shift 2
+      ;;
+      --pgo-profile)
+        pgo_profile="$2"
+        shift 2
+      ;;
       --community)
         community_flag="-DMG_ENTERPRISE=OFF"
         shift 1
@@ -730,6 +744,14 @@ build_memgraph () {
       exit 1
     fi
     additional_options="$additional_options -DMG_SPLIT_DEBUG=ON"
+  fi
+
+  # PGO: single -D tokens (no spaces) so unquoted forwarding stays intact.
+  if [[ -n "$pgo_mode" ]]; then
+    additional_options="$additional_options -DMG_PGO=$pgo_mode"
+    if [[ -n "$pgo_profile" ]]; then
+      additional_options="$additional_options -DMG_PGO_PROFILE=$pgo_profile"
+    fi
   fi
 
   if [[ -n "$additional_options" ]]; then
@@ -2979,6 +3001,27 @@ case $command in
     ;;
     build-memgraph)
       build_memgraph $@
+    ;;
+    pgo-train)
+      # Exercise the instrumented (build-memgraph --pgo generate) binary across the
+      # full mgbench query mix so the profile covers reads/writes/aggregates/expansions.
+      # %p keeps each server restart's raw profile; pgo-merge combines them.
+      shift 1
+      PGO_DATASET='pokec'
+      PGO_SIZE='small'
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --dataset) PGO_DATASET="$2"; shift 2 ;;
+          --size) PGO_SIZE="$2"; shift 2 ;;
+          *) echo "Error: Unknown flag '$1' for pgo-train"; exit 1 ;;
+        esac
+      done
+      docker exec -u mg $build_container bash -c "export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license && export MEMGRAPH_ORGANIZATION_NAME=$organization_name && mkdir -p $MGBUILD_ROOT_DIR/build/pgo-raw && export LLVM_PROFILE_FILE=$MGBUILD_ROOT_DIR/build/pgo-raw/mg_%p_%m.profraw && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 6 $PGO_DATASET/$PGO_SIZE/*/*"
+    ;;
+    pgo-merge)
+      # Merge raw profiles -> build/pgo.profdata for build-memgraph --pgo use.
+      shift 1
+      docker exec -u mg $build_container bash -c "source /opt/toolchain-${toolchain_version}/activate && llvm-profdata merge -o $MGBUILD_ROOT_DIR/build/pgo.profdata $MGBUILD_ROOT_DIR/build/pgo-raw/*.profraw && echo 'PGO merged profile:' && ls -la $MGBUILD_ROOT_DIR/build/pgo.profdata"
     ;;
     package-memgraph)
       package_memgraph $@
