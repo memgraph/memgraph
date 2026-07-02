@@ -14,6 +14,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "rpc/file_replication_handler.hpp"
+#include "rpc/protocol.hpp"
 #include "rpc/utils.hpp"  // Include after all SLK definitions are present
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -58,7 +59,14 @@ class SnapshotObserver final : public utils::Observer<void> {
 
   void Update() override {
     auto guard = std::lock_guard{mtx_};
-    rpc::SendInProgressMsg(res_builder_);
+    try {
+      rpc::SendInProgressMsg(res_builder_);
+    } catch (const rpc::SessionException &e) {
+      // Progress heartbeats are advisory. If the peer is (temporarily) gone the send fails, but recovery must neither
+      // crash nor abort: the loaded state stands and main reconciles it via a later heartbeat RPC once reconnected.
+      // No latch: the next Update() retries on a now-clean builder (see slk::Builder::FlushInternal).
+      spdlog::trace("Failed to send recovery progress heartbeat: {}", e.what());
+    }
   }
 
  private:
