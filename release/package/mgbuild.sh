@@ -1406,6 +1406,26 @@ copy_memgraph() {
     mkdir -p "$host_dir"
     docker cp "$build_container:$staging_dir/usr/local/lib/memgraph/." "$host_dir/"
 
+    # The abi3 binary's DT_NEEDED is the unversioned `libpython3.so`, but the
+    # install tree does not bundle libpython (it is a system dependency resolved
+    # on the deployment host). Consumers of this artifact run the binary from a
+    # bare, relocated tree with an `$ORIGIN` rpath (e.g. the Jepsen nodes, which
+    # have no libpython at all), so stage the build container's libpython next to
+    # the binary — as both the real versioned file and the `libpython3.so` SONAME
+    # symlink — so it travels with the binary and resolves via `$ORIGIN`.
+    local container_libpython
+    container_libpython=$(docker exec "$build_container" bash -c \
+      'readlink -f "$(ldconfig -p 2>/dev/null | grep -oE "/[^ ]*libpython3\.[0-9]+[a-z]*\.so\.1\.0" | head -1)" 2>/dev/null' || true)
+    if [[ -n "$container_libpython" ]]; then
+      local libpython_name
+      libpython_name=$(basename "$container_libpython")
+      docker cp "$build_container:$container_libpython" "$host_dir/$libpython_name"
+      ln -sf "$libpython_name" "$host_dir/libpython3.so"
+      echo "Staged libpython ($libpython_name + libpython3.so) alongside the binary in $host_dir."
+    else
+      echo "WARNING: could not locate libpython in $build_container; the relocated binary may fail to load libpython3.so." >&2
+    fi
+
     # Clean up staging directory
     docker exec -u mg "$build_container" bash -c "rm -rf $staging_dir"
 

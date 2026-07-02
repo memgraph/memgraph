@@ -260,28 +260,6 @@ COPY_FILES() {
        $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
        $docker_exec "touch /opt/memgraph/memgraph.log"
 
-       # The memgraph binary carries an abi3-portable DT_NEEDED of `libpython3.so`
-       # (the CMake POST_BUILD patchelf rewrite). Jepsen node images ship only the
-       # versioned libpython (e.g. libpython3.11.so.1.0) — and on Debian it lives
-       # under /lib, not /usr/lib — so create the unversioned SONAME symlink next
-       # to whichever versioned libpython the node has. We locate it via the
-       # loader cache (ldconfig -p) plus a filesystem sweep so we do not depend on
-       # a particular directory. Idempotent; never aborts the run.
-       $docker_exec '
-         libs=$( { ldconfig -p 2>/dev/null | grep -oE "/[^ ]*libpython3\.[0-9]+[a-z]*\.so\.1\.0";
-                   find /lib /usr/lib /usr/lib64 /usr/local/lib -name "libpython3.*.so.1.0" 2>/dev/null; } | sort -u )
-         if [ -z "$libs" ]; then
-           echo "WARNING: no libpython3.*.so.1.0 found on node; the abi3 memgraph binary will fail to load libpython3.so" >&2
-         else
-           echo "$libs" | while read -r lib; do
-             dir=$(dirname "$lib")
-             ln -sf "$(basename "$lib")" "$dir/libpython3.so"
-             echo "Created $dir/libpython3.so -> $(basename "$lib")"
-           done
-           ldconfig 2>/dev/null || true
-         fi
-       ' || true
-
        # Copy intra-cluster TLS certs (n1..n3 -> instanceN, n4..n6 -> coord(N-3)),
        # placed under a canonical path so support.clj can hard-code it.
        if [ "$INTRA_CLUSTER_TLS" = "true" ]; then
