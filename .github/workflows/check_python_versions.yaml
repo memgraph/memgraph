@@ -1,0 +1,186 @@
+name: "Check Python build/runtime version matrix"
+concurrency:
+    group: python-version-matrix-${{ github.ref }}
+    cancel-in-progress: true
+
+# Cross-builds Memgraph against every combination of build-time and runtime
+# Python version (default 3.10 .. 3.14) to verify the Python stable-ABI (abi3)
+# promise: a binary built against version X must run against any version Y >= the
+# floor. Each suite below builds with `python_build_version` (X), then mgbuild removes
+# X and swaps in `python_runtime_version` (Y) before the tests run, so the tests
+# exercise the binary against a libpython it was NOT built against.
+
+on:
+    push:
+        branches:
+            - python-stable-abi
+    workflow_dispatch:
+        inputs:
+            python_versions:
+                type: string
+                default: "3.10,3.11,3.12,3.13,3.14"
+                description: "Comma-separated Python versions. Suites run a full build x runtime cross-product of these; Mage varies build only."
+            community:
+                type: boolean
+                default: true
+                description: "Run the Community suite (unit tests) across the matrix."
+            coverage:
+                type: boolean
+                default: true
+                description: "Run the Coverage core suite across the matrix (clang-tidy is skipped: build-time only)."
+            debug:
+                type: boolean
+                default: true
+                description: "Run the Debug core suite across the matrix."
+            release:
+                type: boolean
+                default: true
+                description: "Run the Release core + e2e + query_modules suites across the matrix (benchmark/stress skipped)."
+            malloc:
+                type: boolean
+                default: true
+                description: "Run the Malloc build across the matrix."
+            mage:
+                type: boolean
+                default: true
+                description: "Run the Mage (amd) build across the build-version matrix (runtime stays the image default)."
+            ref:
+                type: string
+                default: ""
+                description: "Git ref to run on. Empty uses the triggering ref."
+
+run-name: "Check Python build/runtime version matrix"
+
+jobs:
+    Setup:
+        runs-on: ubuntu-latest
+        outputs:
+            python_versions: ${{ steps.versions.outputs.python_versions }}
+        steps:
+            - name: Build version matrix
+              id: versions
+              env:
+                  PYTHON_VERSIONS: ${{ inputs.python_versions || '3.10,3.11,3.12,3.13,3.14' }}
+              run: |
+                  # Emit a JSON array of *quoted strings* — quoting matters: bare 3.10
+                  # would be parsed as the number 3.1 and lose the trailing zero.
+                  json=$(python3 -c "import os, json; print(json.dumps([v.strip() for v in os.environ['PYTHON_VERSIONS'].split(',') if v.strip()]))")
+                  echo "python_versions=$json" >> "$GITHUB_OUTPUT"
+                  echo "Python version matrix: $json"
+
+    # NOTE: Jepsen and MGCXX are intentionally omitted. Jepsen does not honour the
+    # Python build override (its container cannot easily swap Python), and MGCXX
+    # does not build/run Memgraph against Python — a Python-version matrix is moot
+    # for both.
+
+    Community:
+        needs: Setup
+        if: ${{ github.event_name == 'push' || inputs.community }}
+        # if: ${{ inputs.community }}
+        strategy:
+            fail-fast: false
+            max-parallel: 3
+            matrix:
+                python_build: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
+                python_runtime: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
+        uses: ./.github/workflows/diff_community.yaml
+        with:
+            ref: ${{ inputs.ref || github.ref }}
+            arch: "amd"
+            os: "ubuntu-24.04"
+            run_core: "true"
+            python_build_version: ${{ matrix.python_build }}
+            python_runtime_version: ${{ matrix.python_runtime }}
+            run_id: "b${{ matrix.python_build }}-r${{ matrix.python_runtime }}"
+        secrets: inherit
+
+    Coverage:
+        needs: Setup
+        if: ${{ github.event_name == 'push' || inputs.coverage }}
+        # if: ${{ inputs.coverage }}
+        strategy:
+            fail-fast: false
+            max-parallel: 3
+            matrix:
+                python_build: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
+                python_runtime: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
+        uses: ./.github/workflows/diff_coverage.yaml
+        with:
+            ref: ${{ inputs.ref || github.ref }}
+            arch: "amd"
+            os: "ubuntu-24.04"
+            run_core: "true"
+            run_clang_tidy: "false"
+            python_build_version: ${{ matrix.python_build }}
+            python_runtime_version: ${{ matrix.python_runtime }}
+            run_id: "b${{ matrix.python_build }}-r${{ matrix.python_runtime }}"
+        secrets: inherit
+
+    Debug:
+        needs: Setup
+        if: ${{ github.event_name == 'push' || inputs.debug }}
+        # if: ${{ inputs.debug }}
+        strategy:
+            fail-fast: false
+            max-parallel: 3
+            matrix:
+                python_build: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
+                python_runtime: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
+        uses: ./.github/workflows/diff_debug.yaml
+        with:
+            ref: ${{ inputs.ref || github.ref }}
+            arch: "amd"
+            os: "ubuntu-24.04"
+            run_core: "true"
+            run_integration: "true"
+            python_build_version: ${{ matrix.python_build }}
+            python_runtime_version: ${{ matrix.python_runtime }}
+            run_id: "b${{ matrix.python_build }}-r${{ matrix.python_runtime }}"
+        secrets: inherit
+
+    Release:
+        needs: Setup
+        if: ${{ github.event_name == 'push' || inputs.release }}
+        # if: ${{ inputs.release }}
+        strategy:
+            fail-fast: false
+            max-parallel: 3
+            matrix:
+                python_build: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
+                python_runtime: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
+        uses: ./.github/workflows/diff_release.yaml
+        with:
+            ref: ${{ inputs.ref || github.ref }}
+            arch: "amd"
+            os: "ubuntu-24.04"
+            run_core: "true"
+            run_benchmark: "false"
+            run_e2e: "true"
+            run_stress: "false"
+            run_query_modules: "true"
+            python_build_version: ${{ matrix.python_build }}
+            python_runtime_version: ${{ matrix.python_runtime }}
+            run_id: "b${{ matrix.python_build }}-r${{ matrix.python_runtime }}"
+        secrets: inherit
+
+    Mage:
+        needs: Setup
+        if: ${{ github.event_name == 'push' || inputs.mage }}
+        # if: ${{ inputs.mage }}
+        strategy:
+            fail-fast: false
+            max-parallel: 3
+            matrix:
+                # Build-only matrix: Mage's runtime is always the image default Python,
+                # so there is no runtime swap to vary.
+                python_build: ${{ fromJSON(needs.Setup.outputs.python_versions) }}
+        uses: ./.github/workflows/diff_mage.yml
+        with:
+            ref: ${{ inputs.ref || github.ref }}
+            os: "ubuntu-24.04"
+            run_amd: true
+            run_arm: false
+            run_cuda: false
+            python_build_version: ${{ matrix.python_build }}
+            run_id: "b${{ matrix.python_build }}"
+        secrets: inherit

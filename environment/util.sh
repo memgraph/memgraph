@@ -256,6 +256,63 @@ function parse_operating_system() {
     echo "VER: $VER"
 }
 
+# Ensure the unversioned `libpython3.so` SONAME exists in the system library
+# directory so that:
+#   1. CMake's find_library(MG_LIBPYTHON3_SO python3) picks it up at build
+#      time and links memgraph against it.
+#   2. The patchelf POST_BUILD step that rewrites DT_NEEDED to libpython3.so
+#      produces a binary that can actually load (the rewritten binary needs
+#      this file to exist on the dynamic linker's search path).
+#
+# Some distros (Fedora, RHEL, conda, manylinux) ship a real abi3 stub library
+# with SONAME=libpython3.so — in that case we do nothing. Debian/Ubuntu ship
+# only versioned libpython files and leave this symlink to the system admin;
+# we create one pointing at the highest-numbered installed libpython3.X.
+#
+# Idempotent: if libpython3.so already exists (real stub or prior symlink),
+# this is a no-op. Pass `--force` to overwrite an existing symlink (e.g. to
+# repoint at a different minor version).
+function ensure_libpython3_so_symlink() {
+    local force=false
+    if [[ "${1:-}" == "--force" ]]; then
+        force=true
+    fi
+
+    # Locate the highest-numbered versioned libpython wherever the distro keeps
+    # it, then create the symlink next to it. We deliberately do NOT rely on
+    # dpkg-architecture (it ships in dpkg-dev, which is not guaranteed to be
+    # installed) to guess a single library directory: on Debian/Ubuntu libpython
+    # lives in a multiarch subdir (e.g. /usr/lib/x86_64-linux-gnu), so guessing
+    # /usr/lib or /usr/lib64 would miss it and wrongly conclude none exists.
+    # Instead search the loader cache plus the common locations directly,
+    # covering multiarch subdirs and flat libdirs (Fedora/RHEL /usr/lib64).
+    # sort -V handles 3.10 > 3.9 correctly.
+    local target
+    target="$( { ldconfig -p 2>/dev/null | grep -oE '/[^ ]*libpython3\.[0-9]+[a-z]*\.so\.1\.0';
+                 ls -1 /usr/lib/*/libpython3.*.so.1.0 \
+                       /lib/*/libpython3.*.so.1.0 \
+                       /usr/lib64/libpython3.*.so.1.0 \
+                       /usr/lib/libpython3.*.so.1.0 2>/dev/null; } \
+               | sort -V | tail -1 )"
+    if [[ -z "$target" ]]; then
+        echo "ensure_libpython3_so_symlink: no libpython3.*.so.1.0 found on the system; skipping"
+        return 0
+    fi
+
+    # Create the abi3 SONAME symlink alongside the versioned library. Distros
+    # that ship a real abi3 stub (Fedora, RHEL, conda, manylinux) already have a
+    # libpython3.so here, so we no-op unless --force is given.
+    local libdir
+    libdir="$(dirname "$target")"
+    if [[ -e "$libdir/libpython3.so" && "$force" == false ]]; then
+        echo "ensure_libpython3_so_symlink: $libdir/libpython3.so already present; nothing to do"
+        return 0
+    fi
+
+    ln -sf "$(basename "$target")" "$libdir/libpython3.so"
+    echo "ensure_libpython3_so_symlink: $libdir/libpython3.so -> $(basename "$target")"
+}
+
 # Function to parse --skip-check flag from command line arguments
 # Usage: parse_skip_check_flag
 # Sets SKIP_CHECK variable and removes --skip-check from $@

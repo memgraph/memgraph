@@ -4,7 +4,9 @@ pytest==9.0.3
 numpy==1.26.4
 scipy==1.13.0
 networkx==2.5.1
-gensim==4.3.3
+gensim==4.3.3 ; python_version < "3.14"
+# Python 3.14: gensim releases have no compatible wheel/build, so install from a known-good commit.
+gensim @ git+https://github.com/piskvorky/gensim.git@2effe533b517b48bfcaa1d0d0ded7f408e9a9d93 ; python_version >= "3.14"
 gqlalchemy==1.8.0
 pyyaml==6.0.1
 pytz==2023.3

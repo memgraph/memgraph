@@ -51,6 +51,7 @@ MEMGRAPH_BUILD_DEPS=(
     libuuid-devel java-25-openjdk java-25-openjdk-devel # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
+    patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
     openssl-devel
     libseccomp-devel
     python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests

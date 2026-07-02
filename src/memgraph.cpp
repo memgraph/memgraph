@@ -1180,7 +1180,7 @@ int main(int argc, char **argv) {
     // OS reclaims all resources. This is standard practice for embedded Python.
     MG_ASSERT(python_thread_state, "Invalid Python thread state");
     PyEval_RestoreThread(python_thread_state);
-    PyMem_RawFree(program_name);
+    (void)program_name;
   }
 
   memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();

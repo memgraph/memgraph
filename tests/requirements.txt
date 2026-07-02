@@ -3,7 +3,9 @@ boto3==1.40.59
 chardet==4.0.0
 cryptography==49.0.0
 faker==37.3.0
-gensim==4.3.3
+gensim==4.3.3 ; python_version < "3.14"
+# Python 3.14: gensim releases have no compatible wheel/build, so install from a known-good commit.
+gensim @ git+https://github.com/piskvorky/gensim.git@2effe533b517b48bfcaa1d0d0ded7f408e9a9d93 ; python_version >= "3.14"
 gqlalchemy==1.8.0
 idna==3.15
 kafka-python==2.0.2
