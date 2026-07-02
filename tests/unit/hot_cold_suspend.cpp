@@ -43,6 +43,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "storage/v2/config.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 namespace fs = std::filesystem;
 using memgraph::dbms::DbmsHandler;
@@ -345,6 +346,37 @@ TEST_F(HotColdSuspend, DropDuringResumeRejectedNotDeadlock) {
 
   // Clean up the resumed accessor before TearDown resets the handler.
   // (Get() returns the HOT accessor; letting it drop here avoids a ~Gatekeeper wait.)
+}
+
+// Regression for bug #17: Suspend_ must capture the FULL StorageInfo (via GetInfo()), not just the
+// base counters (GetBaseInfo()). GetBaseInfo() only fills vertex/edge/memory/disk counters and leaves
+// index/constraint counts, storage_mode, isolation_level, and the durability/compression flags
+// value-initialized (all zero/default). storage_mode itself is NOT a usable observable here: Suspend_
+// requires IN_MEMORY_TRANSACTIONAL (the only suspendable mode), whose enum value happens to be 0 — the
+// same as a value-initialized default — so a storage_mode assertion would pass even with the bug.
+// label_indices has no such coincidence: it is populated only inside GetInfo()'s Access(READ) block and
+// is always 0 from GetBaseInfo(), so creating a LABEL INDEX before suspending gives an unambiguous
+// 0-(bug)-vs-1-(fixed) signal. The captured cold_stats is read back via GetColdShowInfo (the same view
+// SHOW STORAGE INFO ON <cold> uses).
+TEST_F(HotColdSuspend, SuspendCapturesFullStorageInfoNotBase) {
+  auto name = CreateTenant("full_info_db");
+
+  {
+    auto db_acc = handler_->Get(name);
+    auto label = db_acc->storage()->NameToLabel("SomeLabel");
+    auto index_acc = db_acc->ReadOnlyAccess();
+    ASSERT_TRUE(index_acc->CreateIndex(label).has_value());
+    ASSERT_TRUE(index_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }  // release the accessor before suspending -> sole-accessor freeze can proceed
+
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+  ASSERT_TRUE(handler_->IsSuspended(name));
+
+  auto cold_info = handler_->GetColdShowInfo(name);
+  ASSERT_TRUE(cold_info.has_value());
+  EXPECT_EQ(cold_info->stats.label_indices, 1u)
+      << "Suspend_ must capture the full StorageInfo (GetInfo()), not just the base counters "
+         "(GetBaseInfo()), which always leaves label_indices at 0";
 }
 
 #else

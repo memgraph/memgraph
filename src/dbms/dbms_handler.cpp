@@ -1161,10 +1161,17 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   }
 
   // Capture the last-hot stats snapshot POST-freeze (count==1, no concurrent commit can advance it
-  // between this read and teardown). Served by cold SHOW STORAGE INFO / SHOW DATABASES.
+  // between this read and teardown). Served by cold SHOW STORAGE INFO / SHOW DATABASES. Use GetInfo()
+  // (not GetBaseInfo()): the latter only fills vertex/edge/memory/disk counters and leaves
+  // storage_mode, isolation_level, index/constraint counts, and the durability/compression flags
+  // value-initialized, so cold SHOW STORAGE INFO would report wrong values for those fields.
+  // GetInfo() layers them on top of GetBaseInfo() and is deadlock-safe here: it only takes storage's
+  // main_lock_ shared (via Access(READ)), which is free in this frozen SUSPENDING window. `st`'s
+  // concrete type is InMemoryStorage (guaranteed by the IN_MEMORY_TRANSACTIONAL check earlier), so
+  // GetInfo() dispatches correctly.
   {
     auto *st = (*acc)->storage();
-    entry.cold_stats = st->GetBaseInfo();
+    entry.cold_stats = st->GetInfo();
   }
 
   // PHASE C — record metadata (lock_), then heavy teardown OUTSIDE lock_.
