@@ -447,11 +447,15 @@ TEST_P(PrivilegeCheckTest, InvokerPropertyDeniedRead) {
 
   mg::Map query_params{{"id", mg::Value{kVertexId}}};
   auto const check_result = [&]() {
-    pbac_client->Execute(fmt::format("MATCH (n:{} {{id: $id}}) RETURN n.result AS result", kVertexLabel),
-                         mg::ConstMap{query_params.ptr()});
-    auto result = pbac_client->FetchAll();
-    if (!result || result->empty()) return false;
-    return result->at(0)[0].type() == mg::Value::Type::Null;
+    try {
+      pbac_client->Execute(fmt::format("MATCH (n:{} {{id: $id}}) RETURN n.result AS result", kVertexLabel),
+                           mg::ConstMap{query_params.ptr()});
+      auto result = pbac_client->FetchAll();
+      if (!result || result->empty()) return false;
+      return result->at(0)[0].type() == mg::Value::Type::Null;
+    } catch (mg::ClientException const &) {
+      return false;
+    }
   };
 
   if (is_after) {
