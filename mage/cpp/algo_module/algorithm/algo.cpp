@@ -109,8 +109,8 @@ void Algo::PathFinder::DFS(const mgp::Node &curr_node, mgp::Path &curr_path, std
   visited.insert(curr_node.Id().AsInt());
   std::unordered_set<int64_t> seen;
 
-  auto iterate = [&visited, &seen, &curr_path, this](mgp::Relationships relationships, RelDirection direction,
-                                                     bool always_expand) {
+  auto iterate = [&visited, &seen, &curr_path, this](
+                     mgp::Relationships relationships, RelDirection direction, bool always_expand) {
     for (const auto relationship : relationships) {
       auto next_node_id =
           direction == RelDirection::kOutgoing ? relationship.To().Id().AsInt() : relationship.From().Id().AsInt();
@@ -267,10 +267,10 @@ void Algo::CheckConfigTypes(const mgp::Map &map) {
     throw mgp::ValueException("duration config option should be bool!");
   }
 }
+
 double Algo::GetRadians(double degrees) { return degrees * M_PI / 180.0; }
 
 double Algo::GetHaversineDistance(double lat1, double lon1, double lat2, double lon2) {
-  // IN KM
   const double earthRadius = 6371.0;
   lat1 = GetRadians(lat1);
   lon1 = GetRadians(lon1);
@@ -281,152 +281,230 @@ double Algo::GetHaversineDistance(double lat1, double lon1, double lat2, double 
   const double dLon = lon2 - lon1;
   const double a = (sin(dLat / 2) * sin(dLat / 2)) + (cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2));
   const double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-  const double distance = earthRadius * c;
-
-  // returns distance in km
-  return distance;
+  return earthRadius * c;
 }
 
-// calculates the heuristic based on haversine, or returns the value if the heuristic is custom
-double Algo::CalculateHeuristic(const Config &config, const mgp::Node &node, const GoalNodes &nodes) {
+double Algo::CalculateHeuristic(const Config &config, int64_t node_id, const GoalNodes &nodes,
+                                const GraphCache &cache) {
   if (config.heuristic_name != kDefaultHeuristic) {
-    auto heuristic = node.GetProperty(config.heuristic_name);
-    if (heuristic.IsNumeric()) {
-      return heuristic.ValueNumeric();
-    }
-    if (heuristic.IsDuration() && config.duration) {
-      return static_cast<double>(heuristic.ValueDuration().Microseconds());
-    }
+    auto it = cache.heuristic_val.find(node_id);
+    if (it != cache.heuristic_val.end()) return it->second;
     throw mgp::ValueException("Custom heuristic property must be of a numeric, or duration data type!");
   }
-  auto coordinate_pair = GetLatLon(node, config);
-  auto &latitude_source = coordinate_pair.first;
-  auto &longitude_source = coordinate_pair.second;
-  return GetHaversineDistance(latitude_source, longitude_source, nodes.lat_lon.first, nodes.lat_lon.second);
-}
-
-std::pair<double, double> Algo::GetLatLon(const mgp::Node &target, const Config &config) {
-  auto latitude = target.GetProperty(config.latitude_name);
-  auto longitude = target.GetProperty(config.latitude_name);
-  if (latitude.IsNull() || longitude.IsNull()) {
+  auto it = cache.coords.find(node_id);
+  if (it == cache.coords.end()) {
     throw mgp::ValueException(
         "Latitude and longitude properties, or a custom heuristic value, must be specified in every node!");
   }
-  if (latitude.IsNumeric() && longitude.IsNumeric()) {
-    return std::make_pair(latitude.ValueNumeric(), longitude.ValueNumeric());
-  }
-  throw mgp::ValueException("Latitude and longitude must be numeric data types!");
+  return GetHaversineDistance(
+      it->second.first, it->second.second, nodes.target_lat_lon.first, nodes.target_lat_lon.second);
 }
 
-double Algo::CalculateDistance(const Config &config, const mgp::Relationship &rel) {
-  if (config.unweighted) {  // return same distance if unweighted
-    return 10;
-  }
-  auto distance = rel.GetProperty(config.distance_prop);
-  if (distance.IsNull()) {
-    throw mgp::ValueException("If the graph is weighted, distance property of the relationship must be specified!");
-  }
-  if (distance.IsNumeric()) {
-    return distance.ValueNumeric();
-  }
-  if (distance.IsDuration() && config.duration) {
-    return static_cast<double>(distance.ValueDuration().Microseconds());
-  }
-  throw mgp::ValueException("Distance property must be a numeric or duration datatype!");
+// Helper: clean up raw C API resources and throw an exception.
+[[noreturn]] static void ThrowWithCleanup(mgp_edges_iterator *eit, mgp_vertex *v, const char *msg) {
+  if (eit) mgp::edges_iterator_destroy(eit);
+  if (v) mgp::vertex_destroy(v);
+  throw mgp::ValueException(msg);
 }
 
-bool Algo::RelOk(const mgp::Relationship &rel, const Config &config,
-                 const RelationshipType rel_type) {  // in true incoming, in false outgoing
-  if (config.in_rels.empty() && config.out_rels.empty()) {
-    return true;
-  }
+// Lazily expand a single node's edges using the raw C API.
+// Only reads neighbors of the node being expanded (not the entire graph).
+void Algo::ExpandRelationships(int64_t prev_id, double prev_g_score, const RelationshipType rel_type,
+                               const GoalNodes &nodes, TrackingLists &lists, const Config &config, mgp_graph *raw_graph,
+                               mgp_memory *mem, GraphCache &cache) {
+  mgp_vertex_id vid{prev_id};
+  auto *v = mgp::graph_get_vertex_by_id(raw_graph, vid, mem);
+  if (!v) return;
 
-  if (rel_type == RelationshipType::IN && config.in_rels.contains(std::string(rel.Type()))) {
-    return true;
-  }
+  auto *eit =
+      (rel_type == RelationshipType::OUT) ? mgp::vertex_iter_out_edges(v, mem) : mgp::vertex_iter_in_edges(v, mem);
 
-  if (rel_type == RelationshipType::OUT && config.out_rels.contains(std::string(rel.Type()))) {
-    return true;
-  }
+  for (auto *e = mgp::edges_iterator_get(eit); e != nullptr; e = mgp::edges_iterator_next(eit)) {
+    // Relationship type filtering (equivalent to master's RelOk)
+    if (!config.in_rels.empty() || !config.out_rels.empty()) {
+      std::string type_name(mgp::edge_get_type(e).name);
+      bool rel_ok = (rel_type == RelationshipType::IN && config.in_rels.contains(type_name)) ||
+                    (rel_type == RelationshipType::OUT && config.out_rels.contains(type_name));
+      if (!rel_ok) continue;
+    }
 
-  return false;
-}
+    auto *neighbor_v = (rel_type == RelationshipType::OUT) ? mgp::edge_get_to(e) : mgp::edge_get_from(e);
+    int64_t neighbor_id = mgp::vertex_get_id(neighbor_v).as_int;
 
-bool Algo::IsLabelOk(const mgp::Node &node, const Config &config) {
-  const bool whitelist_empty = config.whitelist.empty();
-  auto labels = node.Labels();
+    // Label filtering (equivalent to master's IsLabelOk)
+    if (!config.whitelist.empty() || !config.blacklist.empty()) {
+      size_t label_count = mgp::vertex_labels_count(neighbor_v);
+      bool label_ok = true;
+      for (size_t i = 0; i < label_count; ++i) {
+        std::string label_name(mgp::vertex_label_at(neighbor_v, i).name);
+        if (config.blacklist.contains(label_name)) {
+          label_ok = false;
+          break;
+        }
+        if (!config.whitelist.empty() && !config.whitelist.contains(label_name)) {
+          label_ok = false;
+          break;
+        }
+      }
+      if (!label_ok) continue;
+    }
 
-  // NOLINTNEXTLINE(boost-use-ranges,modernize-use-ranges)
-  return std::all_of(labels.begin(), labels.end(), [&](auto label) {
-    const std::string s(label);
-    return !config.blacklist.contains(s) && (whitelist_empty || config.whitelist.contains(s));
-  });
-}
+    // Read edge weight (equivalent to master's CalculateDistance)
+    double weight = 10.0;
+    if (!config.unweighted) {
+      auto *dist_val = mgp::edge_get_property(e, config.distance_prop.c_str(), mem);
+      if (!dist_val || mgp::value_is_null(dist_val)) {
+        if (dist_val) mgp::value_destroy(dist_val);
+        ThrowWithCleanup(eit, v, "If the graph is weighted, distance property of the relationship must be specified!");
+      }
+      if (mgp::value_is_numeric(dist_val)) {
+        weight = mgp::value_get_numeric(dist_val);
+      } else if (config.duration && mgp::value_is_duration(dist_val)) {
+        weight = static_cast<double>(mgp::duration_get_microseconds(mgp::value_get_duration(dist_val)));
+      } else {
+        mgp::value_destroy(dist_val);
+        ThrowWithCleanup(eit, v, "Distance property must be a numeric or duration datatype!");
+      }
+      mgp::value_destroy(dist_val);
+    }
 
-void Algo::ExpandRelationships(const std::shared_ptr<NodeObject> &prev, const RelationshipType rel_type,
-                               const GoalNodes &nodes, TrackingLists &lists, const Config &config) {
-  auto rels = rel_type == RelationshipType::IN ? prev->node.InRelationships() : prev->node.OutRelationships();
-  for (const auto rel : rels) {
-    if (!RelOk(rel, config, rel_type)) {
+    double new_g_score = weight + prev_g_score;
+    if (lists.closed.Contains(neighbor_id)) {
       continue;
     }
-    const auto node = rel_type == RelationshipType::IN ? rel.From() : rel.To();
-    if (!IsLabelOk(node, config)) {
-      continue;
+
+    // Cache neighbor heuristic data if not already cached
+    if (config.heuristic_name != kDefaultHeuristic) {
+      if (cache.heuristic_val.find(neighbor_id) == cache.heuristic_val.end()) {
+        auto *hval = mgp::vertex_get_property(neighbor_v, config.heuristic_name.c_str(), mem);
+        if (!hval || mgp::value_is_null(hval)) {
+          if (hval) mgp::value_destroy(hval);
+          ThrowWithCleanup(eit, v, "Custom heuristic property must be of a numeric, or duration data type!");
+        }
+        if (mgp::value_is_numeric(hval)) {
+          cache.heuristic_val[neighbor_id] = mgp::value_get_numeric(hval);
+        } else if (config.duration && mgp::value_is_duration(hval)) {
+          cache.heuristic_val[neighbor_id] =
+              static_cast<double>(mgp::duration_get_microseconds(mgp::value_get_duration(hval)));
+        } else {
+          mgp::value_destroy(hval);
+          ThrowWithCleanup(eit, v, "Custom heuristic property must be of a numeric, or duration data type!");
+        }
+        mgp::value_destroy(hval);
+      }
+    } else {
+      if (cache.coords.find(neighbor_id) == cache.coords.end()) {
+        auto *lat_val = mgp::vertex_get_property(neighbor_v, config.latitude_name.c_str(), mem);
+        auto *lng_val = mgp::vertex_get_property(neighbor_v, config.longitude_name.c_str(), mem);
+        if (!lat_val || !lng_val || mgp::value_is_null(lat_val) || mgp::value_is_null(lng_val)) {
+          if (lat_val) mgp::value_destroy(lat_val);
+          if (lng_val) mgp::value_destroy(lng_val);
+          ThrowWithCleanup(eit,
+                           v,
+                           "Latitude and longitude properties, or a custom heuristic value, "
+                           "must be specified in every node!");
+        }
+        if (mgp::value_is_numeric(lat_val) && mgp::value_is_numeric(lng_val)) {
+          cache.coords[neighbor_id] = {mgp::value_get_numeric(lat_val), mgp::value_get_numeric(lng_val)};
+        } else {
+          mgp::value_destroy(lat_val);
+          mgp::value_destroy(lng_val);
+          ThrowWithCleanup(eit, v, "Latitude and longitude must be numeric data types!");
+        }
+        mgp::value_destroy(lat_val);
+        mgp::value_destroy(lng_val);
+      }
     }
-    auto heuristic = CalculateHeuristic(config, node, nodes) * config.epsilon;  // epsilon 0 == UCS
-    auto distance = CalculateDistance(config, rel);
-    auto nb = std::make_shared<NodeObject>(heuristic, distance + prev->total_distance, node, rel, prev);
-    if (!lists.closed.FindAndCompare(nb)) {
-      continue;
+
+    int64_t edge_id = mgp::edge_get_id(e).as_int;
+    auto heuristic = CalculateHeuristic(config, neighbor_id, nodes, cache) * config.epsilon;
+    if (lists.open.InsertOrUpdate(neighbor_id, new_g_score, heuristic)) {
+      lists.parent_edge.insert_or_assign(neighbor_id, edge_id);
     }
-    lists.open.InsertOrUpdate(nb);
   }
+  mgp::edges_iterator_destroy(eit);
+  mgp::vertex_destroy(v);
 }
 
-std::shared_ptr<Algo::NodeObject> Algo::InitializeStart(const mgp::Node &start) {
-  if (start.InDegree() == 0 && start.OutDegree() == 0) {
-    throw mgp::ValueException("Start node must have in or out relationships!");
+std::pair<mgp::Path, double> Algo::HelperAstar(const GoalNodes &nodes, const Config &config, mgp_graph *raw_graph,
+                                               mgp_memory *mem, const mgp::Graph &graph, const mgp::Node &start_node) {
+  TrackingLists lists;
+  GraphCache cache;
+
+  // Pre-cache target coordinates so the heuristic works from the first expansion
+  if (config.heuristic_name == kDefaultHeuristic) {
+    cache.coords[nodes.target_id] = nodes.target_lat_lon;
   }
 
-  if (start.InDegree() != 0) {
-    return std::make_shared<NodeObject>(0, 0, start, *start.InRelationships().begin(), nullptr);
-  }
-
-  return std::make_shared<NodeObject>(0, 0, start, *start.OutRelationships().begin(), nullptr);
-}
-
-std::pair<mgp::Path, double> Algo::HelperAstar(const GoalNodes &nodes, const Config &config) {
-  TrackingLists lists = TrackingLists();
-
-  auto start_nb = InitializeStart(nodes.start);
-  lists.open.InsertOrUpdate(start_nb);
+  lists.open.InsertOrUpdate(nodes.start_id, 0.0, 0.0);
 
   while (!lists.open.Empty()) {
-    auto nb = lists.open.Top();
+    auto entry = lists.open.Top();
     lists.open.Pop();
-    if (nb->node == nodes.target) {
-      return BuildResult(nb, nodes.start);
+    if (entry.node_id == nodes.target_id) {
+      return BuildResult(nodes.target_id, entry.g_score, graph, start_node, lists.parent_edge);
     }
-    lists.closed.Insert(nb);
-    ExpandRelationships(nb, RelationshipType::OUT, nodes, lists, config);
-    ExpandRelationships(nb, RelationshipType::IN, nodes, lists, config);
+    lists.closed.Insert(entry.node_id);
+    ExpandRelationships(
+        entry.node_id, entry.g_score, RelationshipType::OUT, nodes, lists, config, raw_graph, mem, cache);
+    ExpandRelationships(
+        entry.node_id, entry.g_score, RelationshipType::IN, nodes, lists, config, raw_graph, mem, cache);
   }
-  return {mgp::Path(nodes.start), 0};
+  return {mgp::Path(start_node), 0};
 }
 
-std::pair<mgp::Path, double> Algo::BuildResult(std::shared_ptr<NodeObject> final_node, const mgp::Node &start) {
+std::pair<mgp::Path, double> Algo::BuildResult(int64_t target_id, double weight, const mgp::Graph &graph,
+                                               const mgp::Node &start,
+                                               const std::unordered_map<int64_t, int64_t> &parent_edge) {
   mgp::Path path = mgp::Path(start);
-  std::vector<mgp::Relationship> rels;
+  const int64_t start_id = start.Id().AsInt();
 
-  const double weight = final_node->total_distance;
-  while (final_node->prev) {
-    rels.push_back(final_node->rel);
-    final_node = final_node->prev;
+  // Collect (node_id, edge_id) pairs from target back to start
+  std::vector<std::pair<int64_t, int64_t>> chain;  // (child_id, edge_id)
+  int64_t current_id = target_id;
+  while (current_id != start_id) {
+    auto it = parent_edge.find(current_id);
+    if (it == parent_edge.end()) break;
+    chain.push_back({current_id, it->second});
+    // Find the other end of the edge by looking up the node and scanning edges
+    auto node = graph.GetNodeById(mgp::Id::FromInt(current_id));
+    int64_t eid = it->second;
+    bool found = false;
+    for (const auto rel : node.InRelationships()) {
+      if (rel.Id().AsInt() == eid) {
+        current_id = rel.From().Id().AsInt();
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      for (const auto rel : node.OutRelationships()) {
+        if (rel.Id().AsInt() == eid) {
+          current_id = rel.To().Id().AsInt();
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found) break;
   }
 
-  for (const auto &rel : std::ranges::reverse_view(rels)) {
-    path.Expand(rel);
+  // Build path from start to target by expanding relationships in order
+  for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+    auto node = graph.GetNodeById(mgp::Id::FromInt(it == chain.rbegin() ? start_id : std::prev(it)->first));
+    for (const auto rel : node.OutRelationships()) {
+      if (rel.Id().AsInt() == it->second) {
+        path.Expand(rel);
+        goto next;
+      }
+    }
+    for (const auto rel : node.InRelationships()) {
+      if (rel.Id().AsInt() == it->second) {
+        path.Expand(rel);
+        goto next;
+      }
+    }
+  next:;
   }
 
   return {std::move(path), weight};
@@ -439,15 +517,51 @@ void Algo::AStar(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, 
   const auto record_factory = mgp::RecordFactory(result);
 
   try {
+    const auto graph = mgp::Graph(memgraph_graph);
     auto start = arguments[0].ValueNode();
     auto target = arguments[1].ValueNode();
     auto config_map = arguments[2].ValueMap();
     CheckConfigTypes(config_map);
     auto config = Config(config_map);
-    // if there is a custom heuristic, there is no need for target latitude and lognitude
-    auto nodes = config.heuristic_name == kDefaultHeuristic ? GoalNodes(start, target, GetLatLon(target, config))
-                                                            : GoalNodes(start, target);
-    const std::pair<mgp::Path, double> pair = HelperAstar(nodes, config);
+
+    auto start_id = start.Id().AsInt();
+    auto target_id = target.Id().AsInt();
+    auto *mem = mgp::MemoryDispatcher::GetMemoryResource();
+
+    // Read target coordinates for haversine heuristic (equivalent to master's GetLatLon)
+    std::pair<double, double> target_coords = {0.0, 0.0};
+    if (config.heuristic_name == kDefaultHeuristic) {
+      mgp_vertex_id tvid{target_id};
+      auto *tv = mgp::graph_get_vertex_by_id(memgraph_graph, tvid, mem);
+      if (tv) {
+        auto *lat_val = mgp::vertex_get_property(tv, config.latitude_name.c_str(), mem);
+        auto *lng_val = mgp::vertex_get_property(tv, config.longitude_name.c_str(), mem);
+        if (!lat_val || !lng_val || mgp::value_is_null(lat_val) || mgp::value_is_null(lng_val)) {
+          if (lat_val) mgp::value_destroy(lat_val);
+          if (lng_val) mgp::value_destroy(lng_val);
+          mgp::vertex_destroy(tv);
+          throw mgp::ValueException(
+              "Latitude and longitude properties, or a custom heuristic value, "
+              "must be specified in every node!");
+        }
+        if (mgp::value_is_numeric(lat_val) && mgp::value_is_numeric(lng_val)) {
+          target_coords = {mgp::value_get_numeric(lat_val), mgp::value_get_numeric(lng_val)};
+        } else {
+          mgp::value_destroy(lat_val);
+          mgp::value_destroy(lng_val);
+          mgp::vertex_destroy(tv);
+          throw mgp::ValueException("Latitude and longitude must be numeric data types!");
+        }
+        if (lat_val) mgp::value_destroy(lat_val);
+        if (lng_val) mgp::value_destroy(lng_val);
+        mgp::vertex_destroy(tv);
+      }
+    }
+
+    GoalNodes nodes = (config.heuristic_name == kDefaultHeuristic) ? GoalNodes(start_id, target_id, target_coords)
+                                                                   : GoalNodes(start_id, target_id);
+
+    const auto pair = HelperAstar(nodes, config, memgraph_graph, mem, graph, start);
     const mgp::Path &path = pair.first;
     const double weight = pair.second;
 

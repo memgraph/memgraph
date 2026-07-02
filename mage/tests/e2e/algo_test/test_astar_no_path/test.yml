@@ -1,0 +1,8 @@
+query: >
+  MATCH (a:N {name: 'a'}), (b:N {name: 'b'})
+  CALL algo.astar(a, b, {distance_prop:"distance"}) YIELD path, weight RETURN path AS result, weight;
+
+
+output:
+    - result: {'nodes': [{'labels': ['N'], 'properties': {'lat': 0, 'lon': 0, 'name': 'a'}}], 'relationships': []}
+      weight: 0
