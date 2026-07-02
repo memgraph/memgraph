@@ -18,21 +18,21 @@ from functools import partial
 import interactive_mg_runner
 import pytest
 from common import (
-  connect,
-  execute_and_fetch_all,
-  execute_and_ignore_dead_replica,
-  get_data_path,
-  get_logs_path,
-  show_instances,
-  wait_until_main_writeable,
+    connect,
+    execute_and_fetch_all,
+    execute_and_ignore_dead_replica,
+    get_data_path,
+    get_logs_path,
+    show_instances,
+    wait_until_main_writeable,
 )
 from mg_utils import (
-  mg_sleep_and_assert,
-  mg_sleep_and_assert_collection,
-  mg_sleep_and_assert_eval_function,
-  mg_sleep_and_assert_multiple,
-  mg_sleep_and_assert_until_role_change,
-  wait_for_status_change,
+    mg_sleep_and_assert,
+    mg_sleep_and_assert_collection,
+    mg_sleep_and_assert_eval_function,
+    mg_sleep_and_assert_multiple,
+    mg_sleep_and_assert_until_role_change,
+    wait_for_status_change,
 )
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -163,6 +163,20 @@ def get_strict_sync_cluster():
     ]
 
 
+# Uses only SYNC replicas with instance_1 as MAIN. Needed so that a failover can promote instance_2
+# (failovering to ASYNC replicas is forbidden by default).
+def get_sync_cluster_main_1():
+    return [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
+        "SET INSTANCE instance_1 TO MAIN",
+    ]
+
+
 # Uses SYNC and ASYNC replicas
 def get_sync_cluster():
     return [
@@ -189,6 +203,13 @@ def setup_cluster(test_name, setup_queries):
 
 def retrieve_lag(cursor):
     return execute_and_fetch_all(cursor, "SHOW REPLICATION LAG;")
+
+
+def retrieve_lag_for_instance(cursor, instance_name):
+    for name, data_info in execute_and_fetch_all(cursor, "SHOW REPLICATION LAG;"):
+        if name == instance_name:
+            return data_info
+    return None
 
 
 @pytest.mark.parametrize("cluster", ["strict_sync", "sync"])
@@ -411,6 +432,65 @@ def test_replication_lag_failover(test_name):
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
     mg_sleep_and_assert(leader_data, partial(show_instances, coord3_cursor))
+
+
+def test_replication_lag_not_negative_after_divergent_main_rejoins(test_name):
+    # Regression test: a former MAIN that committed transactions never seen by the rest of the cluster
+    # rejoins as a REPLICA under a new MAIN with a shorter history. After the force-reset recovery, its
+    # replication lag must converge to 0, not stay permanently negative (replica reported as ahead of main).
+    inner_instances_description = setup_cluster(test_name, get_sync_cluster_main_1())
+
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+    coord3_cursor = connect(host="localhost", port=7692).cursor()
+
+    # Commit one txn on instance_1 (MAIN). All instances replicate it.
+    wait_until_main_writeable(instance1_cursor, "CREATE ()")
+
+    expected_data = [
+        ("instance_1", {"memgraph": {"num_committed_txns": 1, "num_txns_behind_main": 0}}),
+        ("instance_2", {"memgraph": {"num_committed_txns": 1, "num_txns_behind_main": 0}}),
+        ("instance_3", {"memgraph": {"num_committed_txns": 1, "num_txns_behind_main": 0}}),
+    ]
+    mg_sleep_and_assert_collection(expected_data, partial(retrieve_lag, coord3_cursor))
+
+    # Shut down both replicas, then commit two more txns on instance_1 that the rest of the cluster never sees.
+    interactive_mg_runner.kill(inner_instances_description, "instance_2")
+    interactive_mg_runner.kill(inner_instances_description, "instance_3")
+    execute_and_ignore_dead_replica(instance1_cursor, "CREATE ()")
+    execute_and_ignore_dead_replica(instance1_cursor, "CREATE ()")
+
+    # Kill instance_1 and bring instance_2 back up to trigger a failover. instance_2 (which only has the first
+    # txn) becomes the new MAIN, while instance_3 stays down.
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+    interactive_mg_runner.start(inner_instances_description, "instance_2")
+
+    failover_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+    ]
+    mg_sleep_and_assert(failover_data, partial(show_instances, coord3_cursor))
+
+    # Bring instance_1 back. It rejoins as a REPLICA of instance_2 with a divergent, longer history and must be
+    # force-reset back in line with the new MAIN.
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+    rejoined_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+    ]
+    mg_sleep_and_assert(rejoined_data, partial(show_instances, coord3_cursor))
+
+    # The bug: instance_1's lag stayed at num_committed_txns=4, num_txns_behind_main=-3 indefinitely.
+    # After the fix it must converge to the new MAIN's history: one committed txn and zero lag.
+    expected_instance_1 = {"memgraph": {"num_committed_txns": 1, "num_txns_behind_main": 0}}
+    mg_sleep_and_assert(expected_instance_1, partial(retrieve_lag_for_instance, coord3_cursor, "instance_1"))
 
 
 if __name__ == "__main__":

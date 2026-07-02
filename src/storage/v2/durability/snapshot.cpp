@@ -14022,8 +14022,10 @@ std::optional<std::filesystem::path> CreateSnapshot(
                                                      : transaction->start_timestamp);  // Fallback to start ts
     snapshot.WriteUint(edges_count);
     snapshot.WriteUint(vertices_count);
-    snapshot.WriteUint(
-        storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
+    // Paired with the durable_timestamp above from a single atomic load at txn creation, so the two stay
+    // consistent. A live load here could observe a concurrent commit that isn't reflected in the snapshot's
+    // durable_timestamp/contents, inflating the count and causing a negative replication lag on recovering replicas.
+    snapshot.WriteUint(transaction->last_durable_num_committed_txns_);
     if (snapshot_aborted()) {
       return std::nullopt;
     }

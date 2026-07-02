@@ -2806,7 +2806,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   // `timestamp`) below.
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
-  uint64_t last_durable_ts = 0;
+  CommitTsInfo commit_ts_info;
   std::optional<PointIndexContext> point_index_context;
   ActiveIndicesPtr active_indices;
   ActiveConstraintsPtr active_constraints;
@@ -2816,8 +2816,10 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     start_timestamp = timestamp_++;
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
-    // Needed by snapshot to sync the durable and logical ts
-    last_durable_ts = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+    // Needed by snapshot to sync the durable and logical ts. Load ldt and num_committed_txns from the same atomic
+    // so a snapshot taken from this txn writes a mutually consistent pair (a concurrent commit can't inflate the
+    // count relative to the durable ts and produce a negative replication lag on recovering replicas).
+    commit_ts_info = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
     active_indices = GetActiveIndices();
     active_constraints = GetActiveConstraints();
   }
@@ -2825,17 +2827,19 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   auto async_index_helper = AsyncIndexHelper{config_, *active_indices, start_timestamp};
 
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
-  return {transaction_id,
-          start_timestamp,
-          isolation_level,
-          storage_mode,
-          false,
-          *std::move(point_index_context),
-          std::move(active_indices),
-          std::move(active_constraints),
-          std::move(async_index_helper),
-          last_durable_ts,
-          metric_handles_.unreleased_delta_objects};
+  Transaction transaction{transaction_id,
+                          start_timestamp,
+                          isolation_level,
+                          storage_mode,
+                          false,
+                          *std::move(point_index_context),
+                          std::move(active_indices),
+                          std::move(active_constraints),
+                          std::move(async_index_helper),
+                          commit_ts_info.ldt_,
+                          metric_handles_.unreleased_delta_objects};
+  transaction.last_durable_num_committed_txns_ = commit_ts_info.num_committed_txns_;
+  return transaction;
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
