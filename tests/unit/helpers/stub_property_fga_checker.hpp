@@ -74,6 +74,31 @@ class StubPropertyFGAChecker final : public query::FineGrainedAuthChecker {
     return !denied_.contains({resolver_->EdgeTypeToName(edge_type), resolver_->PropertyToName(property)});
   }
 
+  bool HasAnyVertexPropertyRule() const override { return !denied_.empty(); }
+
+  bool HasAnyEdgeTypePropertyRule() const override { return !denied_.empty(); }
+
+  bool HasAnyVertexLabelDeny() const override { return false; }
+
+  bool HasAnyEdgeTypeDeny() const override { return false; }
+
+  bool HasVertexPropertyDeny(storage::PropertyId property) const override {
+    auto const &prop_name = resolver_->PropertyToName(property);
+    return std::ranges::any_of(denied_, [&](auto const &entry) { return entry.second == prop_name; });
+  }
+
+  bool HasEdgeTypePropertyDeny(storage::PropertyId property) const override { return HasVertexPropertyDeny(property); }
+
+  bool HasAnyVertexPropertyDenyForLabel(storage::LabelId label) const override {
+    auto const &label_name = resolver_->LabelToName(label);
+    return std::ranges::any_of(denied_, [&](auto const &entry) { return entry.first == label_name; });
+  }
+
+  bool HasAnyEdgeTypePropertyDenyForType(storage::EdgeTypeId edge_type) const override {
+    auto const &type_name = resolver_->EdgeTypeToName(edge_type);
+    return std::ranges::any_of(denied_, [&](auto const &entry) { return entry.first == type_name; });
+  }
+
  private:
   NameResolver const *resolver_;
   DenySet denied_;

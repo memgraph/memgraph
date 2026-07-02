@@ -4083,6 +4083,239 @@ mgp_edge *GetEdgeByGid(mgp_graph *graph, memgraph::storage::Gid edge_gid, memgra
   return std::visit(get_edge_by_gid, graph->impl);
 }
 
+#ifdef MG_ENTERPRISE
+namespace {
+bool VertexHasReadPermission(const memgraph::query::VertexAccessor &v, const mgp_graph &graph) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return true;
+  return ctx->auth_checker->Has(v, graph.view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+}
+
+// checks both endpoints (unlike NextPermittedEdge, which trusts the known source vertex) —
+// search returns raw matches with no known source, so a partial check would leak.
+bool EdgeHasReadPermission(const memgraph::query::EdgeAccessor &e, const mgp_graph &graph) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return true;
+  const auto *auth_checker = ctx->auth_checker.get();
+  if (!auth_checker->Has(e, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
+  const auto view = graph.view;
+  if (!auth_checker->Has(e.From(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
+  return auth_checker->Has(e.To(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+}
+
+[[noreturn]] void ThrowSearchAuthError(std::string_view message) { throw AuthorizationException{std::string{message}}; }
+
+void PrecheckVertexTextSearchAccess(const mgp_graph &graph, std::string_view index_name) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return;
+  const auto *auth_checker = ctx->auth_checker.get();
+  const auto indices = graph.getImpl()->ListAllIndices();
+  const auto it = std::ranges::find_if(indices.text_indices, [&](const memgraph::storage::TextIndexSpec &spec) {
+    return spec.index_name == index_name;
+  });
+  if (it == indices.text_indices.end()) return;
+
+  const auto label_span = std::span<const memgraph::storage::LabelId>(&it->label, 1);
+  if (!auth_checker->Has(label_span, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+    ThrowSearchAuthError("text_search.* is unavailable for this index: caller lacks READ on its bound label.");
+  }
+  if (!auth_checker->HasAnyVertexPropertyRule()) return;
+  if (it->properties.empty()) {
+    ThrowSearchAuthError(
+        "text_search.* is unavailable: this index covers every string property of the label, and property-level "
+        "RBAC is active for the caller.");
+  }
+  const bool all_readable = std::ranges::all_of(it->properties, [&](const memgraph::storage::PropertyId property) {
+    return auth_checker->HasPropertyPermission(
+        label_span, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
+  });
+  if (!all_readable) {
+    ThrowSearchAuthError(
+        "text_search.* is unavailable for this index: caller lacks READ on at least one indexed property.");
+  }
+}
+
+void PrecheckEdgeTextSearchAccess(const mgp_graph &graph, std::string_view index_name) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return;
+  const auto *auth_checker = ctx->auth_checker.get();
+  const auto indices = graph.getImpl()->ListAllIndices();
+  const auto it = std::ranges::find_if(
+      indices.text_edge_indices,
+      [&](const memgraph::storage::TextEdgeIndexSpec &spec) { return spec.index_name == index_name; });
+  if (it == indices.text_edge_indices.end()) return;
+
+  if (!auth_checker->Has(it->edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+    ThrowSearchAuthError("text_search.*_edges is unavailable for this index: caller lacks READ on its edge type.");
+  }
+  if (!auth_checker->HasAnyEdgeTypePropertyRule()) return;
+  if (it->properties.empty()) {
+    ThrowSearchAuthError(
+        "text_search.*_edges is unavailable: this index covers every string property of the edge type, and "
+        "property-level RBAC is active for the caller.");
+  }
+  const bool all_readable = std::ranges::all_of(it->properties, [&](const memgraph::storage::PropertyId property) {
+    return auth_checker->HasPropertyPermission(
+        it->edge_type, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
+  });
+  if (!all_readable) {
+    ThrowSearchAuthError(
+        "text_search.*_edges is unavailable for this index: caller lacks READ on at least one indexed property.");
+  }
+}
+
+void PrecheckVertexVectorSearchAccess(const mgp_graph &graph, std::string_view index_name) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return;
+  const auto *auth_checker = ctx->auth_checker.get();
+  const auto indices = graph.getImpl()->ListAllIndices();
+  const auto it = std::ranges::find_if(
+      indices.vector_indices_spec,
+      [&](const memgraph::storage::VectorIndexSpec &spec) { return spec.index_name == index_name; });
+  if (it == indices.vector_indices_spec.end()) return;
+  const auto &filter = it->label_filter;
+
+  const auto labels_readable = [&]() -> bool {
+    if (filter.mode == memgraph::storage::VectorMatchMode::WILDCARD) return true;
+    if (filter.mode == memgraph::storage::VectorMatchMode::ALL_OF) {
+      return auth_checker->Has(filter.ids, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+    }
+    return std::ranges::any_of(filter.ids, [&](const memgraph::storage::LabelId label) {
+      return auth_checker->Has(std::span<const memgraph::storage::LabelId>(&label, 1),
+                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+    });
+  }();
+  if (!labels_readable) {
+    ThrowSearchAuthError(
+        "vector_search.search is unavailable for this index: caller lacks READ on its bound label(s).");
+  }
+
+  if (!auth_checker->HasAnyVertexPropertyRule()) return;
+  const auto property = it->property;
+  if (filter.mode == memgraph::storage::VectorMatchMode::WILDCARD) {
+    // no bound label list to iterate, so we need a per-row-invariant proxy:
+    //   global GRANT on the property (applies to every label by fallback)
+    //   + no per-label DENY that could override the global grant
+    // together they guarantee HasPropertyPermission would return GRANT for any label combo.
+    const auto empty_span = std::span<const memgraph::storage::LabelId>{};
+    const bool globally_readable = auth_checker->HasPropertyPermission(
+        empty_span, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
+    if (globally_readable && !auth_checker->HasVertexPropertyDeny(property)) return;
+    ThrowSearchAuthError(
+        "vector_search.search is unavailable for this WILDCARD index: caller lacks an unqualified global GRANT on "
+        "the indexed property.");
+  }
+  const bool property_readable = std::ranges::all_of(filter.ids, [&](const memgraph::storage::LabelId label) {
+    const auto label_span = std::span<const memgraph::storage::LabelId>(&label, 1);
+    return auth_checker->HasPropertyPermission(
+        label_span, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
+  });
+  if (!property_readable) {
+    ThrowSearchAuthError(
+        "vector_search.search is unavailable for this index: caller lacks READ on the indexed property.");
+  }
+}
+
+void PrecheckEdgeVectorSearchAccess(const mgp_graph &graph, std::string_view index_name) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return;
+  const auto *auth_checker = ctx->auth_checker.get();
+  const auto indices = graph.getImpl()->ListAllIndices();
+  const auto it = std::ranges::find_if(
+      indices.vector_edge_indices_spec,
+      [&](const memgraph::storage::VectorEdgeIndexSpec &spec) { return spec.index_name == index_name; });
+  if (it == indices.vector_edge_indices_spec.end()) return;
+  const auto &filter = it->edge_type_filter;
+
+  const auto types_readable = [&]() -> bool {
+    if (filter.mode == memgraph::storage::VectorMatchMode::WILDCARD) return true;
+    return std::ranges::any_of(filter.ids, [&](const memgraph::storage::EdgeTypeId edge_type) {
+      return auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+    });
+  }();
+  if (!types_readable) {
+    ThrowSearchAuthError(
+        "vector_search.search_edges is unavailable for this index: caller lacks READ on its edge type(s).");
+  }
+
+  if (!auth_checker->HasAnyEdgeTypePropertyRule()) return;
+  const auto property = it->property;
+  if (filter.mode == memgraph::storage::VectorMatchMode::WILDCARD) {
+    // no empty-span global-grant path exists for edge-type property permissions the way it does
+    // for labels (see PrecheckVertexVectorSearchAccess). Absent that, the only safe relaxation is
+    // when the caller has property rules but none of them DENY the indexed property.
+    if (!auth_checker->HasEdgeTypePropertyDeny(property)) return;
+    ThrowSearchAuthError(
+        "vector_search.search_edges is unavailable for this WILDCARD index: property-level RBAC denies the indexed "
+        "property for at least one edge type.");
+  }
+  const bool property_readable = std::ranges::all_of(filter.ids, [&](const memgraph::storage::EdgeTypeId edge_type) {
+    return auth_checker->HasPropertyPermission(
+        edge_type, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
+  });
+  if (!property_readable) {
+    ThrowSearchAuthError(
+        "vector_search.search_edges is unavailable for this index: caller lacks READ on the indexed property.");
+  }
+}
+
+void PrecheckVertexTextAggregateAccess(const mgp_graph &graph, std::string_view index_name) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return;
+  const auto *auth_checker = ctx->auth_checker.get();
+  const auto indices = graph.getImpl()->ListAllIndices();
+  const auto it = std::ranges::find_if(indices.text_indices, [&](const memgraph::storage::TextIndexSpec &spec) {
+    return spec.index_name == index_name;
+  });
+  if (it == indices.text_indices.end()) return;
+
+  const auto label_span = std::span<const memgraph::storage::LabelId>(&it->label, 1);
+  if (!auth_checker->Has(label_span, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+    ThrowSearchAuthError("text_search.aggregate is unavailable for this index: caller lacks READ on its bound label.");
+  }
+  // any DENY on a *different* label could hide multi-label nodes the index still counts
+  if (auth_checker->HasAnyVertexLabelDeny()) {
+    ThrowSearchAuthError(
+        "text_search.aggregate is unavailable: label-level DENY rules could mask multi-label nodes the aggregate "
+        "would still count.");
+  }
+  if (auth_checker->HasAnyVertexPropertyDenyForLabel(it->label)) {
+    ThrowSearchAuthError(
+        "text_search.aggregate is unavailable: a property-level DENY on this label could cause Tantivy to count "
+        "values RBAC would otherwise hide. Use text_search.search and aggregate in Cypher.");
+  }
+}
+
+void PrecheckEdgeTextAggregateAccess(const mgp_graph &graph, std::string_view index_name) {
+  const auto *ctx = graph.ctx;
+  if (!ctx || !ctx->auth_checker) return;
+  const auto *auth_checker = ctx->auth_checker.get();
+  const auto indices = graph.getImpl()->ListAllIndices();
+  const auto it = std::ranges::find_if(
+      indices.text_edge_indices,
+      [&](const memgraph::storage::TextEdgeIndexSpec &spec) { return spec.index_name == index_name; });
+  if (it == indices.text_edge_indices.end()) return;
+
+  if (!auth_checker->Has(it->edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+    ThrowSearchAuthError(
+        "text_search.aggregate_edges is unavailable for this index: caller lacks READ on its edge type.");
+  }
+  // vertex-label DENY could hide edges whose endpoints the caller can't read but the index still counts;
+  // an edge-type DENY on a *different* type doesn't affect this index — edges are single-typed
+  if (auth_checker->HasAnyVertexLabelDeny()) {
+    ThrowSearchAuthError(
+        "text_search.aggregate_edges is unavailable: vertex-label DENY rules could mask edges whose endpoints the "
+        "aggregate would still count.");
+  }
+  if (auth_checker->HasAnyEdgeTypePropertyDenyForType(it->edge_type)) {
+    ThrowSearchAuthError(
+        "text_search.aggregate_edges is unavailable: a property-level DENY on this edge type could cause Tantivy "
+        "to count values RBAC would otherwise hide. Use text_search.search_edges and aggregate in Cypher.");
+  }
+}
+}  // namespace
+#endif
+
 template <typename FoundElementRange, typename MakeElementValueFunc>
 void WrapVectorSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **result, size_t found_elements_size,
                              MakeElementValueFunc make_element_value, const FoundElementRange &found_elements,
@@ -4399,9 +4632,11 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
   vertices_with_scores.reserve(text_search_results.size());
   for (const auto &result : text_search_results) {
     auto *vertex_ptr = GetVertexByGid(graph, result.vertex_gid, memory);
-    if (vertex_ptr) {
-      vertices_with_scores.emplace_back(vertex_ptr, result.score);
-    }
+    if (!vertex_ptr) continue;
+#ifdef MG_ENTERPRISE
+    if (!VertexHasReadPermission(vertex_ptr->getImpl(), *graph)) continue;
+#endif
+    vertices_with_scores.emplace_back(vertex_ptr, result.score);
   }
 
   mgp_list *search_results{};
@@ -4509,9 +4744,11 @@ void WrapTextEdgeSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **r
   edges_with_scores.reserve(text_edge_search_results.size());
   for (const auto &[edge_gid, from_vertex_gid, _, score] : text_edge_search_results) {
     auto *edge_ptr = GetEdgeByGid(graph, edge_gid, from_vertex_gid, memory);
-    if (edge_ptr) {
-      edges_with_scores.emplace_back(edge_ptr, score);
-    }
+    if (!edge_ptr) continue;
+#ifdef MG_ENTERPRISE
+    if (!EdgeHasReadPermission(std::get<memgraph::query::EdgeAccessor>(edge_ptr->impl), *graph)) continue;
+#endif
+    edges_with_scores.emplace_back(edge_ptr, score);
   }
 
   mgp_list *search_results{};
@@ -4587,7 +4824,12 @@ mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, 
                                                      .fuzzy_prefix = fuzzy_prefix != 0,
                                                      .fuzzy_transpositions = fuzzy_transpositions != 0};
     try {
+#ifdef MG_ENTERPRISE
+      PrecheckVertexTextSearchAccess(*graph, index_name);
+#endif
       text_search_results = graph->getImpl()->TextIndexSearch(index_name, search_query, search_mode, config);
+    } catch (const AuthorizationException &e) {
+      error_msg = e.what();
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
@@ -4601,7 +4843,12 @@ mgp_error mgp_graph_aggregate_over_text_index(mgp_graph *graph, const char *inde
     std::string search_results;
     std::optional<std::string> error_msg = std::nullopt;
     try {
+#ifdef MG_ENTERPRISE
+      PrecheckVertexTextAggregateAccess(*graph, index_name);
+#endif
       search_results = graph->getImpl()->TextIndexAggregate(index_name, search_query, aggregation_query);
+    } catch (const AuthorizationException &e) {
+      error_msg = e.what();
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
@@ -4616,7 +4863,12 @@ mgp_error mgp_graph_aggregate_over_text_edge_index(mgp_graph *graph, const char 
     std::string search_results;
     std::optional<std::string> error_msg = std::nullopt;
     try {
+#ifdef MG_ENTERPRISE
+      PrecheckEdgeTextAggregateAccess(*graph, index_name);
+#endif
       search_results = graph->getImpl()->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
+    } catch (const AuthorizationException &e) {
+      error_msg = e.what();
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
@@ -4645,7 +4897,12 @@ mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *
                                                      .fuzzy_prefix = fuzzy_prefix != 0,
                                                      .fuzzy_transpositions = fuzzy_transpositions != 0};
     try {
+#ifdef MG_ENTERPRISE
+      PrecheckEdgeTextSearchAccess(*graph, index_name);
+#endif
       text_edge_search_results = graph->getImpl()->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
+    } catch (const AuthorizationException &e) {
+      error_msg = e.what();
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
@@ -4659,6 +4916,9 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
     std::vector<std::tuple<memgraph::storage::VertexAccessor, double, double>> found_vertices;
     std::optional<std::string> error_msg = std::nullopt;
     try {
+#ifdef MG_ENTERPRISE
+      PrecheckVertexVectorSearchAccess(*graph, index_name);
+#endif
       std::vector<float> search_query_vector;
       search_query_vector.reserve(search_query->elems.size());
       for (auto &elem : search_query->elems) {
@@ -4683,6 +4943,15 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
             "Unrecognized argument type when performing vector search, expected values are Double or Int!");
       }
       found_vertices = graph->getImpl()->VectorIndexSearchOnNodes(index_name, result_size, search_query_vector);
+#ifdef MG_ENTERPRISE
+      if (graph->ctx && graph->ctx->auth_checker) {
+        std::erase_if(found_vertices, [&](const auto &t) {
+          return !VertexHasReadPermission(memgraph::query::VertexAccessor(std::get<0>(t)), *graph);
+        });
+      }
+#endif
+    } catch (const AuthorizationException &e) {
+      error_msg = e.what();
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
@@ -4696,6 +4965,9 @@ mgp_error mgp_graph_search_vector_index_on_edges(mgp_graph *graph, const char *i
     std::vector<std::tuple<memgraph::storage::EdgeAccessor, double, double>> found_edges;
     std::optional<std::string> error_msg = std::nullopt;
     try {
+#ifdef MG_ENTERPRISE
+      PrecheckEdgeVectorSearchAccess(*graph, index_name);
+#endif
       std::vector<float> search_query_vector;
       search_query_vector.reserve(search_query->elems.size());
       for (auto &elem : search_query->elems) {
@@ -4720,6 +4992,15 @@ mgp_error mgp_graph_search_vector_index_on_edges(mgp_graph *graph, const char *i
             "Unrecognized argument type when performing vector search, expected values are Double or Int!");
       }
       found_edges = graph->getImpl()->VectorIndexSearchOnEdges(index_name, result_size, search_query_vector);
+#ifdef MG_ENTERPRISE
+      if (graph->ctx && graph->ctx->auth_checker) {
+        std::erase_if(found_edges, [&](const auto &t) {
+          return !EdgeHasReadPermission(memgraph::query::EdgeAccessor(std::get<0>(t)), *graph);
+        });
+      }
+#endif
+    } catch (const AuthorizationException &e) {
+      error_msg = e.what();
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
