@@ -47,13 +47,25 @@ gh workflow run daily_benchmark.yaml --ref experiment/pgo-benchmark -f pgo=true 
 ```
 
 For a **quick check** (the full daily suite is long), `benchmark_pgo.yaml` runs the same
-PGO train/build but only the pokec-**medium** mgbench, and uploads it tagged by branch:
+PGO train/build but only the pokec-**medium** mgbench, uploaded tagged by branch. Trained the
+same way (pokec/small, all groups).
+
+**Run it without merging to master** — `workflow_dispatch` needs the file on the default
+branch, so before the PR merges use the **label trigger**: add the `run-pgo-benchmark` label to
+the PR (it runs the PR branch's workflow via `pull_request`). Re-add the label to re-run.
+
+```
+gh label create run-pgo-benchmark --color ededed        # once
+gh api repos/memgraph/memgraph/issues/<PR>/labels -X POST -f "labels[]=run-pgo-benchmark"
+```
+
+After the PR is on master, the manual dispatch also works and takes inputs:
 
 ```
 gh workflow run benchmark_pgo.yaml --ref experiment/pgo-benchmark -f pgo=true -f loop_count=3
 ```
 
-Trained the same way (pokec/small, all groups). Run once with `pgo=false` if you want a
+On a label run PGO is on and `loop_count=3`; dispatch a `pgo=false` run if you want a
 same-machine control alongside master's series.
 
 ## What to train on (the important part)

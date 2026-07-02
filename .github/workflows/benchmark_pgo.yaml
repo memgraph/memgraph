@@ -20,10 +20,17 @@ on:
         type: number
         description: "mgbench iterations (keep small for a quick check; each pokec-medium run is ~20 min)."
         default: 3
+  # Runnable from the branch WITHOUT merging to master: add the 'run-pgo-benchmark'
+  # label to the PR. (workflow_dispatch needs the file on the default branch;
+  # pull_request uses the PR branch's own workflow file.)
+  pull_request:
+    types: [labeled]
 
 jobs:
   benchmark_pgo:
     name: "Benchmark PGO (pokec medium mgbench)"
+    # Manual dispatch, or when the 'run-pgo-benchmark' label is added to the PR.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-pgo-benchmark' }}
     runs-on: [self-hosted, Linux, benchmark]
     # PGO adds a 2nd full build + the instrumented training run (~110-140 min fixed)
     # on top of loop_count x ~20 min of pokec-medium mgbench. Generous headroom so a
@@ -38,6 +45,8 @@ jobs:
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
       LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+      # PGO on for label runs (no inputs available); respects the toggle on manual dispatch.
+      PGO_ENABLED: ${{ github.event_name != 'workflow_dispatch' || inputs.pgo }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
       CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
@@ -74,7 +83,7 @@ jobs:
       # Same training as the Daily Benchmark: instrument, train on the full mgbench
       # pokec query mix (pokec/small, all groups), merge -> build/pgo.profdata.
       - name: PGO — instrument, train, merge
-        if: ${{ inputs.pgo }}
+        if: ${{ env.PGO_ENABLED == 'true' }}
         run: |
           ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH init-tests
           ./release/package/mgbuild.sh \
@@ -90,7 +99,7 @@ jobs:
       - name: Build release binary
         run: |
           PGO_ARGS=""
-          if [[ "${{ inputs.pgo }}" == "true" ]]; then
+          if [[ "$PGO_ENABLED" == "true" ]]; then
             PGO_ARGS="--pgo use"   # consumes build/pgo.profdata from the step above
           fi
           ./release/package/mgbuild.sh \
@@ -107,7 +116,11 @@ jobs:
       - name: Get branch name
         shell: bash
         run: |
-          echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
+          else
+            echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+          fi
 
       - name: Force container into first numa group
         run: |
