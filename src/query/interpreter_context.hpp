@@ -21,6 +21,7 @@
 
 #include "parameters/parameters.hpp"
 #include "query/config.hpp"
+#include "query/cypher_query_interpreter.hpp"
 #include "query/replication_query_handler.hpp"
 #include "query/typed_value.hpp"
 #include "replication/state.hpp"
@@ -48,8 +49,6 @@ class DbmsHandler;
 
 namespace memgraph::query {
 
-struct QueryCacheEntry;
-
 constexpr uint64_t kInterpreterTransactionInitialId = 1ULL << 63U;
 
 class AuthQueryHandler;
@@ -70,7 +69,7 @@ struct InterpreterContext {
   // Internal
   const InterpreterConfig config;
   std::atomic<bool> is_shutting_down{false};  // TODO: Do we even need this, since there is a global one also
-  utils::SkipList<QueryCacheEntry> ast_cache;
+  AstCache ast_cache{static_cast<std::size_t>(FLAGS_query_ast_cache_max_size)};
 
   // GLOBAL
   utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *repl_state;

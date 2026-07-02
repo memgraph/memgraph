@@ -1825,7 +1825,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
   auto acc = this->db->storage()->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(acc.get());
-  memgraph::utils::SkipList<memgraph::query::QueryCacheEntry> ast_cache;
+  memgraph::query::AstCache ast_cache{1000};
   memgraph::query::AllowEverythingAuthChecker auth_checker;
   memgraph::query::InterpreterConfig::Query query_config;
   memgraph::storage::ExternalPropertyValue::map_t props;

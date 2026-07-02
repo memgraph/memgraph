@@ -39,6 +39,9 @@ DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query plans to cache.",
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_int32(query_ast_cache_max_size, 1000, "Maximum number of parsed query ASTs to cache.",
+                       FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
@@ -71,9 +74,9 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
   return parameters;
 }
 
-ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const &user_parameters,
-                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
-                       std::string_view database_uuid, parameters::Parameters const *server_parameters) {
+ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const &user_parameters, AstCache *cache,
+                       const InterpreterConfig::Query &query_config, std::string_view database_uuid,
+                       parameters::Parameters const *server_parameters) {
   // Drop leading whitespace so prefix-stripping consumers (EXPLAIN, PROFILE)
   // can rely on the query starting with its first significant character.
   std::string query_string{utils::LTrim(raw_query_string)};
@@ -88,17 +91,21 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
   // Used for visitor resolution of dynamic labels/edge types and for execution.
   auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters, server_parameters, database_uuid);
 
-  // Cache the query's AST if it isn't already.
+  // Cache the query's AST if it isn't already. The entry is held via a
+  // shared_ptr so we can release the cache lock before the (potentially heavy)
+  // Clone below, and so a concurrent LRU eviction can't free it under us.
   auto hash = stripped_query.stripped_query().hash();
-  auto accessor = cache->access();
-  auto it = accessor.find(hash);
+  std::shared_ptr<CachedQuery> cached;
+  cache->WithLock([&](auto &lru) {
+    if (auto entry = lru.get(hash)) cached = *entry;
+  });
   std::unique_ptr<frontend::opencypher::Parser> parser;
 
   // Return a copy of both the AST storage and the query.
   CachedQuery result;
   bool is_cacheable = true;
 
-  auto get_information_from_cache = [&](const auto &cached_query) {
+  auto get_information_from_cache = [&](const CachedQuery &cached_query) {
     result.ast_storage.properties_ = cached_query.ast_storage.properties_;
     result.ast_storage.labels_ = cached_query.ast_storage.labels_;
     result.ast_storage.edge_types_ = cached_query.ast_storage.edge_types_;
@@ -109,7 +116,7 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
     result.using_schema_assert = cached_query.using_schema_assert;
   };
 
-  if (it == accessor.end()) {
+  if (!cached) {
     try {
       parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.stripped_query().str());
     } catch (const SyntaxException &e) {
@@ -142,14 +149,15 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
     };
 
     if (visitor.GetQueryInfo().is_cacheable) {
-      CachedQuery cached_query{.ast_storage = std::move(ast_storage),
-                               .query = visitor.query(),
-                               .required_privileges = query::GetRequiredPrivileges(visitor.query()),
-                               .is_cypher_read = read_check(),
-                               .using_schema_assert = visitor.GetQueryInfo().has_schema_assert};
-      it = accessor.insert({hash, std::move(cached_query)}).first;
+      auto cached_query = std::make_shared<CachedQuery>();
+      cached_query->ast_storage = std::move(ast_storage);
+      cached_query->query = visitor.query();
+      cached_query->required_privileges = query::GetRequiredPrivileges(visitor.query());
+      cached_query->is_cypher_read = read_check();
+      cached_query->using_schema_assert = visitor.GetQueryInfo().has_schema_assert;
+      cache->WithLock([&](auto &lru) { lru.put(hash, cached_query); });
 
-      get_information_from_cache(it->second);
+      get_information_from_cache(*cached_query);
     } else {
       // Carefully use the query we just built, preserving the ast_storage we used to build it
       result.required_privileges = query::GetRequiredPrivileges(visitor.query());
@@ -161,7 +169,7 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
       is_cacheable = false;
     }
   } else {
-    get_information_from_cache(it->second);
+    get_information_from_cache(*cached);
   }
 
   return ParsedQuery{
