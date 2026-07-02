@@ -101,6 +101,63 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     }
   }
 
+  // Fold a unary +/- that directly precedes a numeric literal into that literal
+  // (the sign is prepended to the number's text and the sign token dropped), so
+  // lists differing only in the sign pattern of their numbers strip to the same
+  // text and share one cache entry. This is confined to list literals `[...]`:
+  // that covers the motivating case (embedding vectors) while avoiding clause
+  // operands whose sign is validated from the parse-tree shape (a folded `-1`
+  // would look like a plain positive literal), e.g. `USING PERIODIC COMMIT -1`.
+  // Fold only when the sign is unambiguously unary: adjacent to the number (no
+  // whitespace) and not preceded by a value, so a subtraction like `[a-1]` or
+  // `[1-1]` is left untouched.
+  {
+    auto produces_value = [](Token type, const std::string &text) {
+      switch (type) {
+        case Token::INT:
+        case Token::REAL:
+        case Token::STRING:
+        case Token::PARAMETER:
+        case Token::ESCAPED_NAME:
+        case Token::UNESCAPED_NAME:
+          return true;
+        case Token::KEYWORD:
+          return utils::IEquals(text, "true") || utils::IEquals(text, "false") || utils::IEquals(text, "null");
+        case Token::SPECIAL:
+          return text == ")" || text == "]" || text == "}";
+        default:
+          return false;
+      }
+    };
+    std::vector<std::pair<Token, std::string>> folded;
+    folded.reserve(tokens.size());
+    bool prev_produces_value = false;  // start of query is a unary context
+    int list_depth = 0;
+    for (std::size_t i = 0; i < tokens.size(); ++i) {
+      const auto &token = tokens[i];
+      const bool is_sign = token.first == Token::SPECIAL && (token.second == "-" || token.second == "+");
+      const bool folds = is_sign && list_depth > 0 && !prev_produces_value && i + 1 < tokens.size() &&
+                         (tokens[i + 1].first == Token::INT || tokens[i + 1].first == Token::REAL);
+      if (folds) {
+        const auto &number = tokens[i + 1];
+        folded.emplace_back(number.first, token.second + number.second);
+        prev_produces_value = true;
+        ++i;  // consume the number token as well
+        continue;
+      }
+      if (token.first != Token::SPACE) prev_produces_value = produces_value(token.first, token.second);
+      if (token.first == Token::SPECIAL) {
+        if (token.second == "[") {
+          ++list_depth;
+        } else if (token.second == "]" && list_depth > 0) {
+          --list_depth;
+        }
+      }
+      folded.push_back(token);
+    }
+    tokens = std::move(folded);
+  }
+
   std::vector<std::string> token_strings;
   // A helper function that stores literal and its token position in a
   // literals_. In stripped query text literal is replaced with a new_value.

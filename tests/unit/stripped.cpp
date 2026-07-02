@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -507,6 +507,89 @@ TEST(QueryStripper, KeywordsCanBeUsedInStrippedQueries) {
   {
     StrippedQuery stripped("MATCH (n:Constraints), (m:Indexes) RETURN n, m");
     EXPECT_EQ(stripped.stripped_query().str(), "MATCH ( n : Constraints ) , ( m : Indexes ) RETURN n , m");
+  }
+}
+
+TEST(QueryStripper, NegativeIntegerInList) {
+  StrippedQuery stripped("RETURN [-42]");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -42);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " ]");
+}
+
+TEST(QueryStripper, NegativeRealInList) {
+  StrippedQuery stripped("RETURN [-0.5]");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.ValueDouble(), -0.5);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedDoubleToken + " ]");
+}
+
+TEST(QueryStripper, UnaryPlusInList) {
+  StrippedQuery stripped("RETURN [+42]");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 42);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " ]");
+}
+
+TEST(QueryStripper, NegativeExponentRealInList) {
+  StrippedQuery stripped("RETURN [-1e-3]");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.ValueDouble(), -1e-3);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedDoubleToken + " ]");
+}
+
+TEST(QueryStripper, MixedSignListFoldsToPositiveShape) {
+  StrippedQuery stripped("RETURN [-1, 2, -3]");
+  EXPECT_EQ(stripped.literals().size(), 3);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
+  EXPECT_EQ(stripped.literals().At(1).second.ValueInt(), 2);
+  EXPECT_EQ(stripped.literals().At(2).second.ValueInt(), -3);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ 0 , 0 , 0 ]");
+}
+
+TEST(QueryStripper, SignPatternDoesNotAffectCacheKey) {
+  // The point of the fold: lists differing only in per-element sign and value
+  // now strip to the same query, so they share a single cache entry.
+  auto a = StrippedQuery("RETURN [-1, 2, -3]");
+  auto b = StrippedQuery("RETURN [4, -5, 6]");
+  auto c = StrippedQuery("RETURN [1, 2, 3]");
+  EXPECT_EQ(a.stripped_query().str(), b.stripped_query().str());
+  EXPECT_EQ(a.stripped_query().str(), c.stripped_query().str());
+  EXPECT_EQ(a.stripped_query().hash(), b.stripped_query().hash());
+  EXPECT_EQ(a.stripped_query().hash(), c.stripped_query().hash());
+}
+
+TEST(QueryStripper, SignFoldOnlyInsideListLiterals) {
+  // Folding is confined to list literals, so a top-level signed number keeps
+  // its unary-minus token (its sign is not moved into the literal value). This
+  // preserves parse-tree-shape validation of clause operands elsewhere.
+  StrippedQuery stripped("RETURN -42");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 42);
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN - " + kStrippedIntToken);
+}
+
+TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
+  // Inside a list, a `-` whose left side produces a value is still a
+  // subtraction operator; the literal keeps its own positive sign.
+  {
+    StrippedQuery stripped("RETURN [a - 1]");  // spaced: number is not adjacent to the sign
+    EXPECT_EQ(stripped.literals().size(), 1);
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ a - " + kStrippedIntToken + " ]");
+  }
+  {
+    StrippedQuery stripped("RETURN [1-1]");  // adjacent, but preceded by a value
+    EXPECT_EQ(stripped.literals().size(), 2);
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
+    EXPECT_EQ(stripped.literals().At(1).second.ValueInt(), 1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " - " + kStrippedIntToken + " ]");
+  }
+  {
+    StrippedQuery stripped("RETURN [a-1]");  // adjacent, preceded by an identifier
+    EXPECT_EQ(stripped.literals().size(), 1);
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ a - " + kStrippedIntToken + " ]");
   }
 }
 
