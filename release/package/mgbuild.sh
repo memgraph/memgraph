@@ -3020,12 +3020,16 @@ case $command in
           *) echo "Error: Unknown flag '$1' for pgo-train"; exit 1 ;;
         esac
       done
-      docker exec -u mg $build_container bash -c "export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license && export MEMGRAPH_ORGANIZATION_NAME=$organization_name && mkdir -p $MGBUILD_ROOT_DIR/build/pgo-raw && export LLVM_PROFILE_FILE=$MGBUILD_ROOT_DIR/build/pgo-raw/mg_%p_%m.profraw && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 6 $PGO_DATASET/$PGO_SIZE/*/*"
+      # Mirrors the working 'mgbench' invocation (incl. required --export-results; the
+      # results file is throwaway for training). LLVM_PROFILE_FILE names each memgraph
+      # restart's profile uniquely; the instrumented binary also bakes -fprofile-generate
+      # to the same dir, so raw profiles land in build/pgo-raw either way.
+      docker exec -u mg $build_container bash -c "export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license && export MEMGRAPH_ORGANIZATION_NAME=$organization_name && mkdir -p $MGBUILD_ROOT_DIR/build/pgo-raw && export LLVM_PROFILE_FILE=$MGBUILD_ROOT_DIR/build/pgo-raw/mg_%p_%m.profraw && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 6 --export-results pgo_train_result.json $PGO_DATASET/$PGO_SIZE/*/*"
     ;;
     pgo-merge)
       # Merge raw profiles -> $MGBUILD_HOME_DIR/pgo.profdata (OUTSIDE build/ and the repo,
       # so it survives the 'rm -rf build/*' + repo re-copy the next build-memgraph does).
-      docker exec -u mg $build_container bash -c "source /opt/toolchain-${toolchain_version}/activate && llvm-profdata merge -o $MGBUILD_HOME_DIR/pgo.profdata $MGBUILD_ROOT_DIR/build/pgo-raw/*.profraw && echo 'PGO merged profile:' && ls -la $MGBUILD_HOME_DIR/pgo.profdata"
+      docker exec -u mg $build_container bash -c "source /opt/toolchain-${toolchain_version}/activate && echo 'raw profiles:' && ls -la $MGBUILD_ROOT_DIR/build/pgo-raw/ && llvm-profdata merge -o $MGBUILD_HOME_DIR/pgo.profdata $MGBUILD_ROOT_DIR/build/pgo-raw/*.profraw && echo 'PGO merged profile:' && ls -la $MGBUILD_HOME_DIR/pgo.profdata"
     ;;
     package-memgraph)
       package_memgraph $@
