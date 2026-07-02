@@ -3,11 +3,15 @@
 # Hammers the hot/cold 4-state gatekeeper (HOT -> SUSPENDING -> COLD ->
 # RESUMING -> HOT) with concurrent writers and manual SUSPEND/RESUME commands.
 #
-# Two-way contention:
+# Two-way contention, plus a DDL-churn thread:
 #   1. Writer threads: open per-tenant connections, create labelled nodes in
 #      explicit transactions.
 #   2. Suspender/Resumer threads: issue SUSPEND DATABASE / RESUME DATABASE on
 #      random tenants from the default-db control connection.
+#   3. DDL thread: issues CREATE DATABASE / DROP DATABASE [FORCE] / RENAME
+#      DATABASE against a disjoint churn_tenant_N pool (never tenant_0..k), so
+#      DDL-vs-transition races are exercised without perturbing the fixed
+#      tenant set's write/count accounting (reviewer request #15).
 #
 # NOTE: v2 re-scoped the feature to MANUAL suspend/resume only. All
 # auto-eviction machinery was deleted. The flags
@@ -63,4 +67,6 @@ customWorkloads:
         - "120"
         - "--nodes-per-tx"
         - "5"
+        - "--num-churn-tenants"
+        - "4"
       timeout_min: 15

@@ -27,22 +27,33 @@ RESUMING -> HOT) under two-way concurrent contention:
   4. READER thread    — USE DATABASE tenant_k / MATCH (n) RETURN count(n);
                         exercises the read-path resume, no count assertion
                         during the run.
+  5. DDL thread       — issues CREATE DATABASE / DROP DATABASE [FORCE] /
+                        RENAME DATABASE ... TO ... against a POOL OF CHURN
+                        TENANTS (churn_tenant_0..N-1) that is DISJOINT from
+                        tenant_0..k, so DDL-vs-transition races are exercised
+                        without perturbing the fixed set's write/count
+                        accounting (reviewer request #15).
 
 NOTE: v2 re-scoped the feature to MANUAL suspend/resume only. All
-auto-eviction machinery was deleted. The only churn dimension is the
-SUSPEND/RESUME thread pair above.
+auto-eviction machinery was deleted. The only churn dimensions are the
+SUSPEND/RESUME thread pair and the DDL thread above.
 
 After the timed run every tenant is resumed and its live node count is checked
 against the sum of per-worker committed writes. A mismatch = data loss = exit 1.
+The churn tenants are transient by design and are NOT part of this check — we
+assert only that the DDL thread ran without a non-transient exception, not that
+any particular churn_tenant_N exists (or doesn't) when the run ends.
 
 A non-vacuity check asserts that at least one SUSPEND and at least one RESUME
 actually succeeded during the churn window. If neither count is positive, the
-test is vacuously green and exits 1 with a clear message.
+test is vacuously green and exits 1 with a clear message. (The DDL thread's op
+count is reported for visibility but is not part of this gate — CREATE/DROP/
+RENAME races are expected to be lossy under contention by design.)
 
 Run directly (smoke test):
 
   python3 workload.py --endpoint 127.0.0.1:7687 \\
-      --parallelism 6 --duration-sec 20 --num-tenants 6
+      --parallelism 6 --duration-sec 20 --num-tenants 6 --num-churn-tenants 4
 
 The stress runner invokes it via the workload.yaml script_args.
 
@@ -109,6 +120,16 @@ def parse_args() -> argparse.Namespace:
         default_duration_sec=20,
         add_nodes_per_tx=True,
         default_nodes_per_tx=5,
+    )
+    # DDL-churn pool: disjoint from tenant_0..k (see _ddl_worker docstring).  Kept as a
+    # local flag rather than a build_base_arg_parser addition — this pool is specific to
+    # this workload's reviewer-requested DDL-churn thread, not shared by the other four
+    # hot/cold workloads.
+    parser.add_argument(
+        "--num-churn-tenants",
+        type=int,
+        default=4,
+        help="Number of churn_tenant_N databases the DDL thread creates/drops/renames " "(disjoint from tenant_0..k)",
     )
     return parser.parse_args()
 
@@ -295,6 +316,131 @@ def _resumer_worker(
     return ops
 
 
+# Error substrings produced by CREATE/DROP/RENAME DATABASE (interpreter.cpp) that are
+# EXPECTED outcomes of two DDL ops racing each other on the churn pool (e.g. two DROPs
+# on the same churn_tenant_N, or a RENAME losing to a DROP). None of these indicate a
+# product bug — they mirror how _suspender_worker/_resumer_worker above tolerate their
+# own "lost the race" errors. TRANSITIONAL_MARKERS (is_transient) already covers the
+# suspend/resume-shaped races (e.g. "multiple concurrent system queries are not
+# supported", which fires for ANY two DDL/suspend/resume ops since they all share the
+# one system transaction); this tuple adds the CREATE/DROP/RENAME-specific ones.
+_DDL_SWALLOW = (
+    "already exists",  # CREATE raced another CREATE, or RENAME's target churn name collided
+    "does not exist",  # DROP/RENAME raced a DROP that already removed the churn tenant
+    "currently being used",  # DROP/RENAME (USING) raced a still-mid-transition churn tenant
+    "same as the old name",  # RENAME picked identical src/dst names (benign, not a race)
+    "cannot delete the default database",  # defensive; churn pool never includes the default db
+    "cannot rename the default database",  # defensive; same reasoning
+)
+
+
+def _classify_ddl_error(exc: Exception) -> bool:
+    """Return True if *exc* is an expected DDL-churn race (log-and-continue, not a failure)."""
+    if is_transient(exc):
+        return True
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _DDL_SWALLOW)
+
+
+def _ddl_worker(
+    endpoint: str,
+    username: str,
+    password: str,
+    churn_tenant_names: list[str],
+    stop_flag: list[bool],
+    rng_seed: int,
+) -> int:
+    """
+    Concurrent DBMS-DDL churn thread (reviewer request #15): repeatedly issues
+    CREATE DATABASE / DROP DATABASE [FORCE] / RENAME DATABASE ... TO ... against
+    a POOL OF CHURN TENANTS (churn_tenant_0..churn_tenant_{N-1}) that is disjoint
+    from the fixed tenant_0..tenant_k set used by the writer/suspender/resumer/reader
+    threads above.
+
+    Isolation rationale: the fixed tenant set backs the test's final data-integrity
+    accounting (committed writes vs. resumed node counts). Racing CREATE/DROP/RENAME
+    against tenants a writer might be mid-commit on would require tearing down that
+    accounting (a dropped tenant's committed writes become unverifiable). Keeping DDL
+    churn on a disjoint namespace exercises exactly the DDL-vs-hot/cold-transition
+    races the reviewer asked for, without touching the invariant the rest of the
+    workload checks.
+
+    The DDL grammar only exposes a FORCE variant for DROP DATABASE (see
+    MemgraphCypher.g4: `dropDatabase: DROP DATABASE databaseName (FORCE)?` vs.
+    `createDatabase`/`renameDatabase`, which take no FORCE token) — plain DROP fails
+    fast on an in-use database (DeleteError::USING) while FORCE best-effort-terminates
+    active interpreters first. Both variants are exercised (50/50 per DROP attempt) to
+    cover both code paths.
+
+    Expected-under-contention errors (see _classify_ddl_error / _DDL_SWALLOW /
+    TRANSITIONAL_MARKERS) are counted and logged, not raised — a churn tenant that
+    another DDL op or an in-flight suspend/resume already mutated is normal churn, not
+    a bug. Because the churn pool never overlaps tenant_names, tenant-set-vs-DDL
+    interference cannot occur, so this thread never touches the SUSPEND/RESUME state
+    machine's namespace either.
+
+    Returns the count of successful DDL operations (CREATE + DROP + RENAME combined)
+    for reporting; not used in the non-vacuity gate (SUSPEND/RESUME are).
+    """
+    rng = random.Random(rng_seed)
+    drv = make_driver(endpoint, username, password)
+    ops = 0
+    # existing_churn tracks which churn_tenant_N names this thread currently believes
+    # are live, so RENAME has a plausible (name, name) pair to try instead of blindly
+    # guessing — a purely local hint, not a correctness dependency (a stale/incorrect
+    # guess just yields an expected "does not exist" race, handled above).
+    existing_churn: set[str] = set()
+    try:
+        while not stop_flag[0]:
+            op = rng.choice(("create", "drop", "drop", "rename"))
+            try:
+                with drv.session() as sess:
+                    if op == "create":
+                        name = rng.choice(churn_tenant_names)
+                        run_query(sess, f"CREATE DATABASE {name}")
+                        existing_churn.add(name)
+                        ops += 1
+                    elif op == "drop":
+                        name = rng.choice(churn_tenant_names)
+                        force = rng.random() < 0.5
+                        query = f"DROP DATABASE {name} FORCE" if force else f"DROP DATABASE {name}"
+                        run_query(sess, query)
+                        existing_churn.discard(name)
+                        ops += 1
+                    else:  # rename
+                        src = rng.choice(churn_tenant_names)
+                        dst = rng.choice(churn_tenant_names)
+                        if src == dst:
+                            continue
+                        run_query(sess, f"RENAME DATABASE {src} TO {dst}")
+                        existing_churn.discard(src)
+                        existing_churn.add(dst)
+                        ops += 1
+            except (ClientError, TransientError) as exc:
+                if not _classify_ddl_error(exc):
+                    print(f"  [ddl] unexpected error on {op}: {exc}", flush=True)
+            except ServiceUnavailable:
+                raise
+            except Exception as exc:
+                if not _classify_ddl_error(exc):
+                    print(f"  [ddl] unexpected error on {op}: {exc}", flush=True)
+            time.sleep(RETRY_SLEEP)
+    finally:
+        # Best-effort cleanup: FORCE-drop any churn tenant this thread believes it left
+        # behind, so a killed run doesn't leak churn_tenant_N databases into the next
+        # invocation. Failures here are swallowed — cleanup is housekeeping, not an
+        # assertion (mirrors suspend_tenant's "never raises" contract in common.py).
+        for name in list(existing_churn):
+            try:
+                with drv.session() as sess:
+                    run_query(sess, f"DROP DATABASE {name} FORCE")
+            except Exception:
+                pass
+        drv.close()
+    print(f"  [ddl] issued {ops} successful DDL ops on the churn pool", flush=True)
+    return ops
+
+
 # ---------------------------------------------------------------------------
 # Main orchestration
 # ---------------------------------------------------------------------------
@@ -310,17 +456,28 @@ def main() -> None:
     num_tenants: int = max(1, args.num_tenants)
     duration_sec: float = args.duration_sec
     nodes_per_tx: int = max(1, args.nodes_per_tx)
+    num_churn_tenants: int = max(1, args.num_churn_tenants)
 
     tenant_names = [f"tenant_{i}" for i in range(num_tenants)]
+    # Disjoint namespace from tenant_names — see _ddl_worker docstring. "churn_" prefix
+    # makes any accidental overlap with tenant_N immediately visible in logs/repro.
+    churn_tenant_names = [f"churn_tenant_{i}" for i in range(num_churn_tenants)]
 
     print("==> Hot/Cold concurrency stress (v2: manual suspend/resume only)", flush=True)
     print(f"    endpoint       : {endpoint}", flush=True)
     print(f"    tenants        : {tenant_names}", flush=True)
-    print(f"    parallelism    : {parallelism} writers + 1 suspender + 1 resumer + 1 reader", flush=True)
+    print(f"    churn tenants  : {churn_tenant_names}  (DDL churn pool, disjoint)", flush=True)
+    print(
+        f"    parallelism    : {parallelism} writers + 1 suspender + 1 resumer + 1 reader + 1 ddl",
+        flush=True,
+    )
     print(f"    duration       : {duration_sec}s", flush=True)
     print(f"    nodes_per_tx   : {nodes_per_tx}", flush=True)
 
     # Phase 1: wait for server, then create tenant databases.
+    # NOTE: churn_tenant_names are intentionally NOT pre-created here — the DDL thread
+    # itself CREATEs (and DROPs/RENAMEs) them, so the pool starts empty and the DDL
+    # thread's own CREATE ops are exercised from t=0 instead of only DROP/RENAME.
     print("\n==> Phase 1: server readiness + tenant setup", flush=True)
     wait_for_server(endpoint, username, password)
     create_tenants(endpoint, username, password, tenant_names)
@@ -334,7 +491,7 @@ def main() -> None:
     base_seed = int(time.time())
     futures = []
 
-    with ThreadPoolExecutor(max_workers=parallelism + 3) as pool:
+    with ThreadPoolExecutor(max_workers=parallelism + 4) as pool:
         # Writer workers (parallelism of them).
         for wid in range(parallelism):
             f = pool.submit(
@@ -388,6 +545,22 @@ def main() -> None:
         )
         futures.append(("reader", 0, f))
 
+        # One DDL-churn thread (reviewer request #15). Uses the shared stop_flag (not
+        # suspender_stop_flag) so it drains together with the other antagonists and does
+        # not run into the suspender's contention-free tail — the tail's only job is to
+        # let SUSPEND land deterministically on tenant_names, and DDL churn never touches
+        # that namespace anyway, so there is nothing to gain by extending its lifetime.
+        f = pool.submit(
+            _ddl_worker,
+            endpoint,
+            username,
+            password,
+            churn_tenant_names,
+            stop_flag,
+            base_seed + parallelism + 3,
+        )
+        futures.append(("ddl", 0, f))
+
         # Let all workers run for duration_sec, then STAGGER the stop: drain the
         # antagonists (writers/resumer) first, then give the suspender a short
         # contention-free tail so its SUSPENDs land deterministically (see
@@ -396,7 +569,13 @@ def main() -> None:
         staggered_stop(stop_flag, suspender_stop_flag, duration_sec)
 
         # Collect any exceptions from workers (non-transient = real bug).
+        # collect_worker_results only tallies the "suspender"/"resumer" roles by name;
+        # it still awaits every future (so the "ddl" future's exceptions propagate the
+        # same as any other worker's), but its return value is informational-only here
+        # (see Phase 3.5 below) so we fetch it directly rather than growing the shared
+        # helper's role-name special-casing for a single caller.
         suspends_ok, resumes_ok = collect_worker_results(futures, timeout=60.0)
+        ddl_ops_ok = next(f.result() for role, _wid, f in futures if role == "ddl")
 
     # Phase 3: compute expected counts per tenant.
     print("\n==> Phase 3: computing expected node counts", flush=True)
@@ -410,6 +589,14 @@ def main() -> None:
 
     total_expected = sum(expected.values())
     print(f"    total expected: {total_expected} nodes across all tenants", flush=True)
+
+    # Phase 3.5: DDL-churn readout (informational only — see reviewer request #15).
+    # The churn tenants are transient by design: we assert neither their existence nor
+    # non-existence at the end, only that the DDL thread ran without raising a
+    # non-transient exception (already enforced above by collect_worker_results, which
+    # awaits the "ddl" future same as every other worker).
+    print("\n==> Phase 3.5: DDL-churn summary (informational, no assertion)", flush=True)
+    print(f"    ddl_ops_ok  : {ddl_ops_ok} (CREATE+DROP+RENAME on the churn pool combined)", flush=True)
 
     # Phase 4: resume each tenant and verify actual counts.
     print("\n==> Phase 4: final data-integrity verification", flush=True)

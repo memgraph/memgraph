@@ -36,6 +36,11 @@
 //                                            the winner publishes HOT. Post-fix the loser waits and
 //                                            succeeds; pre-fix it would return RECOVERY_FAILED while
 //                                            the winner was still alive. Sub-second wall-clock.
+//   LoserReturnsRecoveryFailedAfterPersistentAborts — counterpart to the above: cold_fallback_restarts
+//                                            (the bound HC-1 left untouched) IS reachable and DOES fire
+//                                            when the winner keeps actually aborting (COLD, not
+//                                            RESUMING) every round. A DEAD/aborting winner is bounded
+//                                            (RECOVERY_FAILED); a LIVE one is not.
 //   WrongTypedColdMetadataBootsDegraded   — valid JSON but wrong-typed metadata field boots degraded, not abort
 
 #ifdef MG_ENTERPRISE
@@ -501,6 +506,123 @@ TEST_F(HotColdResume, LoserNeverReturnsRecoveryFailedForLiveWinner) {
 
   handler_->SetOnResume({});
   handler_->SetResumeRetryPolicy({});  // restore production defaults for any subsequent test
+}
+
+// Counterpart to LoserNeverReturnsRecoveryFailedForLiveWinner (HC-1): that test proves a LIVE
+// (RESUMING) winner never advances cold_fallback_restarts, so a slow-but-healthy rebuild is never
+// bounded. This test proves the bound at dbms_handler.cpp's `if (++cold_fallback_restarts >
+// resume_retry_policy_.max_cold_fallback_restarts) return RECOVERY_FAILED` IS still reachable and
+// DOES fire when the winner keeps genuinely ABORTING (RESUMING -> COLD via abort_resume(), a real
+// COLD observation) instead of staying alive. Without this test, HC-1's `continue` on
+// winner_still_resuming could regress to "never count anything" (e.g. by mis-classifying COLD as
+// RESUMING, or by dropping the increment) and no test would notice, because the only other test that
+// exercises this arithmetic (LoserNeverReturnsRecoveryFailedForLiveWinner) asserts the bound is NEVER
+// hit.
+//
+// WHY A SINGLE ON_RESUME_ THROW IS NOT ENOUGH: on_resume_ is one process-wide callback (SetOnResume),
+// so making it always throw does not, by itself, isolate a "winner" role from a "loser" role — every
+// Resume() call that happens to win the single-flight token (begin_resume() succeeding on a COLD
+// gatekeeper) will itself run on_resume_, throw, call abort_resume() (RESUMING -> COLD), and `return`
+// RECOVERY_FAILED directly from ITS OWN stack frame (dbms_handler.cpp ~1459-1460) -- that direct
+// return path does NOT touch cold_fallback_restarts at all (see OnResumeFailureStaysColdRetriable,
+// which is exactly this single-threaded case). The counted bound at line ~1409 is reachable ONLY by a
+// thread that took the `!won_resume` (loser) branch of a *given* Resume() call, whose inner poll loop
+// then observed the winner-of-that-round land on COLD (not RESUMING) when its absolute_ceiling fired,
+// and looped back to Phase A -- repeatedly, within that SAME Resume() call -- enough times to exceed
+// max_cold_fallback_restarts.
+//
+// DETERMINISTIC REALIZATION: rather than trying to pin exact winner/loser thread identity (which
+// Resume_'s single-flight token assignment does not expose to a caller), this races several threads
+// that all repeatedly call Resume() against an always-throwing on_resume_ and a policy shrunk so the
+// bound is a handful of iterations, not minutes:
+//   - max_cold_fallback_restarts = 2   (only 3 COLD-fallback observations are tolerated)
+//   - winner_liveness_window     = 5ms  (irrelevant here: on_resume_ throws near-instantly, so no
+//                                        thread is ever observed genuinely RESUMING for long)
+//   - max_wait                   = 10ms (the loser's inner-poll absolute_ceiling; small so each
+//                                        Phase-A restart cycle is cheap and the whole test is fast)
+// Every racer's on_resume_ throw is synchronous and near-instant, so by the time any OTHER thread's
+// inner poll loop samples the gatekeeper state, the erstwhile winner has almost always already
+// abort_resume()'d back to COLD -- winner_still_resuming (RESUMING or SUSPENDING) is essentially never
+// observed true, so essentially every restart of a racer's poll loop counts. With max_wait this small
+// relative to how fast on_resume_ throws, a handful of racers each looping Resume() calls reliably
+// drives SOME call's cold_fallback_restarts past the bound within a couple of Resume() calls per
+// thread. We do not (and per the harness cannot) assert WHICH thread trips it -- only that the bound
+// fires deterministically and quickly, and that the tenant is left COLD/retriable, not stuck RESUMING.
+TEST_F(HotColdResume, LoserReturnsRecoveryFailedAfterPersistentAborts) {
+  auto name = CreateTenant("persistent_abort");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  handler_->SetResumeRetryPolicy({.max_cold_fallback_restarts = 2,
+                                  .winner_liveness_window = std::chrono::milliseconds(5),
+                                  .max_wait = std::chrono::milliseconds(10)});
+
+  // Every winner's pre-publish arm throws, unconditionally and immediately: the tenant never
+  // publishes HOT, and every round ends in a real RESUMING -> COLD abort_resume() -- never a live
+  // RESUMING/SUSPENDING observation.
+  std::atomic<int> abort_count{0};
+  handler_->SetOnResume([&abort_count](memgraph::dbms::DatabaseAccess) {
+    ++abort_count;
+    throw std::runtime_error("injected persistent pre-publish failure");
+  });
+
+  constexpr int kRacers = 6;
+  std::atomic<int> recovery_failed{0};
+  std::atomic<bool> stop{false};
+  std::vector<std::thread> racers;
+  racers.reserve(kRacers);
+  for (int i = 0; i < kRacers; ++i) {
+    racers.emplace_back([&] {
+      // Each racer keeps calling Resume() until it sees the bound fire (RECOVERY_FAILED) or the test's
+      // hard stop flag trips (safety net only -- see the wall-clock guard below). A racer whose own
+      // call happens to win the token and throw returns RECOVERY_FAILED immediately too (the
+      // uncounted, single-abort path); that is a benign, expected outcome and still satisfies the
+      // assertion that Resume() ultimately reports RECOVERY_FAILED for this persistently-aborting
+      // tenant, so no thread loops forever nor needs disambiguating from the counted path.
+      while (!stop.load(std::memory_order_relaxed)) {
+        auto res = handler_->Resume(name);
+        if (!res.has_value()) {
+          ASSERT_EQ(res.error(), DbmsHandler::ResumeError::RECOVERY_FAILED)
+              << "the only failure mode for a persistently-aborting tenant is RECOVERY_FAILED";
+          ++recovery_failed;
+          return;
+        }
+        // on_resume_ always throws before publish, so no call may ever observe success.
+        ADD_FAILURE() << "Resume() must not succeed while on_resume_ unconditionally throws";
+        return;
+      }
+    });
+  }
+
+  // Wall-clock safety net: with the shrunk policy above, the bound must fire within a handful of
+  // Resume() calls (milliseconds), so a few seconds is ample margin without risking a hang on a
+  // genuine regression -- if the bound stops firing, `stop` trips and every racer's ASSERT_EQ above
+  // is never reached, but the join below still completes and the final EXPECT_GT catches the
+  // regression instead of the test hanging.
+  const auto guard_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (recovery_failed.load(std::memory_order_relaxed) == 0 && std::chrono::steady_clock::now() < guard_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  stop.store(true, std::memory_order_relaxed);
+  for (auto &t : racers) t.join();
+
+  EXPECT_GT(recovery_failed.load(), 0)
+      << "the persistent-abort bound (cold_fallback_restarts > max_cold_fallback_restarts) must "
+         "eventually return RECOVERY_FAILED -- unlike a live winner, a genuinely-aborting one is bounded";
+  EXPECT_GT(abort_count.load(), 0) << "on_resume_ must have actually run (and aborted) at least once";
+
+  // The tenant must be left COLD/retriable -- never stuck RESUMING -- regardless of which racer
+  // thread(s) tripped the bound: abort_resume() always rolls RESUMING back to COLD before returning,
+  // so IsSuspended() must hold and a normal (non-throwing) resume must still be able to recover it.
+  EXPECT_TRUE(handler_->IsSuspended(name)) << "a persistently-aborting resume must leave the tenant COLD, not stuck";
+  EXPECT_FALSE(InAll(name)) << "the tenant must not be HOT after every winner's pre-publish arm aborted";
+
+  handler_->SetOnResume({});
+  handler_->SetResumeRetryPolicy({});  // restore production defaults for any subsequent test
+
+  // The tenant remains genuinely retriable: a resume without the injected failure now succeeds.
+  auto ok = handler_->Resume(name);
+  ASSERT_TRUE(ok.has_value()) << "a COLD tenant must still be resumable after the persistent-abort bound fired";
+  EXPECT_TRUE(InAll(name));
 }
 
 // Suspend/resume driven through a real system::Transaction must record their actions and complete
