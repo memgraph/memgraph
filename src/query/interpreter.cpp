@@ -9799,8 +9799,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #ifdef MG_ENTERPRISE
     if (current_db_.execution_db_accessor_ && interpreter_context_->auth_checker && user_or_role_ && *user_or_role_) {
       auto *dba = &*current_db_.execution_db_accessor_;
-      auto const current_db = dba->DatabaseName();
-      if (cached_fga_->checked && cached_fga_->db_name == current_db) {
+      if (cached_fga_->checked && cached_fga_->db_name == dba->DatabaseNameView()) {
         if (cached_fga_->checker) cached_fga_->checker->UpdateDbAccessor(dba);
       } else {
         cached_fga_->checker = interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*user_or_role_, dba);
@@ -9808,7 +9807,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         if (!cached_fga_->checker->NeedsFineGrainedAuthChecker()) {
           cached_fga_->checker.reset();
         }
-        cached_fga_->db_name = current_db;
+        cached_fga_->db_name = dba->DatabaseName();
         cached_fga_->checked = true;
       }
     } else {
