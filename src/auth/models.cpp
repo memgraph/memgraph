@@ -1867,6 +1867,13 @@ void MigrateAuthJson(nlohmann::json &data) {
     return;
   }
 
+  if (*version > kCurrentEntityVersion) {
+    spdlog::warn("Auth entity has version {} which is newer than the current version {}; leaving unmodified",
+                 *version,
+                 kCurrentEntityVersion);
+    return;
+  }
+
   // V2 to V3: rename fine_grained_access_handler to fine_grained_permissions,
   //           convert global_permission values from V2 enum to V3 bitmask,
   //           add empty permissions array per sub-object.
