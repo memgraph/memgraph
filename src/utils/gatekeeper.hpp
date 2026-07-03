@@ -363,13 +363,9 @@ struct Gatekeeper {
   // Reverses a freeze when the caller decides to abort the suspend.
   void abort_suspend() {
     auto guard = std::unique_lock{pimpl_->mutex_};
-    // DMG_ASSERT (debug/CI-only): the wrong-state call this guards is provably unreachable on every
-    // current path (each transition has a single disciplined caller — see Suspend_/Resume_), so this
-    // is a regression tripwire for future edits, NOT a production safety mechanism: a multi-tenant
-    // prod process should not be crashed by a state-machine mismatch. Trade-off (deliberate): under
-    // NDEBUG the assert is a no-op and the transition below still runs, so a hypothetical wrong-state
-    // call in release would silently mis-transition (e.g. ghost-HOT) rather than crash — accepted
-    // because the invariant holds on all real paths and debug/CI catches any regression first.
+    // DMG_ASSERT (debug/CI-only): a debug regression tripwire, NOT a prod safety net — the wrong-state
+    // call is unreachable on every current path (one disciplined caller per transition), and a
+    // multi-tenant prod process must not crash on a state mismatch (release just mis-transitions).
     DMG_ASSERT(pimpl_->state_ == GatekeeperState::SUSPENDING, "abort_suspend() called outside SUSPENDING state");
     pimpl_->state_ = GatekeeperState::HOT;
     pimpl_->cv_.notify_all();
@@ -451,13 +447,8 @@ struct Gatekeeper {
         return (pimpl_->state_ == GatekeeperState::HOT || pimpl_->state_ == GatekeeperState::COLD) &&
                pimpl_->count_ == 0;
       };
-      // Behaviour-preserving diagnosability: keep waiting unboundedly for the real condition (a slow
-      // accessor drain on shutdown is legitimate and must not be cut short), but periodically emit a
-      // breadcrumb explaining WHY it is still waiting. TRACE level + a long (5min) interval on purpose:
-      // a slow drain is usually benign, so a 5s WARN would be alarming, spammy log noise. This is a
-      // quiet heartbeat for someone who has already turned trace logging on to debug a hang (e.g. a
-      // gatekeeper destroyed while stuck SUSPENDING/RESUMING, a caller ordering error) — not a routine
-      // shutdown warning. The wait itself is still unbounded; only the breadcrumb cadence changed.
+      // The wait stays unbounded (a slow accessor drain on shutdown is legitimate); TRACE + a 5min
+      // cadence is a quiet breadcrumb for a trace-enabled hang debug, not an alarming WARN for a benign drain.
       constexpr auto kDiagInterval = std::chrono::minutes{5};
       while (!pimpl_->cv_.wait_for(lock, kDiagInterval, terminal_and_drained)) {
         // spdlog can throw (formatting, sink I/O); a destructor is implicitly noexcept, so an escaping

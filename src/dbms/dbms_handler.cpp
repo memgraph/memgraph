@@ -1210,12 +1210,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
 
   // The suspend is committed (tenant is COLD, in-memory storage and stream consumers dropped;
   // durable stream metadata persists for resume). Keep the streams stopped — do NOT run the undo guard.
-  //
-  // On the gap between rollback.Disable() above and this Disable(): finish_suspend() CANNOT throw-and-unwind
-  // into it — its only fallible step is value_.reset() (~Database -> ~InMemoryStorage), and destructors are
-  // noexcept by default, so a throwing teardown calls std::terminate rather than unwinding. The hypothetical
-  // "stuck SUSPENDING + streams left stopped" state is therefore not exception-reachable here (and a throwing
-  // storage destructor is already a terminate-level invariant violation, independent of this arm).
+  // finish_suspend()'s only fallible step is ~Database (noexcept), so no throw can unwind into this gap.
   stream_restore.Disable();
 
   // Record the system action so the suspend is ordered + replicated like CREATE/DROP DATABASE.
