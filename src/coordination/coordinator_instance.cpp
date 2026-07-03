@@ -1107,19 +1107,21 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
   CoordinatorClusterStateDelta delta_state;
   try {
     if (setting_name == kMaxFailoverLagOnReplica) {
-      delta_state.max_failover_replica_lag_ = utils::ParseStringToUint64(setting_value);
+      delta_state.max_failover_replica_lag_ = utils::ParseStringToUint<uint64_t>(setting_value);
     } else if (setting_name == kEnabledReadsOnMain) {
       delta_state.enabled_reads_on_main_ = utils::ToLowerCase(setting_value) == "true"sv;
     } else if (setting_name == kSyncFailoverOnly) {
       delta_state.sync_failover_only_ = utils::ToLowerCase(setting_value) == "true"sv;
     } else if (setting_name == kMaxReplicaReadLag) {
-      delta_state.max_replica_read_lag_ = utils::ParseStringToUint64(setting_value);
+      delta_state.max_replica_read_lag_ = utils::ParseStringToUint<uint64_t>(setting_value);
     } else if (setting_name == kDeltasBatchProgressSize) {
-      delta_state.deltas_batch_progress_size_ = utils::ParseStringToUint64(setting_value);
+      delta_state.deltas_batch_progress_size_ = utils::ParseStringToUint<uint64_t>(setting_value);
     } else if (setting_name == kInstanceDownTimeoutSec) {
-      delta_state.instance_down_timeout_sec_ = utils::ParseStringToUint32(setting_value);
+      spdlog::trace("Setting value: {}", setting_value);
+      spdlog::trace("Parsed value: {}", utils::ParseStringToUint<uint32_t>(setting_value));
+      delta_state.instance_down_timeout_sec_ = utils::ParseStringToUint<uint32_t>(setting_value);
     } else if (setting_name == kInstanceHealthCheckFreqSec) {
-      delta_state.instance_health_check_frequency_sec_ = utils::ParseStringToUint32(setting_value);
+      delta_state.instance_health_check_frequency_sec_ = utils::ParseStringToUint<uint32_t>(setting_value);
     } else if (setting_name == kGlobalReadOnly) {
       delta_state.global_read_only_ = parse_bool(setting_value);
     }
