@@ -221,6 +221,77 @@ TEST(RpcVersioning, StateCheckRpc) {
     EXPECT_TRUE(reply.arg_.is_writing_enabled);
   }
 }
+
+// UpdateDataInstanceConfigReq gained a `disable_writing` flag in v2 alongside the existing deltas_batch_progress_size.
+// Verify the payload round-trips and that Upgrade/Downgrade bridge v1<->v2 correctly.
+TEST(RpcVersioning, UpdateDataInstanceConfigPayload) {
+  memgraph::coordination::UpdateDataInstanceConfigReq const req{7000, /*disable_writing=*/true};
+
+  auto const downgraded = req.Downgrade();
+  EXPECT_EQ(downgraded.deltas_batch_progress_size, 7000);
+
+  auto const upgraded = memgraph::coordination::UpdateDataInstanceConfigReq::Upgrade(downgraded);
+  EXPECT_EQ(upgraded.deltas_batch_progress_size, 7000);
+  // A v1 sender doesn't know about read-only mode, so upgrading keeps writing enabled.
+  EXPECT_FALSE(upgraded.disable_writing);
+}
+
+namespace memgraph::coordination {
+using UpdateDataInstanceConfigRpcV1 =
+    rpc::RequestResponse<UpdateDataInstanceConfigReqV1, UpdateDataInstanceConfigResV1>;
+}  // namespace memgraph::coordination
+
+TEST(RpcVersioning, UpdateDataInstanceConfigRpc) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  uint64_t received_deltas{0};
+  bool received_disable_writing{false};
+
+  rpc_server.Register<memgraph::coordination::UpdateDataInstanceConfigRpc>(
+      [&received_deltas, &received_disable_writing](
+          std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        memgraph::coordination::UpdateDataInstanceConfigReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        received_deltas = req.deltas_batch_progress_size;
+        received_disable_writing = req.disable_writing;
+
+        memgraph::coordination::UpdateDataInstanceConfigRes const res{true};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  {
+    // Send new (v2) request: both config items are carried through.
+    auto stream = client.Stream<memgraph::coordination::UpdateDataInstanceConfigRpc>(uint64_t{5000},
+                                                                                     /*disable_writing=*/true);
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_EQ(received_deltas, 5000);
+    EXPECT_TRUE(received_disable_writing);
+  }
+  {
+    // Send old (v1) request: server upgrades it, defaulting disable_writing to false, and downgrades its response.
+    auto stream = client.Stream<memgraph::coordination::UpdateDataInstanceConfigRpcV1>(uint64_t{9000});
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_EQ(received_deltas, 9000);
+    EXPECT_FALSE(received_disable_writing);
+  }
+}
 #endif
 
 // Test: when request has 2 versions but response has only one version (no Downgrade),

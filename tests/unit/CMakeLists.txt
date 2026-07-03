@@ -986,6 +986,11 @@ add_unit_test(rpc_versioning
     LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc rpc_messages
 )
 
+add_unit_test(replication_state_writing
+    SOURCES replication_state_writing.cpp
+    LINK_TARGETS mg-replication mg-repl_coord_glue
+)
+
 # Test websocket
 
 add_unit_test(monitoring

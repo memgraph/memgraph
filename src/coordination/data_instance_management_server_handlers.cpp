@@ -102,7 +102,7 @@ void DataInstanceManagementServerHandlers::Register(memgraph::coordination::Data
                              uint64_t const request_version,
                              slk::Reader *req_reader,
                              slk::Builder *res_builder) -> void {
-        UpdateDeltasBatchProgressSizeHandler(replication_handler, request_version, req_reader, res_builder);
+        UpdateDataInstanceConfigHandler(replication_handler, request_version, req_reader, res_builder);
       });
 }
 
@@ -434,7 +434,7 @@ void DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(
   spdlog::info("Enabled writing on main.");
 }
 
-void DataInstanceManagementServerHandlers::UpdateDeltasBatchProgressSizeHandler(
+void DataInstanceManagementServerHandlers::UpdateDataInstanceConfigHandler(
     replication::ReplicationHandler &replication_handler, uint64_t request_version, slk::Reader *req_reader,
     slk::Builder *res_builder) {
   coordination::UpdateDataInstanceConfigReq req;
@@ -442,7 +442,17 @@ void DataInstanceManagementServerHandlers::UpdateDeltasBatchProgressSizeHandler(
 
   {
     auto locked_repl_state = replication_handler.GetReplState();
-    locked_repl_state->UpdateDeltasBatchProgressSize(req.arg_);
+    locked_repl_state->UpdateDeltasBatchProgressSize(req.deltas_batch_progress_size);
+
+    // The writing flag only exists on the main-role state; touching it on a replica would assert. Replicas reject
+    // writes regardless of this flag, so the coordinator's intent is simply ignored there.
+    if (locked_repl_state->IsMain()) {
+      if (req.disable_writing) {
+        locked_repl_state->DisableWritingOnMain();
+      } else {
+        locked_repl_state->EnableWritingOnMain();
+      }
+    }
   }
 
   coordination::UpdateDataInstanceConfigRes const res{true};

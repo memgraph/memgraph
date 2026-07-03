@@ -1169,6 +1169,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
   instance.OnSuccessPing();
 
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
+  auto const global_read_only = raft_state_->GetGlobalReadOnly();
 
   if (raft_state_->IsCurrentMain(instance_name)) {
     // Update cache with the information from the current main if there is a value received
@@ -1223,9 +1224,13 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     // According to raft, this is the current MAIN
     // Check if a promotion is needed:
     //  - instance is actually a replica
+    //  - instance is main, but not writeable while the cluster is NOT read-only (restart recovery / missed failover /
+    //    clearing read-only). A deliberately read-only main is left alone here; its writing state is reconciled below
+    //    through UpdateDataInstanceConfigRpc.
     //  - instance is main, but has stale state (missed a failover)
-    if (instance_state.inner_state.is_replica || !instance_state.inner_state.is_writing_enabled ||
-        !instance_state.inner_state.uuid || *instance_state.inner_state.uuid != curr_main_uuid) {
+    if (instance_state.inner_state.is_replica ||
+        (!instance_state.inner_state.is_writing_enabled && !global_read_only) || !instance_state.inner_state.uuid ||
+        *instance_state.inner_state.uuid != curr_main_uuid) {
       auto const data_instances_cache = raft_state_->GetDataInstancesContext();
       auto repl_clients_info =
           data_instances_cache |
@@ -1289,12 +1294,19 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     }
   }
 
-  if (auto const deltas_batch_progress_size = raft_state_->GetDeltasBatchProgressSize();
-      deltas_batch_progress_size != instance_state.deltas_batch_progress_size) {
-    if (!instance.SendRpc<UpdateDataInstanceConfigRpc>(deltas_batch_progress_size)) {
+  // deltas_batch_progress_size and the main's writing state are both carried by UpdateDataInstanceConfigRpc and always
+  // travel together. disable_writing is the projection of the coordinator's global_read_only setting; it is only
+  // meaningful on the current main (a no-op on replicas), so writing divergence is only considered there. This drives
+  // the disable direction of read-only mode; the enable direction is handled by the idempotent promotion path above.
+  auto const deltas_batch_progress_size = raft_state_->GetDeltasBatchProgressSize();
+  bool const deltas_diverged = deltas_batch_progress_size != instance_state.deltas_batch_progress_size;
+  bool const writing_diverged =
+      raft_state_->IsCurrentMain(instance_name) && instance_state.inner_state.is_writing_enabled == global_read_only;
+  if (deltas_diverged || writing_diverged) {
+    if (!instance.SendRpc<UpdateDataInstanceConfigRpc>(deltas_batch_progress_size, global_read_only)) {
       spdlog::warn(
-          "Couldn't update deltas_batch_progress_size on data instance {}. The operation will be retried in the next "
-          "iteration of the reconciliation loop.",
+          "Couldn't update config on data instance {}. The operation will be retried in the next iteration of the "
+          "reconciliation loop.",
           instance_name);
       return;
     }
