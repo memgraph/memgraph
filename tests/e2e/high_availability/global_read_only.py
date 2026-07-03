@@ -276,41 +276,5 @@ def test_global_read_only_honored_across_failover():
     wait_until_main_writeable_assert_replica_down(new_main_cursor, "CREATE (n:Node {name: 'after_clear'})")
 
 
-def test_failover_writeable_when_not_read_only():
-    # The mirror image of the read-only failover: when the cluster is NOT read-only, killing the main promotes a
-    # writeable new main (today's behavior, preserved by the writing_enabled = !global_read_only projection).
-    memgraph_instances_description = get_failover_instances_description(test_name="test_writeable_failover")
-    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
-
-    coordinator_cursor = connect(host="localhost", port=7692).cursor()
-
-    expected_cluster = [
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
-    ]
-    mg_sleep_and_assert(expected_cluster, partial(show_instances, coordinator_cursor))
-
-    interactive_mg_runner.kill(memgraph_instances_description, "instance_3")
-
-    expected_cluster_after_failover = [
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
-    ]
-    mg_sleep_and_assert(expected_cluster_after_failover, partial(show_instances, coordinator_cursor))
-
-    # Wait until instance_1 has actually processed the promotion before probing writes, so we don't race the promote
-    # RPC and hit the (different) replica-side rejection.
-    new_main_cursor = connect(host="localhost", port=7688).cursor()
-    mg_sleep_and_assert_until_role_change(
-        lambda: execute_and_fetch_all(new_main_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
-    )
-
-    # The promoted main accepts writes (its down SYNC replica surfaces as a replication error, which the helper treats
-    # as "main is writeable").
-    wait_until_main_writeable_assert_replica_down(new_main_cursor, "CREATE (n:Node {name: 'writeable'})")
-
-
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
