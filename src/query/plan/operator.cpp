@@ -2033,7 +2033,8 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
                                const std::vector<storage::EdgeTypeId> &edge_types, bool is_reverse,
                                Expression *lower_bound, Expression *upper_bound, bool existing_node,
                                ExpansionLambda filter_lambda, std::optional<ExpansionLambda> weight_lambda,
-                               std::optional<Symbol> total_weight, Expression *limit)
+                               std::optional<Symbol> total_weight, Expression *limit,
+                               std::optional<ExpansionLambda> heuristic_lambda)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(std::move(input_symbol)),
       common_{.node_symbol = node_symbol,
@@ -2047,6 +2048,7 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
       upper_bound_(upper_bound),
       filter_lambda_(std::move(filter_lambda)),
       weight_lambda_(std::move(weight_lambda)),
+      heuristic_lambda_(std::move(heuristic_lambda)),
       total_weight_(std::move(total_weight)),
       limit_(limit) {
   DMG_ASSERT(type_ == EdgeAtom::Type::DEPTH_FIRST || type_ == EdgeAtom::Type::BREADTH_FIRST ||
@@ -3957,6 +3959,19 @@ class KShortestPathsCursor : public Cursor {
     return ToWeightDouble(weight);
   }
 
+  // A* heuristic: estimated remaining cost from `node` to the target. Returns 0 when no heuristic
+  // lambda is supplied, which reduces the search to plain Dijkstra.
+  double Heuristic(const EdgeAccessor &edge, const VertexAccessor &node, Frame &frame, ExpressionEvaluator &evaluator,
+                   ExecutionContext &context) {
+    if (!self_.heuristic_lambda_) return 0.0;
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, evaluator.GetMemoryResource());
+    frame_writer.Write(self_.heuristic_lambda_->inner_edge_symbol, edge);
+    frame_writer.Write(self_.heuristic_lambda_->inner_node_symbol, node);
+    TypedValue estimate = self_.heuristic_lambda_->expression->Accept(evaluator);
+    ValidateWeight(estimate);
+    return ToWeightDouble(estimate);
+  }
+
   static double ToWeightDouble(const TypedValue &weight) {
     switch (weight.type()) {
       case TypedValue::Type::Int:
@@ -4062,8 +4077,9 @@ class KShortestPathsCursor : public Cursor {
     return info;
   }
 
-  // Computes the lowest-cost path from source to target using Dijkstra's algorithm, honoring the
-  // optional weight lambda (defaulting to unit cost), the optional filter lambda, blocked
+  // Computes the lowest-cost path from source to target using A* (plain Dijkstra when no heuristic
+  // lambda is supplied). The priority queue is ordered by f = g + h, while distances and the reported
+  // total weight track the true cost g. Honors the optional weight/filter lambdas, blocked
   // edges/vertices from Yen's deviations, fine-grained access checks and the hop upper bound.
   PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target, Frame &frame,
                                ExpressionEvaluator &evaluator, ExecutionContext &context) {
@@ -4074,27 +4090,29 @@ class KShortestPathsCursor : public Cursor {
     PredecessorMap pred(mem);
     utils::pmr::unordered_map<VertexAccessor, int64_t, VertexAccessorHash> depth(mem);
 
-    using QueueElement = std::pair<double, VertexAccessor>;
-    auto cmp = [](const QueueElement &a, const QueueElement &b) { return a.first > b.first; };
+    // Priority-queue element: (f = g + h, g, vertex), ordered by f.
+    using QueueElement = std::tuple<double, double, VertexAccessor>;
+    auto cmp = [](const QueueElement &a, const QueueElement &b) { return std::get<0>(a) > std::get<0>(b); };
     std::priority_queue<QueueElement, utils::pmr::vector<QueueElement>, decltype(cmp)> pq(
         cmp, utils::pmr::vector<QueueElement>(mem));
 
     dist[source] = 0.0;
     pred[source] = std::nullopt;
     depth[source] = 0;
-    pq.emplace(0.0, source);
+    pq.emplace(0.0, 0.0, source);
 
     while (!pq.empty()) {
       AbortCheck(context);
       auto top = pq.top();
       pq.pop();
-      const double current_cost = top.first;
-      const VertexAccessor vertex = top.second;
+      const double g = std::get<1>(top);
+      const VertexAccessor vertex = std::get<2>(top);
 
       // Skip stale priority-queue entries (a cheaper route to this vertex was found later).
-      if (auto it = dist.find(vertex); it == dist.end() || current_cost > it->second) continue;
+      if (auto it = dist.find(vertex); it == dist.end() || g > it->second) continue;
 
-      if (vertex == target) return BuildPath(source, target, pred, current_cost, frame, evaluator, context);
+      // With a consistent heuristic, the first pop of the target yields the optimal cost g.
+      if (vertex == target) return BuildPath(source, target, pred, g, frame, evaluator, context);
 
       // Respect the hop upper bound: do not expand past it.
       if (depth.at(vertex) >= upper_bound_) continue;
@@ -4104,14 +4122,14 @@ class KShortestPathsCursor : public Cursor {
         if (context.hops_limit.IsLimitReached()) return;
         if (blocked_edges_.contains(edge) || blocked_vertices_.contains(next)) return;
         if (to ? !FineGrainedAccessCheck<kTo>(edge, context) : !FineGrainedAccessCheck<kFrom>(edge, context)) return;
-        const double new_cost = current_cost + EdgeWeight(edge, next, frame, evaluator, context);
-        if (!PassesFilter(edge, vertex, next, source, pred, new_cost, frame, evaluator, context)) return;
+        const double new_g = g + EdgeWeight(edge, next, frame, evaluator, context);
+        if (!PassesFilter(edge, vertex, next, source, pred, new_g, frame, evaluator, context)) return;
         auto it = dist.find(next);
-        if (it == dist.end() || new_cost < it->second) {
-          dist[next] = new_cost;
+        if (it == dist.end() || new_g < it->second) {
+          dist[next] = new_g;
           pred[next] = edge;
           depth[next] = next_depth;
-          pq.emplace(new_cost, next);
+          pq.emplace(new_g + Heuristic(edge, next, frame, evaluator, context), new_g, next);
         }
       };
 
@@ -4229,6 +4247,13 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
     object->weight_lambda_.emplace(std::move(value0));
   } else {
     object->weight_lambda_ = std::nullopt;
+  }
+  if (heuristic_lambda_) {
+    memgraph::query::plan::ExpansionLambda value0;
+    value0 = (*heuristic_lambda_).Clone(storage);
+    object->heuristic_lambda_.emplace(std::move(value0));
+  } else {
+    object->heuristic_lambda_ = std::nullopt;
   }
   object->total_weight_ = total_weight_;
   object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;

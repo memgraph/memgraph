@@ -136,27 +136,25 @@ Feature: K Shortest Paths
           | ['S', 'T']        | 10           |
 
   ########################################################################
-  # Desired behavior: A*-guided KSHORTEST.
+  # Desired behavior: A*-guided KSHORTEST via a first-class HEURISTIC lambda.
   #
-  # A* is Dijkstra on reduced edge costs w'(u->v) = w(u,v) - h(u) + h(v),
-  # where h is a consistent heuristic (here the node `h` property). The
-  # heuristic only reorders exploration; the K paths and their REAL weights
-  # are identical to the plain weighted run above. We recover the real weight
-  # with reduce() so the heuristic offset does not leak into the result.
+  # HEURISTIC (e, n | ...) estimates the remaining cost from n to the target and
+  # only reorders the search (priority f = g + h). The K paths and the reported
+  # total_weight are the TRUE least-cost results (no reduced-cost offset). The node
+  # `h` property is a consistent, admissible estimate of the distance to T.
   ########################################################################
 
-  Scenario: A*-guided KSHORTEST yields the same K least-cost paths
+  Scenario: A*-guided KSHORTEST yields the same K least-cost paths with true costs
       Given graph "kshortest"
       When executing query:
           """
           MATCH (s:Node {name: 'S'}), (t:Node {name: 'T'})
           WITH s, t
-          MATCH p = (s)-[r *KSHORTEST | 2 (e, n | e.weight - startNode(e).h + n.h) reduced]->(t)
-          RETURN [n IN nodes(p) | n.name] AS path,
-                 reduce(acc = 0, e IN r | acc + e.weight) AS real_weight
-          ORDER BY real_weight
+          MATCH p = (s)-[r *KSHORTEST | 2 (e, n | e.weight) total_weight HEURISTIC (e, n | n.h)]->(t)
+          RETURN [n IN nodes(p) | n.name] AS path, total_weight
+          ORDER BY total_weight
           """
       Then the result should be, in order:
-          | path                   | real_weight |
-          | ['S', 'A', 'B', 'T']   | 4           |
-          | ['S', 'B', 'T']        | 5           |
+          | path                   | total_weight |
+          | ['S', 'A', 'B', 'T']   | 4            |
+          | ['S', 'B', 'T']        | 5            |

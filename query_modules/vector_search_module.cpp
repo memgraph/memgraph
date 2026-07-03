@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <numbers>
 #include <string_view>
 
 #include <mgp.hpp>
@@ -41,10 +42,17 @@ static constexpr std::string_view kProcedureCosineSimilarity = "cosine_similarit
 static constexpr std::string_view kParameterVector1 = "vector1";
 static constexpr std::string_view kParameterVector2 = "vector2";
 
+static constexpr std::string_view kProcedureHaversineDistance = "haversine_distance";
+static constexpr std::string_view kParameterLatitude1 = "latitude1";
+static constexpr std::string_view kParameterLongitude1 = "longitude1";
+static constexpr std::string_view kParameterLatitude2 = "latitude2";
+static constexpr std::string_view kParameterLongitude2 = "longitude2";
+
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void CosineSimilarityFunction(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
+void HaversineDistanceFunction(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 }  // namespace VectorSearch
 
 void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
@@ -171,6 +179,49 @@ void VectorSearch::CosineSimilarityFunction(mgp_list *args, mgp_func_context * /
   }
 }
 
+void VectorSearch::HaversineDistanceFunction(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res,
+                                             mgp_memory *memory) {
+  try {
+    mgp::MemoryDispatcherGuard guard{memory};
+
+    auto get_numeric_value = [](const mgp::Value &val) {
+      if (val.IsDouble()) {
+        return val.ValueDouble();
+      }
+      if (val.IsInt()) {
+        return static_cast<double>(val.ValueInt());
+      }
+      throw std::invalid_argument("Coordinates must be numeric (int or double)");
+    };
+
+    const auto latitude1 = get_numeric_value(mgp::Value(mgp::ref_type, mgp::list_at(args, 0)));
+    const auto longitude1 = get_numeric_value(mgp::Value(mgp::ref_type, mgp::list_at(args, 1)));
+    const auto latitude2 = get_numeric_value(mgp::Value(mgp::ref_type, mgp::list_at(args, 2)));
+    const auto longitude2 = get_numeric_value(mgp::Value(mgp::ref_type, mgp::list_at(args, 3)));
+
+    // Mean Earth radius in meters, matching the unit used by Cypher's point.distance.
+    constexpr double kEarthRadiusMeters = 6371000.0;
+    const auto to_radians = [](double degrees) { return degrees * std::numbers::pi / 180.0; };
+
+    const auto latitude1_rad = to_radians(latitude1);
+    const auto latitude2_rad = to_radians(latitude2);
+    const auto delta_latitude = to_radians(latitude2 - latitude1);
+    const auto delta_longitude = to_radians(longitude2 - longitude1);
+
+    // Haversine formula for the great-circle distance between two points on a sphere.
+    const auto a = std::sin(delta_latitude / 2.0) * std::sin(delta_latitude / 2.0) +
+                   std::cos(latitude1_rad) * std::cos(latitude2_rad) * std::sin(delta_longitude / 2.0) *
+                       std::sin(delta_longitude / 2.0);
+    const auto c = 2.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
+    const auto distance = kEarthRadiusMeters * c;
+
+    auto result = mgp::Result(res);
+    result.SetValue(distance);
+  } catch (const std::exception &e) {
+    mgp::func_result_set_error_msg(res, e.what(), memory);
+  }
+}
+
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard{memory};
@@ -229,6 +280,17 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      {
                          mgp::Parameter(VectorSearch::kParameterVector1, {mgp::Type::List, mgp::Type::Any}),
                          mgp::Parameter(VectorSearch::kParameterVector2, {mgp::Type::List, mgp::Type::Any}),
+                     },
+                     module,
+                     memory);
+
+    mgp::AddFunction(VectorSearch::HaversineDistanceFunction,
+                     VectorSearch::kProcedureHaversineDistance,
+                     {
+                         mgp::Parameter(VectorSearch::kParameterLatitude1, mgp::Type::Any),
+                         mgp::Parameter(VectorSearch::kParameterLongitude1, mgp::Type::Any),
+                         mgp::Parameter(VectorSearch::kParameterLatitude2, mgp::Type::Any),
+                         mgp::Parameter(VectorSearch::kParameterLongitude2, mgp::Type::Any),
                      },
                      module,
                      memory);

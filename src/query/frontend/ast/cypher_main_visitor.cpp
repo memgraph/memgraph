@@ -3320,6 +3320,12 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
   }
 
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
+  // The heuristic lambda (introduced by the HEURISTIC keyword) reuses the relationshipLambda rule, so it also
+  // shows up in the list above. Pull it out so it is not miscounted as a weight/filter lambda.
+  auto *heuristic_lambda_ctx = relationshipDetail->heuristic_lambda;
+  if (heuristic_lambda_ctx != nullptr) {
+    std::erase(relationshipLambdas, heuristic_lambda_ctx);
+  }
   if (variableExpansion) {
     if (relationshipDetail->total_weight && edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH &&
         edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS && edge->type_ != EdgeAtom::Type::KSHORTEST)
@@ -3412,6 +3418,16 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         break;
       default:
         throw SemanticException("Only one filter lambda can be supplied.");
+    }
+    if (heuristic_lambda_ctx != nullptr) {
+      if (edge->type_ != EdgeAtom::Type::KSHORTEST) {
+        throw SemanticException("A* heuristic (HEURISTIC lambda) is only supported with KSHORTEST path expansion.");
+      }
+      if (edge->weight_lambda_.expression == nullptr) {
+        throw SemanticException(
+            "A* heuristic (HEURISTIC lambda) requires a weight lambda in KSHORTEST path expansion.");
+      }
+      edge->heuristic_lambda_ = visit_lambda(heuristic_lambda_ctx);
     }
     if (edge->type_ != EdgeAtom::Type::KSHORTEST && edge->limit_ != nullptr) {
       throw SemanticException("Number of paths limit is only supported with KSHORTEST path expansion.");

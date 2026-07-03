@@ -1175,7 +1175,8 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
                  Symbol edge_symbol, EdgeAtom::Type type, EdgeAtom::Direction direction,
                  const std::vector<storage::EdgeTypeId> &edge_types, bool is_reverse, Expression *lower_bound,
                  Expression *upper_bound, bool existing_node, ExpansionLambda filter_lambda,
-                 std::optional<ExpansionLambda> weight_lambda, std::optional<Symbol> total_weight, Expression *limit);
+                 std::optional<ExpansionLambda> weight_lambda, std::optional<Symbol> total_weight, Expression *limit,
+                 std::optional<ExpansionLambda> heuristic_lambda = std::nullopt);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
@@ -1199,6 +1200,8 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   Expression *upper_bound_;
   memgraph::query::plan::ExpansionLambda filter_lambda_;
   std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda_;
+  /// Optional A* heuristic lambda for kshortest path expansion; estimates the remaining cost to the target.
+  std::optional<memgraph::query::plan::ExpansionLambda> heuristic_lambda_;
   std::optional<Symbol> total_weight_;
 
   /// Limit for the number of paths returned in kshortest path expansion.

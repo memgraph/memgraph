@@ -994,6 +994,10 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
       VisitWithIdentifiers({edge_atom.weight_lambda_.expression},
                            {edge_atom.weight_lambda_.inner_edge, edge_atom.weight_lambda_.inner_node});
     }
+    if (edge_atom.heuristic_lambda_.expression) {
+      VisitWithIdentifiers({edge_atom.heuristic_lambda_.expression},
+                           {edge_atom.heuristic_lambda_.inner_edge, edge_atom.heuristic_lambda_.inner_node});
+    }
     scope.in_pattern = true;
   }
   scope.in_pattern_atom_identifier = true;
