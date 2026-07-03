@@ -8247,7 +8247,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     // snapshot — no per-row locks, and no duplicate row for a tenant caught mid-suspend
     // (AllWithHotColdStatus de-dups: suspended_ wins).
     std::vector<std::string> all_names;
-    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD" | "COLD (recovery failed...)"
+    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD"
     for (auto &[name, st] : db_handler->AllWithHotColdStatus()) {
       all_names.push_back(name);
       status_of.emplace(std::move(name), std::move(st));
@@ -8260,7 +8260,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       for (const auto &name : all) {
         // `name` is a std::string (all_names) or a TypedValue (auth allowed-list); normalize.
         const std::string ns{TypedValue(name).ValueString()};
-        // status_of carries the full HOT/COLD(/recovery-failed) string. A granted name not in the
+        // status_of carries the HOT/COLD string. A granted name not in the
         // snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
         auto it = status_of.find(ns);
         status.push_back({TypedValue(ns), TypedValue(it != status_of.end() ? it->second : std::string{"HOT"})});

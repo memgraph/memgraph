@@ -1556,6 +1556,9 @@ void DbmsHandler::ApplyColdRecoveryMeta(std::string_view name, const storage::Co
   auto wr = std::lock_guard{lock_};
   auto it = suspended_.find(name);
   if (it == suspended_.end()) return;
+  // Nothing changed (the common steady-state on a re-sync) -> skip the in-memory mutation and the
+  // durable Put below (fmt key alloc + JSON serialize + disk write).
+  if (it->second.cold_stats == meta.stats) return;
   // StorageInfo is a trivially-copyable flat POD, so this assignment allocates nothing and cannot
   // throw — it->second is never left partially updated.
   it->second.cold_stats = meta.stats;

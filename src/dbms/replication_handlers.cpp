@@ -58,14 +58,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
   using storage::replication::CreateDatabaseRes;
   CreateDatabaseRes res(CreateDatabaseRes::Result::FAILURE);
 
-  // Ignore if no license
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error(
-        "Handling CreateDatabase, an enterprise RPC message, without license. Check your license status by running "
-        "SHOW LICENSE INFO.");
-    rpc::SendFinalResponse(res, request_version, res_builder);
-    return;
-  }
+  if (RejectIfNoLicense("CreateDatabase", request_version, res_builder, res)) return;
 
   storage::replication::CreateDatabaseReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
@@ -109,14 +102,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   using memgraph::storage::replication::DropDatabaseRes;
   DropDatabaseRes res(DropDatabaseRes::Result::FAILURE);
 
-  // Ignore if no license
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error(
-        "Handling DropDatabase, an enterprise RPC message, without license. Check your license status by running SHOW "
-        "LICENSE INFO.");
-    rpc::SendFinalResponse(res, request_version, res_builder);
-    return;
-  }
+  if (RejectIfNoLicense("DropDatabase", request_version, res_builder, res)) return;
 
   memgraph::storage::replication::DropDatabaseReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
@@ -169,15 +155,7 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   using memgraph::storage::replication::RenameDatabaseRes;
   RenameDatabaseRes res(RenameDatabaseRes::Result::FAILURE);
 
-  // Ignore if no license
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error(
-        "Handling RenameDatabase, an enterprise RPC message, without license. Check your license status by running "
-        "SHOW "
-        "LICENSE INFO.");
-    rpc::SendFinalResponse(res, request_version, res_builder);
-    return;
-  }
+  if (RejectIfNoLicense("RenameDatabase", request_version, res_builder, res)) return;
 
   memgraph::storage::replication::RenameDatabaseReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);

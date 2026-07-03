@@ -132,6 +132,8 @@ struct StorageInfo {
   utils::CompressionLevel property_store_compression_level;
   uint64_t schema_vertex_count;
   uint64_t schema_edge_count;
+
+  friend bool operator==(const StorageInfo &, const StorageInfo &) = default;
 };
 
 // Single ordered list of StorageInfo's (de)serializable fields. Every persistence/wire path —
