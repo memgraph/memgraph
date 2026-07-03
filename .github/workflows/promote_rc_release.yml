@@ -216,6 +216,9 @@ jobs:
 
   PromoteDocker:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # keyless cosign signing via GitHub OIDC (Fulcio/Rekor)
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -365,6 +368,16 @@ jobs:
             echo "Successfully published ${RELEASE_IMAGE} to DockerHub!"
           fi
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      - name: Sign released image with cosign (keyless)
+        run: |
+          # Sign the multi-arch manifest; --recursive also signs each per-arch
+          # child image. Signatures are stored by digest in the same repo, so
+          # the `latest` tag (identical digest) is covered too. Registry auth
+          # comes from the earlier docker login. Keyless via GitHub OIDC.
+          cosign sign --yes --recursive "${RELEASE_IMAGE}"
 
       - name: Clean up temporary images
         run: |
@@ -394,6 +407,9 @@ jobs:
           - build_type: "RelWithDebInfo"
             image_ext: "-relwithdebinfo-cugraph"
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # keyless cosign signing via GitHub OIDC (Fulcio/Rekor)
+      contents: read
     steps:
       - name: Validate “use_test_rc” only with test
         if: inputs.use_test_rc && ! inputs.test
@@ -718,6 +734,18 @@ jobs:
               echo "No images promoted; skipping 'latest' manifest creation."
             fi
           fi
+
+      - name: Install cosign
+        if: ${{ env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true' }}
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      - name: Sign released MAGE image with cosign (keyless)
+        # Only runs when a manifest was actually pushed (i.e. at least one arch
+        # RC package existed). --recursive also signs the per-arch children; the
+        # 'latest' tag on prod shares the digest, so it is covered too.
+        if: ${{ env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true' }}
+        run: |
+          cosign sign --yes --recursive "${release_image}"
 
       - name: Clean up temporary images
         run: |
