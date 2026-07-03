@@ -103,26 +103,70 @@ struct UpgradeableEmptyReq {
   UpgradeableEmptyReq() = default;
 };
 
-struct PromoteToMainReq {
+// PromoteToMainReq gained a `writing_enabled` flag in v2: the coordinator projects its global_read_only setting onto
+// the promoted main (writing_enabled = !global_read_only) so read-only is honored across failover. v1 carried only the
+// uuid and replicas; a v1 sender doesn't know about read-only mode, so Upgrade keeps writing enabled to preserve
+// pre-feature behavior.
+struct PromoteToMainReqV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_FAILOVER_REQ, .name = "PromoteToMainReq"};
   static constexpr uint64_t kVersion{1};
 
-  static void Load(PromoteToMainReq *self, memgraph::slk::Reader *reader);
-  static void Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder);
+  static void Load(PromoteToMainReqV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const PromoteToMainReqV1 &self, memgraph::slk::Builder *builder);
 
-  explicit PromoteToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
+  explicit PromoteToMainReqV1(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
       : main_uuid(uuid), replication_clients_info(std::move(replication_clients_info)) {}
 
-  PromoteToMainReq() = default;
+  PromoteToMainReqV1() = default;
 
-  // get uuid here
   utils::UUID main_uuid;
   std::vector<ReplicationClientInfo> replication_clients_info;
 };
 
-struct PromoteToMainRes {
+struct PromoteToMainReq {
+  static constexpr utils::TypeInfo kType{PromoteToMainReqV1::kType};
+  static constexpr uint64_t kVersion{2};
+
+  static void Load(PromoteToMainReq *self, memgraph::slk::Reader *reader);
+  static void Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder);
+
+  PromoteToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info,
+                   bool writing_enabled)
+      : main_uuid(uuid),
+        replication_clients_info(std::move(replication_clients_info)),
+        writing_enabled(writing_enabled) {}
+
+  PromoteToMainReq() = default;
+
+  // A v1 sender doesn't know about read-only mode; keep writing enabled to preserve pre-feature behavior.
+  static PromoteToMainReq Upgrade(PromoteToMainReqV1 const &prev) {
+    return PromoteToMainReq{prev.main_uuid, prev.replication_clients_info, true};
+  }
+
+  PromoteToMainReqV1 Downgrade() const { return PromoteToMainReqV1{main_uuid, replication_clients_info}; }
+
+  utils::UUID main_uuid;
+  std::vector<ReplicationClientInfo> replication_clients_info;
+  bool writing_enabled;
+};
+
+struct PromoteToMainResV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_FAILOVER_RES, .name = "PromoteToMainRes"};
   static constexpr uint64_t kVersion{1};
+
+  static void Load(PromoteToMainResV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const PromoteToMainResV1 &self, memgraph::slk::Builder *builder);
+
+  explicit PromoteToMainResV1(bool success) : arg_(success) {}
+
+  PromoteToMainResV1() = default;
+
+  bool arg_;
+};
+
+struct PromoteToMainRes {
+  static constexpr utils::TypeInfo kType{PromoteToMainResV1::kType};
+  static constexpr uint64_t kVersion{2};
 
   static void Load(PromoteToMainRes *self, memgraph::slk::Reader *reader);
   static void Save(const PromoteToMainRes &self, memgraph::slk::Builder *builder);
@@ -130,6 +174,8 @@ struct PromoteToMainRes {
   explicit PromoteToMainRes(bool success) : arg_(success) {}
 
   PromoteToMainRes() = default;
+
+  PromoteToMainResV1 Downgrade() const { return PromoteToMainResV1{arg_}; }
 
   bool arg_;
 };
@@ -599,8 +645,12 @@ using UpdateDataInstanceConfigRpc = rpc::RequestResponse<UpdateDataInstanceConfi
 namespace memgraph::slk {
 
 // PromoteToMainRpc
+void Save(const memgraph::coordination::PromoteToMainResV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::PromoteToMainResV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::PromoteToMainRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::PromoteToMainRes *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::PromoteToMainReqV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::PromoteToMainReqV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::PromoteToMainReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::PromoteToMainReq *self, memgraph::slk::Reader *reader);
 

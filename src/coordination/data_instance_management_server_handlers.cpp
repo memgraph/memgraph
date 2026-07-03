@@ -323,7 +323,10 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
     }
   }
 
-  replication_handler.GetReplState()->GetMainRole().writing_enabled_ = true;
+  // Honor the coordinator's intent: writing_enabled is the projection of global_read_only (false while the cluster is
+  // read-only). A v1 coordinator that predates read-only mode is upgraded to writing_enabled = true, preserving the
+  // previous unconditional behavior.
+  replication_handler.GetReplState()->GetMainRole().writing_enabled_ = req.writing_enabled;
 
   coordination::PromoteToMainRes const res{true};
   rpc::SendFinalResponse(res, request_version, res_builder);
