@@ -504,3 +504,24 @@ Feature: Text edge search related features
             | title       |
             | 'memgrap'   |
             | 'memgraph'  |
+
+    Scenario: Fuzzy phrase edge search enforces order with a last-word prefix
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT EDGE INDEX fuzzyPhraseEdgeIndex ON :LINK
+            """
+        And having executed
+            """
+            CREATE (a:Document)-[:LINK {text: 'big bad wolf'}]->(b:Document)
+            CREATE (c:Document)-[:LINK {text: 'bad big wolf'}]->(d:Document)
+            """
+        When executing query:
+            """
+            CALL text_search.fuzzy_phrase_search_edges('fuzzyPhraseEdgeIndex', 'data.text:big bad wo') YIELD edge
+            RETURN edge.text AS text
+            ORDER BY text ASC
+            """
+        Then the result should be:
+            | text         |
+            | 'big bad wolf' |

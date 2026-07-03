@@ -333,10 +333,21 @@ std::vector<TextSearchResult> TextIndex::ActiveIndices::Search(const std::string
                                             .fuzzy_transpositions = config.fuzzy_transpositions,
                                             .fuzzy_field = kAllField});
         break;
+      case text_search_mode::FUZZY_PHRASE:
+        search_results = mgcxx::text_search::fuzzy_phrase_search_gids_pinned(
+            context,
+            searcher,
+            mgcxx::text_search::SearchInput{.search_query = lowered_query,
+                                            .limit = config.limit,
+                                            .fuzzy_distance = config.fuzzy_distance,
+                                            .fuzzy_prefix = config.fuzzy_prefix,
+                                            .fuzzy_transpositions = config.fuzzy_transpositions,
+                                            .fuzzy_field = kDataField});
+        break;
       default:
         throw query::TextSearchException(
-            "Unsupported search mode: please use one of text_search.search, text_search.search_all, or "
-            "text_search.regex_search.");
+            "Unsupported search mode: please use one of text_search.search, text_search.search_all, "
+            "text_search.fuzzy_phrase_search, or text_search.regex_search.");
     }
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
