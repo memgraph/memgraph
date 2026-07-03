@@ -413,29 +413,47 @@ auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationL
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
     auto const db_name = db_acc->name();
 
-    repl_storage_state.replication_storage_clients_.WithReadLock(
-        [&db_name, &lag_info, &repl_storage_state](auto &storage_clients) {
-          // First observe replicas' num committed txns, then main's, so a concurrent commit can't make
-          // main's value smaller than the replica's and produce a spurious negative lag.
-          std::map<std::string, uint64_t> repl_committed_txns;
-          for (auto &repl_storage_client : storage_clients) {
-            repl_committed_txns.emplace(repl_storage_client->Name(), repl_storage_client->GetNumCommittedTxns());
-          }
+    repl_storage_state.replication_storage_clients_.WithReadLock([&db_name, &lag_info, &repl_storage_state](
+                                                                     auto &storage_clients) {
+      // First observe replicas' num committed txns, then main's, so a concurrent commit can't make
+      // main's value smaller than the replica's and produce a spurious negative lag. This ordering only
+      // helps SYNC replicas, whose cache is bumped in program order after main's counter; an ASYNC
+      // replica records its progress on a worker thread with no ordering against main's bump, so track
+      // its mode to floor its lag below.
+      struct ReplicaProgress {
+        uint64_t num_committed_txns;
+        bool is_async;
+      };
+      std::map<std::string, ReplicaProgress> repl_committed_txns;
+      for (auto &repl_storage_client : storage_clients) {
+        repl_committed_txns.emplace(repl_storage_client->Name(),
+                                    ReplicaProgress{.num_committed_txns = repl_storage_client->GetNumCommittedTxns(),
+                                                    .is_async = repl_storage_client->Mode() ==
+                                                                replication_coordination_glue::ReplicationMode::ASYNC});
+      }
 
-          auto const num_main_committed_txns =
-              repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
-          lag_info.dbs_main_committed_txns_.emplace(db_name, num_main_committed_txns);
+      auto const num_main_committed_txns =
+          repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
+      lag_info.dbs_main_committed_txns_.emplace(db_name, num_main_committed_txns);
 
-          for (auto const &[replica_name, num_committed_txns_repl] : repl_committed_txns) {
-            auto const replica_lag = static_cast<int64_t>(num_main_committed_txns - num_committed_txns_repl);
-            // Insert or find the already inserted element
-            auto [replica_it, _] = lag_info.replicas_info_.try_emplace(
-                replica_name, std::map<std::string, coordination::ReplicaDBLagData>{});
-            replica_it->second.emplace(db_name,
-                                       coordination::ReplicaDBLagData{.num_committed_txns_ = num_committed_txns_repl,
-                                                                      .num_txns_behind_main_ = replica_lag});
-          }
-        });
+      for (auto const &[replica_name, progress] : repl_committed_txns) {
+        auto replica_lag =
+            static_cast<int64_t>(num_main_committed_txns) - static_cast<int64_t>(progress.num_committed_txns);
+        // An ASYNC replica can transiently appear one txn ahead of main (its progress is recorded on a
+        // worker thread with no happens-before against main's counter bump). A non-divergent replica can't
+        // truly lead main, so floor the artifact to 0. A SYNC replica bumps after main in program order, so
+        // a negative there would be a real invariant violation and is intentionally left visible.
+        if (progress.is_async && replica_lag < 0) {
+          replica_lag = 0;
+        }
+        // Insert or find the already inserted element
+        auto [replica_it, _] =
+            lag_info.replicas_info_.try_emplace(replica_name, std::map<std::string, coordination::ReplicaDBLagData>{});
+        replica_it->second.emplace(db_name,
+                                   coordination::ReplicaDBLagData{.num_committed_txns_ = progress.num_committed_txns,
+                                                                  .num_txns_behind_main_ = replica_lag});
+      }
+    });
   });
   return lag_info;
 }
@@ -470,7 +488,15 @@ std::pair<ReplicationHandler::MainResT, ReplicationHandler::ReplicasResT> Replic
             DMG_ASSERT(replica_it != replicas.end(), "No info for replica {}", replica_name);
             auto old_value_it = replica_it->second.find(db_name);
             DMG_ASSERT(old_value_it != replica_it->second.end(), "No info for db {}", db_name);
-            old_value_it->second = num_main_committed_txns - old_value_it->second;
+            auto lag = static_cast<int64_t>(num_main_committed_txns) - old_value_it->second;
+            // An ASYNC replica records its progress on a worker thread with no happens-before against main's
+            // counter bump, so it can transiently appear one txn ahead of main. Floor that artifact to 0; a
+            // SYNC replica bumps after main in program order, so a negative there is a real invariant violation
+            // and is left visible.
+            if (repl_storage_client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC && lag < 0) {
+              lag = 0;
+            }
+            old_value_it->second = lag;
           }
         });
   });

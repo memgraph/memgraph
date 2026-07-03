@@ -119,8 +119,10 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                     std::string{main_storage->uuid()});
       state = memgraph::replication::ReplicationClient::State::BEHIND;
     });
-    return;
 #endif
+    // A failed heartbeat carries no valid progress; bail out before the store below so a transient failure
+    // doesn't zero the cached replica progress (which would surface as a spurious behind / positive lag).
+    return;
   }
   // The replica's reported num_committed_txns_ is recorded only once we know its history is not divergent (see the
   // "No branching point" path below). Storing it here unconditionally would, for a former main that committed
@@ -230,8 +232,10 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                                      .num_committed_txns_ = heartbeat_res.num_txns_committed_},
                         std::memory_order_release);
   spdlog::trace("Set num committed txns to {}", heartbeat_res.num_txns_committed_);
-  spdlog::trace("Current num committed tnxs on main: {}",
-                main_repl_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
+  if (spdlog::should_log(spdlog::level::trace)) {
+    spdlog::trace("Current num committed tnxs on main: {}",
+                  main_repl_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
+  }
 
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
@@ -239,9 +243,11 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                 client_.name_,
                 main_db_name,
                 heartbeat_res.current_commit_timestamp_);
-  spdlog::trace("Current durable timestamp on main for db {} is {}",
-                main_db_name,
-                main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
+  if (spdlog::should_log(spdlog::level::trace)) {
+    spdlog::trace("Current durable timestamp on main for db {} is {}",
+                  main_db_name,
+                  main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
+  }
 
   replica_state_.WithLock([&](auto &state) {
     // Recovered state didn't change in the meantime

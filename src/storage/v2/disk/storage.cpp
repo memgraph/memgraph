@@ -2503,6 +2503,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           std::move(active_constraints),
           {},
           std::nullopt,
+          0,
           metric_handles_.unreleased_delta_objects};
 }
 

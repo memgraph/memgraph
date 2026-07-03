@@ -2836,19 +2836,18 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   auto async_index_helper = AsyncIndexHelper{config_, *active_indices, start_timestamp};
 
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
-  Transaction transaction{transaction_id,
-                          start_timestamp,
-                          isolation_level,
-                          storage_mode,
-                          false,
-                          *std::move(point_index_context),
-                          std::move(active_indices),
-                          std::move(active_constraints),
-                          std::move(async_index_helper),
-                          commit_ts_info.ldt_,
-                          metric_handles_.unreleased_delta_objects};
-  transaction.last_durable_num_committed_txns_ = commit_ts_info.num_committed_txns_;
-  return transaction;
+  return {transaction_id,
+          start_timestamp,
+          isolation_level,
+          storage_mode,
+          false,
+          *std::move(point_index_context),
+          std::move(active_indices),
+          std::move(active_constraints),
+          std::move(async_index_helper),
+          commit_ts_info.ldt_,
+          commit_ts_info.num_committed_txns_,
+          metric_handles_.unreleased_delta_objects};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
@@ -4397,9 +4396,10 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
     loaded_snapshot_uuid = recovered_snapshot.snapshot_info.uuid;
 
-    auto const update_func =
-        [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp](CommitTsInfo const &old_info) -> CommitTsInfo {
-      return CommitTsInfo{.ldt_ = new_ldt, .num_committed_txns_ = old_info.num_committed_txns_};
+    auto const update_func = [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp,
+                              new_num_committed_txns = recovered_snapshot.snapshot_info.num_committed_txns](
+                                 CommitTsInfo const & /*old_info*/) -> CommitTsInfo {
+      return CommitTsInfo{.ldt_ = new_ldt, .num_committed_txns_ = new_num_committed_txns};
     };
     atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_, update_func);
 
