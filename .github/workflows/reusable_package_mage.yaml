@@ -157,6 +157,17 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: "Checkout infra repository"
+        # SBOM generation uses the scripts from the memgraph/infra repo.
+        if: ${{ inputs.generate_sbom }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: memgraph/infra
+          path: infra
+          # TODO: pin to `master` after the sbom-infra branch is merged.
+          ref: sbom-infra
+          token: ${{ secrets.REPO_PAT }}
+
       - name: Clean up Docker
         if: always()
         continue-on-error: true
@@ -629,7 +640,8 @@ jobs:
             --arch $ARCH \
             --cugraph $CUGRAPH \
             generate-memgraph-build-sbom \
-            --conan-remote $CONAN_REMOTE
+            --conan-remote $CONAN_REMOTE \
+            --sbom-scripts-dir "${GITHUB_WORKSPACE}/infra/infosec/sbom/memgraph"
 
       - name: "Stop mgbuild container"
         if: always()
@@ -726,7 +738,8 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             generate-mage-image-sbom \
-            --image-name "${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG"
+            --image-tag "$IMAGE_TAG" \
+            --sbom-scripts-dir "${GITHUB_WORKSPACE}/infra/infosec/sbom/memgraph"
 
       - name: Upload SBOM to GitHub
         if: ${{ inputs.generate_sbom == true }}

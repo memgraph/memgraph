@@ -212,8 +212,13 @@ print_help () {
   echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
 
+  echo -e "\ngenerate-memgraph-build-sbom options:"
+  echo -e "  --conan-remote string         Specify conan remote (optional)"
+  echo -e "  --sbom-scripts-dir string     Path to the infra SBOM scripts (required)"
+
   echo -e "\ngenerate-mage-image-sbom options:"
-  echo -e "  --image-name string           Specify the image name (required)"
+  echo -e "  --image-tag string            Specify the MAGE image tag (required)"
+  echo -e "  --sbom-scripts-dir string     Path to the infra SBOM scripts (required)"
 
   echo -e "\npackage-mage-offline-installer options:"
   echo -e "  --memgraph-deb PATH           Path to the memgraph .deb (required)"
@@ -897,7 +902,6 @@ package_docker() {
   fi
   local package_dir="$PROJECT_ROOT/build/output/$os"
   local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
-  local generate_sbom=false
   local malloc=false
   local custom_mirror=false
   local keep_image_loaded=false
@@ -910,10 +914,6 @@ package_docker() {
       ;;
       --src-dir)
         package_dir="$PROJECT_ROOT/$2"
-        shift 2
-      ;;
-      --generate-sbom)
-        generate_sbom=$2
         shift 2
       ;;
       --malloc)
@@ -967,10 +967,10 @@ package_docker() {
 
   if [[ "$package_flavour" == "prod" ]]; then
     echo "Package prod flavour"
-    ./package_docker --latest --package-flavour prod --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
+    ./package_docker --latest --package-flavour prod --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
   else
     echo "Package debug flavour"
-    ./package_docker --package-flavour debug --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
+    ./package_docker --package-flavour debug --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
@@ -2532,10 +2532,15 @@ build_gssapi() {
 
 generate_memgraph_build_sbom() {
   local conan_remote=""
+  local sbom_scripts_dir=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --conan-remote)
         conan_remote=$2
+        shift 2
+      ;;
+      --sbom-scripts-dir)
+        sbom_scripts_dir=$2
         shift 2
       ;;
       *)
@@ -2545,48 +2550,74 @@ generate_memgraph_build_sbom() {
     esac
   done
 
+  if [[ -z "$sbom_scripts_dir" ]]; then
+    echo -e "${RED_BOLD}Error: --sbom-scripts-dir not provided (path to the infra SBOM scripts)${RESET}" >&2
+    exit 1
+  fi
+
   if [[ -z "$conan_remote" ]]; then
-    echo -e "${YELLOW_BOLD}Warning: --conan-remote not provided; build-sbom.sh will fail if no local build is present${RESET}"
+    echo -e "${YELLOW_BOLD}Warning: --conan-remote not provided; SBOM generation will fail if no build is present in the container${RESET}"
   fi
 
-  if [[ -d sbom ]]; then
-    echo -e "${YELLOW_BOLD}SBOM directory already exists${RESET}"
-  else
-    mkdir -p sbom
-  fi
+  mkdir -p "$PROJECT_ROOT/sbom"
 
-  # generate the Memgraph SBOM
-  echo -e "${GREEN_BOLD}Generating Memgraph SBOM within container${RESET}"
-  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph && export CONAN_REMOTE=$conan_remote && ./tools/ci/sbom/build-sbom.sh"
-  docker cp $build_container:/home/mg/memgraph/sbom/memgraph-build-sbom.json sbom/
-  echo -e "${GREEN_BOLD}Memgraph SBOM: ${RED_BOLD}sbom/memgraph-build-sbom.json${RESET}"
+  # Stage 1: drive the (still-running) build container from the host to fetch
+  # the conan + MGCXX component SBOMs and merge them into the binary build SBOM.
+  # The final image SBOM (stage 2) is produced later from the prod Docker image,
+  # after this build container has been stopped.
+  echo -e "${GREEN_BOLD}Generating Memgraph build SBOM via ${build_container}${RESET}"
+  CONAN_REMOTE="$conan_remote" SBOM_CONTAINER_USER=mg \
+    "$sbom_scripts_dir/build-sbom.sh" \
+    --build-container "$build_container" \
+    --memgraph-path "$MGBUILD_ROOT_DIR" \
+    --out-dir "$PROJECT_ROOT/sbom" \
+    --work-dir "$PROJECT_ROOT/sbom/work"
+  echo -e "${GREEN_BOLD}Memgraph build SBOM: ${RED_BOLD}sbom/memgraph-build-sbom.json${RESET}"
 }
 
 generate_mage_image_sbom() {
-  local image_name=""
+  local image_tag=""
+  local sbom_scripts_dir=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --image-name)
-        image_name=$2
+      --image-tag)
+        image_tag=$2
         shift 2
+      ;;
+      --sbom-scripts-dir)
+        sbom_scripts_dir=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1' for generate-mage-image-sbom" >&2
+        exit 1
       ;;
     esac
   done
 
-  if [[ -z "$image_name" ]]; then
-    echo -e "${RED_BOLD}Image name not provided${RESET}"
+  if [[ -z "$image_tag" ]]; then
+    echo -e "${RED_BOLD}Error: --image-tag not provided${RESET}" >&2
+    exit 1
+  fi
+  if [[ -z "$sbom_scripts_dir" ]]; then
+    echo -e "${RED_BOLD}Error: --sbom-scripts-dir not provided (path to the infra SBOM scripts)${RESET}" >&2
+    exit 1
+  fi
+  if [[ ! -f "$PROJECT_ROOT/sbom/memgraph-build-sbom.json" ]]; then
+    echo -e "${RED_BOLD}Memgraph build SBOM not found, please generate it first${RESET}" >&2
     exit 1
   fi
 
-  if [[ ! -f sbom/memgraph-build-sbom.json ]]; then
-    echo -e "${RED_BOLD}Memgraph SBOM not found, please generate it first${RESET}"
-    exit 1
-  fi
-
-  # generate the MAGE image SBOM
+  # Generate the MAGE image SBOM on the host: analyse the Rust MAGE sources (in
+  # the workspace) and merge them with the memgraph build SBOM (stage 1) and a
+  # syft scan of the built MAGE prod image. No build container needed.
   echo -e "${GREEN_BOLD}Generating MAGE image SBOM${RESET}"
-  ./tools/ci/sbom/mage-sbom.sh "${image_name}"
-  echo -e "${GREEN_BOLD}MAGE image SBOM: ${RED_BOLD}sbom/mage-image-sbom.json${RESET}"
+  "$sbom_scripts_dir/mage-docker-sbom.sh" \
+    --tag "$image_tag" \
+    --memgraph-path "$PROJECT_ROOT" \
+    --out-dir "$PROJECT_ROOT/sbom" \
+    --work-dir "$PROJECT_ROOT/sbom/work-mage"
+  echo -e "${GREEN_BOLD}MAGE image SBOM: ${RED_BOLD}sbom/mage-sbom.json${RESET}"
 }
 
 build_ssl() {
