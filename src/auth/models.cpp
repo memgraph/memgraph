@@ -1871,11 +1871,9 @@ void MigrateAuthJson(nlohmann::json &data) {
   //           convert global_permission values from V2 enum to V3 bitmask,
   //           add empty permissions array per sub-object.
   if (version == 2) {
+    // DeduceVersion returned 2 based on the shape of this key, so it must exist.
     auto fg_it = data.find("fine_grained_access_handler");
-    if (fg_it == data.end() || !fg_it->is_object()) {
-      data[kVersion] = kCurrentEntityVersion;
-      return;
-    }
+    DMG_ASSERT(fg_it != data.end() && fg_it->is_object());
     // V2 permissions used bit_0 for read, bit_1 for update, and bit_2 for
     // create_delete, but note that the trailing bits are also set because the
     // permission formed a hierarchy.
@@ -1933,8 +1931,10 @@ void MigrateAuthJson(nlohmann::json &data) {
       data["fine_grained_permissions"] = std::move(data["fine_grained_access_handler"]);
       data.erase("fine_grained_access_handler");
     }
+    // DeduceVersion returned 3 based on the shape of this key, so it must exist
+    // (after the rename above for the old-key case).
     auto fg_it = data.find("fine_grained_permissions");
-    if (fg_it == data.end() || !fg_it->is_object()) return;
+    DMG_ASSERT(fg_it != data.end() && fg_it->is_object());
 
     // Local copies of FineGrainedPermission values. Duplicated here so that this
     // migration runs even in community builds.
