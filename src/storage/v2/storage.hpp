@@ -1122,10 +1122,12 @@ class Accessor {
                              WithinBBoxCondition condition) -> PointIterable = 0;
 
   virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
-      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector,
+      const std::unordered_set<Gid> &vertex_filter = {}) = 0;
 
   virtual std::vector<std::tuple<EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
-      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector,
+      const std::unordered_set<Gid> &edge_filter = {}) = 0;
 
   virtual std::vector<VectorIndexInfo> ListAllVectorIndices() const = 0;
 

@@ -53,6 +53,7 @@ enum class text_search_mode;
 #include <optional>
 #include <ranges>
 #include <span>
+#include <unordered_set>
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
@@ -720,10 +721,12 @@ class DbAccessor final {
   bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const;
 
   std::vector<std::tuple<storage::VertexAccessor, double, double>> VectorIndexSearchOnNodes(
-      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector);
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector,
+      const std::unordered_set<storage::Gid> &vertex_filter = {});
 
   std::vector<std::tuple<storage::EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
-      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector);
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector,
+      const std::unordered_set<storage::Gid> &edge_filter = {});
 
   std::vector<storage::VectorIndexInfo> ListAllVectorIndices() const;
 

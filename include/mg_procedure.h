@@ -1042,12 +1042,16 @@ enum mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const c
                                                 int fuzzy_transpositions, struct mgp_memory *memory,
                                                 struct mgp_map **result);
 
+/// The optional `search_filter` list, when non-null and non-empty, restricts the search to the given entity ids
+/// (vertex ids for the node index, edge ids for the edge index); pass a null or empty list to search the whole index.
 enum mgp_error mgp_graph_search_vector_index(struct mgp_graph *graph, const char *index_name, struct mgp_list *query,
-                                             int result_size, struct mgp_memory *memory, struct mgp_map **result);
+                                             int result_size, struct mgp_list *search_filter, struct mgp_memory *memory,
+                                             struct mgp_map **result);
 
 enum mgp_error mgp_graph_search_vector_index_on_edges(struct mgp_graph *graph, const char *index_name,
                                                       struct mgp_list *query, int result_size,
-                                                      struct mgp_memory *memory, struct mgp_map **result);
+                                                      struct mgp_list *search_filter, struct mgp_memory *memory,
+                                                      struct mgp_map **result);
 
 enum mgp_error mgp_graph_show_index_info(struct mgp_graph *graph, struct mgp_memory *memory, struct mgp_map **result);
 

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <span>
 #include <string_view>
+#include <unordered_set>
 
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/join.hpp>
@@ -366,9 +367,12 @@ class VectorIndex {
   /// @param result_set_size The number of results to return.
   /// @param query_vector The vector to be used for the search query.
   /// @param name_id_mapper Mapper for name/ID conversions.
+  /// @param vertex_filter Optional allowlist of vertex gids to restrict the search to. When empty, no filtering is
+  /// applied; when non-empty, only vertices whose gid is present are considered (prefiltering during traversal).
   /// @return A vector of tuples containing the vertex, distance, and similarity of the search results.
   VectorSearchNodeResults SearchNodes(std::string_view index_name, uint64_t result_set_size,
-                                      const std::vector<float> &query_vector, NameIdMapper *name_id_mapper) const;
+                                      const std::vector<float> &query_vector, NameIdMapper *name_id_mapper,
+                                      const std::unordered_set<Gid> &vertex_filter = {}) const;
 
   /// @brief Removes vertices from all vector indices.
   /// Called by GC before skip list removal, while the vertex pointer is still valid.

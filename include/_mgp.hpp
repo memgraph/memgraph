@@ -421,14 +421,15 @@ inline size_t graph_approximate_edge_count(mgp_graph *g) {
 // vector index
 
 inline mgp_map *graph_search_vector_index(mgp_graph *graph, const char *index_name, mgp_list *search_vector,
-                                          size_t result_size, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_search_vector_index, graph, index_name, search_vector, result_size, memory);
+                                          size_t result_size, mgp_list *search_filter, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(
+      mgp_graph_search_vector_index, graph, index_name, search_vector, result_size, search_filter, memory);
 }
 
 inline mgp_map *graph_search_vector_index_on_edges(mgp_graph *graph, const char *index_name, mgp_list *search_vector,
-                                                   size_t result_size, mgp_memory *memory) {
+                                                   size_t result_size, mgp_list *search_filter, mgp_memory *memory) {
   return MgInvoke<mgp_map *>(
-      mgp_graph_search_vector_index_on_edges, graph, index_name, search_vector, result_size, memory);
+      mgp_graph_search_vector_index_on_edges, graph, index_name, search_vector, result_size, search_filter, memory);
 }
 
 inline mgp_map *graph_show_index_info(mgp_graph *graph, mgp_memory *memory) {

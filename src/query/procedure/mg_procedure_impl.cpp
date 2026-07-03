@@ -21,6 +21,7 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 
@@ -4653,9 +4654,33 @@ mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *
   });
 }
 
+namespace {
+// Builds a gid allowlist from an mgp list of entity ids (as returned by id(node)/id(rel)). A null or empty list means
+// "no filter". Used to prefilter vector index search.
+std::unordered_set<memgraph::storage::Gid> BuildVectorSearchFilter(mgp_list *search_filter) {
+  std::unordered_set<memgraph::storage::Gid> filter;
+  if (search_filter == nullptr) {
+    return filter;
+  }
+  filter.reserve(search_filter->elems.size());
+  for (auto &elem : search_filter->elems) {
+    if (MgpValueGetType(elem) != mgp_value_type::MGP_VALUE_TYPE_INT) {
+      throw std::logic_error("The vector search filter must be a list of entity ids (integers)!");
+    }
+    int64_t value = 0;
+    if (auto err = mgp_value_get_int(&elem, &value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Failed extracting an id from the vector search filter argument!");
+    }
+    filter.insert(memgraph::storage::Gid::FromInt(value));
+  }
+  return filter;
+}
+}  // namespace
+
 mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name, mgp_list *search_query,
-                                        int result_size, mgp_memory *memory, mgp_map **result) {
-  return WrapExceptions([graph, memory, index_name, search_query, result, result_size]() {
+                                        int result_size, mgp_list *search_filter, mgp_memory *memory,
+                                        mgp_map **result) {
+  return WrapExceptions([graph, memory, index_name, search_query, search_filter, result, result_size]() {
     std::vector<std::tuple<memgraph::storage::VertexAccessor, double, double>> found_vertices;
     std::optional<std::string> error_msg = std::nullopt;
     try {
@@ -4682,7 +4707,9 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
         throw std::logic_error(
             "Unrecognized argument type when performing vector search, expected values are Double or Int!");
       }
-      found_vertices = graph->getImpl()->VectorIndexSearchOnNodes(index_name, result_size, search_query_vector);
+      const auto vertex_filter = BuildVectorSearchFilter(search_filter);
+      found_vertices =
+          graph->getImpl()->VectorIndexSearchOnNodes(index_name, result_size, search_query_vector, vertex_filter);
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
@@ -4691,8 +4718,9 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
 }
 
 mgp_error mgp_graph_search_vector_index_on_edges(mgp_graph *graph, const char *index_name, mgp_list *search_query,
-                                                 int result_size, mgp_memory *memory, mgp_map **result) {
-  return WrapExceptions([graph, memory, index_name, search_query, result, result_size]() {
+                                                 int result_size, mgp_list *search_filter, mgp_memory *memory,
+                                                 mgp_map **result) {
+  return WrapExceptions([graph, memory, index_name, search_query, search_filter, result, result_size]() {
     std::vector<std::tuple<memgraph::storage::EdgeAccessor, double, double>> found_edges;
     std::optional<std::string> error_msg = std::nullopt;
     try {
@@ -4719,7 +4747,9 @@ mgp_error mgp_graph_search_vector_index_on_edges(mgp_graph *graph, const char *i
         throw std::logic_error(
             "Unrecognized argument type when performing vector search, expected values are Double or Int!");
       }
-      found_edges = graph->getImpl()->VectorIndexSearchOnEdges(index_name, result_size, search_query_vector);
+      const auto edge_filter = BuildVectorSearchFilter(search_filter);
+      found_edges =
+          graph->getImpl()->VectorIndexSearchOnEdges(index_name, result_size, search_query_vector, edge_filter);
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }

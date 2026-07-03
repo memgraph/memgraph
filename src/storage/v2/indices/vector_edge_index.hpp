@@ -16,6 +16,7 @@
 #include <map>
 #include <shared_mutex>
 #include <span>
+#include <unordered_set>
 
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/edge.hpp"
@@ -244,8 +245,11 @@ class VectorEdgeIndex {
   std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const;
 
   /// @brief Searches for edges in the specified index using a query vector.
+  /// @param edge_filter Optional allowlist of edge gids to restrict the search to. When empty, no filtering is applied;
+  /// when non-empty, only edges whose gid is present are considered (prefiltering during traversal).
   VectorSearchEdgeResults SearchEdges(std::string_view index_name, uint64_t result_set_size,
-                                      const std::vector<float> &query_vector) const;
+                                      const std::vector<float> &query_vector,
+                                      const std::unordered_set<Gid> &edge_filter = {}) const;
 
   /// @brief Aborts the entries in the vector edge index.
   void AbortEntries(AbortProcessor::AbortableInfo &cleanup_collection);
