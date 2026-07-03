@@ -1875,8 +1875,21 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-    mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
 
+    // Hand this transaction's deltas over to GC BEFORE marking the commit
+    // timestamp finished. MarkFinished advances commit_log_->OldestActive(),
+    // and another committing transaction's fast-discard precondition
+    // (CheckForFastDiscardOfDeltas: `no_older_transactions`) treats an advanced
+    // OldestActive as "I am the only transaction left, so every delta except my
+    // own is already registered in committed_transactions_/waiting_gc_deltas_
+    // and safe to free". If we marked finished first, there would be a window in
+    // which this transaction is no longer active yet its deltas are still linked
+    // in the version chains and not yet registered, so that fast-discard could
+    // free a delta our still-linked deltas reference via `prev`, leaving a
+    // dangling pointer for a later GC to dereference (use-after-free). The
+    // registration lock release is sequenced-before MarkFinished, so any thread
+    // that observes this txn as finished (through the commit_log SpinLock) also
+    // observes the registration (through the committed_transactions_ SpinLock).
     if (!transaction_.deltas.empty()) {
       if (transaction_.has_non_sequential_deltas) {
         mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
@@ -1890,6 +1903,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
         });
       }
     }
+
+    mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
     commit_timestamp_.reset();
   }
 }

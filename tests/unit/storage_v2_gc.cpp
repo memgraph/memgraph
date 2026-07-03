@@ -12,9 +12,12 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <optional>
 #include <set>
 #include <string_view>
+#include <thread>
+#include <vector>
 
 #include "flags/general.hpp"
 #include "metrics/prometheus_metrics.hpp"
@@ -1755,4 +1758,95 @@ TEST(StorageV2GcLightEdge, AnalyticalModeDeleteGoesToGraveyard) {
     EXPECT_TRUE(acc->FindVertex(v2_gid, ms::View::OLD).has_value());
   }
   // storage destructor runs here — must not crash or report sanitizer errors.
+}
+
+// ASan smoke test for the FastDiscard-vs-GC delta-buffer use-after-free.
+//
+// Background: when a transaction commits it is marked finished (advancing
+// commit_log_->OldestActive()) and only afterwards registers its deltas for GC.
+// A concurrent transaction that commits sole-active in that window can
+// fast-discard and free a delta a just-finished-but-unregistered transaction's
+// chain still references via `prev`, which a later CollectGarbage dereferences.
+//
+// This exercises exactly that shape: several threads delete edges off a single
+// shared vertex (so their commits chain deltas on the same object) while a GC
+// thread hammers FreeMemory(). It is intentionally a NON-deterministic smoke
+// test: the trigger window is a two-statement gap on the committing thread, so
+// reproduction depends on scheduling pressure and the fault is only observable
+// under a sanitizer (the free and the read are serialized by gc_lock_, so this
+// is a use-after-free, not a data race -> ASan catches it, TSan does not). In
+// CI it runs under the ASAN+UBSAN unit-coverage build (ctest -R memgraph__unit).
+// It cannot guarantee a hit on every run; a deterministic reproduction would
+// require a test-only hook in FinalizeTransaction, which we deliberately avoid.
+TEST(StorageV2Gc, ConcurrentDeleteAndGcUAFSmoke) {
+  constexpr int kRounds = 30;
+  constexpr int kEdges = 100;
+  constexpr int kDeleteThreads = 4;
+
+  std::unique_ptr<ms::Storage> store(std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(1000)}}));
+
+  ms::Gid gid_from{};
+  ms::Gid gid_to{};
+  {
+    auto acc = store->Access(ms::WRITE);
+    gid_from = acc->CreateVertex().Gid();
+    gid_to = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  for (int round = 0; round < kRounds; ++round) {
+    {
+      auto acc = store->Access(ms::WRITE);
+      auto vf = acc->FindVertex(gid_from, ms::View::NEW);
+      auto vt = acc->FindVertex(gid_to, ms::View::NEW);
+      auto et = acc->NameToEdgeType("CONC");
+      for (int i = 0; i < kEdges; ++i) {
+        ASSERT_TRUE(acc->CreateEdge(&*vf, &*vt, et).has_value());
+      }
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    std::atomic<bool> gc_running{true};
+    std::atomic<uint64_t> total_deleted{0};
+    std::thread gc_thread([&]() {
+      while (gc_running.load()) {
+        store->FreeMemory();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+      store->FreeMemory();
+      store->FreeMemory();
+    });
+
+    std::vector<std::thread> deleters;
+    deleters.reserve(kDeleteThreads);
+    for (int t = 0; t < kDeleteThreads; ++t) {
+      deleters.emplace_back([&]() {
+        while (true) {
+          auto acc = store->Access(ms::WRITE);
+          auto vf = acc->FindVertex(gid_from, ms::View::NEW);
+          if (!vf) break;
+          auto out = vf->OutEdges(ms::View::NEW);
+          if (!out.has_value() || out->edges.empty()) break;
+          auto edge = out->edges[0];
+          auto del = acc->DeleteEdge(&edge);
+          if (!del.has_value()) continue;  // serialization conflict, retry
+          if (acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value()) {
+            total_deleted.fetch_add(1);
+          }
+        }
+      });
+    }
+
+    for (auto &d : deleters) d.join();
+    gc_running.store(false);
+    gc_thread.join();
+
+    // Functional check: every edge was deleted exactly once.
+    EXPECT_EQ(total_deleted.load(), kEdges);
+    auto acc = store->Access(ms::WRITE);
+    auto vf = acc->FindVertex(gid_from, ms::View::OLD);
+    ASSERT_TRUE(vf.has_value());
+    EXPECT_EQ(vf->OutEdges(ms::View::OLD)->edges.size(), 0);
+  }
 }
