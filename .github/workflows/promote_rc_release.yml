@@ -424,6 +424,32 @@ jobs:
             echo "::warning::SBOM not found at $sbom_src — skipping SBOM attestation"
           fi
 
+      - name: Verify attestations are visible to Docker Scout
+        # Non-fatal self-check that the attestations we just attached are
+        # discoverable by Scout via the registry (referrers). Never blocks a
+        # release: the docker scout plugin is installed best-effort and every
+        # probe is tolerant.
+        if: ${{ matrix.build_type == 'Release' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail   # no -e: this is diagnostic, run every probe
+          if ! docker scout version >/dev/null 2>&1; then
+            echo "Installing docker scout CLI plugin (best-effort)"
+            curl -fsSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s -- || {
+              echo "::warning::could not install docker scout; skipping verification"
+              exit 0
+            }
+          fi
+          echo "== docker scout attest list ${RELEASE_IMAGE} =="
+          docker scout attest list "${RELEASE_IMAGE}" || echo "::warning::'docker scout attest list' failed for ${RELEASE_IMAGE}"
+          for ptype in https://cyclonedx.org/bom https://slsa.dev/provenance/v0.2; do
+            if docker scout attest get --predicate-type "$ptype" "${RELEASE_IMAGE}" >/dev/null 2>&1; then
+              echo "Scout can read attestation: $ptype"
+            else
+              echo "::warning::Scout could not read attestation: $ptype for ${RELEASE_IMAGE}"
+            fi
+          done
+
       - name: Clean up temporary images
         run: |
           sleep 5
@@ -830,6 +856,29 @@ jobs:
           else
             echo "::warning::SBOM not found at $sbom_src — skipping SBOM attestation"
           fi
+
+      - name: Verify attestations are visible to Docker Scout
+        # Non-fatal self-check (see PromoteDocker for rationale).
+        if: ${{ matrix.image_ext == '' && (env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true') }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail   # no -e: this is diagnostic, run every probe
+          if ! docker scout version >/dev/null 2>&1; then
+            echo "Installing docker scout CLI plugin (best-effort)"
+            curl -fsSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s -- || {
+              echo "::warning::could not install docker scout; skipping verification"
+              exit 0
+            }
+          fi
+          echo "== docker scout attest list ${release_image} =="
+          docker scout attest list "${release_image}" || echo "::warning::'docker scout attest list' failed for ${release_image}"
+          for ptype in https://cyclonedx.org/bom https://slsa.dev/provenance/v0.2; do
+            if docker scout attest get --predicate-type "$ptype" "${release_image}" >/dev/null 2>&1; then
+              echo "Scout can read attestation: $ptype"
+            else
+              echo "::warning::Scout could not read attestation: $ptype for ${release_image}"
+            fi
+          done
 
       - name: Clean up temporary images
         run: |
