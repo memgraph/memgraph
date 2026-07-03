@@ -838,6 +838,12 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
           continue;
         }
 
+        // Edge indexes are single-property; a nested lookup like `e.a.b` has a
+        // multi-element path that no edge index covers, so it must stay a Filter
+        // rather than be misread as a filter on the outer key.
+        if (filter.property_filter->property_ids_.path.size() != 1) {
+          continue;
+        }
         const auto &property = filter.property_filter->property_ids_.path[0];
         if (!db_->EdgeTypePropertyIndexReady(GetEdgeType(edge_type), GetProperty(property))) {
           continue;
@@ -860,6 +866,10 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
+      // Skip nested lookups: a single-property edge index cannot cover a multi-element path.
+      if (filter.property_filter->property_ids_.path.size() != 1) {
+        continue;
+      }
       const auto &property = filter.property_filter->property_ids_.path[0];
       if (!db_->EdgePropertyIndexReady(GetProperty(property))) {
         continue;
@@ -882,6 +892,10 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
+      // Skip nested lookups: a single-property edge index cannot cover a multi-element path.
+      if (filter.property_filter->property_ids_.path.size() != 1) {
+        continue;
+      }
       const auto &property = filter.property_filter->property_ids_.path[0];
       if (!db_->EdgeTypePropertyIndexReady(edge_type_from_relationship.value(), GetProperty(property))) {
         continue;

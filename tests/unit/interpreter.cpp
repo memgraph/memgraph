@@ -459,6 +459,29 @@ TYPED_TEST(InterpreterTest, PropertyEqualityFromUnwindOrderByNotElided) {
   EXPECT_THAT(out, testing::ElementsAre(1, 2, 3));
 }
 
+// A nested property predicate `e.a.b = x` filters on the path [a, b], which no
+// single-property edge index covers. With an edge index on the outer key `a`,
+// the rewriter must not reinterpret it as `e.a = x` (which would compare the
+// whole map to a scalar and drop the real predicate); it must keep the filter.
+TYPED_TEST(InterpreterTest, EdgeNestedPropertyFilterNotIndexMisread) {
+  // Edge-type indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("CREATE EDGE INDEX ON :T(a)");
+  this->Interpret("CREATE ()-[:T {a: {b: 5}}]->(), ()-[:T {a: {b: 99}}]->()");
+
+  auto count = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+
+  EXPECT_EQ(count("MATCH ()-[e:T]->() WHERE e.a.b = 5 RETURN e"), 1);
+  EXPECT_EQ(count("MATCH ()-[e:T]->() WHERE e.a.b = 99 RETURN e"), 1);
+  EXPECT_EQ(count("MATCH ()-[e:T]->() WHERE e.a.b = 7 RETURN e"), 0);
+}
+
 // A composite index stores a missing property as NULL and sorts NULL first,
 // but Cypher ORDER BY places NULL last. When an ORDER BY targets an unconstrained
 // suffix column of the index (only the prefix is pinned), the scan's index order
