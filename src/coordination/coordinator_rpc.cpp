@@ -30,11 +30,27 @@ namespace memgraph {
 
 namespace coordination {
 
+void PromoteToMainReqV1::Save(const PromoteToMainReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void PromoteToMainReqV1::Load(PromoteToMainReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 void PromoteToMainReq::Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
 
 void PromoteToMainReq::Load(PromoteToMainReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void PromoteToMainResV1::Save(const PromoteToMainResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void PromoteToMainResV1::Load(PromoteToMainResV1 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
@@ -246,6 +262,14 @@ namespace slk {
 
 // PromoteToMainRpc
 
+void Save(const memgraph::coordination::PromoteToMainResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.arg_, builder);
+}
+
+void Load(memgraph::coordination::PromoteToMainResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->arg_, reader);
+}
+
 void Save(const memgraph::coordination::PromoteToMainRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.arg_, builder);
 }
@@ -254,14 +278,26 @@ void Load(memgraph::coordination::PromoteToMainRes *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->arg_, reader);
 }
 
+void Save(const memgraph::coordination::PromoteToMainReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.replication_clients_info, builder);
+}
+
+void Load(memgraph::coordination::PromoteToMainReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->replication_clients_info, reader);
+}
+
 void Save(const memgraph::coordination::PromoteToMainReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.replication_clients_info, builder);
+  memgraph::slk::Save(self.writing_enabled, builder);
 }
 
 void Load(memgraph::coordination::PromoteToMainReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->replication_clients_info, reader);
+  memgraph::slk::Load(&self->writing_enabled, reader);
 }
 
 // DemoteMainToReplicaRpc

@@ -663,7 +663,9 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
       ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
       ranges::to<ReplicationClientsInfo>();
 
-  if (!new_main_connector->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info))) {
+  // The new main comes up writeable unless the cluster is deliberately in read-only mode.
+  auto const writing_enabled = !raft_state_->GetGlobalReadOnly();
+  if (!new_main_connector->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info), writing_enabled)) {
     spdlog::warn(
         "Failed to promote instance {} to main. The change is however peristed in Raft so promotion will be tried "
         "again in the reconciliation loop. No need for you to retry the operation.",
@@ -1105,19 +1107,21 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
   CoordinatorClusterStateDelta delta_state;
   try {
     if (setting_name == kMaxFailoverLagOnReplica) {
-      delta_state.max_failover_replica_lag_ = utils::ParseStringToUint64(setting_value);
+      delta_state.max_failover_replica_lag_ = utils::ParseStringToUint<uint64_t>(setting_value);
     } else if (setting_name == kEnabledReadsOnMain) {
       delta_state.enabled_reads_on_main_ = utils::ToLowerCase(setting_value) == "true"sv;
     } else if (setting_name == kSyncFailoverOnly) {
       delta_state.sync_failover_only_ = utils::ToLowerCase(setting_value) == "true"sv;
     } else if (setting_name == kMaxReplicaReadLag) {
-      delta_state.max_replica_read_lag_ = utils::ParseStringToUint64(setting_value);
+      delta_state.max_replica_read_lag_ = utils::ParseStringToUint<uint64_t>(setting_value);
     } else if (setting_name == kDeltasBatchProgressSize) {
-      delta_state.deltas_batch_progress_size_ = utils::ParseStringToUint64(setting_value);
+      delta_state.deltas_batch_progress_size_ = utils::ParseStringToUint<uint64_t>(setting_value);
     } else if (setting_name == kInstanceDownTimeoutSec) {
-      delta_state.instance_down_timeout_sec_ = utils::ParseStringToUint32(setting_value);
+      spdlog::trace("Setting value: {}", setting_value);
+      spdlog::trace("Parsed value: {}", utils::ParseStringToUint<uint32_t>(setting_value));
+      delta_state.instance_down_timeout_sec_ = utils::ParseStringToUint<uint32_t>(setting_value);
     } else if (setting_name == kInstanceHealthCheckFreqSec) {
-      delta_state.instance_health_check_frequency_sec_ = utils::ParseStringToUint32(setting_value);
+      delta_state.instance_health_check_frequency_sec_ = utils::ParseStringToUint<uint32_t>(setting_value);
     } else if (setting_name == kGlobalReadOnly) {
       delta_state.global_read_only_ = parse_bool(setting_value);
     }
@@ -1238,7 +1242,9 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
           ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
           ranges::to<ReplicationClientsInfo>();
 
-      if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info))) {
+      // Promote the new main directly into the cluster's desired writing state so read-only is honored across
+      // failover and restart recovery, instead of coming up writeable and being reconciled a cycle later.
+      if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info), !global_read_only)) {
         spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
                       std::string{curr_main_uuid});
         switch (TryFailover()) {

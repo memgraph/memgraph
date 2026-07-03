@@ -292,6 +292,81 @@ TEST(RpcVersioning, UpdateDataInstanceConfigRpc) {
     EXPECT_FALSE(received_disable_writing);
   }
 }
+
+// PromoteToMainReq gained a `writing_enabled` flag in v2 (the projection of global_read_only) alongside the existing
+// uuid and replicas. Verify Upgrade/Downgrade bridge v1<->v2 correctly.
+TEST(RpcVersioning, PromoteToMainPayload) {
+  memgraph::utils::UUID const uuid{};
+  std::vector<memgraph::coordination::ReplicationClientInfo> const replicas{
+      {.instance_name = "instance_1",
+       .replication_mode = memgraph::replication_coordination_glue::ReplicationMode::SYNC,
+       .replication_server = memgraph::io::network::Endpoint{"localhost", 10000}}};
+
+  memgraph::coordination::PromoteToMainReq const req{uuid, replicas, /*writing_enabled=*/false};
+
+  auto const downgraded = req.Downgrade();
+  EXPECT_EQ(downgraded.main_uuid, uuid);
+  EXPECT_EQ(downgraded.replication_clients_info, replicas);
+
+  auto const upgraded = memgraph::coordination::PromoteToMainReq::Upgrade(downgraded);
+  EXPECT_EQ(upgraded.main_uuid, uuid);
+  EXPECT_EQ(upgraded.replication_clients_info, replicas);
+  // A v1 sender doesn't know about read-only mode, so upgrading keeps the promoted main writeable.
+  EXPECT_TRUE(upgraded.writing_enabled);
+}
+
+namespace memgraph::coordination {
+using PromoteToMainRpcV1 = rpc::RequestResponse<PromoteToMainReqV1, PromoteToMainResV1>;
+}  // namespace memgraph::coordination
+
+TEST(RpcVersioning, PromoteToMainRpc) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  bool received_writing_enabled{false};
+
+  rpc_server.Register<memgraph::coordination::PromoteToMainRpc>(
+      [&received_writing_enabled](
+          std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        memgraph::coordination::PromoteToMainReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        received_writing_enabled = req.writing_enabled;
+
+        memgraph::coordination::PromoteToMainRes const res{true};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  memgraph::utils::UUID const uuid{};
+  std::vector<memgraph::coordination::ReplicationClientInfo> const replicas{};
+  {
+    // Send new (v2) request: writing_enabled travels through.
+    auto stream = client.Stream<memgraph::coordination::PromoteToMainRpc>(uuid, replicas, /*writing_enabled=*/false);
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_FALSE(received_writing_enabled);
+  }
+  {
+    // Send old (v1) request: server upgrades it, defaulting writing_enabled to true, and downgrades its response.
+    auto stream = client.Stream<memgraph::coordination::PromoteToMainRpcV1>(uuid, replicas);
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_TRUE(received_writing_enabled);
+  }
+}
 #endif
 
 // Test: when request has 2 versions but response has only one version (no Downgrade),
