@@ -379,6 +379,51 @@ jobs:
           # comes from the earlier docker login. Keyless via GitHub OIDC.
           cosign sign --yes --recursive "${RELEASE_IMAGE}"
 
+      - name: Attach provenance & SBOM attestations (cosign, keyless)
+        # Prod image only (Release, non-malloc). Attestations are attached via
+        # the OCI 1.1 referrers API (COSIGN_REGISTRY_REFERRERS_MODE=oci-1-1) so
+        # Docker Scout can discover them; the legacy `.att` tag scheme is not
+        # referrer-discoverable. The SBOM is the CycloneDX doc syft already
+        # scanned from this exact prod image (reused from S3). The SLSA
+        # provenance is generated here and references the RC source tag; it is a
+        # minimal statement — richer build provenance would be captured at build
+        # time. Verify Scout sees these with: docker scout attest list <ref>.
+        # (The only Release matrix entry is the prod, non-malloc image.)
+        if: ${{ matrix.build_type == 'Release' }}
+        env:
+          COSIGN_REGISTRY_REFERRERS_MODE: oci-1-1
+        run: |
+          set -euo pipefail
+
+          # SLSA provenance v0.2 predicate (cosign wraps it in the in-toto
+          # statement and sets the subject to the image digest).
+          cat > provenance.json <<EOF
+          {
+            "builder": { "id": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" },
+            "buildType": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/promote_rc_release.yml",
+            "invocation": {
+              "configSource": {
+                "uri": "git+${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}@refs/tags/v${RELEASE_VERSION}-${RC_VERSION}",
+                "entryPoint": ".github/workflows/promote_rc_release.yml"
+              }
+            },
+            "metadata": {
+              "buildInvocationId": "${GITHUB_RUN_ID}",
+              "reproducible": false,
+              "completeness": { "parameters": false, "environment": false, "materials": false }
+            }
+          }
+          EOF
+          cosign attest --yes --type slsaprovenance --predicate provenance.json "${RELEASE_IMAGE}"
+
+          # CycloneDX SBOM — reuse the one scanned from this prod image at build.
+          sbom_src="s3://${rc_bucket}/${rc_dir}/sbom/memgraph-docker-sbom.json"
+          if aws s3 cp "$sbom_src" sbom.json; then
+            cosign attest --yes --type cyclonedx --predicate sbom.json "${RELEASE_IMAGE}"
+          else
+            echo "::warning::SBOM not found at $sbom_src — skipping SBOM attestation"
+          fi
+
       - name: Clean up temporary images
         run: |
           sleep 5
@@ -746,6 +791,45 @@ jobs:
         if: ${{ env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true' }}
         run: |
           cosign sign --yes --recursive "${release_image}"
+
+      - name: Attach provenance & SBOM attestations (cosign, keyless)
+        # Prod MAGE image only (image_ext == ''), and only when a manifest was
+        # pushed. Attestations go through the OCI 1.1 referrers API so Docker
+        # Scout can discover them. SBOM is the CycloneDX doc scanned from this
+        # prod MAGE image (reused from S3); provenance is a minimal SLSA v0.2
+        # statement referencing the RC source tag. Verify with:
+        # docker scout attest list <ref>.
+        if: ${{ matrix.image_ext == '' && (env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true') }}
+        env:
+          COSIGN_REGISTRY_REFERRERS_MODE: oci-1-1
+        run: |
+          set -euo pipefail
+
+          cat > provenance.json <<EOF
+          {
+            "builder": { "id": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" },
+            "buildType": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/promote_rc_release.yml",
+            "invocation": {
+              "configSource": {
+                "uri": "git+${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}@refs/tags/v${RELEASE_VERSION}-${RC_VERSION}",
+                "entryPoint": ".github/workflows/promote_rc_release.yml"
+              }
+            },
+            "metadata": {
+              "buildInvocationId": "${GITHUB_RUN_ID}",
+              "reproducible": false,
+              "completeness": { "parameters": false, "environment": false, "materials": false }
+            }
+          }
+          EOF
+          cosign attest --yes --type slsaprovenance --predicate provenance.json "${release_image}"
+
+          sbom_src="s3://${rc_bucket}/${mage_rc_dir}/sbom/mage-sbom.json"
+          if aws s3 cp "$sbom_src" sbom.json; then
+            cosign attest --yes --type cyclonedx --predicate sbom.json "${release_image}"
+          else
+            echo "::warning::SBOM not found at $sbom_src — skipping SBOM attestation"
+          fi
 
       - name: Clean up temporary images
         run: |
