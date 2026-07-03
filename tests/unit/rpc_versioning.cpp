@@ -569,175 +569,70 @@ nlohmann::json MakeV3UserJson(std::string const &username, int64_t label_perm, i
   return data;
 }
 
-// SLK round-trip helper: serialize V1, then LoadWithUpgrade to V2.
-memgraph::replication::UpdateAuthDataReq RoundTripV1ToV2(memgraph::replication::UpdateAuthDataReqV1 const &v1_req) {
+}  // namespace
+
+// slk::Load<Role> migrates V3 FGA (global_permission) to V4 (global_grants/global_denies).
+TEST(RpcVersioning, SlkLoadRole_MigratesV3FGA) {
+  // Inject V3 JSON bytes directly into the SLK stream to simulate an old sender.
   std::vector<uint8_t> buf;
   memgraph::slk::Builder builder(
       [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
-  memgraph::slk::Save(v1_req, &builder);
+  // slk::Save<Role> calls self.Serialize().dump() — we bypass this to inject V3 JSON.
+  auto const v3_str = MakeV3RoleJson("myrole", /*label_perm=*/1, /*edge_perm=*/1).dump();
+  memgraph::slk::Save(v3_str, &builder);
   builder.Finalize();
 
   memgraph::slk::Reader reader(buf.data(), buf.size());
-  memgraph::replication::UpdateAuthDataReq v2_req;
-  memgraph::rpc::LoadWithUpgrade(v2_req, /*request_version=*/1, &reader);
-  return v2_req;
+  memgraph::auth::Role loaded;
+  memgraph::slk::Load(&loaded, &reader);
+
+  EXPECT_EQ(loaded.rolename(), "myrole");
+  auto const &label_perms = loaded.fine_grained_access_handler().label_permissions();
+  ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+  EXPECT_FALSE(label_perms.GetGlobalDenies().has_value());
 }
-}  // namespace
 
-// V1 request with V3-format FGA User JSON → upgraded to V2 with migrated FGA.
-TEST(RpcVersioning, UpdateAuthDataRpc_V1UserWithOldFGA_MigratedOnUpgrade) {
-  // V3 global_permission = 1 means READ granted.
-  // After V3→V4 migration: global_grants=1 (READ), global_denies=-1 (unset).
-  auto user_json = MakeV3UserJson("alice", /*label_perm=*/1, /*edge_perm=*/1);
-  auto role_json = MakeV3RoleJson("testrole", /*label_perm=*/1, /*edge_perm=*/1);
+// slk::Load<User> migrates V3 FGA and attached roles.
+TEST(RpcVersioning, SlkLoadUser_MigratesV3FGA) {
+  auto const user_json_str = MakeV3UserJson("alice", /*label_perm=*/1, /*edge_perm=*/1).dump();
+  auto const role_json_str = MakeV3RoleJson("testrole", /*label_perm=*/1, /*edge_perm=*/1).dump();
 
-  memgraph::replication::UpdateAuthDataReqV1 v1;
-  v1.main_uuid = memgraph::utils::UUID{};
-  v1.expected_group_timestamp = 42;
-  v1.new_group_timestamp = 43;
-  v1.user_json = user_json.dump();
-  v1.user_role_jsons = std::vector<std::string>{role_json.dump()};
-  v1.user_mt_mappings = std::unordered_map<std::string, std::unordered_set<std::string>>{};
+  // Build the SLK byte stream manually: user JSON string, then roles vector, then MT mappings.
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+  // User JSON string
+  memgraph::slk::Save(user_json_str, &builder);
+  // Roles vector: size=1, then role JSON string
+  memgraph::slk::Save(static_cast<uint64_t>(1), &builder);
+  memgraph::slk::Save(role_json_str, &builder);
+#ifdef MG_ENTERPRISE
+  // MT mappings: empty map
+  std::unordered_map<std::string, std::unordered_set<std::string>> mt_map;
+  memgraph::slk::Save(mt_map, &builder);
+#endif
+  builder.Finalize();
 
-  auto v2 = RoundTripV1ToV2(v1);
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::auth::User loaded;
+  memgraph::slk::Load(&loaded, &reader);
 
-  ASSERT_TRUE(v2.user.has_value());
-  EXPECT_EQ(v2.user->username(), "alice");
-  EXPECT_FALSE(v2.role.has_value());
-  EXPECT_EQ(v2.expected_group_timestamp, 42);
-  EXPECT_EQ(v2.new_group_timestamp, 43);
+  EXPECT_EQ(loaded.username(), "alice");
 
-  // Verify FGA migrated: global_grants should be set, global_denies unset.
-  auto const &label_perms = v2.user->fine_grained_access_handler().label_permissions();
+  auto const &label_perms = loaded.fine_grained_access_handler().label_permissions();
   ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
   EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
   EXPECT_FALSE(label_perms.GetGlobalDenies().has_value());
 
-  auto const &edge_perms = v2.user->fine_grained_access_handler().edge_type_permissions();
-  ASSERT_TRUE(edge_perms.GetGlobalGrants().has_value());
-  EXPECT_EQ(edge_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
-  EXPECT_FALSE(edge_perms.GetGlobalDenies().has_value());
-
-  // Check the embedded role was also migrated
-  auto const &roles = v2.user->roles();
-  ASSERT_EQ(roles.size(), 1);
-  auto const &role = *roles.begin();
+  // Attached role should also be migrated
+  ASSERT_EQ(loaded.roles().size(), 1);
+  auto const &role = *loaded.roles().begin();
   EXPECT_EQ(role.rolename(), "testrole");
   auto const &role_label_perms = role.fine_grained_access_handler().label_permissions();
   ASSERT_TRUE(role_label_perms.GetGlobalGrants().has_value());
   EXPECT_EQ(role_label_perms.GetGlobalGrants().value(),
             static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
-  EXPECT_FALSE(role_label_perms.GetGlobalDenies().has_value());
-
-  auto const &role_edge_perms = role.fine_grained_access_handler().edge_type_permissions();
-  ASSERT_TRUE(role_edge_perms.GetGlobalGrants().has_value());
-  EXPECT_EQ(role_edge_perms.GetGlobalGrants().value(),
-            static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
-  EXPECT_FALSE(role_edge_perms.GetGlobalDenies().has_value());
-}
-
-// V1 request with V3-format FGA standalone Role → upgraded with migration.
-TEST(RpcVersioning, UpdateAuthDataRpc_V1RoleWithOldFGA_MigratedOnUpgrade) {
-  auto role_json = MakeV3RoleJson("myrole", /*label_perm=*/1, /*edge_perm=*/1);
-
-  memgraph::replication::UpdateAuthDataReqV1 v1;
-  v1.main_uuid = memgraph::utils::UUID{};
-  v1.expected_group_timestamp = 10;
-  v1.new_group_timestamp = 11;
-  v1.role_json = role_json.dump();
-
-  auto v2 = RoundTripV1ToV2(v1);
-
-  ASSERT_FALSE(v2.user.has_value());
-  ASSERT_TRUE(v2.role.has_value());
-  EXPECT_EQ(v2.role->rolename(), "myrole");
-
-  auto const &label_perms = v2.role->fine_grained_access_handler().label_permissions();
-  ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
-  EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
-}
-
-// V2 request round-trips without migration.
-TEST(RpcVersioning, UpdateAuthDataRpc_V2Request_NoMigrationNeeded) {
-  auto role = memgraph::auth::Role("v2role");
-  role.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-
-  memgraph::replication::UpdateAuthDataReq orig;
-  orig.main_uuid = memgraph::utils::UUID{};
-  orig.expected_group_timestamp = 5;
-  orig.new_group_timestamp = 6;
-  orig.role = std::move(role);
-
-  // Serialize as V2 and load as V2 (no upgrade needed).
-  std::vector<uint8_t> buf;
-  memgraph::slk::Builder builder(
-      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
-  memgraph::slk::Save(orig, &builder);
-  builder.Finalize();
-
-  memgraph::slk::Reader reader(buf.data(), buf.size());
-  memgraph::replication::UpdateAuthDataReq loaded;
-  memgraph::rpc::LoadWithUpgrade(loaded, /*request_version=*/2, &reader);
-
-  ASSERT_TRUE(loaded.role.has_value());
-  EXPECT_EQ(loaded.role->rolename(), "v2role");
-  auto const &label_perms = loaded.role->fine_grained_access_handler().label_permissions();
-  ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
-  EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
-}
-
-// V1 request with user but no roles (user_role_jsons = nullopt).
-TEST(RpcVersioning, UpdateAuthDataRpc_V1UserNoRoles_UpgradesCleanly) {
-  auto user_json = MakeV3UserJson("bob", /*label_perm=*/1, /*edge_perm=*/1);
-
-  memgraph::replication::UpdateAuthDataReqV1 v1;
-  v1.main_uuid = memgraph::utils::UUID{};
-  v1.expected_group_timestamp = 1;
-  v1.new_group_timestamp = 2;
-  v1.user_json = user_json.dump();
-  // user_role_jsons and user_mt_mappings left as nullopt
-
-  auto v2 = RoundTripV1ToV2(v1);
-
-  ASSERT_TRUE(v2.user.has_value());
-  EXPECT_EQ(v2.user->username(), "bob");
-  EXPECT_TRUE(v2.user->roles().empty());
-
-  auto const &label_perms = v2.user->fine_grained_access_handler().label_permissions();
-  ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
-  EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
-}
-
-// V1 request with user and MT role mappings.
-TEST(RpcVersioning, UpdateAuthDataRpc_V1UserWithMtMappings_RolesAttachedPerDb) {
-  auto user_json = MakeV3UserJson("carol", /*label_perm=*/-1, /*edge_perm=*/-1);
-  auto role_json = MakeV3RoleJson("dbrole", /*label_perm=*/1, /*edge_perm=*/1);
-
-  memgraph::replication::UpdateAuthDataReqV1 v1;
-  v1.main_uuid = memgraph::utils::UUID{};
-  v1.expected_group_timestamp = 100;
-  v1.new_group_timestamp = 101;
-  v1.user_json = user_json.dump();
-  v1.user_role_jsons = std::vector<std::string>{role_json.dump()};
-  v1.user_mt_mappings = std::unordered_map<std::string, std::unordered_set<std::string>>{{"testdb", {"dbrole"}}};
-
-  auto v2 = RoundTripV1ToV2(v1);
-
-  ASSERT_TRUE(v2.user.has_value());
-  EXPECT_EQ(v2.user->username(), "carol");
-
-  // Carol's own FGA was -1 (unset) → should remain unset after migration
-  auto const &label_perms = v2.user->fine_grained_access_handler().label_permissions();
-  EXPECT_FALSE(label_perms.GetGlobalGrants().has_value());
-  EXPECT_FALSE(label_perms.GetGlobalDenies().has_value());
-
-  // The role should be attached both as a regular role and as an MT mapping
-  EXPECT_EQ(v2.user->roles().size(), 1);
-  EXPECT_EQ(v2.user->roles().begin()->rolename(), "dbrole");
-
-  auto const &mt = v2.user->GetMultiTenantRoleMappings();
-  ASSERT_EQ(mt.count("testdb"), 1);
-  EXPECT_EQ(mt.at("testdb").count("dbrole"), 1);
 }
 
 #endif  // MG_ENTERPRISE

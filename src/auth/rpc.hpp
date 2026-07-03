@@ -20,30 +20,9 @@
 
 namespace memgraph::replication {
 
-struct UpdateAuthDataReqV1 {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_UPDATE_AUTH_DATA_REQ, .name = "UpdateAuthDataReq"};
-  static constexpr uint64_t kVersion{1};
-
-  static void Load(UpdateAuthDataReqV1 *self, memgraph::slk::Reader *reader);
-  static void Save(const UpdateAuthDataReqV1 &self, memgraph::slk::Builder *builder);
-  UpdateAuthDataReqV1() = default;
-
-  utils::UUID main_uuid;
-  uint64_t expected_group_timestamp{};
-  uint64_t new_group_timestamp{};
-
-  // Raw JSON strings: deserialized without parsing into domain objects so we
-  // can migrate the JSON before constructing User/Role.
-  std::optional<std::string> user_json;
-  std::optional<std::vector<std::string>> user_role_jsons;
-  std::optional<std::unordered_map<std::string, std::unordered_set<std::string>>> user_mt_mappings;
-  std::optional<std::string> role_json;
-  std::optional<auth::UserProfiles::Profile> profile;
-};
-
 struct UpdateAuthDataReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_UPDATE_AUTH_DATA_REQ, .name = "UpdateAuthDataReq"};
-  static constexpr uint64_t kVersion{2};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
   static void Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
@@ -68,8 +47,6 @@ struct UpdateAuthDataReq {
         new_group_timestamp{new_ts},
         profile{std::move(profile)} {}
 
-  static UpdateAuthDataReq Upgrade(UpdateAuthDataReqV1 const &v1);
-
   utils::UUID main_uuid;
   uint64_t expected_group_timestamp{};
   uint64_t new_group_timestamp{};
@@ -78,30 +55,15 @@ struct UpdateAuthDataReq {
   std::optional<auth::UserProfiles::Profile> profile{};
 };
 
-struct UpdateAuthDataResV1 {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_UPDATE_AUTH_DATA_RES, .name = "UpdateAuthDataRes"};
-  static constexpr uint64_t kVersion{1};
-
-  static void Load(UpdateAuthDataResV1 *self, memgraph::slk::Reader *reader);
-  static void Save(const UpdateAuthDataResV1 &self, memgraph::slk::Builder *builder);
-  UpdateAuthDataResV1() = default;
-
-  explicit UpdateAuthDataResV1(bool success) : success{success} {}
-
-  bool success{};
-};
-
 struct UpdateAuthDataRes {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_UPDATE_AUTH_DATA_RES, .name = "UpdateAuthDataRes"};
-  static constexpr uint64_t kVersion{2};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(UpdateAuthDataRes *self, memgraph::slk::Reader *reader);
   static void Save(const UpdateAuthDataRes &self, memgraph::slk::Builder *builder);
   UpdateAuthDataRes() = default;
 
   explicit UpdateAuthDataRes(bool success) : success{success} {}
-
-  UpdateAuthDataResV1 Downgrade() const { return UpdateAuthDataResV1{success}; }
 
   bool success{};
 };
@@ -161,12 +123,8 @@ void Load(auth::UserProfiles::Profile *self, memgraph::slk::Reader *reader);
 void Save(const auth::Auth::Config &self, memgraph::slk::Builder *builder);
 void Load(auth::Auth::Config *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::replication::UpdateAuthDataReqV1 &self, memgraph::slk::Builder *builder);
-void Load(memgraph::replication::UpdateAuthDataReqV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
-void Save(const memgraph::replication::UpdateAuthDataResV1 &self, memgraph::slk::Builder *builder);
-void Load(memgraph::replication::UpdateAuthDataResV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::UpdateAuthDataRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::UpdateAuthDataRes *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::DropAuthDataRes &self, memgraph::slk::Builder *builder);
