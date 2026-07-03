@@ -1912,7 +1912,7 @@ void MigrateAuthJson(nlohmann::json &data) {
       if (perm_it != fg_it->end() && perm_it->is_object()) {
         auto global_it = perm_it->find("global_permission");
         if (global_it != perm_it->end() && global_it->is_number_integer()) {
-          auto const v2_perm = global_it->template get<int64_t>();
+          auto const v2_perm = global_it->get<int64_t>();
           if (v2_perm >= 0) {
             *global_it = convert_v2_to_v3(static_cast<uint64_t>(v2_perm));
           }
@@ -1971,7 +1971,7 @@ void MigrateAuthJson(nlohmann::json &data) {
 
       auto global_it = perm_data.find("global_permission");
       if (global_it != perm_data.end() && global_it->is_number_integer()) {
-        auto const old_perm = global_it->template get<int64_t>();
+        auto const old_perm = global_it->get<int64_t>();
         if (old_perm == 0) {
           perm_data["global_grants"] = -1;
           perm_data["global_denies"] = static_cast<int64_t>(is_label ? kAllLabelPerms : kAllEdgeTypePerms);
