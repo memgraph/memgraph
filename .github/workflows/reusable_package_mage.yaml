@@ -164,8 +164,7 @@ jobs:
         with:
           repository: memgraph/infra
           path: infra
-          # TODO: pin to `master` after the sbom-infra branch is merged.
-          ref: sbom-infra
+          ref: master
           token: ${{ secrets.REPO_PAT }}
 
       - name: Clean up Docker

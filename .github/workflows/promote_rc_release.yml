@@ -435,7 +435,7 @@ jobs:
           set -uo pipefail   # no -e: this is diagnostic, run every probe
           if ! docker scout version >/dev/null 2>&1; then
             echo "Installing docker scout CLI plugin (best-effort)"
-            curl -fsSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s -- || {
+            curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s -- || {
               echo "::warning::could not install docker scout; skipping verification"
               exit 0
             }
@@ -865,7 +865,7 @@ jobs:
           set -uo pipefail   # no -e: this is diagnostic, run every probe
           if ! docker scout version >/dev/null 2>&1; then
             echo "Installing docker scout CLI plugin (best-effort)"
-            curl -fsSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s -- || {
+            curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s -- || {
               echo "::warning::could not install docker scout; skipping verification"
               exit 0
             }
