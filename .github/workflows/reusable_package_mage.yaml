@@ -629,8 +629,31 @@ jobs:
             --ci \
             $TEST_ARGS
 
-      - name: Generate SBOM
+      - name: "Reuse memgraph build SBOM"
+        # The memgraph package job already produced memgraph-build-sbom.json
+        # (conan + MGCXX) and uploaded it as the `memgraph-sbom` artifact. When
+        # this MAGE build runs in the same workflow run, reuse it instead of
+        # regenerating it in-container. A standalone MAGE run has no such
+        # artifact, so the download fails and the next step regenerates it.
+        id: reuse_memgraph_sbom
         if: ${{ inputs.generate_sbom == true }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: memgraph-sbom
+          path: memgraph-sbom-artifact
+
+      - name: "Stage reused memgraph build SBOM"
+        if: ${{ inputs.generate_sbom == true && steps.reuse_memgraph_sbom.outcome == 'success' }}
+        run: |
+          mkdir -p sbom
+          cp -v memgraph-sbom-artifact/memgraph-build-sbom.json sbom/
+          echo "Reusing memgraph build SBOM from the memgraph package job"
+
+      - name: Generate SBOM
+        # Regenerate the memgraph build SBOM in-container only when it could not
+        # be reused from the memgraph package job (e.g. a standalone MAGE run).
+        if: ${{ inputs.generate_sbom == true && steps.reuse_memgraph_sbom.outcome != 'success' }}
         env:
           CONAN_REMOTE: "${{ secrets.CONAN_REMOTE }}"
         run: |
