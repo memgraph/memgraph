@@ -520,23 +520,19 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name) {
 
 DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
   auto wr = std::lock_guard(lock_);
-  // Cold-tenant fast path: scan suspended_ by uuid (replica apply path — no transaction arg).
-  {
-    auto it = FindSuspendedByUuid_(uuid);
-    if (it != suspended_.end()) {
-      if (auto cold_res = TryDeleteColdFastPath_(it->first, /*transaction=*/nullptr)) {
-        return *cold_res;
-      }
-    }
+  // COLD first, matching the rest of the Delete/TryDelete family (a DROP treats a COLD tenant as an
+  // equally valid target, unlike the Get_ read path which privileges HOT to surface a "RESUME it"
+  // error). Ordering is correctness-neutral: under lock_ a tenant is HOT xor in suspended_, never both
+  // (Resume_ publishes HOT and erases the suspended_ entry in one nothrow scope). Both lookups are
+  // in-memory map scans — neither touches disk. (Replica apply path — no transaction arg.)
+  if (auto it = FindSuspendedByUuid_(uuid); it != suspended_.end()) {
+    auto dropped = DeleteCold_(it->first);
+    if (!dropped) return std::unexpected{dropped.error()};
+    return {};
   }
-  std::string db_name;
-  try {
-    const auto db = Get_(uuid);
-    db_name = db->name();
-  } catch (const UnknownDatabaseException &) {
-    return std::unexpected{DeleteError::NON_EXISTENT};
-  }
-  return Delete_(db_name);
+  auto it = FindHotByUuid_(uuid);
+  if (it == db_handler_.end()) return std::unexpected{DeleteError::NON_EXISTENT};
+  return Delete_(it->first);
 }
 
 DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::string_view new_name,
@@ -1524,16 +1520,9 @@ DbmsHandler::SuspendResult DbmsHandler::SuspendByUUID(utils::UUID uuid, system::
   std::string name;
   {
     auto rd = std::shared_lock{lock_};
-    bool found = false;
-    for (auto &[n, db_gk] : db_handler_) {
-      auto acc = db_gk.access();  // nullopt for a non-HOT (COLD) shell
-      if (acc && acc->get()->uuid() == uuid) {
-        name = n;
-        found = true;
-        break;
-      }
-    }
-    if (!found) return std::unexpected{SuspendError::NON_EXISTENT};
+    auto it = FindHotByUuid_(uuid);  // access() is nullopt for a non-HOT (COLD) shell => skipped
+    if (it == db_handler_.end()) return std::unexpected{SuspendError::NON_EXISTENT};
+    name = it->first;
   }
   return Suspend_(name, txn);
 }

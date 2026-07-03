@@ -989,6 +989,16 @@ class DbmsHandler {
     return std::ranges::find_if(suspended_, [&](auto const &kv) { return kv.second.salient.uuid == uuid; });
   }
 
+  // Find the HOT (in-memory, live) gatekeeper whose uuid matches @p uuid, or db_handler_.end(). The
+  // HOT-by-uuid partner to FindSuspendedByUuid_: a COLD (suspended) tenant keeps an in-map gatekeeper
+  // whose access() is nullopt, so it is correctly skipped. Caller MUST hold lock_ (shared or exclusive).
+  auto FindHotByUuid_(utils::UUID uuid) {
+    return std::ranges::find_if(db_handler_, [&](auto &kv) {
+      auto acc = kv.second.access();
+      return acc && acc->get()->uuid() == uuid;
+    });
+  }
+
   /**
    * @brief Create a new Database associated with the default database
    *
@@ -1105,18 +1115,15 @@ class DbmsHandler {
    * @throw UnknownDatabaseException if database not found
    */
   DatabaseAccess Get_(const utils::UUID &uuid) {
-    // TODO Speed up
-    for (auto &[_, db_gk] : db_handler_) {
-      auto acc = db_gk.access();
-      // Skip non-HOT shells: a COLD (suspended) tenant keeps an in-map gatekeeper, but access()
-      // returns nullopt (it is not HOT). Dereferencing it would be UB. A COLD tenant is correctly
-      // "not found by UUID" here, so a data delta for it raises UnknownDatabaseException and the replica
-      // fails that delta for MAIN to recover (it is NOT reheated inline — see GetDatabaseAccessor).
-      if (acc && acc->get()->uuid() == uuid) {
-        return std::move(*acc);
-      }
+    // A COLD (suspended) tenant keeps an in-map gatekeeper, but access() returns nullopt (it is not
+    // HOT), so FindHotByUuid_ skips it: a COLD tenant is correctly "not found by UUID" here, and a
+    // data delta for it raises UnknownDatabaseException so the replica fails that delta for MAIN to
+    // recover (it is NOT reheated inline — see GetDatabaseAccessor).
+    auto it = FindHotByUuid_(uuid);  // TODO Speed up (linear scan)
+    if (it == db_handler_.end()) {
+      throw UnknownDatabaseException("Tried to retrieve an unknown database with UUID \"{}\".", std::string{uuid});
     }
-    throw UnknownDatabaseException("Tried to retrieve an unknown database with UUID \"{}\".", std::string{uuid});
+    return std::move(*it->second.access());
   }
 #endif
 
