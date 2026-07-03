@@ -493,6 +493,25 @@ class DbmsHandler {
    */
   bool IsSuspended(std::string_view name) const { return GetColdUuid(name).has_value(); }
 
+ private:
+  // Find the suspended (COLD) entry whose salient uuid matches @p uuid, or suspended_.end().
+  // Caller MUST hold lock_. (Defined here, ahead of IsKnownTenant, because the deduced return type
+  // must be seen before the call site.)
+  auto FindSuspendedByUuid_(utils::UUID uuid) {
+    return std::ranges::find_if(suspended_, [&](auto const &kv) { return kv.second.salient.uuid == uuid; });
+  }
+
+  // Find the HOT (in-memory, live) gatekeeper whose uuid matches @p uuid, or db_handler_.end(). The
+  // HOT-by-uuid partner to FindSuspendedByUuid_: a COLD (suspended) tenant keeps an in-map gatekeeper
+  // whose access() is nullopt, so it is correctly skipped. Caller MUST hold lock_ (shared or exclusive).
+  auto FindHotByUuid_(utils::UUID uuid) {
+    return std::ranges::find_if(db_handler_, [&](auto &kv) {
+      auto acc = kv.second.access();
+      return acc && acc->get()->uuid() == uuid;
+    });
+  }
+
+ public:
   /**
    * @brief Does this node know @p uuid AT ALL — HOT (db_handler_) or COLD (suspended_)?
    *
@@ -507,14 +526,7 @@ class DbmsHandler {
   // as SuspendByUUID does — Gatekeeper::access() is non-const because it transiently bumps the count.
   bool IsKnownTenant(const utils::UUID &uuid) {
     auto rd = std::shared_lock{lock_};
-    for (auto &[n, db_gk] : db_handler_) {
-      auto acc = db_gk.access();  // nullopt for a COLD shell — those are matched via suspended_ below
-      if (acc && acc->get()->uuid() == uuid) return true;
-    }
-    for (const auto &[n, entry] : suspended_) {
-      if (entry.salient.uuid == uuid) return true;
-    }
-    return false;
+    return FindHotByUuid_(uuid) != db_handler_.end() || FindSuspendedByUuid_(uuid) != suspended_.end();
   }
 
   /**
@@ -981,22 +993,6 @@ class DbmsHandler {
   // (every call site already does, or runs before any concurrent reader exists).
   void UpdateColdGauge_() const noexcept {
     metrics::Metrics().global.cold_databases->Set(static_cast<double>(suspended_.size()));
-  }
-
-  // Find the suspended (COLD) entry whose salient uuid matches @p uuid, or suspended_.end().
-  // Caller MUST hold lock_.
-  auto FindSuspendedByUuid_(utils::UUID uuid) {
-    return std::ranges::find_if(suspended_, [&](auto const &kv) { return kv.second.salient.uuid == uuid; });
-  }
-
-  // Find the HOT (in-memory, live) gatekeeper whose uuid matches @p uuid, or db_handler_.end(). The
-  // HOT-by-uuid partner to FindSuspendedByUuid_: a COLD (suspended) tenant keeps an in-map gatekeeper
-  // whose access() is nullopt, so it is correctly skipped. Caller MUST hold lock_ (shared or exclusive).
-  auto FindHotByUuid_(utils::UUID uuid) {
-    return std::ranges::find_if(db_handler_, [&](auto &kv) {
-      auto acc = kv.second.access();
-      return acc && acc->get()->uuid() == uuid;
-    });
   }
 
   /**

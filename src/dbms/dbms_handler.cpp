@@ -773,16 +773,19 @@ std::expected<utils::UUID, DeleteError> DbmsHandler::DeleteCold_(std::string_vie
 
   const auto uuid = it->second.salient.uuid;
   const auto data_dir = default_config_.durability.storage_directory / it->second.rel_dir;
+  // `name` may be a view into it->first (the Delete(uuid) path passes the map key directly). Own it
+  // before erase() frees the node, or the reads below dangle (heap-UAF).
+  const std::string name_copy{name};
   suspended_.erase(it);
-  db_handler_.EraseColdShell(name);  // guaranteed to succeed: we just verified state==COLD above
-  if (durability_) durability_->Delete(Durability::GenKey(name));
+  db_handler_.EraseColdShell(name_copy);  // guaranteed to succeed: we just verified state==COLD above
+  if (durability_) durability_->Delete(Durability::GenKey(name_copy));
   std::error_code ec;
   (void)std::filesystem::remove_all(data_dir, ec);
   if (ec) {
-    spdlog::error(R"(Failed to clean disk while dropping suspended database "{}" at {})", name, data_dir.string());
+    spdlog::error(R"(Failed to clean disk while dropping suspended database "{}" at {})", name_copy, data_dir.string());
   }
   if (tenant_profiles_) {
-    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(name);
+    [[maybe_unused]] auto detached = tenant_profiles_->DetachFromDatabase(name_copy);
   }
   UpdateColdGauge_();
   return uuid;
@@ -1238,6 +1241,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
   // Wall-clock start for the resume-latency histogram; observed only on the winner's successful publish
   // below (the path that bumps the resume counter), so loser/error returns do not skew the distribution.
   const auto resume_start = std::chrono::steady_clock::now();
+  // Set once this call has looped waiting on a concurrent winner. A HOT observation on a re-entered pass
+  // is then a real COLD->HOT transition we waited through, NOT an idempotent already-HOT no-op.
+  bool waited_through_transition = false;
   while (true) {
     utils::Gatekeeper<Database> *gk = nullptr;
     // Copy only the two fields the off-lock build needs (salient + rel_dir) instead of the full
@@ -1258,10 +1264,10 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       // check state() under the caller's exclusive lock_ before touching items_ or suspended_.
       auto rd = std::shared_lock{lock_};
       if (auto a = db_handler_.Get(name)) {
-        // Already HOT (raced) — share its accessor. This is the ONLY already_hot=true exit: the
-        // tenant was HOT before this call did anything (idempotent no-op), as opposed to the
-        // loser-poll / winner-publish exits below which all observe a real COLD -> HOT transition.
-        if (already_hot) *already_hot = true;
+        // Already HOT — share its accessor. already_hot is true only on the FIRST pass (the tenant was
+        // HOT before this call did anything: idempotent no-op). On a re-entered pass we got here by
+        // waiting through a concurrent winner's COLD -> HOT publish, so report a real resume.
+        if (already_hot) *already_hot = !waited_through_transition;
         return std::move(*a);
       }
       gk = db_handler_.GetGatekeeper(name);  // stable pointer to the in-map gatekeeper
@@ -1355,7 +1361,10 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
       // A live (RESUMING/SUSPENDING) winner: keep waiting, bounded by max_wait via the outer loop
       // re-arming the poll (this is the HC-1 fix: the absolute_ceiling can fire purely because the
       // winner stayed RESUMING, and that must not be treated as an abort).
-      if (winner_still_resuming) continue;
+      if (winner_still_resuming) {
+        waited_through_transition = true;  // a HOT observation on re-entry is now a real resume, not already-HOT
+        continue;
+      }
       // Winner aborted -> tenant went COLD: the resume we were waiting on failed. Fail fast — RESUME is
       // idempotent and retriable, so the caller re-issues rather than us auto-retrying in-call (which was
       // a livelock risk under concurrent failing resumes, and needed a bounded counter). suspended_ is
