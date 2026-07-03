@@ -459,6 +459,40 @@ TYPED_TEST(InterpreterTest, PropertyEqualityFromUnwindOrderByNotElided) {
   EXPECT_THAT(out, testing::ElementsAre(1, 2, 3));
 }
 
+// A composite index stores a missing property as NULL and sorts NULL first,
+// but Cypher ORDER BY places NULL last. When an ORDER BY targets an unconstrained
+// suffix column of the index (only the prefix is pinned), the scan's index order
+// disagrees with ORDER BY on NULL placement, so the sort must not be eliminated.
+// A constrained suffix column (its own filter excludes NULL) is safe to eliminate.
+TYPED_TEST(InterpreterTest, CompositeIndexNullableSuffixOrderByNotElided) {
+  // Composite indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("CREATE INDEX ON :L(a, b)");
+  // One row leaves b missing (stored as NULL in the index).
+  this->Interpret("CREATE (:L {a: 5, b: 3}), (:L {a: 5, b: 1}), (:L {a: 5}), (:L {a: 5, b: 2})");
+
+  // Records each row's b as an int, or -1 for NULL, preserving result order.
+  auto values = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    std::vector<int64_t> out;
+    for (const auto &row : stream.GetResults()) {
+      out.push_back(row[0].type() == memgraph::communication::bolt::Value::Type::Null ? -1 : row[0].ValueInt());
+    }
+    return out;
+  };
+
+  // Unconstrained suffix: NULL must sort last, not first.
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b"), testing::ElementsAre(1, 2, 3, -1));
+  // With LIMIT the misordering would return the wrong rows entirely.
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b LIMIT 2"), testing::ElementsAre(1, 2));
+  // A constrained suffix stays correct (and remains eligible for elimination).
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 AND n.b > 0 RETURN n.b AS b ORDER BY n.b"),
+              testing::ElementsAre(1, 2, 3));
+}
+
 // `MATCH (n:L) WHERE id(n) IN $ids` selects the id scan and keeps the label as a
 // residual filter, so only labelled vertices come back.
 TYPED_TEST(InterpreterTest, IdInListLabelResidual) {
