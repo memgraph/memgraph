@@ -20,6 +20,7 @@
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -1084,10 +1085,22 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
                                     kMaxReplicaReadLag,
                                     kDeltasBatchProgressSize,
                                     kInstanceDownTimeoutSec,
-                                    kInstanceHealthCheckFreqSec};
+                                    kInstanceHealthCheckFreqSec,
+                                    kGlobalReadOnly};
       !std::ranges::contains(settings, setting_name)) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
+
+  auto const parse_bool = [](std::string_view const value) -> bool {
+    auto const lowered = utils::ToLowerCase(value);
+    if (lowered == "true"sv) {
+      return true;
+    }
+    if (lowered == "false"sv) {
+      return false;
+    }
+    throw std::invalid_argument{R"(Value must be either "true" or "false".)"};
+  };
 
   CoordinatorClusterStateDelta delta_state;
   try {
@@ -1105,6 +1118,8 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
       delta_state.instance_down_timeout_sec_ = utils::ParseStringToUint32(setting_value);
     } else if (setting_name == kInstanceHealthCheckFreqSec) {
       delta_state.instance_health_check_frequency_sec_ = utils::ParseStringToUint32(setting_value);
+    } else if (setting_name == kGlobalReadOnly) {
+      delta_state.global_read_only_ = parse_bool(setting_value);
     }
   } catch (std::exception const &e) {
     spdlog::error("Error occurred while trying to update {} to {}. Error: {}", setting_name, setting_value, e.what());
@@ -1582,7 +1597,8 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
       std::pair{std::string{kDeltasBatchProgressSize}, std::to_string(raft_state_->GetDeltasBatchProgressSize())},
       std::pair{std::string{kInstanceDownTimeoutSec}, std::to_string(raft_state_->GetInstanceDownTimeoutSec())},
       std::pair{std::string{kInstanceHealthCheckFreqSec},
-                std::to_string(raft_state_->GetInstanceHealthCheckFrequencySec().count())}};
+                std::to_string(raft_state_->GetInstanceHealthCheckFrequencySec().count())},
+      std::pair{std::string{kGlobalReadOnly}, raft_state_->GetGlobalReadOnly() ? "true" : "false"}};
   return settings;
 }
 

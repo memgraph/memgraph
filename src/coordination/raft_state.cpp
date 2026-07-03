@@ -658,6 +658,8 @@ auto RaftState::GetInstanceHealthCheckFrequencySec() const -> std::chrono::secon
   return state_machine_->GetInstanceHealthCheckFrequencySec();
 }
 
+auto RaftState::GetGlobalReadOnly() const -> bool { return state_machine_->GetGlobalReadOnly(); }
+
 }  // namespace memgraph::coordination
 
 // namespace memgraph::coordination

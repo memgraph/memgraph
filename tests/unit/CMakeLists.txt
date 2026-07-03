@@ -1109,6 +1109,16 @@ if (MG_ENTERPRISE)
 
 endif ()
 
+# Test coordinator global_read_only SET/SHOW setting path
+if (MG_ENTERPRISE)
+    add_unit_test(coordinator_global_read_only_setting
+        SOURCES coordinator_global_read_only_setting.cpp
+        LINK_TARGETS gflags mg-coordination mg-repl_coord_glue
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+    )
+
+endif ()
+
 # Test coordinator env flag handler
 if (MG_ENTERPRISE)
     add_unit_test(coordinator_env_flag_handler
@@ -1159,6 +1169,7 @@ if (MG_ENTERPRISE)
         memgraph__unit__coordinator_state_manager
         memgraph__unit__coordinator_log_store
         memgraph__unit__coordinator_raft_state
+        memgraph__unit__coordinator_global_read_only_setting
         memgraph__unit__coordinator_env_flag_handler
         memgraph__unit__coordinator_instance_context
         memgraph__unit__coordinator_instance_aux
