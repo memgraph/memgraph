@@ -1301,6 +1301,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitRenameDatabase(MemgraphCypher::RenameDatabaseContext *ctx) override;
 
   /**
+   * @return MultiDatabaseQuery* (action=SUSPEND)
+   */
+  antlrcpp::Any visitSuspendDatabase(MemgraphCypher::SuspendDatabaseContext *ctx) override;
+
+  /**
+   * @return MultiDatabaseQuery* (action=RESUME)
+   */
+  antlrcpp::Any visitResumeDatabase(MemgraphCypher::ResumeDatabaseContext *ctx) override;
+
+  /**
    * @return UseDatabaseQuery*
    */
   antlrcpp::Any visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) override;

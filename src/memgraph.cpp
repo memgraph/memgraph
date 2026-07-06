@@ -78,6 +78,7 @@
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
+#include "utils/variant_helpers.hpp"
 #include "version.hpp"
 
 #include <gflags/gflags.h>
@@ -927,6 +928,44 @@ int main(int argc, char **argv) {
     dbms_handler->RestoreStreams(&interpreter_context_);
     spdlog::trace("Streams restored.");
   }
+
+#ifdef MG_ENTERPRISE
+  // Hot/cold suspend/resume arms (multi-tenant). Wired unconditionally (not gated on recover_on_startup):
+  //  - on_suspend_: before the freeze, stop the per-db stream consumers (each pins the tenant HOT via a
+  //    captured DatabaseAccess), preserving their durable metadata so resume rebuilds them;
+  //  - restore_streams_: undo that stop if a suspend does not commit (preserving each stream's run/stop state);
+  //  - on_resume_: after a COLD tenant's storage is rebuilt, re-arm its triggers AND streams from durable
+  //    metadata (BuildDetached does not auto-arm either). Triggers must come first (streams use modules).
+  if (dbms_handler.has_value()) {
+    auto *dh = &*dbms_handler;
+    auto *ic = &interpreter_context_;
+    dh->SetOnSuspend(
+        [](memgraph::dbms::DatabaseAccess db_acc) { memgraph::dbms::DbmsHandler::StopStreamsFor(db_acc); });
+    dh->SetRestoreStreams([dh, ic](memgraph::dbms::DatabaseAccess db_acc) { dh->RestoreStreamsFor(db_acc, ic); });
+    dh->SetOnResume([dh, ic, &repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+      memgraph::dbms::DbmsHandler::RestoreTriggersFor(db_acc, ic);
+      dh->RestoreStreamsFor(db_acc, ic);
+      db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
+        const auto locked_repl_state = repl_state->ReadLock();
+        return locked_repl_state->IsMainWriteable();
+      });
+    });
+    // Post-publish arm: re-establish per-replica storage clients for the resumed tenant on MAIN.
+    // lock_ is already released at the call site (dbms_handler.cpp publish block closes at :1394,
+    // durability lock_guard at :1423), so taking repl_state here is not a lock_->repl_state inversion.
+    // RecoverStorageReplication creates AND starts the per-replica clients; the existing FrequentCheck
+    // picks them up — do NOT also call StartReplicaClient (would double-spawn the heartbeat thread).
+    dh->SetOnResumeRepl([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+      auto locked = repl_state->Lock();
+      std::visit(memgraph::utils::Overloaded{[&db_acc](memgraph::replication::RoleMainData &mainData) {
+                                               memgraph::dbms::DbmsHandler::RecoverStorageReplication(std::move(db_acc),
+                                                                                                      mainData);
+                                             },
+                                             [](auto &) {}},
+                 locked->ReplicationData());
+    });
+  }
+#endif
 
 #ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance

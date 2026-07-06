@@ -942,10 +942,15 @@ run_coordinator_query_with_retry 'SHOW INSTANCES;'
 # --- Post-upgrade verification ---
 POST_UPGRADE_TARGET_POD="$(resolve_main_data_pod)"
 echo -e "${GREEN}Running post-upgrade tests on main data pod: ${POST_UPGRADE_TARGET_POD}${NC}"
-kubectl cp post_upgrade_mg.cypherl  "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_mg.cypherl"
-kubectl cp post_upgrade_db1.cypherl "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_db1.cypherl"
+kubectl cp post_upgrade_mg.cypherl       "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_mg.cypherl"
+kubectl cp post_upgrade_hot_cold.cypherl "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_hot_cold.cypherl"
+kubectl cp post_upgrade_db1.cypherl      "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_db1.cypherl"
 echo "Running post-upgrade tests on database 'memgraph'"
 kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_mg.cypherl  --username=system_admin_user --password=admin_password"
+# Hot/cold: SUSPEND -> RESUME the migrated tenant db1 BEFORE the db1 data check below,
+# so that check verifies the tenant survived the cold round trip on the upgraded binary.
+echo "Running post-upgrade hot/cold suspend/resume on database 'db1'"
+kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_hot_cold.cypherl --username=system_admin_user --password=admin_password"
 echo "Running post-upgrade tests on database 'db1'"
 kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_db1.cypherl --username=tenant1_admin_user --password=t1_admin_pass"
 

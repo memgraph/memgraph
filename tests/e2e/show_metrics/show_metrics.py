@@ -130,6 +130,16 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "WalFilesRpc_us_50p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "WalFilesRpc_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "WalFilesRpc_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
+        # HotCold (sorted by metric type, name)
+        {"name": "DatabaseResumes", "type": "HotCold", "metric type": "Counter"},
+        {"name": "DatabaseSuspends", "type": "HotCold", "metric type": "Counter"},
+        {"name": "ColdDatabases", "type": "HotCold", "metric type": "Gauge"},
+        {"name": "DatabaseResumeLatency_us_50p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseResumeLatency_us_90p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseResumeLatency_us_99p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseSuspendLatency_us_50p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseSuspendLatency_us_90p", "type": "HotCold", "metric type": "Histogram"},
+        {"name": "DatabaseSuspendLatency_us_99p", "type": "HotCold", "metric type": "Histogram"},
         # Index (alphabetical)
         {"name": "ActiveEdgePropertyIndices", "type": "Index", "metric type": "Gauge"},
         {"name": "ActiveEdgeTypeIndices", "type": "Index", "metric type": "Gauge"},
@@ -260,8 +270,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
     results = list(memgraph.execute_and_fetch("SHOW METRICS INFO"))
     actual_metrics = [{"name": x["name"], "type": x["type"], "metric type": x["metric type"]} for x in results]
 
-    for expected, actual in zip(expected_metrics, actual_metrics):
-        assert expected == actual
+    assert actual_metrics == expected_metrics
 
 
 def get_metric_value(memgraph, metric_name, on_clause=None):
