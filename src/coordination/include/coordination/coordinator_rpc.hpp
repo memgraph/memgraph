@@ -139,8 +139,8 @@ struct PromoteToMainReq {
   PromoteToMainReq() = default;
 
   // A v1 sender doesn't know about read-only mode; keep writing enabled to preserve pre-feature behavior.
-  static PromoteToMainReq Upgrade(PromoteToMainReqV1 const &prev) {
-    return PromoteToMainReq{prev.main_uuid, prev.replication_clients_info, true};
+  static PromoteToMainReq Upgrade(PromoteToMainReqV1 prev) {
+    return PromoteToMainReq{prev.main_uuid, std::move(prev.replication_clients_info), true};
   }
 
   PromoteToMainReqV1 Downgrade() const { return PromoteToMainReqV1{main_uuid, replication_clients_info}; }

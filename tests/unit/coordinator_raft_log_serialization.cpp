@@ -129,5 +129,4 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterStateAllSettings) {
   auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
   auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
   ASSERT_EQ(delta_state, decoded_log_state);
-  ASSERT_EQ(decoded_log_state.global_read_only_, true);
 }

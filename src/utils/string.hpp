@@ -331,7 +331,6 @@ inline int64_t ParseInt(const std::string_view s) {
   return t;
 }
 
-// TODO: (andi) Check empty!!!!
 template <typename TNum>
   requires std::is_same_v<TNum, uint32_t> || std::is_same_v<TNum, uint64_t>
 inline TNum ParseStringToUint(const std::string_view s) {

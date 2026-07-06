@@ -1117,8 +1117,6 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     } else if (setting_name == kDeltasBatchProgressSize) {
       delta_state.deltas_batch_progress_size_ = utils::ParseStringToUint<uint64_t>(setting_value);
     } else if (setting_name == kInstanceDownTimeoutSec) {
-      spdlog::trace("Setting value: {}", setting_value);
-      spdlog::trace("Parsed value: {}", utils::ParseStringToUint<uint32_t>(setting_value));
       delta_state.instance_down_timeout_sec_ = utils::ParseStringToUint<uint32_t>(setting_value);
     } else if (setting_name == kInstanceHealthCheckFreqSec) {
       delta_state.instance_health_check_frequency_sec_ = utils::ParseStringToUint<uint32_t>(setting_value);
