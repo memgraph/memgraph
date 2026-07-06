@@ -643,7 +643,7 @@ class DbmsHandler {
 #endif
 
   /**
-   * @brief Reset a defunct database on the MAIN and replicate the reset to the replicas.
+   * @brief Reset a broken database on the MAIN and replicate the reset to the replicas.
    *
    * Resets the tenant to an empty state with a fresh epoch (moving the corrupt durability files aside)
    * and, when a system transaction is provided (enterprise), records a system action that wipes the stale
@@ -654,7 +654,9 @@ class DbmsHandler {
    * @param txn system transaction for replication (may be nullptr)
    * @return empty on success, an error message on failure
    */
-  static std::optional<std::string> ResetDatabase(DatabaseAccess db_acc, system::Transaction *txn = nullptr);
+
+  [[nodiscard]] static std::expected<void, std::string> ResetDatabase(DatabaseAccess db_acc,
+                                                                      system::Transaction *txn = nullptr);
 
   /**
    * @brief Return all active databases.

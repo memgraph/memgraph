@@ -1775,7 +1775,7 @@ inline void CreateSimpleSnapshot(const std::filesystem::path &storage_directory,
 
 // With --storage-allow-recovery-failure enabled, a database whose snapshots are all
 // corrupt comes up empty and broken instead of crashing the process, and its on-disk
-// durability files are left untouched (so the operator can RECOVER/REPAIR/restore).
+// durability files are left untouched (so the operator can RECOVER/RESET/restore).
 TEST_P(DurabilityTest, SnapshotCorruptBrokenWhenRecoveryFailureAllowed) {
   CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -1867,7 +1867,7 @@ TEST_P(DurabilityTest, RecoverSnapshotCuresBroken) {
   std::filesystem::remove(good_snapshot_copy);
 }
 
-// REPAIR DATABASE cures a broken tenant: it resets the placeholder to an empty working
+// RESET DATABASE cures a broken tenant: it resets the placeholder to an empty working
 // state, clears the broken flag, and moves the corrupt durability files to the .old backup
 // directory (backup dirs enabled by default), leaving the directory restart-clean.
 TEST_P(DurabilityTest, ResetBrokenCuresBroken) {
@@ -1914,7 +1914,11 @@ TEST_P(DurabilityTest, ResetBrokenCuresBroken) {
   }
 }
 
+<<<<<<< HEAD
 // REPAIR DATABASE is rejected on a healthy (non-broken) storage.
+=======
+// RESET DATABASE is rejected on a healthy (non-broken) storage.
+>>>>>>> c34b072a5 (refactor: Repair database -> reset database)
 TEST_P(DurabilityTest, ResetBrokenRejectedOnHealthy) {
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory},
@@ -1929,6 +1933,10 @@ TEST_P(DurabilityTest, ResetBrokenRejectedOnHealthy) {
   auto const res = storage->ResetBroken();
   ASSERT_FALSE(res.has_value());
   EXPECT_EQ(res.error(), memgraph::storage::InMemoryStorage::ResetError::NotBroken);
+<<<<<<< HEAD
+=======
+}
+>>>>>>> c34b072a5 (refactor: Repair database -> reset database)
 
   // With the flag off (default), the same corruption still aborts startup.
   TEST_P(DurabilityTest, SnapshotCorruptCrashesWhenRecoveryFailureNotAllowed) {

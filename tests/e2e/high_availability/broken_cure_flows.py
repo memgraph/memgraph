@@ -14,7 +14,7 @@
 These tests bring up a Raft coordinator cluster with two data instances, create a
 multi-tenant database, corrupt that tenant's durability files on one or both data
 instances, and restart them with --storage-allow-recovery-failure=true so the tenant
-boots broken. They then verify the operator cure flows (RECOVER SNAPSHOT, REPAIR
+boots broken. They then verify the operator cure flows (RECOVER SNAPSHOT, RESET
 DATABASE) and replica self-heal in the HA setting.
 
 HA + multi-tenancy require an enterprise license; the whole module is skipped when no
@@ -561,7 +561,11 @@ def test_main_corrupt_cured_with_reset_database_and_import(test_name):
     # lands on both instances on the first try (a retried write would double-insert).
     wait_replica_ready_on_main(cursor)
 
+<<<<<<< HEAD
     # Import fresh data on the resetted tenant and verify it replicates across the whole cluster.
+=======
+    # Import fresh data on the reset tenant and verify it replicates across the whole cluster.
+>>>>>>> c34b072a5 (refactor: Repair database -> reset database)
     wait_until_main_writeable(cursor, "UNWIND range(1, 1234) AS i CREATE (:Imported {id: i})")
     assert execute_and_fetch_all(cursor, "MATCH (n:Imported) RETURN count(n)")[0][0] == 1234
 

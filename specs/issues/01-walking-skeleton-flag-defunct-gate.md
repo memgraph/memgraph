@@ -38,12 +38,12 @@ The end-to-end spine of the feature, exercised through the single
   `ShowQueryCallableMappingsQuery`, `SettingQuery`, `VersionQuery`,
   `UseDatabaseQuery`, `MultiDatabaseQuery`, `ShowDatabaseQuery`,
   `ShowDatabasesQuery`, `ShowMemoryInfoQuery`, `SessionTraceQuery`,
-  `SessionSettingQuery`. (`REPAIR DATABASE` joins the allowlist when that query
+  `SessionSettingQuery`. (`RESET DATABASE` joins the allowlist when that query
   lands in a later slice.) `RECOVER SNAPSHOT` requires UNIQUE access and must be
   explicitly exempted.
 
 Exception text (exact):
-> Database is in the defunct state because the recovery process failed. Please recover your database using the RECOVER SNAPSHOT query or REPAIR DATABASE query + run your import queries. If you have a backup of the whole data directory, please replace the current data directory with the backup one and restart the process.
+> Database is in the defunct state because the recovery process failed. Please recover your database using the RECOVER SNAPSHOT query or RESET DATABASE query + run your import queries. If you have a backup of the whole data directory, please replace the current data directory with the backup one and restart the process.
 
 In-memory storage only.
 
