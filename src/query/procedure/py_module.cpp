@@ -1138,7 +1138,10 @@ py::Object MgpListToPyTupleFromPyObject(mgp_list *list, PyObject *py_graph) {
 }
 }  // namespace
 
-PyObject *MgpIsEnterpriseValid() { return mgp_is_enterprise_valid() ? Py_True : Py_False; }
+PyObject *MgpIsEnterpriseValid() {
+  if (mgp_is_enterprise_valid()) Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
 
 void PyCollectGarbage() {
   // NOTE: No need to call _Py_IsFinalizing(), we ensure
@@ -2956,7 +2959,7 @@ PyType_Slot PyUtilsType_slots[] = {
 PyType_Spec PyUtilsType_spec = {
     // NOSONAR
     "_mgp.Utils",
-    sizeof(PyLogger),
+    sizeof(PyUtils),
     0,
     Py_TPFLAGS_DEFAULT,
     PyUtilsType_slots,
