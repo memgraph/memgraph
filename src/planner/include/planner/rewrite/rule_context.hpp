@@ -34,6 +34,12 @@ concept RewritableGraph = ENodeSymbol<typename G::symbol_type> && requires(G &g)
   { g.core() } -> std::same_as<EGraph<typename G::symbol_type, typename G::analysis_type> &>;
 };
 
+/// An analysis that carries no facts: a default-constructed `Analysis{}` is a
+/// valid seed for any e-class, so a seed-less insert is sound. A fact-carrying
+/// analysis is not empty and must be seeded per-kind via `Make<S>` instead.
+template <typename Analysis>
+concept AnalysisFree = std::is_empty_v<Analysis>;
+
 /// Safe context for rule apply functions. Auto-tracks new e-classes and counts rewrites.
 template <RewritableGraph Graph>
 class RuleContext {
@@ -54,10 +60,10 @@ class RuleContext {
   [[nodiscard]] auto rewrites() const -> std::size_t { return rewrites_; }
 
   /// Add an e-node, auto-tracking new e-classes. Seed-less, so constrained to
-  /// analysis-free graphs; a stateful analysis must be seeded via `Make<S>` (a
-  /// seed-less insert would default the arm to the wrong kind/facts).
+  /// `AnalysisFree` graphs; a fact-carrying analysis must be seeded via `Make<S>`
+  /// (a seed-less insert would default the arm to the wrong kind/facts).
   auto emplace(Symbol symbol, utils::small_vector<EClassId> children) -> EmplaceResult
-    requires std::is_empty_v<Analysis>
+    requires AnalysisFree<Analysis>
   {
     auto result = core().emplace(symbol, std::move(children));
     if (result.did_insert) {
@@ -67,7 +73,7 @@ class RuleContext {
   }
 
   auto emplace(Symbol symbol, uint64_t disambiguator) -> EmplaceResult
-    requires std::is_empty_v<Analysis>
+    requires AnalysisFree<Analysis>
   {
     auto result = core().emplace(symbol, disambiguator);
     if (result.did_insert) {
