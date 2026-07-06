@@ -564,6 +564,11 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
         }
         pre_query_directives.num_threads_ = std::any_cast<Expression *>(num_threads->accept(this));
       }
+    } else if (auto *version_directive = pre_query_directive->versionDirective()) {
+      if (pre_query_directives.version_) {
+        throw SyntaxException("Version can be set only once in the USING statement.");
+      }
+      pre_query_directives.version_ = std::any_cast<Expression *>(version_directive->versionName()->accept(this));
     } else {
       throw SyntaxException("Unknown pre query directive!");
     }
@@ -1902,6 +1907,121 @@ antlrcpp::Any CypherMainVisitor::visitVersionQuery(MemgraphCypher::VersionQueryC
   return version_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitVersionManagementQuery(MemgraphCypher::VersionManagementQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "VersionManagementQuery should have exactly one child!");
+  // Each child visitor creates its concrete query and assigns query_; just propagate it.
+  ctx->children[0]->accept(this);
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitVersionName(MemgraphCypher::VersionNameContext *ctx) {
+  if (ctx->literal()) {
+    if (!ctx->literal()->StringLiteral()) {
+      throw SemanticException("Version name must be a string literal or a symbolic name.");
+    }
+    return std::any_cast<Expression *>(ctx->literal()->accept(this));
+  }
+  // Bare symbolic name -> treat as a string literal expression.
+  auto name = std::any_cast<std::string>(ctx->symbolicName()->accept(this));
+  return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(std::move(name)));
+}
+
+antlrcpp::Any CypherMainVisitor::visitCheckoutVersionQuery(MemgraphCypher::CheckoutVersionQueryContext *ctx) {
+  auto *checkout_branch = storage_->Create<CheckoutBranchQuery>();
+  checkout_branch->version_name_ = std::any_cast<Expression *>(ctx->targetVersion->accept(this));
+  // CHECKOUT always positions the session onto the target.
+  checkout_branch->position_ = true;
+  // FROM <parent> turns this into a combined create-and-checkout; absent => switch onto an existing branch.
+  if (ctx->parentVersion) {
+    checkout_branch->parent_ = std::any_cast<Expression *>(ctx->parentVersion->accept(this));
+  }
+  if (ctx->versionDescription) {
+    // A description is recorded only at branch creation, so it is meaningless when just switching.
+    // Reject it outright rather than silently dropping it.
+    if (!checkout_branch->parent_) {
+      throw SemanticException("WITH DESCRIPTION is only valid when creating a branch (with FROM).");
+    }
+    if (!ctx->versionDescription->StringLiteral()) {
+      throw SemanticException("Version description must be a string literal.");
+    }
+    checkout_branch->description_ = std::any_cast<Expression *>(ctx->versionDescription->accept(this));
+  }
+  query_ = checkout_branch;
+  return checkout_branch;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateBranchQuery(MemgraphCypher::CreateBranchQueryContext *ctx) {
+  auto *create_branch = storage_->Create<CheckoutBranchQuery>();
+  create_branch->version_name_ = std::any_cast<Expression *>(ctx->targetVersion->accept(this));
+  // CREATE forks the branch but, unlike CHECKOUT, does not position the session onto it.
+  create_branch->position_ = false;
+  // FROM <parent> is mandatory in the grammar: a branch is always created off a named parent.
+  create_branch->parent_ = std::any_cast<Expression *>(ctx->parentVersion->accept(this));
+  if (ctx->versionDescription) {
+    if (!ctx->versionDescription->StringLiteral()) {
+      throw SemanticException("Version description must be a string literal.");
+    }
+    create_branch->description_ = std::any_cast<Expression *>(ctx->versionDescription->accept(this));
+  }
+  query_ = create_branch;
+  return create_branch;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowVersionsQuery(MemgraphCypher::ShowVersionsQueryContext *ctx) {
+  auto *show_versions = storage_->Create<ShowVersionsQuery>();
+  if (ctx->db) {
+    show_versions->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+  }
+  query_ = show_versions;
+  return show_versions;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowVersionBranchQuery(MemgraphCypher::ShowVersionBranchQueryContext * /*ctx*/) {
+  auto *show_version_branch = storage_->Create<ShowVersionBranchQuery>();
+  query_ = show_version_branch;
+  return show_version_branch;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowVersioningGraphQuery(MemgraphCypher::ShowVersioningGraphQueryContext *ctx) {
+  auto *show_versioning_graph = storage_->Create<ShowVersioningGraphQuery>();
+  if (ctx->db) {
+    show_versioning_graph->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+  } else if (ctx->DATABASES()) {
+    show_versioning_graph->all_databases_ = true;
+  }
+  query_ = show_versioning_graph;
+  return show_versioning_graph;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowChangesQuery(MemgraphCypher::ShowChangesQueryContext *ctx) {
+  auto *show_changes = storage_->Create<ShowChangesQuery>();
+  // FORMAT GRAPH builds a virtual graph; everything else (no clause / FORMAT TABLE) stays tabular.
+  show_changes->format_ = ctx->GRAPH() ? ShowChangesQuery::Format::GRAPH : ShowChangesQuery::Format::TABLE;
+  query_ = show_changes;
+  return show_changes;
+}
+
+antlrcpp::Any CypherMainVisitor::visitMergeVersionQuery(MemgraphCypher::MergeVersionQueryContext *ctx) {
+  auto *merge_version = storage_->Create<MergeVersionQuery>();
+  merge_version->version_name_ = std::any_cast<Expression *>(ctx->versionName()->accept(this));
+  query_ = merge_version;
+  return merge_version;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRevertVersionQuery(MemgraphCypher::RevertVersionQueryContext *ctx) {
+  auto *revert_version = storage_->Create<RevertVersionQuery>();
+  revert_version->commit_timestamp_ = std::any_cast<Expression *>(ctx->commitTimestamp->accept(this));
+  query_ = revert_version;
+  return revert_version;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropVersionQuery(MemgraphCypher::DropVersionQueryContext *ctx) {
+  auto *drop_version = storage_->Create<DropVersionQuery>();
+  drop_version->version_name_ = std::any_cast<Expression *>(ctx->versionName()->accept(this));
+  query_ = drop_version;
+  return drop_version;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
@@ -2787,6 +2907,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->PARALLEL_EXECUTION()) return AuthQuery::Privilege::PARALLEL_EXECUTION;
   if (ctx->SERVER_SIDE_PARAMETERS()) return AuthQuery::Privilege::SERVER_SIDE_PARAMETERS;
   if (ctx->RELOAD_TLS()) return AuthQuery::Privilege::RELOAD_TLS;
+  if (ctx->VERSIONING()) return AuthQuery::Privilege::VERSIONING;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

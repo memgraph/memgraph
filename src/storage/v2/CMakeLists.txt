@@ -88,6 +88,8 @@ target_sources(mg-storage-v2
         ttl.cpp
         all_vertices_chunked_iterable.cpp
         edges_chunked_iterable.cpp
+        versioning/version_delta_store.cpp
+        versioning/version_registry.cpp
 
         PUBLIC
         FILE_SET CXX_MODULES FILES
@@ -164,6 +166,7 @@ target_link_libraries(mg-storage-v2
     mg::replication
     Threads::Threads
     mg-utils
+    mg-kvstore
     mg-aws
     mg-flags
     mg-metrics

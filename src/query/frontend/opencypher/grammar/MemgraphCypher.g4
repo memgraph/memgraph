@@ -39,10 +39,13 @@ memgraphCypherKeyword : cypherKeyword
                       | BOLT_SERVER
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
+                      | BRANCH
+                      | BRANCHES
                       | BUILD
                       | CALL
                       | CALLABLE
                       | CHECK
+                      | CHECKOUT
                       | CLEAR
                       | CLUSTER
                       | COMMIT
@@ -67,6 +70,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DEMOTE
                       | DENY
                       | DESCRIPTION
+                      | DIFF
                       | DESCRIPTIONS
                       | DIRECTORY
                       | DISABLE
@@ -91,6 +95,7 @@ memgraphCypherKeyword : cypherKeyword
                       | FOR
                       | FORCE
                       | FOREACH
+                      | FORMAT
                       | FREE
                       | FREE_MEMORY
                       | FROM
@@ -178,6 +183,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REQUIRE
                       | RESET
                       | RESOURCE
+                      | REVERT
                       | REVOKE
                       | ROLE
                       | ROLES
@@ -207,9 +213,11 @@ memgraphCypherKeyword : cypherKeyword
                       | STRICT_SYNC
                       | STRING
                       | SYNC
+                      | TABLE
                       | TERMINATE
                       | TEXT
                       | TIMEOUT
+                      | TIMESTAMP
                       | TLS
                       | TO
                       | TOPICS
@@ -237,6 +245,8 @@ memgraphCypherKeyword : cypherKeyword
                       | VALUES
                       | VECTOR
                       | VERSION
+                      | VERSIONS
+                      | VERSIONING
                       | WEBSOCKET
                       | YIELD
                       | ZONEDDATETIME
@@ -278,6 +288,7 @@ query : cypherQuery
       | settingQuery
       | parameterQuery
       | versionQuery
+      | versionManagementQuery
       | showConfigQuery
       | showQueryCallableMappingsQuery
       | transactionQueueQuery
@@ -400,7 +411,9 @@ foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution | versionDirective ;
+
+versionDirective : VERSION versionName ;
 
 hopsLimit: HOPS LIMIT literal ;
 
@@ -594,6 +607,7 @@ privilege : CREATE
           | PARALLEL_EXECUTION
           | SERVER_SIDE_PARAMETERS
           | RELOAD_TLS
+          | VERSIONING
           ;
 
 granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
@@ -797,6 +811,42 @@ showConfigQuery : SHOW CONFIG ;
 showQueryCallableMappingsQuery : SHOW QUERY CALLABLE MAPPINGS ;
 
 versionQuery : SHOW VERSION ;
+
+versionManagementQuery : checkoutVersionQuery
+                       | createBranchQuery
+                       | showVersionsQuery
+                       | showVersionBranchQuery
+                       | showChangesQuery
+                       | showVersioningGraphQuery
+                       | mergeVersionQuery
+                       | revertVersionQuery
+                       | dropVersionQuery
+                       ;
+
+// CHECKOUT BRANCH x positions the session on version x. With FROM y it first creates x
+// (forking from the named parent) and then positions onto it — a combined create-and-checkout.
+checkoutVersionQuery : CHECKOUT BRANCH targetVersion=versionName ( WITH DESCRIPTION versionDescription=literal )? ( FROM parentVersion=versionName )? ;
+
+// CREATE BRANCH x FROM y forks a new branch x off the named parent WITHOUT positioning the
+// session onto it (unlike CHECKOUT BRANCH x FROM y). Use a subsequent CHECKOUT BRANCH x to switch.
+createBranchQuery : CREATE BRANCH targetVersion=versionName ( WITH DESCRIPTION versionDescription=literal )? FROM parentVersion=versionName ;
+
+showVersionsQuery : SHOW BRANCHES ( FOR DATABASE db=symbolicName )? ;
+
+showVersionBranchQuery : SHOW BRANCH ;
+
+showChangesQuery : SHOW BRANCH DIFF ( FORMAT ( TABLE | GRAPH ) )? ;
+
+showVersioningGraphQuery : SHOW VERSIONING GRAPH ( FOR ( DATABASE db=symbolicName | ALL DATABASES ) )? ;
+
+mergeVersionQuery : MERGE BRANCH versionName ;
+
+revertVersionQuery : REVERT BRANCH COMMIT WITH TIMESTAMP commitTimestamp=literal ;
+
+dropVersionQuery : DROP BRANCH versionName ;
+
+// A version name can be given as a string literal ("my-branch") or a bare symbolic name (my_branch).
+versionName : literal | symbolicName ;
 
 transactionIdList : transactionId ( ',' transactionId )* ;
 
