@@ -232,17 +232,17 @@ struct CachedFineGrainedAuth {
   FineGrainedAuthChecker const *get() const { return checker.get(); }
 
   void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
-               std::string current_db) {
+               std::string_view current_db) {
     if (checked && db_name == current_db) {
       if (checker) checker->UpdateDbAccessor(dba);
-    } else {
-      checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
-      if (!checker || !checker->NeedsFineGrainedAuthChecker()) {
-        checker.reset();
-      }
-      db_name = std::move(current_db);
-      checked = true;
+      return;
     }
+    checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
+    if (!checker || !checker->NeedsFineGrainedAuthChecker()) {
+      checker.reset();
+    }
+    db_name = current_db;
+    checked = checker != nullptr;
   }
 
   void Reset() {
