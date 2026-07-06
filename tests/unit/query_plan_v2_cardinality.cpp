@@ -87,6 +87,17 @@ TEST(FunctionCardinality, RangeWithNonConstantBoundFallsBackToDefault) {
   EXPECT_DOUBLE_EQ(FunctionCardinality(eg, fn), kDefaultListSize);
 }
 
+TEST(FunctionCardinality, RangeWithIntegralDoubleBoundFallsBackToDefault) {
+  // range() rejects non-integer bounds at runtime (throws), so an integral
+  // double like 5.0 must NOT seed a known length - otherwise a dead Unwind over
+  // it would silently succeed where the real range() errors. Falls back to the
+  // estimator default, keeping the alive (throwing) Unwind.
+  egraph eg;
+  auto const dbl = [&](double v) { return eg.MakeLiteral(storage::ExternalPropertyValue{v}); };
+  auto fn = eg.MakeFunction("range", {dbl(0.0), dbl(5.0)}, /*is_pure=*/true);
+  EXPECT_DOUBLE_EQ(FunctionCardinality(eg, fn), kDefaultListSize);
+}
+
 TEST(FunctionCardinality, UnknownFunctionFallsBackToDefault) {
   egraph eg;
   auto fn = eg.MakeFunction("unknown_func", {IntLit(eg, 0)}, /*is_pure=*/false);

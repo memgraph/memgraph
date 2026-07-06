@@ -11,7 +11,6 @@
 
 #include "query/plan_v2/egraph/egraph.hpp"
 
-#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -77,18 +76,15 @@ auto egraph::MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> 
 // If `eclass_id` is statically known to hold an int constant, return it.  Reads
 // `known_constant_value`, so it fires for any constant-valued e-class (a
 // literal, or a folded expression), not just one still carrying a `Literal`.
+// Integers only: the sole consumer proves `range()`'s length, and `range()`
+// rejects non-integer bounds at runtime, so an integral double (e.g. 5.0) must
+// NOT seed a length - it has to fall back to the real, throwing evaluation.
 auto TryReadIntLiteral(EGraph const &eg, planner::core::EClassId eclass_id) -> std::optional<int64_t> {
   auto const *expr = eg.analysis_of(eclass_id).expression();
   if (expr == nullptr || !expr->known_constant_value) return std::nullopt;
 
   auto const &val = *expr->known_constant_value;
   if (val.IsInt()) return val.ValueInt();
-  // Tolerate doubles that exactly represent an integer (e.g. range(0.0, 5.0)
-  // from a parser that promoted ints to doubles); reject non-integral doubles.
-  if (val.IsDouble()) {
-    auto const d = val.ValueDouble();
-    if (std::isfinite(d) && std::trunc(d) == d) return static_cast<int64_t>(d);
-  }
   return std::nullopt;
 }
 
@@ -104,7 +100,11 @@ auto ProvableRangeLength(EGraph const &eg, std::span<planner::core::EClassId con
   auto const b = TryReadIntLiteral(eg, args[1]);
   if (!a || !b) return std::nullopt;
   if (*b < *a) return std::size_t{0};
-  return static_cast<std::size_t>(*b - *a) + 1;
+  // Difference in unsigned to avoid signed-overflow UB for extreme bounds; +1
+  // for the inclusive end. A full-int64-span range can't fit, so decline it.
+  auto const span = static_cast<std::uint64_t>(*b) - static_cast<std::uint64_t>(*a);
+  if (span == UINT64_MAX) return std::nullopt;
+  return static_cast<std::size_t>(span + 1);
 }
 
 // Analysis facts a builtin's semantics establish at plan time. `range` over
@@ -186,11 +186,12 @@ auto BinaryKnownListLength<symbol::Add>(EGraph const &eg, planner::core::EClassI
 }  // namespace
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
-#define MG_DEFN_MAKE_BINARY(Name, ...)                                                                                    \
-  auto egraph::Make##Name(eclass lhs, eclass rhs)->eclass {                                                               \
-    auto const l = to_core(lhs);                                                                                          \
-    auto const r = to_core(rhs);                                                                                          \
-    return from_core(pimpl_->graph.Make<Name>(l, r, BinaryKnownListLength<Name>(pimpl_->graph.core(), l, r)).eclass_id); \
+#define MG_DEFN_MAKE_BINARY(Name, ...)                                                                      \
+  auto egraph::Make##Name(eclass lhs, eclass rhs)->eclass {                                                 \
+    auto const l = to_core(lhs);                                                                            \
+    auto const r = to_core(rhs);                                                                            \
+    return from_core(                                                                                       \
+        pimpl_->graph.Make<Name>(l, r, BinaryKnownListLength<Name>(pimpl_->graph.core(), l, r)).eclass_id); \
   }
 EGRAPH_BINARY_OPS(MG_DEFN_MAKE_BINARY)
 #undef MG_DEFN_MAKE_BINARY
