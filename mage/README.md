@@ -243,34 +243,47 @@ To learn more about development with MAGE and Docker, visit the
   - uuid-dev
 
 
-Since Memgraph needs to load MAGE's modules, there is the `setup` script to help you. With it, you can build the modules so that Memgraph
-can load them on start up.
+MAGE is built as part of the main Memgraph CMake tree by passing `--mage` to
+`build.sh` (which maps to `-DMG_BUILD_MAGE=ON`).
 
-Before you start, don't forget to clone MAGE with `--recurse-submodules` flag:
+Before you start, clone the repository:
 
 ```bash
-git clone https://github.com/memgraph/memgraph.git && cd memgraph/mage
+git clone https://github.com/memgraph/memgraph.git && cd memgraph
 
 ```
 Run the following command to install Rust and Python dependencies:
 ```bash
 curl https://sh.rustup.rs -sSf | sh -s -- -y \
 && export PATH="/root/.cargo/bin:${PATH}" \
-&& python3 -m  pip install -r python/requirements.txt \
-&& python3 -m  pip install -r python/tests/requirements.txt \
+&& python3 -m  pip install -r mage/python/requirements.txt \
+&& python3 -m  pip install -r mage/python/tests/requirements.txt \
 && python3 -m  pip install torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-1.12.0+cu102.html \
 ```
 
 
 
-Now you can run the following command to compile and copy the query modules to the `/usr/lib/memgraph/query_modules` path:
+Now you can build Memgraph together with all MAGE query modules (C++, Python
+and Rust):
 
 ```bash
-python3 setup build -p /usr/lib/memgraph/query_modules
+./build.sh --mage
 ```
 
-It will generate a `mage/dist` directory and copy the modules to
-the `/usr/lib/memgraph/query_modules` directory.
+All modules are collected in `build/mage/dist`. For local development point
+Memgraph directly at it (`--query-modules-directory=$PWD/build/mage/dist`, or
+set it in `/etc/memgraph/memgraph.conf`). To copy the modules to the standard
+`/usr/lib/memgraph/query_modules` path of an installed Memgraph instead:
+
+```bash
+cmake --install build --component mage --prefix /usr
+```
+
+(Use `--component mage_debuginfo` as well if you built with `--split-debug`
+and want the `.debug` sidecars installed alongside the modules.)
+
+> If you previously built MAGE standalone with the old `mage/setup` script,
+> remove any stale `mage/cpp/build` and `mage/dist` directories.
 
 
 > Note that query modules are loaded into Memgraph on startup so if your

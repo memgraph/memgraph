@@ -2,7 +2,7 @@ set(knn_module_src
     knn_module.cpp
     algorithms/knn.hpp)
 
-add_query_module(knn 1 "${knn_module_src}")
+mage_add_query_module(knn 1 "${knn_module_src}")
 
 # Find OpenMP
 find_package(OpenMP REQUIRED)

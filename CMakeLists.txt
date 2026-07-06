@@ -376,6 +376,7 @@ endif()
 
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
+option(MG_BUILD_MAGE "Build all MAGE query modules (C++, Python, Rust)" OFF)
 option(ASAN "Build with Address Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(UBSAN "Build with Undefined Behaviour Sanitizer" OFF)
@@ -540,6 +541,10 @@ endif()
 
 if(QUERY_MODULES)
   add_subdirectory(query_modules)
+endif()
+
+if(MG_BUILD_MAGE)
+  add_subdirectory(mage)
 endif()
 
 # Legacy target: prefer `ninja codegen` (CMake 3.31+ built-in, uses CODEGEN flag).

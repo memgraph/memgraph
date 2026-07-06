@@ -2,6 +2,6 @@
 set(do_module_src
     do_module.cpp)
 
-add_query_module(do 1 "${do_module_src}")
+mage_add_query_module(do 1 "${do_module_src}")
 
 target_link_libraries(do PRIVATE fmt::fmt)

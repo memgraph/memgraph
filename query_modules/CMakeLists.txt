@@ -84,6 +84,12 @@ add_subdirectory(community_detection_module)
 # Copy python query modules into build/query_modules
 # This is to avoid doing make install during CI
 # C and C++ modules .so files will already be there
+#
+# NOTE: some of the files copied below come from mage/python; the MAGE build
+# (MG_BUILD_MAGE, mage/python/CMakeLists.txt) independently ships the full
+# mage/python set under the `mage` install component. The overlap is
+# intentional for now — the memgraph package legitimately carries these few
+# files on its own; dedup is a packaging-phase decision.
 file(MAKE_DIRECTORY ${QUERY_MODULES_BUILD_DIR})
 
 # node2vec gets copied inside subdirectory

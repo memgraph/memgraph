@@ -56,9 +56,12 @@ curl -L "$TOOLCHAIN_URL" -o /toolchain.tar.gz
 tar xzvfm /toolchain.tar.gz -C /opt
 
 
+# TODO(matt): this dev-container flow needs a fuller pass for the monorepo
+# layout (MAGE now lives in memgraph/memgraph under mage/ and is built with
+# `./build.sh --mage`); the /mage container path convention predates it.
 echo "Cloning Memgraph repo commit/tag: $MEMGRAPH_REF"
 cd /root
-git clone https://github.com/memgraph/mage.git --recurse-submodules
+git clone https://github.com/memgraph/memgraph.git --recurse-submodules mage
 cd /root/mage
 
 # Check if MEMGRAPH_REF matches a version tag format: vX.Y or vX.Y.Z
@@ -89,7 +92,7 @@ chown -R memgraph: /mage/
 rm -rf /root/mage
 
 # install toolchain run dependencies
-./mage/cpp/memgraph/environment/os/install_deps.sh install TOOLCHAIN_RUN_DEPS
+./mage/environment/os/install_deps.sh install TOOLCHAIN_RUN_DEPS
 # TODO(matt): figure out a good way of installing the same rust version, without
 # also having to install the toolchain build-deps. Perhaps a new option
 # MAGE_BUILD_DEPS?
@@ -98,8 +101,9 @@ rm -rf /root/mage
 # install Rust as `memgraph` user - this is required for building mage
 su - memgraph -c 'curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.85 && echo "export PATH=\$HOME/.cargo/bin:\$PATH" >> $HOME/.bashrc'
 
-# build everything again (because it isn't copied into the prod image)
-build_cmd="source /opt/toolchain-v${toolchain_version}/activate && cd /mage && python3 /mage/setup build --cpp-build-flags CMAKE_BUILD_TYPE=${BUILD_TYPE}"
+# build everything again (because it isn't copied into the prod image);
+# MAGE modules end up in /mage/build/mage/dist
+build_cmd="source /opt/toolchain-v${toolchain_version}/activate && cd /mage && ./build.sh --mage --build-type ${BUILD_TYPE}"
 su - memgraph -c "bash -c '$build_cmd'"
 
 

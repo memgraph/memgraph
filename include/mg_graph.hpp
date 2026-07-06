@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,8 +44,8 @@ class Graph : public GraphView<TSize> {
   /// Create object Graph
   explicit Graph() = default;
 
-  /// Destroys the object.
-  ~Graph() = default;
+  // No user-declared destructor: it would suppress (and, under
+  // -Werror=deprecated, forbid) the implicit copy operations tests rely on.
 
   /// Gets all graph nodes.
   ///

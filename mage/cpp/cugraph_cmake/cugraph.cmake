@@ -34,24 +34,24 @@
 # Rapids CMake add NATIVE + ALL options as CUDA_ARCHITECTURES which simplifies
 # build configuration.
 
-option(MAGE_CUGRAPH_ENABLE "Enable cuGraph build" OFF)
-message(STATUS "MAGE cuGraph build enabled: ${MAGE_CUGRAPH_ENABLE}")
+option(MG_ENABLE_CUGRAPH "Enable cuGraph GPU query modules in the MAGE build" OFF)
+message(STATUS "MAGE cuGraph build enabled: ${MG_ENABLE_CUGRAPH}")
 
-if (MAGE_CUGRAPH_ENABLE)
+if (MG_ENABLE_CUGRAPH)
   # Version of cuGraph for local build
-  set(MAGE_CUGRAPH_TAG "v22.02.00" CACHE STRING "cuGraph GIT tag to checkout" )
-  set(MAGE_CUGRAPH_REPO "https://github.com/rapidsai/cugraph.git" CACHE STRING "cuGraph GIT repo URL")
-  # Custom MAGE_CUGRAPH_BUILD_TYPE.
-  set(MAGE_CUGRAPH_BUILD_TYPE "Release" CACHE STRING "Passed to cuGraph as CMAKE_BUILD_TYPE")
+  set(MG_CUGRAPH_TAG "v22.02.00" CACHE STRING "cuGraph GIT tag to checkout" )
+  set(MG_CUGRAPH_REPO "https://github.com/rapidsai/cugraph.git" CACHE STRING "cuGraph GIT repo URL")
+  # Custom MG_CUGRAPH_BUILD_TYPE.
+  set(MG_CUGRAPH_BUILD_TYPE "Release" CACHE STRING "Passed to cuGraph as CMAKE_BUILD_TYPE")
   # NATIVE | ALL -> possible because cugraph calls rapids_cuda_init_architectures
-  set(MAGE_CUDA_ARCHITECTURES "NATIVE" CACHE STRING "Passed to cuGraph as CMAKE_CUDA_ARCHITECTURES")
+  set(MG_CUDA_ARCHITECTURES "NATIVE" CACHE STRING "Passed to cuGraph as CMAKE_CUDA_ARCHITECTURES")
 
   # RAPIDS.cmake is here because rapids_cuda_init_architectures is required to
   # properly set both CMAKE_CUDA_ARCHITECTURES and CUDA_ARCHITECTURES target
   # property.
-  file(DOWNLOAD "https://raw.githubusercontent.com/rapidsai/rapids-cmake/${MAGE_CUGRAPH_TAG}a/RAPIDS.cmake"
-                ${CMAKE_BINARY_DIR}/RAPIDS.cmake)
-  include(${CMAKE_BINARY_DIR}/RAPIDS.cmake)
+  file(DOWNLOAD "https://raw.githubusercontent.com/rapidsai/rapids-cmake/${MG_CUGRAPH_TAG}a/RAPIDS.cmake"
+                ${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake)
+  include(${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake)
 
   include(rapids-cuda)
   rapids_cuda_init_architectures("${MEMGRAPH_MAGE_PROJECT_NAME}")
@@ -60,45 +60,45 @@ if (MAGE_CUGRAPH_ENABLE)
   set(CMAKE_CUDA_STANDARD 17)
   set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-  message(STATUS "MAGE cuGraph root: ${MAGE_CUGRAPH_ROOT}")
+  message(STATUS "MAGE cuGraph root: ${MG_CUGRAPH_ROOT}")
   # Skip downloading if root is configured
-  if (NOT MAGE_CUGRAPH_ROOT)
-    set(MAGE_CUGRAPH_ROOT ${PROJECT_BINARY_DIR}/cugraph)
+  if (NOT MG_CUGRAPH_ROOT)
+    set(MG_CUGRAPH_ROOT ${PROJECT_BINARY_DIR}/cugraph)
     ExternalProject_Add(cugraph-proj
-      PREFIX            "${MAGE_CUGRAPH_ROOT}"
-      INSTALL_DIR       "${MAGE_CUGRAPH_ROOT}"
-      GIT_REPOSITORY    "${MAGE_CUGRAPH_REPO}"
-      GIT_TAG           "${MAGE_CUGRAPH_TAG}"
+      PREFIX            "${MG_CUGRAPH_ROOT}"
+      INSTALL_DIR       "${MG_CUGRAPH_ROOT}"
+      GIT_REPOSITORY    "${MG_CUGRAPH_REPO}"
+      GIT_TAG           "${MG_CUGRAPH_TAG}"
       SOURCE_SUBDIR     "cpp"
       CMAKE_ARGS        "-DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>"
-                        "-DCMAKE_BUILD_TYPE=${MAGE_CUGRAPH_BUILD_TYPE}"
+                        "-DCMAKE_BUILD_TYPE=${MG_CUGRAPH_BUILD_TYPE}"
                         "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
                         "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-                        "-DCMAKE_CUDA_ARCHITECTURES='${MAGE_CUDA_ARCHITECTURES}'"
+                        "-DCMAKE_CUDA_ARCHITECTURES='${MG_CUDA_ARCHITECTURES}'"
                         "-DBUILD_STATIC_FAISS=ON"
                         "-DBUILD_TESTS=OFF"
                         "-DBUILD_CUGRAPH_MG_TESTS=OFF"
     )
   endif()
 
-  set(MAGE_CUGRAPH_INCLUDE_DIR "${MAGE_CUGRAPH_ROOT}/include")
-  set(MAGE_CUGRAPH_LIBRARY_PATH "${MAGE_CUGRAPH_ROOT}/lib/${CMAKE_FIND_LIBRARY_PREFIXES}cugraph.so")
+  set(MG_CUGRAPH_INCLUDE_DIR "${MG_CUGRAPH_ROOT}/include")
+  set(MG_CUGRAPH_LIBRARY_PATH "${MG_CUGRAPH_ROOT}/lib/${CMAKE_FIND_LIBRARY_PREFIXES}cugraph.so")
   add_library(mage_cugraph SHARED IMPORTED)
   set_target_properties(mage_cugraph PROPERTIES
-    IMPORTED_LOCATION "${MAGE_CUGRAPH_LIBRARY_PATH}"
+    IMPORTED_LOCATION "${MG_CUGRAPH_LIBRARY_PATH}"
   )
-  include_directories("${MAGE_CUGRAPH_INCLUDE_DIR}")
+  include_directories("${MG_CUGRAPH_INCLUDE_DIR}")
   add_dependencies(mage_cugraph cugraph-proj)
 endif()
 
 macro(add_cugraph_subdirectory subdirectory_name)
-  if (MAGE_CUGRAPH_ENABLE)
+  if (MG_ENABLE_CUGRAPH)
     add_subdirectory("${subdirectory_name}")
   endif()
 endmacro()
 
 macro(target_mage_cugraph target_name)
-  if (MAGE_CUGRAPH_ENABLE)
+  if (MG_ENABLE_CUGRAPH)
     list(APPEND MAGE_CUDA_FLAGS --expt-extended-lambda)
     # Ensure standard integer types are available for CUDA compilation
     # This is needed when using conda-installed Raft headers that expect

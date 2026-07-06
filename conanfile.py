@@ -33,6 +33,14 @@ class Memgraph(ConanFile):
         "licenses/*",
         "config/*",
         "import/*",
+        # MAGE (built when MG_BUILD_MAGE=ON); tests/wheels/dist excluded.
+        # NOTE: mgcxx/* is also referenced by the root CMake but missing
+        # here — pre-existing gap, `conan create` packaging is documented
+        # non-functional in package() below.
+        "mage/cpp/*",
+        "mage/python/*",
+        "mage/rust/*",
+        "mage/CMakeLists.txt",
     )
 
     default_options = {
