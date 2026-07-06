@@ -25,6 +25,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/file.hpp"
 #include "utils/observer.hpp"
+#include "utils/on_scope_exit.hpp"
 
 #include <spdlog/spdlog.h>
 #include <optional>
@@ -726,37 +727,42 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   auto const [ldt, num_committed_txns] = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
 
+  // The old durability files (WALs and snapshots that predate this recovery snapshot) must be removed
+  // regardless of whether sending the response below succeeds. If SendFinalResponse throws (e.g. the
+  // connection to main drops mid-flush), leaving them behind orphans a stale WAL chain next to the
+  // freshly reset seq_num 0 WAL, which corrupts the next recovery. The guard body must never throw
+  // because it can run during stack unwinding.
+  utils::OnScopeExit const cleanup_old_durability_files{[&] {
+    try {
+      auto const current_wal_directory = storage->recovery_.wal_directory_;
+      auto const curr_snapshot_files = utils::GetFilesFromDir(current_snapshot_dir);
+      auto const curr_wal_files = utils::GetFilesFromDir(current_wal_directory);
+      auto const not_recovery_snapshot = [&dst_snapshot_file](auto const &snapshot_path) {
+        return snapshot_path != dst_snapshot_file;
+      };
+      auto snapshots_to_process = curr_snapshot_files | rv::filter(not_recovery_snapshot) | r::to_vector;
+
+      if (FLAGS_storage_backup_dir_enabled) {
+        auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
+        if (!maybe_backup_dirs) {
+          spdlog::error("Couldn't create backup directories. Old durable files won't be moved to .old directory.");
+          return;
+        }
+        auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
+        MoveDurabilityFiles(
+            snapshots_to_process, backup_snapshot_dir, curr_wal_files, backup_wal_dir, &(storage->file_retainer_));
+      } else {
+        DeleteFiles(snapshots_to_process, &storage->file_retainer_);
+        DeleteFiles(curr_wal_files, &storage->file_retainer_);
+      }
+      spdlog::debug("Replication recovery from snapshot finished!");
+    } catch (const std::exception &e) {
+      spdlog::error("Failed to clean up old durability files after snapshot recovery: {}", e.what());
+    }
+  }};
+
   const storage::replication::SnapshotRes res{ldt, num_committed_txns};
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
-
-  auto const curr_snapshot_files = utils::GetFilesFromDir(current_snapshot_dir);
-  auto const current_wal_directory = storage->recovery_.wal_directory_;
-  auto const curr_wal_files = utils::GetFilesFromDir(current_wal_directory);
-  auto const not_recovery_snapshot = [&dst_snapshot_file](auto const &snapshot_path) {
-    return snapshot_path != dst_snapshot_file;
-  };
-
-  auto snapshots_to_process = curr_snapshot_files | rv::filter(not_recovery_snapshot) | r::to_vector;
-
-  if (FLAGS_storage_backup_dir_enabled) {
-    // Read durability files
-
-    auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
-    if (!maybe_backup_dirs) {
-      spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
-      const storage::replication::SnapshotRes res{std::nullopt, 0};
-      rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
-      return;
-    }
-    auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
-    MoveDurabilityFiles(
-        snapshots_to_process, backup_snapshot_dir, curr_wal_files, backup_wal_dir, &(storage->file_retainer_));
-  } else {
-    DeleteFiles(snapshots_to_process, &storage->file_retainer_);
-    DeleteFiles(curr_wal_files, &storage->file_retainer_);
-  }
-
-  spdlog::debug("Replication recovery from snapshot finished!");
 }
 
 // Commit timestamp on main's side shouldn't be updated if:
@@ -878,12 +884,23 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   const storage::replication::WalFilesRes res{
       storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, num_committed_txns};
 
+  // On a force reset the storage was cleared above, so the old durability files must be removed regardless of
+  // whether sending the response succeeds; otherwise a SendFinalResponse throw would orphan a stale WAL chain
+  // next to the reset seq_num 0 WAL and corrupt the next recovery. ProcessOldDurableFiles is a no-op when the
+  // reset wasn't requested. The guard body must never throw because it can run during stack unwinding.
+  utils::OnScopeExit const cleanup_old_durability_files{[&] {
+    try {
+      ProcessOldDurableFiles(req.reset_needed,
+                             storage->recovery_.snapshot_directory_,
+                             current_wal_directory,
+                             old_wal_files,
+                             &storage->file_retainer_);
+    } catch (const std::exception &e) {
+      spdlog::error("Failed to clean up old durability files after WAL files recovery: {}", e.what());
+    }
+  }};
+
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
-  ProcessOldDurableFiles(req.reset_needed,
-                         storage->recovery_.snapshot_directory_,
-                         current_wal_directory,
-                         old_wal_files,
-                         &storage->file_retainer_);
 }
 
 // Commit timestamp on MAIN's side shouldn't be updated if:
@@ -991,12 +1008,23 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
       storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
       load_wal_res.num_txns_committed};
 
+  // On a force reset the storage was cleared above, so the old durability files must be removed regardless of
+  // whether sending the response succeeds; otherwise a SendFinalResponse throw would orphan a stale WAL chain
+  // next to the reset seq_num 0 WAL and corrupt the next recovery. ProcessOldDurableFiles is a no-op when the
+  // reset wasn't requested. The guard body must never throw because it can run during stack unwinding.
+  utils::OnScopeExit const cleanup_old_durability_files{[&] {
+    try {
+      ProcessOldDurableFiles(req.reset_needed,
+                             storage->recovery_.snapshot_directory_,
+                             current_wal_directory,
+                             old_wal_files,
+                             &storage->file_retainer_);
+    } catch (const std::exception &e) {
+      spdlog::error("Failed to clean up old durability files after current WAL recovery: {}", e.what());
+    }
+  }};
+
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
-  ProcessOldDurableFiles(req.reset_needed,
-                         storage->recovery_.snapshot_directory_,
-                         current_wal_directory,
-                         old_wal_files,
-                         &storage->file_retainer_);
 }
 
 // The method will return false and hence signal the failure of completely loading the WAL file if:
