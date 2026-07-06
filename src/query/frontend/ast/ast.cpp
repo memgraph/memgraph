@@ -363,8 +363,8 @@ constexpr utils::TypeInfo query::RecoverSnapshotQuery::kType{.id = utils::TypeId
                                                              .name = "RecoverSnapshotQuery",
                                                              .superclass = &query::Query::kType};
 
-constexpr utils::TypeInfo query::RepairDatabaseQuery::kType{
-    .id = utils::TypeId::AST_REPAIR_DATABASE_QUERY, .name = "RepairDatabaseQuery", .superclass = &query::Query::kType};
+constexpr utils::TypeInfo query::ResetDatabaseQuery::kType{
+    .id = utils::TypeId::AST_RESET_DATABASE_QUERY, .name = "ResetDatabaseQuery", .superclass = &query::Query::kType};
 
 constexpr utils::TypeInfo query::ShowSnapshotsQuery::kType{
     .id = utils::TypeId::AST_SHOW_SNAPSHOTS_QUERY, .name = "ShowSnapshotsQuery", .superclass = &query::Query::kType};

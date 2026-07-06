@@ -180,17 +180,17 @@ struct ResumeDatabaseRes {
 
 using ResumeDatabaseRpc = rpc::RequestResponse<ResumeDatabaseReq, ResumeDatabaseRes>;
 
-// Defunct-recovery REPAIR replication: the replica resets its own copy of the tenant (identified by
-// UUID) to an empty state in system-timestamp order, matching a main that was repaired.
-struct RepairDatabaseReq {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_REPAIR_DATABASE_REQ, .name = "RepairDatabaseReq"};
+// Defunct-recovery RESET replication: the replica resets its own copy of the tenant (identified by
+// UUID) to an empty state in system-timestamp order, matching a main that was reset.
+struct ResetDatabaseReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RESET_DATABASE_REQ, .name = "ResetDatabaseReq"};
   static constexpr uint64_t kVersion{1};
 
-  static void Load(RepairDatabaseReq *self, memgraph::slk::Reader *reader);
-  static void Save(const RepairDatabaseReq &self, memgraph::slk::Builder *builder);
-  RepairDatabaseReq() = default;
+  static void Load(ResetDatabaseReq *self, memgraph::slk::Reader *reader);
+  static void Save(const ResetDatabaseReq &self, memgraph::slk::Builder *builder);
+  ResetDatabaseReq() = default;
 
-  RepairDatabaseReq(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
+  ResetDatabaseReq(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
                     uint64_t const new_group_timestamp, const utils::UUID &uuid)
       : main_uuid(main_uuid),
         expected_group_timestamp{expected_group_timestamp},
@@ -203,22 +203,22 @@ struct RepairDatabaseReq {
   utils::UUID uuid;
 };
 
-struct RepairDatabaseRes {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_REPAIR_DATABASE_RES, .name = "RepairDatabaseRes"};
+struct ResetDatabaseRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RESET_DATABASE_RES, .name = "ResetDatabaseRes"};
   static constexpr uint64_t kVersion{1};
 
   enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
 
-  static void Load(RepairDatabaseRes *self, memgraph::slk::Reader *reader);
-  static void Save(const RepairDatabaseRes &self, memgraph::slk::Builder *builder);
-  RepairDatabaseRes() = default;
+  static void Load(ResetDatabaseRes *self, memgraph::slk::Reader *reader);
+  static void Save(const ResetDatabaseRes &self, memgraph::slk::Builder *builder);
+  ResetDatabaseRes() = default;
 
-  explicit RepairDatabaseRes(Result res) : result(res) {}
+  explicit ResetDatabaseRes(Result res) : result(res) {}
 
   Result result;
 };
 
-using RepairDatabaseRpc = rpc::RequestResponse<RepairDatabaseReq, RepairDatabaseRes>;
+using ResetDatabaseRpc = rpc::RequestResponse<ResetDatabaseReq, ResetDatabaseRes>;
 
 struct RenameDatabaseReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RENAME_DATABASE_REQ, .name = "RenameDatabaseReq"};
@@ -342,13 +342,13 @@ void Save(const memgraph::storage::replication::ResumeDatabaseRes &self, memgrap
 
 void Load(memgraph::storage::replication::ResumeDatabaseRes *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::storage::replication::RepairDatabaseReq &self, memgraph::slk::Builder *builder);
+void Save(const memgraph::storage::replication::ResetDatabaseReq &self, memgraph::slk::Builder *builder);
 
-void Load(memgraph::storage::replication::RepairDatabaseReq *self, memgraph::slk::Reader *reader);
+void Load(memgraph::storage::replication::ResetDatabaseReq *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::storage::replication::RepairDatabaseRes &self, memgraph::slk::Builder *builder);
+void Save(const memgraph::storage::replication::ResetDatabaseRes &self, memgraph::slk::Builder *builder);
 
-void Load(memgraph::storage::replication::RepairDatabaseRes *self, memgraph::slk::Reader *reader);
+void Load(memgraph::storage::replication::ResetDatabaseRes *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::replication::RenameDatabaseReq &self, memgraph::slk::Builder *builder);
 

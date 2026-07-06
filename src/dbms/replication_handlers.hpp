@@ -34,7 +34,7 @@ void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
 void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                          const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                          uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
-void RepairDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+void ResetDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                            uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
@@ -48,11 +48,11 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
                            uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 // Reconcile this replica to MAIN's authoritative hot/cold sets. database_configs = HOT salient
 // configs; cold_databases = the COLD set (each a salient + MAIN's as-of-suspend stats + epoch metadata);
-// repaired_uuids = tenants MAIN reset to empty (a replica that missed RepairDatabaseRpc resets them).
+// reset_uuids = tenants MAIN reset to empty (a replica that missed ResetDatabaseRpc resets them).
 // Converges {HOT ∪ COLD} to match MAIN. Returns false on a non-transient failure.
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs,
                            const std::vector<storage::ColdTenantRecovery> &cold_databases,
-                           const std::vector<utils::UUID> &repaired_uuids);
+                           const std::vector<utils::UUID> &reset_uuids);
 
 // RPC registration
 void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,

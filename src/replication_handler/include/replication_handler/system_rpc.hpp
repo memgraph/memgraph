@@ -98,8 +98,8 @@ struct SystemRecoveryReqV2 {
 // V3 (hot/cold tenants): adds the COLD set as a vector of ColdTenantRecovery so a reconnecting/lagging
 // replica converges to MAIN's authoritative {HOT ∪ COLD} set. Each entry carries a suspended tenant's
 // salient config and MAIN's as-of-suspend stats snapshot. ColdTenantRecovery is composed of storage::
-// types only, so the dbms reconcile signature stays cycle-free. Also carries the repaired tenant uuids
-// (reset to empty) so a replica that missed the RepairDatabaseRpc re-syncs them.
+// types only, so the dbms reconcile signature stays cycle-free. Also carries the reset tenant uuids
+// (reset to empty) so a replica that missed the ResetDatabaseRpc re-syncs them.
 struct SystemRecoveryReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_REQ, .name = "SystemRecoveryReq"};
   static constexpr uint64_t kVersion{3};
@@ -114,7 +114,7 @@ struct SystemRecoveryReq {
                     std::vector<auth::UserProfiles::Profile> profiles,
                     std::vector<parameters::ParameterInfo> parameters = {},
                     std::vector<storage::ColdTenantRecovery> cold_databases = {},
-                    std::vector<utils::UUID> repaired_uuids = {})
+                    std::vector<utils::UUID> reset_uuids = {})
       : main_uuid(main_uuid),
         forced_group_timestamp{forced_group_timestamp},
         database_configs(std::move(database_configs)),
@@ -124,7 +124,7 @@ struct SystemRecoveryReq {
         profiles{std::move(profiles)},
         parameters{std::move(parameters)},
         cold_databases{std::move(cold_databases)},
-        repaired_uuids{std::move(repaired_uuids)} {}
+        reset_uuids{std::move(reset_uuids)} {}
 
   static SystemRecoveryReq Upgrade(SystemRecoveryReqV2 const &v2) {
     return SystemRecoveryReq{v2.main_uuid,
@@ -149,9 +149,9 @@ struct SystemRecoveryReq {
   // One payload per COLD tenant (salient + as-of-suspend stats + epoch metadata). Replaces
   // the earlier parallel cold_database_configs/cold_database_stats vectors.
   std::vector<storage::ColdTenantRecovery> cold_databases;
-  // UUIDs of tenants the main has repaired (reset to empty); a replica that missed the
-  // RepairDatabaseRpc resets these so it stops serving stale data and re-syncs from the main.
-  std::vector<utils::UUID> repaired_uuids;
+  // UUIDs of tenants the main has reset (reset to empty); a replica that missed the
+  // ResetDatabaseRpc resets these so it stops serving stale data and re-syncs from the main.
+  std::vector<utils::UUID> reset_uuids;
 };
 
 struct SystemRecoveryResV1 {

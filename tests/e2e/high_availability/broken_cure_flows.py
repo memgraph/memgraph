@@ -14,7 +14,7 @@
 These tests bring up a Raft coordinator cluster with two data instances, create a
 multi-tenant database, corrupt that tenant's durability files on one or both data
 instances, and restart them with --storage-allow-recovery-failure=true so the tenant
-boots broken. They then verify the operator cure flows (RECOVER SNAPSHOT, REPAIR
+boots broken. They then verify the operator cure flows (RECOVER SNAPSHOT, RESET
 DATABASE) and replica self-heal in the HA setting.
 
 HA + multi-tenancy require an enterprise license; the whole module is skipped when no
@@ -529,13 +529,13 @@ def test_both_corrupt_status_then_cure(test_name):
 
 
 # ---------------------------------------------------------------------------------------------
-# Scenario 3: REPAIR DATABASE on the main + import -> data replicates to the replica.
+# Scenario 3: RESET DATABASE on the main + import -> data replicates to the replica.
 # ---------------------------------------------------------------------------------------------
-def test_main_corrupt_cured_with_repair_database_and_import(test_name):
+def test_main_corrupt_cured_with_reset_database_and_import(test_name):
     instances, coord_cursor = setup_cluster_with_tenant(test_name)
 
-    # Keep the replica down while the operator repairs the main so the coordinator cannot fail
-    # over to a healthy instance: instance_1 stays main and REPAIR runs on the corrupt main.
+    # Keep the replica down while the operator resets the main so the coordinator cannot fail
+    # over to a healthy instance: instance_1 stays main and RESET runs on the corrupt main.
     interactive_mg_runner.kill(instances, "instance_1")
     interactive_mg_runner.kill(instances, "instance_2")
     corrupt_tenant_durability(data_dir_of(test_name, "instance_1"))
@@ -543,11 +543,11 @@ def test_main_corrupt_cured_with_repair_database_and_import(test_name):
     interactive_mg_runner.start(instances, "instance_1")
     wait_main(coord_cursor, "instance_1")
 
-    # REPAIR DATABASE resets the tenant to an empty, ready state on instance_1 while it is main.
+    # RESET DATABASE resets the tenant to an empty, ready state on instance_1 while it is main.
     main1_cursor = connect(host="localhost", port=7687).cursor()
     use_tenant(main1_cursor)
     assert storage_info(main1_cursor)["status"] == "broken"
-    execute_and_fetch_all(main1_cursor, "REPAIR DATABASE")
+    execute_and_fetch_all(main1_cursor, "RESET DATABASE")
     assert storage_info(main1_cursor)["status"] == "ready"
     assert get_vertex_count(main1_cursor) == 0
 
@@ -561,7 +561,7 @@ def test_main_corrupt_cured_with_repair_database_and_import(test_name):
     # lands on both instances on the first try (a retried write would double-insert).
     wait_replica_ready_on_main(cursor)
 
-    # Import fresh data on the repaired tenant and verify it replicates across the whole cluster.
+    # Import fresh data on the reset tenant and verify it replicates across the whole cluster.
     wait_until_main_writeable(cursor, "UNWIND range(1, 1234) AS i CREATE (:Imported {id: i})")
     assert execute_and_fetch_all(cursor, "MATCH (n:Imported) RETURN count(n)")[0][0] == 1234
 

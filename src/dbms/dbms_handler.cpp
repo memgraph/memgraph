@@ -391,16 +391,16 @@ struct DropDatabase : memgraph::system::ISystemAction {
   utils::UUID uuid_;
 };
 
-// REPAIR DATABASE on a broken main: the main resets the tenant to an empty state with a fresh epoch
-// (storage->RepairBroken() done locally before this action is recorded). This action replicates the
-// reset to every replica via RepairDatabaseRpc so each replica completely wipes its stale tenant data.
+// RESET DATABASE on a broken main: the main resets the tenant to an empty state with a fresh epoch
+// (storage->ResetBroken() done locally before this action is recorded). This action replicates the
+// reset to every replica via ResetDatabaseRpc so each replica completely wipes its stale tenant data.
 // Both main and replica end up empty at commit timestamp 0 sharing the same fresh epoch, so no branching
 // point is detected and the replicas are ready to accept the main's subsequent commits without a
 // dedicated recovery step.
-struct RepairDatabaseAction : memgraph::system::ISystemAction {
+struct ResetDatabaseAction : memgraph::system::ISystemAction {
   // db_acc is retained for the lifetime of the action to keep the database alive while the reset is
   // replicated asynchronously.
-  RepairDatabaseAction(utils::UUID uuid, DatabaseAccess db_acc) : uuid_{uuid}, db_acc_{std::move(db_acc)} {}
+  ResetDatabaseAction(utils::UUID uuid, DatabaseAccess db_acc) : uuid_{uuid}, db_acc_{std::move(db_acc)} {}
 
   void DoDurability() override { /* Done during DBMS execution */ }
 
@@ -408,17 +408,17 @@ struct RepairDatabaseAction : memgraph::system::ISystemAction {
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
-    auto check_response = [](const storage::replication::RepairDatabaseRes &response) {
-      return response.result != storage::replication::RepairDatabaseRes::Result::FAILURE;
+    auto check_response = [](const storage::replication::ResetDatabaseRes &response) {
+      return response.result != storage::replication::ResetDatabaseRes::Result::FAILURE;
     };
 
-    auto const completed = client.StreamAndFinalizeDelta<storage::replication::RepairDatabaseRpc>(
+    auto const completed = client.StreamAndFinalizeDelta<storage::replication::ResetDatabaseRpc>(
         check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
     if (completed) {
-      // The replica applied the reset; record its confirmation so the repair is not re-advertised in a
+      // The replica applied the reset; record its confirmation so the reset is not re-advertised in a
       // later SystemRecoveryReq and the replica isn't needlessly reset again after it has re-synced.
       auto acc = db_acc_;
-      acc->storage()->MarkRepairConfirmedBy(client.name_);
+      acc->storage()->MarkResetConfirmedBy(client.name_);
     }
     return completed;
   }
@@ -897,16 +897,16 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
 
 #endif
 
-std::expected<void, std::string> DbmsHandler::RepairDatabase(DatabaseAccess db_acc,
-                                                             [[maybe_unused]] system::Transaction *txn) {
+std::expected<void, std::string> DbmsHandler::ResetDatabase(DatabaseAccess db_acc,
+                                                            [[maybe_unused]] system::Transaction *txn) {
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
   // MAIN-side local reset: move the corrupt durability files aside, clear the tenant and drop the
   // broken flag. The tenant comes back empty with a fresh epoch. Available in Community and Enterprise.
-  if (auto repaired = mem_storage->RepairBroken(); !repaired.has_value()) {
-    switch (repaired.error()) {
-      using enum storage::InMemoryStorage::RepairError;
+  if (auto reset = mem_storage->ResetBroken(); !reset.has_value()) {
+    switch (reset.error()) {
+      using enum storage::InMemoryStorage::ResetError;
       case NotBroken:
-        return std::unexpected{"REPAIR DATABASE can only be run on a database in the broken state."};
+        return std::unexpected{"RESET DATABASE can only be run on a database in the broken state."};
       case BackupFailure:
         return std::unexpected{"Failed to move aside the corrupt durability files. Please clean them manually."};
     }
@@ -915,7 +915,7 @@ std::expected<void, std::string> DbmsHandler::RepairDatabase(DatabaseAccess db_a
 #ifdef MG_ENTERPRISE
   // Replicate the reset to the replicas so they wipe their stale tenant data and re-sync from the main.
   if (txn) {
-    txn->AddAction<RepairDatabaseAction>(mem_storage->uuid(), db_acc);
+    txn->AddAction<ResetDatabaseAction>(mem_storage->uuid(), db_acc);
   }
 #endif
 

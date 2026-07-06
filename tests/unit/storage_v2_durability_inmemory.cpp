@@ -1775,7 +1775,7 @@ inline void CreateSimpleSnapshot(const std::filesystem::path &storage_directory,
 
 // With --storage-allow-recovery-failure enabled, a database whose snapshots are all
 // corrupt comes up empty and broken instead of crashing the process, and its on-disk
-// durability files are left untouched (so the operator can RECOVER/REPAIR/restore).
+// durability files are left untouched (so the operator can RECOVER/RESET/restore).
 TEST_P(DurabilityTest, SnapshotCorruptBrokenWhenRecoveryFailureAllowed) {
   CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -1867,10 +1867,10 @@ TEST_P(DurabilityTest, RecoverSnapshotCuresBroken) {
   std::filesystem::remove(good_snapshot_copy);
 }
 
-// REPAIR DATABASE cures a broken tenant: it resets the placeholder to an empty working
+// RESET DATABASE cures a broken tenant: it resets the placeholder to an empty working
 // state, clears the broken flag, and moves the corrupt durability files to the .old backup
 // directory (backup dirs enabled by default), leaving the directory restart-clean.
-TEST_P(DurabilityTest, RepairBrokenCuresBroken) {
+TEST_P(DurabilityTest, ResetBrokenCuresBroken) {
   CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
   ASSERT_EQ(GetSnapshotsList().size(), 1);
 
@@ -1891,7 +1891,7 @@ TEST_P(DurabilityTest, RepairBrokenCuresBroken) {
   ASSERT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
 
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
-  auto const res = storage->RepairBroken();
+  auto const res = storage->ResetBroken();
   ASSERT_TRUE(res.has_value());
 
   // The cure clears broken and leaves the tenant empty.
@@ -1914,8 +1914,8 @@ TEST_P(DurabilityTest, RepairBrokenCuresBroken) {
   }
 }
 
-// REPAIR DATABASE is rejected on a healthy (non-broken) storage.
-TEST_P(DurabilityTest, RepairBrokenRejectedOnHealthy) {
+// RESET DATABASE is rejected on a healthy (non-broken) storage.
+TEST_P(DurabilityTest, ResetBrokenRejectedOnHealthy) {
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
@@ -1926,9 +1926,9 @@ TEST_P(DurabilityTest, RepairBrokenRejectedOnHealthy) {
   ASSERT_FALSE(db.storage()->IsBroken());
 
   auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
-  auto const res = storage->RepairBroken();
+  auto const res = storage->ResetBroken();
   ASSERT_FALSE(res.has_value());
-  EXPECT_EQ(res.error(), memgraph::storage::InMemoryStorage::RepairError::NotBroken);
+  EXPECT_EQ(res.error(), memgraph::storage::InMemoryStorage::ResetError::NotBroken);
 }
 
 // With the flag off (default), the same corruption still aborts startup.

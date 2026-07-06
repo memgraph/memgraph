@@ -81,19 +81,19 @@ void ResumeDatabaseRes::Load(ResumeDatabaseRes *self, memgraph::slk::Reader *rea
   memgraph::slk::Load(self, reader);
 }
 
-void RepairDatabaseReq::Save(const RepairDatabaseReq &self, memgraph::slk::Builder *builder) {
+void ResetDatabaseReq::Save(const ResetDatabaseReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
 
-void RepairDatabaseReq::Load(RepairDatabaseReq *self, memgraph::slk::Reader *reader) {
+void ResetDatabaseReq::Load(ResetDatabaseReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
-void RepairDatabaseRes::Save(const RepairDatabaseRes &self, memgraph::slk::Builder *builder) {
+void ResetDatabaseRes::Save(const ResetDatabaseRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
 
-void RepairDatabaseRes::Load(RepairDatabaseRes *self, memgraph::slk::Reader *reader) {
+void ResetDatabaseRes::Load(ResetDatabaseRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
@@ -238,29 +238,29 @@ void Load(memgraph::storage::replication::ResumeDatabaseRes *self, memgraph::slk
   memgraph::slk::Load(&self->result, reader);
 }
 
-// Serialize code for RepairDatabaseReq
+// Serialize code for ResetDatabaseReq
 
-void Save(const memgraph::storage::replication::RepairDatabaseReq &self, memgraph::slk::Builder *builder) {
+void Save(const memgraph::storage::replication::ResetDatabaseReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.uuid, builder);
 }
 
-void Load(memgraph::storage::replication::RepairDatabaseReq *self, memgraph::slk::Reader *reader) {
+void Load(memgraph::storage::replication::ResetDatabaseReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->uuid, reader);
 }
 
-// Serialize code for RepairDatabaseRes
+// Serialize code for ResetDatabaseRes
 
-void Save(const memgraph::storage::replication::RepairDatabaseRes &self, memgraph::slk::Builder *builder) {
+void Save(const memgraph::storage::replication::ResetDatabaseRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.result, builder);
 }
 
-void Load(memgraph::storage::replication::RepairDatabaseRes *self, memgraph::slk::Reader *reader) {
+void Load(memgraph::storage::replication::ResetDatabaseRes *self, memgraph::slk::Reader *reader) {
   uint8_t res = 0;
   memgraph::slk::Load(&res, reader);
   if (!utils::NumToEnum(res, self->result)) {

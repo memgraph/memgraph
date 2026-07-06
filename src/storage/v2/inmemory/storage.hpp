@@ -168,7 +168,7 @@ class InMemoryStorage final : public Storage {
     FailedOverwritingUUID
   };
 
-  enum class RepairError : uint8_t {
+  enum class ResetError : uint8_t {
     NotBroken,
     BackupFailure,
   };
@@ -770,14 +770,14 @@ class InMemoryStorage final : public Storage {
   // snapshots/ and wal/ files are moved to a .old directory when backup directories
   // are enabled, otherwise deleted, leaving the durability directory restart-clean.
   // The broken flag is cleared on success. Rejected on a healthy (non-broken) storage.
-  [[nodiscard]] std::expected<void, InMemoryStorage::RepairError> RepairBroken();
+  [[nodiscard]] std::expected<void, InMemoryStorage::ResetError> ResetBroken();
 
   // Clears the tenant's durability files (moving snapshots/ and wal/ to a .old directory when backup
   // directories are enabled, otherwise deleting them) and then resets it to an empty working state via
-  // ResetTenant(). Shared by RepairBroken() (main, after its broken-state check) and the replica's
-  // RepairDatabaseRpc handler, so both wipe the tenant with identical on-disk semantics and it stays empty
-  // across a restart. Unlike RepairBroken() this does not require the storage to be broken.
-  [[nodiscard]] std::expected<void, InMemoryStorage::RepairError> ClearDurabilityAndReset();
+  // ResetTenant(). Shared by ResetBroken() (main, after its broken-state check) and the replica's
+  // ResetDatabaseRpc handler, so both wipe the tenant with identical on-disk semantics and it stays empty
+  // across a restart. Unlike ResetBroken() this does not require the storage to be broken.
+  [[nodiscard]] std::expected<void, InMemoryStorage::ResetError> ClearDurabilityAndReset();
 
   // Completely resets the tenant to an empty in-memory working state: clears the graph, the name-id mapper
   // and the description store, drops the broken flag and resets the replication epoch/timestamp. Does not

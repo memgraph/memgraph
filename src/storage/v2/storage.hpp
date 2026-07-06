@@ -270,38 +270,38 @@ class Storage {
 
   // A storage is broken when it failed durability recovery on startup and was
   // brought up empty (see --storage-allow-recovery-failure). A broken storage
-  // rejects data queries until recovered via RECOVER SNAPSHOT or REPAIR DATABASE.
+  // rejects data queries until recovered via RECOVER SNAPSHOT or RESET DATABASE.
   bool IsBroken() const noexcept { return broken_.load(std::memory_order_acquire); }
 
   void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
 
-  // A storage is marked repaired when it was reset to an empty working state via REPAIR DATABASE
-  // (locally on the main or through the RepairDatabaseRpc on a replica). The main advertises its
-  // repaired tenants in SystemRecoveryReq so a replica that missed the RepairDatabaseRpc still
+  // A storage is marked reset when it was reset to an empty working state via RESET DATABASE
+  // (locally on the main or through the ResetDatabaseRpc on a replica). The main advertises its
+  // reset tenants in SystemRecoveryReq so a replica that missed the ResetDatabaseRpc still
   // learns it must reset that tenant. The flag is in-memory and lives only for the current run.
-  bool WasRepaired() const noexcept { return was_repaired_.load(std::memory_order_acquire); }
+  bool WasReset() const noexcept { return was_reset_.load(std::memory_order_acquire); }
 
-  void SetRepaired(bool value) noexcept { was_repaired_.store(value, std::memory_order_release); }
+  void SetReset(bool value) noexcept { was_reset_.store(value, std::memory_order_release); }
 
-  // Records that replica `replica_name` confirmed (applied) the most recent repair of this tenant, so the
-  // main stops advertising the repair to it (see WasRepaired()). Prevents a replica that already reset and
+  // Records that replica `replica_name` confirmed (applied) the most recent reset of this tenant, so the
+  // main stops advertising the reset to it (see WasReset()). Prevents a replica that already reset and
   // re-synced from being needlessly reset again on a later reconnect.
-  void MarkRepairConfirmedBy(std::string_view replica_name) {
-    repaired_confirmed_replicas_.WithLock([&](auto &names) { names.emplace(std::string{replica_name}); });
+  void MarkResetConfirmedBy(std::string_view replica_name) {
+    reset_confirmed_replicas_.WithLock([&](auto &names) { names.emplace(std::string{replica_name}); });
   }
 
-  // True if `replica_name` already confirmed the most recent repair of this tenant.
-  bool RepairConfirmedBy(std::string_view replica_name) const {
-    return repaired_confirmed_replicas_.WithReadLock([&](auto const &names) { return names.contains(replica_name); });
+  // True if `replica_name` already confirmed the most recent reset of this tenant.
+  bool ResetConfirmedBy(std::string_view replica_name) const {
+    return reset_confirmed_replicas_.WithReadLock([&](auto const &names) { return names.contains(replica_name); });
   }
 
-  // Clears all repair confirmations. Called on a fresh repair so every replica must re-confirm before the
+  // Clears all reset confirmations. Called on a fresh reset so every replica must re-confirm before the
   // tenant stops being advertised in SystemRecoveryReq.
-  void ClearRepairConfirmations() {
-    repaired_confirmed_replicas_.WithLock([](auto &names) { names.clear(); });
+  void ClearResetConfirmations() {
+    reset_confirmed_replicas_.WithLock([](auto &names) { names.clear(); });
   }
 
-  // Last durable timestamp; 0 right after a tenant reset (REPAIR/ResetTenant).
+  // Last durable timestamp; 0 right after a tenant reset (RESET/ResetTenant).
   uint64_t GetLastDurableTimestamp() const noexcept {
     return repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
   }
@@ -444,13 +444,13 @@ class Storage {
   // Set when durability recovery failed and the storage was brought up empty.
   std::atomic<bool> broken_{false};
 
-  // Set when the tenant was reset to an empty state via REPAIR DATABASE (see WasRepaired()).
-  std::atomic<bool> was_repaired_{false};
+  // Set when the tenant was reset to an empty state via RESET DATABASE (see WasReset()).
+  std::atomic<bool> was_reset_{false};
 
-  // Replica names that confirmed the most recent repair of this tenant (see MarkRepairConfirmedBy()).
-  // Used so a repaired tenant is advertised in SystemRecoveryReq only to replicas that have not yet
+  // Replica names that confirmed the most recent reset of this tenant (see MarkResetConfirmedBy()).
+  // Used so a reset tenant is advertised in SystemRecoveryReq only to replicas that have not yet
   // reset it. In-memory, per run.
-  utils::Synchronized<std::set<std::string, std::less<>>, utils::RWSpinLock> repaired_confirmed_replicas_;
+  utils::Synchronized<std::set<std::string, std::less<>>, utils::RWSpinLock> reset_confirmed_replicas_;
 
   std::unique_ptr<NameIdMapper> name_id_mapper_;
   Config config_;

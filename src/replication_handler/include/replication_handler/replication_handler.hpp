@@ -75,8 +75,8 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     // One ColdTenantRecovery per suspended tenant (salient + stats); empty on non-enterprise /
     // no-license.
     std::vector<storage::ColdTenantRecovery> cold_databases;
-    // Repaired tenants (reset to empty) so a replica that missed the RepairDatabaseRpc resets them.
-    std::vector<utils::UUID> repaired_uuids;
+    // Reset tenants (reset to empty) so a replica that missed the ResetDatabaseRpc resets them.
+    std::vector<utils::UUID> reset_uuids;
   };
 
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
@@ -91,14 +91,14 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
 
     if (is_enterprise) {
       auto configs = std::vector<storage::SalientConfig>{};
-      auto repaired_uuids = std::vector<utils::UUID>{};
-      dbms_handler.ForEach([&configs, &repaired_uuids, &client](dbms::DatabaseAccess acc) {
+      auto reset_uuids = std::vector<utils::UUID>{};
+      dbms_handler.ForEach([&configs, &reset_uuids, &client](dbms::DatabaseAccess acc) {
         configs.emplace_back(acc->config().salient);
-        // Advertise a repaired tenant only to a replica that has not yet confirmed resetting it, so a
+        // Advertise a reset tenant only to a replica that has not yet confirmed resetting it, so a
         // replica that already reset and re-synced is never asked to wipe its data again.
         auto *storage = acc->storage();
-        if (storage->WasRepaired() && !storage->RepairConfirmedBy(client.name_)) {
-          repaired_uuids.emplace_back(acc->config().salient.uuid);
+        if (storage->WasReset() && !storage->ResetConfirmedBy(client.name_)) {
+          reset_uuids.emplace_back(acc->config().salient.uuid);
         }
       });
       // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
@@ -107,18 +107,18 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
       // are coherent as-of last_committed_timestamp.
       auto cold_databases = dbms_handler.SuspendedConfigsForRecovery();
       return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), std::move(cold_databases),
-                    std::move(repaired_uuids)};
+                    std::move(reset_uuids)};
 #else
-      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), {}, std::move(repaired_uuids)};
+      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), {}, std::move(reset_uuids)};
 #endif
     }
     // No license -> send only default config
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp(), {}};
   });
 #ifdef MG_ENTERPRISE
-  // Copy before db_info.repaired_uuids is moved into the stream below; used to record this replica's
+  // Copy before db_info.reset_uuids is moved into the stream below; used to record this replica's
   // confirmation once it has applied the SystemRecoveryRpc.
-  auto const advertised_repaired_uuids = db_info.repaired_uuids;
+  auto const advertised_reset_uuids = db_info.reset_uuids;
 #endif
   try {
     metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
@@ -145,7 +145,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             locked_auth.AllProfiles(),
                                                             params_snapshot,
                                                             std::move(db_info.cold_databases),
-                                                            std::move(db_info.repaired_uuids));
+                                                            std::move(db_info.reset_uuids));
       });
 #else
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
@@ -160,20 +160,20 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     });
     auto const response = stream.SendAndWait();
     if (response.result == SystemRecoveryRes::Result::FAILURE) {
-      // System recovery failed; do not record confirmations so the repair is re-advertised on the next
+      // System recovery failed; do not record confirmations so the reset is re-advertised on the next
       // SystemRestore.
       client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
       return;
     }
 #ifdef MG_ENTERPRISE
-    // System recovery succeeded: this replica has applied the repaired_uuids resets. Record its
+    // System recovery succeeded: this replica has applied the reset_uuids resets. Record its
     // confirmation so these tenants are not advertised to it again on a later reconnect, while a replica
     // that has not yet confirmed keeps being advertised until it resets.
-    for (auto const &uuid : advertised_repaired_uuids) {
+    for (auto const &uuid : advertised_reset_uuids) {
       try {
-        dbms_handler.Get(uuid)->storage()->MarkRepairConfirmedBy(client.name_);
+        dbms_handler.Get(uuid)->storage()->MarkResetConfirmedBy(client.name_);
       } catch (const dbms::UnknownDatabaseException &) {
-        spdlog::debug("SystemRestore: repaired tenant {} no longer present; nothing to confirm.", std::string{uuid});
+        spdlog::debug("SystemRestore: reset tenant {} no longer present; nothing to confirm.", std::string{uuid});
       }
     }
 #endif

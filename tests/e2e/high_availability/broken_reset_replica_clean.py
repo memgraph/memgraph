@@ -9,15 +9,15 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# Broken Recovery (HA): REPAIR DATABASE on the MAIN must reconcile replicas. When the main's tenant
-# is broken and the operator runs REPAIR DATABASE, the main resets that tenant to an empty state with
+# Broken Recovery (HA): RESET DATABASE on the MAIN must reconcile replicas. When the main's tenant
+# is broken and the operator runs RESET DATABASE, the main resets that tenant to an empty state with
 # a fresh epoch and then force-resyncs every replica. Each replica must therefore WIPE its stale tenant
 # data and converge to the clean empty tenant, ready to accept the main's subsequent commits.
 #
 # This is the inverse of broken_replica_self_heal.py (there the replica was broken and self-healed
 # from a healthy main). Here the MAIN is broken, the replica is healthy and holds the old (now stale)
-# tenant data; the proof of the fix is that the replica's old data is wiped after REPAIR and that fresh
-# data written on the repaired main replicates to it.
+# tenant data; the proof of the fix is that the replica's old data is wiped after RESET and that fresh
+# data written on the reset main replicates to it.
 #
 # Placement note: like broken_replica_self_heal.py, this needs the coordinator + data-instance harness
 # from tests/e2e/high_availability/, so it lives next to the other coordinator tests and reuses
@@ -43,7 +43,7 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
-file = "broken_repair_replica_clean"
+file = "broken_reset_replica_clean"
 
 TENANT = "broken_db"
 NUM_NODES = 5000
@@ -201,23 +201,23 @@ def tenant_storage_status(cursor):
 INSTANCE_BOLT_PORT = {"instance_1": 7688, "instance_2": 7689, "instance_3": 7687}
 
 
-def test_repair_database_on_main_cleans_replica_tenant(test_name):
+def test_reset_database_on_main_cleans_replica_tenant(test_name):
     # 1. Bring up a coordinator-managed cluster: instance_3 (7687) MAIN, instance_1 (7688) and
     #    instance_2 (7689) REPLICAs.
     # 2. Create the broken_db tenant on the main and populate it. The data replicates to both replicas
-    #    -> the replicas now hold NUM_NODES nodes (the stale data that REPAIR must later wipe).
+    #    -> the replicas now hold NUM_NODES nodes (the stale data that RESET must later wipe).
     # 3. Gracefully stop ALL data instances (keeping the coordinators up), corrupt instance_3's
     #    broken_db snapshot, then restart the data instances keeping their directories. With every data
     #    instance down at once the coordinator has no failover target, so instance_3's MAIN role is
     #    preserved and restored on restart (no failover); instance_3's broken_db boots broken
     #    (--storage-allow-recovery-failure), while the replicas restore their healthy broken_db data. The
     #    replicas therefore still hold the stale NUM_NODES nodes -- nothing has cleaned them.
-    # 4. REPAIR DATABASE on the (broken) main: resets broken_db to empty with a fresh epoch and
+    # 4. RESET DATABASE on the (broken) main: resets broken_db to empty with a fresh epoch and
     #    force-resyncs every replica (the fix under test).
     # 5. Assert each replica's stale broken_db data is WIPED (0 nodes) and `ready` -- the whole point of
-    #    the fix: REPAIR cleans the replicas, not just the main. Without the fix the replicas keep their
+    #    the fix: RESET cleans the replicas, not just the main. Without the fix the replicas keep their
     #    stale NUM_NODES nodes.
-    # 6. Import fresh data on the repaired main; assert it replicates to the replicas (they are clean
+    # 6. Import fresh data on the reset main; assert it replicates to the replicas (they are clean
     #    empty tenants ready to accept the main's commits).
 
     instances = get_memgraph_instances_description(test_name=test_name)
@@ -293,13 +293,13 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
     with pytest.raises(mgclient.DatabaseError, match="broken state"):
         execute_and_fetch_all(broken_txn_cursor, "BEGIN")
 
-    # 4: REPAIR DATABASE on the (broken) main. Resets broken_db to empty and force-resyncs every replica.
+    # 4: RESET DATABASE on the (broken) main. Resets broken_db to empty and force-resyncs every replica.
     main_cursor = connect(host="localhost", port=7687).cursor()
     execute_and_fetch_all(main_cursor, f"USE DATABASE {TENANT}")
-    execute_and_fetch_all(main_cursor, "REPAIR DATABASE")
-    assert tenant_status(main_cursor).get(TENANT) == "ready", "Main's tenant should be ready after REPAIR"
+    execute_and_fetch_all(main_cursor, "RESET DATABASE")
+    assert tenant_status(main_cursor).get(TENANT) == "ready", "Main's tenant should be ready after RESET"
 
-    # 5: REPAIR's force-recover drives every replica into RECOVERY and re-syncs it to the main's fresh,
+    # 5: RESET's force-recover drives every replica into RECOVERY and re-syncs it to the main's fresh,
     # empty epoch. Wait until the wipe has fully propagated -- 0 nodes on the main AND both replicas (the
     # stale NUM_NODES nodes are gone everywhere). Reconnect each poll (the instances were restarted) and
     # tolerate transient read errors while a replica is mid-resync.
@@ -314,7 +314,7 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
 
     # 5b: The wiped state must survive a replica restart. Restart both replicas (keeping their
     # directories); on recovery their broken_db must still be empty (0 nodes), not resurrected with the
-    # old stale NUM_NODES data. The main records each replica's repair confirmation, so on reconnect the
+    # old stale NUM_NODES data. The main records each replica's reset confirmation, so on reconnect the
     # reset is not re-advertised -- the replica must therefore already be durably clean on its own.
     for name in ("instance_1", "instance_2"):
         interactive_mg_runner.stop(restart_instances, name, keep_directories=True)
@@ -340,7 +340,7 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
     # 6: The clean tenant is ready to accept the main's commits. Import FRESH_NODES nodes on the main and
     # assert the main and both replicas converge to EXACTLY that count: not NUM_NODES (stale data was
     # wiped) and not NUM_NODES + FRESH_NODES (no leftover divergence), but exactly the fresh data the
-    # clean tenant accepted. Retry the import only while the just-repaired main is briefly not writeable
+    # clean tenant accepted. Retry the import only while the just-reset main is briefly not writeable
     # ("Write queries currently forbidden"), for at most 5s. "Failed to replicate to SYNC replica" must
     # NOT happen -- the replicas are clean and ready.
     FRESH_NODES = 42
@@ -358,7 +358,7 @@ def test_repair_database_on_main_cleans_replica_tenant(test_name):
     for port in (7687, INSTANCE_BOLT_PORT["instance_1"], INSTANCE_BOLT_PORT["instance_2"]):
         mg_sleep_and_assert(FRESH_NODES, partial(count_on, port))
 
-    # The repaired main holds exactly the fresh data, and its tenant is ready.
+    # The reset main holds exactly the fresh data, and its tenant is ready.
     assert tenant_status(main_cursor).get(TENANT) == "ready"
     assert tenant_vertex_count(main_cursor) == FRESH_NODES
 
