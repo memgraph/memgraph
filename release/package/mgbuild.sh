@@ -2554,6 +2554,10 @@ generate_memgraph_build_sbom() {
     echo -e "${RED_BOLD}Error: --sbom-scripts-dir not provided (path to the infra SBOM scripts)${RESET}" >&2
     exit 1
   fi
+  if [[ ! -x "$sbom_scripts_dir/build-sbom.sh" ]]; then
+    echo -e "${RED_BOLD}Error: build-sbom.sh not found or not executable under --sbom-scripts-dir ($sbom_scripts_dir)${RESET}" >&2
+    exit 1
+  fi
 
   if [[ -z "$conan_remote" ]]; then
     echo -e "${YELLOW_BOLD}Warning: --conan-remote not provided; SBOM generation will fail if no build is present in the container${RESET}"
@@ -2601,6 +2605,10 @@ generate_mage_image_sbom() {
   fi
   if [[ -z "$sbom_scripts_dir" ]]; then
     echo -e "${RED_BOLD}Error: --sbom-scripts-dir not provided (path to the infra SBOM scripts)${RESET}" >&2
+    exit 1
+  fi
+  if [[ ! -x "$sbom_scripts_dir/mage-docker-sbom.sh" ]]; then
+    echo -e "${RED_BOLD}Error: mage-docker-sbom.sh not found or not executable under --sbom-scripts-dir ($sbom_scripts_dir)${RESET}" >&2
     exit 1
   fi
   if [[ ! -f "$PROJECT_ROOT/sbom/memgraph-build-sbom.json" ]]; then
