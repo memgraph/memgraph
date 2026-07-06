@@ -72,8 +72,10 @@ enum class FuzzSymbol : uint8_t {
   Ternary = 15,
 };
 
-/// Empty analysis for fuzz testing (no analysis data needed)
-struct FuzzAnalysis {};
+/// Dummy analysis for fuzz testing: no facts, no-op merge.
+struct FuzzAnalysis {
+  void merge(FuzzAnalysis const & /*other*/) {}
+};
 
 // ============================================================================
 // Symbol Utilities

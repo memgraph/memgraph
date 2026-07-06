@@ -51,8 +51,11 @@ enum class Op : uint8_t {
   Test,
 };
 
-/// Empty analysis type for tests that don't need e-class analysis.
-struct NoAnalysis {};
+/// Analysis type for tests that don't need e-class analysis. Carries no facts;
+/// its no-op merge lets the core call `analysis.merge(...)` unconditionally.
+struct NoAnalysis {
+  void merge(NoAnalysis const & /*other*/) {}
+};
 
 constexpr auto op_to_string(Op op) -> std::string_view {
   switch (op) {

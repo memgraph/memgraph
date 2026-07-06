@@ -99,12 +99,9 @@ struct EClass : private detail::EClassBase {
   void merge_with(EClass &&other) {
     EClassBase::merge_with(other);
 
-    // Empty analyses (e.g. NoAnalysis) carry nothing to combine. A stateful
-    // Analysis supplies a merge(other) that combines per-e-class facts and
-    // flags any contradiction.
-    if constexpr (!std::is_empty_v<Analysis>) {
-      analysis_data.merge(other.analysis_data);
-    }
+    // Combine per-e-class facts and flag any contradiction. Analyses that carry
+    // no facts (e.g. NoAnalysis) supply a no-op merge.
+    analysis_data.merge(other.analysis_data);
   }
 
  private:

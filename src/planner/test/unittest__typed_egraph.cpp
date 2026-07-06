@@ -39,7 +39,9 @@ namespace {
 // (no storage, no disambiguator) never exercises.
 enum class ToyOp : std::uint8_t { Symbol };
 
-struct ToyAnalysis {};
+struct ToyAnalysis {
+  void merge(ToyAnalysis const & /*other*/) {}
+};
 
 template <ToyOp S>
 struct toy_traits;
