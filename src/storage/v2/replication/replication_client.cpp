@@ -233,10 +233,14 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // main's; record it now.
   // This needs to be done under the engine lock, otherwise this function could bump replica's num committed txns before
   // commit thread on main. This would be possible because there is a time window between we release RPC lock and update
-  // main's number of committed txns in the commit thread
-  commit_ts_info_.store(CommitTsInfo{.ldt_ = heartbeat_res.current_commit_timestamp_,
-                                     .num_committed_txns_ = heartbeat_res.num_txns_committed_},
-                        std::memory_order_release);
+  // main's number of committed txns in the commit thread. We fold in with a per-field max (advance-only) rather
+  // than a blind store: the commit thread may have already bumped num_committed_txns_ in that window, and ldt_ can
+  // independently be larger on the replica (e.g. due to snapshots), so neither field must be allowed to regress.
+  CommitTsInfo const observed{.ldt_ = heartbeat_res.current_commit_timestamp_,
+                              .num_committed_txns_ = heartbeat_res.num_txns_committed_};
+  atomic_struct_update<CommitTsInfo>(commit_ts_info_,
+                                     [observed](CommitTsInfo const &cur) { return Max(cur, observed); });
+
   spdlog::trace("Set num committed txns to {}", heartbeat_res.num_txns_committed_);
   if (spdlog::should_log(spdlog::level::trace)) {
     spdlog::trace("Current num committed tnxs on main: {}",
