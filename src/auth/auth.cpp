@@ -215,6 +215,7 @@ constexpr auto kStoreV2 = "V2";  // Single role links, to JSON arrays for multi-
 constexpr auto kStoreV3 = "V3";  // V2 FGA -> V3 FGA (fine_grained_access_handler to fine_grained_permissions)
 constexpr auto kStoreV4 = "V4";  // V3 FGA -> V4 FGA (global_permission → global_grants/global_denies)
 constexpr auto kStoreV5 = "V5";  // Eagerly migrates entity JSON via MigrateAuthJson over RPC (V3/V4 -> current)
+constexpr auto kCurrentStoreVersion = kStoreV5;
 }  // namespace
 
 /**
@@ -398,7 +399,7 @@ Auth::Auth(std::string storage_directory, Config config
     MigrateVersions(storage_);
   } else {
     // Clean storage; put the version
-    storage_.Put(kStoreVersionKey, kStoreV5);
+    storage_.Put(kStoreVersionKey, kCurrentStoreVersion);
   }
 
 #ifdef MG_ENTERPRISE
