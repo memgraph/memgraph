@@ -34,7 +34,7 @@
 #        check, no special cold-tenant epoch bump needed. Exercised by test_promotion_cold_tenant_convergence.
 #        (The earlier eager cold-tenant epoch machinery was intentionally removed.)
 #
-#   Hot/cold is observable: SHOW DATABASES lists a COLD tenant with a HOT/COLD status column
+#   Hot/cold is observable: SHOW DATABASES lists a COLD tenant with a HOT/COLD state column
 #        (it would otherwise vanish, being excluded from All()), and SHOW STORAGE INFO ON <cold>
 #        serves the durable as-of-suspend snapshot instead of erroring (previously this errored).
 #        Exercised by test_cold_aware_show.
@@ -390,7 +390,7 @@ def test_cold_aware_show(connection, test_name):
     # SHOW STORAGE INFO ON <cold> serves the as-of-suspend snapshot (does NOT raise the cold seam).
     info = dict((r[0], r[1]) for r in execute_and_fetch_all(main_cursor, "SHOW STORAGE INFO ON DATABASE A;"))
     assert info.get("vertex_count") == 8, f"cold SHOW STORAGE INFO must carry the as-of-suspend count: {info}"
-    assert "COLD" in str(info.get("status", "")), f"cold storage info must be labelled a snapshot: {info}"
+    assert "COLD" in str(info.get("state", "")), f"cold storage info must be labelled COLD: {info}"
     assert info.get("name") == "A", info
 
     # Querying DATA on the cold tenant still errors (cold access is an error, not a reheat).

@@ -7310,19 +7310,30 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [db_name,
                      cold = std::move(*cold)]() -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
             const auto &s = cold.stats;
+            // The field set is identical to the HOT path so a client sees the same schema regardless of
+            // state. Fields the as-of-suspend snapshot carries (data-shape stats + resident/peak memory)
+            // are served from it; live-process-only fields with no snapshot value (query/vector/tenant
+            // memory usage and the live tenant limit) default to 0/unlimited, since a COLD tenant runs
+            // no queries and holds no live memory.
+            const auto zero_bytes = utils::GetReadableSize(0.0);
             const std::vector<std::vector<TypedValue>> results{
                 {TypedValue("name"), TypedValue(db_name)},
                 {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(cold.uuid))},
-                {TypedValue("status"), TypedValue(cold.status)},
+                {TypedValue("state"), TypedValue(cold.state)},
                 {TypedValue("storage_mode"), TypedValue(StorageModeToString(s.storage_mode))},
                 {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(s.vertex_count))},
                 {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(s.edge_count))},
                 {TypedValue("average_degree"), TypedValue(s.average_degree)},
+                {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(s.unreleased_delta_objects))},
                 {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(s.disk_usage)))},
                 {TypedValue("graph_memory_tracked"),
                  TypedValue(utils::GetReadableSize(static_cast<double>(s.memory_res)))},
+                {TypedValue("query_memory_tracked"), TypedValue(zero_bytes)},
+                {TypedValue("vector_index_memory_tracked"), TypedValue(zero_bytes)},
+                {TypedValue("tenant_memory_tracked"), TypedValue(zero_bytes)},
                 {TypedValue("tenant_peak_memory_tracked"),
                  TypedValue(utils::GetReadableSize(static_cast<double>(s.peak_memory_res)))},
+                {TypedValue("tenant_memory_limit"), TypedValue(std::string("unlimited"))},
                 {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(s.isolation_level))},
             };
             return std::pair{results, QueryHandlerResult::NOTHING};
@@ -7377,6 +7388,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           const std::vector<std::vector<TypedValue>> results{
               {TypedValue("name"), TypedValue(storage->name())},
               {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
+              {TypedValue("state"), TypedValue(std::string("HOT"))},
               {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))},
               {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
               {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
@@ -8235,9 +8247,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  // SHOW DATABASES carries a "status" column (HOT/COLD) and lists COLD tenants (which are excluded from
+  // SHOW DATABASES carries a "state" column (HOT/COLD) and lists COLD tenants (which are excluded from
   // All() as no-value shells, so they would otherwise vanish).
-  callback.header = std::vector<std::string>{"Name", "status"};
+  callback.header = std::vector<std::string>{"Name", "state"};
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;

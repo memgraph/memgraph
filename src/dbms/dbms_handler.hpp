@@ -559,7 +559,7 @@ class DbmsHandler {
   struct ColdShowInfo {
     utils::UUID uuid;
     storage::StorageInfo stats;  //!< as-of-suspend snapshot (on MAIN); physical fields are MAIN-relative
-    std::string status;          //!< "COLD (as-of-suspend snapshot)"
+    std::string state;           //!< HOT/COLD state string surfaced by SHOW STORAGE INFO ON (always "COLD" here)
   };
 
   /**
@@ -573,8 +573,7 @@ class DbmsHandler {
     if (auto it = suspended_.find(name); it != suspended_.end()) {
       // A suspended tenant always carries a captured as-of-suspend snapshot (a failed HOT recovery
       // aborts the boot rather than leaving a snapshot-less COLD shell behind).
-      return ColdShowInfo{
-          .uuid = it->second.salient.uuid, .stats = it->second.cold_stats, .status = "COLD (as-of-suspend snapshot)"};
+      return ColdShowInfo{.uuid = it->second.salient.uuid, .stats = it->second.cold_stats, .state = "COLD"};
     }
     return std::nullopt;
   }

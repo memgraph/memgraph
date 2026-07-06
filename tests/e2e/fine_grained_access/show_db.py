@@ -22,7 +22,7 @@ def test_show_databases_w_user():
     user2_connection = common.connect(username="user2", password="test")
     user3_connection = common.connect(username="user3", password="test")
 
-    # SHOW DATABASES (plural) carries a HOT/COLD status column; SHOW DATABASE (singular, current db) does not.
+    # SHOW DATABASES (plural) carries a HOT/COLD state column; SHOW DATABASE (singular, current db) does not.
     assert common.execute_and_fetch_all(admin_connection.cursor(), "SHOW DATABASES") == [
         ("db1", "HOT"),
         ("db2", "HOT"),
