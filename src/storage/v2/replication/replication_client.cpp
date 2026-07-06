@@ -226,8 +226,14 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     return;
   }
 
+  // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
+  auto engine_lock = std::unique_lock{main_storage->engine_lock_};
+
   // No branching point. The replica's history is consistent with main's, so its reported progress can't exceed
   // main's; record it now.
+  // This needs to be done under the engine lock, otherwise this function could bump replica's num committed txns before
+  // commit thread on main. This would be possible because there is a time window between we release RPC lock and update
+  // main's number of committed txns in the commit thread
   commit_ts_info_.store(CommitTsInfo{.ldt_ = heartbeat_res.current_commit_timestamp_,
                                      .num_committed_txns_ = heartbeat_res.num_txns_committed_},
                         std::memory_order_release);
@@ -237,8 +243,6 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                   main_repl_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
   }
 
-  // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
-  auto engine_lock = std::unique_lock{main_storage->engine_lock_};
   spdlog::trace("Current timestamp on replica {} for db {} is {}.",
                 client_.name_,
                 main_db_name,
