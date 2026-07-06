@@ -352,7 +352,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
 }
 
 void SessionHL::LogOff() {
-  interpreter_.ResetCachedFga();
+  Abort();
 #ifdef MG_ENTERPRISE
   interpreter_.ResetDB();
 #endif
