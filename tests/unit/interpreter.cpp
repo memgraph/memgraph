@@ -516,6 +516,36 @@ TYPED_TEST(InterpreterTest, CompositeIndexNullableSuffixOrderByNotElided) {
               testing::ElementsAre(1, 2, 3));
 }
 
+// The DESC counterpart: a DESC composite index sorts NULL last (a full reversal
+// of ASC's NULL-first), but ORDER BY ... DESC places NULL first, so the mismatch
+// is symmetric and the sort must be kept for DESC too. Eliminating it (e.g. by
+// gating the guard on ASC only) would return NULLs last here.
+TYPED_TEST(InterpreterTest, CompositeIndexNullableSuffixDescOrderByNotElided) {
+  // Composite indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret(R"(CREATE INDEX ON :L(a, b) WITH CONFIG {"order": "DESC"})");
+  // One row leaves b missing (stored as NULL in the index).
+  this->Interpret("CREATE (:L {a: 5, b: 3}), (:L {a: 5, b: 1}), (:L {a: 5}), (:L {a: 5, b: 2})");
+
+  auto values = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    std::vector<int64_t> out;
+    for (const auto &row : stream.GetResults()) {
+      out.push_back(row[0].type() == memgraph::communication::bolt::Value::Type::Null ? -1 : row[0].ValueInt());
+    }
+    return out;
+  };
+
+  // Unconstrained suffix, DESC: NULL must sort first, not last.
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b DESC"), testing::ElementsAre(-1, 3, 2, 1));
+  // With LIMIT the misordering would return the wrong rows entirely.
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b DESC LIMIT 2"),
+              testing::ElementsAre(-1, 3));
+}
+
 // `MATCH (n:L) WHERE id(n) IN $ids` selects the id scan and keeps the label as a
 // residual filter, so only labelled vertices come back.
 TYPED_TEST(InterpreterTest, IdInListLabelResidual) {

@@ -173,6 +173,35 @@ TYPED_TEST(OrderByIndexTest, NullableSuffixNotEliminated) {
          "placement";
 }
 
+// The DESC counterpart of NullableSuffixNotEliminated: the NULL-placement
+// mismatch is symmetric across directions, so the guard must not be gated on
+// ASC. A DESC composite index sorts NULL last (a full reversal of ASC's
+// NULL-first), while ORDER BY ... DESC places NULL first, so an unconstrained
+// (nullable) suffix still disagrees on NULL placement and the sort must be kept.
+TYPED_TEST(OrderByIndexTest, NullableSuffixDescNotEliminated) {
+  // MATCH (n:L) WHERE n.a = 5 ORDER BY n.b DESC RETURN n, with a DESC index (a, b)
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto prop_a = PROPERTY_PAIR(dba, "a");
+  const auto prop_b = PROPERTY_PAIR(dba, "b");
+  dba.SetIndexCount(label, 1);
+  std::vector<ms::PropertyPath> composite_props{ms::PropertyPath{prop_a.second}, ms::PropertyPath{prop_b.second}};
+  dba.SetIndexCount(label, std::span{composite_props}, 1, ms::IndexOrder::DESC);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", prop_a.second), LITERAL(5))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop_b.second), Ordering::DESC))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must be kept: b is an unconstrained (nullable) suffix; a DESC index sorts NULL last but ORDER BY "
+         "DESC places NULL first, so the index order disagrees on NULL placement";
+}
+
 // Full composite - WHERE n.a = 5 ORDER BY n.a, n.b with index (a, b)
 TYPED_TEST(OrderByIndexTest, FullCompositeWithEquality) {
   // MATCH (n:L) WHERE n.a = 5 ORDER BY n.a, n.b RETURN n
