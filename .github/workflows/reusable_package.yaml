@@ -95,6 +95,16 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: "Checkout infra repository"
+        # SBOM generation uses the scripts from the memgraph/infra repo.
+        if: ${{ inputs.generate_sbom }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: memgraph/infra
+          path: infra
+          ref: master
+          token: ${{ secrets.REPO_PAT }}
+
       - name: Clean up Docker
         if: always()
         continue-on-error: true
@@ -324,6 +334,21 @@ jobs:
             build-gssapi \
             --dest-dir release/docker/wheels
 
+      - name: "Generate Memgraph build SBOM"
+        # Stage 1 of the SBOM: fetch the conan + MGCXX component SBOMs from the
+        # still-running build container onto the host and merge them into the
+        # binary build SBOM. Must run before the build container is stopped. The
+        # image SBOM (stage 2) is produced later from the prod Docker image.
+        if: ${{ env.GENERATE_SBOM == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          generate-memgraph-build-sbom \
+          --conan-remote $CONAN_REMOTE \
+          --sbom-scripts-dir "${GITHUB_WORKSPACE}/infra/infosec/sbom/memgraph"
+
       - name: "Stop mgbuild container"
         if: always()
         run: |
@@ -353,7 +378,6 @@ jobs:
           package-docker \
           --src-dir $PACKAGE_ARTIFACT_DIR \
           --dest-dir $DOCKER_PROD_ARTIFACT_DIR \
-          --generate-sbom $GENERATE_SBOM \
           --malloc $malloc \
           --custom-mirror $USE_CUSTOM_MIRROR \
           --package-flavour prod \
@@ -369,6 +393,24 @@ jobs:
           image_tag="${image_tag%-docker.tar.gz}"
           echo "PROD_IMAGE_TAG=$image_tag" >> $GITHUB_ENV
           echo "Resolved PROD_IMAGE_TAG=$image_tag"
+
+      - name: "Generate Memgraph image SBOM"
+        # Stage 2 of the SBOM: scan the prod Docker image and merge it with the
+        # binary build SBOM from stage 1. Runs after the build container is
+        # stopped and the prod image is built.
+        if: ${{ env.GENERATE_SBOM == 'true' && (inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both') }}
+        run: |
+          image="memgraph/memgraph:${PROD_IMAGE_TAG}"
+          # --keep-image-loaded is only true when run_smoke_tests is set, so
+          # load from the tarball when needed.
+          if ! docker image inspect "$image" >/dev/null 2>&1; then
+            image_archive="$(ls -1t "$DOCKER_PROD_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
+            docker load -i "$image_archive"
+          fi
+          "${GITHUB_WORKSPACE}/infra/infosec/sbom/memgraph/memgraph-docker-sbom.sh" \
+            --tag "$PROD_IMAGE_TAG" \
+            --out-dir "${GITHUB_WORKSPACE}/sbom" \
+            --work-dir "${GITHUB_WORKSPACE}/sbom/work-docker"
 
       - name: "Create docker image (debug)"
         if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
@@ -390,7 +432,6 @@ jobs:
           package-docker \
           --src-dir $PACKAGE_ARTIFACT_DIR \
           --dest-dir $DOCKER_DEBUG_ARTIFACT_DIR \
-          --generate-sbom $GENERATE_SBOM \
           --malloc $malloc \
           --custom-mirror $USE_CUSTOM_MIRROR \
           --package-flavour debug \
@@ -434,11 +475,6 @@ jobs:
           # The image is already loaded by the bolt smoke test step above.
           # Fail if shutdown blocks > 20s on an unreachable telemetry server.
           ./tools/ci/smoke_test_shutdown.sh "memgraph/memgraph:${PROD_IMAGE_TAG}" 20
-
-      - name: "Generate Build SBOM"
-        if: ${{ env.GENERATE_SBOM == 'true'  && env.BUILD_DOCKER_IMAGE == 'none' }}
-        run: |
-          ./tools/ci/sbom/build-sbom.sh
 
       - name: "Upload SBOM Files"
         if: ${{ env.GENERATE_SBOM == 'true' }}

@@ -216,6 +216,9 @@ jobs:
 
   PromoteDocker:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # keyless cosign signing via GitHub OIDC (Fulcio/Rekor)
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -365,6 +368,72 @@ jobs:
             echo "Successfully published ${RELEASE_IMAGE} to DockerHub!"
           fi
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      - name: Sign released image with cosign (keyless)
+        run: |
+          # Sign the multi-arch manifest; --recursive also signs each per-arch
+          # child image. Signatures are stored by digest in the same repo, so
+          # the `latest` tag (identical digest) is covered too. Registry auth
+          # comes from the earlier docker login. Keyless via GitHub OIDC.
+          cosign sign --yes --recursive "${RELEASE_IMAGE}"
+
+      - name: Attach provenance & SBOM attestations (cosign, keyless)
+        # Prod image only (Release, non-malloc). Attestations are attached via
+        # the OCI 1.1 referrers API (COSIGN_REGISTRY_REFERRERS_MODE=oci-1-1) so
+        # Docker Scout can discover them; the legacy `.att` tag scheme is not
+        # referrer-discoverable. The SBOM is the CycloneDX doc syft already
+        # scanned from this exact prod image (reused from S3). The SLSA
+        # provenance is generated here and references the RC source tag; it is a
+        # minimal statement — richer build provenance would be captured at build
+        # time. Verify Scout sees these with: docker scout attest list <ref>.
+        # (The only Release matrix entry is the prod, non-malloc image.)
+        if: ${{ matrix.build_type == 'Release' }}
+        env:
+          COSIGN_REGISTRY_REFERRERS_MODE: oci-1-1
+        run: |
+          set -euo pipefail
+
+          # SLSA provenance v0.2 predicate (cosign wraps it in the in-toto
+          # statement and sets the subject to the image digest).
+          cat > provenance.json <<EOF
+          {
+            "builder": { "id": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" },
+            "buildType": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/promote_rc_release.yml",
+            "invocation": {
+              "configSource": {
+                "uri": "git+${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}@refs/tags/v${RELEASE_VERSION}-${RC_VERSION}",
+                "entryPoint": ".github/workflows/promote_rc_release.yml"
+              }
+            },
+            "metadata": {
+              "buildInvocationId": "${GITHUB_RUN_ID}",
+              "reproducible": false,
+              "completeness": { "parameters": false, "environment": false, "materials": false }
+            }
+          }
+          EOF
+          cosign attest --yes --type slsaprovenance --predicate provenance.json "${RELEASE_IMAGE}"
+
+          # CycloneDX SBOM — reuse the one scanned from this prod image at build.
+          sbom_src="s3://${rc_bucket}/${rc_dir}/sbom/memgraph-docker-sbom.json"
+          if aws s3 cp "$sbom_src" sbom.json; then
+            cosign attest --yes --type cyclonedx --predicate sbom.json "${RELEASE_IMAGE}"
+          else
+            echo "::warning::SBOM not found at $sbom_src — skipping SBOM attestation"
+          fi
+
+      - name: Verify attestations are attached (cosign)
+        # Non-fatal self-check that the attestations we just attached are
+        # present in the registry (via referrers). Uses the already-pinned
+        # cosign — nothing extra is fetched. Never blocks a release.
+        if: ${{ matrix.build_type == 'Release' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail   # diagnostic only
+          echo "== attestations attached to ${RELEASE_IMAGE} =="
+          cosign tree "${RELEASE_IMAGE}" || echo "::warning::cosign tree failed for ${RELEASE_IMAGE}"
 
       - name: Clean up temporary images
         run: |
@@ -394,6 +463,9 @@ jobs:
           - build_type: "RelWithDebInfo"
             image_ext: "-relwithdebinfo-cugraph"
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # keyless cosign signing via GitHub OIDC (Fulcio/Rekor)
+      contents: read
     steps:
       - name: Validate “use_test_rc” only with test
         if: inputs.use_test_rc && ! inputs.test
@@ -718,6 +790,66 @@ jobs:
               echo "No images promoted; skipping 'latest' manifest creation."
             fi
           fi
+
+      - name: Install cosign
+        if: ${{ env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true' }}
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      - name: Sign released MAGE image with cosign (keyless)
+        # Only runs when a manifest was actually pushed (i.e. at least one arch
+        # RC package existed). --recursive also signs the per-arch children; the
+        # 'latest' tag on prod shares the digest, so it is covered too.
+        if: ${{ env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true' }}
+        run: |
+          cosign sign --yes --recursive "${release_image}"
+
+      - name: Attach provenance & SBOM attestations (cosign, keyless)
+        # Prod MAGE image only (image_ext == ''), and only when a manifest was
+        # pushed. Attestations go through the OCI 1.1 referrers API so Docker
+        # Scout can discover them. SBOM is the CycloneDX doc scanned from this
+        # prod MAGE image (reused from S3); provenance is a minimal SLSA v0.2
+        # statement referencing the RC source tag. Verify with:
+        # docker scout attest list <ref>.
+        if: ${{ matrix.image_ext == '' && (env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true') }}
+        env:
+          COSIGN_REGISTRY_REFERRERS_MODE: oci-1-1
+        run: |
+          set -euo pipefail
+
+          cat > provenance.json <<EOF
+          {
+            "builder": { "id": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" },
+            "buildType": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/promote_rc_release.yml",
+            "invocation": {
+              "configSource": {
+                "uri": "git+${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}@refs/tags/v${RELEASE_VERSION}-${RC_VERSION}",
+                "entryPoint": ".github/workflows/promote_rc_release.yml"
+              }
+            },
+            "metadata": {
+              "buildInvocationId": "${GITHUB_RUN_ID}",
+              "reproducible": false,
+              "completeness": { "parameters": false, "environment": false, "materials": false }
+            }
+          }
+          EOF
+          cosign attest --yes --type slsaprovenance --predicate provenance.json "${release_image}"
+
+          sbom_src="s3://${rc_bucket}/${mage_rc_dir}/sbom/mage-sbom.json"
+          if aws s3 cp "$sbom_src" sbom.json; then
+            cosign attest --yes --type cyclonedx --predicate sbom.json "${release_image}"
+          else
+            echo "::warning::SBOM not found at $sbom_src — skipping SBOM attestation"
+          fi
+
+      - name: Verify attestations are attached (cosign)
+        # Non-fatal self-check (see PromoteDocker for rationale).
+        if: ${{ matrix.image_ext == '' && (env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true') }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail   # diagnostic only
+          echo "== attestations attached to ${release_image} =="
+          cosign tree "${release_image}" || echo "::warning::cosign tree failed for ${release_image}"
 
       - name: Clean up temporary images
         run: |
