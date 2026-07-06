@@ -304,7 +304,7 @@ constexpr std::string_view kSocketErrorExplanation =
 
 constexpr std::string_view kBrokenDatabaseError =
     "Database is in the broken state because the recovery process failed. Please recover your database "
-    "using the RECOVER SNAPSHOT query or REPAIR DATABASE query + run your import queries. If you have a "
+    "using the RECOVER SNAPSHOT query or RESET DATABASE query + run your import queries. If you have a "
     "backup of the whole data directory, please replace the current data directory with the backup one and "
     "restart the process.";
 
@@ -3431,7 +3431,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           throw DatabaseContextRequiredException("No current database for transaction defined.");
         // Fail-closed on a broken database: an explicit transaction opens a data accessor and its queries
         // bypass the per-query broken gate (which only runs outside explicit transactions), so reject the
-        // BEGIN itself. The tenant must first be recovered via RECOVER SNAPSHOT or REPAIR DATABASE.
+        // BEGIN itself. The tenant must first be recovered via RECOVER SNAPSHOT or RESET DATABASE.
         if ((*current_db_.db_acc_)->storage()->IsBroken()) {
           throw QueryException(std::string{kBrokenDatabaseError});
         }
@@ -6333,7 +6333,7 @@ PreparedQuery PrepareResetDatabaseQuery(ParsedQuery parsed_query, bool in_explic
 
   // Broken-only: reject on a healthy database to prevent accidental data loss.
   if (!storage->IsBroken()) {
-    throw QueryException("REPAIR DATABASE can only be run on a database in the broken state.");
+    throw QueryException("RESET DATABASE can only be run on a database in the broken state.");
   }
 
   auto const db_name = current_db.db_acc_->get()->name();
@@ -9996,7 +9996,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // replication, ...) do not touch the tenant graph and are allowed through.
       if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsBroken()) {
         auto *q = parsed_query.query;
-        // Allowlist: in the broken state only the cure queries (RECOVER SNAPSHOT / REPAIR DATABASE)
+        // Allowlist: in the broken state only the cure queries (RECOVER SNAPSHOT / RESET DATABASE)
         // and meta/admin queries that never touch the tenant graph are permitted. Everything else
         // (Cypher, DDL, CREATE SNAPSHOT, ...) is rejected until the database is recovered. Auth,
         // replication, profile and other instance-level queries operate on system state rather than
@@ -10005,7 +10005,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
             [q]<typename... Ts>() {
               return (... || (utils::Downcast<Ts>(q) != nullptr));
             }.template operator()<RecoverSnapshotQuery,
-                                  RepairDatabaseQuery,
+                                  ResetDatabaseQuery,
                                   DatabaseInfoQuery,
                                   SystemInfoQuery,
                                   ReplicationInfoQuery,

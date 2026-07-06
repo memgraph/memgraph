@@ -774,10 +774,10 @@ class InMemoryStorage final : public Storage {
 
   // Clears the tenant's durability files (moving snapshots/ and wal/ to a .old directory when backup
   // directories are enabled, otherwise deleting them) and then resets it to an empty working state via
-  // ResetTenant(). Shared by RepairBroken() (main, after its broken-state check) and the replica's
-  // RepairDatabaseRpc handler, so both wipe the tenant with identical on-disk semantics and it stays empty
-  // across a restart. Unlike RepairBroken() this does not require the storage to be broken.
-  [[nodiscard]] std::expected<void, InMemoryStorage::RepairError> ClearDurabilityAndReset();
+  // ResetTenant(). Shared by ResetBroken() (main, after its broken-state check) and the replica's
+  // ResetDatabaseRpc handler, so both wipe the tenant with identical on-disk semantics and it stays empty
+  // across a restart. Unlike ResetBroken() this does not require the storage to be broken.
+  [[nodiscard]] std::expected<void, InMemoryStorage::ResetError> ClearDurabilityAndReset();
 
   // Completely resets the tenant to an empty in-memory working state: clears the graph, the name-id mapper
   // and the description store, drops the broken flag and resets the replication epoch/timestamp. Does not

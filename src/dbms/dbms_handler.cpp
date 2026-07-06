@@ -413,10 +413,10 @@ struct ResetDatabaseAction : memgraph::system::ISystemAction {
     auto const completed = client.StreamAndFinalizeDelta<storage::replication::ResetDatabaseRpc>(
         check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
     if (completed) {
-      // The replica applied the reset; record its confirmation so the repair is not re-advertised in a
+      // The replica applied the reset; record its confirmation so the reset is not re-advertised in a
       // later SystemRecoveryReq and the replica isn't needlessly reset again after it has re-synced.
       auto acc = db_acc_;
-      acc->storage()->MarkRepairConfirmedBy(client.name_);
+      acc->storage()->MarkResetConfirmedBy(client.name_);
     }
     return completed;
   }
@@ -895,18 +895,18 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
 
 #endif
 
-std::optional<std::string> DbmsHandler::ResetDatabase(DatabaseAccess db_acc,
-                                                      [[maybe_unused]] system::Transaction *txn) {
+std::expected<void, std::string> DbmsHandler::ResetDatabase(DatabaseAccess db_acc,
+                                                            [[maybe_unused]] system::Transaction *txn) {
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
   // MAIN-side local reset: move the corrupt durability files aside, clear the tenant and drop the
   // broken flag. The tenant comes back empty with a fresh epoch. Available in Community and Enterprise.
-  if (auto repaired = mem_storage->ResetBroken(); !repaired.has_value()) {
-    switch (repaired.error()) {
+  if (auto reset = mem_storage->ResetBroken(); !reset.has_value()) {
+    switch (reset.error()) {
       using enum storage::InMemoryStorage::ResetError;
       case NotBroken:
-        return "REPAIR DATABASE can only be run on a database in the broken state.";
+        return std::unexpected{"RESET DATABASE can only be run on a database in the broken state."};
       case BackupFailure:
-        return "Failed to move aside the corrupt durability files. Please clean them manually.";
+        return std::unexpected{"Failed to move aside the corrupt durability files. Please clean them manually."};
     }
   }
 
@@ -1154,8 +1154,8 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
           "from MAIN — align the WAL/snapshot durability flags across the cluster.",
           name);
     }
-    // Suspend does NOT gate on whether replicas are registered. Hot/cold is a system-replicated operation (sibling of
-    // CREATE/DROP DATABASE): suspending a tenant that has replicas is the SUPPORTED flow — the
+    // Suspend does NOT gate on whether replicas are registered. Hot/cold is a system-replicated operation
+    // (sibling of CREATE/DROP DATABASE): suspending a tenant that has replicas is the SUPPORTED flow — the
     // SuspendDatabase system action streams a SuspendDatabaseRpc so each replica tears down its own
     // copy in system-timestamp order. The earlier "reject while replicating" guard encoded only the
     // v1 node-local limitation (no wire to tell replicas) and protects no MAIN-local invariant:

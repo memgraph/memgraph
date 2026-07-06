@@ -35,8 +35,8 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
                          const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                          uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 void ResetDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
-                           const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
-                           uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
+                          const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
+                          uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                            uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);

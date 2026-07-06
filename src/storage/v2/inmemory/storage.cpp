@@ -4558,10 +4558,10 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 
   // A successful recovery cures a broken tenant: the durability directory is now
   // restart-clean (prior/corrupt files moved to .old or deleted), so background
-  // durability can resume. Unlike REPAIR DATABASE, this does not set was_repaired_:
+  // durability can resume. Unlike RESET DATABASE, this does not set was_reset_:
   // the tenant is repopulated with real data (not reset to empty), so replicas
   // re-sync through the standard epoch-mismatch recovery path rather than via the
-  // repaired_uuids reset hint.
+  // reset_uuids reset hint.
   SetBroken(false);
 
   return {};
@@ -4574,7 +4574,7 @@ std::expected<void, InMemoryStorage::ResetError> InMemoryStorage::ResetBroken() 
   return ClearDurabilityAndReset();
 }
 
-std::expected<void, InMemoryStorage::RepairError> InMemoryStorage::ClearDurabilityAndReset() {
+std::expected<void, InMemoryStorage::ResetError> InMemoryStorage::ClearDurabilityAndReset() {
   auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
   constexpr std::string_view old_dir = ".old";
 
@@ -4631,9 +4631,9 @@ void InMemoryStorage::ResetTenant() {
   name_id_mapper_->Clear();
   description_store_.Clear();
   SetBroken(false);
-  // Fresh repair: drop prior confirmations so every replica is advertised this repair until it re-confirms.
-  ClearRepairConfirmations();
-  SetResetted(true);
+  // Fresh reset: drop prior confirmations so every replica is advertised this reset until it re-confirms.
+  ClearResetConfirmations();
+  SetReset(true);
 }
 
 std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {

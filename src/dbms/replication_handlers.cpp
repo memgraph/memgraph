@@ -185,7 +185,7 @@ void ResetDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_
 
   try {
     // Resolve the tenant by UUID and completely reset it so the stale data is wiped -- in memory and on
-    // disk (using the same .old backup semantics as the main's RepairBroken()), so the tenant stays empty
+    // disk (using the same .old backup semantics as the main's ResetBroken()), so the tenant stays empty
     // across a restart instead of recovering its stale data. After this the replica's tenant is empty with
     // commit ts 0; the main then force-recovers it from its fresh epoch.
     auto db_acc = dbms_handler.Get(req.uuid);
