@@ -199,8 +199,9 @@ auto BindFlatMap(CostFrontier const &input, CostFrontier const &expr, planner::c
 /// emits an alive alt (cardinality = input × list, sym introduced).  When the
 /// bound sym is referenced nowhere AND the list length is statically known it
 /// additionally emits a dead alt that elides the binding: a CardinalityScale
-/// that evaluates the list for its size and discards the values.  The dead alt
-/// drops the per-output-row binding work and the sym leaf cost, so it is
+/// whose row count is the list's statically-known length (the list is never
+/// evaluated at runtime).  The dead alt drops the per-output-row binding work
+/// and the sym leaf cost, so it is
 /// strictly cheaper; its cardinality is `input × known_length` (the known
 /// length, not the list's default estimate) and it introduces nothing new.
 /// Alive vs dead is derived at read sites from `sym ∈ chosen.introduces`,
@@ -228,7 +229,10 @@ auto UnwindFlatMap(CostFrontier const &input, CostFrontier const &list, planner:
             .enode_id = enode_id});
       if (emit_dead) {
         // Same row count, but the binding work and sym leaf are gone, so the
-        // dead alt is strictly cheaper.
+        // dead alt is strictly cheaper than alive. The list-eval term is kept
+        // as a deliberate conservative upper bound - the operator reads the
+        // length as a fact and never evaluates the list, but under-costing the
+        // dead alt (free rows) would be worse than over-costing it.
         emit({.cost = input_alt.cost + (list_alt.cost * input_alt.cardinality),
               .cardinality = input_alt.cardinality * list_length,
               .required = {},

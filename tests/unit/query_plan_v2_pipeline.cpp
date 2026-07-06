@@ -424,6 +424,14 @@ TEST_F(PlannerV2PipelineTest, ListLiteralWithNonConstantElementIsUnsupported) {
   EXPECT_THROW(PlanQuery("UNWIND [1, $p, 3] AS x RETURN 42;"), NotYetImplemented);
 }
 
+TEST_F(PlannerV2PipelineTest, StarProjectionIsUnsupported) {
+  // `*` symbols bypass named_expressions, so plan_v2 can neither project them nor
+  // count them as references; it must refuse the query rather than drop columns
+  // or let the dead-Unwind gate mis-classify a `*`-referenced binder as dead.
+  EXPECT_THROW(PlanQuery("UNWIND [1, 2, 3] AS x RETURN *;"), NotYetImplemented);
+  EXPECT_THROW(PlanQuery("UNWIND [1, 2, 3] AS x WITH * RETURN 42;"), NotYetImplemented);
+}
+
 // clang-format off
 INSTANTIATE_TEST_SUITE_P(
     InlineRewrites,

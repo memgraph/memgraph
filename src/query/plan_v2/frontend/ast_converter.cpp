@@ -322,6 +322,11 @@ auto CollectSubqueryExposedSyms(SingleQuery &inner, LoweringCtx &ctx, ScratchFra
 }
 
 auto LowerWith(query::With &with, eclass pipe, LoweringCtx &ctx) -> eclass {
+  // A `*` projection carries its symbols in body_.all_identifiers, not in
+  // named_expressions, so we never lower them to Identifier e-nodes. Bail out
+  // rather than silently drop them - and rather than let referenced_syms miss a
+  // `*`-referenced symbol and mis-classify a live binder as dead.
+  if (with.body_.all_identifiers) ThrowNotImplementedYet("WITH * projection");
   for (auto *ne : with.body_.named_expressions) {
     auto expr = Lower(ctx, *ne->expression_);
     pipe = ctx.g.MakeBind(pipe, SymEclassFor(ctx, *ne), expr);
@@ -332,6 +337,9 @@ auto LowerWith(query::With &with, eclass pipe, LoweringCtx &ctx) -> eclass {
 }
 
 auto LowerReturn(query::Return &ret, eclass pipe, LoweringCtx &ctx) -> eclass {
+  // See LowerWith: `*` symbols bypass named_expressions, so refuse them rather
+  // than drop columns or let referenced_syms miss a `*`-referenced binding.
+  if (ret.body_.all_identifiers) ThrowNotImplementedYet("RETURN * projection");
   auto frame = ctx.OpenScratch();
   for (auto *ne : ret.body_.named_expressions) {
     auto expr = Lower(ctx, *ne->expression_);
