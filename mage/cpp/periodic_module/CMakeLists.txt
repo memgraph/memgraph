@@ -4,6 +4,6 @@ include(GNUInstallDirs)
 set(periodic_src
     periodic.cpp)
 
-add_query_module(periodic 1 "${periodic_src}")
+mage_add_query_module(periodic 1 "${periodic_src}")
 
 target_link_libraries(periodic PRIVATE fmt::fmt)

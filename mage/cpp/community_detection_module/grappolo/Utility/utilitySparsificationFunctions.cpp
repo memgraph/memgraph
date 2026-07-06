@@ -290,7 +290,8 @@ graph* buildSparifiedGraph(graph *Gin, double alpha) {
     //Step 4: Build the new graph:
     //From each edge count the number of active edges and add them to the data structure
     //Tricky because of the double storage requirements.
-    
-    
+
+    //Not implemented; falling off the end of a value-returning function is UB.
+    return nullptr;
 }
 

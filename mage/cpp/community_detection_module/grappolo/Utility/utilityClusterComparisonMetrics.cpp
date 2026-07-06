@@ -363,9 +363,11 @@ double computeMerkinMetric(long* C1, long N1, long* C2, long N2) {
 //Assume that clusters have been numbered in a contiguous manner
 double computeVanDongenMetric(long* C1, long N1, long* C2, long N2) {
     cout << "Function computeVanDongenMetric() has not been implemented.\n";
+    return 0.0;
 }
 
 double computeModularity(graph *G, long* C1) {
     cout << "Function computeModularity() has not been implemented.\n";
+    return 0.0;
 }
 

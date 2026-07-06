@@ -2,7 +2,7 @@ set(katz_src
     katz_centrality_module.cpp
     algorithm/katz.cpp)
 
-add_query_module(katz_centrality 1 "${katz_src}")
+mage_add_query_module(katz_centrality 1 "${katz_src}")
 
 # Link external libraries
 target_link_libraries(katz_centrality PRIVATE mg_utility)

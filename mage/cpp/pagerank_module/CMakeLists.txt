@@ -2,10 +2,10 @@ set(pagerank_module_src
     pagerank_module.cpp
     algorithm/pagerank.cpp)
 
-add_query_module(pagerank 1 "${pagerank_module_src}")
+mage_add_query_module(pagerank 1 "${pagerank_module_src}")
 
 # Module tests
-if (NOT MAGE_CUGRAPH_ENABLE)
+if (MG_MAGE_BUILD_TESTS)
     include(GoogleTest)
     set(pagerank_test_src
         pagerank_test.cpp
@@ -13,5 +13,5 @@ if (NOT MAGE_CUGRAPH_ENABLE)
 
     add_executable(pagerank_test "${pagerank_test_src}")
     target_link_libraries(pagerank_test PRIVATE mg_utility mage_gtest)
-    gtest_add_tests(TARGET pagerank_test)
+    gtest_add_tests(TARGET pagerank_test TEST_PREFIX mage__)
 endif()

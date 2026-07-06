@@ -160,5 +160,9 @@ int vBaseRedistribution(graph* G, int* vtxColor, int ncolors, int type)
 
 	//Sanity check;
 	distanceOneChecked(G,NVer,vtxColor);
+
+	//Not implemented as a status; falling off the end of a value-returning
+	//function is UB. Callers ignore the result.
+	return 0;
 }
 

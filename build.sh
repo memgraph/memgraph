@@ -21,6 +21,8 @@ OPTIONS:
     --update-lockfile       Update conan.lock before installing dependencies
     --graph-info            Generate dependency graph as graph.html and exit
     --split-debug           Extract debug info into sidecar .debug files (requires RelWithDebInfo/Debug)
+    --mage                  Build all MAGE query modules (C++, Python, Rust)
+    --cugraph               Also build MAGE cuGraph GPU modules (implies --mage)
     --profiling MODES       Comma-separated profiling build modes (e.g. --profiling fp,mem):
                               fp  = retain frame pointers for low-overhead 'perf' (MG_PROFILE)
                               mem = memory-profiling build, disables jemalloc (MG_MEMORY_PROFILE)
@@ -52,6 +54,12 @@ EXAMPLES:
     # Build multiple targets at once
     ./build.sh --target memgraph memgraph__unit
 
+    # Build Memgraph together with the MAGE query modules
+    ./build.sh --mage
+
+    # MAGE with GPU modules against a prebuilt cuGraph
+    ./build.sh --cugraph -DMG_CUGRAPH_ROOT=/opt/conda
+
     # Configure only, don't build
     ./build.sh --config-only
 
@@ -76,6 +84,8 @@ graph_info=false
 RESERVE_CORES=0
 SPLIT_DEBUG=off
 PROFILING=""
+MAGE=off
+CUGRAPH=off
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -134,6 +144,14 @@ while [[ $# -gt 0 ]]; do
             SPLIT_DEBUG=on
             shift
             ;;
+        --mage)
+            MAGE=on
+            shift
+            ;;
+        --cugraph)
+            CUGRAPH=on
+            shift
+            ;;
         --profiling)
             PROFILING="$2"
             shift 2
@@ -151,6 +169,15 @@ done
 
 if [[ "$SPLIT_DEBUG" == "on" ]]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMG_SPLIT_DEBUG=ON"
+fi
+
+# cuGraph modules are part of MAGE, so --cugraph implies --mage.
+if [[ "$CUGRAPH" == "on" ]]; then
+    MAGE=on
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_ENABLE_CUGRAPH=ON"
+fi
+if [[ "$MAGE" == "on" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_BUILD_MAGE=ON"
 fi
 
 # Map comma-separated --profiling tokens to CMake options.

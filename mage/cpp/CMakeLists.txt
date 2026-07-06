@@ -1,114 +1,94 @@
-# Memgraph Mage C++ Query Modules CMake configuration.
-cmake_minimum_required(VERSION 3.14)
+# Memgraph MAGE C++ query modules.
+#
+# This tree is only ever configured as part of the root memgraph build
+# (add_subdirectory from mage/CMakeLists.txt, gated by MG_BUILD_MAGE).
+# Dependencies (fmt, Boost, GTest) come from the root's Conan set; the
+# only extra system requirement is the toolchain's OpenMP runtime.
+#
+# Keep the project() call: cugraph_cmake/cugraph.cmake relies on the
+# project scope (rapids_cuda_init_architectures, ${PROJECT_BINARY_DIR}).
 set(MEMGRAPH_MAGE_PROJECT_NAME "memgraph-mage")
 project("${MEMGRAPH_MAGE_PROJECT_NAME}" LANGUAGES C CXX)
-include(FetchContent)
 
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cugraph_cmake)
 
-# setup CMake module path, defines path for include() and find_package()
-# https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
-# MAGE is built in-tree from a memgraph checkout; SplitDebug.cmake is
-# expected at ../../cmake/ relative to mage/cpp/. Fail loud if a future
-# build context moves MAGE out of tree.
-if(NOT EXISTS "${PROJECT_SOURCE_DIR}/../../cmake/SplitDebug.cmake")
-    message(FATAL_ERROR
-        "MAGE must be built inside the memgraph tree; "
-        "expected SplitDebug.cmake at ${PROJECT_SOURCE_DIR}/../../cmake/")
-endif()
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cugraph_cmake ${PROJECT_SOURCE_DIR}/../../cmake)
-
-include(SplitDebug)
-
-# Export the compile commands so that we can use clang-tidy. Additional benefit
-# is easier debugging of compilation and linker flags.
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# Required C++ standard.
+# MAGE stays on C11/C++20 (directory-scoped; the root tree is C++23).
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# No C++23 modules in MAGE; skip the clang-scan-deps pass.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Compile flags.
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
-    -Werror=switch -Werror=switch-bool")
-
-# Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
-  "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -O2 -funsafe-math-optimizations -fvect-cost-model=dynamic -fno-omit-frame-pointer")
-
-# Release flags.
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -funsafe-math-optimizations -fvect-cost-model=dynamic -DNDEBUG")
+# Query modules are dlopen'ed by name: no "lib" prefix.
 set(CMAKE_SHARED_LIBRARY_PREFIX "")
 
-# Emit a GNU build-id in every module.
-add_link_options(LINKER:--build-id)
+# MAGE has never built with LTO; keep it off (also required: nvcc rejects
+# the root's IPO flags for the cuGraph .cu targets).
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release FALSE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo FALSE)
+
+# Historic MAGE optimization flag for the numeric-heavy algorithms.
+# (The old standalone build also passed GCC's -fvect-cost-model=dynamic,
+# which clang doesn't support.)
+add_compile_options(
+    "$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:Release,RelWithDebInfo>>:-funsafe-math-optimizations>")
+
+# Wrap the inherited directory-level COMPILE_OPTIONS (the root's -Wall and
+# -Werror=... set) in a language guard so they never reach nvcc when the
+# cuGraph CUDA targets are enabled.
+get_directory_property(_mage_inherited_opts COMPILE_OPTIONS)
+set(_mage_wrapped_opts "")
+foreach(_opt IN LISTS _mage_inherited_opts)
+    list(APPEND _mage_wrapped_opts "$<$<COMPILE_LANGUAGE:C,CXX>:${_opt}>")
+endforeach()
+set_directory_properties(PROPERTIES COMPILE_OPTIONS "${_mage_wrapped_opts}")
 
 find_package(Threads REQUIRED)
-include(ExternalProject)
+find_package(OpenMP REQUIRED)
 
-# Install cuGraph (optional)
-include(cugraph)
+# The old standalone build spliced the OpenMP flags into the global C/C++
+# flags, and several sources (grappolo, betweenness_centrality_online) use
+# `#pragma omp` / omp.h without linking OpenMP::OpenMP_CXX themselves —
+# keep OpenMP enabled directory-wide so those pragmas don't silently
+# compile out as serial code.
+add_compile_options(
+    "$<$<COMPILE_LANGUAGE:C>:${OpenMP_C_FLAGS}>"
+    "$<$<COMPILE_LANGUAGE:CXX>:${OpenMP_CXX_FLAGS}>")
+add_link_options(${OpenMP_CXX_FLAGS})
 
-# Install testing dependencies (gtest)
-FetchContent_Declare(googletest
-  GIT_REPOSITORY https://github.com/google/googletest.git
-  GIT_TAG v1.16.0
-)
-# For Windows: Prevent overriding the parent project's compiler/linker settings
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
-
-# Create an alias for consistency with existing code
-add_library(mage_gtest ALIAS gtest)
-
-# Add OpenMP compiling option
-find_package(OpenMP)
-
-if(OPENMP_FOUND)
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+# Modules that link OpenMP need the toolchain's libomp.so at load time.
+if(OpenMP_omp_LIBRARY)
+    get_filename_component(_mage_omp_dir "${OpenMP_omp_LIBRARY}" DIRECTORY)
+    list(APPEND CMAKE_BUILD_RPATH "${_mage_omp_dir}")
 endif()
 
+include(ExternalProject)
 
-# Add mgclient
-set(MGCLIENT_ROOT ${PROJECT_BINARY_DIR}/mgclient)
-ExternalProject_Add(mgclient-proj
-  PREFIX ${MGCLIENT_ROOT}
-  INSTALL_DIR ${MGCLIENT_ROOT}
-  GIT_REPOSITORY https://github.com/memgraph/mgclient.git
-  GIT_TAG v1.4.3
-  CMAKE_ARGS "-DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>"
-  "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-  "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
-  "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-  "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-  "-DBUILD_CPP_BINDINGS=ON"
-  ${MACOSX_OPENSSL_ROOTDIR_FLAG})
+# cuGraph (optional, -DMG_ENABLE_CUGRAPH=ON)
+include(cugraph)
 
-set(MGCLIENT_INCLUDE_DIRS ${MGCLIENT_ROOT}/include ${MGCLIENT_ROOT}/mgclient_cpp/include)
-set(MGCLIENT_LIBRARY_PATH ${MGCLIENT_ROOT}/lib/${CMAKE_FIND_LIBRARY_PREFIXES}mgclient.a)
+# gtest shim: module CMakeLists link `mage_gtest`; the actual gtest comes
+# from the root's Conan test requirements.
+add_library(mage_gtest INTERFACE)
+target_link_libraries(mage_gtest INTERFACE GTest::gtest)
 
-add_library(mgclient STATIC IMPORTED)
-set_target_properties(mgclient PROPERTIES
-  IMPORTED_LOCATION "${MGCLIENT_LIBRARY_PATH}"
-  INTERFACE_LINK_LIBRARIES "${CMAKE_THREAD_LIBS_INIT}")
-add_dependencies(mgclient mgclient-proj)
-
-# mg_utility library
+# mg_utility: memgraph's public query-module headers (mgp.hpp,
+# mg_procedure.h) plus the MAGE helper headers (mg_utils.hpp, ...).
 add_library(mg_utility INTERFACE)
-target_include_directories(mg_utility INTERFACE ${CMAKE_SOURCE_DIR}/../../include)
+target_include_directories(mg_utility INTERFACE ${CMAKE_SOURCE_DIR}/include)
 
-FetchContent_Declare(fmt
-  GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-  GIT_TAG 11.2.0
-)
-FetchContent_MakeAvailable(fmt)
+# Unit tests are skipped in cuGraph builds (historic behavior: GPU CI
+# images don't run them).
+set(MG_MAGE_BUILD_TESTS OFF)
+if(MG_ENABLE_TESTING AND NOT MG_ENABLE_CUGRAPH)
+    set(MG_MAGE_BUILD_TESTS ON)
+endif()
 
+<<<<<<< HEAD
 # Treat fmt as a system dependency: its headers are then included with
 # -isystem for every module that links fmt::fmt, so the compiler and
 # clang-tidy do not emit diagnostics from inside fmt's own headers.
@@ -132,11 +112,27 @@ function(add_query_module target_name version src)
   set_target_properties(${target_name} PROPERTIES SOVERSION "${version}")
   target_link_libraries(${target_name} PRIVATE mg_utility)
   mg_split_debug(${target_name})
+=======
+# NOTE: query_modules/CMakeLists.txt defines a similar add_query_module()
+# for memgraph's own modules; this one is mage_-prefixed to avoid the
+# global-function collision.
+function(mage_add_query_module target_name version src)
+    add_library(${target_name} SHARED ${src})
+    set_target_properties(${target_name} PROPERTIES
+        SOVERSION "${version}"
+        LIBRARY_OUTPUT_DIRECTORY "${MG_MAGE_DIST_DIR}")
+    target_link_libraries(${target_name} PRIVATE mg_utility)
+    install(TARGETS ${target_name}
+        LIBRARY DESTINATION ${MG_MAGE_INSTALL_DIR} COMPONENT mage
+        NAMELINK_COMPONENT mage)
+    mg_split_debug(${target_name}
+        INSTALL_DESTINATION ${MG_MAGE_INSTALL_DIR}
+        COMPONENT mage_debuginfo)
+    set_property(GLOBAL APPEND PROPERTY MG_MAGE_MODULE_TARGETS ${target_name})
+>>>>>>> 575fc4364 (refactor MAGE build)
 endfunction()
 
 # Available query modules.
-include(CTest)
-enable_testing()
 add_subdirectory(betweenness_centrality_module)
 add_subdirectory(biconnected_components_module)
 add_subdirectory(bipartite_matching_module)

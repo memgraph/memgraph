@@ -5,21 +5,23 @@ import os
 import subprocess
 
 WORK_DIRECTORY = os.getcwd()
-CPP_DIRECTORY = f"{WORK_DIRECTORY}/cpp"
+REPO_ROOT = os.path.dirname(WORK_DIRECTORY)
 PY_DIRECTORY = f"{WORK_DIRECTORY}/python"
 
 #################################################
 #            Unit Test C++ modules              #
 #################################################
-CPP_BUILD_DIRECTORY = f"{CPP_DIRECTORY}/build"
-if not os.path.exists(CPP_BUILD_DIRECTORY):
-    print("No C++ build directory in ./cpp/build !")
+# MAGE is built as part of the root CMake tree (./build.sh --mage); its unit
+# tests are registered with the mage__ prefix in the root build directory.
+BUILD_DIRECTORY = f"{REPO_ROOT}/build"
+if not os.path.exists(BUILD_DIRECTORY):
+    print("No build directory! Build with `./build.sh --mage` from the repo root.")
     exit(1)
 
 # Run ctest
-os.chdir(CPP_BUILD_DIRECTORY)
+os.chdir(BUILD_DIRECTORY)
 core_count = mp.cpu_count()
-subprocess.run(["ctest", f"-j{core_count}"])
+subprocess.run(["ctest", "-R", "mage__", f"-j{core_count}"])
 
 #################################################
 #           Unit Test Python modules            #
