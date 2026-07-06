@@ -11,7 +11,10 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cstdint>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "planner/rewrite/active_set.hpp"
@@ -106,7 +109,9 @@ TEST(ActiveSet, ParentClosureReachesAncestorsToDepthOnly) {
   auto const ffa = eg.emplace(Op::F, {fa}).eclass_id;
 
   auto closure = [&](std::size_t depth) {
-    return ComputeActiveSet(eg, boost::unordered_flat_set<EClassId>{eg.find(a)}, depth);
+    boost::unordered_flat_set<EClassId> active{eg.find(a)};
+    ComputeActiveSet(eg, active, depth);
+    return active;
   };
 
   auto const d0 = closure(0);
@@ -160,12 +165,125 @@ TEST(RuleLatch, LatchedEqualsArmAll) {
   TestRewriter latched{latched_eg, TestRuleSet::Build(make_double_neg_rule())};
   auto const latched_result = latched.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
 
-  // Same merges discovered, same final shape, both saturated.
+  // Same fixpoint = same final shape (rewrite counts can differ by schedule).
+  // Latched only ever skips rules/prunes candidates, so its merges are a subset
+  // of ArmAll's; equal counts plus a true fixpoint (sharp oracle) pin them equal.
   EXPECT_TRUE(arm_all_result.saturated());
   EXPECT_TRUE(latched_result.saturated());
-  EXPECT_EQ(latched_result.rewrites_applied, arm_all_result.rewrites_applied);
   EXPECT_EQ(latched_eg.num_classes(), arm_all_eg.num_classes());
   EXPECT_EQ(latched_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
+  EXPECT_EQ(latched.iterate_once(), 0U);  // sharp oracle: a true fixpoint
+}
+
+TEST(RuleLatch, LatchedEqualsArmAllForMultiPatternRule) {
+  // merge_vars is a two-pattern rule with independent Op::Var roots (a cartesian
+  // join). The per-candidate active-set restriction is unsound for such rules, so
+  // it must not apply here - Latched must still find every pair ArmAll does. The
+  // Op::A padding keeps the post-pass active set a sparse slice of the graph, so
+  // the sparse path (active_sparse_) is exercised rather than short-circuited.
+  auto build = [](EGraph<Op, NoAnalysis> &eg) {
+    for (int i = 0; i < 6; ++i) eg.emplace(Op::Var, static_cast<uint64_t>(i));
+    for (int i = 0; i < 24; ++i) eg.emplace(Op::A, static_cast<uint64_t>(i));
+  };
+  EGraph<Op, NoAnalysis> arm_all_eg;
+  build(arm_all_eg);
+  TestRewriter arm_all{arm_all_eg, TestRuleSet::Build(make_merge_vars_rule())};
+  arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::ArmAll);
+
+  EGraph<Op, NoAnalysis> latched_eg;
+  build(latched_eg);
+  TestRewriter latched{latched_eg, TestRuleSet::Build(make_merge_vars_rule())};
+  auto const latched_result = latched.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+
+  EXPECT_TRUE(latched_result.saturated());
+  EXPECT_EQ(latched_eg.num_classes(), arm_all_eg.num_classes());
+  EXPECT_EQ(latched_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
+  EXPECT_EQ(latched.iterate_once(), 0U);  // sharp oracle: a true fixpoint
+}
+
+TEST(RuleLatch, ReSaturatingASettledGraphDoesNoWork) {
+  EGraph<Op, NoAnalysis> eg;
+  BuildNegChain(eg, 8);
+  TestRewriter rewriter{eg, TestRuleSet::Build(make_double_neg_rule())};
+  rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+
+  // A settled graph has touched nothing, so re-saturating arms nothing and
+  // returns in a single no-op pass - the incremental-saturation payoff.
+  auto const again = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  EXPECT_TRUE(again.saturated());
+  EXPECT_EQ(again.iterations, 1U);
+  EXPECT_EQ(again.rewrites_applied, 0U);
+}
+
+// --- Rule latch: soundness of the per-candidate active-set restriction ---
+
+TEST(RuleLatch, ActiveRootRestrictionOnlyForRootEntryPatterns) {
+  // The per-candidate active-set restriction is sound only when a rule's single
+  // pattern has no symbol below its root, so the VM's one symbol iteration is the
+  // root iteration. The active set is closed under parents (holds the root of a
+  // new match, never a deeper entry), so any other shape must fall back to
+  // symbol-granularity arming.
+  EXPECT_TRUE(make_idempotent_f_rule().supports_active_root_restriction());  // F(?x,?x): root-entry
+  EXPECT_FALSE(make_double_neg_rule().supports_active_root_restriction());   // Neg(Neg(?x)): symbol below root
+  EXPECT_FALSE(make_merge_vars_rule().supports_active_root_restriction());   // multi-pattern
+  EXPECT_FALSE(make_chain_join_rule().supports_active_root_restriction());   // multi-pattern
+}
+
+TEST(RuleLatch, LatchedEqualsArmAllWhenDeepEntryMatchGrowsFromUntouchedChild) {
+  // Regression for the entry-vs-root soundness bug. double_neg = Neg(Neg(?x)) is a
+  // DEEP-ENTRY pattern: the VM enters at the inner Neg (deepest symbol), not the
+  // root outer Neg. When a new outer Neg is grown over an already-settled,
+  // UNTOUCHED inner chain, the touched-set holds only the outer class and the
+  // active set (closed under parents) never reaches the inner Neg - which is the
+  // entry. A per-candidate restriction keyed to the entry would drop the match
+  // ArmAll finds. Latched must still equal ArmAll. Pre-fix this diverged.
+  auto run = [](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
+    EGraph<Op, NoAnalysis> eg;
+    // Padding keeps the post-growth active set a sparse slice, so the
+    // per-candidate path (not the >=half short-circuit) is exercised.
+    for (int i = 0; i < 24; ++i) eg.emplace(Op::A, static_cast<uint64_t>(i));
+    auto const x = eg.emplace(Op::Var, 1).eclass_id;
+    auto const inner = eg.emplace(Op::Neg, {x}).eclass_id;  // Neg(x); no Neg(Neg) yet
+
+    TestRewriter rewriter{eg, TestRuleSet::Build(make_double_neg_rule())};
+    rewriter.saturate(RewriteConfig::Unlimited(), mode);  // settles, drains touched-set
+
+    auto const outer = eg.emplace(Op::Neg, {inner}).eclass_id;  // grow Neg(Neg(x))
+    rewriter.rebuild_index(std::array{outer});                  // index only the new class
+    rewriter.saturate(RewriteConfig::Unlimited(), mode);
+
+    return {eg.num_classes(), eg.num_live_nodes()};
+  };
+  auto const arm_all = run(ArmingMode::ArmAll);
+  auto const latched = run(ArmingMode::Latched);
+  EXPECT_EQ(latched.first, arm_all.first) << "e-class count diverged: the latch missed a deep-entry match";
+  EXPECT_EQ(latched.second, arm_all.second) << "live-node count diverged";
+}
+
+TEST(RuleLatch, LatchedEqualsArmAllAcrossReSaturateForRootEntryRule) {
+  // Incremental-reuse path: grow the graph between two saturate() calls on the
+  // same rewriter, so the second arms from a touched-set that survived the first.
+  // idempotent_f = F(?x,?x) is root-entry, so it does use the per-candidate active
+  // restriction - the grown match must still be found. Guards the cross-saturate
+  // path that was previously untested with a mutation between calls.
+  auto run = [](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
+    EGraph<Op, NoAnalysis> eg;
+    for (int i = 0; i < 24; ++i) eg.emplace(Op::A, static_cast<uint64_t>(i));
+    auto const y = eg.emplace(Op::Var, 1).eclass_id;
+
+    TestRewriter rewriter{eg, TestRuleSet::Build(make_idempotent_f_rule())};
+    rewriter.saturate(RewriteConfig::Unlimited(), mode);  // no F yet
+
+    auto const f = eg.emplace(Op::F, {y, y}).eclass_id;  // grow F(y,y) -> matches F(?x,?x)
+    rewriter.rebuild_index(std::array{f});
+    rewriter.saturate(RewriteConfig::Unlimited(), mode);  // must merge f with y
+
+    return {eg.num_classes(), eg.num_live_nodes()};
+  };
+  auto const arm_all = run(ArmingMode::ArmAll);
+  auto const latched = run(ArmingMode::Latched);
+  EXPECT_EQ(latched.first, arm_all.first);
+  EXPECT_EQ(latched.second, arm_all.second);
 }
 
 // --- Saturation ---

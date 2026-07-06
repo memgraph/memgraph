@@ -11,10 +11,8 @@
 
 #pragma once
 
-// NOTE: This header should NOT be included by public API consumers. It exposes
-// the rule set behind the egraph pimpl. Production code uses ApplyAllRewrites /
-// ApplyInlineRewrite (rewrites.hpp); this back-door exists for benchmarks and
-// tests that need to drive a persistent Rewriter directly.
+// Internal: exposes DefaultRules() for benchmarks/tests that drive a persistent
+// Rewriter directly. Production code uses rewrites.hpp (ApplyAllRewrites).
 
 #include "planner/rewrite/rule_set.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"

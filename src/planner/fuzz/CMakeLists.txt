@@ -1,4 +1,9 @@
-# Fuzzers and their associated tools for the planner
+# Fuzzers and their associated tools for the planner.
+#
+# Build these with -DASAN=ON. The targets add -fsanitize=fuzzer,address, so their
+# dependencies (mg::planner, absl) must be ASan-instrumented too - otherwise
+# absl's SwissTable layout differs across the ODR boundary and the matcher SEGVs
+# on a valid empty set. That is a build-config artifact, not a VM bug.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     find_package(fmt REQUIRED)
 

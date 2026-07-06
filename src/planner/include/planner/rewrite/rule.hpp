@@ -11,12 +11,14 @@
 
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include "planner/pattern/match.hpp"
@@ -134,9 +136,34 @@ class RewriteRule {
     return roots;
   }
 
+  /// Whether the per-candidate active-set restriction (see VMExecutor::execute's
+  /// `active`) is SOUND for this rule. The active set is closed under parents, so
+  /// it is guaranteed to hold a new match's *root* e-class - but not a deeper
+  /// e-class the compiler may pick as the VM entry (Priority 2: deepest non-root
+  /// symbol, entered then walked up to the root). Restricting the entry candidates
+  /// to the active set is therefore sound only when the pattern's *only* symbol
+  /// node is its root: then the single IterSymbolEClasses the VM can emit is the
+  /// root iteration. This is a structural guarantee, independent of the compiler's
+  /// entry policy - a pattern with no symbol below the root has no deeper symbol to
+  /// enter at. Multi-pattern rules, and any pattern with a symbol below the root,
+  /// must fall back to symbol-granularity arming (active == nullptr), which never
+  /// prunes candidates.
+  [[nodiscard]] auto supports_active_root_restriction() const -> bool {
+    if (patterns_.size() != 1) return false;
+    auto const &pattern = patterns_[0];
+    auto const root = pattern.root().value_of();
+    auto const nodes = pattern.nodes();
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+      if (i == root) continue;
+      if (std::holds_alternative<SymbolWithChildren<Symbol>>(nodes[i])) return false;
+    }
+    return true;
+  }
+
   /// Populate match buffer using VM executor. `active`, when non-null, restricts
-  /// a symbol-rooted pattern's root candidates to that set (see
-  /// VMExecutor::execute); null matches every candidate.
+  /// the (root) symbol iteration's candidates to that set (see VMExecutor::execute);
+  /// null matches every candidate. Only pass a non-null `active` when
+  /// supports_active_root_restriction() holds.
   template <typename VMExecutor>
   void match(MatcherIndex<Symbol, Analysis> &index, VMExecutor &vm_executor, MatcherContext &ctx,
              boost::unordered_flat_set<EClassId> const *active = nullptr) const {

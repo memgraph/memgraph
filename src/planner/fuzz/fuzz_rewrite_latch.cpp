@@ -112,15 +112,17 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
   // Reference: every rule every pass.
   auto arm_all_eg = build_graph(data, size);
   Rewriter arm_all{arm_all_eg, rules};
-  auto const arm_all_result = arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::ArmAll);
+  arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::ArmAll);
 
   // Optimisation: only the rules a pass could re-enable.
   auto latched_eg = build_graph(data, size);
   Rewriter latched{latched_eg, rules};
-  auto const latched_result = latched.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  latched.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
 
-  // Same fixpoint: identical merges discovered and identical final shape.
-  if (latched_result.rewrites_applied != arm_all_result.rewrites_applied) fail("rewrite count differs");
+  // Same fixpoint = same final shape. Rewrite COUNTS can differ by schedule (a
+  // merge redundant in one order is a no-op in another), so compare the graph.
+  // Latched only skips rules/prunes candidates, so its merges are a subset of
+  // ArmAll's; equal counts plus the sharp fixpoint oracle below pin them equal.
   if (latched_eg.num_classes() != arm_all_eg.num_classes()) fail("e-class count differs");
   if (latched_eg.num_live_nodes() != arm_all_eg.num_live_nodes()) fail("live-node count differs");
 

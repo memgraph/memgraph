@@ -40,29 +40,27 @@ template <RewritableGraph Graph>
   return max_depth;
 }
 
-/// The active set: the touched e-classes closed under parents to `depth` hops.
+/// Close the active set under parents to `depth` hops, in place. `active` enters
+/// holding the canonical touched e-classes and grows to their parent-closure.
 /// A rule newly-fires only when an e-class bound anywhere in a match changes;
 /// such a change reaches the rule's pattern root by walking parents, so closing
-/// the touched-set to the max pattern depth surfaces every e-class a pass could
-/// re-enable a rule on. `touched` must already be canonical (as
-/// `EGraph::touched_eclasses()` returns it); parents are canonicalized here.
+/// to the max pattern depth surfaces every e-class a pass could re-enable a rule
+/// on. Parents are canonicalized here.
 template <typename Symbol, typename Analysis>
-[[nodiscard]] auto ComputeActiveSet(EGraph<Symbol, Analysis> const &egraph, boost::unordered_flat_set<EClassId> touched,
-                                    std::size_t depth) -> boost::unordered_flat_set<EClassId> {
-  auto active = std::move(touched);
+void ComputeActiveSet(EGraph<Symbol, Analysis> const &egraph, boost::unordered_flat_set<EClassId> &active,
+                      std::size_t depth) {
   std::vector<EClassId> frontier(active.begin(), active.end());
-
+  std::vector<EClassId> next_frontier;
   for (std::size_t hop = 0; hop < depth && !frontier.empty(); ++hop) {
-    std::vector<EClassId> next_frontier;
+    next_frontier.clear();
     for (auto const eclass_id : frontier) {
       for (auto const parent_enode : egraph.eclass(eclass_id).parents()) {
         auto const parent_eclass = egraph.find(parent_enode);
         if (active.insert(parent_eclass).second) next_frontier.push_back(parent_eclass);
       }
     }
-    frontier = std::move(next_frontier);
+    frontier.swap(next_frontier);
   }
-  return active;
 }
 
 }  // namespace memgraph::planner::core::rewrite
