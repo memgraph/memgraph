@@ -271,10 +271,10 @@ def use_tenant(cursor):
 
 
 def db_status_on(port, db):
-    """SHOW STORAGE INFO status for `db` over a fresh connection to the instance on `port`."""
+    """SHOW STORAGE INFO health for `db` over a fresh connection to the instance on `port`."""
     c = connect(host="localhost", port=port).cursor()
     execute_and_fetch_all(c, f"USE DATABASE {db}")
-    return storage_info(c).get("status")
+    return storage_info(c).get("health")
 
 
 def db_count_on(port, db):
@@ -419,11 +419,11 @@ def test_main_corrupt_cured_with_recover_snapshot(test_name):
 
     main_cursor = connect(host="localhost", port=7687).cursor()
     use_tenant(main_cursor)
-    assert storage_info(main_cursor)["status"] == "broken"
+    assert storage_info(main_cursor)["health"] == "broken"
 
     # Operator cures the main in place with the known-good snapshot copy.
     execute_and_fetch_all(main_cursor, f"RECOVER SNAPSHOT '{good_snapshot}'")
-    assert storage_info(main_cursor)["status"] == "ready"
+    assert storage_info(main_cursor)["health"] == "ready"
     assert get_vertex_count(main_cursor) == 5000
 
     # Bring the replica back: it syncs the cured tenant from the main and serves it.
@@ -478,7 +478,7 @@ def test_both_corrupt_status_then_cure(test_name):
     wait_main(coord_cursor, "instance_1")
     main_cursor = connect(host="localhost", port=7687).cursor()
     use_tenant(main_cursor)
-    assert storage_info(main_cursor)["status"] == "broken"
+    assert storage_info(main_cursor)["health"] == "broken"
 
     interactive_mg_runner.start(instances, "instance_2")
     wait_replica(coord_cursor, "instance_2")
@@ -486,8 +486,8 @@ def test_both_corrupt_status_then_cure(test_name):
     use_tenant(replica_cursor)
 
     # Verify broken on BOTH instances via BOTH SHOW STORAGE INFO and SHOW DATABASES.
-    assert storage_info(main_cursor)["status"] == "broken"
-    assert storage_info(replica_cursor)["status"] == "broken"
+    assert storage_info(main_cursor)["health"] == "broken"
+    assert storage_info(replica_cursor)["health"] == "broken"
     assert databases_status(main_cursor).get(TENANT) == "broken"
     assert databases_status(replica_cursor).get(TENANT) == "broken"
     # The default database stayed healthy on both.
@@ -496,7 +496,7 @@ def test_both_corrupt_status_then_cure(test_name):
 
     # Cure the main with RECOVER SNAPSHOT; the replica self-heals via snapshot sync from the main.
     execute_and_fetch_all(main_cursor, f"RECOVER SNAPSHOT '{good_snapshot}'")
-    assert storage_info(main_cursor)["status"] == "ready"
+    assert storage_info(main_cursor)["health"] == "ready"
     assert get_vertex_count(main_cursor) == 5000
 
     # Nudge the main with a write to the tenant so it drives the broken replica through recovery.
@@ -510,7 +510,7 @@ def test_both_corrupt_status_then_cure(test_name):
     def replica_storage_status():
         c = connect(host="localhost", port=7688).cursor()
         use_tenant(c)
-        return storage_info(c).get("status")
+        return storage_info(c).get("health")
 
     def replica_databases_status():
         c = connect(host="localhost", port=7688).cursor()
@@ -546,9 +546,9 @@ def test_main_corrupt_cured_with_reset_database_and_import(test_name):
     # RESET DATABASE resets the tenant to an empty, ready state on instance_1 while it is main.
     main1_cursor = connect(host="localhost", port=7687).cursor()
     use_tenant(main1_cursor)
-    assert storage_info(main1_cursor)["status"] == "broken"
+    assert storage_info(main1_cursor)["health"] == "broken"
     execute_and_fetch_all(main1_cursor, "RESET DATABASE")
-    assert storage_info(main1_cursor)["status"] == "ready"
+    assert storage_info(main1_cursor)["health"] == "ready"
     assert get_vertex_count(main1_cursor) == 0
 
     # Bring the replica back. Re-resolve the main afterwards: rejoining can trigger a failover, so

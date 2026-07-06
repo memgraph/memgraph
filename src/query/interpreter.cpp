@@ -7468,7 +7468,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                TypedValue(tenant_limit > 0 ? utils::GetReadableSize(static_cast<double>(tenant_limit))
                                            : std::string("unlimited"))},
               {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
-              {TypedValue("status"), TypedValue(storage->IsBroken() ? "broken" : "ready")},
+              {TypedValue("health"), TypedValue(storage->IsBroken() ? "broken" : "ready")},
           };
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
@@ -8312,9 +8312,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  // SHOW DATABASES carries a "state" column (HOT/COLD) and a "Status" column (ready/broken), and lists
+  // SHOW DATABASES carries a "State" column (HOT/COLD) and a "Health" column (ready/broken), and lists
   // COLD tenants (which are excluded from All() as no-value shells, so they would otherwise vanish).
-  callback.header = std::vector<std::string>{"Name", "state", "Status"};
+  callback.header = std::vector<std::string>{"Name", "State", "Health"};
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;

@@ -78,7 +78,7 @@ def test_reset_database_cures_broken(test_name):
     cursor = connect(host="localhost", port=7687).cursor()
     execute_and_fetch_all(cursor, "UNWIND range(1, 5000) AS i CREATE (:Node {id: i})")
     execute_and_fetch_all(cursor, "CREATE SNAPSHOT")
-    assert storage_info(cursor)["status"] == "ready"
+    assert storage_info(cursor)["health"] == "ready"
     interactive_mg_runner.kill_all()
 
     # Corrupt the in-place snapshot and restart with the recovery-failure flag -> broken.
@@ -87,7 +87,7 @@ def test_reset_database_cures_broken(test_name):
     interactive_mg_runner.start(instances, "default")
 
     cursor = connect(host="localhost", port=7687).cursor()
-    assert storage_info(cursor)["status"] == "broken"
+    assert storage_info(cursor)["health"] == "broken"
 
     # Cure the broken database in place with RESET DATABASE and assert the success
     # notification is present in the query summary.
@@ -97,7 +97,7 @@ def test_reset_database_cures_broken(test_name):
 
     # The tenant is now an empty, ready database that accepts import queries.
     cursor = connect(host="localhost", port=7687).cursor()
-    assert storage_info(cursor)["status"] == "ready"
+    assert storage_info(cursor)["health"] == "ready"
     assert execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0] == 0
     execute_and_fetch_all(cursor, "UNWIND range(1, 1234) AS i CREATE (:Imported {id: i})")
     assert execute_and_fetch_all(cursor, "MATCH (n:Imported) RETURN count(n)")[0][0] == 1234
@@ -108,7 +108,7 @@ def test_reset_database_cures_broken(test_name):
     # healthy with the imported data and does not re-enter the broken state.
     interactive_mg_runner.start(instances, "default")
     cursor = connect(host="localhost", port=7687).cursor()
-    assert storage_info(cursor)["status"] == "ready"
+    assert storage_info(cursor)["health"] == "ready"
     assert execute_and_fetch_all(cursor, "MATCH (n:Imported) RETURN count(n)")[0][0] == 1234
     interactive_mg_runner.stop_all()
 
@@ -131,7 +131,7 @@ def test_reset_database_rejected_on_healthy(test_name):
     interactive_mg_runner.start(instances, "default")
     cursor = connect(host="localhost", port=7687).cursor()
     execute_and_fetch_all(cursor, "UNWIND range(1, 100) AS i CREATE (:Node {id: i})")
-    assert storage_info(cursor)["status"] == "ready"
+    assert storage_info(cursor)["health"] == "ready"
 
     with pytest.raises(Exception) as exc_info:
         execute_and_fetch_all(cursor, "RESET DATABASE")
