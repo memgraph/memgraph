@@ -43,7 +43,7 @@ def storage_info(cursor):
 
 
 def test_storage_info_reports_ready_then_broken(test_name):
-    """SHOW STORAGE INFO reports status=ready for a healthy database and status=broken
+    """SHOW STORAGE INFO reports health=ready for a healthy database and health=broken
     after recovery fails."""
     data_directory = get_data_path("recovery_failure_status", test_name)
     full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
@@ -59,12 +59,12 @@ def test_storage_info_reports_ready_then_broken(test_name):
         }
     }
 
-    # Healthy instance: status must be "ready".
+    # Healthy instance: health must be "ready".
     interactive_mg_runner.start(instances, "default")
     cursor = connect(host="localhost", port=7687).cursor()
     execute_and_fetch_all(cursor, "UNWIND range(1, 5000) AS i CREATE (:Node {id: i})")
     execute_and_fetch_all(cursor, "CREATE SNAPSHOT")
-    assert storage_info(cursor)["status"] == "ready"
+    assert storage_info(cursor)["health"] == "ready"
     interactive_mg_runner.kill_all()
 
     # Corrupt the snapshot and restart with the recovery-failure flag.
@@ -73,12 +73,12 @@ def test_storage_info_reports_ready_then_broken(test_name):
     interactive_mg_runner.start(instances, "default")
 
     cursor = connect(host="localhost", port=7687).cursor()
-    assert storage_info(cursor)["status"] == "broken"
+    assert storage_info(cursor)["health"] == "broken"
     interactive_mg_runner.stop_all()
 
 
 def test_show_databases_reports_status(test_name):
-    """SHOW DATABASES shows a Status column: broken for a tenant whose
+    """SHOW DATABASES shows a Health column: broken for a tenant whose
     recovery failed, ready for a healthy tenant."""
     data_directory = get_data_path("recovery_failure_status", test_name)
     full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
