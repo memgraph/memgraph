@@ -65,7 +65,7 @@ def test_recover_snapshot_cures_broken(test_name):
     cursor = connect(host="localhost", port=7687).cursor()
     execute_and_fetch_all(cursor, "UNWIND range(1, 5000) AS i CREATE (:Node {id: i})")
     execute_and_fetch_all(cursor, "CREATE SNAPSHOT")
-    assert storage_info(cursor)["status"] == "ready"
+    assert storage_info(cursor)["health"] == "ready"
     interactive_mg_runner.kill_all()
 
     # Stash a known-good copy of the snapshot outside the data directory before corrupting it.
@@ -83,7 +83,7 @@ def test_recover_snapshot_cures_broken(test_name):
     interactive_mg_runner.start(instances, "default")
 
     cursor = connect(host="localhost", port=7687).cursor()
-    assert storage_info(cursor)["status"] == "broken"
+    assert storage_info(cursor)["health"] == "broken"
 
     # Cure the broken database in place with the known-good snapshot copy.
     execute_and_fetch_all(cursor, f"RECOVER SNAPSHOT '{good_snapshot_copy}'")
@@ -91,14 +91,14 @@ def test_recover_snapshot_cures_broken(test_name):
     # The data is back and the tenant reports ready.
     count = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN count(n)")[0][0]
     assert count == 5000
-    assert storage_info(cursor)["status"] == "ready"
+    assert storage_info(cursor)["health"] == "ready"
     interactive_mg_runner.kill_all()
 
     # Restart: the cure left the durability directory restart-clean, so the tenant recovers
     # healthy with the data intact and does not re-enter the broken state.
     interactive_mg_runner.start(instances, "default")
     cursor = connect(host="localhost", port=7687).cursor()
-    assert storage_info(cursor)["status"] == "ready"
+    assert storage_info(cursor)["health"] == "ready"
     count = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN count(n)")[0][0]
     assert count == 5000
     interactive_mg_runner.stop_all()
