@@ -429,13 +429,14 @@ TEST_P(PrivilegeCheckTest, InvokerPropertyDeniedRead) {
 
   auto pbac_client = ConnectWithUser(kPbacUser);
 
-  // Trigger copies v.secret into v.result. If PBAC is enforced, v.secret is
-  // null.
+  // Trigger copies v.secret (denied) into v.result, and v.id (allowed) into
+  // v.control. If PBAC is enforced, v.result is null; v.control proves the
+  // trigger actually ran.
   pbac_client->Execute(
       fmt::format("CREATE TRIGGER PbacReadDeny SECURITY INVOKER ON CREATE "
                   "{} COMMIT EXECUTE "
                   "UNWIND createdVertices AS v "
-                  "SET v.result = v.secret",
+                  "SET v.result = v.secret, v.control = v.id",
                   phase));
   pbac_client->DiscardAll();
 
@@ -448,11 +449,14 @@ TEST_P(PrivilegeCheckTest, InvokerPropertyDeniedRead) {
   mg::Map query_params{{"id", mg::Value{kVertexId}}};
   auto const check_result = [&]() {
     try {
-      pbac_client->Execute(fmt::format("MATCH (n:{} {{id: $id}}) RETURN n.result AS result", kVertexLabel),
-                           mg::ConstMap{query_params.ptr()});
+      pbac_client->Execute(
+          fmt::format("MATCH (n:{} {{id: $id}}) RETURN n.result AS result, n.control AS control", kVertexLabel),
+          mg::ConstMap{query_params.ptr()});
       auto result = pbac_client->FetchAll();
       if (!result || result->empty()) return false;
-      return result->at(0)[0].type() == mg::Value::Type::Null;
+      auto const &row = result->at(0);
+      // control must be non-null (trigger ran), result must be null (denied read)
+      return row[1].type() != mg::Value::Type::Null && row[0].type() == mg::Value::Type::Null;
     } catch (mg::ClientException const &) {
       return false;
     }
