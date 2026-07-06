@@ -45,6 +45,8 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <sys/resource.h>
+
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -905,6 +907,14 @@ TEST_F(HotColdResume, BootRecoveryFailureAbortsProcess) {
 
   ASSERT_DEATH(
       {
+        // This death test drives a real boot-recovery abort (LOG_FATAL -> std::terminate -> SIGABRT).
+        // Disable core dumps in the dying child only, so CI's core-dump collector does not flag this
+        // deliberate, expected abort as a crash. Runs in the child of both the fork (fast) and
+        // re-exec (threadsafe) death-test styles, immediately before the abort fires.
+        rlimit no_core{};
+        no_core.rlim_cur = 0;
+        no_core.rlim_max = 0;
+        setrlimit(RLIMIT_CORE, &no_core);
         auto h = std::make_unique<DbmsHandler>(conf_);
         (void)h;
       },
