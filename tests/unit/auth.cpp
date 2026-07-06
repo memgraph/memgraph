@@ -3957,19 +3957,18 @@ TEST(MigrateAuthJson, MigratingCurrentVersionIsIdempotent) {
 
 #endif  // MG_ENTERPRISE
 
-// FineGrainedPermission values for use outside the MG_ENTERPRISE guard.
-// These mirror the enum in models.hpp but are usable in community builds.
 namespace {
-constexpr uint64_t kRead = 1;
-constexpr uint64_t kSetProperty = 2;
-constexpr uint64_t kReadOrSetProperty = kRead | kSetProperty;  // 3
-constexpr uint64_t kAllLabel = 507;
-constexpr uint64_t kAllEdgeType = 27;
-constexpr uint64_t kSetLabel = 32;
-constexpr uint64_t kRemoveLabel = 64;
-constexpr uint64_t kDeleteEdge = 128;
-constexpr uint64_t kCreateEdge = 256;
-constexpr uint64_t kLabelUpdateExpanded = kRead | kSetProperty | kSetLabel | kRemoveLabel | kDeleteEdge | kCreateEdge;
+using memgraph::auth::FineGrainedPermission;
+using memgraph::auth::kAllEdgeTypePermissions;
+using memgraph::auth::kAllLabelPermissions;
+
+constexpr auto kAllLabel = std::to_underlying(kAllLabelPermissions);
+constexpr auto kAllEdgeType = std::to_underlying(kAllEdgeTypePermissions);
+constexpr auto kRead = std::to_underlying(FineGrainedPermission::READ);
+constexpr auto kReadOrSetProperty =
+    std::to_underlying(FineGrainedPermission::READ | FineGrainedPermission::SET_PROPERTY);
+constexpr auto kLabelUpdateExpanded =
+    std::to_underlying(memgraph::auth::kVertexLabelUpdatePermissions | FineGrainedPermission::READ);
 constexpr int64_t kUnset = -1;
 }  // namespace
 

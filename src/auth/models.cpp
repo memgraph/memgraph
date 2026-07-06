@@ -34,16 +34,20 @@ constexpr auto kUsername = "username";
 constexpr auto kUUID = "uuid";
 constexpr auto kPasswordHash = "password_hash";
 
-#ifdef MG_ENTERPRISE
-
-namespace r = std::ranges;
-
 constexpr auto kGlobalGrants = "global_grants";
 constexpr auto kGlobalDenies = "global_denies";
 constexpr auto kFineGrainedPermissions = "fine_grained_permissions";
 constexpr auto kFineGrainedAccessHandler = "fine_grained_access_handler";
 constexpr auto kLabelPermissions = "label_permissions";
 constexpr auto kEdgeTypePermissions = "edge_type_permissions";
+constexpr auto kSymbols = "symbols";
+constexpr auto kGranted = "granted";
+constexpr auto kDenied = "denied";
+constexpr auto kMatching = "matching";
+
+#ifdef MG_ENTERPRISE
+namespace r = std::ranges;
+
 constexpr auto kAllowAll = "allow_all";
 constexpr auto kDefault = "default";
 constexpr auto kDatabases = "databases";
@@ -52,10 +56,6 @@ constexpr auto kUserImpGranted = "user_imp_granted";
 constexpr auto kUserImpDenied = "user_imp_denied";
 constexpr auto kUserImpId = "user_imp_id";
 constexpr auto kUserImpName = "user_imp_name";
-constexpr auto kSymbols = "symbols";
-constexpr auto kGranted = "granted";
-constexpr auto kDenied = "denied";
-constexpr auto kMatching = "matching";
 constexpr auto kPropertyAccessPermissions = "property_access_permissions";
 constexpr auto kLabelPropertyPermissions = "label_property_permissions";
 constexpr auto kEdgeTypePropertyPermissions = "edge_type_property_permissions";
@@ -1918,21 +1918,14 @@ void MigrateV3ToV4(nlohmann::json &data) {
   auto fg_it = data.find(kFineGrainedPermissions);
   DMG_ASSERT(fg_it != data.end() && fg_it->is_object());
 
-  // Local copies of FineGrainedPermission values. Duplicated here so that this
-  // migration runs even in community builds.
-  constexpr uint64_t kUpdate = 2;             // Old UPDATE bit
-  constexpr uint64_t kSetLabel = 32;          // FineGrainedPermission::SET_LABEL
-  constexpr uint64_t kRemoveLabel = 64;       // FineGrainedPermission::REMOVE_LABEL
-  constexpr uint64_t kSetProperty = 2;        // FineGrainedPermission::SET_PROPERTY
-  constexpr uint64_t kDeleteEdge = 128;       // FineGrainedPermission::DELETE_EDGE
-  constexpr uint64_t kCreateEdge = 256;       // FineGrainedPermission::CREATE_EDGE
-  constexpr uint64_t kAllLabelPerms = 507;    // kAllLabelPermissions
-  constexpr uint64_t kAllEdgeTypePerms = 27;  // kAllEdgeTypePermissions
-
   auto const migrate_label_permissions = [](uint64_t v3_perm) -> uint64_t {
+    constexpr auto kUpdate = std::to_underlying(FineGrainedPermission::SET_PROPERTY);  // Old UPDATE bit, same position
     uint64_t result = v3_perm;
     if (result & kUpdate) {
-      result = (result & ~kUpdate) | kSetLabel | kRemoveLabel | kSetProperty | kDeleteEdge | kCreateEdge;
+      result = (result & ~kUpdate) |
+               std::to_underlying(FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL |
+                                  FineGrainedPermission::SET_PROPERTY | FineGrainedPermission::DELETE_EDGE |
+                                  FineGrainedPermission::CREATE_EDGE);
     }
     return result;
   };
@@ -1948,7 +1941,7 @@ void MigrateV3ToV4(nlohmann::json &data) {
       auto const old_perm = global_it->get<int64_t>();
       if (old_perm == 0) {
         perm_data[kGlobalGrants] = -1;
-        perm_data[kGlobalDenies] = static_cast<int64_t>(is_label ? kAllLabelPerms : kAllEdgeTypePerms);
+        perm_data[kGlobalDenies] = std::to_underlying(is_label ? kAllLabelPermissions : kAllEdgeTypePermissions);
       } else if (old_perm == -1) {
         perm_data[kGlobalGrants] = -1;
         perm_data[kGlobalDenies] = -1;
@@ -1973,7 +1966,7 @@ void MigrateV3ToV4(nlohmann::json &data) {
       auto const granted = old_rule.value(kGranted, int64_t{0});
       if (granted == 0) {
         new_rule[kGranted] = 0;
-        new_rule[kDenied] = static_cast<int64_t>(is_label ? kAllLabelPerms : kAllEdgeTypePerms);
+        new_rule[kDenied] = std::to_underlying(is_label ? kAllLabelPermissions : kAllEdgeTypePermissions);
       } else {
         auto new_granted = static_cast<uint64_t>(granted);
         if (is_label) new_granted = migrate_label_permissions(new_granted);
