@@ -118,7 +118,8 @@ class FineGrainedAuthChecker {
   FineGrainedAuthChecker &operator=(const FineGrainedAuthChecker &) = default;
   FineGrainedAuthChecker &operator=(FineGrainedAuthChecker &&) noexcept = default;
 
- private:
+  bool IsPropertyRestrictionsCached() const { return has_property_restrictions_.has_value(); }
+
   mutable std::optional<bool> has_property_restrictions_;
 };
 

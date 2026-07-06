@@ -433,7 +433,8 @@ bool FineGrainedAuthChecker::IsCachedPermissionsPopulated() const {
   return cached_label_permissions_.has_value() && cached_edge_permissions_.has_value() &&
          cached_property_label_permissions_.has_value() && cached_property_edge_type_permissions_.has_value() &&
          unrestricted_vertices_.has_value() && unrestricted_edges_.has_value() &&
-         unrestricted_vertex_properties_.has_value() && unrestricted_edge_properties_.has_value();
+         unrestricted_vertex_properties_.has_value() && unrestricted_edge_properties_.has_value() &&
+         IsPropertyRestrictionsCached();
 }
 #endif
 }  // namespace memgraph::glue
