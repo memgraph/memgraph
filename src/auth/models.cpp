@@ -41,6 +41,7 @@ namespace r = std::ranges;
 constexpr auto kGlobalGrants = "global_grants";
 constexpr auto kGlobalDenies = "global_denies";
 constexpr auto kFineGrainedPermissions = "fine_grained_permissions";
+constexpr auto kFineGrainedAccessHandler = "fine_grained_access_handler";
 constexpr auto kLabelPermissions = "label_permissions";
 constexpr auto kEdgeTypePermissions = "edge_type_permissions";
 constexpr auto kAllowAll = "allow_all";
@@ -1836,25 +1837,153 @@ std::optional<int> DeduceVersion(nlohmann::json const &data) {
     return it->get<int>();
   }
   // Check both old and new key names for the fine-grained permissions block.
-  // 3.9 uses `fine_grained_access_handler` but with V3-style content (V3
+  // 3.9 uses kFineGrainedAccessHandler but with V3-style content (V3
   // bitmasks + permissions array); true V2 (pre-3.8) also uses that key but
   // with V2-style enum values and no permissions array. We must inspect the
   // sub-objects to distinguish them.
-  for (auto const &fg_key : {"fine_grained_permissions", "fine_grained_access_handler"}) {
+  for (auto const &fg_key : {kFineGrainedPermissions, kFineGrainedAccessHandler}) {
     if (auto fg = data.find(fg_key); fg != data.end() && fg->is_object()) {
-      for (auto const &key : {"label_permissions", "edge_type_permissions"}) {
+      for (auto const &key : {kLabelPermissions, kEdgeTypePermissions}) {
         if (auto sub = fg->find(key); sub != fg->end() && sub->is_object()) {
-          if (sub->contains("global_grants")) return 4;
+          if (sub->contains(kGlobalGrants)) return 4;
           if (sub->contains("global_permission") && sub->contains("permissions") && (*sub)["permissions"].is_array())
             return 3;
           if (sub->contains("global_permission")) return 2;
         }
       }
-      // Has the FGA block but no recognisable sub-objects
-      if (std::string_view{fg_key} == "fine_grained_access_handler") return 2;
+      if (std::string_view{fg_key} == kFineGrainedAccessHandler) return 2;
     }
   }
   return std::nullopt;
+}
+
+// V2 → V3: rename fine_grained_access_handler to fine_grained_permissions,
+//           convert global_permission values from V2 enum to V3 bitmask,
+//           add empty permissions array per sub-object.
+void MigrateV2ToV3(nlohmann::json &data) {
+  auto fg_it = data.find(kFineGrainedAccessHandler);
+  DMG_ASSERT(fg_it != data.end() && fg_it->is_object());
+
+  constexpr uint64_t kV2Read = 1;
+  constexpr uint64_t kV2Update = 3;
+  constexpr uint64_t kV2CreateDelete = 7;
+  constexpr uint64_t kV3Read = 1;
+  constexpr uint64_t kV3Update = 2;
+  constexpr uint64_t kV3Create = 8;
+  constexpr uint64_t kV3Delete = 16;
+
+  auto const convert_v2_to_v3 = [](uint64_t v2_perm) -> uint64_t {
+    switch (v2_perm) {
+      case kV2Read:
+        return kV3Read;
+      case kV2Update:
+        return kV3Update | kV3Read;
+      case kV2CreateDelete:
+        return kV3Create | kV3Delete | kV3Update | kV3Read;
+      default:
+        return 0;
+    }
+  };
+
+  for (auto const &perm_type : {kLabelPermissions, kEdgeTypePermissions}) {
+    auto perm_it = fg_it->find(perm_type);
+    if (perm_it != fg_it->end() && perm_it->is_object()) {
+      auto global_it = perm_it->find("global_permission");
+      if (global_it != perm_it->end() && global_it->is_number_integer()) {
+        auto const v2_perm = global_it->get<int64_t>();
+        if (v2_perm >= 0) {
+          *global_it = convert_v2_to_v3(static_cast<uint64_t>(v2_perm));
+        }
+      }
+      if (!perm_it->contains("permissions") || !(*perm_it)["permissions"].is_array()) {
+        (*perm_it)["permissions"] = nlohmann::json::array();
+      }
+    }
+  }
+
+  data[kFineGrainedPermissions] = std::move(*fg_it);
+  data.erase(kFineGrainedAccessHandler);
+}
+
+// V3 → V4: split global_permission into global_grants/global_denies,
+//           add denied field to per-entity rules,
+//           expand UPDATE bit for labels.
+void MigrateV3ToV4(nlohmann::json &data) {
+  // Handle V3 content stored under the old key name (pre-3.8 transitional)
+  if (data.contains(kFineGrainedAccessHandler) && !data.contains(kFineGrainedPermissions)) {
+    data[kFineGrainedPermissions] = std::move(data[kFineGrainedAccessHandler]);
+    data.erase(kFineGrainedAccessHandler);
+  }
+
+  auto fg_it = data.find(kFineGrainedPermissions);
+  DMG_ASSERT(fg_it != data.end() && fg_it->is_object());
+
+  // Local copies of FineGrainedPermission values. Duplicated here so that this
+  // migration runs even in community builds.
+  constexpr uint64_t kUpdate = 2;             // Old UPDATE bit
+  constexpr uint64_t kSetLabel = 32;          // FineGrainedPermission::SET_LABEL
+  constexpr uint64_t kRemoveLabel = 64;       // FineGrainedPermission::REMOVE_LABEL
+  constexpr uint64_t kSetProperty = 2;        // FineGrainedPermission::SET_PROPERTY
+  constexpr uint64_t kDeleteEdge = 128;       // FineGrainedPermission::DELETE_EDGE
+  constexpr uint64_t kCreateEdge = 256;       // FineGrainedPermission::CREATE_EDGE
+  constexpr uint64_t kAllLabelPerms = 507;    // kAllLabelPermissions
+  constexpr uint64_t kAllEdgeTypePerms = 27;  // kAllEdgeTypePermissions
+
+  auto const migrate_label_permissions = [](uint64_t v3_perm) -> uint64_t {
+    uint64_t result = v3_perm;
+    if (result & kUpdate) {
+      result = (result & ~kUpdate) | kSetLabel | kRemoveLabel | kSetProperty | kDeleteEdge | kCreateEdge;
+    }
+    return result;
+  };
+
+  for (auto const &perm_type : {kLabelPermissions, kEdgeTypePermissions}) {
+    bool const is_label = std::string_view{perm_type} == kLabelPermissions;
+    auto perm_it = fg_it->find(perm_type);
+    if (perm_it == fg_it->end() || !perm_it->is_object()) continue;
+    auto &perm_data = *perm_it;
+
+    auto global_it = perm_data.find("global_permission");
+    if (global_it != perm_data.end() && global_it->is_number_integer()) {
+      auto const old_perm = global_it->get<int64_t>();
+      if (old_perm == 0) {
+        perm_data[kGlobalGrants] = -1;
+        perm_data[kGlobalDenies] = static_cast<int64_t>(is_label ? kAllLabelPerms : kAllEdgeTypePerms);
+      } else if (old_perm == -1) {
+        perm_data[kGlobalGrants] = -1;
+        perm_data[kGlobalDenies] = -1;
+      } else {
+        auto new_perm = static_cast<uint64_t>(old_perm);
+        if (is_label) new_perm = migrate_label_permissions(new_perm);
+        perm_data[kGlobalGrants] = new_perm;
+        perm_data[kGlobalDenies] = -1;
+      }
+      perm_data.erase("global_permission");
+    }
+
+    auto perms_it = perm_data.find("permissions");
+    if (perms_it == perm_data.end() || !perms_it->is_array()) continue;
+
+    nlohmann::json new_permissions = nlohmann::json::array();
+    for (auto const &old_rule : *perms_it) {
+      nlohmann::json new_rule;
+      new_rule[kSymbols] = old_rule.value(kSymbols, nlohmann::json::array());
+      new_rule[kMatching] = old_rule.value(kMatching, "ANY");
+
+      auto const granted = old_rule.value(kGranted, int64_t{0});
+      if (granted == 0) {
+        new_rule[kGranted] = 0;
+        new_rule[kDenied] = static_cast<int64_t>(is_label ? kAllLabelPerms : kAllEdgeTypePerms);
+      } else {
+        auto new_granted = static_cast<uint64_t>(granted);
+        if (is_label) new_granted = migrate_label_permissions(new_granted);
+        new_rule[kGranted] = new_granted;
+        new_rule[kDenied] = 0;
+      }
+      new_permissions.push_back(std::move(new_rule));
+    }
+    perm_data["permissions"] = std::move(new_permissions);
+  }
 }
 }  // namespace
 
@@ -1874,142 +2003,13 @@ void MigrateAuthJson(nlohmann::json &data) {
     return;
   }
 
-  // V2 to V3: rename fine_grained_access_handler to fine_grained_permissions,
-  //           convert global_permission values from V2 enum to V3 bitmask,
-  //           add empty permissions array per sub-object.
   if (version == 2) {
-    // DeduceVersion returned 2 based on the shape of this key, so it must exist.
-    auto fg_it = data.find("fine_grained_access_handler");
-    DMG_ASSERT(fg_it != data.end() && fg_it->is_object());
-    // V2 permissions used bit_0 for read, bit_1 for update, and bit_2 for
-    // create_delete, but note that the trailing bits are also set because the
-    // permission formed a hierarchy.
-    constexpr uint64_t kV2Read = 1;
-    constexpr uint64_t kV2Update = 3;
-    constexpr uint64_t kV2CreateDelete = 7;
-
-    // V3 permission bits: NOTHING=0, READ=1, UPDATE=2, CREATE=8, DELETE=16.
-    constexpr uint64_t kV3Read = 1;
-    constexpr uint64_t kV3Update = 2;
-    constexpr uint64_t kV3Create = 8;
-    constexpr uint64_t kV3Delete = 16;
-
-    auto const convert_v2_to_v3 = [](uint64_t v2_perm) -> uint64_t {
-      switch (v2_perm) {
-        case kV2Read:
-          return kV3Read;
-        case kV2Update:
-          return kV3Update | kV3Read;
-        case kV2CreateDelete:
-          return kV3Create | kV3Delete | kV3Update | kV3Read;
-        default:
-          return 0;
-      }
-    };
-
-    for (auto const &perm_type : {"label_permissions", "edge_type_permissions"}) {
-      auto perm_it = fg_it->find(perm_type);
-      if (perm_it != fg_it->end() && perm_it->is_object()) {
-        auto global_it = perm_it->find("global_permission");
-        if (global_it != perm_it->end() && global_it->is_number_integer()) {
-          auto const v2_perm = global_it->get<int64_t>();
-          if (v2_perm >= 0) {
-            *global_it = convert_v2_to_v3(static_cast<uint64_t>(v2_perm));
-          }
-        }
-        if (!perm_it->contains("permissions") || !(*perm_it)["permissions"].is_array()) {
-          (*perm_it)["permissions"] = nlohmann::json::array();
-        }
-      }
-    }
-
-    data["fine_grained_permissions"] = std::move(*fg_it);
-    data.erase("fine_grained_access_handler");
-
+    MigrateV2ToV3(data);
     version = 3;
   }
 
-  // V3 to V4: split global_permission into global_grants/global_denies,
-  //           add denied field to per-entity rules,
-  //           expand UPDATE bit for labels.
   if (version == 3) {
-    // Handle V3 content stored under the old key name (pre-3.8 transitional)
-    if (data.contains("fine_grained_access_handler") && !data.contains("fine_grained_permissions")) {
-      data["fine_grained_permissions"] = std::move(data["fine_grained_access_handler"]);
-      data.erase("fine_grained_access_handler");
-    }
-    // DeduceVersion returned 3 based on the shape of this key, so it must exist
-    // (after the rename above for the old-key case).
-    auto fg_it = data.find("fine_grained_permissions");
-    DMG_ASSERT(fg_it != data.end() && fg_it->is_object());
-
-    // Local copies of FineGrainedPermission values. Duplicated here so that this
-    // migration runs even in community builds.
-    constexpr uint64_t kUpdate = 2;             // Old UPDATE bit
-    constexpr uint64_t kSetLabel = 32;          // FineGrainedPermission::SET_LABEL
-    constexpr uint64_t kRemoveLabel = 64;       // FineGrainedPermission::REMOVE_LABEL
-    constexpr uint64_t kSetProperty = 2;        // FineGrainedPermission::SET_PROPERTY
-    constexpr uint64_t kDeleteEdge = 128;       // FineGrainedPermission::DELETE_EDGE
-    constexpr uint64_t kCreateEdge = 256;       // FineGrainedPermission::CREATE_EDGE
-    constexpr uint64_t kAllLabelPerms = 507;    // kAllLabelPermissions
-    constexpr uint64_t kAllEdgeTypePerms = 27;  // kAllEdgeTypePermissions
-
-    // For labels: UPDATE -> SET_LABEL | REMOVE_LABEL | SET_PROPERTY | DELETE_EDGE | CREATE_EDGE
-    auto const migrate_label_permissions = [](uint64_t v3_perm) -> uint64_t {
-      uint64_t result = v3_perm;
-      if (result & kUpdate) {
-        result = (result & ~kUpdate) | kSetLabel | kRemoveLabel | kSetProperty | kDeleteEdge | kCreateEdge;
-      }
-      return result;
-    };
-
-    for (auto const &perm_type : {"label_permissions", "edge_type_permissions"}) {
-      bool const is_label = std::string_view{perm_type} == "label_permissions";
-      auto perm_it = fg_it->find(perm_type);
-      if (perm_it == fg_it->end() || !perm_it->is_object()) continue;
-      auto &perm_data = *perm_it;
-
-      auto global_it = perm_data.find("global_permission");
-      if (global_it != perm_data.end() && global_it->is_number_integer()) {
-        auto const old_perm = global_it->get<int64_t>();
-        if (old_perm == 0) {
-          perm_data["global_grants"] = -1;
-          perm_data["global_denies"] = static_cast<int64_t>(is_label ? kAllLabelPerms : kAllEdgeTypePerms);
-        } else if (old_perm == -1) {
-          perm_data["global_grants"] = -1;
-          perm_data["global_denies"] = -1;
-        } else {
-          auto new_perm = static_cast<uint64_t>(old_perm);
-          if (is_label) new_perm = migrate_label_permissions(new_perm);
-          perm_data["global_grants"] = new_perm;
-          perm_data["global_denies"] = -1;
-        }
-        perm_data.erase("global_permission");
-      }
-
-      auto perms_it = perm_data.find("permissions");
-      if (perms_it == perm_data.end() || !perms_it->is_array()) continue;
-
-      nlohmann::json new_permissions = nlohmann::json::array();
-      for (auto const &old_rule : *perms_it) {
-        nlohmann::json new_rule;
-        new_rule["symbols"] = old_rule.value("symbols", nlohmann::json::array());
-        new_rule["matching"] = old_rule.value("matching", "ANY");
-
-        auto const granted = old_rule.value("granted", int64_t{0});
-        if (granted == 0) {
-          new_rule["granted"] = 0;
-          new_rule["denied"] = static_cast<int64_t>(is_label ? kAllLabelPerms : kAllEdgeTypePerms);
-        } else {
-          auto new_granted = static_cast<uint64_t>(granted);
-          if (is_label) new_granted = migrate_label_permissions(new_granted);
-          new_rule["granted"] = new_granted;
-          new_rule["denied"] = 0;
-        }
-        new_permissions.push_back(std::move(new_rule));
-      }
-      perm_data["permissions"] = std::move(new_permissions);
-    }
+    MigrateV3ToV4(data);
   }
 
   data[kVersion] = kCurrentEntityVersion;
