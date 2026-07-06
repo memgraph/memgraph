@@ -2435,6 +2435,15 @@ TYPED_TEST(TestPlanner, ScanAllByEdgeId) {
   CheckPlan<TypeParam>(query, this->storage, ExpectScanAllByEdgeId(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, ScanAllByEdgeIdInList) {
+  // MATCH ()-[r]->() WHERE id(r) IN $ids RETURN r lowers the IN-list to an
+  // Unwind feeding a per-element ScanAllByEdgeId, mirroring the vertex id scan.
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("r"), NODE("anon2"))),
+                                   WHERE(IN_LIST(FN("id", IDENT("r")), PARAMETER_LOOKUP(0))),
+                                   RETURN("r")));
+  CheckPlan<TypeParam>(query, this->storage, ExpectUnwind(), ExpectScanAllByEdgeId(), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, ScanAllByElementId) {
   // Test MATCH (n) WHERE elementId(n) = "42" RETURN n
   auto *query = QUERY(
