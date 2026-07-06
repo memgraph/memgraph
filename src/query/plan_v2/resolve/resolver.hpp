@@ -85,9 +85,11 @@ inline void ResolveBindDead(planner::core::ENode<symbol> const &enode, ResolverK
   visit(ResolverKey{enode.children()[child::bind::input], parent_key.in_scope, parent_key.must_introduce});
 }
 
-// Dead Unwind keeps the list child (CardinalityScale evaluates it for its
-// length) but elides the sym binding. Pipe carries the parent's demand
-// through; the list is an expression read in the parent's scope.
+// Dead Unwind keeps the list child in the resolution (for cost/extraction
+// consistency) but elides the sym binding. CardinalityScale takes its row
+// count from the list's statically-known length fact and never evaluates the
+// list at runtime. Pipe carries the parent's demand through; the list is an
+// expression read in the parent's scope.
 inline void ResolveUnwindDead(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key, auto visit) {
   using namespace child::unwind;
   auto const &children = enode.children();
