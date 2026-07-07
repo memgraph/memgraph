@@ -19,6 +19,15 @@ PMU-capable machine. All commands assume repo root and the toolchain activated.
 > being needed before this is a net win. **Build note:** if you hit a `module file … built from a
 > different branch ((0ubuntu1))` error, it's stale ccache — run `ccache -C` (the conan ccache under
 > `~/.conan2/p/b/ccach*/p/bin/ccache`) then rebuild.
+>
+> **This re-gate is now DECISIVE.** The Phase B follow-up (branch park-on-refill-lock) was fully designed and
+> put through two adversarial verification passes; it did NOT pass as-designed (a blocker + two DESIGN-WRONG
+> incl. silent row-loss / nested-parallelism data-loss, plus a structural gap: the efficient branch-park needs
+> extending the coroutine runtime, not just operator.cpp edits) and has been **DEFERRED**. Stage 1 (ScanParallel
+> single-refiller, lock released across the input pull — commit `f5f3f81ed`) is banked and already removes the
+> mutex-held-across-pull hazard. So: **if PARK now ties/wins BLOCK in this re-gate, we are DONE — ship the
+> redesign as Phase A + Stage 1 and drop branch-park.** Only if PARK still materially regresses is the (large,
+> runtime-touching) branch-park worth reviving. Please make the ties-vs-regresses call explicit in your results.
 
 Two independent env vars must be exported first (see `HANDOFF.md` §10 — obtain from the team):
 
