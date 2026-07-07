@@ -591,6 +591,11 @@ TEST(RpcVersioning, SlkLoadRole_MigratesV3FGA) {
   ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
   EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
   EXPECT_FALSE(label_perms.GetGlobalDenies().has_value());
+
+  auto const &edge_perms = loaded.fine_grained_access_handler().edge_type_permissions();
+  ASSERT_TRUE(edge_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(edge_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+  EXPECT_FALSE(edge_perms.GetGlobalDenies().has_value());
 }
 
 // slk::Load<User> migrates V3 FGA and attached roles.
