@@ -21,8 +21,11 @@
 //
 // Adding a new symbol: append it to the relevant arity list here. If the
 // symbol has a direct AST node and goes through CostModel's switch, also
-// append to the matching EGRAPH_*_OPS list in op_ast_lists.hpp. The cross-check
-// in egraph.cpp fires if cost-class membership disagrees with this taxonomy.
+// append to the matching EGRAPH_*_OPS list in op_ast_lists.hpp. Completeness is
+// enforced by `DispatchBySymbol` (symbol_dispatch.hpp), whose switch over
+// EGRAPH_ALL_SYMBOLS is exhaustive, plus the per-symbol trait specialisations
+// that cost_model.cpp / resolver.hpp / builder.cpp instantiate - a symbol left
+// out of a list it belongs in fails to compile there.
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
 

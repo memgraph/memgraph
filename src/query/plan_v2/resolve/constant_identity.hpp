@@ -32,12 +32,12 @@ struct ConstantIdentityEq {
     // `1.0` (Double) are different constants. PropertyValue's own `==` coerces.
     if (a.type() != b.type()) return false;
     if (a.IsDouble()) {
-      // Structural, not IEEE: a folded `0.0/0.0` is the same constant as any
-      // other NaN, so NaN compares equal to NaN here.
+      // Structural, not IEEE: NaN equals NaN, but signed zero stays distinct
+      // (`1.0/x` flips ±inf), so plain `==` isn't enough.
       double const da = a.ValueDouble();
       double const db = b.ValueDouble();
       if (std::isnan(da) && std::isnan(db)) return true;
-      return da == db;
+      return da == db && std::signbit(da) == std::signbit(db);
     }
     if (a.IsList()) {
       // Recurse so the identity rules (type-then-structure, NaN) apply to
@@ -69,22 +69,22 @@ struct ConstantIdentityEq {
 
 /// Hash companion to `ConstantIdentityEq`. Mixes the type tag into every hash
 /// (load-bearing: it partitions `1` from `1.0`, which `std::hash` coerces),
-/// unifies every NaN and normalizes `-0.0` to `+0.0` to match the equality,
-/// and hashes Int/Bool/List/Map without the coercing fallback. Other scalars
-/// fall back to `std::hash`, where it agrees with `==`. The typed list variants
-/// would not (e.g. `DoubleList{-0.0}` vs `{0.0}`) - revisit if those become
-/// iterable.
+/// unifies every NaN and folds in the sign of zero so `-0.0` and `+0.0` hash
+/// apart to match the equality, and hashes Int/Bool/List/Map without the
+/// coercing fallback. Other scalars fall back to `std::hash`, where it agrees
+/// with `==`. The typed list variants would not (e.g. `DoubleList{-0.0}` vs
+/// `{0.0}`) - revisit if those become iterable.
 struct ConstantIdentityHash {
   auto operator()(this ConstantIdentityHash self, storage::ExternalPropertyValue const &v) -> std::size_t {
     std::size_t h = static_cast<std::size_t>(v.type());  // seed with the type tag: partitions `1` from `1.0`
     if (v.IsDouble()) {
       double const d = v.ValueDouble();
-      // Unify every NaN (fold a fixed sentinel, not the varying bit pattern) and
-      // normalize -0.0 to +0.0, so doubles equal under Eq hash alike.
+      // Unify every NaN (fold a fixed sentinel, not the varying bit pattern).
       if (std::isnan(d)) {
         boost::hash_combine(h, std::size_t{0x7ff8000000000000ULL});
       } else {
-        boost::hash_combine(h, d == 0.0 ? 0.0 : d);
+        boost::hash_combine(h, d);
+        boost::hash_combine(h, std::signbit(d));  // so `-0.0`/`+0.0` hash apart, matching Eq
       }
       return h;
     }

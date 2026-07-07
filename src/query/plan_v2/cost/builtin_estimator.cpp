@@ -37,7 +37,12 @@ auto TryReadIntLiteral(EGraph const &eg, planner::core::EClassId eclass_id) -> s
   // reject non-integral doubles - not what range expects anyway.
   if (val.IsDouble()) {
     auto const d = val.ValueDouble();
-    if (std::isfinite(d) && std::trunc(d) == d) return static_cast<int64_t>(d);
+    // Guard the cast: out-of-int64-range doubles are UB. Bound with 2^63
+    // (exactly representable, unlike int64_max), half-open at the top.
+    static constexpr double kTwoPow63 = 9223372036854775808.0;  // 2^63
+    if (std::isfinite(d) && std::trunc(d) == d && d >= -kTwoPow63 && d < kTwoPow63) {
+      return static_cast<int64_t>(d);
+    }
   }
   return std::nullopt;
 }
