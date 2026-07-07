@@ -3,6 +3,23 @@
 Companion to [`HANDOFF.md`](./HANDOFF.md). This is the *do-this* checklist for the bare-metal /
 PMU-capable machine. All commands assume repo root and the toolchain activated.
 
+> ## ⇄ UPDATE (c3.5a landed) — please RE-RUN the throughput A/B (§3)
+> Commit `fa987501b` **"c3.5a — steal-then-park coordinator"** addresses the Gate-1 regression the
+> previous run found (RESULTS_c34.md §3: −20…−49% throughput). The coordinator now **steals and runs
+> branches inline first and parks only if nothing is left to steal** — so under saturation it behaves
+> like BLOCK (no park drive) and the +29%-instructions/query should disappear. Verified locally for
+> correctness (330 parallel queries, results == serial); the **throughput number is yours to confirm**.
+>
+> **What to do:** rebuild (§3's Release build), then re-run the **PARK vs BLOCK** A/B (§3 /
+> `throughput_gate.py`) exactly as before. **Expected:** PARK now ties BLOCK across all client counts
+> (no monotonic regression); single-query latency still neutral. Please record the new numbers in
+> `RESULTS_c34.md` (add a "c3.5a re-gate" section). If PARK still regresses materially, that means the
+> steal loop isn't catching the branches under your load — capture per-query PMU (instructions/query,
+> `scripts/pmu_parallel_park_vs_block.sh`) and note it; that would point to Phase B (branch park-on-lock)
+> being needed before this is a net win. **Build note:** if you hit a `module file … built from a
+> different branch ((0ubuntu1))` error, it's stale ccache — run `ccache -C` (the conan ccache under
+> `~/.conan2/p/b/ccach*/p/bin/ccache`) then rebuild.
+
 Two independent env vars must be exported first (see `HANDOFF.md` §10 — obtain from the team):
 
 ```bash
