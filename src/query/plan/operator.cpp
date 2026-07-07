@@ -15138,6 +15138,20 @@ class AggregateParallelCursor : public ParallelBranchCursor {
                                           /*schedule_on_pool=*/true)) {
             co_return false;
           }
+          // STEAL-FIRST, PARK-AS-FALLBACK. Run any still-IDLE branch inline on the coordinator
+          // thread before parking. Under load the pool workers are busy with other queries, so this
+          // query's branches stay IDLE and we run them here (like the legacy WaitOrSteal path) — the
+          // park loop below then finds the barrier already satisfied and we never pay the coroutine
+          // park drive. Under low load the pool workers claim the branches (RUNNING) and this steal
+          // finds nothing, so we fall through and park (freeing our worker). This is why parking is
+          // now conditional (only when there is genuinely nothing left to run but work is in flight),
+          // which removes the unconditional-up-front park's throughput regression under concurrency.
+          // MUST run exactly ONCE, here, strictly before the first co_await: branch IDLE state is
+          // one-way (a second pass finds nothing) and a steal after a suspend point could execute on
+          // a worker whose id no longer matches the branch closures' captured main_thread, breaking
+          // their mem-tracking gate. Do NOT move this into the park loop.
+          while (collection_scheduler_->TryExecuteOneIdleTask()) {
+          }
           // Park until ALL branch tasks finish. A single co_await resumes on the FIRST progress
           // event (one branch finishing / any NotifyProgress), NOT when every branch is done —
           // co_await checks await_ready only once and does not loop. So we MUST loop on the
@@ -15364,6 +15378,13 @@ class OrderByParallelCursor : public ParallelBranchCursor {
                                           post_pull_func,
                                           /*schedule_on_pool=*/true)) {
             co_return false;
+          }
+          // STEAL-FIRST, PARK-AS-FALLBACK (see the AggregateParallelCursor::DoPull note for the full
+          // rationale): run any still-IDLE branch inline before parking so that under load we never
+          // pay the coroutine park drive, and park only when there is nothing left to run but work is
+          // still in flight. MUST run exactly once, here, before the first co_await (branch IDLE is
+          // one-way; a steal after a suspend point could break the branch closures' main_thread gate).
+          while (collection_scheduler_->TryExecuteOneIdleTask()) {
           }
           // Park until ALL branch tasks finish. A single co_await resumes on the FIRST progress
           // event, NOT when every branch is done (co_await checks await_ready only once, no loop).
