@@ -588,11 +588,15 @@ State HandleRoute(TSession &session, const Marker marker) {
 
 template <typename TSession>
 State HandleLogOff(TSession &session) {
-  session.LogOff();
-  if (!session.encoder_.MessageSuccess({})) {
-    spdlog::trace("Couldn't send success message!");
-    return State::Close;
+  try {
+    session.LogOff();
+    if (!session.encoder_.MessageSuccess({})) {
+      spdlog::trace("Couldn't send success message!");
+      return State::Close;
+    }
+    return State::Init;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
   }
-  return State::Init;
 }
 }  // namespace memgraph::communication::bolt
