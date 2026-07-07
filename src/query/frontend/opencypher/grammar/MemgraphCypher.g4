@@ -274,7 +274,6 @@ query : cypherQuery
       | storageModeQuery
       | createSnapshotQuery
       | recoverSnapshotQuery
-      | resetDatabaseQuery
       | showSnapshotsQuery
       | showNextSnapshotQuery
       | streamQuery
@@ -719,8 +718,6 @@ storageModeQuery : STORAGE MODE storageMode ;
 createSnapshotQuery : CREATE SNAPSHOT ;
 
 recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( WITH CONFIG configsMap=configMap ) ? ( FORCE )? ;
-
-resetDatabaseQuery : RESET DATABASE ;
 
 showSnapshotsQuery : SHOW SNAPSHOTS ;
 

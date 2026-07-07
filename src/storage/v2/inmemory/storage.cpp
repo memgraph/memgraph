@@ -483,8 +483,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       } catch (const durability::RecoveryFailure &e) {
         // --storage-allow-recovery-failure: instead of crashing the process, bring this
         // database up empty and broken. RecoverData only reads durability files, so the
-        // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT,
-        // RESET DATABASE, or restore the whole data directory from a backup. Only a
+        // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT
+        // or restore the whole data directory from a backup. Only a
         // data-driven RecoveryFailure is recoverable here; any other exception falls
         // through to the catch(...) below and propagates.
         if (!config_.durability.allow_recovery_failure) {
@@ -4554,82 +4554,10 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 
   // A successful recovery cures a broken tenant: the durability directory is now
   // restart-clean (prior/corrupt files moved to .old or deleted), so background
-  // durability can resume. Unlike RESET DATABASE, this does not set was_reset_:
-  // the tenant is repopulated with real data (not reset to empty), so replicas
-  // re-sync through the standard epoch-mismatch recovery path rather than via the
-  // reset_uuids reset hint.
+  // durability can resume.
   SetBroken(false);
 
   return {};
-}
-
-std::expected<void, InMemoryStorage::ResetError> InMemoryStorage::ResetBroken() {
-  if (!IsBroken()) {
-    return std::unexpected{InMemoryStorage::ResetError::NotBroken};
-  }
-  return ClearDurabilityAndReset();
-}
-
-std::expected<void, InMemoryStorage::ResetError> InMemoryStorage::ClearDurabilityAndReset() {
-  auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
-  constexpr std::string_view old_dir = ".old";
-
-  // Move the corrupt snapshots and WAL files aside (to .old) when backup directories
-  // are enabled, otherwise delete them. This leaves the durability directory clean so
-  // the tenant recovers as an empty database on the next restart rather than re-breaking.
-  if (use_old_dir) {
-    std::error_code ec{};
-    for (auto const &dir : {recovery_.snapshot_directory_, recovery_.wal_directory_}) {
-      auto const backup_dir = dir / old_dir;
-      if (std::filesystem::exists(backup_dir)) {
-        std::filesystem::remove_all(backup_dir, ec);
-        if (ec) {
-          spdlog::warn("Failed to clear stale backup directory {}; it should be cleaned manually. Err: {}",
-                       backup_dir,
-                       ec.message());
-          return std::unexpected{InMemoryStorage::ResetError::BackupFailure};
-        }
-      }
-      std::filesystem::create_directory(backup_dir, ec);
-      if (ec) {
-        spdlog::warn(
-            "Failed to create backup directory {}; it should be cleaned manually. Err: {}", backup_dir, ec.message());
-        return std::unexpected{InMemoryStorage::ResetError::BackupFailure};
-      }
-    }
-  }
-
-  for (auto const &dir : {recovery_.snapshot_directory_, recovery_.wal_directory_}) {
-    for (auto const &file_path : utils::GetFilesFromDir(dir)) {
-      if (!use_old_dir) {
-        file_retainer_.DeleteFile(file_path);
-      } else {
-        auto const new_path = dir / old_dir / file_path.filename();
-        spdlog::trace("Moving file {} to {}", file_path, new_path);
-        file_retainer_.RenameFile(file_path, new_path);
-      }
-    }
-    std::error_code ec{};
-    std::filesystem::remove(dir / old_dir, ec);  // remove dir if empty
-  }
-
-  // Reset the tenant to an empty working state (mirrors the broken scrub in the constructor).
-  ResetTenant();
-
-  return {};
-}
-
-void InMemoryStorage::ResetTenant() {
-  // Mututally exclusive with periodic snapshot
-  auto snapshot_lock = std::lock_guard{snapshot_lock_};
-  auto main_lock = std::lock_guard{main_lock_};  // needed for Clear()
-  Clear();
-  name_id_mapper_->Clear();
-  description_store_.Clear();
-  SetBroken(false);
-  // Fresh reset: drop prior confirmations so every replica is advertised this reset until it re-confirms.
-  ClearResetConfirmations();
-  SetReset(true);
 }
 
 std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {

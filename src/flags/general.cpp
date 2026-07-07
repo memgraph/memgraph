@@ -133,7 +133,7 @@ DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creat
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_allow_recovery_failure, false,
             "If true, a database that fails to recover on startup comes up in a broken state instead of crashing the "
-            "process. Broken databases reject queries until recovered via RECOVER SNAPSHOT or RESET DATABASE.");
+            "process. Broken databases reject queries until recovered via RECOVER SNAPSHOT.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_items_per_batch, memgraph::storage::Config::Durability().items_per_batch,

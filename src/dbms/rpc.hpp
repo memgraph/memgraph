@@ -180,44 +180,6 @@ struct ResumeDatabaseRes {
 
 using ResumeDatabaseRpc = rpc::RequestResponse<ResumeDatabaseReq, ResumeDatabaseRes>;
 
-struct ResetDatabaseReq {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RESET_DATABASE_REQ, .name = "ResetDatabaseReq"};
-  static constexpr uint64_t kVersion{1};
-
-  static void Load(ResetDatabaseReq *self, memgraph::slk::Reader *reader);
-  static void Save(const ResetDatabaseReq &self, memgraph::slk::Builder *builder);
-  ResetDatabaseReq() = default;
-
-  ResetDatabaseReq(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
-                   uint64_t const new_group_timestamp, const utils::UUID &uuid)
-      : main_uuid(main_uuid),
-        expected_group_timestamp{expected_group_timestamp},
-        new_group_timestamp(new_group_timestamp),
-        uuid(uuid) {}
-
-  utils::UUID main_uuid;
-  uint64_t expected_group_timestamp;
-  uint64_t new_group_timestamp;
-  utils::UUID uuid;
-};
-
-struct ResetDatabaseRes {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RESET_DATABASE_RES, .name = "ResetDatabaseRes"};
-  static constexpr uint64_t kVersion{1};
-
-  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
-
-  static void Load(ResetDatabaseRes *self, memgraph::slk::Reader *reader);
-  static void Save(const ResetDatabaseRes &self, memgraph::slk::Builder *builder);
-  ResetDatabaseRes() = default;
-
-  explicit ResetDatabaseRes(Result res) : result(res) {}
-
-  Result result;
-};
-
-using ResetDatabaseRpc = rpc::RequestResponse<ResetDatabaseReq, ResetDatabaseRes>;
-
 struct RenameDatabaseReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RENAME_DATABASE_REQ, .name = "RenameDatabaseReq"};
   static constexpr uint64_t kVersion{1};
@@ -339,14 +301,6 @@ void Load(memgraph::storage::replication::ResumeDatabaseReq *self, memgraph::slk
 void Save(const memgraph::storage::replication::ResumeDatabaseRes &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::ResumeDatabaseRes *self, memgraph::slk::Reader *reader);
-
-void Save(const memgraph::storage::replication::ResetDatabaseReq &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::ResetDatabaseReq *self, memgraph::slk::Reader *reader);
-
-void Save(const memgraph::storage::replication::ResetDatabaseRes &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::ResetDatabaseRes *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::replication::RenameDatabaseReq &self, memgraph::slk::Builder *builder);
 

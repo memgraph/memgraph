@@ -304,7 +304,7 @@ constexpr std::string_view kSocketErrorExplanation =
 
 constexpr std::string_view kBrokenDatabaseError =
     "Database is in the broken state because the recovery process failed. Please recover your database "
-    "using the RECOVER SNAPSHOT query or RESET DATABASE query + run your import queries. If you have a "
+    "using the RECOVER SNAPSHOT query. If you have a "
     "backup of the whole data directory, please replace the current data directory with the backup one and "
     "restart the process.";
 
@@ -3431,7 +3431,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           throw DatabaseContextRequiredException("No current database for transaction defined.");
         // Fail-closed on a broken database: an explicit transaction opens a data accessor and its queries
         // bypass the per-query broken gate (which only runs outside explicit transactions), so reject the
-        // BEGIN itself. The tenant must first be recovered via RECOVER SNAPSHOT or RESET DATABASE.
+        // BEGIN itself. The tenant must first be recovered via RECOVER SNAPSHOT.
         if ((*current_db_.db_acc_)->storage()->IsBroken()) {
           throw QueryException(std::string{kBrokenDatabaseError});
         }
@@ -6307,58 +6307,6 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
         for (const auto &client : *locked_clients) {
           client->ForceRecoverReplica(mem_storage, protector);
         }
-        return QueryHandlerResult::COMMIT;
-      },
-      .rw_type = RWType::NONE};
-}
-
-PreparedQuery PrepareResetDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
-                                        replication_coordination_glue::ReplicationRole replication_role,
-                                        Interpreter &interpreter, std::vector<Notification> *notifications) {
-  if (in_explicit_transaction) {
-    throw ResetDatabaseInMulticommandTxException();
-  }
-
-  MG_ASSERT(current_db.db_acc_, "Reset Database query expects a current DB");
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
-
-  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw ResetDatabaseDisabledOnDiskStorage();
-  }
-
-  // Main-only: resets happen authoritatively on the main; replicas re-sync from it.
-  if (replication_role == replication_coordination_glue::ReplicationRole::REPLICA) {
-    throw QueryException("RESET DATABASE can only be run on the MAIN instance.");
-  }
-
-  // Broken-only: reject on a healthy database to prevent accidental data loss.
-  if (!storage->IsBroken()) {
-    throw QueryException("RESET DATABASE can only be run on a database in the broken state.");
-  }
-
-  auto const db_name = current_db.db_acc_->get()->name();
-
-  return PreparedQuery{
-      .header = {},
-      .privileges = std::move(parsed_query.required_privileges),
-      .query_handler = [db_acc = *current_db.db_acc_, db_name, interpreter = &interpreter, notifications](
-                           AnyStream * /*stream*/,
-                           std::optional<int> /*n*/) mutable -> std::optional<QueryHandlerResult> {
-        if (!interpreter->system_transaction_) {
-          throw QueryException("Expected to be in a system transaction");
-        }
-        // Reset the tenant locally on the MAIN (reset to an empty state with a fresh epoch) and record a
-        // system action that replicates the reset to every replica: each replica wipes its stale tenant data
-        // and re-syncs from the main's fresh epoch, leaving a clean empty tenant ready for the main's commits.
-        if (auto const result = memgraph::dbms::DbmsHandler::ResetDatabase(db_acc, &*interpreter->system_transaction_);
-            !result.has_value()) {
-          throw QueryException("{}", result.error());
-        }
-        notifications->emplace_back(
-            SeverityLevel::INFO,
-            NotificationCode::RESET_DATABASE,
-            fmt::format("Database '{}' resetted.", db_name),
-            "The database has been reset to an empty state. You can now run your import queries to repopulate it.");
         return QueryHandlerResult::COMMIT;
       },
       .rw_type = RWType::NONE};
@@ -9762,10 +9710,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(RecoverSnapshotQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
 
-  // RESET DATABASE runs as a system transaction (it replicates the tenant reset to the replicas); it must
-  // not open a data accessor on the current DB, otherwise the system-transaction commit path is skipped.
-  void Visit(ResetDatabaseQuery & /*unused*/) override {}
-
   // Read access required
   void Visit(ExplainQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
 
@@ -9953,8 +9897,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
         utils::Downcast<ReplicationQuery>(parsed_query.query) ||
         utils::Downcast<UserProfileQuery>(parsed_query.query) ||
-        utils::Downcast<TenantProfileQuery>(parsed_query.query) ||
-        utils::Downcast<ParameterQuery>(parsed_query.query) || utils::Downcast<ResetDatabaseQuery>(parsed_query.query);
+        utils::Downcast<TenantProfileQuery>(parsed_query.query) || utils::Downcast<ParameterQuery>(parsed_query.query);
 
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
     auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
@@ -9991,12 +9934,12 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
       // Fail-closed gate for broken databases (those that failed durability recovery and
       // came up empty under --storage-allow-recovery-failure). Any query that operates on
-      // the current database's data is rejected until it is recovered via RECOVER SNAPSHOT
-      // or RESET DATABASE. Meta queries (USE/SHOW DATABASES, SHOW STORAGE INFO, auth,
+      // the current database's data is rejected until it is recovered via RECOVER SNAPSHOT.
+      // Meta queries (USE/SHOW DATABASES, SHOW STORAGE INFO, auth,
       // replication, ...) do not touch the tenant graph and are allowed through.
       if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsBroken()) {
         auto *q = parsed_query.query;
-        // Allowlist: in the broken state only the cure queries (RECOVER SNAPSHOT / RESET DATABASE)
+        // Allowlist: in the broken state only the cure query (RECOVER SNAPSHOT)
         // and meta/admin queries that never touch the tenant graph are permitted. Everything else
         // (Cypher, DDL, CREATE SNAPSHOT, SHOW INDEX/CONSTRAINT/NODE LABELS/EDGE TYPES/METRICS INFO, ...)
         // is rejected until the database is recovered: those SHOW ... INFO variants read tenant-graph
@@ -10008,7 +9951,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
             [q]<typename... Ts>() {
               return (... || (utils::Downcast<Ts>(q) != nullptr));
             }.template operator()<RecoverSnapshotQuery,
-                                  ResetDatabaseQuery,
                                   SystemInfoQuery,
                                   ReplicationInfoQuery,
                                   ShowConfigQuery,
@@ -10247,14 +10189,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto const replication_role = interpreter_context_->repl_state->ReadLock()->GetRole();
       prepared_query =
           PrepareRecoverSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
-    } else if (utils::Downcast<ResetDatabaseQuery>(parsed_query.query)) {
-      auto const replication_role = interpreter_context_->repl_state->ReadLock()->GetRole();
-      prepared_query = PrepareResetDatabaseQuery(std::move(parsed_query),
-                                                 in_explicit_transaction_,
-                                                 current_db_,
-                                                 replication_role,
-                                                 *this,
-                                                 &query_execution->notifications);
     } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
       prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<ShowNextSnapshotQuery>(parsed_query.query)) {

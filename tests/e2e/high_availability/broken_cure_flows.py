@@ -529,52 +529,6 @@ def test_both_corrupt_status_then_cure(test_name):
     os.remove(good_snapshot)
 
 
-# ---------------------------------------------------------------------------------------------
-# Scenario 3: RESET DATABASE on the main + import -> data replicates to the replica.
-# ---------------------------------------------------------------------------------------------
-def test_main_corrupt_cured_with_reset_database_and_import(test_name):
-    instances, coord_cursor = setup_cluster_with_tenant(test_name)
-
-    # Keep the replica down while the operator resets the main so the coordinator cannot fail
-    # over to a healthy instance: instance_1 stays main and RESET runs on the corrupt main.
-    interactive_mg_runner.kill(instances, "instance_1")
-    interactive_mg_runner.kill(instances, "instance_2")
-    corrupt_tenant_durability(data_dir_of(test_name, "instance_1"))
-    enable_recovery_failure(instances, "instance_1")
-    interactive_mg_runner.start(instances, "instance_1")
-    wait_main(coord_cursor, "instance_1")
-
-    # RESET DATABASE resets the tenant to an empty, ready state on instance_1 while it is main.
-    main1_cursor = connect(host="localhost", port=7687).cursor()
-    use_tenant(main1_cursor)
-    assert storage_info(main1_cursor)["health"] == "broken"
-    execute_and_fetch_all(main1_cursor, "RESET DATABASE")
-    assert storage_info(main1_cursor)["health"] == "ready"
-    assert get_vertex_count(main1_cursor) == 0
-
-    # Bring the replica back. Re-resolve the main afterwards: rejoining can trigger a failover, so
-    # we drive the import at whichever instance is the stable main rather than assuming instance_1.
-    interactive_mg_runner.start(instances, "instance_2")
-    cursor, _ = resolve_main_cursor(coord_cursor)
-    use_tenant(cursor)
-
-    # Wait for the replica to be in sync on the main before the single import, so the SYNC write
-    # lands on both instances on the first try (a retried write would double-insert).
-    wait_replica_ready_on_main(cursor)
-
-    # Import fresh data on the resetted tenant and verify it replicates across the whole cluster.
-    wait_until_main_writeable(cursor, "UNWIND range(1, 1234) AS i CREATE (:Imported {id: i})")
-    assert execute_and_fetch_all(cursor, "MATCH (n:Imported) RETURN count(n)")[0][0] == 1234
-
-    def tenant_imported_count(port):
-        c = connect(host="localhost", port=port).cursor()
-        use_tenant(c)
-        return execute_and_fetch_all(c, "MATCH (n:Imported) RETURN count(n)")[0][0]
-
-    mg_sleep_and_assert(1234, partial(tenant_imported_count, 7687))
-    mg_sleep_and_assert(1234, partial(tenant_imported_count, 7688))
-
-
 def setup_cluster_two_dbs(test_name):
     """Bring up the cluster with instance_1 MAIN / instance_2 REPLICA, populate and snapshot BOTH the
     default `memgraph` database and a named `db1`, and confirm both replicated to instance_2. Returns
