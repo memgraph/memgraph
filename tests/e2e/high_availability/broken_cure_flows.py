@@ -263,7 +263,8 @@ def storage_info(cursor):
 
 
 def databases_status(cursor):
-    return {row[0]: row[1] for row in execute_and_fetch_all(cursor, "SHOW DATABASES")}
+    # SHOW DATABASES returns (Name, State, Health); the Health column (ready/broken) is asserted on.
+    return {row[0]: row[2] for row in execute_and_fetch_all(cursor, "SHOW DATABASES")}
 
 
 def use_tenant(cursor):
@@ -561,11 +562,7 @@ def test_main_corrupt_cured_with_reset_database_and_import(test_name):
     # lands on both instances on the first try (a retried write would double-insert).
     wait_replica_ready_on_main(cursor)
 
-<<<<<<< HEAD
     # Import fresh data on the resetted tenant and verify it replicates across the whole cluster.
-=======
-    # Import fresh data on the reset tenant and verify it replicates across the whole cluster.
->>>>>>> c34b072a5 (refactor: Repair database -> reset database)
     wait_until_main_writeable(cursor, "UNWIND range(1, 1234) AS i CREATE (:Imported {id: i})")
     assert execute_and_fetch_all(cursor, "MATCH (n:Imported) RETURN count(n)")[0][0] == 1234
 

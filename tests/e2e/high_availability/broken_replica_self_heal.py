@@ -187,9 +187,10 @@ def get_memgraph_instances_description(test_name: str):
     }
 
 
-def tenant_status(cursor):
-    """SHOW DATABASES -> {name: status} on whatever instance the cursor points to."""
-    return {row[0]: row[1] for row in execute_and_fetch_all(cursor, "SHOW DATABASES")}
+def tenant_health(cursor):
+    """SHOW DATABASES -> {name: health} on whatever instance the cursor points to. SHOW DATABASES
+    returns (Name, State, Health); the Health column (ready/broken) is what this test asserts on."""
+    return {row[0]: row[2] for row in execute_and_fetch_all(cursor, "SHOW DATABASES")}
 
 
 def tenant_vertex_count(cursor):
@@ -263,7 +264,7 @@ def test_broken_replica_tenant_self_heals_from_main(test_name, recovery_path):
     interactive_mg_runner.start(instances, "instance_1")
 
     # 5a: the main is unaffected.
-    assert tenant_status(main_cursor).get(TENANT) == "ready"
+    assert tenant_health(main_cursor).get(TENANT) == "ready"
 
     # Drive the main to replicate broken_db again. After instance_1 restarts, its broken_db is
     # broken and reports commit-ts 0 with a fresh epoch; the next replicated transaction makes the
@@ -284,7 +285,7 @@ def test_broken_replica_tenant_self_heals_from_main(test_name, recovery_path):
             # A SYNC replica that is mid-recovery can transiently make the commit fail; tolerate only
             # that specific error and let the next poll retry. Anything else is a real failure.
             assert "Failed to replicate to SYNC replica" in str(e), f"Unexpected error while nudging main: {e}"
-        return tenant_status(instance_1_cursor).get(TENANT)
+        return tenant_health(instance_1_cursor).get(TENANT)
 
     # 5b: the replica self-heals to `ready`.
     mg_sleep_and_assert("ready", nudge_and_check_healed, max_duration=120, time_between_attempt=2)
@@ -298,11 +299,11 @@ def test_broken_replica_tenant_self_heals_from_main(test_name, recovery_path):
     mg_sleep_and_assert(main_broken_db_count, partial(tenant_vertex_count, instance_1_cursor))
 
     # The default tenant was never affected on the healed replica.
-    assert tenant_status(connect(host="localhost", port=7688).cursor()).get("memgraph") == "ready"
+    assert tenant_health(connect(host="localhost", port=7688).cursor()).get("memgraph") == "ready"
 
     # The untouched replica instance_2 stayed healthy throughout (broken tenant on one instance
     # does not disrupt the other healthy instances).
-    assert tenant_status(instance_2_cursor).get(TENANT) == "ready"
+    assert tenant_health(instance_2_cursor).get(TENANT) == "ready"
 
 
 if __name__ == "__main__":

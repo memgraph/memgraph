@@ -15,7 +15,6 @@
 #include "parameters/parameters.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
-#include "utils/enum.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::slk {
@@ -150,11 +149,6 @@ void Load(memgraph::replication::SystemRecoveryResV1 *self, memgraph::slk::Reade
   memgraph::slk::Load(&self->result, reader);
 }
 
-// Serialize code for SystemRecoveryResV2 (same layout as Res)
-void Save(const memgraph::replication::SystemRecoveryResV2 &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.result, builder);
-}
-
 void Load(memgraph::replication::SystemRecoveryResV2 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->result, reader);
 }
@@ -162,14 +156,6 @@ void Load(memgraph::replication::SystemRecoveryResV2 *self, memgraph::slk::Reade
 // Serialize code for SystemRecoveryResV2 (same layout as Res)
 void Save(const memgraph::replication::SystemRecoveryResV2 &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.result, builder);
-}
-
-void Load(memgraph::replication::SystemRecoveryResV2 *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
 }
 
 // Serialize code for SystemRecoveryRes
@@ -230,14 +216,6 @@ void SystemRecoveryResV1::Save(const SystemRecoveryResV1 &self, memgraph::slk::B
 }
 
 void SystemRecoveryResV1::Load(SystemRecoveryResV1 *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-
-void SystemRecoveryResV2::Save(const SystemRecoveryResV2 &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-
-void SystemRecoveryResV2::Load(SystemRecoveryResV2 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 

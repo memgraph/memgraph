@@ -55,11 +55,7 @@ def reset_notifications():
         driver.close()
 
 
-<<<<<<< HEAD
-def test_reset_database_cures_defunct(test_name):
-=======
 def test_reset_database_cures_broken(test_name):
->>>>>>> c34b072a5 (refactor: Repair database -> reset database)
     """A broken default database is cured in place by RESET DATABASE: it resets to an
     empty working state, emits the reset notification, accepts import queries, and recovers
     healthy across a restart (it does not re-enter broken)."""
@@ -97,11 +93,7 @@ def test_reset_database_cures_broken(test_name):
     # notification is present in the query summary.
     notifications = reset_notifications()
     titles = [n.get("title", "") for n in notifications]
-<<<<<<< HEAD
-    assert any("resetted" in t for t in titles), f"Expected a reset notification, got {notifications}"
-=======
     assert any("reset" in t for t in titles), f"Expected a reset notification, got {notifications}"
->>>>>>> c34b072a5 (refactor: Repair database -> reset database)
 
     # The tenant is now an empty, ready database that accepts import queries.
     cursor = connect(host="localhost", port=7687).cursor()

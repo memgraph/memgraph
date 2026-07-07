@@ -233,7 +233,6 @@ TEST(RpcVersioning, RequestTwoVersionsSingleVersionResponse_ThrowsWhenSendingV1)
   EXPECT_THROW(memgraph::rpc::SaveWithDowngrade(res, 1, &builder), std::runtime_error);
 }
 
-<<<<<<< HEAD
 namespace memgraph::replication {
 // Old-version typed RPCs so the test can send a genuine V1/V2 SystemRecoveryReq on the wire (the
 // SystemRecoveryRpc alias always serializes at the latest version, V3). Same pattern as
@@ -243,11 +242,6 @@ using SystemRecoveryRpcV2 = rpc::RequestResponse<SystemRecoveryReqV2, SystemReco
 }  // namespace memgraph::replication
 
 TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
-=======
-// SystemRecoveryRpc: requests with and without the optional trailing fields (parameters, reset
-// tenant uuids) all load and get a correct response.
-TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
->>>>>>> c34b072a5 (refactor: Repair database -> reset database)
   Endpoint const endpoint{"localhost", port};
 
   ServerContext server_context;
@@ -323,6 +317,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_BothSucceed) {
         std::vector<memgraph::auth::Role>{},
         std::vector<memgraph::auth::UserProfiles::Profile>{},
         std::vector<memgraph::parameters::ParameterInfo>{},
+        std::vector<memgraph::storage::ColdTenantRecovery>{},
         std::vector<memgraph::utils::UUID>{memgraph::utils::UUID{}, memgraph::utils::UUID{}});
     auto reply = stream.SendAndWait();
     EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);

@@ -6350,9 +6350,9 @@ PreparedQuery PrepareResetDatabaseQuery(ParsedQuery parsed_query, bool in_explic
         // Reset the tenant locally on the MAIN (reset to an empty state with a fresh epoch) and record a
         // system action that replicates the reset to every replica: each replica wipes its stale tenant data
         // and re-syncs from the main's fresh epoch, leaving a clean empty tenant ready for the main's commits.
-        if (auto const err = memgraph::dbms::DbmsHandler::ResetDatabase(db_acc, &*interpreter->system_transaction_);
-            err.has_value()) {
-          throw QueryException("{}", *err);
+        if (auto const result = memgraph::dbms::DbmsHandler::ResetDatabase(db_acc, &*interpreter->system_transaction_);
+            !result.has_value()) {
+          throw QueryException("{}", result.error());
         }
         notifications->emplace_back(
             SeverityLevel::INFO,
