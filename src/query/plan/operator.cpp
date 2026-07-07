@@ -13666,24 +13666,62 @@ class ScanParallelCursor : public Cursor {
     std::shared_ptr<ChunksType> chunks;
 
     {
-      const std::unique_lock lock(mutex_);
-      if (all_pulled_) return false;  // Everything was pulled
-      if (index_ == 0 || index_ >= self_.num_threads_) {
-        if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
-        chunks_.reset();
-        const bool res = input_cursor_->Pull(*frame_, context);
-        if (!res) {
-          all_pulled_ = true;
-          return false;
+      // c3.5b Stage 1: the expensive input pull no longer runs under `mutex_`. A single designated
+      // "refiller" branch produces the next batch with the lock RELEASED (safe: the `refilling_` flag
+      // guarantees exactly one refiller, and `input_cursor_`/`frame_` are then touched by that branch
+      // alone); every other branch that needs a fresh batch waits for the refiller to publish instead
+      // of blocking with the producer lock held across the whole upstream pull. (Stage 3 replaces the
+      // condition-variable wait with a worker-freeing coroutine park; for now the wait is blocking but
+      // the critical section is short, so results are byte-identical to before.)
+      std::unique_lock lock(mutex_);
+      while (true) {
+        if (all_pulled_) return false;  // Everything was pulled
+        // Dispense a chunk from the current (valid) batch if one is available.
+        if (chunks_ && index_ < self_.num_threads_) {
+          current_batch = batch_version_;
+          frame = *frame_;  // Copy the filled frame
+          chunks = chunks_;
+          index = index_++;
+          break;
         }
-        index_ = 0;
-        ++batch_version_;  // New input batch - caches need to be cleared
-        chunks_ = std::make_shared<ChunksType>(get_chunks_(*frame_, context));
+        // A fresh batch is needed (initial pull, or the current batch is exhausted).
+        if (refilling_) {
+          // Another branch is producing the next batch — wait for it to publish (or finish the input).
+          refill_cv_.wait(lock);
+          continue;  // re-evaluate: batch may now be ready, or the input may be exhausted
+        }
+        // Claim the refiller role and produce the next batch WITHOUT holding the lock.
+        {
+          refilling_ = true;
+          // EXCEPTION-SAFETY (critical): input_cursor_->Pull() / get_chunks_ / frame_.emplace can throw —
+          // e.g. AbortCheck() raises HintedAbortError on transaction abort / timeout / hops-limit. On ANY
+          // exit of this scope (normal, exception, or the all_pulled early return) this guard re-acquires
+          // the lock, clears `refilling_`, and wakes waiters. Without it a throw would strand
+          // `refilling_==true` and never notify → every parked branch (and the whole parallel round's
+          // completion barrier in ScheduleBranchesAndRunMain) would hang forever. The OLD code got this
+          // for free by holding `mutex_` via RAII across the pull; the manual unlock/relock does not.
+          utils::OnScopeExit refill_cleanup([&]() {
+            if (!lock.owns_lock()) lock.lock();
+            refilling_ = false;
+            refill_cv_.notify_all();
+          });
+          chunks_.reset();  // invalidate the exhausted batch so no one dispenses mid-refill
+          if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
+          lock.unlock();
+          const bool res = input_cursor_->Pull(*frame_, context);
+          std::shared_ptr<ChunksType> new_chunks =
+              res ? std::make_shared<ChunksType>(get_chunks_(*frame_, context)) : nullptr;
+          lock.lock();
+          if (!res) {
+            all_pulled_ = true;
+            return false;  // refill_cleanup: clears refilling_ + notify_all (lock already owned)
+          }
+          chunks_ = std::move(new_chunks);
+          index_ = 0;
+          ++batch_version_;  // New input batch - caches need to be cleared
+        }  // refill_cleanup runs here: refilling_ = false + notify_all (lock owned), then loop to dispense
+        // loop: the refiller now dispenses index 0 of the batch it just produced
       }
-      current_batch = batch_version_;
-      frame = *frame_;  // Copy the filled frame
-      chunks = chunks_;
-      index = index_++;
     }
 
     // Clear caches if this branch hasn't seen this batch yet.
@@ -13708,6 +13746,8 @@ class ScanParallelCursor : public Cursor {
     chunks_.reset();
     frame_.reset();
     all_pulled_ = false;
+    refilling_ = false;       // no refill can be in flight across a Reset (query re-execution boundary)
+    refill_cv_.notify_all();  // defense-in-depth: wake any waiter (should be none at a Reset boundary)
     input_cursor_->Reset();
   }
 
@@ -13723,6 +13763,11 @@ class ScanParallelCursor : public Cursor {
   // Tracks input batch version. Incremented when new input is pulled from upstream (e.g., UNWIND).
   // Used to signal branch collectors to clear their caches when input changes.
   uint64_t batch_version_{0};
+  // c3.5b Stage 1: exactly one branch is the "refiller" (produces the next batch with `mutex_` released);
+  // others wait on refill_cv_ for the fresh batch instead of blocking with the producer lock held across
+  // the upstream input pull. (Stage 3 swaps this blocking wait for a worker-freeing coroutine park.)
+  bool refilling_{false};
+  std::condition_variable refill_cv_;
 };
 #endif
 
