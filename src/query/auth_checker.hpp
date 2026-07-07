@@ -235,15 +235,17 @@ struct CachedFineGrainedAuth {
   void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
                std::string_view current_db) {
     if (checked && db_name == current_db) {
-      if (checker) checker->UpdateDbAccessor(dba);
-      return;
+      if (checker) {
+        checker->UpdateDbAccessor(dba);
+        return;
+      }
     }
     checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
     if (!checker || !checker->NeedsFineGrainedAuthChecker()) {
       checker.reset();
     }
     db_name = current_db;
-    checked = checker != nullptr;
+    checked = true;
   }
 
   void Reset() {
