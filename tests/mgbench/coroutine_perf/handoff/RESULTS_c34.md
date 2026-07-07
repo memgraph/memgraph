@@ -1,5 +1,12 @@
 # c3.4 Perf-Gate RESULTS — scheduler park redesign (bare-metal run)
 
+> **⇄ UPDATE 2026-07-07 — c3.5a re-gate: see [§7](#7-c35a-re-gate-2026-07-07--steal-then-park-partial-fix).**
+> §3 below is the ORIGINAL run against the pre-c3.5a up-front park (FAIL, −20…−49%). The dev then landed
+> `fa987501b` (c3.5a steal-then-park) to fix it and asked for a re-gate. **Result: c3.5a eliminates the
+> catastrophic regression but PARK still does NOT tie BLOCK** — a reproducible ~−10% throughput regression
+> at 8 clients remains, with PARK still +23–24% instructions/query under saturation. §3's original
+> ship-decision is superseded by §7's verdict. Read §7 for the decisive call.
+
 Executed-results companion to [`HANDOFF.md`](./HANDOFF.md) §6 and
 [`c34-perf-box-runbook.md`](./c34-perf-box-runbook.md). Records the actual measurements for the
 **parallel scheduler park-vs-block** gate (Gate 1), plus a re-confirmation of the serial
@@ -188,3 +195,115 @@ FAILS** — single-query latency neutral, but throughput-under-concurrency regre
 (reproducible, pinned and unpinned), because the park drive costs **+29 % instructions per query**
 that saturates the CPU under load. Do not ship the park redesign as-is; cut the park-drive cost or
 park only when a freed worker has other work, then re-gate.
+
+---
+
+## 7. c3.5a RE-GATE (2026-07-07) — steal-then-park (partial fix)
+
+The dev acted on §3: commit **`fa987501b`** ("c3.5a — steal-then-park coordinator") makes the park
+**conditional** — after `Trigger()` the coordinator runs a steal loop (`TryExecuteOneIdleTask`) and
+**parks only if nothing is left to steal**. Under saturation the pool workers are busy with other
+queries, so this query's branches stay IDLE, the coordinator runs them inline (== the BLOCK path),
+and the park loop finds the barrier satisfied → never parks. Commit **`f5f3f81ed`** (c3.5b Stage 1,
+ScanParallel single-refiller) is also in this binary; Stages 2-3 (branch park) were DEFERRED
+(`b15b97abc`). The dev flagged this re-gate as **decisive**.
+
+- **Verified binary:** `memgraph version 3.11.0+67~b15b97abc704` — embedded hash **matches HEAD
+  `b15b97abc`** (contains `fa987501b` + `f5f3f81ed`). Rebuilt from HEAD; no ccache trap.
+- **Box:** same i7-11800H; governor `performance` (runs 2-3) / `powersave` (run 1); turbo ON;
+  `perf_event_paranoid=1`. Same `throughput_gate.py`, dataset 400k, `USING PARALLEL EXECUTION 4`.
+
+### 7.1 Throughput under concurrency — Δ = PARK vs BLOCK (3 independent runs)
+
+| clients | run 1 (pin, powersave) | run 2 (pin, performance) | run 3 (unpin, performance) | **§3 original (pre-c3.5a)** |
+|---:|---:|---:|---:|---:|
+| 1 | +25.0% | +12.8% | −2.1% | −8.5% |
+| 2 | +1.9% | −7.0% | −7.5% | −12.3% |
+| 4 | −1.4% | −6.6% | −4.5% | −22.7% |
+| 8 | **−10.4%** | **−12.5%** | **−9.7%** | −30.0% |
+| 16 | −3.6% | −9.0% | −5.0% | **−43.2%** |
+
+**The catastrophic monotonic blow-up is gone** (−43% → ~−5–9% at 16 clients). But PARK does **not
+cleanly tie** BLOCK: a *consistent* residual regression remains under mid concurrency — **~−10% at 8
+clients across all three runs** (three runs agreeing → signal, not noise), ~−5–9% at 16.
+
+### 7.2 Single-query latency (p50, ms) — Δp50 = PARK vs BLOCK
+
+| shape | run 1 | run 2 | run 3 | verdict |
+|---|---:|---:|---:|---|
+| agg | −16.0% | −0.9% | +4.6% | neutral |
+| grp | −0.9% | −8.8% | +3.9% | neutral |
+| ord | −15.8% | −12.5% | +7.3% | neutral |
+
+Single-query latency does **not** regress (PARK slightly faster in runs 1-2, slightly slower in run 3
+— all within the turbo-noise floor). PARK is fine at concurrency 1, as in §3.1.
+
+### 7.3 Root cause — CONCURRENT-saturation PMU (8 clients, 12 s window, frequency-independent)
+
+Reproduce with [`scripts/pmu_concurrent_park_vs_block.sh`](./scripts/pmu_concurrent_park_vs_block.sh).
+Note: the §3.3 single-client probe measures the *low-load* path where c3.5a still parks **by design**,
+so it cannot show whether the fix engaged — this probe saturates the pool (8 clients) so the
+steal-then-park path is the one under test. Instructions/query is server-side (GIL-independent) and
+frequency-independent.
+
+| per-query metric | BLOCK (run1/run2) | PARK (run1/run2) | Δ |
+|---|---:|---:|---:|
+| instructions | 819.3 M / 819.4 M | 1009.3 M / 1019.0 M | **+23.2% / +24.4%** |
+| branches | 155.9 M / 155.9 M | 204.9 M / 207.4 M | **+31.4% / +33.0%** |
+| cycles | 662.7 M / 663.6 M | 765.0 M / 750.3 M | +15.4% / +13.1% |
+| qps (server-limited) | 14.4 / 14.4 | 12.6 / 12.8 | −12.5% / −11.1% |
+
+Even under 8-client saturation PARK still executes **+23–24% instructions / +31–33% branches per
+query**. The steal-then-park successfully avoids the expensive **park/wake** (the old +29% is not
+*fully* removed but the runaway is), yet the coroutine **drive machinery** (running the coordinator
+drive as a coroutine to *enable* the park option — awaitable setup, the steal sweep, `NotifyProgress`,
+`Finished() && InFlightZero()` barrier re-checks, coro-frame machinery) **still runs and still costs**
+even on the paths that end up not parking. This is exactly the "the efficient branch-park needs
+extending the coroutine runtime, not just `operator.cpp` edits" gap called out when Stages 2-3 were
+deferred (`b15b97abc`).
+
+**Robustness (anti-confirmation-bias — this contradicts the fix's goal, so held to the same skepticism
+as §3):** PARK executed **more total instructions** (158–162 G) while completing **fewer queries**
+(157–159 vs 178–179) → it is genuinely doing more work *per query*, not dividing a fixed background
+cost over fewer queries (that would require PARK to idle, but it does more work). Reproduced across two
+PMU passes and corroborated by three throughput runs.
+
+### 7.4 Verdict — PARK does NOT tie BLOCK (Phase-B territory, per the runbook's decision tree)
+
+By the dev's own criterion ("if PARK now ties/wins BLOCK → ship Phase A + Stage 1 and drop branch-park;
+only if PARK still **materially regresses** is the branch-park worth reviving"):
+
+⚠️ **PARK still materially (though far more modestly) regresses** — ~−10% throughput at 8 clients,
+reproducible across 3 runs, with a reproduced **+23–24% instructions/query** root cause. It does **not**
+deliver the redesign's promised throughput benefit vs BLOCK on this benchmark. This lands on the
+**Phase-B / cut-the-drive-cost** branch, **not** the clean "ship it" branch.
+
+**What c3.5a did achieve (bank it):** it converted a *catastrophic, monotonic* −20…−49% regression into
+a *bounded ~−5–10%* one and kept single-query latency neutral — a strict, large improvement over the
+pre-c3.5a up-front park. Stage 1 (`f5f3f81ed`) is independently sound (closes the mutex-held-across-pull
+hazard).
+
+**Direction for the next iteration (cheapest first):**
+1. **Shrink the coroutine drive itself.** The residual +23% is the coordinator running its whole drive
+   as a coroutine purely to *enable* the (now often-unused) park. Profile the drive hot path and inline
+   away the awaitable/barrier-recheck overhead on the steal-taken path so a query that ends up *not*
+   parking pays ~BLOCK cost. This is the most direct route to a true tie.
+2. **Choose the coordinator strategy up front, not per-progress.** If saturation can be detected cheaply
+   at `Trigger()` time (pool has queued work / no idle workers), take the plain synchronous BLOCK drive
+   (no coroutine, no drive overhead) and only take the coroutine/park drive when an idle worker actually
+   exists to benefit. Avoids paying coro-drive cost on the saturated path at all.
+3. **Revive Phase B** (branch park-on-refill-lock) only if 1–2 are insufficient — noting it was deferred
+   for real correctness reasons (silent row-loss / nested-parallel data-loss) and needs coroutine-runtime
+   changes.
+
+### 7.5 One-paragraph summary (c3.5a re-gate)
+
+On bare-metal i7-11800H at HEAD `b15b97abc` (c3.5a steal-then-park + c3.5b Stage 1): the **catastrophic
+Gate-1 regression is fixed** — the pre-c3.5a −20…−49% monotonic throughput blow-up is gone (now ~−5–9%
+at 16 clients) and single-query latency stays neutral. **But PARK still does not tie BLOCK:** a
+reproducible ~−10% throughput regression at 8 clients remains, and concurrent-saturation PMU shows PARK
+still costs **+23–24% instructions / +31–33% branches per query** — the steal avoids the park/wake but
+the coroutine *drive* machinery overhead persists. Per the runbook's decision tree this is **not** a
+clean pass: do **not** flip PARK to default on throughput grounds yet. Bank c3.5a + Stage 1 as a large
+improvement, then shrink the coroutine-drive cost (or pick BLOCK-vs-coro up front by saturation) to
+close the last ~10% before shipping the redesign as default.
