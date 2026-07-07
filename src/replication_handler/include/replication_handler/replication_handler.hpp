@@ -75,7 +75,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     // One ColdTenantRecovery per suspended tenant (salient + stats); empty on non-enterprise /
     // no-license.
     std::vector<storage::ColdTenantRecovery> cold_databases;
-    std::vector<utils::UUID> resetted_uuids;
+    std::vector<utils::UUID> reset_uuids;
   };
 
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
@@ -146,7 +146,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             locked_auth.AllProfiles(),
                                                             params_snapshot,
                                                             std::move(db_info.cold_databases),
-                                                            std::move(db_info.resetted_uuids));
+                                                            std::move(db_info.reset_uuids));
       });
 #else
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,

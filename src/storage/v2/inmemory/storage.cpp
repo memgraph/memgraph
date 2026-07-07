@@ -484,42 +484,38 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         // --storage-allow-recovery-failure: instead of crashing the process, bring this
         // database up empty and broken. RecoverData only reads durability files, so the
         // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT,
-        // RESET DATABASE, or restore the whole data directory from a backup.
-        if (!config_.durability.allow_recovery_failure) throw;
+        // RESET DATABASE, or restore the whole data directory from a backup. Only a
+        // data-driven RecoveryFailure is recoverable here; any other exception falls
+        // through to the catch(...) below and propagates.
+        if (!config_.durability.allow_recovery_failure) {
+          if (config_.salient.items.storage_light_edge) {
+            ClearLightEdges();
+          }
+          throw;
+        }
         spdlog::warn("Database '{}' failed to recover ({}); bringing it up in the broken state.", name(), e.what());
+        // Clear() harvests and frees the live light edges itself (gated on storage_light_edge),
+        // so it is the single owner on this path; do not pre-free here or it double-frees.
         Clear();
         name_id_mapper_->Clear();
         description_store_.Clear();
-        // Snapshot recovery may have already started the storage-ttl background thread; stop it so a
+        // Snapshot recovery may have already armed the storage-ttl background thread; stop it so a
         // broken database doesn't keep firing TTL jobs against cleared storage.
         ttl_.Disable();
         SetBroken(true);
         return std::nullopt;
       } catch (...) {
-        // Free any pool-allocated light Edge* already wired into vertex
-        // adjacency before the exception propagates out of the constructor.
-        // Heavy mode: no-op (edges_ SkipList dtor handles cleanup).
-        // No double-free with the per-loader cleanup: on a pre-Commit failure the
-        // snapshot loader's RAII (LightEdgeLoader::FreeAll / v14 light_cleanup) has
-        // already freed the pool edges AND RecoveryRollbackGuard has cleared
-        // vertices_, so this walk sees empty adjacency. On a post-Commit failure
-        // (e.g. RecoverDerivedState) those guards are no-ops, so this is the sole
-        // owner that frees the still-live light edges — exactly once.
+        // Free any pool-allocated light Edge* already wired into vertex adjacency before
+        // the exception propagates out of the constructor; the dtor body never runs on
+        // ctor failure, so this is the sole owner. Heavy mode: no-op. No double-free: on a
+        // pre-Commit failure the snapshot loader's RAII (LightEdgeLoader::FreeAll / v14
+        // light_cleanup) has already freed the pool edges AND RecoveryRollbackGuard cleared
+        // vertices_, so this walk sees empty adjacency; on a post-Commit failure those
+        // guards are no-ops.
         if (config_.salient.items.storage_light_edge) {
           ClearLightEdges();
         }
-
-        // --storage-allow-recovery-failure: instead of crashing the process, bring this
-        // database up empty and defunct. RecoverData only reads durability files, so the
-        // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT,
-        // RESET DATABASE, or restore the whole data directory from a backup.
-        if (!config_.durability.allow_recovery_failure) throw;
-        spdlog::warn("Database '{}' failed to recover; bringing it up in the defunct state.", name());
-        Clear();
-        name_id_mapper_->Clear();
-        description_store_.Clear();
-        SetBroken(true);
-        return std::nullopt;
+        throw;
       }
     });
     metric_handles_.snapshot_recovery_latency_seconds.Observe(

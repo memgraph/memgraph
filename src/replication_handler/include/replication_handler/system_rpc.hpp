@@ -126,26 +126,34 @@ struct SystemRecoveryReq {
         cold_databases{std::move(cold_databases)},
         resetted_uuids{std::move(resetted_uuids)} {}
 
-  v2.database_configs, v2.auth_config, v2.users, v2.roles, v2.profiles, v2.parameters, {}
-};
-}
+  static SystemRecoveryReq Upgrade(SystemRecoveryReqV2 const &v2) {
+    return SystemRecoveryReq{v2.main_uuid,
+                             v2.forced_group_timestamp,
+                             v2.database_configs,
+                             v2.auth_config,
+                             v2.users,
+                             v2.roles,
+                             v2.profiles,
+                             v2.parameters,
+                             {},
+                             {}};
+  }
 
-utils::UUID main_uuid;
-uint64_t forced_group_timestamp;
-std::vector<storage::SalientConfig> database_configs;
-auth::Auth::Config auth_config;
-std::vector<auth::User> users;
-std::vector<auth::Role> roles;
-std::vector<auth::UserProfiles::Profile> profiles;
-std::vector<parameters::ParameterInfo> parameters;
-// One payload per COLD tenant (salient + as-of-suspend stats + epoch metadata). Replaces
-// the earlier parallel cold_database_configs/cold_database_stats vectors.
-std::vector<storage::ColdTenantRecovery> cold_databases;
-// UUIDs of tenants the main has resetted (reset to empty); a replica that missed the
-// ResetDatabaseRpc resets these so it stops serving stale data and re-syncs from the main.
-std::vector<utils::UUID> resetted_uuids;
-}
-;
+  utils::UUID main_uuid;
+  uint64_t forced_group_timestamp;
+  std::vector<storage::SalientConfig> database_configs;
+  auth::Auth::Config auth_config;
+  std::vector<auth::User> users;
+  std::vector<auth::Role> roles;
+  std::vector<auth::UserProfiles::Profile> profiles;
+  std::vector<parameters::ParameterInfo> parameters;
+  // One payload per COLD tenant (salient + as-of-suspend stats + epoch metadata). Replaces
+  // the earlier parallel cold_database_configs/cold_database_stats vectors.
+  std::vector<storage::ColdTenantRecovery> cold_databases;
+  // UUIDs of tenants the main has resetted (reset to empty); a replica that missed the
+  // ResetDatabaseRpc resets these so it stops serving stale data and re-syncs from the main.
+  std::vector<utils::UUID> resetted_uuids;
+};
 
 struct SystemRecoveryResV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_RES, .name = "SystemRecoveryResV1"};

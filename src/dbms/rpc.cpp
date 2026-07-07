@@ -186,33 +186,21 @@ void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::
   memgraph::slk::Load(&self->result, reader);
 }
 
-<<<<<<< HEAD
 // Serialize code for SuspendDatabaseReq
 
 void Save(const memgraph::storage::replication::SuspendDatabaseReq &self, memgraph::slk::Builder *builder) {
-=======
-// Serialize code for ResetDatabaseReq
-
-void Save(const memgraph::storage::replication::ResetDatabaseReq &self, memgraph::slk::Builder *builder) {
->>>>>>> c34b072a5 (refactor: Repair database -> reset database)
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.uuid, builder);
 }
 
-<<<<<<< HEAD
 void Load(memgraph::storage::replication::SuspendDatabaseReq *self, memgraph::slk::Reader *reader) {
-=======
-void Load(memgraph::storage::replication::ResetDatabaseReq *self, memgraph::slk::Reader *reader) {
->>>>>>> c34b072a5 (refactor: Repair database -> reset database)
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->uuid, reader);
 }
-
-<<<<<<< HEAD
 
 // Serialize code for SuspendDatabaseRes
 
@@ -271,16 +259,6 @@ void Load(memgraph::storage::replication::ResetDatabaseReq *self, memgraph::slk:
 void Save(const memgraph::storage::replication::ResetDatabaseRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.result, builder);
 }
-
-=======
-
-// Serialize code for ResetDatabaseRes
-
-void Save(const memgraph::storage::replication::ResetDatabaseRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.result, builder);
-}
-
->>>>>>> c34b072a5 (refactor: Repair database -> reset database)
 
 void Load(memgraph::storage::replication::ResetDatabaseRes *self, memgraph::slk::Reader *reader) {
   uint8_t res = 0;
