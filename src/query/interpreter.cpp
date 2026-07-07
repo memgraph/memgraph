@@ -9954,7 +9954,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #ifdef MG_ENTERPRISE
     if (current_db_.execution_db_accessor_ && interpreter_context_->auth_checker && user_or_role_ && *user_or_role_) {
       auto *dba = &*current_db_.execution_db_accessor_;
-      cached_fga_->Refresh(*interpreter_context_->auth_checker, *user_or_role_, dba, *dba->DatabaseNameView());
+      cached_fga_->Refresh(*interpreter_context_->auth_checker, *user_or_role_, dba, dba->DatabaseName());
     } else {
       cached_fga_->Reset();
     }
