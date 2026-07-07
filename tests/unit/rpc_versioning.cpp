@@ -607,11 +607,9 @@ TEST(RpcVersioning, SlkLoadUser_MigratesV3FGA) {
   // Roles vector: size=1, then role JSON string
   memgraph::slk::Save(static_cast<uint64_t>(1), &builder);
   memgraph::slk::Save(role_json_str, &builder);
-#ifdef MG_ENTERPRISE
   // MT mappings: empty map
   std::unordered_map<std::string, std::unordered_set<std::string>> mt_map;
   memgraph::slk::Save(mt_map, &builder);
-#endif
   builder.Finalize();
 
   memgraph::slk::Reader reader(buf.data(), buf.size());

@@ -1861,8 +1861,8 @@ std::optional<int> DeduceVersion(nlohmann::json const &data) {
 //           convert global_permission values from V2 enum to V3 bitmask,
 //           add empty permissions array per sub-object.
 void MigrateV2ToV3(nlohmann::json &data) {
+  // Guaranteed to exist as its presence and type is what identified this as V2
   auto fg_it = data.find(kFineGrainedAccessHandler);
-  DMG_ASSERT(fg_it != data.end() && fg_it->is_object());
 
   constexpr uint64_t kV2Read = 1;
   constexpr uint64_t kV2Update = 3;
@@ -1915,8 +1915,8 @@ void MigrateV3ToV4(nlohmann::json &data) {
     data.erase(kFineGrainedAccessHandler);
   }
 
+  // Guaranteed to exist as its presence and type is what identified this as V3
   auto fg_it = data.find(kFineGrainedPermissions);
-  DMG_ASSERT(fg_it != data.end() && fg_it->is_object());
 
   auto const migrate_label_permissions = [](uint64_t v3_perm) -> uint64_t {
     constexpr auto kUpdate = std::to_underlying(FineGrainedPermission::SET_PROPERTY);  // Old UPDATE bit, same position

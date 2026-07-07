@@ -37,6 +37,7 @@ void AttachRolesToUser(
     try {
       user.AddRole(role);
     } catch (memgraph::auth::AuthException const &) {
+      // Role already set as multi-tenant role
       continue;
     }
   }
