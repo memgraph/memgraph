@@ -373,27 +373,40 @@ jobs:
 
       - name: Sign released image with cosign (keyless)
         run: |
-          # Sign the multi-arch manifest; --recursive also signs each per-arch
-          # child image. Signatures are stored by digest in the same repo, so
-          # the `latest` tag (identical digest) is covered too. Registry auth
-          # comes from the earlier docker login. Keyless via GitHub OIDC.
-          cosign sign --yes --recursive "${RELEASE_IMAGE}"
+          set -euo pipefail
+          # Sign by digest (not tag) to avoid the tag-mutability warning and pin
+          # exactly what we published. --recursive also signs each per-arch child
+          # by its own digest; the `latest` tag shares the index digest so it is
+          # covered too. Keyless via GitHub OIDC.
+          index_digest=$(docker buildx imagetools inspect "${RELEASE_IMAGE}" --format '{{.Manifest.Digest}}')
+          cosign sign --yes --recursive "${docker_repo_release}@${index_digest}"
 
       - name: Attach provenance & SBOM attestations (cosign, keyless)
-        # Prod image only (Release, non-malloc). Attestations are attached via
-        # the OCI 1.1 referrers API (COSIGN_REGISTRY_REFERRERS_MODE=oci-1-1) so
-        # Docker Scout can discover them; the legacy `.att` tag scheme is not
-        # referrer-discoverable. The SBOM is the CycloneDX doc syft already
-        # scanned from this exact prod image (reused from S3). The SLSA
-        # provenance is generated here and references the RC source tag; it is a
-        # minimal statement — richer build provenance would be captured at build
-        # time. Verify Scout sees these with: docker scout attest list <ref>.
+        # Prod image only (Release, non-malloc). Docker Scout evaluates the
+        # per-platform image, not the multi-arch index, so the attestations are
+        # attached to the amd64 child digest. Stored via the OCI 1.1 referrers
+        # API (the legacy `.att` tag is not referrer-discoverable). The SBOM is
+        # the CycloneDX doc syft scanned from this exact prod (amd64) image
+        # (reused from S3). The SLSA provenance is a minimal statement generated
+        # here referencing the RC source tag.
         # (The only Release matrix entry is the prod, non-malloc image.)
         if: ${{ matrix.build_type == 'Release' }}
         env:
           COSIGN_REGISTRY_REFERRERS_MODE: oci-1-1
         run: |
           set -euo pipefail
+
+          # Resolve the amd64 child digest of the published manifest list — this
+          # is the digest Docker Scout inspects for linux/amd64.
+          amd64_digest=$(docker buildx imagetools inspect --raw "${RELEASE_IMAGE}" \
+            | jq -r '.manifests[] | select(.platform.architecture=="amd64" and .platform.os=="linux") | .digest')
+          if [[ -z "$amd64_digest" ]]; then
+            echo "Error: could not resolve amd64 child digest for ${RELEASE_IMAGE}" >&2
+            exit 1
+          fi
+          amd64_ref="${docker_repo_release}@${amd64_digest}"
+          echo "RELEASE_IMAGE_AMD64=${amd64_ref}" >> "$GITHUB_ENV"
+          echo "Attesting amd64 image: ${amd64_ref}"
 
           # SLSA provenance v0.2 predicate (cosign wraps it in the in-toto
           # statement and sets the subject to the image digest).
@@ -414,26 +427,52 @@ jobs:
             }
           }
           EOF
-          cosign attest --yes --type slsaprovenance --predicate provenance.json "${RELEASE_IMAGE}"
+          cosign attest --yes --type slsaprovenance --predicate provenance.json "${amd64_ref}"
 
-          # CycloneDX SBOM — reuse the one scanned from this prod image at build.
+          # CycloneDX SBOM — reuse the one scanned from this prod (amd64) image.
           sbom_src="s3://${rc_bucket}/${rc_dir}/sbom/memgraph-docker-sbom.json"
           if aws s3 cp "$sbom_src" sbom.json; then
-            cosign attest --yes --type cyclonedx --predicate sbom.json "${RELEASE_IMAGE}"
+            cosign attest --yes --type cyclonedx --predicate sbom.json "${amd64_ref}"
           else
             echo "::warning::SBOM not found at $sbom_src — skipping SBOM attestation"
           fi
 
       - name: Verify attestations are attached (cosign)
-        # Non-fatal self-check that the attestations we just attached are
-        # present in the registry (via referrers). Uses the already-pinned
-        # cosign — nothing extra is fetched. Never blocks a release.
+        # Non-fatal self-check that the attestations we just attached to the
+        # amd64 child are present in the registry (via referrers). Uses the
+        # already-pinned cosign — nothing extra is fetched. Never blocks a release.
         if: ${{ matrix.build_type == 'Release' }}
         continue-on-error: true
         run: |
           set -uo pipefail   # diagnostic only
-          echo "== attestations attached to ${RELEASE_IMAGE} =="
-          cosign tree "${RELEASE_IMAGE}" || echo "::warning::cosign tree failed for ${RELEASE_IMAGE}"
+          ref="${RELEASE_IMAGE_AMD64:-$RELEASE_IMAGE}"
+          echo "== attestations attached to ${ref} =="
+          cosign tree "${ref}" || echo "::warning::cosign tree failed for ${ref}"
+
+      - name: "[TEMPORARY] Verify attestations with Docker Scout"
+        # TEMPORARY diagnostic to confirm Scout discovers the amd64 attestations.
+        # Installs the docker scout plugin from an UNPINNED upstream script — a
+        # supply-chain risk acceptable only for this throwaway check. REMOVE once
+        # discovery is confirmed.
+        if: ${{ matrix.build_type == 'Release' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s -- || {
+            echo "::warning::could not install docker scout"; exit 0;
+          }
+          for ref in "${RELEASE_IMAGE}" "${RELEASE_IMAGE_AMD64:-}"; do
+            [[ -z "$ref" ]] && continue
+            echo "===== docker scout attest list ${ref} ====="
+            docker scout attest list "${ref}" || echo "::warning::attest list failed for ${ref}"
+            for ptype in https://cyclonedx.org/bom https://cyclonedx.org/bom/v1.6 https://slsa.dev/provenance/v0.2; do
+              if docker scout attest get --predicate-type "$ptype" "${ref}" >/dev/null 2>&1; then
+                echo "Scout CAN read: $ptype  on ${ref}"
+              else
+                echo "::warning::Scout could NOT read: $ptype  on ${ref}"
+              fi
+            done
+          done
 
       - name: Clean up temporary images
         run: |
