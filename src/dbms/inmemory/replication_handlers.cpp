@@ -388,7 +388,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
 
   const storage::replication::HeartbeatRes res{
       true, commit_info.ldt_, last_epoch_with_commit, commit_info.num_committed_txns_};
-  rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+  rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
 }
 
 void InMemoryReplicationHandlers::PrepareCommitHandler(
@@ -475,7 +475,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     }
 
     const storage::replication::PrepareCommitRes res{false};
-    rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+    rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
     return;
   }
 
@@ -493,7 +493,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     two_pc_cache_.durability_commit_timestamp_ = req.durability_commit_timestamp;
     res.success = true;
   }
-  rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+  rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
 }
 
 void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
@@ -640,10 +640,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
     spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
-    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0},
-                           request_version,
-                           res_builder,
-                           fmt::format("db: {}", storage->name()));
+    rpc::SendFinalResponse(
+        storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
     return;
   }
 
@@ -652,10 +650,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
       spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
-      rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0},
-                             request_version,
-                             res_builder,
-                             fmt::format("db: {}", storage->name()));
+      rpc::SendFinalResponse(
+          storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
       return;
     }
 
@@ -719,7 +715,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           e.what());
       storage->Clear();
       const storage::replication::SnapshotRes res{std::nullopt, 0};
-      rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+      rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
       return;
     }
   }
@@ -762,7 +758,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   }};
 
   const storage::replication::SnapshotRes res{ldt, num_committed_txns};
-  rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+  rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
 }
 
 // Commit timestamp on main's side shouldn't be updated if:
@@ -863,6 +859,22 @@ void InMemoryReplicationHandlers::WalFilesHandler(
 
   auto const &active_files = file_replication_handler.GetActiveFileNames();
 
+  // On a force reset the storage was cleared above, so the old durability files must be removed regardless of
+  // whether sending the response succeeds; otherwise a SendFinalResponse throw would orphan a stale WAL chain
+  // next to the reset seq_num 0 WAL and corrupt the next recovery. ProcessOldDurableFiles is a no-op when the
+  // reset wasn't requested. The guard body must never throw because it can run during stack unwinding.
+  utils::OnScopeExit const cleanup_old_durability_files{[&] {
+    try {
+      ProcessOldDurableFiles(req.reset_needed,
+                             storage->recovery_.snapshot_directory_,
+                             current_wal_directory,
+                             old_wal_files,
+                             &storage->file_retainer_);
+    } catch (const std::exception &e) {
+      spdlog::error("Failed to clean up old durability files after WAL files recovery: {}", e.what());
+    }
+  }};
+
   uint32_t local_batch_counter{0};
   uint64_t num_committed_txns{0};
   for (auto i = 0UL; i < wal_file_number; ++i) {
@@ -884,23 +896,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   const storage::replication::WalFilesRes res{
       storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, num_committed_txns};
 
-  // On a force reset the storage was cleared above, so the old durability files must be removed regardless of
-  // whether sending the response succeeds; otherwise a SendFinalResponse throw would orphan a stale WAL chain
-  // next to the reset seq_num 0 WAL and corrupt the next recovery. ProcessOldDurableFiles is a no-op when the
-  // reset wasn't requested. The guard body must never throw because it can run during stack unwinding.
-  utils::OnScopeExit const cleanup_old_durability_files{[&] {
-    try {
-      ProcessOldDurableFiles(req.reset_needed,
-                             storage->recovery_.snapshot_directory_,
-                             current_wal_directory,
-                             old_wal_files,
-                             &storage->file_retainer_);
-    } catch (const std::exception &e) {
-      spdlog::error("Failed to clean up old durability files after WAL files recovery: {}", e.what());
-    }
-  }};
-
-  rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+  rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
 }
 
 // Commit timestamp on MAIN's side shouldn't be updated if:
@@ -1024,7 +1020,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
     }
   }};
 
-  rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+  rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
 }
 
 // The method will return false and hence signal the failure of completely loading the WAL file if:
