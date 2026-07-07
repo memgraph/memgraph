@@ -228,30 +228,25 @@ class AllowEverythingAuthChecker final : public AuthChecker {
 struct CachedFineGrainedAuth {
   std::unique_ptr<FineGrainedAuthChecker> checker;
   std::string db_name;
-  bool checked{false};
 
   FineGrainedAuthChecker const *get() const { return checker.get(); }
 
   void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
                std::string_view current_db) {
-    if (checked && db_name == current_db) {
-      if (checker) {
-        checker->UpdateDbAccessor(dba);
-        return;
-      }
+    if (db_name == current_db) {
+      if (checker) checker->UpdateDbAccessor(dba);
+      return;
     }
     checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
     if (!checker || !checker->NeedsFineGrainedAuthChecker()) {
       checker.reset();
     }
     db_name = current_db;
-    checked = true;
   }
 
   void Reset() {
     checker.reset();
     db_name.clear();
-    checked = false;
   }
 };
 
