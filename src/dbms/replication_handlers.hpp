@@ -34,9 +34,6 @@ void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
 void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                          const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                          uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
-void ResetDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
-                          const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
-                          uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                            uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
@@ -50,8 +47,7 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
 // configs; cold_databases = the COLD set (each a salient + MAIN's as-of-suspend stats + epoch metadata).
 // Converges {HOT ∪ COLD} to match MAIN. Returns false on a non-transient failure.
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs,
-                           const std::vector<storage::ColdTenantRecovery> &cold_databases,
-                           const std::vector<utils::UUID> &resetted_uuids);
+                           const std::vector<storage::ColdTenantRecovery> &cold_databases);
 
 // RPC registration
 void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,

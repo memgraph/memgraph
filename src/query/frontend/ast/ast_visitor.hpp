@@ -107,7 +107,6 @@ class IsolationLevelQuery;
 class StorageModeQuery;
 class CreateSnapshotQuery;
 class RecoverSnapshotQuery;
-class ResetDatabaseQuery;
 class ShowSnapshotsQuery;
 class ShowNextSnapshotQuery;
 class StreamQuery;
@@ -194,6 +193,6 @@ class QueryVisitor
           CoordinatorQuery, DropAllIndexesQuery, DropAllConstraintsQuery, DropGraphQuery, CreateEnumQuery,
           ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery,
           ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery, SessionSettingQuery, UserProfileQuery, TenantProfileQuery,
-          ParameterQuery, DescriptionQuery, ReloadSSLQuery, ShowMemoryInfoQuery, ResetDatabaseQuery> {};
+          ParameterQuery, DescriptionQuery, ReloadSSLQuery, ShowMemoryInfoQuery> {};
 
 }  // namespace memgraph::query

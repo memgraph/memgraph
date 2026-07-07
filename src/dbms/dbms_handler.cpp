@@ -391,43 +391,6 @@ struct DropDatabase : memgraph::system::ISystemAction {
   utils::UUID uuid_;
 };
 
-// RESET DATABASE on a defunct main: the main resets the tenant to an empty state with a fresh epoch
-// (storage->ResetDefunct() done locally before this action is recorded). This action replicates the
-// reset to every replica via ResetDatabaseRpc so each replica completely wipes its stale tenant data,
-// then force-recovers the existing per-DB replication clients so the freshly cleared replicas re-sync
-// from the main (their commit timestamp is back to 0, so no branching point is detected) and become
-// ready to accept the main's subsequent commits.
-struct ResetDatabaseAction : memgraph::system::ISystemAction {
-  ResetDatabaseAction(utils::UUID uuid, DatabaseAccess db_acc) : uuid_{uuid}, db_acc_{std::move(db_acc)} {}
-
-  void DoDurability() override { /* Done during DBMS execution */ }
-
-  bool ShouldReplicateInCommunity() const override { return false; }
-
-  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                     memgraph::system::Transaction const &txn) const override {
-    auto check_response = [](const storage::replication::ResetDatabaseRes &response) {
-      return response.result != storage::replication::ResetDatabaseRes::Result::FAILURE;
-    };
-
-    auto const completed = client.StreamAndFinalizeDelta<storage::replication::ResetDatabaseRpc>(
-        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
-    if (completed) {
-      // The replica applied the reset; record its confirmation so the reset is not re-advertised in a
-      // later SystemRecoveryReq and the replica isn't needlessly reset again after it has re-synced.
-      auto acc = db_acc_;
-      acc->storage()->MarkResetConfirmedBy(client.name_);
-    }
-    return completed;
-  }
-
-  void PostReplication(replication::RoleMainData &mainData) const override {}
-
- private:
-  utils::UUID uuid_;
-  DatabaseAccess db_acc_;
-};
-
 struct RenameDatabase : memgraph::system::ISystemAction {
   explicit RenameDatabase(std::string old_name, std::string new_name)
       : old_name_{std::move(old_name)}, new_name_{std::move(new_name)} {}
@@ -894,31 +857,6 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
 }
 
 #endif
-
-std::expected<void, std::string> DbmsHandler::ResetDatabase(DatabaseAccess db_acc,
-                                                            [[maybe_unused]] system::Transaction *txn) {
-  auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-  // MAIN-side local reset: move the corrupt durability files aside, clear the tenant and drop the
-  // broken flag. The tenant comes back empty with a fresh epoch. Available in Community and Enterprise.
-  if (auto reset = mem_storage->ResetBroken(); !reset.has_value()) {
-    switch (reset.error()) {
-      using enum storage::InMemoryStorage::ResetError;
-      case NotBroken:
-        return std::unexpected{"RESET DATABASE can only be run on a database in the broken state."};
-      case BackupFailure:
-        return std::unexpected{"Failed to move aside the corrupt durability files. Please clean them manually."};
-    }
-  }
-
-#ifdef MG_ENTERPRISE
-  // Replicate the reset to the replicas so they wipe their stale tenant data and re-sync from the main.
-  if (txn) {
-    txn->AddAction<ResetDatabaseAction>(mem_storage->uuid(), db_acc);
-  }
-#endif
-
-  return {};
-}
 
 std::optional<memgraph::metrics::StorageSnapshot> DbmsHandler::TryGetStorageSnapshotForMetrics(utils::UUID const &uuid
                                                                                                [[maybe_unused]]) {

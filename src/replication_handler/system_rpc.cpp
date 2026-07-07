@@ -113,7 +113,7 @@ void Load(memgraph::replication::SystemRecoveryReqV2 *self, memgraph::slk::Reade
   memgraph::slk::Load(&self->parameters, reader);
 }
 
-// Serialize code for SystemRecoveryReq (v3, with the hot/cold COLD set and resetted tenant uuids)
+// Serialize code for SystemRecoveryReq (v3, with the hot/cold COLD set)
 void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.forced_group_timestamp, builder);
@@ -124,7 +124,6 @@ void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::B
   memgraph::slk::Save(self.profiles, builder);
   memgraph::slk::Save(self.parameters, builder);
   memgraph::slk::Save(self.cold_databases, builder);
-  memgraph::slk::Save(self.resetted_uuids, builder);
 }
 
 void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
@@ -137,7 +136,6 @@ void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->profiles, reader);
   memgraph::slk::Load(&self->parameters, reader);
   memgraph::slk::Load(&self->cold_databases, reader);
-  memgraph::slk::Load(&self->resetted_uuids, reader);
 }
 
 // Serialize code for SystemRecoveryResV1 (same layout as Res)

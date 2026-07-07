@@ -151,8 +151,6 @@ enum class TypeId : uint64_t {
   REP_UNSET_PARAMETER_RES,
   REP_DELETE_ALL_PARAMETERS_REQ,
   REP_DELETE_ALL_PARAMETERS_RES,
-  REP_RESET_DATABASE_REQ,
-  REP_RESET_DATABASE_RES,
 
   // Coordinator
   // NOTE: these NEED to be stable in the 2500+ range (see rpc version)
@@ -358,7 +356,6 @@ enum class TypeId : uint64_t {
   REP_SUSPEND_DATABASE_RES,
   REP_RESUME_DATABASE_REQ,
   REP_RESUME_DATABASE_RES,
-  AST_RESET_DATABASE_QUERY,
 
   // Symbol
   SYMBOL = 4000,

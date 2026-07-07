@@ -461,18 +461,6 @@ class RecoverSnapshotDisabledOnDiskStorage final : public DisabledForOnDisk {
   SPECIALIZE_GET_EXCEPTION_NAME(RecoverSnapshotDisabledOnDiskStorage)
 };
 
-class ResetDatabaseInMulticommandTxException final : public MulticommandTxException {
- public:
-  ResetDatabaseInMulticommandTxException() : MulticommandTxException("Resetting a database") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(ResetDatabaseInMulticommandTxException)
-};
-
-class ResetDatabaseDisabledOnDiskStorage final : public DisabledForOnDisk {
- public:
-  ResetDatabaseDisabledOnDiskStorage() : DisabledForOnDisk("Resetting a database") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(ResetDatabaseDisabledOnDiskStorage)
-};
-
 class ShowSnapshotsInMulticommandTxException final : public MulticommandTxException {
  public:
   ShowSnapshotsInMulticommandTxException() : MulticommandTxException("Snapshots listing") {}

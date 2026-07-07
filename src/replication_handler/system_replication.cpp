@@ -173,7 +173,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   }
 
 #ifdef MG_ENTERPRISE
-  if (!dbms::SystemRecoveryHandler(dbms_handler, req.database_configs, req.cold_databases, req.resetted_uuids)) {
+  if (!dbms::SystemRecoveryHandler(dbms_handler, req.database_configs, req.cold_databases)) {
     return;
   }
   if (!auth::SystemRecoveryHandler(auth, req.auth_config, req.users, req.roles, req.profiles)) return;

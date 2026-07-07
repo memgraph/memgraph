@@ -98,7 +98,7 @@ struct SystemRecoveryReqV2 {
 // V3 (hot/cold tenants): adds the COLD set as a vector of ColdTenantRecovery so a reconnecting/lagging
 // replica converges to MAIN's authoritative {HOT ∪ COLD} set. Each entry carries a suspended tenant's
 // salient config and MAIN's as-of-suspend stats snapshot. ColdTenantRecovery is composed of storage::
-// types only, so the dbms reconcile signature stays cycle-free. Also adds uuids of databases which were reset
+// types only, so the dbms reconcile signature stays cycle-free.
 
 struct SystemRecoveryReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_REQ, .name = "SystemRecoveryReq"};
@@ -113,8 +113,7 @@ struct SystemRecoveryReq {
                     std::vector<auth::User> users, std::vector<auth::Role> roles,
                     std::vector<auth::UserProfiles::Profile> profiles,
                     std::vector<parameters::ParameterInfo> parameters = {},
-                    std::vector<storage::ColdTenantRecovery> cold_databases = {},
-                    std::vector<utils::UUID> resetted_uuids = {})
+                    std::vector<storage::ColdTenantRecovery> cold_databases = {})
       : main_uuid(main_uuid),
         forced_group_timestamp{forced_group_timestamp},
         database_configs(std::move(database_configs)),
@@ -123,8 +122,7 @@ struct SystemRecoveryReq {
         roles{std::move(roles)},
         profiles{std::move(profiles)},
         parameters{std::move(parameters)},
-        cold_databases{std::move(cold_databases)},
-        resetted_uuids{std::move(resetted_uuids)} {}
+        cold_databases{std::move(cold_databases)} {}
 
   static SystemRecoveryReq Upgrade(SystemRecoveryReqV2 const &v2) {
     return SystemRecoveryReq{v2.main_uuid,
@@ -135,7 +133,6 @@ struct SystemRecoveryReq {
                              v2.roles,
                              v2.profiles,
                              v2.parameters,
-                             {},
                              {}};
   }
 
@@ -150,9 +147,6 @@ struct SystemRecoveryReq {
   // One payload per COLD tenant (salient + as-of-suspend stats + epoch metadata). Replaces
   // the earlier parallel cold_database_configs/cold_database_stats vectors.
   std::vector<storage::ColdTenantRecovery> cold_databases;
-  // UUIDs of tenants the main has resetted (reset to empty); a replica that missed the
-  // ResetDatabaseRpc resets these so it stops serving stale data and re-syncs from the main.
-  std::vector<utils::UUID> resetted_uuids;
 };
 
 struct SystemRecoveryResV1 {

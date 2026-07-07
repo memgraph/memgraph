@@ -1434,11 +1434,6 @@ antlrcpp::Any CypherMainVisitor::visitRecoverSnapshotQuery(MemgraphCypher::Recov
   return query_;
 }
 
-antlrcpp::Any CypherMainVisitor::visitResetDatabaseQuery(MemgraphCypher::ResetDatabaseQueryContext * /*ctx*/) {
-  query_ = storage_->Create<ResetDatabaseQuery>();
-  return query_;
-}
-
 antlrcpp::Any CypherMainVisitor::visitShowSnapshotsQuery(MemgraphCypher::ShowSnapshotsQueryContext * /*ctx*/) {
   query_ = storage_->Create<ShowSnapshotsQuery>();
   return query_;

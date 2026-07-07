@@ -19,7 +19,6 @@ copy_e2e_python_files(durability tenant_profile_durability.py)
 copy_e2e_python_files(durability recovery_failure_broken.py)
 copy_e2e_python_files(durability recovery_failure_status.py)
 copy_e2e_python_files(durability recovery_failure_recover_snapshot.py)
-copy_e2e_python_files(durability recovery_failure_reset_database.py)
 copy_e2e_python_files(durability drop_broken_database.py)
 
 

@@ -757,7 +757,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     // A successful snapshot load is the moment a broken replica tenant becomes healthy: the main has just full-synced
     // it. Clearing the broken flag re-enables background durability and lets queries touch the tenant again (slice 1
     // guards writes behind IsBroken(), so clearing the flag is sufficient to resume normal operation). Cleared under
-    // main_lock_ so the healthy transition is atomic with the recovered state, mirroring ResetTenant.
+    // main_lock_ so the healthy transition is atomic with the recovered state.
     storage->SetBroken(false);
   }
   spdlog::debug("Snapshot from {} loaded successfully.", dst_snapshot_file);
