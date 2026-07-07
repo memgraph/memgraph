@@ -9998,15 +9998,17 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         auto *q = parsed_query.query;
         // Allowlist: in the broken state only the cure queries (RECOVER SNAPSHOT / RESET DATABASE)
         // and meta/admin queries that never touch the tenant graph are permitted. Everything else
-        // (Cypher, DDL, CREATE SNAPSHOT, ...) is rejected until the database is recovered. Auth,
-        // replication, profile and other instance-level queries operate on system state rather than
-        // the tenant graph, so they remain available for remediation while a tenant is broken.
+        // (Cypher, DDL, CREATE SNAPSHOT, SHOW INDEX/CONSTRAINT/NODE LABELS/EDGE TYPES/METRICS INFO, ...)
+        // is rejected until the database is recovered: those SHOW ... INFO variants read tenant-graph
+        // metadata from the empty post-recovery-failure storage and would otherwise return a misleading
+        // clean 0-row result instead of surfacing the broken health. Auth, replication, profile and
+        // other instance-level queries operate on system state rather than the tenant graph, so they
+        // remain available for remediation while a tenant is broken.
         auto const is_allowed =
             [q]<typename... Ts>() {
               return (... || (utils::Downcast<Ts>(q) != nullptr));
             }.template operator()<RecoverSnapshotQuery,
                                   ResetDatabaseQuery,
-                                  DatabaseInfoQuery,
                                   SystemInfoQuery,
                                   ReplicationInfoQuery,
                                   ShowConfigQuery,
