@@ -104,6 +104,7 @@ class RaftState {
   auto GetDeltasBatchProgressSize() const -> uint64_t;
   auto GetInstanceDownTimeoutSec() const -> uint32_t;
   auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
+  auto GetGlobalReadOnly() const -> bool;
 
  private:
   uint16_t coordinator_port_;

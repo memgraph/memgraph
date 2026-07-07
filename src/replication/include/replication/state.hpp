@@ -113,6 +113,14 @@ struct ReplicationState {
     return false;
   }
 
+  auto DisableWritingOnMain() -> bool {
+    if (auto *main = std::get_if<RoleMainData>(&replication_data_.data_)) {
+      main->writing_enabled_ = false;
+      return true;
+    }
+    return false;
+  }
+
   auto GetMainRole() -> RoleMainData & {
     MG_ASSERT(IsMain(), "Instance is not MAIN");
     return std::get<RoleMainData>(replication_data_.data_);

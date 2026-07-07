@@ -198,7 +198,24 @@ TEST(String, DoubleToString) {
 }
 
 TEST(String, StringToUint64) {
-  EXPECT_EQ(1, ParseStringToUint64("1"));
-  EXPECT_EQ(0, ParseStringToUint64("0"));
-  EXPECT_THROW(ParseStringToUint64("-10"), ParseException);
+  EXPECT_EQ(1, ParseStringToUint<uint64_t>("1"));
+  EXPECT_EQ(0, ParseStringToUint<uint64_t>("0"));
+  EXPECT_THROW(ParseStringToUint<uint64_t>("-10"), ParseException);
+  // Trailing garbage after a valid prefix must be rejected, not silently accepted as the prefix.
+  EXPECT_THROW(ParseStringToUint<uint64_t>("10-0"), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint64_t>("0-0"), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint64_t>("10abc"), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint64_t>("10 "), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint64_t>(""), ParseException);
+}
+
+TEST(String, StringToUint32) {
+  EXPECT_EQ(1, ParseStringToUint<uint32_t>("1"));
+  EXPECT_EQ(0, ParseStringToUint<uint32_t>("0"));
+  EXPECT_THROW(ParseStringToUint<uint32_t>("-10"), ParseException);
+  // Trailing garbage after a valid prefix must be rejected, not silently accepted as the prefix.
+  EXPECT_THROW(ParseStringToUint<uint32_t>("10-0"), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint32_t>("10abc"), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint32_t>("10 "), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint32_t>(""), ParseException);
 }

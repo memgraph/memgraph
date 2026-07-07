@@ -530,11 +530,11 @@ void Initialize(utils::Settings &settings) {
       kFileDownloadConnTimeoutSecSettingKey,
       kRestore,
       [](std::string_view val) {
-        file_download_conn_timeout_sec_ = utils::ParseStringToUint64(val);  // throw exception if not ok
+        file_download_conn_timeout_sec_ = utils::ParseStringToUint<uint64_t>(val);  // throw exception if not ok
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         try {
-          utils::ParseStringToUint64(in);
+          utils::ParseStringToUint<uint64_t>(in);
           return {};
         } catch (utils::ParseException const &e) {
           return std::unexpected{"Input for file_download_connection_timeout_sec cannot be parsed as uint64_t"};
@@ -551,11 +551,11 @@ void Initialize(utils::Settings &settings) {
       kStorageAccessTimeoutSecSettingKey,
       !kRestore,
       [](std::string_view val) {
-        storage_access_timeout_sec_.store(utils::ParseStringToUint64(val), std::memory_order_release);
+        storage_access_timeout_sec_.store(utils::ParseStringToUint<uint64_t>(val), std::memory_order_release);
       },
       [](auto in) -> utils::Settings::ValidatorResult {
         try {
-          const auto v = utils::ParseStringToUint64(in);
+          const auto v = utils::ParseStringToUint<uint64_t>(in);
           if (v < 1 || v > 1'000'000) {
             return std::unexpected{"storage.access_timeout_sec must be in range [1, 1000000]"};
           }

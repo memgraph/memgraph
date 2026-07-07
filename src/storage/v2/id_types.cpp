@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,8 +18,8 @@ namespace memgraph::storage {
   name name::FromString(std::string_view id) { return name{parse(id)}; } \
   std::string name::ToString() const { return std::to_string(id_); }
 
-STORAGE_DEFINE_ID_TYPE_STRING_METHODS(Gid, utils::ParseStringToUint64);
-STORAGE_DEFINE_ID_TYPE_STRING_METHODS(LabelId, utils::ParseStringToUint32);
-STORAGE_DEFINE_ID_TYPE_STRING_METHODS(PropertyId, utils::ParseStringToUint32);
-STORAGE_DEFINE_ID_TYPE_STRING_METHODS(EdgeTypeId, utils::ParseStringToUint32);
+STORAGE_DEFINE_ID_TYPE_STRING_METHODS(Gid, utils::ParseStringToUint<uint64_t>);
+STORAGE_DEFINE_ID_TYPE_STRING_METHODS(LabelId, utils::ParseStringToUint<uint32_t>);
+STORAGE_DEFINE_ID_TYPE_STRING_METHODS(PropertyId, utils::ParseStringToUint<uint32_t>);
+STORAGE_DEFINE_ID_TYPE_STRING_METHODS(EdgeTypeId, utils::ParseStringToUint<uint32_t>);
 }  // namespace memgraph::storage

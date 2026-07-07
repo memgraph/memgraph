@@ -532,8 +532,8 @@ class WriteQueryOnMainException : public QueryException {
  public:
   WriteQueryOnMainException()
       : QueryException(
-            "Write queries currently forbidden on the main instance. The cluster is in the process of setting up a new "
-            "main instance, please retry the query later on.") {}
+            "Write queries currently forbidden on the main instance. Either the cluster is in read-only mode, or a new "
+            "main instance is being set up. Please retry the query later on if this is transient.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnMainException)
 };
 

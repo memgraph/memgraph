@@ -41,6 +41,7 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &
   deltas_batch_progress_size_ = other.deltas_batch_progress_size_;
   instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
   instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
+  global_read_only_ = other.global_read_only_;
   // NOLINTEND
 }
 
@@ -60,6 +61,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   deltas_batch_progress_size_ = other.deltas_batch_progress_size_;
   instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
   instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
+  global_read_only_ = other.global_read_only_;
   return *this;
 }
 
@@ -73,7 +75,8 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other
       max_replica_read_lag_(other.max_replica_read_lag_),
       deltas_batch_progress_size_(other.deltas_batch_progress_size_),
       instance_down_timeout_sec_(other.instance_down_timeout_sec_),
-      instance_health_check_frequency_sec_(other.instance_health_check_frequency_sec_) {}
+      instance_health_check_frequency_sec_(other.instance_health_check_frequency_sec_),
+      global_read_only_(other.global_read_only_) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
@@ -92,6 +95,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   deltas_batch_progress_size_ = other.deltas_batch_progress_size_;
   instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
   instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
+  global_read_only_ = other.global_read_only_;
   return *this;
 }
 
@@ -155,6 +159,10 @@ auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state)
 
   if (delta_state.instance_health_check_frequency_sec_.has_value()) {
     instance_health_check_frequency_sec_ = *delta_state.instance_health_check_frequency_sec_;
+  }
+
+  if (delta_state.global_read_only_.has_value()) {
+    global_read_only_ = *delta_state.global_read_only_;
   }
 }
 
@@ -236,6 +244,11 @@ auto CoordinatorClusterState::GetInstanceHealthCheckFrequencySec() const -> std:
   return std::chrono::seconds{instance_health_check_frequency_sec_};
 }
 
+auto CoordinatorClusterState::GetGlobalReadOnly() const -> bool {
+  auto lock = std::shared_lock{app_lock_};
+  return global_read_only_;
+}
+
 void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
   auto lock = std::lock_guard{app_lock_};
   coordinator_instances_ = std::move(coordinator_instances);
@@ -286,6 +299,11 @@ void CoordinatorClusterState::SetInstanceHealthCheckFreqSec(uint32_t const check
   instance_health_check_frequency_sec_ = check_freq_sec;
 }
 
+void CoordinatorClusterState::SetGlobalReadOnly(bool const global_read_only) {
+  auto lock = std::lock_guard{app_lock_};
+  global_read_only_ = global_read_only;
+}
+
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
   j = nlohmann::json{{kDataInstances.data(), state.GetDataInstancesContext()},
                      {kMainUUID.data(), state.GetCurrentMainUUID()},
@@ -299,7 +317,8 @@ void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
                      {kDeltasBatchProgressSize.data(), state.GetDeltasBatchProgressSize()},
                      // Added in 3.10.0 version
                      {kInstanceDownTimeoutSec.data(), state.GetInstanceDownTimeoutSec()},
-                     {kInstanceHealthCheckFreqSec.data(), state.GetInstanceHealthCheckFrequencySec().count()}};
+                     {kInstanceHealthCheckFreqSec.data(), state.GetInstanceHealthCheckFrequencySec().count()},
+                     {kGlobalReadOnly.data(), state.GetGlobalReadOnly()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
@@ -343,6 +362,10 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
     uint32_t const check_freq_sec = j.value(kInstanceHealthCheckFreqSec.data(), 1);
     instance_state.SetInstanceHealthCheckFreqSec(check_freq_sec);
   }
+
+  // global_read_only defaults to false for clusters serialized before this feature
+  bool const global_read_only = j.value(kGlobalReadOnly.data(), false);
+  instance_state.SetGlobalReadOnly(global_read_only);
 }
 
 }  // namespace memgraph::coordination
