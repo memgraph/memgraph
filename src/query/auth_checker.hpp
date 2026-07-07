@@ -226,27 +226,51 @@ class AllowEverythingAuthChecker final : public AuthChecker {
 };
 
 struct CachedFineGrainedAuth {
+  enum class State : uint8_t {
+    EMPTY,            // No auth cached, need to to check licence and FGA
+    NO_LICENSE,       // No enterprise license, so re-evaluate every query
+    NO_RESTRICTIONS,  // Enterprise licensed, no FGA needed, and this is cached
+    ACTIVE,           // Enterprise licensed, FGA active and auth cached
+  };
+
   std::unique_ptr<FineGrainedAuthChecker> checker;
   std::string db_name;
+  State state{State::EMPTY};
 
   FineGrainedAuthChecker const *get() const { return checker.get(); }
 
   void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
                std::string current_db) {
-    if (db_name == current_db) {
+    bool const must_rebuild = state == State::EMPTY || state == State::NO_LICENSE || db_name != current_db;
+
+    if (!must_rebuild) {
       if (checker) checker->UpdateDbAccessor(dba);
       return;
     }
+
     checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
-    if (!checker || !checker->NeedsFineGrainedAuthChecker()) {
-      checker.reset();
+
+    if (!checker) {
+      db_name = std::move(current_db);
+      state = State::NO_LICENSE;
+      return;
     }
+
+    if (!checker->NeedsFineGrainedAuthChecker()) {
+      checker.reset();
+      db_name = std::move(current_db);
+      state = State::NO_RESTRICTIONS;
+      return;
+    }
+
     db_name = std::move(current_db);
+    state = State::ACTIVE;
   }
 
   void Reset() {
     checker.reset();
     db_name.clear();
+    state = State::EMPTY;
   }
 };
 
