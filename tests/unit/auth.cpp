@@ -3940,4 +3940,290 @@ TEST_F(AuthWithStorage, GetUsersForProfile) {
 
 // Role-based profile management is no longer supported in the new architecture
 
+TEST(MigrateAuthJson, MigratingCurrentVersionIsIdempotent) {
+  memgraph::license::global_license_checker.EnableTesting();
+
+  Role role{"test_role"};
+  role.permissions().Grant(Permission::MATCH);
+  role.fine_grained_access_handler().label_permissions().Grant({"Person"}, FineGrainedPermission::SET_PROPERTY);
+  role.fine_grained_access_handler().label_permissions().GrantGlobal(FineGrainedPermission::READ);
+  role.fine_grained_access_handler().edge_type_permissions().Grant({"KNOWS"}, FineGrainedPermission::READ);
+
+  auto const original = role.Serialize();
+  auto data = original;
+  MigrateAuthJson(data);
+  EXPECT_EQ(data, original);
+}
+
 #endif  // MG_ENTERPRISE
+
+namespace {
+using memgraph::auth::FineGrainedPermission;
+using memgraph::auth::kAllEdgeTypePermissions;
+using memgraph::auth::kAllLabelPermissions;
+
+constexpr auto kAllLabel = std::to_underlying(kAllLabelPermissions);
+constexpr auto kAllEdgeType = std::to_underlying(kAllEdgeTypePermissions);
+constexpr auto kRead = std::to_underlying(FineGrainedPermission::READ);
+constexpr auto kReadOrSetProperty =
+    std::to_underlying(FineGrainedPermission::READ | FineGrainedPermission::SET_PROPERTY);
+constexpr auto kLabelUpdateExpanded =
+    std::to_underlying(memgraph::auth::kVertexLabelUpdatePermissions | FineGrainedPermission::READ);
+constexpr int64_t kUnset = -1;
+}  // namespace
+
+TEST(MigrateAuthJson, V2MigrationToCurrentVersion) {
+  // CREATE_DELETE (7) -> full label grants
+  {
+    auto data = nlohmann::json::parse(R"({
+      "rolename": "r",
+      "permissions": {"grants": 0, "denies": 0},
+      "fine_grained_access_handler": {
+        "label_permissions": {
+          "global_permission": 7
+        },
+        "edge_type_permissions": {
+          "global_permission": 1
+        }
+      }
+    })");
+    MigrateAuthJson(data);
+    ASSERT_EQ(data["version"], kCurrentEntityVersion);
+
+    ASSERT_FALSE(data.contains("fine_grained_access_handler"));
+    ASSERT_TRUE(data.contains("fine_grained_permissions"));
+
+    auto const &lp = data["fine_grained_permissions"]["label_permissions"];
+    ASSERT_FALSE(lp.contains("global_permission"));
+    ASSERT_TRUE(lp.contains("global_grants"));
+    ASSERT_TRUE(lp.contains("global_denies"));
+    // V2 CREATE_DELETE (7) -> V3 READ|UPDATE|CREATE|DELETE (27) -> V4 label expansion
+    EXPECT_EQ(lp["global_grants"], kAllLabel);
+    EXPECT_EQ(lp["global_denies"], kUnset);
+
+    auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
+    EXPECT_EQ(ep["global_grants"], kRead);
+    EXPECT_EQ(ep["global_denies"], kUnset);
+  }
+
+  // UPDATE (3) -> label expansion, edge stays as-is
+  {
+    auto data = nlohmann::json::parse(R"({
+      "rolename": "r",
+      "permissions": {"grants": 0, "denies": 0},
+      "fine_grained_access_handler": {
+        "label_permissions": {
+          "global_permission": 3
+        },
+        "edge_type_permissions": {
+          "global_permission": 3
+        }
+      }
+    })");
+    MigrateAuthJson(data);
+    ASSERT_EQ(data["version"], kCurrentEntityVersion);
+
+    auto const &lp = data["fine_grained_permissions"]["label_permissions"];
+    // V2 UPDATE (3) -> V3 UPDATE|READ (3) -> V4 label expansion
+    EXPECT_EQ(lp["global_grants"], kLabelUpdateExpanded);
+    EXPECT_EQ(lp["global_denies"], kUnset);
+
+    auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
+    // V2 UPDATE (3) -> V3 UPDATE|READ (3) -> V4 edge: no expansion
+    EXPECT_EQ(ep["global_grants"], kReadOrSetProperty);
+    EXPECT_EQ(ep["global_denies"], kUnset);
+  }
+}
+
+TEST(MigrateAuthJson, V3MigrationToCurrentVersion) {
+  // READ global permission -> global_grants/global_denies
+  {
+    auto data = nlohmann::json::parse(R"({
+      "rolename": "r",
+      "permissions": {"grants": 0, "denies": 0},
+      "fine_grained_permissions": {
+        "label_permissions": {
+          "global_permission": 1,
+          "permissions": []
+        },
+        "edge_type_permissions": {
+          "global_permission": -1,
+          "permissions": []
+        }
+      }
+    })");
+    MigrateAuthJson(data);
+    ASSERT_EQ(data["version"], kCurrentEntityVersion);
+
+    auto const &lp = data["fine_grained_permissions"]["label_permissions"];
+    ASSERT_FALSE(lp.contains("global_permission"));
+    EXPECT_EQ(lp["global_grants"], kRead);
+    EXPECT_EQ(lp["global_denies"], kUnset);
+
+    auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
+    ASSERT_FALSE(ep.contains("global_permission"));
+    EXPECT_EQ(ep["global_grants"], kUnset);
+    EXPECT_EQ(ep["global_denies"], kUnset);
+  }
+
+  // NOTHING -> deny all
+  {
+    auto data = nlohmann::json::parse(R"({
+      "username": "u",
+      "permissions": {"grants": 0, "denies": 0},
+      "fine_grained_permissions": {
+        "label_permissions": {
+          "global_permission": 0,
+          "permissions": []
+        },
+        "edge_type_permissions": {
+          "global_permission": 0,
+          "permissions": []
+        }
+      }
+    })");
+    MigrateAuthJson(data);
+    ASSERT_EQ(data["version"], kCurrentEntityVersion);
+
+    auto const &lp = data["fine_grained_permissions"]["label_permissions"];
+    ASSERT_FALSE(lp.contains("global_permission"));
+    EXPECT_EQ(lp["global_grants"], kUnset);
+    EXPECT_EQ(lp["global_denies"], kAllLabel);
+
+    auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
+    ASSERT_FALSE(ep.contains("global_permission"));
+    EXPECT_EQ(ep["global_grants"], kUnset);
+    EXPECT_EQ(ep["global_denies"], kAllEdgeType);
+  }
+
+  // Label UPDATE expands to fine-grained bits; edge UPDATE stays as SET_PROPERTY
+  {
+    auto data = nlohmann::json::parse(R"({
+      "rolename": "r",
+      "permissions": {"grants": 0, "denies": 0},
+      "fine_grained_permissions": {
+        "label_permissions": {
+          "global_permission": 3,
+          "permissions": []
+        },
+        "edge_type_permissions": {
+          "global_permission": 3,
+          "permissions": []
+        }
+      }
+    })");
+    MigrateAuthJson(data);
+    ASSERT_EQ(data["version"], kCurrentEntityVersion);
+
+    auto const &lp = data["fine_grained_permissions"]["label_permissions"];
+    ASSERT_FALSE(lp.contains("global_permission"));
+    EXPECT_EQ(lp["global_grants"], kLabelUpdateExpanded);
+
+    auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
+    ASSERT_FALSE(ep.contains("global_permission"));
+    EXPECT_EQ(ep["global_grants"], kReadOrSetProperty);
+  }
+
+  // Per-entity rules gain denied field and label UPDATE is expanded
+  {
+    auto data = nlohmann::json::parse(R"({
+      "rolename": "r",
+      "permissions": {"grants": 0, "denies": 0},
+      "fine_grained_permissions": {
+        "label_permissions": {
+          "global_permission": -1,
+          "permissions": [
+            {"symbols": ["Person"], "granted": 0, "matching": "ANY"},
+            {"symbols": ["Car"], "granted": 3, "matching": "EXACTLY"}
+          ]
+        },
+        "edge_type_permissions": {
+          "global_permission": -1,
+          "permissions": []
+        }
+      }
+    })");
+    MigrateAuthJson(data);
+    ASSERT_EQ(data["version"], kCurrentEntityVersion);
+
+    auto const &rules = data["fine_grained_permissions"]["label_permissions"]["permissions"];
+    ASSERT_EQ(rules.size(), 2);
+    ASSERT_TRUE(rules[0].contains("denied"));
+
+    EXPECT_EQ(rules[0]["granted"], 0);
+    EXPECT_EQ(rules[0]["denied"], kAllLabel);
+    EXPECT_EQ(rules[0]["matching"], "ANY");
+
+    EXPECT_EQ(rules[1]["granted"], kLabelUpdateExpanded);
+    EXPECT_EQ(rules[1]["denied"], 0);
+    EXPECT_EQ(rules[1]["matching"], "EXACTLY");
+  }
+}
+
+// 3.9 stores V3-style bitmasks and a permissions array under the old
+// `fine_grained_access_handler` key. The migration must not misclassify this
+// as V2 (which would corrupt the bitmasks and wipe the rules array).
+TEST(MigrateAuthJson, V39OldKeyWithV3Content) {
+  auto data = nlohmann::json::parse(R"({
+    "rolename": "system_admin",
+    "permissions": {"grants": 0, "denies": 0},
+    "fine_grained_access_handler": {
+      "label_permissions": {
+        "global_permission": 27,
+        "permissions": [
+          {"symbols": ["Person"], "granted": 1, "matching": "ANY"}
+        ]
+      },
+      "edge_type_permissions": {
+        "global_permission": 27,
+        "permissions": [
+          {"symbols": ["KNOWS"], "granted": 27, "matching": "ANY"}
+        ]
+      }
+    }
+  })");
+  MigrateAuthJson(data);
+  ASSERT_EQ(data["version"], kCurrentEntityVersion);
+
+  ASSERT_FALSE(data.contains("fine_grained_access_handler"));
+  ASSERT_TRUE(data.contains("fine_grained_permissions"));
+
+  auto const &lp = data["fine_grained_permissions"]["label_permissions"];
+  ASSERT_FALSE(lp.contains("global_permission"));
+  // V3 READ|UPDATE|CREATE|DELETE (27) -> V4 label expansion
+  EXPECT_EQ(lp["global_grants"], kAllLabel);
+  EXPECT_EQ(lp["global_denies"], kUnset);
+
+  // Per-entity rule: READ (1) stays as READ, gains denied=0
+  auto const &lp_rules = lp["permissions"];
+  ASSERT_EQ(lp_rules.size(), 1);
+  EXPECT_EQ(lp_rules[0]["granted"], kRead);
+  EXPECT_EQ(lp_rules[0]["denied"], 0);
+
+  auto const &ep = data["fine_grained_permissions"]["edge_type_permissions"];
+  ASSERT_FALSE(ep.contains("global_permission"));
+  // V3 edge 27 -> V4: no expansion for edge types
+  EXPECT_EQ(ep["global_grants"], kAllEdgeType);
+  EXPECT_EQ(ep["global_denies"], kUnset);
+
+  // Per-entity rule preserved
+  auto const &ep_rules = ep["permissions"];
+  ASSERT_EQ(ep_rules.size(), 1);
+  EXPECT_EQ(ep_rules[0]["granted"], kAllEdgeType);
+  EXPECT_EQ(ep_rules[0]["denied"], 0);
+}
+
+TEST(MigrateAuthJson, NoFgaFieldNeedsNoMigration) {
+  auto data = nlohmann::json::parse(R"({
+    "username": "basic_user",
+    "password_hash": null,
+    "permissions": {"grants": 0, "denies": 0}
+  })");
+  auto const original = data;
+  MigrateAuthJson(data);
+  ASSERT_EQ(data["version"], kCurrentEntityVersion);
+
+  for (auto const &[key, value] : original.items()) {
+    EXPECT_EQ(data[key], value) << "Mismatch for key: " << key;
+  }
+}

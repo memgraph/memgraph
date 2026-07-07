@@ -11,12 +11,15 @@
 
 #include "gtest/gtest.h"
 
+#include <nlohmann/json.hpp>
+
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_state.hpp"
 #include "replication_coordination_glue/common.hpp"
 
 #include "rpc_messages.hpp"
 
+#include "auth/rpc.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/client.hpp"
 #include "rpc/file_replication_handler.hpp"
@@ -529,3 +532,110 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   EXPECT_TRUE(seen_cold[0].stats.durability_wal_enabled);
   EXPECT_EQ(seen_cold[0].stats.schema_vertex_count, 9U);
 }
+
+#ifdef MG_ENTERPRISE
+
+namespace {
+// Build a V3-format role JSON (uses global_permission instead of global_grants/global_denies).
+nlohmann::json MakeV3RoleJson(std::string const &rolename, int64_t label_perm, int64_t edge_perm) {
+  nlohmann::json data;
+  data["rolename"] = rolename;
+  data["builtin"] = false;
+  data["permissions"] = nlohmann::json{{"grants", 0}, {"denies", 0}};
+  data["fine_grained_permissions"] = {
+      {"label_permissions", {{"global_permission", label_perm}, {"permissions", nlohmann::json::array()}}},
+      {"edge_type_permissions", {{"global_permission", edge_perm}, {"permissions", nlohmann::json::array()}}}};
+  data["databases"] = {{"allow_all", true},
+                       {"grants", nlohmann::json::array()},
+                       {"denies", nlohmann::json::array()},
+                       {"default", "memgraph"}};
+  return data;
+}
+
+// Build a V3-format user JSON.
+nlohmann::json MakeV3UserJson(std::string const &username, int64_t label_perm, int64_t edge_perm) {
+  nlohmann::json data;
+  data["username"] = username;
+  data["uuid"] = memgraph::utils::UUID{};
+  data["password_hash"] = nullptr;
+  data["permissions"] = nlohmann::json{{"grants", 0}, {"denies", 0}};
+  data["fine_grained_permissions"] = {
+      {"label_permissions", {{"global_permission", label_perm}, {"permissions", nlohmann::json::array()}}},
+      {"edge_type_permissions", {{"global_permission", edge_perm}, {"permissions", nlohmann::json::array()}}}};
+  data["databases"] = {{"allow_all", true},
+                       {"grants", nlohmann::json::array()},
+                       {"denies", nlohmann::json::array()},
+                       {"default", "memgraph"}};
+  return data;
+}
+
+}  // namespace
+
+// slk::Load<Role> migrates V3 FGA (global_permission) to V4 (global_grants/global_denies).
+TEST(RpcVersioning, SlkLoadRole_MigratesV3FGA) {
+  // Inject V3 JSON bytes directly into the SLK stream to simulate an old sender.
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+  // slk::Save<Role> calls self.Serialize().dump() — we bypass this to inject V3 JSON.
+  auto const v3_str = MakeV3RoleJson("myrole", /*label_perm=*/1, /*edge_perm=*/1).dump();
+  memgraph::slk::Save(v3_str, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::auth::Role loaded;
+  memgraph::slk::Load(&loaded, &reader);
+
+  EXPECT_EQ(loaded.rolename(), "myrole");
+  auto const &label_perms = loaded.fine_grained_access_handler().label_permissions();
+  ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+  EXPECT_FALSE(label_perms.GetGlobalDenies().has_value());
+
+  auto const &edge_perms = loaded.fine_grained_access_handler().edge_type_permissions();
+  ASSERT_TRUE(edge_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(edge_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+  EXPECT_FALSE(edge_perms.GetGlobalDenies().has_value());
+}
+
+// slk::Load<User> migrates V3 FGA and attached roles.
+TEST(RpcVersioning, SlkLoadUser_MigratesV3FGA) {
+  auto const user_json_str = MakeV3UserJson("alice", /*label_perm=*/1, /*edge_perm=*/1).dump();
+  auto const role_json_str = MakeV3RoleJson("testrole", /*label_perm=*/1, /*edge_perm=*/1).dump();
+
+  // Build the SLK byte stream manually: user JSON string, then roles vector, then MT mappings.
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+  // User JSON string
+  memgraph::slk::Save(user_json_str, &builder);
+  // Roles vector: size=1, then role JSON string
+  memgraph::slk::Save(static_cast<uint64_t>(1), &builder);
+  memgraph::slk::Save(role_json_str, &builder);
+  // MT mappings: empty map
+  std::unordered_map<std::string, std::unordered_set<std::string>> mt_map;
+  memgraph::slk::Save(mt_map, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::auth::User loaded;
+  memgraph::slk::Load(&loaded, &reader);
+
+  EXPECT_EQ(loaded.username(), "alice");
+
+  auto const &label_perms = loaded.fine_grained_access_handler().label_permissions();
+  ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+  EXPECT_FALSE(label_perms.GetGlobalDenies().has_value());
+
+  // Attached role should also be migrated
+  ASSERT_EQ(loaded.roles().size(), 1);
+  auto const &role = *loaded.roles().begin();
+  EXPECT_EQ(role.rolename(), "testrole");
+  auto const &role_label_perms = role.fine_grained_access_handler().label_permissions();
+  ASSERT_TRUE(role_label_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(role_label_perms.GetGlobalGrants().value(),
+            static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+}
+
+#endif  // MG_ENTERPRISE
