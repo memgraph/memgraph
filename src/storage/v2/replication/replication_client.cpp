@@ -229,6 +229,19 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
 
+  // While the replica is (force-)recovering, its cached progress is owned by the recovery task: it resets
+  // commit_ts_info_ to 0 and then re-accumulates the true count, both under engine_lock_. A heartbeat observation
+  // taken here reflects the replica's pre-reset state, so merging it via the advance-only Max below would restore
+  // the stale (inflated) count and undo the reset, resurfacing as a persistent negative replication lag. Reading the
+  // state under engine_lock_ makes this check mutually exclusive with the recovery task's reset, so we reliably
+  // defer to the recovery task and leave the state transition to it.
+  if (*replica_state_.Lock() == ReplicaState::RECOVERY) {
+    spdlog::trace("Replica {} for db {} is recovering; skipping commit_ts_info_ update from heartbeat response.",
+                  client_.name_,
+                  main_db_name);
+    return;
+  }
+
   // No branching point. The replica's history is consistent with main's, so its reported progress can't exceed
   // main's; record it now.
   // This needs to be done under the engine lock, otherwise this function could bump replica's num committed txns before
@@ -524,7 +537,8 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
 
 auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
                                                               std::optional<ReplicaStream> &&replica_stream,
-                                                              uint64_t durability_commit_timestamp) const
+                                                              uint64_t durability_commit_timestamp,
+                                                              uint64_t commit_num_committed_txns) const
     -> std::expected<void, io::network::ClientCommunicationError> {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
@@ -565,6 +579,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
                protector = protector.clone(),
                replica_stream_obj = std::move(replica_stream),
                durability_commit_timestamp,
+               commit_num_committed_txns,
                is_async,
                arena_pool]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
     const memory::DbArenaScope db_arena_scope{arena_pool};
@@ -573,7 +588,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       auto response = replica_stream_obj->Finalize();
       // NOLINTNEXTLINE
       return replica_state_.WithLock(
-          [this, response, &replica_stream_obj, durability_commit_timestamp, is_async](
+          [this, response, &replica_stream_obj, durability_commit_timestamp, commit_num_committed_txns, is_async](
               auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
             replica_stream_obj.reset();
 
@@ -591,11 +606,14 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
 
             // ASYNC replicas update their own commit_ts_info_ here upon confirmed
             // success rather than optimistically in the main commit path.
+            // Advance-only merge to this txn's absolute (ldt, num_committed_txns) rather than a blind +1: the
+            // heartbeat may have already folded in the replica's self-reported count for this txn, and a +1 on top
+            // would double-count it (and, being monotonic, never self-correct), showing up as a negative lag.
             if (is_async) {
-              auto update_func = [durability_commit_timestamp](CommitTsInfo const &info) -> CommitTsInfo {
-                return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = info.num_committed_txns_ + 1};
-              };
-              atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+              CommitTsInfo const observed{.ldt_ = durability_commit_timestamp,
+                                          .num_committed_txns_ = commit_num_committed_txns};
+              atomic_struct_update<CommitTsInfo>(commit_ts_info_,
+                                                 [observed](CommitTsInfo const &info) { return Max(info, observed); });
             }
 
             state = ReplicaState::READY;

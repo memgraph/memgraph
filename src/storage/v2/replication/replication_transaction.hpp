@@ -85,9 +85,10 @@ class TransactionReplication {
   // Must be called after ShipDeltas and FinalizeTransaction (if applicable), and before UpdateCommitTsInfo.
   auto CollectAllFailures() -> std::vector<ReplicaFailure>;
 
-  // Updates commit_ts_info only for replicas that committed successfully
-  // (i.e. not in failed_replicas_). Must be called after CollectAllFailures.
-  void UpdateCommitTsInfo(std::function<CommitTsInfo(CommitTsInfo const &)> const &cb);
+  // Advance-only merges each successfully-committed (non-ASYNC) replica's cached progress to this transaction's
+  // absolute (last_durable_ts, num_committed_txns) via CommitTsInfo::Max, skipping replicas in failed_replicas_.
+  // ASYNC replicas instead update their own cache in the async finalize task. Must be called after CollectAllFailures.
+  void UpdateCommitTsInfo();
 
  private:
   std::vector<std::optional<ReplicaStream>> streams;
@@ -103,6 +104,12 @@ class TransactionReplication {
   std::vector<ReplicaFailure> finalize_failures_;
   // Union of all failed replica names, built by CollectAllFailures.
   std::unordered_set<std::string> failed_replicas_;
+  // last_durable_ts this transaction commits at; paired with commit_num_committed_txns_ when advancing replica caches.
+  uint64_t durability_commit_timestamp_;
+  // Absolute num_committed_txns_ this transaction advances every up-to-date replica to. Captured once at construction
+  // (under engine_lock_, before main bumps its own counter) so replica caches converge to a single authoritative
+  // value via Max instead of being blindly incremented, which would double-count against the heartbeat merge.
+  uint64_t commit_num_committed_txns_;
 };
 
 }  // namespace memgraph::storage
