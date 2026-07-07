@@ -52,9 +52,13 @@ namespace {
 auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
-  auto json = nlohmann::json::parse(tmp);
-  memgraph::auth::MigrateAuthJson(json);
-  return memgraph::auth::Role::Deserialize(json);
+  try {
+    auto json = nlohmann::json::parse(tmp);
+    memgraph::auth::MigrateAuthJson(json);
+    return memgraph::auth::Role::Deserialize(json);
+  } catch (nlohmann::json::exception const &e) {
+    throw auth::AuthException("Failed to deserialize role from RPC: {}", e.what());
+  }
 }
 }  // namespace
 
@@ -87,9 +91,13 @@ void Save(const auth::User &self, memgraph::slk::Builder *builder) {
 void Load(auth::User *self, memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
-  auto json = nlohmann::json::parse(tmp);
-  memgraph::auth::MigrateAuthJson(json);
-  *self = memgraph::auth::User::Deserialize(json);
+  try {
+    auto json = nlohmann::json::parse(tmp);
+    memgraph::auth::MigrateAuthJson(json);
+    *self = memgraph::auth::User::Deserialize(json);
+  } catch (nlohmann::json::exception const &e) {
+    throw auth::AuthException("Failed to deserialize user from RPC: {}", e.what());
+  }
   std::vector<auth::Role> roles;
   memgraph::slk::Load(&roles, reader);
 #ifdef MG_ENTERPRISE
