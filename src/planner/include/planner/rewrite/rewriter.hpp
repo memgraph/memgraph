@@ -218,7 +218,13 @@ class Rewriter {
    * After rewrites, the e-graph is rebuilt to restore invariants
    * and the matcher index is refreshed.
    *
+   * ArmingMode::Latched runs only the rules a pass could newly enable. It reaches
+   * the same fixpoint as ArmingMode::ArmAll given enough iterations, but may need a
+   * few more passes; if max_iterations stops it first the e-graph is valid but less
+   * saturated, never incorrect.
+   *
    * @param config Limits and timeout configuration
+   * @param mode How to schedule rules across passes (see ArmingMode)
    * @return Result containing statistics and stop reason
    */
   auto saturate(RewriteConfig const &config, ArmingMode mode) -> RewriteResult {

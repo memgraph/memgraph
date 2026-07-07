@@ -286,6 +286,78 @@ TEST(RuleLatch, LatchedEqualsArmAllAcrossReSaturateForRootEntryRule) {
   EXPECT_EQ(latched.second, arm_all.second);
 }
 
+TEST(RuleLatch, LatchedEqualsArmAllUnderBoundedBudget) {
+  // A Latched<->ArmAll differential under a *bounded* budget (every other one uses
+  // Unlimited()). Given enough iterations to reach the fixpoint, Latched must land
+  // on exactly ArmAll's result - guards the production path (ApplyAllRewrites).
+  constexpr RewriteConfig kBounded{.max_iterations = 16};  // > chain depth: both saturate
+  EGraph<Op, NoAnalysis> arm_all_eg;
+  BuildNegChain(arm_all_eg, 8);
+  TestRewriter arm_all{arm_all_eg, TestRuleSet::Build(make_double_neg_rule())};
+  auto const arm_all_result = arm_all.saturate(kBounded, ArmingMode::ArmAll);
+
+  EGraph<Op, NoAnalysis> latched_eg;
+  BuildNegChain(latched_eg, 8);
+  TestRewriter latched{latched_eg, TestRuleSet::Build(make_double_neg_rule())};
+  auto const latched_result = latched.saturate(kBounded, ArmingMode::Latched);
+
+  EXPECT_TRUE(arm_all_result.saturated());
+  EXPECT_TRUE(latched_result.saturated()) << "Latched failed to saturate within the bounded budget";
+  EXPECT_EQ(latched_eg.num_classes(), arm_all_eg.num_classes());
+  EXPECT_EQ(latched_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
+  EXPECT_EQ(latched.iterate_once(), 0U);  // sharp oracle: a true fixpoint
+}
+
+TEST(RuleLatch, SetRulesUnderLatchedRearmsForTheNewRules) {
+  // Replacing the rule set mid-session must re-arm from scratch on the next
+  // latched pass (full_arm_pending_). A freshly-installed rule was never armed by
+  // any prior touched-set, so without the full re-arm it would never fire.
+  EGraph<Op, NoAnalysis> eg;
+  BuildNegChain(eg, 4);
+  TestRewriter rewriter{eg};
+
+  // First rule set matches nothing: settles in a no-op pass, clearing full_arm_pending_.
+  rewriter.set_rules(TestRuleSet::Build(make_idempotent_f_rule()));  // F(?x,?x): no F present
+  auto const noop = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  ASSERT_TRUE(noop.saturated());
+  ASSERT_EQ(noop.rewrites_applied, 0U);
+
+  rewriter.set_rules(TestRuleSet::Build(make_double_neg_rule()));  // now install a rule that matches
+  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+
+  EXPECT_TRUE(result.saturated());
+  EXPECT_GT(result.rewrites_applied, 0U) << "new rule never fired: set_rules did not re-arm";
+  EXPECT_EQ(eg.num_classes(), 2U);  // Neg^4 collapsed to its even/odd classes
+  EXPECT_EQ(rewriter.iterate_once(), 0U);
+}
+
+TEST(RuleLatch, LatchedReRunsAlwaysArmedRuleOnSettledGraph) {
+  // A rule whose single pattern root is a bare variable (no symbol) matches any
+  // e-class, so the arming index marks it ALWAYS armed: unlike a symbol-rooted rule
+  // it must be re-run on every latched pass even when the touched-set is empty. A
+  // counter proves it fires end to end through saturate(Latched).
+  EGraph<Op, NoAnalysis> eg;
+  for (uint64_t i = 0; i < 3; ++i) eg.emplace(Op::Var, i);
+
+  std::size_t matches = 0;
+  auto counting_rule =
+      TestRewriteRule::Builder{"count_any"}
+          .pattern(make_var_pattern(kVarRoot))                                  // symbol-less root -> always armed
+          .apply([&matches](TestRuleContext &, Match const &) { ++matches; });  // observes, never merges
+  TestRewriter rewriter{eg, TestRuleSet::Build(std::move(counting_rule))};
+
+  auto const first = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  ASSERT_TRUE(first.saturated());
+  ASSERT_GT(matches, 0U) << "always-armed rule did not run on the initial classes";
+
+  // Graph is settled and the touched-set drained; an always-armed rule must still
+  // be armed on the re-saturate.
+  matches = 0;
+  auto const again = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  EXPECT_TRUE(again.saturated());
+  EXPECT_GT(matches, 0U) << "always-armed rule was not re-armed on a settled graph";
+}
+
 // --- Saturation ---
 
 class Rewrite_ChainedNegation : public Rewrite, public ::testing::WithParamInterface<int> {};
