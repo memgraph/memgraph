@@ -23,7 +23,6 @@
 
 #include <cmath>
 #include <optional>
-#include <variant>
 
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
@@ -108,6 +107,32 @@ TEST(FoldConstant, AndOfTrueAndNullIsNull) {
   auto const result = FoldConstant(symbol::And, operands);
   ASSERT_TRUE(result.has_value());
   EXPECT_TRUE(result->IsNull());
+}
+
+// Or is asymmetric with And: a false operand can't determine the result, so
+// `false OR null` stays null (mirror of AndOfTrueAndNullIsNull).
+TEST(FoldConstant, OrOfFalseAndNullIsNull) {
+  ExternalPropertyValue const operands[] = {ExternalPropertyValue{false}, ExternalPropertyValue{}};
+  auto const result = FoldConstant(symbol::Or, operands);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_TRUE(result->IsNull());
+}
+
+// Xor never short-circuits (unlike And/Or, no operand can determine it alone),
+// so any null operand yields null.
+TEST(FoldConstant, XorWithNullIsNull) {
+  ExternalPropertyValue const operands[] = {ExternalPropertyValue{true}, ExternalPropertyValue{}};
+  auto const result = FoldConstant(symbol::Xor, operands);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_TRUE(result->IsNull());
+}
+
+// A list-valued result is not a scalar constant: Add over two lists concatenates
+// (a List), so ToConstant declines and the fold leaves the expression alone.
+TEST(FoldConstant, ListResultDeclines) {
+  auto const list = ExternalPropertyValue{ExternalPropertyValue::list_t{ExternalPropertyValue{int64_t{1}}}};
+  ExternalPropertyValue const operands[] = {list, list};
+  EXPECT_FALSE(FoldConstant(symbol::Add, operands).has_value());
 }
 
 // Null propagates through arithmetic and unary operators as a folded null
@@ -461,6 +486,22 @@ TEST_F(ConstantFoldTest, CascadesNestedAdds) {
 
   ApplyAllRewrites(eg_);
   ExpectSame(s4, four);
+}
+
+// Regression: `-(0.0)` folds to `-0.0`, which must intern distinctly from the
+// pre-existing `+0.0` literal - the sign is observable (`1.0/x` flips ±inf).
+TEST_F(ConstantFoldTest, NegativeZeroDoesNotCollapseIntoPositiveZero) {
+  auto pos_zero = eg_.MakeLiteral(ExternalPropertyValue{0.0});
+  auto neg = eg_.MakeUnaryMinus(pos_zero);
+
+  ApplyAllRewrites(eg_);
+
+  auto const folded = ConstantOf(neg);
+  ASSERT_TRUE(folded.has_value());
+  ASSERT_TRUE(folded->IsDouble());
+  EXPECT_EQ(folded->ValueDouble(), 0.0);             // equal under IEEE ==
+  EXPECT_TRUE(std::signbit(folded->ValueDouble()));  // but negative zero
+  ExpectDistinct(neg, pos_zero);
 }
 
 // A non-constant operand blocks the fold: the expression keeps no constant.

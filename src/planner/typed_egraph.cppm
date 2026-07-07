@@ -136,7 +136,9 @@ class TypedEGraph {
   }
 
   /// Access to the underlying core e-graph. Rewriters, matchers, and
-  /// extraction all consume `EGraph<Symbol, Analysis>` directly.
+  /// extraction all consume `EGraph<Symbol, Analysis>` directly. Prefer
+  /// `Make<S>` to seed new e-classes: it derives the seed's kind from `S` at
+  /// compile time, which a caller-built seed passed to raw `emplace` does not.
   auto core() -> EGraph<Symbol, Analysis> & { return core_; }
 
   auto core() const -> EGraph<Symbol, Analysis> const & { return core_; }

@@ -88,6 +88,10 @@ TEST(ConstantIdentity, MapWithNaNValueIsSame) {
 TEST(ConstantIdentity, HashSeparatesIntFromDouble) {
   ConstantIdentityHash hash;
   EXPECT_NE(hash(ExternalPropertyValue{int64_t{1}}), hash(ExternalPropertyValue{1.0}));
+  // An int64 past 2^53 rounds when coerced to double; the type tag must keep it
+  // from colliding with that double.
+  auto const big = int64_t{(int64_t{1} << 53) + 1};
+  EXPECT_NE(hash(ExternalPropertyValue{big}), hash(ExternalPropertyValue{static_cast<double>(big)}));
 }
 
 TEST(ConstantIdentity, HashUnifiesNaNs) {
