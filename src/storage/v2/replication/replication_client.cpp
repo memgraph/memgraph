@@ -229,12 +229,14 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
 
-  // While the replica is (force-)recovering, its cached progress is owned by the recovery task: it resets
-  // commit_ts_info_ to 0 and then re-accumulates the true count, both under engine_lock_. A heartbeat observation
-  // taken here reflects the replica's pre-reset state, so merging it via the advance-only Max below would restore
-  // the stale (inflated) count and undo the reset, resurfacing as a persistent negative replication lag. Reading the
-  // state under engine_lock_ makes this check mutually exclusive with the recovery task's reset, so we reliably
-  // defer to the recovery task and leave the state transition to it.
+  // While the replica is (force-)recovering, its cached commit_ts_info_ is owned by the recovery task, which resets
+  // it to 0 and then re-accumulates the true count. A heartbeat observation taken here reflects the pre-reset state,
+  // so merging it via the advance-only Max below would restore the stale (inflated) count, undo the reset, and
+  // resurface as a persistent negative replication lag. Two things keep this safe: the RECOVERY gate checked here,
+  // and the fact that this function and the recovery task both run on the same single-threaded per-client
+  // thread_pool_, so the reset can never execute between this check and the Max merge. Note that engine_lock_ does
+  // NOT protect this: the recovery task's reset takes no engine lock. If the pool ever became multi-threaded, this
+  // check-then-merge would be racy and would need to hold replica_state_'s lock across both the check and the merge.
   if (*replica_state_.Lock() == ReplicaState::RECOVERY) {
     spdlog::trace("Replica {} for db {} is recovering; skipping commit_ts_info_ update from heartbeat response.",
                   client_.name_,
