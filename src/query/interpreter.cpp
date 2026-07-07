@@ -10872,6 +10872,7 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
 #ifdef MG_ENTERPRISE
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
                           std::shared_ptr<utils::UserResources> user_resource) {
+  ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});
@@ -10890,6 +10891,7 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
 }
 #else
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
+  ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});
