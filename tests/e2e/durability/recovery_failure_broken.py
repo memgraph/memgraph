@@ -71,6 +71,20 @@ def test_broken_on_corrupt_snapshot(test_name):
         execute_and_fetch_all(cursor, "CREATE (:Node)")
     assert BROKEN_ERROR in str(einfo.value)
 
+    # SHOW ... INFO variants read tenant-graph metadata; on a broken tenant they must throw the
+    # broken error rather than reading the empty storage and returning a misleading clean result.
+    for query in (
+        "SHOW INDEX INFO",
+        "SHOW CONSTRAINT INFO",
+        "SHOW NODE_LABELS INFO",
+        "SHOW EDGE_TYPES INFO",
+        "SHOW VECTOR INDEX INFO",
+        "SHOW METRICS INFO",
+    ):
+        with pytest.raises(Exception) as einfo:
+            execute_and_fetch_all(cursor, query)
+        assert BROKEN_ERROR in str(einfo.value), f"{query} did not surface the broken state"
+
     interactive_mg_runner.stop_all()
 
 

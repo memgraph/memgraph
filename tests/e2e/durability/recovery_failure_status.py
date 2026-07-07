@@ -119,7 +119,8 @@ def test_show_databases_reports_status(test_name):
     interactive_mg_runner.start(instances, "default")
 
     cursor = connect(host="localhost", port=7687).cursor()
-    rows = {row[0]: row[1] for row in execute_and_fetch_all(cursor, "SHOW DATABASES")}
+    # SHOW DATABASES columns: Name, State (HOT/COLD), Health (ready/broken).
+    rows = {row[0]: row[2] for row in execute_and_fetch_all(cursor, "SHOW DATABASES")}
     assert rows.get("broken_db") == "broken"
     assert rows.get("memgraph") == "ready"
     interactive_mg_runner.stop_all()

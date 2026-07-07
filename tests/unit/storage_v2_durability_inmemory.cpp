@@ -1933,6 +1933,7 @@ TEST_P(DurabilityTest, ResetBrokenRejectedOnHealthy) {
 
 // With the flag off (default), the same corruption still aborts startup.
 TEST_P(DurabilityTest, SnapshotCorruptCrashesWhenRecoveryFailureNotAllowed) {
+  CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
   ASSERT_EQ(GetSnapshotsList().size(), 1);
 
   for (const auto &snapshot : GetSnapshotsList()) {
