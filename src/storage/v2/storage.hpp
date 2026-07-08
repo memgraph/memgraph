@@ -275,11 +275,6 @@ class Storage {
 
   void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
 
-  // Last durable timestamp.
-  uint64_t GetLastDurableTimestamp() const noexcept {
-    return repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
-  }
-
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
   using Accessor = memgraph::storage::Accessor;

@@ -480,20 +480,22 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
             name(),
             &ttl_,
             &description_store_);
-      } catch (const durability::RecoveryFailure &e) {
+      } catch (...) {
         // --storage-allow-recovery-failure: instead of crashing the process, bring this
         // database up empty and broken. RecoverData only reads durability files, so the
         // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT
-        // or restore the whole data directory from a backup. Only a
-        // data-driven RecoveryFailure is recoverable here; any other exception falls
-        // through to the catch(...) below and propagates.
+        // or restore the whole data directory from a backup. Any exception is treated as
+        // a broken boot when the flag is on: data-driven corruption does not always
+        // surface as RecoveryFailure (e.g. a flipped count byte yields std::length_error
+        // or OutOfMemoryException from a reserve/loop bound). When the flag is off, every
+        // exception propagates unchanged after freeing any pool-allocated light edges.
         if (!config_.durability.allow_recovery_failure) {
           if (config_.salient.items.storage_light_edge) {
             ClearLightEdges();
           }
           throw;
         }
-        spdlog::warn("Database '{}' failed to recover ({}); bringing it up in the broken state.", name(), e.what());
+        spdlog::warn("Database '{}' failed to recover; bringing it up in the broken state.", name());
         // Clear() harvests and frees the live light edges itself (gated on storage_light_edge),
         // so it is the single owner on this path; do not pre-free here or it double-frees.
         Clear();
@@ -504,18 +506,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         ttl_.Disable();
         SetBroken(true);
         return std::nullopt;
-      } catch (...) {
-        // Free any pool-allocated light Edge* already wired into vertex adjacency before
-        // the exception propagates out of the constructor; the dtor body never runs on
-        // ctor failure, so this is the sole owner. Heavy mode: no-op. No double-free: on a
-        // pre-Commit failure the snapshot loader's RAII (LightEdgeLoader::FreeAll / v14
-        // light_cleanup) has already freed the pool edges AND RecoveryRollbackGuard cleared
-        // vertices_, so this walk sees empty adjacency; on a post-Commit failure those
-        // guards are no-ops.
-        if (config_.salient.items.storage_light_edge) {
-          ClearLightEdges();
-        }
-        throw;
       }
     });
     metric_handles_.snapshot_recovery_latency_seconds.Observe(
@@ -4460,6 +4450,12 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     // Destroying current wal file
     wal_file_.reset();
 
+    // The tenant is now functionally healthy: the snapshot data is fully in memory and derived
+    // state is rebuilt. Clear broken here rather than after the .old backup housekeeping below,
+    // so a cosmetic filesystem failure (unable to archive superseded files, or overwrite the
+    // UUID) does not leave a tenant that holds valid data query-locked with durability suppressed.
+    SetBroken(false);
+
     auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
     constexpr std::string_view old_dir = ".old";
 
@@ -4478,6 +4474,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
         spdlog::warn(
             "Failed to create backup snapshot directory; snapshots directory should be cleaned manually. Err: {}",
             ec.message());
+        handler_error();
         return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
       }
       auto const wal_old_dir = recovery_.wal_directory_ / old_dir;
@@ -4490,6 +4487,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
       if (ec) {
         spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually. Err: {}",
                      ec.message());
+        handler_error();
         return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
       }
     }
@@ -4517,6 +4515,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
               "Failed to copy snapshot file to backup directory; snapshots directory should be cleaned "
               "manually. Err: {}",
               ec.message());
+          handler_error();
           return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
         }
       }
@@ -4540,6 +4539,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     if (uuid() != loaded_snapshot_uuid) {
       // Rewrite the UUID in the snapshot file
       if (!durability::OverwriteSnapshotUUID(local_path, uuid())) {
+        handler_error();
         return std::unexpected{InMemoryStorage::RecoverSnapshotError::FailedOverwritingUUID};
       }
     }
@@ -4551,11 +4551,6 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     handler_error();
     throw utils::BasicException("Couldn't recover from the snapshot because of: {}", e.what());
   }
-
-  // A successful recovery cures a broken tenant: the durability directory is now
-  // restart-clean (prior/corrupt files moved to .old or deleted), so background
-  // durability can resume.
-  SetBroken(false);
 
   return {};
 }

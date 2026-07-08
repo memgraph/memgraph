@@ -6275,7 +6275,8 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
             }
             case BackupFailure: {
               throw utils::BasicException(
-                  "Failed to clear local wal and snapshots directories. Please clean them manually.");
+                  "The snapshot was recovered, but the old wal and snapshots directories could not be archived. "
+                  "Please clean them manually, or re-run RECOVER SNAPSHOT ... FORCE.");
             }
             case DownloadFailure: {
               throw utils::BasicException("Failed to download snapshot file from {}", path);
@@ -6293,7 +6294,9 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
               throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_SECRET_KEY));
             }
             case FailedOverwritingUUID: {
-              throw utils::BasicException("Failed to overwrite snapshot with a new storage UUID");
+              throw utils::BasicException(
+                  "The snapshot was recovered, but overwriting it with the new storage UUID failed; the on-disk "
+                  "snapshot may not be picked up on restart. Re-run RECOVER SNAPSHOT ... FORCE.");
             }
             default: {
               std::unreachable();
