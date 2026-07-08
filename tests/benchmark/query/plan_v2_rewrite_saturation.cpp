@@ -54,6 +54,29 @@ using memgraph::query::plan::v2::egraph;
 using memgraph::query::plan::v2::impl_of;
 using memgraph::storage::ExternalPropertyValue;
 
+// Shared helpers.
+auto Lit(egraph &eg, int64_t v) -> eclass { return eg.MakeLiteral(ExternalPropertyValue{v}); }
+
+auto ModeFromArg(int64_t arg) -> ArmingMode { return arg == 0 ? ArmingMode::Full : ArmingMode::Incremental; }
+
+// Time only the saturation loop: the O(width) build and matcher-index
+// construction are identical across modes and would otherwise dilute the
+// comparison. `driver_len` is the fixed chain length the builder adds on top of
+// `width`, used only for the items-processed count.
+template <typename BuildFn>
+void RunPausedBuildSaturate(benchmark::State &state, BuildFn build, int64_t driver_len) {
+  auto const width = state.range(0);
+  auto const mode = ModeFromArg(state.range(1));
+  for (auto _ : state) {
+    state.PauseTiming();
+    auto eg = build(width);
+    Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
+    state.ResumeTiming();
+    benchmark::DoNotOptimize(rewriter.saturate(RewriteConfig::Unlimited(), mode));
+  }
+  state.SetItemsProcessed(state.iterations() * (width + driver_len));
+}
+
 // One coverage unit: an independent cluster that triggers every DefaultRules
 // rule at least once. `base` offsets the integer literals so units do not
 // hash-cons into one another (otherwise replicas would collapse and the graph
@@ -61,11 +84,10 @@ using memgraph::storage::ExternalPropertyValue;
 // (mul feeds on add; the boolean ops and Not feed on comparison results) so the
 // initial saturation is genuinely multi-iteration.
 void BuildUnit(egraph &eg, int64_t base) {
-  auto lit = [&](int64_t v) { return eg.MakeLiteral(ExternalPropertyValue{v}); };
-  auto const i1 = lit(base + 1);
-  auto const i2 = lit(base + 2);
-  auto const i3 = lit(base + 3);
-  auto const two = lit(2);  // shared exponent / divisor; non-zero, bounds the result
+  auto const i1 = Lit(eg, base + 1);
+  auto const i2 = Lit(eg, base + 2);
+  auto const i3 = Lit(eg, base + 3);
+  auto const two = Lit(eg, 2);  // shared exponent / divisor; non-zero, bounds the result
 
   // Arithmetic (6): distinct per base, non-zero divisors, bounded exponent.
   auto const add = eg.MakeAdd(i1, i2);
@@ -142,7 +164,7 @@ BENCHMARK(BM_PlanV2_NoopSaturation)->RangeMultiplier(2)->Range(1, 128)->Unit(ben
 // saving on the later passes (settled and irrelevant rules no longer re-run).
 void BM_PlanV2_Saturate(benchmark::State &state) {
   auto const units = state.range(0);
-  auto const mode = state.range(1) == 0 ? ArmingMode::Full : ArmingMode::Incremental;
+  auto const mode = ModeFromArg(state.range(1));
   for (auto _ : state) {
     auto eg = BuildGraph(units);
     Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
@@ -159,7 +181,7 @@ BENCHMARK(BM_PlanV2_Saturate)->ArgsProduct({{1, 8, 64}, {0, 1}})->Unit(benchmark
 // sees an empty touched-set and returns at once.
 void BM_PlanV2_ReSaturate(benchmark::State &state) {
   auto const units = state.range(0);
-  auto const mode = state.range(1) == 0 ? ArmingMode::Full : ArmingMode::Incremental;
+  auto const mode = ModeFromArg(state.range(1));
   auto eg = BuildGraph(units);
   Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
   rewriter.saturate(RewriteConfig::Unlimited(), mode);  // settle once, outside timing
@@ -180,8 +202,6 @@ BENCHMARK(BM_PlanV2_ReSaturate)->ArgsProduct({{1, 8, 64}, {0, 1}})->Unit(benchma
 // Under Incremental the Sub rule is dropped once its region settles, so the long
 // climb never re-scans it; under Full the Sub region is re-matched every pass.
 // The gap grows with `width`. range(1): 0 = Full, 1 = Incremental.
-auto Lit(egraph &eg, int64_t v) -> eclass { return eg.MakeLiteral(ExternalPropertyValue{v}); }
-
 auto BuildSettledPlusDriver(int64_t width) -> egraph {
   egraph eg;
   auto const two = Lit(eg, 2);
@@ -199,21 +219,7 @@ auto BuildSettledPlusDriver(int64_t width) -> egraph {
   return eg;
 }
 
-void BM_PlanV2_SettledRegion(benchmark::State &state) {
-  auto const width = state.range(0);
-  auto const mode = state.range(1) == 0 ? ArmingMode::Full : ArmingMode::Incremental;
-  for (auto _ : state) {
-    // Time only the saturation loop; the O(width) build and matcher-index
-    // construction are identical across modes and would otherwise dilute the
-    // comparison.
-    state.PauseTiming();
-    auto eg = BuildSettledPlusDriver(width);
-    Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
-    state.ResumeTiming();
-    benchmark::DoNotOptimize(rewriter.saturate(RewriteConfig::Unlimited(), mode));
-  }
-  state.SetItemsProcessed(state.iterations() * (width + 24));
-}
+void BM_PlanV2_SettledRegion(benchmark::State &state) { RunPausedBuildSaturate(state, BuildSettledPlusDriver, 24); }
 
 BENCHMARK(BM_PlanV2_SettledRegion)->ArgsProduct({{0, 256, 1024, 4096}, {0, 1}})->Unit(benchmark::kMicrosecond);
 
@@ -242,18 +248,7 @@ auto BuildSameSymbolSettled(int64_t width) -> egraph {
   return eg;
 }
 
-void BM_PlanV2_SameSymbolSettled(benchmark::State &state) {
-  auto const width = state.range(0);
-  auto const mode = state.range(1) == 0 ? ArmingMode::Full : ArmingMode::Incremental;
-  for (auto _ : state) {
-    state.PauseTiming();
-    auto eg = BuildSameSymbolSettled(width);
-    Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
-    state.ResumeTiming();
-    benchmark::DoNotOptimize(rewriter.saturate(RewriteConfig::Unlimited(), mode));
-  }
-  state.SetItemsProcessed(state.iterations() * (width + 24));
-}
+void BM_PlanV2_SameSymbolSettled(benchmark::State &state) { RunPausedBuildSaturate(state, BuildSameSymbolSettled, 24); }
 
 BENCHMARK(BM_PlanV2_SameSymbolSettled)->ArgsProduct({{0, 256, 1024, 4096}, {0, 1}})->Unit(benchmark::kMicrosecond);
 

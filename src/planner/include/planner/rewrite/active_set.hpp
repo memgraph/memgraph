@@ -13,7 +13,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <utility>
 #include <vector>
 
 #include <boost/unordered/unordered_flat_set.hpp>

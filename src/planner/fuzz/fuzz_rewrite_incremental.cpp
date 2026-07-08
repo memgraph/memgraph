@@ -126,7 +126,7 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
   if (incremental_eg.num_classes() != arm_all_eg.num_classes()) fail("e-class count differs");
   if (incremental_eg.num_live_nodes() != arm_all_eg.num_live_nodes()) fail("live-node count differs");
 
-  // Sharp oracle: one all-rules pass on incremental arminged result must find nothing,
+  // Sharp oracle: one all-rules pass on the incremental result must find nothing,
   // i.e. incremental arming did not stop short of the real fixpoint.
   if (incremental.iterate_once() != 0) fail("incremental result is not a true fixpoint");
 

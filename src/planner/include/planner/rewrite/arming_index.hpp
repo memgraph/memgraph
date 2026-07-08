@@ -72,6 +72,7 @@ class ArmingIndex {
   /// Fill `armed` with the rule indices a pass should run given the symbols of
   /// its active set: every always-armed rule plus every rule rooted at an active
   /// symbol. The set de-duplicates a rule reachable through several symbols.
+  /// Inserts into `armed` without clearing it first - the caller owns that.
   template <typename ActiveSymbols>
   void collect_armed(ActiveSymbols const &active_symbols, boost::unordered_flat_set<std::size_t> &armed) const {
     armed.insert(always_armed_.begin(), always_armed_.end());

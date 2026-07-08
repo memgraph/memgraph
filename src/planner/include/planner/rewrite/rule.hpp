@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -108,15 +109,6 @@ class RewriteRule {
   /// Access the compiled bytecode for VM execution
   [[nodiscard]] auto compiled() const -> pattern::vm::CompiledMatcher<Symbol> const & { return compiled_; }
 
-  /// Get the root symbol of the first pattern (for index-based candidate lookup)
-  [[nodiscard]] auto first_pattern_root_symbol() const -> std::optional<Symbol> {
-    auto const &root_node = patterns_[0][patterns_[0].root()];
-    if (auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&root_node)) {
-      return sym->sym;
-    }
-    return std::nullopt;
-  }
-
   /// The root symbol of every pattern (nullopt where a pattern roots at a
   /// variable/wildcard and so could match any e-class). A new firing of this
   /// rule requires a change at some bound position, which surfaces at one of its
@@ -167,6 +159,8 @@ class RewriteRule {
   template <typename VMExecutor>
   void match(MatcherIndex<Symbol, Analysis> &index, VMExecutor &vm_executor, MatcherContext &ctx,
              boost::unordered_flat_set<EClassId> const *active = nullptr) const {
+    assert((active == nullptr || supports_active_root_restriction()) &&
+           "active-set restriction is sound only for root-entry single-pattern rules");
     ctx.clear();
     vm_executor.execute(compiled_, index, ctx.match_ctx.arena(), ctx.match_buffer, active);
   }

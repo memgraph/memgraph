@@ -211,7 +211,7 @@ class VMExecutor {
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_symbol_eclasses(Instruction instr) -> bool;
 
   /// Intersect the root-symbol candidates with the active set (see execute()'s
-  /// `active`). Cold: only reached on a incremental pass with a sparse change.
+  /// `active`). Cold: only reached on an incremental pass with a sparse change.
   /// Returns the set to iterate (the original `set` when filtering would not pay).
   [[nodiscard]] [[gnu::noinline]] auto active_restricted_roots(Symbol sym,
                                                                boost::unordered_flat_set<EClassId> const *set)

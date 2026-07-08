@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <optional>
 #include <set>
+
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 #include "query/plan_v2/resolve/analysis.hpp"

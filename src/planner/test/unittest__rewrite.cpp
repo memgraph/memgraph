@@ -149,7 +149,7 @@ TEST(IncrementalArming, IncrementalReachesATrueFixpoint) {
   auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
   ASSERT_TRUE(result.saturated());
 
-  // The sharp oracle: one all-rules pass on incremental arminged result finds nothing,
+  // The sharp oracle: one all-rules pass on the incremental result finds nothing,
   // i.e. incremental arming did not stop short of the real fixpoint.
   EXPECT_EQ(rewriter.iterate_once(), 0U);
 }
@@ -286,8 +286,43 @@ TEST(IncrementalArming, IncrementalEqualsFullAcrossReSaturateForRootEntryRule) {
   EXPECT_EQ(incremental.second, arm_all.second);
 }
 
+TEST(IncrementalArming, ModeSwitchOnOneRewriterMatchesAllIncremental) {
+  // The touched-set is graph-level state both modes write; a Full pass does not
+  // clear it (see saturate()), so a later Incremental saturate on the SAME rewriter
+  // arms from what Full changed - the carry-over the iterate_once() oracle also
+  // relies on. Drive a sequence that ends on Incremental after a `middle` pass and
+  // confirm it reaches the same fixpoint whether `middle` was Full or Incremental.
+  auto run = [](ArmingMode middle) -> std::pair<std::size_t, std::size_t> {
+    EGraph<Op, NoAnalysis> eg;
+    auto top = BuildNegChain(eg, 6);
+    TestRewriter rewriter{eg, TestRuleSet::Build(make_double_neg_rule())};
+    rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);  // consume full_arm_pending_
+
+    // Grow two Neg levels and fold them with `middle`. When middle is Full it
+    // leaves the touched-set intact for the final Incremental arm below.
+    top = eg.emplace(Op::Neg, {top}).eclass_id;
+    top = eg.emplace(Op::Neg, {top}).eclass_id;
+    rewriter.rebuild_index();
+    rewriter.saturate(RewriteConfig::Unlimited(), middle);
+
+    // Grow again and finish on Incremental: full_arm_pending_ is false, so this
+    // arms from the surviving touched-set (middle's merges plus this growth).
+    top = eg.emplace(Op::Neg, {top}).eclass_id;
+    top = eg.emplace(Op::Neg, {top}).eclass_id;
+    rewriter.rebuild_index();
+    auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
+
+    EXPECT_TRUE(result.saturated());
+    EXPECT_EQ(rewriter.iterate_once(), 0U);  // sharp oracle: a true fixpoint
+    return {eg.num_classes(), eg.num_live_nodes()};
+  };
+  auto const all_incremental = run(ArmingMode::Incremental);
+  auto const mode_switched = run(ArmingMode::Full);
+  EXPECT_EQ(mode_switched, all_incremental) << "a Full pass mid-session corrupted the incremental carry-over";
+}
+
 TEST(IncrementalArming, IncrementalEqualsFullUnderBoundedBudget) {
-  // A Incremental<->Full differential under a *bounded* budget (every other one uses
+  // An Incremental<->Full differential under a *bounded* budget (every other one uses
   // Unlimited()). Given enough iterations to reach the fixpoint, Incremental must land
   // on exactly Full's result - guards the production path (ApplyAllRewrites).
   constexpr RewriteConfig kBounded{.max_iterations = 16};  // > chain depth: both saturate
