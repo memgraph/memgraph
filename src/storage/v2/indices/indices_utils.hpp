@@ -247,6 +247,91 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
   return exists && !deleted && current_value_equal_to_value;
 }
 
+/// Helper function for vertex-property index garbage collection. Returns true if
+/// there's a reachable version of the edge that has the given property value.
+inline bool AnyVersionHasProperty(Vertex const &vertex, PropertyId key, PropertyValue const &value,
+                                  uint64_t timestamp) {
+  Delta const *delta;
+  bool deleted;
+  bool current_value_equal_to_value;
+  {
+    auto guard = std::shared_lock{vertex.lock};
+    delta = vertex.delta();
+    deleted = vertex.deleted();
+    if (delta == nullptr && deleted) return false;
+    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
+  }
+
+  if (!deleted && current_value_equal_to_value) {
+    return true;
+  }
+
+  constexpr auto interesting = details::ActionSet<Delta::Action::SET_PROPERTY,
+                                                  Delta::Action::RECREATE_OBJECT,
+                                                  Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                                                  Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<interesting>(
+      timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](Delta const &delta) {
+        switch (delta.action) {
+          case Delta::Action::SET_PROPERTY:
+            if (delta.property.key == key) {
+              current_value_equal_to_value = *delta.property.value == value;
+            }
+            break;
+          case Delta::Action::RECREATE_OBJECT: {
+            MG_ASSERT(deleted, "Invalid database state!");
+            deleted = false;
+            break;
+          }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT: {
+            MG_ASSERT(!deleted, "Invalid database state!");
+            deleted = true;
+            break;
+          }
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            break;
+        }
+        return !deleted && current_value_equal_to_value;
+      });
+}
+
+// Helper function for iterating through vertex-property index. Returns true if
+// this transaction can see the given vertex, and the visible version has the
+// given property.
+inline bool CurrentVertexVersionHasProperty(Vertex const &vertex, PropertyId key, PropertyValue const &value,
+                                            Transaction *transaction, View view) {
+  bool exists = true;
+  bool deleted = false;
+  bool current_value_equal_to_value = value.IsNull();
+  Delta const *delta = nullptr;
+  {
+    auto guard = std::shared_lock{vertex.lock};
+    deleted = vertex.deleted();
+    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
+    delta = vertex.delta();
+  }
+
+  if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    ApplyDeltasForRead(transaction, delta, view, [&, key](Delta const &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Deleted_ActionMethod(deleted),
+        Exists_ActionMethod(exists),
+        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key, value)
+      });
+      // clang-format on
+    });
+  }
+
+  return exists && !deleted && current_value_equal_to_value;
+}
+
 template <typename TVerticesAccessor, typename TSkipListAccessorFactory, typename TFunc>
 inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipListAccessorFactory &&accessor_factory,
                                            const TFunc &func,
