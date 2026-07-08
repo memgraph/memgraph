@@ -31,9 +31,33 @@
   </a>
 </p>
 
+## :book: Table of Contents
+
+- [Description](#clipboard-description)
+- [Features](#zap-features)
+- [Memgraph Playground](#video_game-memgraph-playground)
+- [Quick Start](#rocket-quick-start)
+- [Download & Install](#floppy_disk-download--install)
+- [Daily Builds](#rocket-daily-builds)
+- [Memgraph Cloud](#cloud-memgraph-cloud)
+- [Connect to Memgraph](#link-connect-to-memgraph)
+- [Import data](#file_folder-import-data)
+- [Best Practices](#bulb-best-practices)
+- [Roadmap](#world_map-roadmap)
+- [Documentation](#bookmark_tabs-documentation)
+- [Configuration](#question-configuration)
+- [Contributing](#trophy-contributing)
+- [Community](#busts_in_silhouette-community)
+
 ## :clipboard: Description
 
-Memgraph is a high-performance, in-memory graph database that powers real-time
+Memgraph is an open-source graph database: instead of storing data in rows and
+tables like a relational database, it stores it as nodes and relationships, so
+you can query how things are *connected* — who is related to whom, which
+transactions form a fraud ring, which services depend on each other — without
+slow, expensive joins.
+
+Memgraph is high-performance and in-memory, and powers real-time
 AI context and graph analytics. Built in C/C++, it serves as the graph engine
 for GraphRAG pipelines, AI memory systems, and agentic workflows — delivering
 sub-millisecond multi-hop traversals for any system that needs structured,
@@ -101,6 +125,29 @@ browser.
     <img width="450px" alt="Memgraph Playground" src="https://download.memgraph.com/asset/github/memgraph/memgraph-playground.png">
   </a>
 </p>
+
+## :rocket: Quick Start
+
+Get a local instance running in under a minute with Docker:
+
+```bash
+docker run -p 7687:7687 -p 7444:7444 memgraph/memgraph
+```
+
+This starts Memgraph and exposes the Bolt protocol on port `7687`. Connect to
+it with [mgconsole](https://memgraph.com/docs/getting-started/cli), a
+[client driver](https://memgraph.com/docs/client-libraries) in your language
+of choice, or point [Memgraph Lab](https://memgraph.com/docs/memgraph-lab) at
+`localhost:7687` to explore your data visually. Once connected, run your first
+Cypher query:
+
+```cypher
+CREATE (alice:Person {name: "Alice"})-[:KNOWS]->(bob:Person {name: "Bob"})
+RETURN alice, bob;
+```
+
+See the [Download & Install](#floppy_disk-download--install) section below for
+other installation options (native packages, Kubernetes, and more).
 
 ## :floppy_disk: Download & Install
 
