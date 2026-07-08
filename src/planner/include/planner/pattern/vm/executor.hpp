@@ -159,7 +159,7 @@ class VMExecutor {
   /// node is the root (RewriteRule::supports_active_root_restriction), so the
   /// pattern's single IterSymbolEClasses is the root iteration and the active set
   /// holds the root of every new match - no match is lost. Null (first pass /
-  /// ArmAll / non-qualifying rule) matches all candidates.
+  /// Full / non-qualifying rule) matches all candidates.
   void execute(CompiledMatcher<Symbol> const &pattern, MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
                std::vector<PatternMatch> &results, boost::unordered_flat_set<EClassId> const *active = nullptr);
 
@@ -211,7 +211,7 @@ class VMExecutor {
   [[nodiscard]] [[gnu::always_inline]] auto exec_iter_symbol_eclasses(Instruction instr) -> bool;
 
   /// Intersect the root-symbol candidates with the active set (see execute()'s
-  /// `active`). Cold: only reached on a latched pass with a sparse change.
+  /// `active`). Cold: only reached on a incremental pass with a sparse change.
   /// Returns the set to iterate (the original `set` when filtering would not pay).
   [[nodiscard]] [[gnu::noinline]] auto active_restricted_roots(Symbol sym,
                                                                boost::unordered_flat_set<EClassId> const *set)
@@ -529,7 +529,7 @@ auto VMExecutor<Symbol, Analysis, DevMode>::exec_iter_symbol_eclasses(Instructio
   auto const *set = matcher_index_->eclasses_set_for_symbol(sym);
 
   // When an active set is supplied, restrict the root candidates to it. This is
-  // off the hot path (only latched passes with a sparse change set it), so the
+  // off the hot path (only incremental passes with a sparse change set it), so the
   // work lives in a cold, non-inlined helper - the common case leaves the
   // dispatch loop's code untouched.
   if (active_root_set_ != nullptr) [[unlikely]] {

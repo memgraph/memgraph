@@ -9,11 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Differential fuzzer for the rule latch: a random e-graph is saturated twice
-// with the same rules, once in ArmAll mode (every rule every pass - the
-// reference) and once in Latched mode (the optimisation). The two must agree.
-// A divergence means the latch skipped a rule that should have run - the exact
-// failure the latch must never cause.
+// Differential fuzzer for incremental arming: a random e-graph is saturated twice
+// with the same rules, once in Full mode (every rule every pass - the
+// reference) and once in Incremental mode (the optimisation). The two must agree.
+// A divergence means incremental arming skipped a rule that should have run - the exact
+// failure incremental arming must never cause.
 
 #include <cstdint>
 #include <cstdio>
@@ -44,7 +44,7 @@ using FuzzGraph = EGraph<FuzzSymbol, FuzzAnalysis>;
 using FuzzRule = RewriteRule<FuzzGraph>;
 
 [[noreturn]] void fail(char const *what) {
-  std::fprintf(stderr, "rule latch divergence: %s\n", what);
+  std::fprintf(stderr, "incremental arming divergence: %s\n", what);
   std::abort();
 }
 
@@ -112,23 +112,23 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
   // Reference: every rule every pass.
   auto arm_all_eg = build_graph(data, size);
   Rewriter arm_all{arm_all_eg, rules};
-  arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::ArmAll);
+  arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::Full);
 
   // Optimisation: only the rules a pass could re-enable.
-  auto latched_eg = build_graph(data, size);
-  Rewriter latched{latched_eg, rules};
-  latched.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  auto incremental_eg = build_graph(data, size);
+  Rewriter incremental{incremental_eg, rules};
+  incremental.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
 
   // Same fixpoint = same final shape. Rewrite COUNTS can differ by schedule (a
   // merge redundant in one order is a no-op in another), so compare the graph.
-  // Latched only skips rules/prunes candidates, so its merges are a subset of
-  // ArmAll's; equal counts plus the sharp fixpoint oracle below pin them equal.
-  if (latched_eg.num_classes() != arm_all_eg.num_classes()) fail("e-class count differs");
-  if (latched_eg.num_live_nodes() != arm_all_eg.num_live_nodes()) fail("live-node count differs");
+  // Incremental only skips rules/prunes candidates, so its merges are a subset of
+  // Full's; equal counts plus the sharp fixpoint oracle below pin them equal.
+  if (incremental_eg.num_classes() != arm_all_eg.num_classes()) fail("e-class count differs");
+  if (incremental_eg.num_live_nodes() != arm_all_eg.num_live_nodes()) fail("live-node count differs");
 
-  // Sharp oracle: one all-rules pass on the latched result must find nothing,
-  // i.e. the latch did not stop short of the real fixpoint.
-  if (latched.iterate_once() != 0) fail("latched result is not a true fixpoint");
+  // Sharp oracle: one all-rules pass on incremental arminged result must find nothing,
+  // i.e. incremental arming did not stop short of the real fixpoint.
+  if (incremental.iterate_once() != 0) fail("incremental result is not a true fixpoint");
 
   return 0;
 }

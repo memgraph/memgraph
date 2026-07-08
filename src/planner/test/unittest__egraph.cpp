@@ -191,7 +191,7 @@ TEST(EGraph_DuplicateRemoval, CongruenceRemovesDuplicateENodes) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
-// === Per-pass touched-set (foundation for the rule latch) ===
+// === Per-pass touched-set (foundation for incremental arming) ===
 
 TEST(EGraph_Touched, RecordsInsertsOnce) {
   TestEGraph egraph;

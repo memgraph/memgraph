@@ -79,7 +79,7 @@ class Rewrite : public EGraphTestBase {
   // ---------------------------------------------------------------------------
 
   void saturate(RewriteConfig config = RewriteConfig::Default()) {
-    result_ = rewriter_.saturate(config, ArmingMode::ArmAll);
+    result_ = rewriter_.saturate(config, ArmingMode::Full);
     // Invariant: total rewrites must equal sum of per-rule rewrites
     std::size_t sum = 0;
     for (auto count : result_.rewrites_per_rule) {

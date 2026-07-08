@@ -27,7 +27,7 @@ namespace memgraph::planner::core::rewrite {
 /// The parent-closure depth the active set must use: the deepest position any
 /// rule binds, which is the maximum pattern depth over the rule set. A change at
 /// a bind that deep reaches the pattern root in this many parent hops, so the
-/// active set must close to here for the latch to be sound. Derived from the
+/// active set must close to here for incremental arming to be sound. Derived from the
 /// patterns, never hardcoded - a deeper rule widens it automatically.
 template <RewritableGraph Graph>
 [[nodiscard]] auto MaxRuleSetPatternDepth(RuleSet<Graph> const &rules) -> std::size_t {

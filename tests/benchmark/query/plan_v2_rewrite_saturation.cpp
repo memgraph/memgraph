@@ -112,7 +112,7 @@ void BM_PlanV2_NoopSaturation(benchmark::State &state) {
 
   // Guard 1: reach a true fixpoint before timing (default limits could stop a
   // large graph short of saturation).
-  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::ArmAll);
+  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Full);
   MG_ASSERT(result.saturated(),
             "setup saturation did not reach a fixpoint (stop_reason={})",
             static_cast<int>(result.stop_reason));
@@ -137,12 +137,12 @@ void BM_PlanV2_NoopSaturation(benchmark::State &state) {
 BENCHMARK(BM_PlanV2_NoopSaturation)->RangeMultiplier(2)->Range(1, 128)->Unit(benchmark::kMicrosecond);
 
 // Full saturate-to-fixpoint, comparing the arming modes. range(0) = units;
-// range(1) = mode (0 = ArmAll reference, 1 = Latched). The build cost is
-// identical across modes, so the delta between modes at a size is the latch's
+// range(1) = mode (0 = Full reference, 1 = Incremental). The build cost is
+// identical across modes, so the delta between modes at a size is incremental arming's
 // saving on the later passes (settled and irrelevant rules no longer re-run).
 void BM_PlanV2_Saturate(benchmark::State &state) {
   auto const units = state.range(0);
-  auto const mode = state.range(1) == 0 ? ArmingMode::ArmAll : ArmingMode::Latched;
+  auto const mode = state.range(1) == 0 ? ArmingMode::Full : ArmingMode::Incremental;
   for (auto _ : state) {
     auto eg = BuildGraph(units);
     Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
@@ -154,12 +154,12 @@ void BM_PlanV2_Saturate(benchmark::State &state) {
 BENCHMARK(BM_PlanV2_Saturate)->ArgsProduct({{1, 8, 64}, {0, 1}})->Unit(benchmark::kMicrosecond);
 
 // Re-saturate an already-settled graph - the "saturate then re-apply" scenario
-// and the incremental-saturation case. range(1): 0 = ArmAll, 1 = Latched.
-// ArmAll re-matches every rule over the whole settled graph each call; Latched
+// and the incremental-saturation case. range(1): 0 = Full, 1 = Incremental.
+// Full re-matches every rule over the whole settled graph each call; Incremental
 // sees an empty touched-set and returns at once.
 void BM_PlanV2_ReSaturate(benchmark::State &state) {
   auto const units = state.range(0);
-  auto const mode = state.range(1) == 0 ? ArmingMode::ArmAll : ArmingMode::Latched;
+  auto const mode = state.range(1) == 0 ? ArmingMode::Full : ArmingMode::Incremental;
   auto eg = BuildGraph(units);
   Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
   rewriter.saturate(RewriteConfig::Unlimited(), mode);  // settle once, outside timing
@@ -177,9 +177,9 @@ BENCHMARK(BM_PlanV2_ReSaturate)->ArgsProduct({{1, 8, 64}, {0, 1}})->Unit(benchma
 //     *alternate* being the single armed rule as the fold climbs; and
 //   - `width` independent Sub folds that all fire on the first pass and then
 //     never change - a settled region.
-// Under Latched the Sub rule is dropped once its region settles, so the long
-// climb never re-scans it; under ArmAll the Sub region is re-matched every pass.
-// The gap grows with `width`. range(1): 0 = ArmAll, 1 = Latched.
+// Under Incremental the Sub rule is dropped once its region settles, so the long
+// climb never re-scans it; under Full the Sub region is re-matched every pass.
+// The gap grows with `width`. range(1): 0 = Full, 1 = Incremental.
 auto Lit(egraph &eg, int64_t v) -> eclass { return eg.MakeLiteral(ExternalPropertyValue{v}); }
 
 auto BuildSettledPlusDriver(int64_t width) -> egraph {
@@ -201,7 +201,7 @@ auto BuildSettledPlusDriver(int64_t width) -> egraph {
 
 void BM_PlanV2_SettledRegion(benchmark::State &state) {
   auto const width = state.range(0);
-  auto const mode = state.range(1) == 0 ? ArmingMode::ArmAll : ArmingMode::Latched;
+  auto const mode = state.range(1) == 0 ? ArmingMode::Full : ArmingMode::Incremental;
   for (auto _ : state) {
     // Time only the saturation loop; the O(width) build and matcher-index
     // construction are identical across modes and would otherwise dilute the
@@ -217,16 +217,16 @@ void BM_PlanV2_SettledRegion(benchmark::State &state) {
 
 BENCHMARK(BM_PlanV2_SettledRegion)->ArgsProduct({{0, 256, 1024, 4096}, {0, 1}})->Unit(benchmark::kMicrosecond);
 
-// Same-symbol settled region: the case the coarse latch *cannot* help, and the
+// Same-symbol settled region: the case the coarse arming *cannot* help, and the
 // one per-candidate matching would. The driver is a deep Add chain that folds
 // one level per pass, so the Add-fold rule stays armed for the whole climb. The
 // settled region is `width` independent Add folds of the *same* symbol: they
 // fold on pass 1 and never change, but because the driver keeps Add armed, every
-// pass re-matches all `width` settled Add candidates too. The latch arms at
+// pass re-matches all `width` settled Add candidates too. Incremental arming arms at
 // symbol granularity, so it can only drop a rule when its whole symbol goes
 // quiet - it cannot drop the settled Adds while the driver's Adds are live.
-// If per-pass cost grows with `width` under Latched, that growth is the residual
-// the latch leaves on the table and per-candidate matching would remove.
+// If per-pass cost grows with `width` under Incremental, that growth is the residual
+// incremental arming leaves on the table and per-candidate matching would remove.
 auto BuildSameSymbolSettled(int64_t width) -> egraph {
   egraph eg;
   auto const two = Lit(eg, 2);
@@ -244,7 +244,7 @@ auto BuildSameSymbolSettled(int64_t width) -> egraph {
 
 void BM_PlanV2_SameSymbolSettled(benchmark::State &state) {
   auto const width = state.range(0);
-  auto const mode = state.range(1) == 0 ? ArmingMode::ArmAll : ArmingMode::Latched;
+  auto const mode = state.range(1) == 0 ? ArmingMode::Full : ArmingMode::Incremental;
   for (auto _ : state) {
     state.PauseTiming();
     auto eg = BuildSameSymbolSettled(width);

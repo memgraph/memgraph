@@ -28,7 +28,7 @@ using namespace test;
 using namespace pattern;
 using namespace rewrite;
 
-// --- Arming index (Stage 2 of the rule latch) ---
+// --- Arming index (Stage 2 of incremental arming) ---
 
 TEST(ArmingIndex, RuleExposesEveryPatternRootSymbol) {
   // Single-pattern rule roots at one symbol.
@@ -129,11 +129,11 @@ TEST(ActiveSet, ParentClosureReachesAncestorsToDepthOnly) {
   EXPECT_TRUE(d2.contains(eg.find(ffa)));
 }
 
-// --- Rule latch: Latched mode equals ArmAll, and reaches a true fixpoint ---
+// --- Incremental mode: equals Full, and reaches a true fixpoint ---
 
 namespace {
 // Build Neg^depth(Var) into `eg` and return the chain top. double_neg composes
-// across passes, so the latch must re-arm the rule pass after pass.
+// across passes, so incremental arming must re-arm the rule pass after pass.
 auto BuildNegChain(EGraph<Op, NoAnalysis> &eg, int depth) -> EClassId {
   auto top = eg.emplace(Op::Var, 1).eclass_id;
   for (int i = 0; i < depth; ++i) top = eg.emplace(Op::Neg, {top}).eclass_id;
@@ -141,44 +141,44 @@ auto BuildNegChain(EGraph<Op, NoAnalysis> &eg, int depth) -> EClassId {
 }
 }  // namespace
 
-TEST(RuleLatch, LatchedReachesATrueFixpoint) {
+TEST(IncrementalArming, IncrementalReachesATrueFixpoint) {
   EGraph<Op, NoAnalysis> eg;
   BuildNegChain(eg, 8);
   TestRewriter rewriter{eg, TestRuleSet::Build(make_double_neg_rule())};
 
-  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
   ASSERT_TRUE(result.saturated());
 
-  // The sharp oracle: one all-rules pass on the latched result finds nothing,
-  // i.e. the latch did not stop short of the real fixpoint.
+  // The sharp oracle: one all-rules pass on incremental arminged result finds nothing,
+  // i.e. incremental arming did not stop short of the real fixpoint.
   EXPECT_EQ(rewriter.iterate_once(), 0U);
 }
 
-TEST(RuleLatch, LatchedEqualsArmAll) {
+TEST(IncrementalArming, IncrementalEqualsFull) {
   EGraph<Op, NoAnalysis> arm_all_eg;
   BuildNegChain(arm_all_eg, 8);
   TestRewriter arm_all{arm_all_eg, TestRuleSet::Build(make_double_neg_rule())};
-  auto const arm_all_result = arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::ArmAll);
+  auto const arm_all_result = arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::Full);
 
-  EGraph<Op, NoAnalysis> latched_eg;
-  BuildNegChain(latched_eg, 8);
-  TestRewriter latched{latched_eg, TestRuleSet::Build(make_double_neg_rule())};
-  auto const latched_result = latched.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  EGraph<Op, NoAnalysis> incremental_eg;
+  BuildNegChain(incremental_eg, 8);
+  TestRewriter incremental{incremental_eg, TestRuleSet::Build(make_double_neg_rule())};
+  auto const incremental_result = incremental.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
 
   // Same fixpoint = same final shape (rewrite counts can differ by schedule).
-  // Latched only ever skips rules/prunes candidates, so its merges are a subset
-  // of ArmAll's; equal counts plus a true fixpoint (sharp oracle) pin them equal.
+  // Incremental only ever skips rules/prunes candidates, so its merges are a subset
+  // of Full's; equal counts plus a true fixpoint (sharp oracle) pin them equal.
   EXPECT_TRUE(arm_all_result.saturated());
-  EXPECT_TRUE(latched_result.saturated());
-  EXPECT_EQ(latched_eg.num_classes(), arm_all_eg.num_classes());
-  EXPECT_EQ(latched_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
-  EXPECT_EQ(latched.iterate_once(), 0U);  // sharp oracle: a true fixpoint
+  EXPECT_TRUE(incremental_result.saturated());
+  EXPECT_EQ(incremental_eg.num_classes(), arm_all_eg.num_classes());
+  EXPECT_EQ(incremental_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
+  EXPECT_EQ(incremental.iterate_once(), 0U);  // sharp oracle: a true fixpoint
 }
 
-TEST(RuleLatch, LatchedEqualsArmAllForMultiPatternRule) {
+TEST(IncrementalArming, IncrementalEqualsFullForMultiPatternRule) {
   // merge_vars is a two-pattern rule with independent Op::Var roots (a cartesian
   // join). The per-candidate active-set restriction is unsound for such rules, so
-  // it must not apply here - Latched must still find every pair ArmAll does. The
+  // it must not apply here - Incremental must still find every pair Full does. The
   // Op::A padding keeps the post-pass active set a sparse slice of the graph, so
   // the sparse path (active_sparse_) is exercised rather than short-circuited.
   auto build = [](EGraph<Op, NoAnalysis> &eg) {
@@ -188,36 +188,36 @@ TEST(RuleLatch, LatchedEqualsArmAllForMultiPatternRule) {
   EGraph<Op, NoAnalysis> arm_all_eg;
   build(arm_all_eg);
   TestRewriter arm_all{arm_all_eg, TestRuleSet::Build(make_merge_vars_rule())};
-  arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::ArmAll);
+  arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::Full);
 
-  EGraph<Op, NoAnalysis> latched_eg;
-  build(latched_eg);
-  TestRewriter latched{latched_eg, TestRuleSet::Build(make_merge_vars_rule())};
-  auto const latched_result = latched.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  EGraph<Op, NoAnalysis> incremental_eg;
+  build(incremental_eg);
+  TestRewriter incremental{incremental_eg, TestRuleSet::Build(make_merge_vars_rule())};
+  auto const incremental_result = incremental.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
 
-  EXPECT_TRUE(latched_result.saturated());
-  EXPECT_EQ(latched_eg.num_classes(), arm_all_eg.num_classes());
-  EXPECT_EQ(latched_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
-  EXPECT_EQ(latched.iterate_once(), 0U);  // sharp oracle: a true fixpoint
+  EXPECT_TRUE(incremental_result.saturated());
+  EXPECT_EQ(incremental_eg.num_classes(), arm_all_eg.num_classes());
+  EXPECT_EQ(incremental_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
+  EXPECT_EQ(incremental.iterate_once(), 0U);  // sharp oracle: a true fixpoint
 }
 
-TEST(RuleLatch, ReSaturatingASettledGraphDoesNoWork) {
+TEST(IncrementalArming, ReSaturatingASettledGraphDoesNoWork) {
   EGraph<Op, NoAnalysis> eg;
   BuildNegChain(eg, 8);
   TestRewriter rewriter{eg, TestRuleSet::Build(make_double_neg_rule())};
-  rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
 
   // A settled graph has touched nothing, so re-saturating arms nothing and
   // returns in a single no-op pass - the incremental-saturation payoff.
-  auto const again = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  auto const again = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
   EXPECT_TRUE(again.saturated());
   EXPECT_EQ(again.iterations, 1U);
   EXPECT_EQ(again.rewrites_applied, 0U);
 }
 
-// --- Rule latch: soundness of the per-candidate active-set restriction ---
+// --- Incremental mode: soundness of the per-candidate active-set restriction ---
 
-TEST(RuleLatch, ActiveRootRestrictionOnlyForRootEntryPatterns) {
+TEST(IncrementalArming, ActiveRootRestrictionOnlyForRootEntryPatterns) {
   // The per-candidate active-set restriction is sound only when a rule's single
   // pattern has no symbol below its root, so the VM's one symbol iteration is the
   // root iteration. The active set is closed under parents (holds the root of a
@@ -229,14 +229,14 @@ TEST(RuleLatch, ActiveRootRestrictionOnlyForRootEntryPatterns) {
   EXPECT_FALSE(make_chain_join_rule().supports_active_root_restriction());   // multi-pattern
 }
 
-TEST(RuleLatch, LatchedEqualsArmAllWhenDeepEntryMatchGrowsFromUntouchedChild) {
+TEST(IncrementalArming, IncrementalEqualsFullWhenDeepEntryMatchGrowsFromUntouchedChild) {
   // Regression for the entry-vs-root soundness bug. double_neg = Neg(Neg(?x)) is a
   // DEEP-ENTRY pattern: the VM enters at the inner Neg (deepest symbol), not the
   // root outer Neg. When a new outer Neg is grown over an already-settled,
   // UNTOUCHED inner chain, the touched-set holds only the outer class and the
   // active set (closed under parents) never reaches the inner Neg - which is the
   // entry. A per-candidate restriction keyed to the entry would drop the match
-  // ArmAll finds. Latched must still equal ArmAll. Pre-fix this diverged.
+  // Full finds. Incremental must still equal Full. Pre-fix this diverged.
   auto run = [](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
     EGraph<Op, NoAnalysis> eg;
     // Padding keeps the post-growth active set a sparse slice, so the
@@ -254,13 +254,13 @@ TEST(RuleLatch, LatchedEqualsArmAllWhenDeepEntryMatchGrowsFromUntouchedChild) {
 
     return {eg.num_classes(), eg.num_live_nodes()};
   };
-  auto const arm_all = run(ArmingMode::ArmAll);
-  auto const latched = run(ArmingMode::Latched);
-  EXPECT_EQ(latched.first, arm_all.first) << "e-class count diverged: the latch missed a deep-entry match";
-  EXPECT_EQ(latched.second, arm_all.second) << "live-node count diverged";
+  auto const arm_all = run(ArmingMode::Full);
+  auto const incremental = run(ArmingMode::Incremental);
+  EXPECT_EQ(incremental.first, arm_all.first) << "e-class count diverged: incremental arming missed a deep-entry match";
+  EXPECT_EQ(incremental.second, arm_all.second) << "live-node count diverged";
 }
 
-TEST(RuleLatch, LatchedEqualsArmAllAcrossReSaturateForRootEntryRule) {
+TEST(IncrementalArming, IncrementalEqualsFullAcrossReSaturateForRootEntryRule) {
   // Incremental-reuse path: grow the graph between two saturate() calls on the
   // same rewriter, so the second arms from a touched-set that survived the first.
   // idempotent_f = F(?x,?x) is root-entry, so it does use the per-candidate active
@@ -280,37 +280,37 @@ TEST(RuleLatch, LatchedEqualsArmAllAcrossReSaturateForRootEntryRule) {
 
     return {eg.num_classes(), eg.num_live_nodes()};
   };
-  auto const arm_all = run(ArmingMode::ArmAll);
-  auto const latched = run(ArmingMode::Latched);
-  EXPECT_EQ(latched.first, arm_all.first);
-  EXPECT_EQ(latched.second, arm_all.second);
+  auto const arm_all = run(ArmingMode::Full);
+  auto const incremental = run(ArmingMode::Incremental);
+  EXPECT_EQ(incremental.first, arm_all.first);
+  EXPECT_EQ(incremental.second, arm_all.second);
 }
 
-TEST(RuleLatch, LatchedEqualsArmAllUnderBoundedBudget) {
-  // A Latched<->ArmAll differential under a *bounded* budget (every other one uses
-  // Unlimited()). Given enough iterations to reach the fixpoint, Latched must land
-  // on exactly ArmAll's result - guards the production path (ApplyAllRewrites).
+TEST(IncrementalArming, IncrementalEqualsFullUnderBoundedBudget) {
+  // A Incremental<->Full differential under a *bounded* budget (every other one uses
+  // Unlimited()). Given enough iterations to reach the fixpoint, Incremental must land
+  // on exactly Full's result - guards the production path (ApplyAllRewrites).
   constexpr RewriteConfig kBounded{.max_iterations = 16};  // > chain depth: both saturate
   EGraph<Op, NoAnalysis> arm_all_eg;
   BuildNegChain(arm_all_eg, 8);
   TestRewriter arm_all{arm_all_eg, TestRuleSet::Build(make_double_neg_rule())};
-  auto const arm_all_result = arm_all.saturate(kBounded, ArmingMode::ArmAll);
+  auto const arm_all_result = arm_all.saturate(kBounded, ArmingMode::Full);
 
-  EGraph<Op, NoAnalysis> latched_eg;
-  BuildNegChain(latched_eg, 8);
-  TestRewriter latched{latched_eg, TestRuleSet::Build(make_double_neg_rule())};
-  auto const latched_result = latched.saturate(kBounded, ArmingMode::Latched);
+  EGraph<Op, NoAnalysis> incremental_eg;
+  BuildNegChain(incremental_eg, 8);
+  TestRewriter incremental{incremental_eg, TestRuleSet::Build(make_double_neg_rule())};
+  auto const incremental_result = incremental.saturate(kBounded, ArmingMode::Incremental);
 
   EXPECT_TRUE(arm_all_result.saturated());
-  EXPECT_TRUE(latched_result.saturated()) << "Latched failed to saturate within the bounded budget";
-  EXPECT_EQ(latched_eg.num_classes(), arm_all_eg.num_classes());
-  EXPECT_EQ(latched_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
-  EXPECT_EQ(latched.iterate_once(), 0U);  // sharp oracle: a true fixpoint
+  EXPECT_TRUE(incremental_result.saturated()) << "Incremental failed to saturate within the bounded budget";
+  EXPECT_EQ(incremental_eg.num_classes(), arm_all_eg.num_classes());
+  EXPECT_EQ(incremental_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
+  EXPECT_EQ(incremental.iterate_once(), 0U);  // sharp oracle: a true fixpoint
 }
 
-TEST(RuleLatch, SetRulesUnderLatchedRearmsForTheNewRules) {
+TEST(IncrementalArming, SetRulesUnderIncrementalRearmsForTheNewRules) {
   // Replacing the rule set mid-session must re-arm from scratch on the next
-  // latched pass (full_arm_pending_). A freshly-installed rule was never armed by
+  // incremental pass (full_arm_pending_). A freshly-installed rule was never armed by
   // any prior touched-set, so without the full re-arm it would never fire.
   EGraph<Op, NoAnalysis> eg;
   BuildNegChain(eg, 4);
@@ -318,12 +318,12 @@ TEST(RuleLatch, SetRulesUnderLatchedRearmsForTheNewRules) {
 
   // First rule set matches nothing: settles in a no-op pass, clearing full_arm_pending_.
   rewriter.set_rules(TestRuleSet::Build(make_idempotent_f_rule()));  // F(?x,?x): no F present
-  auto const noop = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  auto const noop = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
   ASSERT_TRUE(noop.saturated());
   ASSERT_EQ(noop.rewrites_applied, 0U);
 
   rewriter.set_rules(TestRuleSet::Build(make_double_neg_rule()));  // now install a rule that matches
-  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
 
   EXPECT_TRUE(result.saturated());
   EXPECT_GT(result.rewrites_applied, 0U) << "new rule never fired: set_rules did not re-arm";
@@ -331,11 +331,11 @@ TEST(RuleLatch, SetRulesUnderLatchedRearmsForTheNewRules) {
   EXPECT_EQ(rewriter.iterate_once(), 0U);
 }
 
-TEST(RuleLatch, LatchedReRunsAlwaysArmedRuleOnSettledGraph) {
+TEST(IncrementalArming, IncrementalReRunsAlwaysArmedRuleOnSettledGraph) {
   // A rule whose single pattern root is a bare variable (no symbol) matches any
   // e-class, so the arming index marks it ALWAYS armed: unlike a symbol-rooted rule
-  // it must be re-run on every latched pass even when the touched-set is empty. A
-  // counter proves it fires end to end through saturate(Latched).
+  // it must be re-run on every incremental pass even when the touched-set is empty. A
+  // counter proves it fires end to end through saturate(Incremental).
   EGraph<Op, NoAnalysis> eg;
   for (uint64_t i = 0; i < 3; ++i) eg.emplace(Op::Var, i);
 
@@ -346,14 +346,14 @@ TEST(RuleLatch, LatchedReRunsAlwaysArmedRuleOnSettledGraph) {
           .apply([&matches](TestRuleContext &, Match const &) { ++matches; });  // observes, never merges
   TestRewriter rewriter{eg, TestRuleSet::Build(std::move(counting_rule))};
 
-  auto const first = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  auto const first = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
   ASSERT_TRUE(first.saturated());
   ASSERT_GT(matches, 0U) << "always-armed rule did not run on the initial classes";
 
   // Graph is settled and the touched-set drained; an always-armed rule must still
   // be armed on the re-saturate.
   matches = 0;
-  auto const again = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Latched);
+  auto const again = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
   EXPECT_TRUE(again.saturated());
   EXPECT_GT(matches, 0U) << "always-armed rule was not re-armed on a settled graph";
 }

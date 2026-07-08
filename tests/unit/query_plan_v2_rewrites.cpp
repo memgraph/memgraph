@@ -530,13 +530,13 @@ TEST_F(ConstantFoldTest, FoldsComparisonToBool) {
   EXPECT_TRUE(folded->ValueBool());
 }
 
-// The rule latch keeps a long saturation sparse: an alternating Add/Mul chain of
+// The incremental arming keeps a long saturation sparse: an alternating Add/Mul chain of
 // constants folds to a single constant, and across the whole saturation only the
 // Add and Mul fold rules ever fire - the other binary and unary fold rules never
 // do. (The two do not strictly alternate one-per-pass: a fold's merge updates
 // analysis immediately, so once an Add folds the Mul above it folds later in the
 // same pass; both stay active until the chain is exhausted.)
-TEST(RuleLatchAlternation, OnlyTheTwoChainRulesEverFire) {
+TEST(IncrementalArmingAlternation, OnlyTheTwoChainRulesEverFire) {
   egraph eg;
   auto const two = eg.MakeLiteral(ExternalPropertyValue{int64_t{2}});
   eclass cur = eg.MakeLiteral(ExternalPropertyValue{int64_t{1}});
@@ -546,7 +546,7 @@ TEST(RuleLatchAlternation, OnlyTheTwoChainRulesEverFire) {
 
   planner::core::rewrite::Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
   auto const result = rewriter.saturate(planner::core::rewrite::RewriteConfig::Unlimited(),
-                                        planner::core::rewrite::ArmingMode::Latched);
+                                        planner::core::rewrite::ArmingMode::Incremental);
   ASSERT_TRUE(result.saturated());
 
   std::set<std::size_t> const fired_rules = [&] {

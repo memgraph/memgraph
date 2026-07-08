@@ -100,8 +100,8 @@ struct RewriteResult {
 
 /// How `saturate` schedules rules across passes.
 enum class ArmingMode : std::uint8_t {
-  ArmAll,   ///< Every rule every pass. The reference behaviour and differential oracle.
-  Latched,  ///< Run only the rules a pass could newly enable (the rule latch).
+  Full,         ///< Every rule every pass. The reference behaviour and differential oracle.
+  Incremental,  ///< Run only the rules a pass could newly enable.
 };
 
 /// Reusable buffers for the rewrite process.
@@ -153,7 +153,7 @@ class RewriteContext {
  *   // RuleSet copy is cheap (shared_ptr increment); the graph type is deduced
  *   Rewriter rewriter(egraph, ruleset);
  *
- *   auto result = rewriter.saturate(RewriteConfig::Default(), ArmingMode::Latched);
+ *   auto result = rewriter.saturate(RewriteConfig::Default(), ArmingMode::Incremental);
  *   if (result.saturated()) {
  *     // Fixed point reached
  *   }
@@ -203,7 +203,7 @@ class Rewriter {
   void set_rules(RuleSet<Graph> rules) {
     rules_ = std::move(rules);
     rebuild_rule_cache();
-    full_arm_pending_ = true;  // new rules: the next latched saturate arms all once
+    full_arm_pending_ = true;  // new rules: the next incremental saturate arms all once
   }
 
   /**
@@ -218,8 +218,8 @@ class Rewriter {
    * After rewrites, the e-graph is rebuilt to restore invariants
    * and the matcher index is refreshed.
    *
-   * ArmingMode::Latched runs only the rules a pass could newly enable. It reaches
-   * the same fixpoint as ArmingMode::ArmAll given enough iterations, but may need a
+   * ArmingMode::Incremental runs only the rules a pass could newly enable. It reaches
+   * the same fixpoint as ArmingMode::Full given enough iterations, but may need a
    * few more passes; if max_iterations stops it first the e-graph is valid but less
    * saturated, never incorrect.
    *
@@ -232,12 +232,12 @@ class Rewriter {
     result.rewrites_per_rule.resize(num_rules(), 0);  // Initialize per-rule counters
     auto const start_time = std::chrono::steady_clock::now();
 
-    // Latched-mode scheduling: arm only the rules a pass could newly enable.
+    // Incremental-mode scheduling: arm only the rules a pass could newly enable.
     // The arming index and closure depth are cached (rebuilt only on set_rules).
     active_sparse_ = false;  // first full-arm pass matches every candidate
-    if (mode == ArmingMode::Latched) {
+    if (mode == ArmingMode::Incremental) {
       if (full_arm_pending_) {
-        // First latched pass on this graph: every rule must run once. Arm all
+        // First incremental pass on this graph: every rule must run once. Arm all
         // directly rather than scan the whole graph to rediscover that.
         armed_.clear();
         for (std::size_t i = 0; i < num_rules(); ++i) armed_.insert(i);
@@ -267,9 +267,9 @@ class Rewriter {
       }
 
       std::size_t rewrites_this_iter = 0;
-      if (mode == ArmingMode::ArmAll) {
-        // ArmAll intentionally leaves the touched-set intact; its changes fold
-        // into the arm of a subsequent Latched saturate (see iterate_once()).
+      if (mode == ArmingMode::Full) {
+        // Full intentionally leaves the touched-set intact; its changes fold
+        // into the arm of a subsequent Incremental saturate (see iterate_once()).
         rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule);
       } else {
         egraph_->clear_touched();  // capture only this pass's changes
@@ -285,7 +285,7 @@ class Rewriter {
       }
 
       // Arm the rules the next pass could newly enable from what just changed.
-      if (mode == ArmingMode::Latched) {
+      if (mode == ArmingMode::Incremental) {
         arm_from_touched();
       }
     }
@@ -305,9 +305,9 @@ class Rewriter {
    * Note: For per-rule statistics, use saturate() with max_iterations=1 and
    * check result.rewrites_per_rule.
    *
-   * Runs ArmAll semantics (every rule, every candidate) and does not manage the
+   * Runs Full semantics (every rule, every candidate) and does not manage the
    * touched-set, so any changes it makes are folded into the arm of a subsequent
-   * latched saturate(). Used as the differential oracle at the end of a run.
+   * incremental saturate(). Used as the differential oracle at the end of a run.
    *
    * @return Total number of rewrites applied across all rules
    */
@@ -336,7 +336,7 @@ class Rewriter {
 
     auto const &rules = rules_.rules();
     for (std::size_t idx = 0; idx < rules.size(); ++idx) {
-      if (armed != nullptr && !armed->contains(idx)) continue;  // latched: skip un-armed rules
+      if (armed != nullptr && !armed->contains(idx)) continue;  // incremental: skip un-armed rules
       // The e-class active-set restriction is sound only when the rule's single
       // pattern is entered at its root: the active set is closed under parents, so
       // it holds a new match's root but not a deeper VM entry symbol (the compiler
@@ -391,7 +391,7 @@ class Rewriter {
     // Keep the active set for per-candidate matching only when it is a small
     // slice of the graph; otherwise there is little to prune and holding it live
     // only adds cache pressure, so drop the contents (keep capacity) and match
-    // via the symbol-granularity latch alone.
+    // via symbol-granularity arming alone.
     active_sparse_ = active_eclasses_.size() * 2 < egraph_->num_classes();
     if (!active_sparse_) active_eclasses_.clear();
   }
@@ -425,12 +425,12 @@ class Rewriter {
   ProcessingContext<Symbol> proc_ctx_;
   RewriteContext<Graph> ctx_;
 
-  // Latch state (Latched mode only). arming_index_/closure_depth_ are cached from
+  // Incremental-mode state (Incremental mode only). arming_index_/closure_depth_ are cached from
   // rules_ (rebuilt on set_rules); the rest is per-pass scratch reused across
-  // passes. full_arm_pending_ is true until this rewriter's first latched pass,
+  // passes. full_arm_pending_ is true until this rewriter's first incremental pass,
   // which arms every rule; afterwards arming is driven by the touched-set.
   // active_eclasses_ holds the active set for per-candidate matching when
-  // active_sparse_, otherwise it is empty and matching uses the latch alone.
+  // active_sparse_, otherwise it is empty and matching uses incremental arming alone.
   ArmingIndex<Symbol> arming_index_;
   std::size_t closure_depth_ = 0;
   boost::unordered_flat_set<Symbol> active_symbols_;
