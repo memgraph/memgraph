@@ -964,7 +964,7 @@ struct SuspendDatabase : memgraph::system::ISystemAction {
 // ResumeDatabaseRpc; the replica rebuilds its own copy (COLD -> HOT) from its on-disk artifacts
 // identified by UUID, in system-timestamp order.
 struct ResumeDatabase : memgraph::system::ISystemAction {
-  explicit ResumeDatabase(utils::UUID uuid) : uuid_{uuid} {}
+  ResumeDatabase(utils::UUID uuid, DatabaseAccess db_acc) : uuid_{uuid}, db_acc_{std::move(db_acc)} {}
 
   void DoDurability() override { /* COLD marker cleared during Resume_ (before this action runs) */ }
 
@@ -980,10 +980,13 @@ struct ResumeDatabase : memgraph::system::ISystemAction {
         check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
   }
 
-  void PostReplication(replication::RoleMainData & /*mainData*/) const override {}
+  void PostReplication(replication::RoleMainData &mainData) const override {
+    dbms::DbmsHandler::RecoverStorageReplication(db_acc_, mainData);
+  }
 
  private:
   utils::UUID uuid_;
+  DatabaseAccess db_acc_;
 };
 
 DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::Transaction *txn, bool for_recovery) {
@@ -1225,8 +1228,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   return {};
 }
 
-DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewire_replication, system::Transaction *txn,
-                                               bool *already_hot) {
+DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Transaction *txn, bool *already_hot) {
   // Outer loop: a loser keeps `continue`-ing only while the winner is demonstrably alive
   // (RESUMING/SUSPENDING), re-initializing gk/salient/rel_dir/won_resume from the map under a fresh
   // shared lock on each pass. All other exits (NON_EXISTENT, already-HOT, timeout, build failure, and
@@ -1477,20 +1479,12 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, bool rewir
         }
       });
 
-      // POST-PUBLISH arm (replication). The tenant is ALREADY published HOT and erased from
-      // suspended_; we must NOT abort_resume() here (the gatekeeper is no longer RESUMING). The arm
-      // is independently retriable, so on failure we log and return the live accessor. Skipped when
-      // rewire_replication == false (the replica replication-apply caller holds the repl_state read
-      // lock and on_resume_repl_ would re-take it as a write lock -> self-deadlock). Wired in a later
-      // (replication) commit; on_resume_repl_ is empty by default here, so this is a no-op.
-      best_effort("replication re-wiring (may run un-replicated until re-established)", [&] {
-        if (rewire_replication && on_resume_repl_) on_resume_repl_(acc);
-      });
-
       // Record the system action so the resume is ordered + replicated like CREATE/DROP DATABASE.
-      // Reached only on the winner's successful publish; the replica wire is filled by DoReplication.
+      // DoReplication sends ResumeDatabaseRpc to each replica; PostReplication then re-wires the
+      // MAIN's outbound replication clients for this tenant (RecoverStorageReplication). This order
+      // ensures the replica has resumed its copy BEFORE the MAIN tries to connect to it.
       best_effort("recording the resume system action (may not replicate until the next system sync)", [&] {
-        if (txn) txn->AddAction<ResumeDatabase>(salient.uuid);
+        if (txn) txn->AddAction<ResumeDatabase>(salient.uuid, acc);
         spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
       });
       // Winner's own successful publish: a real COLD -> HOT rebuild, so already_hot is false.
@@ -1532,11 +1526,6 @@ DbmsHandler::SuspendResult DbmsHandler::SuspendByUUID(utils::UUID uuid, system::
 }
 
 DbmsHandler::ResumeResult DbmsHandler::ResumeByUUID(utils::UUID uuid, system::Transaction *txn) {
-  // Resolve UUID -> name from the suspended-set, then delegate to Resume_ with rewire_replication
-  // false — the replication-apply caller holds the repl_state read lock, so on_resume_repl_ must
-  // not re-take it as a write lock. The lock is dropped before Resume_ re-acquires it; Resume_
-  // re-validates the COLD shell under its own lock, so the brief TOCTOU is benign (a racing resume
-  // just makes Resume_ observe HOT and share the accessor).
   std::string name;
   {
     auto rd = std::shared_lock{lock_};
@@ -1544,7 +1533,7 @@ DbmsHandler::ResumeResult DbmsHandler::ResumeByUUID(utils::UUID uuid, system::Tr
     if (it == suspended_.end()) return std::unexpected{ResumeError::NON_EXISTENT};
     name = it->first;
   }
-  return Resume_(name, /*rewire_replication=*/false, txn);
+  return Resume_(name, txn);
 }
 
 void DbmsHandler::ApplyColdRecoveryMeta(std::string_view name, const storage::ColdTenantRecovery &meta) {

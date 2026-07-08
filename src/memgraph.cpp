@@ -950,20 +950,6 @@ int main(int argc, char **argv) {
         return locked_repl_state->IsMainWriteable();
       });
     });
-    // Post-publish arm: re-establish per-replica storage clients for the resumed tenant on MAIN.
-    // lock_ is already released at the call site (dbms_handler.cpp publish block closes at :1394,
-    // durability lock_guard at :1423), so taking repl_state here is not a lock_->repl_state inversion.
-    // RecoverStorageReplication creates AND starts the per-replica clients; the existing FrequentCheck
-    // picks them up — do NOT also call StartReplicaClient (would double-spawn the heartbeat thread).
-    dh->SetOnResumeRepl([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
-      auto locked = repl_state->Lock();
-      std::visit(memgraph::utils::Overloaded{[&db_acc](memgraph::replication::RoleMainData &mainData) {
-                                               memgraph::dbms::DbmsHandler::RecoverStorageReplication(std::move(db_acc),
-                                                                                                      mainData);
-                                             },
-                                             [](auto &) {}},
-                 locked->ReplicationData());
-    });
   }
 #endif
 
