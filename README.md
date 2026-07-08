@@ -33,6 +33,11 @@
 
 ## :clipboard: Description
 
+**Memgraph is an open-source graph database.** It stores your data as nodes
+and relationships instead of rows and tables, so you can query how things are
+*connected* — not just what they are — using Cypher, the same query language
+as Neo4j.
+
 Memgraph is a high-performance, in-memory graph database that powers real-time
 AI context and graph analytics. Built in C/C++, it serves as the graph engine
 for GraphRAG pipelines, AI memory systems, and agentic workflows — delivering
@@ -48,6 +53,26 @@ The same architecture drives real-time graph analytics for fraud detection,
 network analysis, infrastructure monitoring, and other operational workloads
 where performance matters. Memgraph is fully compatible with Neo4j’s Cypher
 query language, ACID-compliant, and highly available.
+
+## :rocket: Quick Start
+
+See it in action in under a minute. Start Memgraph with Docker:
+
+```bash
+docker run -p 7687:7687 -p 7444:7444 memgraph/memgraph-mage
+```
+
+Then connect with [mgconsole, a driver, or Memgraph
+Lab](https://memgraph.com/docs/memgraph/connect-to-memgraph) and run some
+Cypher:
+
+```cypher
+CREATE (alice:Person {name: "Alice"})-[:KNOWS]->(bob:Person {name: "Bob"});
+MATCH (p:Person)-[:KNOWS]->(friend) RETURN p.name, friend.name;
+```
+
+No installation needed? Try the same thing instantly in your browser with
+[Memgraph Playground](https://playground.memgraph.com/).
 
 ## :zap: Features
 
