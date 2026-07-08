@@ -33,11 +33,15 @@
 
 ## :clipboard: Description
 
-Memgraph is a high-performance, in-memory graph database that powers real-time
-AI context and graph analytics. Built in C/C++, it serves as the graph engine
-for GraphRAG pipelines, AI memory systems, and agentic workflows — delivering
-sub-millisecond multi-hop traversals for any system that needs structured,
-connected context alongside semantic vector or text search.
+Memgraph is a high-performance, in-memory **graph database** — a database that
+stores data as nodes and relationships instead of tables or documents, so
+that connected, multi-hop questions ("who influences whom," "which entities
+are two hops from this one") can be answered directly rather than reconstructed
+with joins. It powers real-time AI context and graph analytics. Built in
+C/C++, it serves as the graph engine for GraphRAG pipelines, AI memory
+systems, and agentic workflows — delivering sub-millisecond multi-hop
+traversals for any system that needs structured, connected context alongside
+semantic vector or text search.
 
 Memgraph provides both in a single query layer: built-in text and vector
 indexes for similarity search combined with full graph traversal, so retrieval
@@ -47,7 +51,8 @@ scattered across multiple systems.
 The same architecture drives real-time graph analytics for fraud detection,
 network analysis, infrastructure monitoring, and other operational workloads
 where performance matters. Memgraph is fully compatible with Neo4j’s Cypher
-query language, ACID-compliant, and highly available.
+query language, ACID-compliant, and highly available, so teams can adopt it
+as a drop-in graph database without rewriting existing queries.
 
 ## :zap: Features
 
@@ -89,6 +94,37 @@ the node and edge level.
 - **Authentication & authorization** - SSO integration, user impersonation, and
 30+ granular permissions.
 - **Encryption in transit, monitoring, backup & restore.**
+
+## :stopwatch: Quickstart
+
+Run Memgraph locally with Docker in under a minute:
+
+```bash
+docker run -p 7687:7687 -p 7444:7444 --name memgraph memgraph/memgraph-mage
+```
+
+This starts Memgraph together with the [MAGE](mage/README.md) graph algorithm
+library. Connect with [mgconsole](https://memgraph.com/docs/getting-started/cli),
+a [driver](https://memgraph.com/docs/client-libraries) in your language of
+choice, or Memgraph Lab, and run your first query:
+
+```cypher
+CREATE (alice:Person {name: "Alice"})-[:KNOWS]->(bob:Person {name: "Bob"});
+MATCH (p:Person)-[:KNOWS]->(friend) RETURN p.name, friend.name;
+```
+
+To also get [Memgraph Lab](https://memgraph.com/docs/memgraph-lab) — a visual
+UI for exploring graphs and running queries — start it as a second container:
+
+```bash
+docker run -d -p 3000:3000 --name lab memgraph/lab
+```
+
+Then open [localhost:3000](http://localhost:3000) and connect to
+`memgraph:7687` (or `localhost:7687` if Lab runs outside Docker).
+
+See **Download & Install** below for native packages, Kubernetes, and other
+options.
 
 ## :video_game: Memgraph Playground
 
