@@ -248,7 +248,7 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
 }
 
 /// Helper function for vertex-property index garbage collection. Returns true if
-/// there's a reachable version of the edge that has the given property value.
+/// there's a reachable version of the vertex that has the given property value.
 inline bool AnyVersionHasProperty(Vertex const &vertex, PropertyId key, PropertyValue const &value,
                                   uint64_t timestamp) {
   Delta const *delta;
