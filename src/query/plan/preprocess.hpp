@@ -84,7 +84,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    const bool is_ordinary_flow = !in_exists && !in_pattern_comprehension;
+    const bool is_ordinary_flow = !in_exists && in_pattern_comprehension == 0;
     if (is_ordinary_flow) {
       symbols_.insert(symbol_table_.at(ident));
     } else if (ident.user_declared_) {
@@ -130,14 +130,46 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(PatternComprehension &pc) override {
-    in_pattern_comprehension = true;
+    const bool is_nested = in_pattern_comprehension > 0;
+    ++in_pattern_comprehension;
+    if (is_nested) {
+      // A comprehension nested in another comprehension's filter or result
+      // expression binds and resolves its symbols on its own, when the nested
+      // comprehension itself is planned.
+      return false;
+    }
     pc.pattern_->Accept(*this);
+    // The comprehension's filter and result expressions may reference symbols
+    // from the outer scope (e.g. `b` in `[(a)-[:E]->(c) WHERE c = b | 1]`).
+    // Those must be reported as used symbols, otherwise an enclosing filter
+    // could be planned before such symbols are bound, which would silently
+    // drop the comprehension's filters (see issue #4357).
+    if (pc.filter_) {
+      pc.filter_->expression_->Accept(*this);
+    }
+    if (pc.resultExpr_) {
+      pc.resultExpr_->Accept(*this);
+    }
+    // Symbols declared by the comprehension itself (its pattern variables and
+    // the optional named path) are bound inside the comprehension, so they are
+    // not free symbols of the enclosing expression. Identifiers declared by
+    // the comprehension's pattern are marked as not user declared by the
+    // symbol generator, while identifiers referencing outer variables stay
+    // user declared and must remain in the used symbols.
+    for (const auto *atom : pc.pattern_->atoms_) {
+      if (!atom->identifier_->user_declared_) {
+        symbols_.erase(symbol_table_.at(*atom->identifier_));
+      }
+    }
+    if (pc.variable_) {
+      symbols_.erase(symbol_table_.at(*pc.variable_));
+    }
 
     return false;
   }
 
   bool PostVisit(PatternComprehension & /*pc*/) override {
-    in_pattern_comprehension = false;
+    --in_pattern_comprehension;
     return true;
   }
 
@@ -152,7 +184,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
  private:
   bool in_exists{false};
-  bool in_pattern_comprehension{false};
+  // Depth of pattern comprehension nesting, 0 when outside of any pattern
+  // comprehension.
+  int in_pattern_comprehension{0};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
