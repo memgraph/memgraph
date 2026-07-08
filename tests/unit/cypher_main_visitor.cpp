@@ -1016,7 +1016,8 @@ TEST_P(CypherMainVisitorTest, NotOperator) {
 
 TEST_P(CypherMainVisitorTest, UnaryMinusPlusOperators) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN -+5"));
+  // spaced signs: adjacent ones would fold into the literal during stripping
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN - + 5"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -8211,7 +8212,12 @@ TEST_P(CypherMainVisitorTest, TopLevelPeriodicCommitQuery) {
   }
 
   {
-    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException);
+    // sign folding defers the sign check to runtime on the cached (stripped) path
+    if (ast_generator.context_.is_query_cached) {
+      EXPECT_NO_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"));
+    } else {
+      ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException);
+    }
   }
 
   {
@@ -8252,6 +8258,8 @@ TEST_P(CypherMainVisitorTest, NestedPeriodicCommitQuery) {
   }
 
   {
+    // `of` is not a stripper keyword, so the sign never folds here and the
+    // rejection stays at parse time on every path
     ASSERT_THROW(ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF -1 ROWS;"),
                  SyntaxException);
   }
@@ -8349,7 +8357,12 @@ TEST_P(CypherMainVisitorTest, ParallelExecutionValidation) {
   }
 
   {
-    ASSERT_THROW(ast_generator.ParseQuery("USING PARALLEL EXECUTION -1 CREATE (n);"), SyntaxException);
+    // sign folding defers the sign check to runtime on the cached (stripped) path
+    if (ast_generator.context_.is_query_cached) {
+      EXPECT_NO_THROW(ast_generator.ParseQuery("USING PARALLEL EXECUTION -1 CREATE (n);"));
+    } else {
+      ASSERT_THROW(ast_generator.ParseQuery("USING PARALLEL EXECUTION -1 CREATE (n);"), SyntaxException);
+    }
   }
 
   {

@@ -2124,6 +2124,14 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
 
 #ifdef MG_ENTERPRISE
 
+int64_t EvaluateCoordinatorId(Expression *coordinator_id, ExpressionVisitor<TypedValue> &eval) {
+  const auto value = coordinator_id->Accept(eval);
+  if (!value.IsInt() || value.ValueInt() < 0) {
+    throw QueryRuntimeException("Coordinator id must be a non-negative integer.");
+  }
+  return value.ValueInt();
+}
+
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
                                 std::vector<Notification> *notifications) {
@@ -2144,7 +2152,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
-      auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
+      auto coord_server_id = EvaluateCoordinatorId(coordinator_query->coordinator_id_, evaluator);
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id]() mutable {
         handler.RemoveCoordinatorInstance(static_cast<int>(coord_server_id));
@@ -2194,7 +2202,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Config map must contain {} entry!", kManagementServer);
       }
 
-      auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
+      auto coord_server_id = EvaluateCoordinatorId(coordinator_query->coordinator_id_, evaluator);
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      coord_server_id,
@@ -2241,7 +2249,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         if (!coordinator_query->instance_name_.empty()) {
           return coordinator_query->instance_name_;
         }
-        return static_cast<int32_t>(coordinator_query->coordinator_id_->Accept(evaluator).ValueInt());
+        return static_cast<int32_t>(EvaluateCoordinatorId(coordinator_query->coordinator_id_, evaluator));
       });
 
       callback.fn =
@@ -2259,7 +2267,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         if (!coordinator_query->instance_name_.empty()) {
           return fmt::format("for instance {}", coordinator_query->instance_name_);
         }
-        auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
+        auto coord_server_id = EvaluateCoordinatorId(coordinator_query->coordinator_id_, evaluator);
         return fmt::format("for coordinator {}", coord_server_id);
       });
       notifications->emplace_back(

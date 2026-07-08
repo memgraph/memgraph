@@ -552,8 +552,6 @@ TEST(QueryStripper, MixedSignListFoldsToPositiveShape) {
 }
 
 TEST(QueryStripper, SignPatternDoesNotAffectCacheKey) {
-  // The point of the fold: lists differing only in per-element sign and value
-  // now strip to the same query, so they share a single cache entry.
   auto a = StrippedQuery("RETURN [-1, 2, -3]");
   auto b = StrippedQuery("RETURN [4, -5, 6]");
   auto c = StrippedQuery("RETURN [1, 2, 3]");
@@ -561,21 +559,35 @@ TEST(QueryStripper, SignPatternDoesNotAffectCacheKey) {
   EXPECT_EQ(a.stripped_query().str(), c.stripped_query().str());
   EXPECT_EQ(a.stripped_query().hash(), b.stripped_query().hash());
   EXPECT_EQ(a.stripped_query().hash(), c.stripped_query().hash());
+  EXPECT_EQ(StrippedQuery("RETURN -1").stripped_query().str(), StrippedQuery("RETURN 1").stripped_query().str());
 }
 
-TEST(QueryStripper, SignFoldOnlyInsideListLiterals) {
-  // Folding is confined to list literals, so a top-level signed number keeps
-  // its unary-minus token (its sign is not moved into the literal value). This
-  // preserves parse-tree-shape validation of clause operands elsewhere.
-  StrippedQuery stripped("RETURN -42");
+TEST(QueryStripper, SignFoldOutsideBrackets) {
+  {
+    StrippedQuery stripped("RETURN -42");
+    EXPECT_EQ(stripped.literals().size(), 1);
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -42);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken);
+  }
+  {
+    StrippedQuery stripped("RETURN {k: -1}");
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN { k : " + kStrippedIntToken + " }");
+  }
+  {
+    StrippedQuery stripped("MATCH (n) WHERE n.x > -1.5 RETURN n");
+    EXPECT_FLOAT_EQ(stripped.literals().At(0).second.ValueDouble(), -1.5);
+  }
+}
+
+TEST(QueryStripper, SignFoldingDisabled) {
+  StrippedQuery stripped("RETURN -42", SignFolding::kDisabled);
   EXPECT_EQ(stripped.literals().size(), 1);
   EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 42);
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN - " + kStrippedIntToken);
 }
 
 TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
-  // Inside a list, a `-` whose left side produces a value is still a
-  // subtraction operator; the literal keeps its own positive sign.
   {
     StrippedQuery stripped("RETURN [a - 1]");  // spaced: number is not adjacent to the sign
     EXPECT_EQ(stripped.literals().size(), 1);
@@ -613,7 +625,6 @@ TEST(QueryStripper, BinaryMinusAfterValueEndingKeywordIsNotFolded) {
 }
 
 TEST(QueryStripper, SignFoldStackedSigns) {
-  // Only the sign adjacent to the number folds; the outer sign stays a token.
   {
     StrippedQuery stripped("RETURN [--1]");
     EXPECT_EQ(stripped.literals().size(), 1);
@@ -694,11 +705,7 @@ TEST(Parameters, CopyPreservesLookup) {
   EXPECT_EQ(copy.AtTokenPosition(9).ValueInt(), 90);
 }
 
-// The AST cache keys on HashedString, so a 64-bit hash collision must resolve by
-// query text and never return a different query's entry. HashedString equality
-// compares hash and string, and the cache's unordered_map disambiguates a
-// bucket collision via that operator==. Force every key into one bucket to
-// exercise the collision path directly.
+// force every key into one bucket so equality must disambiguate by text
 TEST(HashedString, DisambiguatesOnHashCollision) {
   struct AlwaysCollide {
     std::size_t operator()(const HashedString & /*unused*/) const { return 0; }
@@ -708,12 +715,10 @@ TEST(HashedString, DisambiguatesOnHashCollision) {
   map.emplace(HashedString{"RETURN 0"}, 1);
   map.emplace(HashedString{"RETURN 1"}, 2);
 
-  // Distinct query text with a forced hash collision stays two separate entries.
   ASSERT_EQ(map.size(), 2U);
   EXPECT_EQ(map.at(HashedString{"RETURN 0"}), 1);
   EXPECT_EQ(map.at(HashedString{"RETURN 1"}), 2);
 
-  // Same content compares equal (and would share an entry); different content does not.
   EXPECT_EQ(HashedString{"RETURN 0"}, HashedString{"RETURN 0"});
   EXPECT_NE(HashedString{"RETURN 0"}, HashedString{"RETURN 1"});
 }

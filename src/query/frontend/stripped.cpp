@@ -29,7 +29,7 @@ namespace memgraph::query::frontend {
 
 using namespace lexer_constants;
 
-StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
+StrippedQuery::StrippedQuery(std::string query, SignFolding sign_folding) : original_(std::move(query)) {
   enum class Token {
     UNMATCHED,
     KEYWORD,  // Including true, false and null.
@@ -101,21 +101,12 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     }
   }
 
-  // Fold a unary +/- that directly precedes a numeric literal into that literal
-  // (the sign is prepended to the number's text and the sign token dropped), so
-  // lists differing only in the sign pattern of their numbers strip to the same
-  // text and share one cache entry. The gate is square-bracket depth, so it
-  // fires anywhere inside `[...]` (list literals, but also indexing, slicing,
-  // comprehensions and variable-length patterns). Folding is value-preserving -
-  // it only rewrites `-<literal>` as a literal of the negated value, which
-  // evaluates identically - so any bracketed context is safe. The bracket gate
-  // exists to stay out of unbracketed clause operands whose sign is validated
-  // from the parse-tree shape, where a folded `-1` would read as a plain
-  // positive literal and slip past the check (e.g. `USING PERIODIC COMMIT -1`).
-  // Fold only when the sign is unambiguously unary: adjacent to the number (no
-  // whitespace) and not preceded by a value, so a subtraction like `[a-1]` or
-  // `[1-1]` is left untouched.
-  {
+  // fold a unary +/- into the adjacent numeric literal so queries differing
+  // only in sign strip to the same text and share an AST cache entry. unary
+  // detection is a lexical heuristic (any keyword can also name a variable, so
+  // `RETURN return-1` misfolds); a misfold never parses, and ParseQuery then
+  // re-strips with SignFolding::kDisabled.
+  if (sign_folding == SignFolding::kEnabled) {
     auto produces_value = [](Token type, const std::string &text) {
       switch (type) {
         case Token::INT:
@@ -126,9 +117,10 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
         case Token::UNESCAPED_NAME:
           return true;
         case Token::KEYWORD:
-          // a keyword can end a value expression (CASE ... END, keyword-named
-          // properties/variables); over-approximating only skips a fold
-          return true;
+          // common value-enders; rarer ones (keyword-named variables and
+          // properties) are rescued by the re-strip
+          return utils::IEquals(text, "true") || utils::IEquals(text, "false") || utils::IEquals(text, "null") ||
+                 utils::IEquals(text, "end");
         case Token::SPECIAL:
           return text == ")" || text == "]" || text == "}";
         default:
@@ -138,27 +130,19 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     std::vector<std::pair<Token, std::string>> folded;
     folded.reserve(tokens.size());
     bool prev_produces_value = false;  // start of query is a unary context
-    int bracket_depth = 0;
     for (std::size_t i = 0; i < tokens.size(); ++i) {
       const auto &token = tokens[i];
       const bool is_sign = token.first == Token::SPECIAL && (token.second == "-" || token.second == "+");
-      const bool folds = is_sign && bracket_depth > 0 && !prev_produces_value && i + 1 < tokens.size() &&
+      const bool folds = is_sign && !prev_produces_value && i + 1 < tokens.size() &&
                          (tokens[i + 1].first == Token::INT || tokens[i + 1].first == Token::REAL);
       if (folds) {
         const auto &number = tokens[i + 1];
         folded.emplace_back(number.first, token.second + number.second);
         prev_produces_value = true;
-        ++i;  // consume the number token as well
+        ++i;  // also consume the number
         continue;
       }
       if (token.first != Token::SPACE) prev_produces_value = produces_value(token.first, token.second);
-      if (token.first == Token::SPECIAL) {
-        if (token.second == "[") {
-          ++bracket_depth;
-        } else if (token.second == "]" && bracket_depth > 0) {
-          --bracket_depth;
-        }
-      }
       folded.push_back(token);
     }
     tokens = std::move(folded);

@@ -33,8 +33,8 @@ struct Parameters {
    * @param value
    */
   void Add(int position, const storage::ExternalPropertyValue &value) {
-    // Index the token position to keep AtTokenPosition O(1); emplace preserves
-    // the first entry for a position, matching a linear first-match scan.
+    // emplace keeps the first entry for a duplicate position, matching the
+    // first-match linear scan this index replaced
     position_index_.emplace(position, storage_.size());
     storage_.emplace_back(position, value);
   }
@@ -72,7 +72,7 @@ struct Parameters {
 
  private:
   std::vector<std::pair<int, storage::ExternalPropertyValue>> storage_;
-  // Token position -> index into storage_, so AtTokenPosition is O(1).
+  // position -> storage_ index for O(1) AtTokenPosition
   std::unordered_map<int, std::size_t> position_index_;
 };
 

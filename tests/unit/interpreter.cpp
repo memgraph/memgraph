@@ -1878,9 +1878,6 @@ TYPED_TEST(InterpreterTest, AnalyzeGraphDeduplicatesAscDescIndexes) {
   EXPECT_EQ(deleted_labels, (std::set<std::string>{"LabelA", "LabelB"}));
 }
 
-// Sign folding collapses same-length lists that differ only in sign/value onto
-// one cache entry, and each query still returns its own values (the shared AST
-// holds ParameterLookups; the values come from the per-call parameters).
 TYPED_TEST(InterpreterTest, MixedSignListSharesCacheEntryAndKeepsValues) {
   auto ast_size = [this] {
     return this->interpreter_context.ast_cache.WithLock([](auto &cache) { return cache.size(); });
@@ -1896,14 +1893,48 @@ TYPED_TEST(InterpreterTest, MixedSignListSharesCacheEntryAndKeepsValues) {
   auto s2 = this->Interpret("RETURN [4, -5, 6] AS x");
   EXPECT_EQ(values(s1), (std::vector<int64_t>{-1, 2, -3}));
   EXPECT_EQ(values(s2), (std::vector<int64_t>{4, -5, 6}));
-  // Both queries share a single AST cache entry despite different sign patterns.
   EXPECT_EQ(ast_size(), 1U);
 }
 
-// The AST cache is LRU-bounded. Queries whose stripped form varies each take a
-// distinct entry (here via distinct aliases; the same happens for the verbatim
-// unary-minus tokens of mixed-sign numeric lists), so an unbounded cache would
-// grow one entry per distinct query without limit.
+TYPED_TEST(InterpreterTest, ScalarSignSharesCacheEntryAndKeepsValues) {
+  auto ast_size = [this] {
+    return this->interpreter_context.ast_cache.WithLock([](auto &cache) { return cache.size(); });
+  };
+  EXPECT_EQ(ast_size(), 0U);
+  auto s1 = this->Interpret("RETURN -1 AS x");
+  auto s2 = this->Interpret("RETURN 1 AS x");
+  EXPECT_EQ(s1.GetResults()[0][0].ValueInt(), -1);
+  EXPECT_EQ(s2.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(ast_size(), 1U);
+}
+
+// `filter` lexes as a keyword, so the adjacent -1 misfolds and ParseQuery
+// must re-strip without folding
+TYPED_TEST(InterpreterTest, KeywordNamedVariableSubtraction) {
+  auto stream = this->Interpret("WITH 5 AS filter RETURN filter-1 AS x");
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 4);
+}
+
+// the folded literal passes the integer-literal shape check; the value is
+// rejected at runtime by EvaluateUint
+TYPED_TEST(InterpreterTest, PeriodicCommitNegativeFrequencyRejectedAtRuntime) {
+  EXPECT_THROW(this->Interpret("USING PERIODIC COMMIT -1 UNWIND range(1, 3) AS x CREATE ();"),
+               memgraph::query::QueryRuntimeException);
+}
+
+TEST(AstCacheSignFold, MisfoldRestripsWithoutFolding) {
+  memgraph::query::AstCache cache{10};
+  memgraph::query::InterpreterConfig::Query const query_config{};
+  auto parsed =
+      memgraph::query::ParseQuery("WITH 5 AS filter RETURN filter-1", {}, &cache, query_config, "uuid", nullptr);
+  ASSERT_NE(parsed.query, nullptr);
+  EXPECT_EQ(parsed.stripped_query.stripped_query().str(), "WITH 0 AS filter RETURN filter - 0");
+  EXPECT_EQ(cache.WithLock([](auto &c) { return c.size(); }), 1U);
+  // a repeat is served from the unfolded entry, not cached under the folded key
+  memgraph::query::ParseQuery("WITH 5 AS filter RETURN filter-1", {}, &cache, query_config, "uuid", nullptr);
+  EXPECT_EQ(cache.WithLock([](auto &c) { return c.size(); }), 1U);
+}
+
 TEST(AstCacheBounded, EvictsBeyondMaxSize) {
   constexpr std::size_t kMaxSize = 2;
   memgraph::query::AstCache cache{kMaxSize};
@@ -1915,15 +1946,12 @@ TEST(AstCacheBounded, EvictsBeyondMaxSize) {
     memgraph::query::ParseQuery(query, {}, &cache, query_config, "uuid", nullptr);
     EXPECT_LE(cache_size(), kMaxSize) << "cache grew past its bound at iteration " << i;
   }
-  // Caching is still active (the bound did not disable it).
+  // the bound caps the cache, it does not disable it
   EXPECT_EQ(cache_size(), kMaxSize);
 }
 
-// Correctness under eviction and contention: with a size-1 cache every distinct
-// query evicts the previous entry, so concurrent parsers continuously insert and
-// evict. Each ParseQuery must still return a well-formed AST whose stripped
-// literal round-trips to that call's own value, proving entries are not shared
-// or freed out from under an in-flight clone.
+// size-1 cache: concurrent distinct queries evict constantly, so an entry must
+// never be freed out from under an in-flight clone
 TEST(AstCacheConcurrency, CorrectUnderEvictionContention) {
   memgraph::query::AstCache cache{1};
   memgraph::query::InterpreterConfig::Query const query_config{};

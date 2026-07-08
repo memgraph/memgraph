@@ -100,11 +100,8 @@ struct CachedQuery {
   bool using_schema_assert{false};
 };
 
-// Bounded, LRU-evicted cache of parsed ASTs keyed by the stripped query. The
-// key is the HashedString (not the bare hash) so a 64-bit hash collision is
-// resolved by comparing the query text and can never return a different query's
-// AST. Entries are shared_ptr because CachedQuery::query points into its own
-// AstStorage, so the entry must be stored once and shared, never value-copied.
+// keyed by text, not hash, so a hash collision can't return another query's
+// AST. entries are shared_ptr so an LRU eviction can't free an AST mid-clone.
 using AstCache =
     utils::Synchronized<utils::LRUCache<frontend::HashedString, std::shared_ptr<CachedQuery>>, utils::RWSpinLock>;
 
