@@ -1038,8 +1038,13 @@ def test_tenant_churn_under_memory_pressure_replicated(connection, test_name):
     def writer(t):
         cur = connection(BOLT_PORTS["main"], "main").cursor()
         while not stop.is_set():
+            # Memory pressure on the always-HOT default `memgraph` DB (the session sits on `memgraph`
+            # at the top of every loop). This must NOT run while USE-ing tenant t: an open session on a
+            # tenant pins it HOT, so if the ~96 MiB query held t for its whole duration the suspender
+            # could never reach sole-accessor and NO SUSPEND would ever win — the churn would be
+            # vacuously un-exercised (suspends_ok/resumes_ok stuck at 0). Mirrors the non-replicated
+            # sibling test_concurrent_suspend_resume_under_memory_ceiling, whose writer runs it here too.
             try:
-                execute_and_fetch_all(cur, f"USE DATABASE {t};")
                 execute_and_fetch_all(cur, "WITH range(1, 6000000) AS r RETURN size(r);")
             except mgclient.DatabaseError as e:
                 _classify(e, unexpected)

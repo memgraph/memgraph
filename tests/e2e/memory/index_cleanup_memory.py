@@ -213,6 +213,13 @@ def test_transactional_free_memory_returns_rss_to_baseline():
     _seed_indexed_nodes(cursor)
     execute_and_fetch_all(cursor, "MATCH (n) SET n.str = 1;")
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+    # Two calls, same as the transactional index-count test above: MVCC only reclaims
+    # the just-deleted batch once oldest_active_start_timestamp has advanced past the
+    # delete transaction. The first FREE MEMORY drives CollectGarbage and lets that
+    # horizon advance; the second is the pass that actually frees the skiplist nodes.
+    # A single call reclaims ~nothing on a run where the delete tx is still the GC's
+    # oldest view — leaving the full churn pinned — which was this test's flake source.
+    execute_and_fetch_all(cursor, "FREE MEMORY;")
     execute_and_fetch_all(cursor, "FREE MEMORY;")
     after_free_mib = _rss_mib(cursor)
 
