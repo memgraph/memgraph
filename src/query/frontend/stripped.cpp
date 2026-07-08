@@ -126,7 +126,9 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
         case Token::UNESCAPED_NAME:
           return true;
         case Token::KEYWORD:
-          return utils::IEquals(text, "true") || utils::IEquals(text, "false") || utils::IEquals(text, "null");
+          // a keyword can end a value expression (CASE ... END, keyword-named
+          // properties/variables); over-approximating only skips a fold
+          return true;
         case Token::SPECIAL:
           return text == ")" || text == "]" || text == "}";
         default:

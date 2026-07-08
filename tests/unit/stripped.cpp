@@ -597,6 +597,21 @@ TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
   }
 }
 
+TEST(QueryStripper, BinaryMinusAfterValueEndingKeywordIsNotFolded) {
+  {
+    StrippedQuery stripped("RETURN [CASE WHEN true THEN 2 END-1]");
+    EXPECT_EQ(stripped.literals().At(2).second.ValueInt(), 1);
+    EXPECT_EQ(stripped.stripped_query().str(),
+              "RETURN [ CASE WHEN " + kStrippedBooleanToken + " THEN " + kStrippedIntToken + " END - " +
+                  kStrippedIntToken + " ]");
+  }
+  {
+    StrippedQuery stripped("RETURN [a.end-1]");
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ a . end - " + kStrippedIntToken + " ]");
+  }
+}
+
 TEST(QueryStripper, SignFoldStackedSigns) {
   // Only the sign adjacent to the number folds; the outer sign stays a token.
   {
