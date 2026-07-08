@@ -14,11 +14,21 @@
 // reference) and once in Incremental mode (the optimisation). The two must agree.
 // A divergence means incremental arming skipped a rule that should have run - the exact
 // failure incremental arming must never cause.
+//
+// Coverage: the rule set includes both merge-only rules and a node-INSERTING
+// rule (commutativity), so the insert-during-rewrite path - touched-set insert +
+// incremental matcher reindex, the path production's constant-fold exercises - is
+// fuzzed, not just merges. The oracle checks e-class/live-node counts, the sharp
+// fixpoint oracle (iterate_once() == 0), and merge-PARTITION equivalence over the
+// seeded nodes (which nodes ended up equal must match between the two modes) - a
+// stronger structural check than counts alone.
 
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+
+#include <boost/unordered/unordered_flat_map.hpp>
 
 #include "fuzz_common.hpp"
 #include "planner/rewrite/rewriter.hpp"
@@ -52,8 +62,11 @@ using FuzzRule = RewriteRule<FuzzGraph>;
 //   Plus(x, x) -> x, Mul(x, x) -> x  (binary, fire once children become equal)
 //   F(F(x))    -> x                  (nested unary, depth 2 - exercises
 //                                      parent-closure beyond one hop)
+//   Plus(x, y) -> Plus(y, x)         (commutativity: INSERTS a new e-node then
+//                                      merges - the insert-during-rewrite path)
 constexpr PatternVar kX{0};
 constexpr PatternVar kRoot{1};
+constexpr PatternVar kY{2};
 
 auto make_rules() -> RuleSet<FuzzGraph> {
   auto merge_root_x = [](RuleContext<FuzzGraph> &ctx, Match const &m) { ctx.merge(m[kRoot], m[kX]); };
@@ -67,15 +80,30 @@ auto make_rules() -> RuleSet<FuzzGraph> {
   auto double_f = FuzzRule::Builder{"double_f"}
                       .pattern(Pattern<FuzzSymbol>::build(kRoot, FuzzSymbol::F, {Sym(FuzzSymbol::F, Var{kX})}))
                       .apply(merge_root_x);
-  return RuleSet<FuzzGraph>::Build(std::move(plus), std::move(mul), std::move(double_f));
+  // Commutativity mints Plus(y, x) (if absent) and merges it with the matched
+  // Plus(x, y). Terminating: the swap hash-conses and merges into one class, so
+  // re-firing is a no-op. This is the only rule here that creates e-nodes, so it
+  // is what exercises touched-set insert recording and the incremental matcher
+  // reindex for new classes.
+  auto commute_plus =
+      FuzzRule::Builder{"plus_comm"}
+          .pattern(Pattern<FuzzSymbol>::build(kRoot, FuzzSymbol::Plus, {Var{kX}, Var{kY}}))
+          .apply([](RuleContext<FuzzGraph> &ctx, Match const &m) {
+            auto const swapped =
+                ctx.emplace(FuzzSymbol::Plus, memgraph::utils::small_vector<EClassId>{m[kY], m[kX]}).eclass_id;
+            ctx.merge(m[kRoot], swapped);
+          });
+  return RuleSet<FuzzGraph>::Build(std::move(plus), std::move(mul), std::move(double_f), std::move(commute_plus));
 }
 
 // Build a random e-graph from the fuzz bytes. Deterministic: the same bytes
-// always produce the same graph, so the two saturations start identical.
-auto build_graph(uint8_t const *data, size_t size) -> FuzzGraph {
+// always produce the same graph, so the two saturations start identical. `pool`
+// is filled with the seeded e-class ids (the probe set for the partition check);
+// because construction is deterministic, both runs get identical pool ids.
+auto build_graph(uint8_t const *data, size_t size, std::vector<EClassId> &pool) -> FuzzGraph {
   FuzzGraph eg;
   ProcessingContext<FuzzSymbol> ctx;
-  std::vector<EClassId> pool;
+  pool.clear();
   pool.push_back(eg.emplace(FuzzSymbol::A, 0).eclass_id);
   pool.push_back(eg.emplace(FuzzSymbol::A, 1).eclass_id);
 
@@ -104,18 +132,35 @@ auto build_graph(uint8_t const *data, size_t size) -> FuzzGraph {
   return eg;
 }
 
+// The partition the probe set falls into under `eg`, normalized to a canonical
+// labeling (group index by first appearance). Two runs induce equal partitions
+// iff these label vectors are equal - independent of how each graph numbers its
+// representatives.
+auto partition_labels(FuzzGraph const &eg, std::vector<EClassId> const &pool) -> std::vector<int> {
+  std::vector<int> labels;
+  labels.reserve(pool.size());
+  boost::unordered_flat_map<EClassId, int> rep_to_label;
+  for (auto const id : pool) {
+    auto const [it, _] = rep_to_label.try_emplace(eg.find(id), static_cast<int>(rep_to_label.size()));
+    labels.push_back(it->second);
+  }
+  return labels;
+}
+
 }  // namespace
 
 extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int {
   auto const rules = make_rules();
 
   // Reference: every rule every pass.
-  auto arm_all_eg = build_graph(data, size);
+  std::vector<EClassId> arm_all_pool;
+  auto arm_all_eg = build_graph(data, size, arm_all_pool);
   Rewriter arm_all{arm_all_eg, rules};
   arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::Full);
 
   // Optimisation: only the rules a pass could re-enable.
-  auto incremental_eg = build_graph(data, size);
+  std::vector<EClassId> incremental_pool;
+  auto incremental_eg = build_graph(data, size, incremental_pool);
   Rewriter incremental{incremental_eg, rules};
   incremental.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
 
@@ -125,6 +170,13 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
   // Full's; equal counts plus the sharp fixpoint oracle below pin them equal.
   if (incremental_eg.num_classes() != arm_all_eg.num_classes()) fail("e-class count differs");
   if (incremental_eg.num_live_nodes() != arm_all_eg.num_live_nodes()) fail("live-node count differs");
+
+  // Structural check beyond counts: the two runs must merge the seeded nodes into
+  // the exact same equivalence classes. Catches a divergence that happened to
+  // preserve both counts.
+  if (partition_labels(arm_all_eg, arm_all_pool) != partition_labels(incremental_eg, incremental_pool)) {
+    fail("merge partition over seeded nodes differs between full and incremental");
+  }
 
   // Sharp oracle: one all-rules pass on the incremental result must find nothing,
   // i.e. incremental arming did not stop short of the real fixpoint.
