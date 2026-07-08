@@ -133,9 +133,13 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     const bool is_nested = in_pattern_comprehension > 0;
     ++in_pattern_comprehension;
     if (is_nested) {
-      // A comprehension nested in another comprehension's filter or result
-      // expression binds and resolves its symbols on its own, when the nested
-      // comprehension itself is planned.
+      // Nested comprehensions are deliberately skipped: their references to
+      // outer variables are not yet propagated here, so a nested
+      // comprehension's outer-variable predicates can still be dropped (the
+      // same class of bug as issue #4357, one level down). This is a known
+      // limitation. Recursing here would be wrong, though, because locals of
+      // a result-context comprehension stay user declared and would poison
+      // the used symbols.
       return false;
     }
     pc.pattern_->Accept(*this);
@@ -152,16 +156,24 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     }
     // Symbols declared by the comprehension itself (its pattern variables and
     // the optional named path) are bound inside the comprehension, so they are
-    // not free symbols of the enclosing expression. Identifiers declared by
-    // the comprehension's pattern are marked as not user declared by the
-    // symbol generator, while identifiers referencing outer variables stay
-    // user declared and must remain in the used symbols.
+    // not free symbols of the enclosing expression. In filter (WHERE)
+    // contexts the symbol generator marks identifiers declared by the
+    // comprehension's pattern as not user declared, while identifiers
+    // referencing outer variables stay user declared and must remain in the
+    // used symbols. In RETURN/WITH contexts the pattern atoms stay user
+    // declared, so the erase below is a no-op.
     for (const auto *atom : pc.pattern_->atoms_) {
       if (!atom->identifier_->user_declared_) {
         symbols_.erase(symbol_table_.at(*atom->identifier_));
       }
     }
     if (pc.variable_) {
+      // Unlike the pattern atoms, the named path symbol is resolved with
+      // GetOrCreateSymbol across scopes, so if it shadows an outer path
+      // variable of the same name this erases the outer symbol too. That is
+      // acceptable for now because such shadowing is already broken at
+      // runtime on master; rejecting the shadowing at semantic time would be
+      // the clean fix.
       symbols_.erase(symbol_table_.at(*pc.variable_));
     }
 
