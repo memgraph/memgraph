@@ -87,14 +87,16 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
 
-  auto lookup = [&](frontend::HashedString const &key) {
-    std::shared_ptr<CachedQuery> entry;
-    cache->WithLock([&](auto &lru) {
-      if (auto hit = lru.get(key)) entry = *hit;
-    });
-    return entry;
-  };
-  auto cached = lookup(stripped_query.stripped_query());
+  // Get parameters (user + database-scoped then global server parameters when database_uuid provided).
+  // Used for visitor resolution of dynamic labels/edge types and for execution.
+  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters, server_parameters, database_uuid);
+
+  // Cache the query's AST if it isn't already.
+  auto const &cache_key = stripped_query.stripped_query();
+  std::shared_ptr<CachedQuery> cached;
+  cache->WithLock([&](auto &lru) {
+    if (auto entry = lru.get(cache_key)) cached = *entry;
+  });
   std::unique_ptr<frontend::opencypher::Parser> parser;
 
   // Return a copy of both the AST storage and the query.
@@ -115,40 +117,16 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
   if (!cached) {
     try {
       parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.stripped_query().str());
-    } catch (const SyntaxException &) {
-      // a misfolded sign never parses; retry without folding before reporting
-      // an error
-      auto unfolded = frontend::StrippedQuery{query_string, frontend::SignFolding::kDisabled};
-      if (unfolded.stripped_query() != stripped_query.stripped_query()) {
-        stripped_query = std::move(unfolded);
-        cached = lookup(stripped_query.stripped_query());
-        if (!cached) {
-          try {
-            parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.stripped_query().str());
-          } catch (const SyntaxException &) {
-            // fall through to the original-query parse
-          }
-        }
-      }
-      if (!cached && !parser) {
-        // There is a syntax exception in the stripped query. Re-run the parser
-        // on the original query to get an appropriate error messsage.
-        parser = std::make_unique<frontend::opencypher::Parser>(query_string);
+    } catch (const SyntaxException &e) {
+      // There is a syntax exception in the stripped query. Re-run the parser
+      // on the original query to get an appropriate error messsage.
+      parser = std::make_unique<frontend::opencypher::Parser>(query_string);
 
-        // If an exception was not thrown here, the stripper messed something
-        // up.
-        LOG_FATAL("The stripped query can't be parsed, but the original can.");
-      }
+      // If an exception was not thrown here, the stripper messed something
+      // up.
+      LOG_FATAL("The stripped query can't be parsed, but the original can.");
     }
-  }
 
-  // Get parameters (user + database-scoped then global server parameters when database_uuid provided).
-  // Used for visitor resolution of dynamic labels/edge types and for execution.
-  // token positions differ between folded and unfolded strippings, so this
-  // must run after the final form is chosen.
-  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters, server_parameters, database_uuid);
-
-  if (!cached) {
     // Convert the ANTLR4 parse tree into an AST.
     AstStorage ast_storage;
     frontend::ParsingContext context{.is_query_cached = true};
@@ -175,7 +153,7 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
       cached_query->required_privileges = query::GetRequiredPrivileges(visitor.query());
       cached_query->is_cypher_read = read_check();
       cached_query->using_schema_assert = visitor.GetQueryInfo().has_schema_assert;
-      cache->WithLock([&](auto &lru) { lru.put(stripped_query.stripped_query(), cached_query); });
+      cache->WithLock([&](auto &lru) { lru.put(cache_key, cached_query); });
 
       get_information_from_cache(*cached_query);
     } else {

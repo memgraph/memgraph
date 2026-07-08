@@ -11,6 +11,7 @@
 
 #include "query/frontend/stripped.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <span>
@@ -29,7 +30,7 @@ namespace memgraph::query::frontend {
 
 using namespace lexer_constants;
 
-StrippedQuery::StrippedQuery(std::string query, SignFolding sign_folding) : original_(std::move(query)) {
+StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
   enum class Token {
     UNMATCHED,
     KEYWORD,  // Including true, false and null.
@@ -101,48 +102,34 @@ StrippedQuery::StrippedQuery(std::string query, SignFolding sign_folding) : orig
     }
   }
 
-  // fold a unary +/- into the adjacent numeric literal so queries differing
-  // only in sign strip to the same text and share an AST cache entry. unary
-  // detection is a lexical heuristic (any keyword can also name a variable, so
-  // `RETURN return-1` misfolds); a misfold never parses, and ParseQuery then
-  // re-strips with SignFolding::kDisabled.
-  if (sign_folding == SignFolding::kEnabled) {
-    auto produces_value = [](Token type, const std::string &text) {
-      switch (type) {
-        case Token::INT:
-        case Token::REAL:
-        case Token::STRING:
-        case Token::PARAMETER:
-        case Token::ESCAPED_NAME:
-        case Token::UNESCAPED_NAME:
-          return true;
-        case Token::KEYWORD:
-          // common value-enders; rarer ones (keyword-named variables and
-          // properties) are rescued by the re-strip
-          return utils::IEquals(text, "true") || utils::IEquals(text, "false") || utils::IEquals(text, "null") ||
-                 utils::IEquals(text, "end");
-        case Token::SPECIAL:
-          return text == ")" || text == "]" || text == "}";
-        default:
-          return false;
-      }
+  // a +/- between a `[`, `(` or `,` and a numeric literal can only be a unary
+  // sign, so fold it into the literal; sign variants of a query then strip to
+  // the same text and share one AST cache entry
+  {
+    auto const is_space = [](auto const &t) { return t.first == Token::SPACE; };
+    auto const is_number = [](auto const &t) { return t.first == Token::INT || t.first == Token::REAL; };
+    auto const is_sign = [](auto const &t) {
+      return t.first == Token::SPECIAL && (t.second == "-" || t.second == "+");
     };
+    auto const is_opener = [](auto const &t) {
+      return t.first == Token::SPECIAL && (t.second == "[" || t.second == "(" || t.second == ",");
+    };
+
     std::vector<std::pair<Token, std::string>> folded;
     folded.reserve(tokens.size());
-    bool prev_produces_value = false;  // start of query is a unary context
+    bool prev_is_opener = false;
     for (std::size_t i = 0; i < tokens.size(); ++i) {
-      const auto &token = tokens[i];
-      const bool is_sign = token.first == Token::SPECIAL && (token.second == "-" || token.second == "+");
-      const bool folds = is_sign && !prev_produces_value && i + 1 < tokens.size() &&
-                         (tokens[i + 1].first == Token::INT || tokens[i + 1].first == Token::REAL);
-      if (folds) {
-        const auto &number = tokens[i + 1];
-        folded.emplace_back(number.first, token.second + number.second);
-        prev_produces_value = true;
-        ++i;  // also consume the number
-        continue;
+      auto const &token = tokens[i];
+      if (prev_is_opener && is_sign(token)) {
+        auto const number = std::ranges::find_if_not(tokens.begin() + i + 1, tokens.end(), is_space);
+        if (number != tokens.end() && is_number(*number)) {
+          folded.emplace_back(number->first, token.second + number->second);
+          i = static_cast<std::size_t>(number - tokens.begin());
+          prev_is_opener = false;
+          continue;
+        }
       }
-      if (token.first != Token::SPACE) prev_produces_value = produces_value(token.first, token.second);
+      if (!is_space(token)) prev_is_opener = is_opener(token);
       folded.push_back(token);
     }
     tokens = std::move(folded);

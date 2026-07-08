@@ -559,32 +559,45 @@ TEST(QueryStripper, SignPatternDoesNotAffectCacheKey) {
   EXPECT_EQ(a.stripped_query().str(), c.stripped_query().str());
   EXPECT_EQ(a.stripped_query().hash(), b.stripped_query().hash());
   EXPECT_EQ(a.stripped_query().hash(), c.stripped_query().hash());
-  EXPECT_EQ(StrippedQuery("RETURN -1").stripped_query().str(), StrippedQuery("RETURN 1").stripped_query().str());
+  EXPECT_EQ(StrippedQuery("RETURN [-1]").stripped_query().str(), StrippedQuery("RETURN [- 1]").stripped_query().str());
 }
 
-TEST(QueryStripper, SignFoldOutsideBrackets) {
+TEST(QueryStripper, SignFoldOnlyAfterOpeners) {
   {
     StrippedQuery stripped("RETURN -42");
     EXPECT_EQ(stripped.literals().size(), 1);
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -42);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken);
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 42);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN - " + kStrippedIntToken);
   }
   {
     StrippedQuery stripped("RETURN {k: -1}");
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN { k : " + kStrippedIntToken + " }");
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN { k : - " + kStrippedIntToken + " }");
   }
   {
-    StrippedQuery stripped("MATCH (n) WHERE n.x > -1.5 RETURN n");
+    StrippedQuery stripped("RETURN (-1)");
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN ( " + kStrippedIntToken + " )");
+  }
+  {
+    StrippedQuery stripped("RETURN abs(-1.5)");
     EXPECT_FLOAT_EQ(stripped.literals().At(0).second.ValueDouble(), -1.5);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN abs ( " + kStrippedDoubleToken + " )");
   }
 }
 
-TEST(QueryStripper, SignFoldingDisabled) {
-  StrippedQuery stripped("RETURN -42", SignFolding::kDisabled);
-  EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 42);
-  EXPECT_EQ(stripped.stripped_query().str(), "RETURN - " + kStrippedIntToken);
+TEST(QueryStripper, SignFoldAcrossWhitespace) {
+  {
+    StrippedQuery stripped("RETURN [-   1]");
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " ]");
+  }
+  {
+    StrippedQuery stripped("RETURN [ - 1, +  2 ]");
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
+    EXPECT_EQ(stripped.literals().At(1).second.ValueInt(), 2);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " , " + kStrippedIntToken + " ]");
+  }
 }
 
 TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
@@ -624,18 +637,18 @@ TEST(QueryStripper, BinaryMinusAfterValueEndingKeywordIsNotFolded) {
   }
 }
 
-TEST(QueryStripper, SignFoldStackedSigns) {
+TEST(QueryStripper, SignFoldStackedSignsDoNotFold) {
   {
     StrippedQuery stripped("RETURN [--1]");
     EXPECT_EQ(stripped.literals().size(), 1);
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - " + kStrippedIntToken + " ]");
+    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - - " + kStrippedIntToken + " ]");
   }
   {
     StrippedQuery stripped("RETURN [-+1]");
     EXPECT_EQ(stripped.literals().size(), 1);
     EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - " + kStrippedIntToken + " ]");
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - + " + kStrippedIntToken + " ]");
   }
 }
 

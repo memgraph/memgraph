@@ -53,10 +53,6 @@ struct HashedString {
   size_t hash_{utils::Fnv(str_)};
 };
 
-// folding is heuristic - a misfolded subtraction never parses, so ParseQuery
-// retries with kDisabled
-enum class SignFolding : uint8_t { kEnabled, kDisabled };
-
 /**
  * StrippedQuery contains:
  *     * stripped query
@@ -71,7 +67,7 @@ class StrippedQuery {
    *
    * @param query Input query.
    */
-  explicit StrippedQuery(std::string query, SignFolding sign_folding = SignFolding::kEnabled);
+  explicit StrippedQuery(std::string query);
 
   /**
    * Copy constructor is deleted because we don't want to make unnecessary
