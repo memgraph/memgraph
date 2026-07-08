@@ -11,7 +11,6 @@
 
 #include "query/frontend/stripped.hpp"
 
-#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <span>
@@ -100,39 +99,6 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
         break;
       }
     }
-  }
-
-  // a +/- between a `[`, `(` or `,` and a numeric literal can only be a unary
-  // sign, so fold it into the literal; sign variants of a query then strip to
-  // the same text and share one AST cache entry
-  {
-    auto const is_space = [](auto const &t) { return t.first == Token::SPACE; };
-    auto const is_number = [](auto const &t) { return t.first == Token::INT || t.first == Token::REAL; };
-    auto const is_sign = [](auto const &t) {
-      return t.first == Token::SPECIAL && (t.second == "-" || t.second == "+");
-    };
-    auto const is_opener = [](auto const &t) {
-      return t.first == Token::SPECIAL && (t.second == "[" || t.second == "(" || t.second == ",");
-    };
-
-    std::vector<std::pair<Token, std::string>> folded;
-    folded.reserve(tokens.size());
-    bool prev_is_opener = false;
-    for (std::size_t i = 0; i < tokens.size(); ++i) {
-      auto const &token = tokens[i];
-      if (prev_is_opener && is_sign(token)) {
-        auto const number = std::ranges::find_if_not(tokens.begin() + i + 1, tokens.end(), is_space);
-        if (number != tokens.end() && is_number(*number)) {
-          folded.emplace_back(number->first, token.second + number->second);
-          i = static_cast<std::size_t>(number - tokens.begin());
-          prev_is_opener = false;
-          continue;
-        }
-      }
-      if (!is_space(token)) prev_is_opener = is_opener(token);
-      folded.push_back(token);
-    }
-    tokens = std::move(folded);
   }
 
   std::vector<std::string> token_strings;

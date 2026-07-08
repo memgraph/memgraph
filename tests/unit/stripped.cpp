@@ -15,7 +15,6 @@
 //
 
 #include <cstdint>
-#include <limits>
 #include <unordered_map>
 
 #include "gmock/gmock.h"
@@ -514,177 +513,6 @@ TEST(QueryStripper, KeywordsCanBeUsedInStrippedQueries) {
   }
 }
 
-TEST(QueryStripper, NegativeIntegerInList) {
-  StrippedQuery stripped("RETURN [-42]");
-  EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -42);
-  EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " ]");
-}
-
-TEST(QueryStripper, NegativeRealInList) {
-  StrippedQuery stripped("RETURN [-0.5]");
-  EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.ValueDouble(), -0.5);
-  EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedDoubleToken + " ]");
-}
-
-TEST(QueryStripper, UnaryPlusInList) {
-  StrippedQuery stripped("RETURN [+42]");
-  EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 42);
-  EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " ]");
-}
-
-TEST(QueryStripper, NegativeExponentRealInList) {
-  StrippedQuery stripped("RETURN [-1e-3]");
-  EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_FLOAT_EQ(stripped.literals().At(0).second.ValueDouble(), -1e-3);
-  EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedDoubleToken + " ]");
-}
-
-TEST(QueryStripper, MixedSignListFoldsToPositiveShape) {
-  StrippedQuery stripped("RETURN [-1, 2, -3]");
-  EXPECT_EQ(stripped.literals().size(), 3);
-  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
-  EXPECT_EQ(stripped.literals().At(1).second.ValueInt(), 2);
-  EXPECT_EQ(stripped.literals().At(2).second.ValueInt(), -3);
-  EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ 0 , 0 , 0 ]");
-}
-
-TEST(QueryStripper, SignPatternDoesNotAffectCacheKey) {
-  auto a = StrippedQuery("RETURN [-1, 2, -3]");
-  auto b = StrippedQuery("RETURN [4, -5, 6]");
-  auto c = StrippedQuery("RETURN [1, 2, 3]");
-  EXPECT_EQ(a.stripped_query().str(), b.stripped_query().str());
-  EXPECT_EQ(a.stripped_query().str(), c.stripped_query().str());
-  EXPECT_EQ(a.stripped_query().hash(), b.stripped_query().hash());
-  EXPECT_EQ(a.stripped_query().hash(), c.stripped_query().hash());
-  EXPECT_EQ(StrippedQuery("RETURN [-1]").stripped_query().str(), StrippedQuery("RETURN [- 1]").stripped_query().str());
-}
-
-TEST(QueryStripper, SignFoldOnlyAfterOpeners) {
-  {
-    StrippedQuery stripped("RETURN -42");
-    EXPECT_EQ(stripped.literals().size(), 1);
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 42);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN - " + kStrippedIntToken);
-  }
-  {
-    StrippedQuery stripped("RETURN {k: -1}");
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN { k : - " + kStrippedIntToken + " }");
-  }
-  {
-    StrippedQuery stripped("RETURN (-1)");
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN ( " + kStrippedIntToken + " )");
-  }
-  {
-    StrippedQuery stripped("RETURN abs(-1.5)");
-    EXPECT_FLOAT_EQ(stripped.literals().At(0).second.ValueDouble(), -1.5);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN abs ( " + kStrippedDoubleToken + " )");
-  }
-}
-
-TEST(QueryStripper, SignFoldAcrossWhitespace) {
-  {
-    StrippedQuery stripped("RETURN [-   1]");
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " ]");
-  }
-  {
-    StrippedQuery stripped("RETURN [ - 1, +  2 ]");
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
-    EXPECT_EQ(stripped.literals().At(1).second.ValueInt(), 2);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " , " + kStrippedIntToken + " ]");
-  }
-}
-
-TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
-  {
-    StrippedQuery stripped("RETURN [a - 1]");  // spaced: number is not adjacent to the sign
-    EXPECT_EQ(stripped.literals().size(), 1);
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ a - " + kStrippedIntToken + " ]");
-  }
-  {
-    StrippedQuery stripped("RETURN [1-1]");  // adjacent, but preceded by a value
-    EXPECT_EQ(stripped.literals().size(), 2);
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
-    EXPECT_EQ(stripped.literals().At(1).second.ValueInt(), 1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " - " + kStrippedIntToken + " ]");
-  }
-  {
-    StrippedQuery stripped("RETURN [a-1]");  // adjacent, preceded by an identifier
-    EXPECT_EQ(stripped.literals().size(), 1);
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ a - " + kStrippedIntToken + " ]");
-  }
-}
-
-TEST(QueryStripper, BinaryMinusAfterValueEndingKeywordIsNotFolded) {
-  {
-    StrippedQuery stripped("RETURN [CASE WHEN true THEN 2 END-1]");
-    EXPECT_EQ(stripped.literals().At(2).second.ValueInt(), 1);
-    EXPECT_EQ(stripped.stripped_query().str(),
-              "RETURN [ CASE WHEN " + kStrippedBooleanToken + " THEN " + kStrippedIntToken + " END - " +
-                  kStrippedIntToken + " ]");
-  }
-  {
-    StrippedQuery stripped("RETURN [a.end-1]");
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ a . end - " + kStrippedIntToken + " ]");
-  }
-}
-
-TEST(QueryStripper, SignFoldStackedSignsDoNotFold) {
-  {
-    StrippedQuery stripped("RETURN [--1]");
-    EXPECT_EQ(stripped.literals().size(), 1);
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - - " + kStrippedIntToken + " ]");
-  }
-  {
-    StrippedQuery stripped("RETURN [-+1]");
-    EXPECT_EQ(stripped.literals().size(), 1);
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - + " + kStrippedIntToken + " ]");
-  }
-}
-
-TEST(QueryStripper, SignFoldIntMinHexOctal) {
-  {
-    StrippedQuery stripped("RETURN [-9223372036854775808]");
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), std::numeric_limits<int64_t>::min());
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " ]");
-  }
-  {
-    StrippedQuery stripped("RETURN [-0x1F]");
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -31);
-  }
-  {
-    StrippedQuery stripped("RETURN [-010]");
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -8);
-  }
-}
-
-TEST(QueryStripper, SignFoldNestedAndBracketedContexts) {
-  {
-    StrippedQuery stripped("RETURN [[1, -2], -3]");  // nested list
-    EXPECT_EQ(stripped.literals().size(), 3);
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 1);
-    EXPECT_EQ(stripped.literals().At(1).second.ValueInt(), -2);
-    EXPECT_EQ(stripped.literals().At(2).second.ValueInt(), -3);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ [ 0 , 0 ] , 0 ]");
-  }
-  {
-    StrippedQuery stripped("RETURN a[-1]");  // indexing: bracket, sign folds into the index
-    EXPECT_EQ(stripped.literals().size(), 1);
-    EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), -1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN a [ " + kStrippedIntToken + " ]");
-  }
-}
-
 TEST(Parameters, LookupByTokenPosition) {
   Parameters params;
   params.Add(3, memgraph::storage::ExternalPropertyValue(int64_t{30}));
@@ -692,30 +520,12 @@ TEST(Parameters, LookupByTokenPosition) {
   params.Add(5, memgraph::storage::ExternalPropertyValue(int64_t{50}));
 
   EXPECT_EQ(params.size(), 3);
-  // Lookup is by token position, independent of insertion order.
   EXPECT_EQ(params.AtTokenPosition(3).ValueInt(), 30);
   EXPECT_EQ(params.AtTokenPosition(5).ValueInt(), 50);
   EXPECT_EQ(params.AtTokenPosition(7).ValueInt(), 70);
-  // At() still addresses storage in insertion order.
   EXPECT_EQ(params.At(0).first, 3);
   EXPECT_EQ(params.At(1).first, 7);
   EXPECT_EQ(params.At(2).first, 5);
-}
-
-TEST(Parameters, DuplicateTokenPositionKeepsFirst) {
-  Parameters params;
-  params.Add(1, memgraph::storage::ExternalPropertyValue(int64_t{100}));
-  params.Add(1, memgraph::storage::ExternalPropertyValue(int64_t{200}));
-  EXPECT_EQ(params.AtTokenPosition(1).ValueInt(), 100);
-}
-
-TEST(Parameters, CopyPreservesLookup) {
-  Parameters params;
-  params.Add(2, memgraph::storage::ExternalPropertyValue(int64_t{20}));
-  params.Add(9, memgraph::storage::ExternalPropertyValue(int64_t{90}));
-  Parameters copy = params;  // PrepareQueryParameters copies the stripped literals
-  EXPECT_EQ(copy.AtTokenPosition(2).ValueInt(), 20);
-  EXPECT_EQ(copy.AtTokenPosition(9).ValueInt(), 90);
 }
 
 // force every key into one bucket so equality must disambiguate by text

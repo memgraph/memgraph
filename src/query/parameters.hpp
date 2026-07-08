@@ -33,8 +33,6 @@ struct Parameters {
    * @param value
    */
   void Add(int position, const storage::ExternalPropertyValue &value) {
-    // emplace keeps the first entry for a duplicate position, matching the
-    // first-match linear scan this index replaced
     position_index_.emplace(position, storage_.size());
     storage_.emplace_back(position, value);
   }
@@ -46,7 +44,7 @@ struct Parameters {
    *  @return Value for the given token position.
    */
   const storage::ExternalPropertyValue &AtTokenPosition(int position) const {
-    auto found = position_index_.find(position);
+    const auto found = position_index_.find(position);
     MG_ASSERT(found != position_index_.end(), "Token position must be present in container");
     return storage_[found->second].second;
   }
@@ -72,7 +70,6 @@ struct Parameters {
 
  private:
   std::vector<std::pair<int, storage::ExternalPropertyValue>> storage_;
-  // position -> storage_ index for O(1) AtTokenPosition
   std::unordered_map<int, std::size_t> position_index_;
 };
 

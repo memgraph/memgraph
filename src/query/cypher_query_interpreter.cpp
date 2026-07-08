@@ -40,7 +40,8 @@ DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
 DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query plans to cache.",
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(query_ast_cache_max_size, 1000, "Maximum number of parsed query ASTs to cache.",
+DEFINE_VALIDATED_int32(query_ast_cache_max_size, 1000,
+                       "Maximum number of parsed query ASTs to cache (0 disables the cache).",
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace memgraph::query {
@@ -93,7 +94,7 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
 
   // Cache the query's AST if it isn't already.
   auto const &cache_key = stripped_query.stripped_query();
-  std::shared_ptr<CachedQuery> cached;
+  std::shared_ptr<const CachedQuery> cached;
   cache->WithLock([&](auto &lru) {
     if (auto entry = lru.get(cache_key)) cached = *entry;
   });
@@ -147,13 +148,19 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
     };
 
     if (visitor.GetQueryInfo().is_cacheable) {
-      auto cached_query = std::make_shared<CachedQuery>();
-      cached_query->ast_storage = std::move(ast_storage);
-      cached_query->query = visitor.query();
-      cached_query->required_privileges = query::GetRequiredPrivileges(visitor.query());
-      cached_query->is_cypher_read = read_check();
-      cached_query->using_schema_assert = visitor.GetQueryInfo().has_schema_assert;
-      cache->WithLock([&](auto &lru) { lru.put(cache_key, cached_query); });
+      std::shared_ptr<const CachedQuery> cached_query = std::make_shared<CachedQuery>(
+          CachedQuery{.ast_storage = std::move(ast_storage),
+                      .query = visitor.query(),
+                      .required_privileges = query::GetRequiredPrivileges(visitor.query()),
+                      .is_cypher_read = read_check(),
+                      .using_schema_assert = visitor.GetQueryInfo().has_schema_assert});
+      cache->WithLock([&](auto &lru) {
+        if (auto winner = lru.get(cache_key)) {
+          cached_query = *winner;
+        } else {
+          lru.put(cache_key, cached_query);
+        }
+      });
 
       get_information_from_cache(*cached_query);
     } else {

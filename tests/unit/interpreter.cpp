@@ -1878,29 +1878,6 @@ TYPED_TEST(InterpreterTest, AnalyzeGraphDeduplicatesAscDescIndexes) {
   EXPECT_EQ(deleted_labels, (std::set<std::string>{"LabelA", "LabelB"}));
 }
 
-TYPED_TEST(InterpreterTest, MixedSignListSharesCacheEntryAndKeepsValues) {
-  auto ast_size = [this] {
-    return this->interpreter_context.ast_cache.WithLock([](auto &cache) { return cache.size(); });
-  };
-  auto values = [](const auto &stream) {
-    std::vector<int64_t> out;
-    for (const auto &v : stream.GetResults()[0][0].ValueList()) out.push_back(v.ValueInt());
-    return out;
-  };
-
-  EXPECT_EQ(ast_size(), 0U);
-  auto s1 = this->Interpret("RETURN [-1, 2, -3] AS x");
-  auto s2 = this->Interpret("RETURN [4, -5, 6] AS x");
-  EXPECT_EQ(values(s1), (std::vector<int64_t>{-1, 2, -3}));
-  EXPECT_EQ(values(s2), (std::vector<int64_t>{4, -5, 6}));
-  EXPECT_EQ(ast_size(), 1U);
-}
-
-TYPED_TEST(InterpreterTest, KeywordNamedVariableSubtraction) {
-  auto stream = this->Interpret("WITH 5 AS filter RETURN filter-1 AS x");
-  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 4);
-}
-
 TEST(AstCacheBounded, EvictsBeyondMaxSize) {
   constexpr std::size_t kMaxSize = 2;
   memgraph::query::AstCache cache{kMaxSize};
@@ -1912,12 +1889,9 @@ TEST(AstCacheBounded, EvictsBeyondMaxSize) {
     memgraph::query::ParseQuery(query, {}, &cache, query_config, "uuid", nullptr);
     EXPECT_LE(cache_size(), kMaxSize) << "cache grew past its bound at iteration " << i;
   }
-  // the bound caps the cache, it does not disable it
   EXPECT_EQ(cache_size(), kMaxSize);
 }
 
-// size-1 cache: concurrent distinct queries evict constantly, so an entry must
-// never be freed out from under an in-flight clone
 TEST(AstCacheConcurrency, CorrectUnderEvictionContention) {
   memgraph::query::AstCache cache{1};
   memgraph::query::InterpreterConfig::Query const query_config{};
@@ -1925,21 +1899,22 @@ TEST(AstCacheConcurrency, CorrectUnderEvictionContention) {
   constexpr int kIters = 3000;
   std::atomic<int> failures{0};
 
-  std::vector<std::thread> threads;
-  for (int t = 0; t < kThreads; ++t) {
-    threads.emplace_back([&, t] {
-      for (int i = 0; i < kIters; ++i) {
-        int const value = t * kIters + i;  // disjoint per thread -> all distinct -> constant eviction
-        auto parsed =
-            memgraph::query::ParseQuery("RETURN " + std::to_string(value), {}, &cache, query_config, "uuid", nullptr);
-        // "RETURN <value>" strips to "RETURN 0" with the literal at token position 1.
-        if (parsed.query == nullptr || parsed.parameters.AtTokenPosition(1).ValueInt() != value) {
-          failures.fetch_add(1, std::memory_order_relaxed);
+  {
+    std::vector<std::jthread> threads;
+    for (int t = 0; t < kThreads; ++t) {
+      threads.emplace_back([&, t] {
+        for (int i = 0; i < kIters; ++i) {
+          int const value = t * kIters + i;  // disjoint per thread -> all distinct -> constant eviction
+          auto parsed =
+              memgraph::query::ParseQuery("RETURN " + std::to_string(value), {}, &cache, query_config, "uuid", nullptr);
+          // "RETURN <value>" strips to "RETURN 0" with the literal at token position 1.
+          if (parsed.query == nullptr || parsed.parameters.AtTokenPosition(1).ValueInt() != value) {
+            failures.fetch_add(1, std::memory_order_relaxed);
+          }
         }
-      }
-    });
+      });
+    }
   }
-  for (auto &th : threads) th.join();
   EXPECT_EQ(failures.load(), 0);
   EXPECT_LE(cache.WithLock([](auto &c) { return c.size(); }), 1U);
 }

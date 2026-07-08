@@ -34,7 +34,6 @@
 #include "utils/priority_thread_pool.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/settings.hpp"
-#include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #ifdef MG_ENTERPRISE
@@ -69,7 +68,7 @@ struct InterpreterContext {
   // Internal
   const InterpreterConfig config;
   std::atomic<bool> is_shutting_down{false};  // TODO: Do we even need this, since there is a global one also
-  AstCache ast_cache{static_cast<std::size_t>(FLAGS_query_ast_cache_max_size)};
+  AstCache ast_cache;
 
   // GLOBAL
   utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> *repl_state;

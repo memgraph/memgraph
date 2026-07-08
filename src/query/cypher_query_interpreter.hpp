@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <memory>
 
 #include "parameters/parameters.hpp"
@@ -103,7 +102,7 @@ struct CachedQuery {
 // keyed by text, not hash, so a hash collision can't return another query's
 // AST. entries are shared_ptr so an LRU eviction can't free an AST mid-clone.
 using AstCache =
-    utils::Synchronized<utils::LRUCache<frontend::HashedString, std::shared_ptr<CachedQuery>>, utils::RWSpinLock>;
+    utils::Synchronized<utils::LRUCache<frontend::HashedString, std::shared_ptr<const CachedQuery>>, utils::RWSpinLock>;
 
 /**
  * A container for data related to the parsing of a query.
