@@ -237,8 +237,6 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
     std::shared_ptr<IndicesContainer const> index_container_;
   };
 
-  InMemoryVertexPropertyIndex() = default;
-
   bool CreateIndexOnePass(PropertyId property, utils::SkipListDb<Vertex>::Accessor vertices,
                           ActiveIndicesUpdater const &updater,
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);

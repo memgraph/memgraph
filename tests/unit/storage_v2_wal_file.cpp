@@ -32,6 +32,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
@@ -66,6 +67,7 @@ class DeltaGenerator final {
                            std::make_unique<memgraph::storage::InMemoryEdgeTypeIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgePropertyIndex::ActiveIndices>(),
+                           std::make_unique<memgraph::storage::InMemoryVertexPropertyIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::TextIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::TextEdgeIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::PointIndexStorage::ActiveIndices>(),
