@@ -387,8 +387,8 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
 
     std::unique_ptr<memgraph::query::FineGrainedAuthChecker> auth_checker;  // NOLINT(misc-const-correctness)
 #ifdef MG_ENTERPRISE
-    if (storage && interpreter_context_->auth_checker && interpreter_.user_or_role_ && *interpreter_.user_or_role_ &&
-        interpreter_.current_db_.execution_db_accessor_) {
+    if (license::global_license_checker.IsEnterpriseValidFast() && storage && interpreter_context_->auth_checker &&
+        interpreter_.user_or_role_ && *interpreter_.user_or_role_ && interpreter_.current_db_.execution_db_accessor_) {
       auto *dba = &*interpreter_.current_db_.execution_db_accessor_;
       auth_checker = interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*interpreter_.user_or_role_, dba);
       DMG_ASSERT(auth_checker, "Auth checker should not be null");
