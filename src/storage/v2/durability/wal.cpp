@@ -1447,18 +1447,25 @@ std::optional<RecoveryInfo> LoadWal(
             throw RecoveryFailure("The edge doesn't exist in out_edges! Current ldt is: {}",
                                   ret->last_durable_timestamp);
           auto edge_ref = std::get<2>(*it);
+
+          // Locate the in_edges entry BEFORE unlinking anything from either vector: if this
+          // lookup fails and throws, edge_ref must still be reachable from from_vertex->out_edges
+          // so that ClearLightEdges() (the recovery-failure cleanup path, which reclaims pool
+          // edges by walking adjacency) can still free the pool Edge*. Unlinking first would
+          // orphan it from all adjacency, leaking the pool slot on this corrupt-WAL path.
+          auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
+          auto in_it = r::find(to_vertex->in_edges, in_link);
+          if (in_it == to_vertex->in_edges.end())
+            throw RecoveryFailure("The to vertex doesn't have this edge! Current ldt is: {}",
+                                  ret->last_durable_timestamp);
+
+          // Both iterators are now known-valid; unlink from both independent vectors. Popping
+          // one does not invalidate the other's iterator, but neither `it` nor `in_it` may be
+          // used after its own vector's pop_back.
           std::swap(*it, from_vertex->out_edges.back());
           from_vertex->out_edges.pop_back();
-
-          {
-            auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
-            auto in_it = r::find(to_vertex->in_edges, in_link);
-            if (in_it == to_vertex->in_edges.end())
-              throw RecoveryFailure("The to vertex doesn't have this edge! Current ldt is: {}",
-                                    ret->last_durable_timestamp);
-            std::swap(*in_it, to_vertex->in_edges.back());
-            to_vertex->in_edges.pop_back();
-          }
+          std::swap(*in_it, to_vertex->in_edges.back());
+          to_vertex->in_edges.pop_back();
           // Update schema info before edge deallocation (it reads edge properties).
           if (schema_info) {
             schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
