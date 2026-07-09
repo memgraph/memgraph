@@ -288,6 +288,10 @@ struct WalEdgePropertyIndexCreate : EdgePropertyOpInfo {};
 
 struct WalEdgePropertyIndexDrop : EdgePropertyOpInfo {};
 
+struct WalVertexPropertyIndexCreate : EdgePropertyOpInfo {};
+
+struct WalVertexPropertyIndexDrop : EdgePropertyOpInfo {};
+
 struct WalUniqueConstraintCreate : LabelUnorderedPropertiesOpInfo {};
 
 struct WalUniqueConstraintDrop : LabelUnorderedPropertiesOpInfo {};
@@ -447,7 +451,7 @@ struct WalDeltaData {
                WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
                WalTextIndexCreate, WalTextIndexDrop, WalTextEdgeIndexCreate, WalEnumCreate, WalEnumAlterAdd,
                WalEnumAlterUpdate, WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation,
-               WalDescriptionSet, WalDescriptionDelete>
+               WalDescriptionSet, WalDescriptionDelete, WalVertexPropertyIndexCreate, WalVertexPropertyIndexDrop>
       data_ = WalTransactionEnd{};
 };
 
