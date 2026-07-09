@@ -362,6 +362,7 @@ class Rewriter {
 
   /// Recompute arming_index_ and closure_depth_ from rules_; both are pure
   /// functions of the rule set, so they change only when the rules do.
+  // TODO: share as shared_ptr<const> instead of rebuilding per Rewriter (production rebuilds it every query).
   void rebuild_rule_cache() {
     arming_index_ = BuildArmingIndex(rules_);
     closure_depth_ = MaxRuleSetPatternDepth(rules_);
