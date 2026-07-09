@@ -42,6 +42,12 @@ void EXPECT_PROP_EQ(const memgraph::storage::ExternalPropertyValue &a, const Typ
   EXPECT_PROP_EQ(TypedValue(a), b);
 }
 
+memgraph::storage::ExternalPropertyValue SingleLiteral(const StrippedQuery &stripped) {
+  EXPECT_EQ(stripped.literals().size(), 1);
+  if (stripped.literals().size() != 1) return {};
+  return stripped.literals().begin()->second;
+}
+
 TEST(QueryStripper, NoLiterals) {
   StrippedQuery stripped("CREATE (n)");
   EXPECT_EQ(stripped.literals().size(), 0);
@@ -65,49 +71,49 @@ TEST(QueryStripper, DecimalInteger) {
 TEST(QueryStripper, OctalInteger) {
   StrippedQuery stripped("RETURN 010");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 8);
+  EXPECT_EQ(SingleLiteral(stripped).ValueInt(), 8);
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken);
 }
 
 TEST(QueryStripper, HexInteger) {
   StrippedQuery stripped("RETURN 0xa");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 10);
+  EXPECT_EQ(SingleLiteral(stripped).ValueInt(), 10);
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken);
 }
 
 TEST(QueryStripper, RegularDecimal) {
   StrippedQuery stripped("RETURN 42.3");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_FLOAT_EQ(stripped.literals().begin()->second.ValueDouble(), 42.3);
+  EXPECT_FLOAT_EQ(SingleLiteral(stripped).ValueDouble(), 42.3);
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedDoubleToken);
 }
 
 TEST(QueryStripper, ExponentDecimal) {
   StrippedQuery stripped("RETURN 4e2");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_FLOAT_EQ(stripped.literals().begin()->second.ValueDouble(), 4e2);
+  EXPECT_FLOAT_EQ(SingleLiteral(stripped).ValueDouble(), 4e2);
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedDoubleToken);
 }
 
 TEST(QueryStripper, ExponentDecimal2) {
   StrippedQuery stripped("RETURN 4e-2");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_FLOAT_EQ(stripped.literals().begin()->second.ValueDouble(), 4e-2);
+  EXPECT_FLOAT_EQ(SingleLiteral(stripped).ValueDouble(), 4e-2);
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedDoubleToken);
 }
 
 TEST(QueryStripper, ExponentDecimal3) {
   StrippedQuery stripped("RETURN 0.1e-2");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_FLOAT_EQ(stripped.literals().begin()->second.ValueDouble(), 0.1e-2);
+  EXPECT_FLOAT_EQ(SingleLiteral(stripped).ValueDouble(), 0.1e-2);
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedDoubleToken);
 }
 
 TEST(QueryStripper, ExponentDecimal4) {
   StrippedQuery stripped("RETURN .1e-2");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_FLOAT_EQ(stripped.literals().begin()->second.ValueDouble(), .1e-2);
+  EXPECT_FLOAT_EQ(SingleLiteral(stripped).ValueDouble(), .1e-2);
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedDoubleToken);
 }
 
@@ -120,28 +126,28 @@ TEST(QueryStripper, SymbolicNameStartingWithE) {
 TEST(QueryStripper, StringLiteral) {
   StrippedQuery stripped("RETURN 'something'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(), "something");
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(), "something");
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
 
 TEST(QueryStripper, StringLiteral2) {
   StrippedQuery stripped("RETURN 'so\\'me'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(), "so'me");
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(), "so'me");
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
 
 TEST(QueryStripper, StringLiteral3) {
   StrippedQuery stripped("RETURN \"so\\\"me'\"");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(), "so\"me'");
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(), "so\"me'");
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
 
 TEST(QueryStripper, StringLiteral4) {
   StrippedQuery stripped("RETURN '\\u1Aa4'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(),
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(),
             "\xE1\xAA\xA4");  // "u8"\u1Aa4
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
@@ -153,7 +159,7 @@ TEST(QueryStripper, LowSurrogateAlone) { ASSERT_THROW(StrippedQuery("RETURN '\\u
 TEST(QueryStripper, Surrogates) {
   StrippedQuery stripped("RETURN '\\ud83d\\udeeb'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(),
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(),
             "\xF0\x9F\x9B\xAB");  // u8"\U0001f6eb"
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
@@ -161,14 +167,14 @@ TEST(QueryStripper, Surrogates) {
 TEST(QueryStripper, Utf32BasicLatin) {
   StrippedQuery stripped("RETURN '\\U00000041'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(), "A");
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(), "A");
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
 
 TEST(QueryStripper, Utf32Emoji) {
   StrippedQuery stripped("RETURN '\\U0001F600'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(),
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(),
             "\xF0\x9F\x98\x80");  // u8"\U0001F600" 😀
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
@@ -176,7 +182,7 @@ TEST(QueryStripper, Utf32Emoji) {
 TEST(QueryStripper, Utf32MaxValid) {
   StrippedQuery stripped("RETURN '\\U0010FFFF'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(),
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(),
             "\xF4\x8F\xBF\xBF");  // Maximum valid Unicode codepoint
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
@@ -190,20 +196,20 @@ TEST(QueryStripper, Utf32WrongLength) {
   // Exactly 8 hex digits followed by a non-hex character is valid
   // The parser reads exactly 8 digits, so "\\U00000058X" parses as U+00000058 ('X') followed by 'X'
   StrippedQuery stripped("RETURN '\\U00000058X'");  // 'X' followed by 'X'
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(), "XX");
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(), "XX");
 }
 
 TEST(QueryStripper, UnicodeNull) {
   StrippedQuery stripped("RETURN '\\u0000'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(), std::string("\0", 1));
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(), std::string("\0", 1));
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
 
 TEST(QueryStripper, UnicodeBmpMax) {
   StrippedQuery stripped("RETURN '\\uffff'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(),
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(),
             "\xEF\xBF\xBF");  // U+FFFF (not a character but valid codepoint)
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
@@ -211,21 +217,21 @@ TEST(QueryStripper, UnicodeBmpMax) {
 TEST(QueryStripper, UnicodeUppercaseHex) {
   StrippedQuery stripped("RETURN '\\uABCD'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(), "\xEA\xAF\x8D");
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(), "\xEA\xAF\x8D");
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
 
 TEST(QueryStripper, UnicodeLowercaseHex) {
   StrippedQuery stripped("RETURN '\\uabcd'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(), "\xEA\xAF\x8D");
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(), "\xEA\xAF\x8D");
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
 
 TEST(QueryStripper, UnicodeMixedCase) {
   StrippedQuery stripped("RETURN '\\uAbCd'");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().begin()->second.ValueString(), "\xEA\xAF\x8D");
+  EXPECT_EQ(SingleLiteral(stripped).ValueString(), "\xEA\xAF\x8D");
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedStringToken);
 }
 
@@ -237,14 +243,14 @@ TEST(QueryStripper, StringLiteralIllegalEscapedSequence) {
 TEST(QueryStripper, TrueLiteral) {
   StrippedQuery stripped("RETURN trUE");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_PROP_EQ(stripped.literals().begin()->second, TypedValue(true));
+  EXPECT_PROP_EQ(SingleLiteral(stripped), TypedValue(true));
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedBooleanToken);
 }
 
 TEST(QueryStripper, FalseLiteral) {
   StrippedQuery stripped("RETURN fAlse");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_PROP_EQ(stripped.literals().begin()->second, TypedValue(false));
+  EXPECT_PROP_EQ(SingleLiteral(stripped), TypedValue(false));
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedBooleanToken);
 }
 
@@ -515,21 +521,21 @@ TEST(QueryStripper, KeywordsCanBeUsedInStrippedQueries) {
 TEST(QueryStripper, SignFoldInList) {
   {
     StrippedQuery stripped("RETURN [-42]");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), -42);
+    EXPECT_EQ(SingleLiteral(stripped).ValueInt(), -42);
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " ]");
   }
   {
     StrippedQuery stripped("RETURN [+0.5]");
-    EXPECT_FLOAT_EQ(stripped.literals().begin()->second.ValueDouble(), 0.5);
+    EXPECT_FLOAT_EQ(SingleLiteral(stripped).ValueDouble(), 0.5);
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedDoubleToken + " ]");
   }
   {
     StrippedQuery stripped("RETURN [-1e-3]");
-    EXPECT_FLOAT_EQ(stripped.literals().begin()->second.ValueDouble(), -1e-3);
+    EXPECT_FLOAT_EQ(SingleLiteral(stripped).ValueDouble(), -1e-3);
   }
   {
     StrippedQuery stripped("RETURN [+42]");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 42);
+    EXPECT_EQ(SingleLiteral(stripped).ValueInt(), 42);
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " ]");
   }
 }
@@ -561,7 +567,7 @@ TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
   }
   {
     StrippedQuery stripped("RETURN [a-1]");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 1);
+    EXPECT_EQ(SingleLiteral(stripped).ValueInt(), 1);
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ a - " + kStrippedIntToken + " ]");
   }
   {
@@ -575,12 +581,12 @@ TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
 TEST(QueryStripper, StackedSignsAreNotFolded) {
   {
     StrippedQuery stripped("RETURN [--1]");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 1);
+    EXPECT_EQ(SingleLiteral(stripped).ValueInt(), 1);
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - - " + kStrippedIntToken + " ]");
   }
   {
     StrippedQuery stripped("RETURN [-+1]");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 1);
+    EXPECT_EQ(SingleLiteral(stripped).ValueInt(), 1);
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - + " + kStrippedIntToken + " ]");
   }
 }
@@ -588,15 +594,15 @@ TEST(QueryStripper, StackedSignsAreNotFolded) {
 TEST(QueryStripper, SignFoldIntMinHexOctal) {
   {
     StrippedQuery stripped("RETURN [-9223372036854775808]");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), std::numeric_limits<int64_t>::min());
+    EXPECT_EQ(SingleLiteral(stripped).ValueInt(), std::numeric_limits<int64_t>::min());
   }
   {
     StrippedQuery stripped("RETURN [-0x1F]");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), -31);
+    EXPECT_EQ(SingleLiteral(stripped).ValueInt(), -31);
   }
   {
     StrippedQuery stripped("RETURN [-010]");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), -8);
+    EXPECT_EQ(SingleLiteral(stripped).ValueInt(), -8);
   }
 }
 
@@ -608,7 +614,7 @@ TEST(QueryStripper, SignFoldInBracketContexts) {
   }
   {
     StrippedQuery stripped("RETURN a[-1]");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), -1);
+    EXPECT_EQ(SingleLiteral(stripped).ValueInt(), -1);
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN a [ " + kStrippedIntToken + " ]");
   }
   {
@@ -625,7 +631,7 @@ TEST(QueryStripper, SignFoldInBracketContexts) {
 TEST(QueryStripper, NoFoldOutsideBrackets) {
   {
     StrippedQuery stripped("RETURN -42");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 42);
+    EXPECT_EQ(SingleLiteral(stripped).ValueInt(), 42);
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN - " + kStrippedIntToken);
   }
   {
@@ -642,7 +648,7 @@ TEST(QueryStripper, NoFoldOutsideBrackets) {
   }
   {
     StrippedQuery stripped("RETURN [{k: -1}]");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 1);
+    EXPECT_EQ(SingleLiteral(stripped).ValueInt(), 1);
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ { k : - " + kStrippedIntToken + " } ]");
   }
 }
