@@ -1139,16 +1139,20 @@ jobs:
 
       - name: Print Output URL
         if: ${{ inputs.print_output_url && inputs.push_to_s3 }}
+        env:
+          DEST_DIR: "${{ inputs.s3_dest_dir }}"
         run: |
-          # ::notice:: lines surface in the GA UI summary. Print each
-          # variant that actually exists so callers and humans can grab
-          # the link without re-deriving it from the matrix dims.
-          if [[ -n "${{ steps.output-url.outputs.s3_url_prod }}" ]]; then
-            echo "::notice::Prod image URL: ${{ steps.output-url.outputs.s3_url_prod }}"
+          base="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/${DEST_DIR}"
+          shopt -s nullglob
+          artifacts=(output/*)
+          if [[ ${#artifacts[@]} -eq 0 ]]; then
+            echo "No artifacts in output/ to report."
+            exit 0
           fi
-          if [[ -n "${{ steps.output-url.outputs.s3_url_debug }}" ]]; then
-            echo "::notice::Debug image URL: ${{ steps.output-url.outputs.s3_url_debug }}"
-          fi
+          for f in "${artifacts[@]}"; do
+            [[ -f "$f" ]] || continue
+            echo "::notice::Artifact URL: ${base}/$(basename "$f")"
+          done
 
       - name: Memgraph Docker Cleanup
         if: always()
