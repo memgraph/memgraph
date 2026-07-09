@@ -153,13 +153,10 @@ class VMExecutor {
   /// @param index MatcherIndex with symbol index for candidate lookup
   /// @param arena MatchArena for storing match bindings
   /// @param results Output vector for matches (appended, not cleared)
-  /// @param active When non-null, restricts the root symbol iteration's candidates
-  /// to this active set (touched-since-last-pass, closed under parents to the max
-  /// pattern depth). The caller passes this only for patterns whose sole symbol
-  /// node is the root (RewriteRule::supports_active_root_restriction), so the
-  /// pattern's single IterSymbolEClasses is the root iteration and the active set
-  /// holds the root of every new match - no match is lost. Null (first pass /
-  /// Full / non-qualifying rule) matches all candidates.
+  /// @param active When non-null, restricts the root-symbol iteration to this
+  /// active set. Sound only for patterns where
+  /// RewriteRule::supports_active_root_restriction() holds (see there for why);
+  /// null matches all candidates.
   void execute(CompiledMatcher<Symbol> const &pattern, MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
                std::vector<PatternMatch> &results, boost::unordered_flat_set<EClassId> const *active = nullptr);
 
@@ -250,8 +247,7 @@ class VMExecutor {
   VMState state_;
   std::span<EClassId const> all_eclasses_;  // Span into e-graph's canonical e-class list (for IterAllEClasses)
 
-  // When set, the root iteration of a symbol-rooted pattern draws only from
-  // these e-classes (see execute()'s `active` parameter).
+  // Root iteration draws only from these when set (see execute()'s `active`).
   boost::unordered_flat_set<EClassId> const *active_root_set_{nullptr};
   // Scratch for the active-restricted root set (active intersect carriers of the
   // root symbol), kept as a member so the root SetIter can reference it.

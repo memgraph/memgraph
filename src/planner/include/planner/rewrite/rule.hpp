@@ -128,18 +128,14 @@ class RewriteRule {
     return roots;
   }
 
-  /// Whether the per-candidate active-set restriction (see VMExecutor::execute's
+  /// Whether the per-candidate active-set restriction (VMExecutor::execute's
   /// `active`) is SOUND for this rule. The active set is closed under parents, so
-  /// it is guaranteed to hold a new match's *root* e-class - but not a deeper
-  /// e-class the compiler may pick as the VM entry (Priority 2: deepest non-root
-  /// symbol, entered then walked up to the root). Restricting the entry candidates
-  /// to the active set is therefore sound only when the pattern's *only* symbol
-  /// node is its root: then the single IterSymbolEClasses the VM can emit is the
-  /// root iteration. This is a structural guarantee, independent of the compiler's
-  /// entry policy - a pattern with no symbol below the root has no deeper symbol to
-  /// enter at. Multi-pattern rules, and any pattern with a symbol below the root,
-  /// must fall back to symbol-granularity arming (active == nullptr), which never
-  /// prunes candidates.
+  /// it holds a new match's *root* but not a deeper e-class the VM may enter at
+  /// (the compiler enters at the deepest symbol and walks up). So restricting the
+  /// entry candidates is sound only when the pattern's *only* symbol node is its
+  /// root - then the single IterSymbolEClasses the VM emits *is* the root
+  /// iteration. Multi-pattern rules, or any pattern with a symbol below the root,
+  /// fall back to symbol-granularity arming (active == nullptr), which never prunes.
   [[nodiscard]] auto supports_active_root_restriction() const -> bool {
     if (patterns_.size() != 1) return false;
     auto const &pattern = patterns_[0];

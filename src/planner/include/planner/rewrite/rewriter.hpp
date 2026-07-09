@@ -337,12 +337,8 @@ class Rewriter {
     auto const &rules = rules_.rules();
     for (std::size_t idx = 0; idx < rules.size(); ++idx) {
       if (armed != nullptr && !armed->contains(idx)) continue;  // incremental: skip un-armed rules
-      // The e-class active-set restriction is sound only when the rule's single
-      // pattern is entered at its root: the active set is closed under parents, so
-      // it holds a new match's root but not a deeper VM entry symbol (the compiler
-      // enters at the deepest symbol and walks up). Rules that don't qualify
-      // (multi-pattern, or a symbol below the root) fall back to symbol-granularity
-      // arming and match every candidate.
+      // Per-candidate root restriction only where sound; non-qualifying rules
+      // match every candidate. See RewriteRule::supports_active_root_restriction().
       auto const *rule_active = rules[idx]->supports_active_root_restriction() ? active : nullptr;
       rules[idx]->match(matcher_, vm_executor_, ctx_.matcher_ctx(), rule_active);
       auto rewrites = rules[idx]->apply(ctx_.rule_ctx(), ctx_.matcher_ctx());
