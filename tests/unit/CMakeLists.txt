@@ -202,6 +202,16 @@ add_unit_test(query_plan_v2_converter
     LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
 )
 
+add_unit_test(query_plan_v2_demand
+    SOURCES query_plan_v2_demand.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+add_unit_test(query_plan_v2_resolve
+    SOURCES query_plan_v2_resolve.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
 # ============================================================================
 # plan_v2 unit tests - Layer 3: Cardinality estimation (no full pipeline)
 # ============================================================================

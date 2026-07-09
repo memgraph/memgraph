@@ -66,18 +66,19 @@ auto symbol_make_traits<NamedOutput>::make(storage_type &s, std::string_view nam
           .seed = default_analysis_seed<NamedOutput>()};
 }
 
-auto symbol_make_traits<Function>::storage_type::intern(std::string_view name) -> uint64_t {
+auto symbol_make_traits<Function>::storage_type::intern(std::string_view name, bool is_pure) -> uint64_t {
   auto [it, inserted] = store.try_emplace(std::string{name}, info.size());
   if (inserted) {
-    info.push_back(FunctionInfo{.name = it->first, .kind = BuiltinKindFor(name)});
+    info.push_back(FunctionInfo{.name = it->first, .kind = BuiltinKindFor(name), .is_pure = is_pure});
   }
   return it->second;
 }
 
 auto symbol_make_traits<Function>::make(storage_type &s, std::string_view name,
-                                        utils::small_vector<planner::core::EClassId> args) -> seeded_node {
-  return {.lowered = {.children = std::move(args), .disambiguator = s.intern(name)},
-          .seed = default_analysis_seed<Function>()};
+                                        utils::small_vector<planner::core::EClassId> args, ExpressionAnalysis seed,
+                                        bool is_pure) -> seeded_node {
+  return {.lowered = {.children = std::move(args), .disambiguator = s.intern(name, is_pure)},
+          .seed = analysis{std::move(seed)}};
 }
 
 auto symbol_make_traits<Unwind>::make(storage_type & /*s*/, planner::core::EClassId input, planner::core::EClassId sym,

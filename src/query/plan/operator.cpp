@@ -7346,6 +7346,76 @@ std::unique_ptr<LogicalOperator> Unwind::Clone(AstStorage *storage) const {
   return object;
 }
 
+CardinalityScale::CardinalityScale(const std::shared_ptr<LogicalOperator> &input, size_t scale_factor)
+    : input_(input ? input : std::make_shared<Once>()), scale_factor_(scale_factor) {
+  // The planner elides the degenerate factors in the builder (0 -> EmptyResult,
+  // 1 -> identity), so a constructed CardinalityScale always scales by >= 2.
+  DMG_ASSERT(scale_factor >= 2, "CardinalityScale scale factor must be >= 2 (0 and 1 are elided at build time)");
+}
+
+ACCEPT_WITH_INPUT(CardinalityScale)
+
+std::vector<Symbol> CardinalityScale::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+std::string CardinalityScale::ToString() const { return fmt::format("CardinalityScale {{n={}}}", scale_factor_); }
+
+class CardinalityScaleCursor : public Cursor {
+ public:
+  CardinalityScaleCursor(const CardinalityScale &self, utils::MemoryResource *mem,
+                         metrics::DatabaseMetricHandles &metric_handles)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP("CardinalityScale");
+
+    while (true) {
+      AbortCheck(context);
+      // The count is known at plan time, so each input row owes a fixed number
+      // of rows; the list is never evaluated. (Sound because the planner only
+      // selects this when the list is a pure, known-length expression.)
+      if (remaining_ == 0) {
+        if (!input_cursor_->Pull(frame, context)) return false;
+        remaining_ = self_.scale_factor_;
+      }
+
+      if (remaining_ == 0) continue;
+
+      --remaining_;
+      return true;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    remaining_ = 0;
+  }
+
+ private:
+  const CardinalityScale &self_;
+  const UniqueCursorPtr input_cursor_;
+  // rows still owed for the current input row; 0 means "pull the next input row"
+  size_t remaining_ = 0;
+};
+
+UniqueCursorPtr CardinalityScale::MakeCursor(utils::MemoryResource *mem,
+                                             metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.cardinality_scale_operator.Increment();
+
+  return MakeUniqueCursorPtr<CardinalityScaleCursor>(mem, *this, mem, metric_handles);
+}
+
+std::unique_ptr<LogicalOperator> CardinalityScale::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<CardinalityScale>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->scale_factor_ = scale_factor_;
+  return object;
+}
+
 class DistinctCursor : public Cursor {
  public:
   DistinctCursor(const Distinct &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)

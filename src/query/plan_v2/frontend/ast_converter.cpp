@@ -11,6 +11,8 @@
 
 #include "query/plan_v2/frontend/ast_converter.hpp"
 
+#include <array>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -18,6 +20,9 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/parameters.hpp"
+#include "query/plan_v2/rewrite/fold.hpp"
 
 using memgraph::query::plan::v2::eclass;
 using memgraph::query::plan::v2::egraph;
@@ -70,8 +75,10 @@ class LoweringCtx {
  public:
   egraph &g;
   SymbolTable const &symbol_table;
+  Parameters const &parameters;
 
-  LoweringCtx(egraph &eg, SymbolTable const &st) : g(eg), symbol_table(st) {}
+  LoweringCtx(egraph &eg, SymbolTable const &st, Parameters const &params)
+      : g(eg), symbol_table(st), parameters(params) {}
 
   auto OpenScratch() -> ScratchFrame { return ScratchFrame{*this}; }
 
@@ -128,7 +135,6 @@ auto SymEclassFor(LoweringCtx &ctx, AstNode &node) -> eclass {
   X(ListSlicingOperator)     \
   X(IfOperator)              \
   X(IsNullOperator)          \
-  X(ListLiteral)             \
   X(MapLiteral)              \
   X(MapProjectionLiteral)    \
   X(PropertyLookup)          \
@@ -153,13 +159,71 @@ auto SymEclassFor(LoweringCtx &ctx, AstNode &node) -> eclass {
 
 auto Lower(LoweringCtx &ctx, Expression &expr) -> eclass;
 
+// The constant value an expression denotes for this execution, or nullopt if
+// any part is not constant. A `PrimitiveLiteral` carries its value directly; a
+// `ParameterLookup` is constant when its value is known in `parameters` (a
+// stripped literal or a bound user parameter); a `ListLiteral` is constant when
+// every element is; and an operator over constant operands folds via the same
+// `FoldConstant` the e-graph uses (so `[1 + 5, 2, 3]` recognises `1 + 5` as 6).
+// All three recurse, so nested constants fold too.
+// NOLINTBEGIN(cppcoreguidelines-macro-usage, bugprone-macro-parentheses)
+auto ConstantValueOf(Expression &expr, Parameters const &parameters) -> std::optional<storage::ExternalPropertyValue> {
+  if (auto *primitive = utils::Downcast<PrimitiveLiteral>(&expr)) return primitive->value_;
+  if (auto *param = utils::Downcast<ParameterLookup>(&expr)) {
+    if (auto const *value = parameters.MaybeAtTokenPosition(param->token_position_)) return *value;
+    return std::nullopt;
+  }
+  if (auto *list = utils::Downcast<ListLiteral>(&expr)) {
+    std::vector<storage::ExternalPropertyValue> values;
+    values.reserve(list->elements_.size());
+    for (auto *element : list->elements_) {
+      auto value = ConstantValueOf(*element, parameters);
+      if (!value) return std::nullopt;
+      values.push_back(std::move(*value));
+    }
+    return storage::ExternalPropertyValue{std::move(values)};
+  }
+#define MG_FOLD_BINARY(Name, AstOp, ...)                             \
+  if (auto *op = utils::Downcast<AstOp>(&expr)) {                    \
+    auto lhs = ConstantValueOf(*op->expression1_, parameters);       \
+    auto rhs = ConstantValueOf(*op->expression2_, parameters);       \
+    if (!lhs || !rhs) return std::nullopt;                           \
+    std::array const operands{std::move(*lhs), std::move(*rhs)};     \
+    return plan::v2::FoldConstant(plan::v2::symbol::Name, operands); \
+  }
+  EGRAPH_BINARY_OPS(MG_FOLD_BINARY)
+#undef MG_FOLD_BINARY
+#define MG_FOLD_UNARY(Name, AstOp, ...)                              \
+  if (auto *op = utils::Downcast<AstOp>(&expr)) {                    \
+    auto operand = ConstantValueOf(*op->expression_, parameters);    \
+    if (!operand) return std::nullopt;                               \
+    std::array const operands{std::move(*operand)};                  \
+    return plan::v2::FoldConstant(plan::v2::symbol::Name, operands); \
+  }
+  EGRAPH_UNARY_OPS(MG_FOLD_UNARY)
+#undef MG_FOLD_UNARY
+  return std::nullopt;
+}
+
+// NOLINTEND(cppcoreguidelines-macro-usage, bugprone-macro-parentheses)
+
 // Slot-pattern visitor over ExpressionVisitor<void>: each Visit override
 // assigns result_, which the free Lower() reads after Accept returns.
 class ExprLowering : public ExpressionVisitor<void> {
  public:
   explicit ExprLowering(LoweringCtx &ctx) : ctx_(ctx) {}
 
-  void Visit(ParameterLookup &expr) override { result_ = ctx_.g.MakeParameterLookup(expr.token_position_); }
+  void Visit(ParameterLookup &expr) override {
+    // plan_v2 is uncached, so the plan may be specialised to this execution's
+    // values: when the parameter's value is known (a stripped literal, or a
+    // user parameter), fold it to a constant so the analysis sees it. An
+    // unknown position stays an opaque lookup.
+    if (auto const *value = ctx_.parameters.MaybeAtTokenPosition(expr.token_position_)) {
+      result_ = ctx_.g.MakeLiteral(*value);
+    } else {
+      result_ = ctx_.g.MakeParameterLookup(expr.token_position_);
+    }
+  }
 
   void Visit(PrimitiveLiteral &expr) override { result_ = ctx_.g.MakeLiteral(expr.value_); }
 
@@ -168,7 +232,18 @@ class ExprLowering : public ExpressionVisitor<void> {
   void Visit(Function &function) override {
     auto frame = ctx_.OpenScratch();
     for (auto *arg : function.arguments_) frame.push(Lower(ctx_, *arg));
-    result_ = ctx_.g.MakeFunction(function.function_name_, frame.as_span());
+    // Purity comes from the executor's authoritative function table; resolved
+    // here at the boundary so the e-graph layer never depends on the evaluator.
+    result_ = ctx_.g.MakeFunction(function.function_name_, frame.as_span(), IsFunctionPure(function.function_name_));
+  }
+
+  // A list whose elements are all (recursively) constant has a value known at
+  // lowering time, so it lowers to a single folded list Literal. A non-constant
+  // element needs the runtime list-construction node we don't model yet.
+  void Visit(ListLiteral &list) override {
+    auto value = ConstantValueOf(list, ctx_.parameters);
+    if (!value) ThrowNotImplementedYet("ListLiteral with a non-constant element");
+    result_ = ctx_.g.MakeLiteral(*value);
   }
 
   void Visit(NamedExpression & /*unused*/) override {
@@ -247,6 +322,11 @@ auto CollectSubqueryExposedSyms(SingleQuery &inner, LoweringCtx &ctx, ScratchFra
 }
 
 auto LowerWith(query::With &with, eclass pipe, LoweringCtx &ctx) -> eclass {
+  // A `*` projection carries its symbols in body_.all_identifiers, not in
+  // named_expressions, so we never lower them to Identifier e-nodes. Bail out
+  // rather than silently drop them - and rather than let referenced_syms miss a
+  // `*`-referenced symbol and mis-classify a live binder as dead.
+  if (with.body_.all_identifiers) ThrowNotImplementedYet("WITH * projection");
   for (auto *ne : with.body_.named_expressions) {
     auto expr = Lower(ctx, *ne->expression_);
     pipe = ctx.g.MakeBind(pipe, SymEclassFor(ctx, *ne), expr);
@@ -257,6 +337,9 @@ auto LowerWith(query::With &with, eclass pipe, LoweringCtx &ctx) -> eclass {
 }
 
 auto LowerReturn(query::Return &ret, eclass pipe, LoweringCtx &ctx) -> eclass {
+  // See LowerWith: `*` symbols bypass named_expressions, so refuse them rather
+  // than drop columns or let referenced_syms miss a `*`-referenced binding.
+  if (ret.body_.all_identifiers) ThrowNotImplementedYet("RETURN * projection");
   auto frame = ctx.OpenScratch();
   for (auto *ne : ret.body_.named_expressions) {
     auto expr = Lower(ctx, *ne->expression_);
@@ -321,9 +404,10 @@ auto LowerCypherQuery(CypherQuery &cq, LoweringCtx &ctx) -> eclass {
 
 namespace memgraph::query::plan::v2 {
 
-auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table) -> std::tuple<egraph, eclass> {
+auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table, Parameters const &parameters)
+    -> std::tuple<egraph, eclass> {
   auto eg = egraph{};
-  auto ctx = LoweringCtx{eg, symbol_table};
+  auto ctx = LoweringCtx{eg, symbol_table, parameters};
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   auto root = LowerCypherQuery(const_cast<CypherQuery &>(query), ctx);
   return {std::move(eg), root};

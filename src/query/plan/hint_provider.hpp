@@ -285,6 +285,10 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Unwind & /*unused*/) override { return true; }
 
+  bool PreVisit(CardinalityScale & /*unused*/) override { return true; }
+
+  bool PostVisit(CardinalityScale & /*unused*/) override { return true; }
+
   bool PreVisit(Distinct & /*unused*/) override { return true; }
 
   bool PostVisit(Distinct & /*unused*/) override { return true; }
