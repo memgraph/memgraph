@@ -527,6 +527,11 @@ TEST(QueryStripper, SignFoldInList) {
     StrippedQuery stripped("RETURN [-1e-3]");
     EXPECT_FLOAT_EQ(stripped.literals().begin()->second.ValueDouble(), -1e-3);
   }
+  {
+    StrippedQuery stripped("RETURN [+42]");
+    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 42);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " ]");
+  }
 }
 
 TEST(QueryStripper, SignPatternDoesNotAffectCacheKey) {
@@ -581,9 +586,16 @@ TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
 }
 
 TEST(QueryStripper, StackedSignsAreNotFolded) {
-  StrippedQuery stripped("RETURN [--1]");
-  EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 1);
-  EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - - " + kStrippedIntToken + " ]");
+  {
+    StrippedQuery stripped("RETURN [--1]");
+    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - - " + kStrippedIntToken + " ]");
+  }
+  {
+    StrippedQuery stripped("RETURN [-+1]");
+    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ - + " + kStrippedIntToken + " ]");
+  }
 }
 
 TEST(QueryStripper, SignFoldIntMinHexOctal) {
@@ -641,6 +653,15 @@ TEST(QueryStripper, NoFoldOutsideBrackets) {
   {
     StrippedQuery stripped("RETURN 1, -2");
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken + " , - " + kStrippedIntToken);
+  }
+  {
+    StrippedQuery stripped("RETURN [1], -2");
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " ] , - " + kStrippedIntToken);
+  }
+  {
+    StrippedQuery stripped("RETURN [{k: -1}]");
+    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 1);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ { k : - " + kStrippedIntToken + " } ]");
   }
 }
 
