@@ -656,4 +656,41 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAGlobalGrantDeniedOnUnlabele
                                                  name_id,
                                                  memgraph::query::AuthQuery::PropertyPermissionType::READ));
 }
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, CachedCheckerRebuildsOnLicenseActivation) {
+  namespace auth = memgraph::auth;
+  namespace query = memgraph::query;
+
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_cached_fga_license_test"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) std::filesystem::remove_all(auth_dir);
+  });
+
+  auth::SynchedAuth synched_auth(auth_dir, auth::Auth::Config{});
+  memgraph::glue::AuthChecker auth_checker(&synched_auth);
+
+  auto user = *synched_auth->AddUser("test_user");
+  user.fine_grained_access_handler().label_permissions().Grant({"l1"}, auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().label_permissions().Deny({"l3"}, auth::kAllLabelPermissions);
+  synched_auth->SaveUser(user);
+
+  auto query_user = auth_checker.GenQueryUser("test_user", {});
+  ASSERT_TRUE(query_user && *query_user);
+
+  memgraph::license::global_license_checker.DisableTesting();
+
+  query::CachedFineGrainedAuth cache;
+  cache.Refresh(auth_checker, *query_user, &this->dba, this->dba.DatabaseName());
+  EXPECT_EQ(cache.get(), nullptr);
+
+  memgraph::license::global_license_checker.EnableTesting();
+
+  // Refresh should detect the license change and rebuild
+  cache.Refresh(auth_checker, *query_user, &this->dba, this->dba.DatabaseName());
+  ASSERT_NE(cache.get(), nullptr);
+
+  EXPECT_TRUE(cache.get()->Has(this->v1, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
+  EXPECT_FALSE(cache.get()->Has(this->v3, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
+}
+
 #endif

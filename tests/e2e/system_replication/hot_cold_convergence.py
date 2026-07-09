@@ -767,6 +767,13 @@ def test_tenant_query_memory_pressure_with_churn(connection, test_name):
                     execute_and_fetch_all(cur, "USE DATABASE memgraph;")
                 except mgclient.DatabaseError:
                     pass
+            # Idle on the default DB for a real (randomized, so the four writers desync) window with tenant t
+            # released, giving the SUSPEND churner an actual chance to reach sole-accessor. Without this, the
+            # tenant is pinned HOT for the whole heavy-query duration every iteration and the free gap between
+            # iterations is ~0, so a SUSPEND essentially never won and the run flaked on "no SUSPEND ever
+            # succeeded". This window is also what lets a SUSPEND land so the NEXT on-tenant heavy query can hit
+            # the cold seam (cold_hits) — i.e. it enables, not weakens, the on-tenant race the test asserts.
+            time.sleep(random.uniform(0.05, 0.15))
 
     def churner(action, counter):
         cur = connection(BOLT_PORTS["main"], "main").cursor()
@@ -1038,8 +1045,13 @@ def test_tenant_churn_under_memory_pressure_replicated(connection, test_name):
     def writer(t):
         cur = connection(BOLT_PORTS["main"], "main").cursor()
         while not stop.is_set():
+            # Memory pressure on the always-HOT default `memgraph` DB (the session sits on `memgraph`
+            # at the top of every loop). This must NOT run while USE-ing tenant t: an open session on a
+            # tenant pins it HOT, so if the ~96 MiB query held t for its whole duration the suspender
+            # could never reach sole-accessor and NO SUSPEND would ever win — the churn would be
+            # vacuously un-exercised (suspends_ok/resumes_ok stuck at 0). Mirrors the non-replicated
+            # sibling test_concurrent_suspend_resume_under_memory_ceiling, whose writer runs it here too.
             try:
-                execute_and_fetch_all(cur, f"USE DATABASE {t};")
                 execute_and_fetch_all(cur, "WITH range(1, 6000000) AS r RETURN size(r);")
             except mgclient.DatabaseError as e:
                 _classify(e, unexpected)
@@ -1659,6 +1671,43 @@ def test_drop_recreate_cold_tenant_uuid_fix_converges(connection, test_name):
 
     # Sanity: MAIN's own view of the new tenant is also correct.
     assert tenant_probe(main_cursor, "tenant_x")() == 8, "MAIN must also hold 8 nodes after the marker write"
+
+
+def test_write_after_resume_replicates(connection, test_name):
+    instances = {
+        "replica_1": replica_args(test_name, recovery=False),
+        "main": main_args(test_name),
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    set_replica_role(replica_cursor)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    register_replica(main_cursor, sync=True)
+
+    # Create and populate tenant A on MAIN; wait for replica convergence.
+    create_and_populate(main_cursor, "A", 5)
+    mg_sleep_and_assert(5, tenant_probe(replica_cursor, "A"))
+
+    # SUSPEND -> RESUME round trip.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
+    mg_sleep_and_assert("COLD", tenant_probe(replica_cursor, "A"))
+    execute_and_fetch_all(main_cursor, "RESUME DATABASE A;")
+    mg_sleep_and_assert(5, tenant_probe(replica_cursor, "A"))
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "CREATE ();")
+
+    # Replica must converge to 6 nodes: the 5 original plus the new node
+    mg_sleep_and_assert(6, tenant_probe(replica_cursor, "A"))
+
+    # Replica must be "ready", not "invalid".
+    replicas = execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")
+    assert len(replicas) == 1
+    data_info = replicas[0][4]  # data_info column
+    assert data_info["A"]["status"] == "ready", f"Expected replica db A status 'ready', got: {data_info}"
 
 
 if __name__ == "__main__":

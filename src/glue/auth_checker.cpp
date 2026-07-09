@@ -212,6 +212,11 @@ bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgr
 FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba)
     : user_or_role_{std::move(user_or_role)}, dba_(dba), db_name_{dba_->DatabaseName()} {};
 
+void FineGrainedAuthChecker::UpdateDbAccessor(query::DbAccessor const *dba) {
+  DMG_ASSERT(dba->DatabaseName() == db_name_, "UpdateDbAccessor called with mismatched database name");
+  dba_ = dba;
+}
+
 auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedLabelPermissions() const {
   if (!cached_label_permissions_) {
     cached_label_permissions_ = std::visit(memgraph::utils::Overloaded{[this](auto const &user_or_role) {
@@ -406,7 +411,10 @@ bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &ed
   return level == auth::PermissionLevel::GRANT;
 }
 
-void FineGrainedAuthChecker::MakeThreadSafe() const { PopulateCachedPermissions(); }
+void FineGrainedAuthChecker::MakeThreadSafe() const {
+  PopulateCachedPermissions();
+  (void)HasPropertyRestrictions();
+}
 
 bool FineGrainedAuthChecker::IsThreadSafe() const { return IsCachedPermissionsPopulated(); }
 
@@ -425,7 +433,8 @@ bool FineGrainedAuthChecker::IsCachedPermissionsPopulated() const {
   return cached_label_permissions_.has_value() && cached_edge_permissions_.has_value() &&
          cached_property_label_permissions_.has_value() && cached_property_edge_type_permissions_.has_value() &&
          unrestricted_vertices_.has_value() && unrestricted_edges_.has_value() &&
-         unrestricted_vertex_properties_.has_value() && unrestricted_edge_properties_.has_value();
+         unrestricted_vertex_properties_.has_value() && unrestricted_edge_properties_.has_value() &&
+         IsPropertyRestrictionsCached();
 }
 #endif
 }  // namespace memgraph::glue

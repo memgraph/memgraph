@@ -122,7 +122,6 @@ inline constexpr std::array kPermissionsAll = {
 };
 // clang-format on
 
-#ifdef MG_ENTERPRISE
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
   NONE          = 0,
@@ -160,20 +159,18 @@ constexpr FineGrainedPermission operator~(FineGrainedPermission permission) {
 }
 
 constexpr FineGrainedPermission kAllLabelPermissions =
-    memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
-    memgraph::auth::FineGrainedPermission::READ | memgraph::auth::FineGrainedPermission::SET_LABEL |
-    memgraph::auth::FineGrainedPermission::REMOVE_LABEL | memgraph::auth::FineGrainedPermission::SET_PROPERTY |
-    memgraph::auth::FineGrainedPermission::DELETE_EDGE | memgraph::auth::FineGrainedPermission::CREATE_EDGE;
+    FineGrainedPermission::CREATE | FineGrainedPermission::DELETE | FineGrainedPermission::READ |
+    FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL | FineGrainedPermission::SET_PROPERTY |
+    FineGrainedPermission::DELETE_EDGE | FineGrainedPermission::CREATE_EDGE;
 
-constexpr FineGrainedPermission kAllEdgeTypePermissions =
-    memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
-    memgraph::auth::FineGrainedPermission::READ | memgraph::auth::FineGrainedPermission::SET_PROPERTY;
+constexpr FineGrainedPermission kAllEdgeTypePermissions = FineGrainedPermission::CREATE |
+                                                          FineGrainedPermission::DELETE | FineGrainedPermission::READ |
+                                                          FineGrainedPermission::SET_PROPERTY;
 
 // Cypher UPDATE on node labels expands to these discrete permissions (Memgraph 3.9+).
 constexpr FineGrainedPermission kVertexLabelUpdatePermissions =
     FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL | FineGrainedPermission::SET_PROPERTY |
     FineGrainedPermission::DELETE_EDGE | FineGrainedPermission::CREATE_EDGE;
-#endif
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
@@ -1118,5 +1115,10 @@ bool operator==(const User &first, const User &second);
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second);
 #endif
+
+constexpr int kCurrentEntityVersion = 4;
+
+/// Migrate a single user or role JSON object to the latest format in-place.
+void MigrateAuthJson(nlohmann::json &data);
 
 }  // namespace memgraph::auth

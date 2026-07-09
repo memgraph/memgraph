@@ -194,6 +194,7 @@ jobs:
       build_docker_image: ${{ matrix.build_docker_image || 'none' }}
       push_to_github: 'false'
       push_to_s3: 'true'
+      print_output_url: true
       s3_dest_dir: "memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       additional_build_args: ${{ matrix.additional_build_args }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
@@ -296,6 +297,7 @@ jobs:
       cuda: ${{ matrix.cuda }}
       cugraph: ${{ matrix.cugraph }}
       push_to_s3: true
+      print_output_url: true
       malloc: ${{ matrix.malloc }}
       run_smoke_tests: ${{ !matrix.cugraph }}
       upload_debug_symbols: true

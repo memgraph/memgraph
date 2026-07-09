@@ -157,6 +157,7 @@ jobs:
       arch: "amd"
       build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -174,6 +175,7 @@ jobs:
       arch: "amd"
       build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -191,6 +193,7 @@ jobs:
       arch: "amd"
       build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -208,6 +211,7 @@ jobs:
       arch: "arm"
       build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: false
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -225,6 +229,7 @@ jobs:
       arch: "amd"
       build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: false
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -242,6 +247,7 @@ jobs:
       arch: "arm"
       build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -259,6 +265,7 @@ jobs:
       arch: "amd"
       build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -276,6 +283,7 @@ jobs:
       arch: "arm"
       build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: false
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -293,6 +301,7 @@ jobs:
       arch: "amd"
       build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -310,6 +319,7 @@ jobs:
       arch: "amd"
       build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -328,6 +338,7 @@ jobs:
       build_type: RelWithDebInfo
       build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image_amd }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -346,6 +357,7 @@ jobs:
       build_type: RelWithDebInfo
       build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image_arm }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -364,6 +376,7 @@ jobs:
       build_type: RelWithDebInfo
       build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image_malloc }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: "--disable-jemalloc"
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}

@@ -199,17 +199,30 @@ TEST(HotColdGatekeeper, DtorWaitsForAccessorRelease) {
   auto acc = gk->access();
   ASSERT_TRUE(acc.has_value());
 
+  constexpr auto kHold = std::chrono::milliseconds(50);
   std::atomic<bool> accessor_released{false};
+
+  // Capture start BEFORE spawning the worker so its hold window begins strictly
+  // after `start`, keeping the elapsed lower bound below valid.
+  const auto start = std::chrono::steady_clock::now();
   std::thread t([&] {
-    // Give the main thread a chance to start the dtor.
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    acc->reset();
+    // Hold the accessor briefly so the dtor below has to block on it.
+    std::this_thread::sleep_for(kHold);
+    // Publish the flag BEFORE releasing: acc->reset() is what drops count_ to 0
+    // and unblocks the dtor, and its mutex release synchronizes-with the dtor's
+    // count_==0 read — so a dtor that truly waits always observes this store.
+    // Storing AFTER reset() (the previous code) left the store and the dtor's
+    // return unordered, so the dtor could wake and return first: the flake.
     accessor_released.store(true, std::memory_order_release);
+    acc->reset();
   });
 
   // This reset + dtor must block until t releases the accessor.
   gk.reset();  // triggers ~Gatekeeper() which waits for count==0.
+  const auto elapsed = std::chrono::steady_clock::now() - start;
 
+  // The dtor must have waited for the accessor release rather than returning early.
   EXPECT_TRUE(accessor_released.load(std::memory_order_acquire));
+  EXPECT_GE(elapsed, kHold);
   t.join();
 }

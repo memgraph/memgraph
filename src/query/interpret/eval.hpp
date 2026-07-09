@@ -257,7 +257,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         triggering_user_(context.triggering_user.get())
 #ifdef MG_ENTERPRISE
         ,
-        auth_checker_(context.auth_checker.get())
+        auth_checker_(context.auth_checker)
 #endif
   {
   }
@@ -1183,6 +1183,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
 
+#ifdef MG_ENTERPRISE
+  bool CheckPropertyPermission(VertexAccessor const &accessor, storage::PropertyId prop) const;
+  bool CheckPropertyPermission(EdgeAccessor const &accessor, storage::PropertyId prop) const;
+#endif
+
   Frame *frame_;
   const SymbolTable *symbol_table_;
   const EvaluationContext *ctx_;
@@ -1198,7 +1203,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   const QueryUserOrRole *user_or_role_;
   const QueryUserOrRole *triggering_user_;
 #ifdef MG_ENTERPRISE
-  FineGrainedAuthChecker *auth_checker_{nullptr};
+  FineGrainedAuthChecker const *auth_checker_{nullptr};
 #endif
 };  // namespace memgraph::query
 

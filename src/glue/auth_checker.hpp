@@ -107,6 +107,10 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
   void PopulateCachedPermissions() const;
   bool IsCachedPermissionsPopulated() const;
 
+  // As `FineGrainedAuthChecker` is now cached for the session, we need to
+  // ensure it has the latest `DBAccessor`.
+  void UpdateDbAccessor(query::DbAccessor const *dba) override;
+
  private:
   auth::FineGrainedAccessPermissions const &GetCachedLabelPermissions() const;
   auth::FineGrainedAccessPermissions const &GetCachedEdgePermissions() const;

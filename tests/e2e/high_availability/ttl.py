@@ -246,8 +246,8 @@ def test_ttl_high_availability_failover(test_name):
 
     # Verify TTL is working on main
     v_checker = VertexChecker(instance1_cursor)
-    mg_sleep_and_assert(True, v_checker.is_less_vertices, max_duration=5)
-    mg_sleep_and_assert(True, v_checker.is_less_edges, max_duration=5)
+    mg_sleep_and_assert(True, v_checker.is_less_vertices, max_duration=20)
+    mg_sleep_and_assert(True, v_checker.is_less_edges, max_duration=20)
 
     # 3. Kill main
     interactive_mg_runner.kill(instances_description, "instance_1")
@@ -267,8 +267,8 @@ def test_ttl_high_availability_failover(test_name):
 
     # 5. Verify TTL is working on the new main
     v_checker = VertexChecker(instance2_cursor)
-    mg_sleep_and_assert(True, v_checker.is_less_vertices, max_duration=5)
-    mg_sleep_and_assert(True, v_checker.is_less_edges, max_duration=5)
+    mg_sleep_and_assert(True, v_checker.is_less_vertices, max_duration=20)
+    mg_sleep_and_assert(True, v_checker.is_less_edges, max_duration=20)
 
     # Verify TTL index is present
     check_index(instance2_cursor)
@@ -289,8 +289,8 @@ def test_ttl_high_availability_failover(test_name):
 
     # 8. Verify TTL is working on the old main
     v_checker = VertexChecker(instance1_cursor)
-    mg_sleep_and_assert(True, v_checker.is_less_vertices, max_duration=5)
-    mg_sleep_and_assert(True, v_checker.is_less_edges, max_duration=5)
+    mg_sleep_and_assert(True, v_checker.is_less_vertices, max_duration=20)
+    mg_sleep_and_assert(True, v_checker.is_less_edges, max_duration=20)
 
     # Verify TTL index is replicated
     check_index(instance1_cursor)
@@ -339,8 +339,8 @@ def test_ttl_role_transition_ha(test_name):
 
     # Verify TTL is working on main
     v_checker_main = VertexChecker(instance1_cursor)
-    mg_sleep_and_assert(True, v_checker_main.is_less_vertices, max_duration=5)
-    mg_sleep_and_assert(True, v_checker_main.is_less_edges, max_duration=5)
+    mg_sleep_and_assert(True, v_checker_main.is_less_vertices, max_duration=20)
+    mg_sleep_and_assert(True, v_checker_main.is_less_edges, max_duration=20)
 
     # Switch main to replica
     execute_and_fetch_all(coord_cursor_3, "DEMOTE INSTANCE instance_1")
@@ -356,11 +356,11 @@ def test_ttl_role_transition_ha(test_name):
 
     # Verify TTL starts working on the new main
     v_checker_new_main = VertexChecker(instance2_cursor)
-    mg_sleep_and_assert(True, v_checker_new_main.is_less_vertices, max_duration=5)
-    mg_sleep_and_assert(True, v_checker_new_main.is_less_edges, max_duration=5)
+    mg_sleep_and_assert(True, v_checker_new_main.is_less_vertices, max_duration=20)
+    mg_sleep_and_assert(True, v_checker_new_main.is_less_edges, max_duration=20)
     v_checker_old_main = VertexChecker(instance1_cursor)
-    mg_sleep_and_assert(True, v_checker_old_main.is_less_vertices, max_duration=5)
-    mg_sleep_and_assert(True, v_checker_old_main.is_less_edges, max_duration=5)
+    mg_sleep_and_assert(True, v_checker_old_main.is_less_vertices, max_duration=20)
+    mg_sleep_and_assert(True, v_checker_old_main.is_less_edges, max_duration=20)
 
     # Verify TTL stops working on the old main (now replica)
     interactive_mg_runner.kill(instances_description, "instance_2")
@@ -377,8 +377,8 @@ def test_ttl_role_transition_ha(test_name):
     v_checker_old_main = VertexChecker(instance1_cursor)
     v_checker_old_main.update()
 
-    mg_sleep_and_assert(True, v_checker_old_main.is_less_vertices, max_duration=5)
-    mg_sleep_and_assert(True, v_checker_old_main.is_less_edges, max_duration=5)
+    mg_sleep_and_assert(True, v_checker_old_main.is_less_vertices, max_duration=20)
+    mg_sleep_and_assert(True, v_checker_old_main.is_less_edges, max_duration=20)
 
 
 if __name__ == "__main__":

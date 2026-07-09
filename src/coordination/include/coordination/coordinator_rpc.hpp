@@ -103,26 +103,70 @@ struct UpgradeableEmptyReq {
   UpgradeableEmptyReq() = default;
 };
 
-struct PromoteToMainReq {
+// PromoteToMainReq gained a `writing_enabled` flag in v2: the coordinator projects its global_read_only setting onto
+// the promoted main (writing_enabled = !global_read_only) so read-only is honored across failover. v1 carried only the
+// uuid and replicas; a v1 sender doesn't know about read-only mode, so Upgrade keeps writing enabled to preserve
+// pre-feature behavior.
+struct PromoteToMainReqV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_FAILOVER_REQ, .name = "PromoteToMainReq"};
   static constexpr uint64_t kVersion{1};
 
-  static void Load(PromoteToMainReq *self, memgraph::slk::Reader *reader);
-  static void Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder);
+  static void Load(PromoteToMainReqV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const PromoteToMainReqV1 &self, memgraph::slk::Builder *builder);
 
-  explicit PromoteToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
+  explicit PromoteToMainReqV1(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
       : main_uuid(uuid), replication_clients_info(std::move(replication_clients_info)) {}
 
-  PromoteToMainReq() = default;
+  PromoteToMainReqV1() = default;
 
-  // get uuid here
   utils::UUID main_uuid;
   std::vector<ReplicationClientInfo> replication_clients_info;
 };
 
-struct PromoteToMainRes {
+struct PromoteToMainReq {
+  static constexpr utils::TypeInfo kType{PromoteToMainReqV1::kType};
+  static constexpr uint64_t kVersion{2};
+
+  static void Load(PromoteToMainReq *self, memgraph::slk::Reader *reader);
+  static void Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder);
+
+  PromoteToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info,
+                   bool writing_enabled)
+      : main_uuid(uuid),
+        replication_clients_info(std::move(replication_clients_info)),
+        writing_enabled(writing_enabled) {}
+
+  PromoteToMainReq() = default;
+
+  // A v1 sender doesn't know about read-only mode; keep writing enabled to preserve pre-feature behavior.
+  static PromoteToMainReq Upgrade(PromoteToMainReqV1 prev) {
+    return PromoteToMainReq{prev.main_uuid, std::move(prev.replication_clients_info), true};
+  }
+
+  PromoteToMainReqV1 Downgrade() const { return PromoteToMainReqV1{main_uuid, replication_clients_info}; }
+
+  utils::UUID main_uuid;
+  std::vector<ReplicationClientInfo> replication_clients_info;
+  bool writing_enabled;
+};
+
+struct PromoteToMainResV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_FAILOVER_RES, .name = "PromoteToMainRes"};
   static constexpr uint64_t kVersion{1};
+
+  static void Load(PromoteToMainResV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const PromoteToMainResV1 &self, memgraph::slk::Builder *builder);
+
+  explicit PromoteToMainResV1(bool success) : arg_(success) {}
+
+  PromoteToMainResV1() = default;
+
+  bool arg_;
+};
+
+struct PromoteToMainRes {
+  static constexpr utils::TypeInfo kType{PromoteToMainResV1::kType};
+  static constexpr uint64_t kVersion{2};
 
   static void Load(PromoteToMainRes *self, memgraph::slk::Reader *reader);
   static void Save(const PromoteToMainRes &self, memgraph::slk::Builder *builder);
@@ -130,6 +174,8 @@ struct PromoteToMainRes {
   explicit PromoteToMainRes(bool success) : arg_(success) {}
 
   PromoteToMainRes() = default;
+
+  PromoteToMainResV1 Downgrade() const { return PromoteToMainResV1{arg_}; }
 
   bool arg_;
 };
@@ -518,12 +564,79 @@ using CoordReplicationLagRes = SingleArgMsg<utils::TypeId::COORD_REPL_LAG_RES, "
                                             std::map<std::string, std::map<std::string, ReplicaDBLagData>>>;
 using CoordReplicationLagRpc = rpc::RequestResponse<CoordReplicationLagReq, CoordReplicationLagRes>;
 
-// Use this RPC message for updating all data instance config managed by coordinator in the future. Currently only used
-// for sending deltas_batch_progress_size
-using UpdateDataInstanceConfigReq =
-    SingleArgMsg<utils::TypeId::COORD_UPDATE_DATA_INSTANCE_CONFIG_REQ, "UpdateDataInstanceConfigReq", 1, uint64_t>;
-using UpdateDataInstanceConfigRes =
-    SingleArgMsg<utils::TypeId::COORD_UPDATE_DATA_INSTANCE_CONFIG_RES, "UpdateDataInstanceConfigRes", 1, bool>;
+// RPC for updating data instance config managed by the coordinator. v1 carried only deltas_batch_progress_size; v2
+// additionally carries disable_writing (the projection of the coordinator's global_read_only setting). The two config
+// items always travel together.
+struct UpdateDataInstanceConfigReqV1 {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_UPDATE_DATA_INSTANCE_CONFIG_REQ,
+                                         .name = "UpdateDataInstanceConfigReq"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(UpdateDataInstanceConfigReqV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const UpdateDataInstanceConfigReqV1 &self, memgraph::slk::Builder *builder);
+
+  explicit UpdateDataInstanceConfigReqV1(uint64_t deltas_batch_progress_size)
+      : deltas_batch_progress_size(deltas_batch_progress_size) {}
+
+  UpdateDataInstanceConfigReqV1() = default;
+
+  uint64_t deltas_batch_progress_size;
+};
+
+struct UpdateDataInstanceConfigReq {
+  static constexpr utils::TypeInfo kType{UpdateDataInstanceConfigReqV1::kType};
+  static constexpr uint64_t kVersion{2};
+
+  static void Load(UpdateDataInstanceConfigReq *self, memgraph::slk::Reader *reader);
+  static void Save(const UpdateDataInstanceConfigReq &self, memgraph::slk::Builder *builder);
+
+  UpdateDataInstanceConfigReq(uint64_t deltas_batch_progress_size, bool disable_writing)
+      : deltas_batch_progress_size(deltas_batch_progress_size), disable_writing(disable_writing) {}
+
+  UpdateDataInstanceConfigReq() = default;
+
+  // A v1 sender doesn't know about read-only mode; keep writing enabled to preserve pre-feature behavior.
+  static UpdateDataInstanceConfigReq Upgrade(UpdateDataInstanceConfigReqV1 const &prev) {
+    return UpdateDataInstanceConfigReq{prev.deltas_batch_progress_size, false};
+  }
+
+  UpdateDataInstanceConfigReqV1 Downgrade() const { return UpdateDataInstanceConfigReqV1{deltas_batch_progress_size}; }
+
+  uint64_t deltas_batch_progress_size;
+  bool disable_writing;
+};
+
+struct UpdateDataInstanceConfigResV1 {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_UPDATE_DATA_INSTANCE_CONFIG_RES,
+                                         .name = "UpdateDataInstanceConfigRes"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(UpdateDataInstanceConfigResV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const UpdateDataInstanceConfigResV1 &self, memgraph::slk::Builder *builder);
+
+  explicit UpdateDataInstanceConfigResV1(bool success) : arg_(success) {}
+
+  UpdateDataInstanceConfigResV1() = default;
+
+  bool arg_;
+};
+
+struct UpdateDataInstanceConfigRes {
+  static constexpr utils::TypeInfo kType{UpdateDataInstanceConfigResV1::kType};
+  static constexpr uint64_t kVersion{2};
+
+  static void Load(UpdateDataInstanceConfigRes *self, memgraph::slk::Reader *reader);
+  static void Save(const UpdateDataInstanceConfigRes &self, memgraph::slk::Builder *builder);
+
+  explicit UpdateDataInstanceConfigRes(bool success) : arg_(success) {}
+
+  UpdateDataInstanceConfigRes() = default;
+
+  UpdateDataInstanceConfigResV1 Downgrade() const { return UpdateDataInstanceConfigResV1{arg_}; }
+
+  bool arg_;
+};
+
 using UpdateDataInstanceConfigRpc = rpc::RequestResponse<UpdateDataInstanceConfigReq, UpdateDataInstanceConfigRes>;
 
 }  // namespace memgraph::coordination
@@ -532,8 +645,12 @@ using UpdateDataInstanceConfigRpc = rpc::RequestResponse<UpdateDataInstanceConfi
 namespace memgraph::slk {
 
 // PromoteToMainRpc
+void Save(const memgraph::coordination::PromoteToMainResV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::PromoteToMainResV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::PromoteToMainRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::PromoteToMainRes *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::PromoteToMainReqV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::PromoteToMainReqV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::PromoteToMainReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::PromoteToMainReq *self, memgraph::slk::Reader *reader);
 
@@ -594,7 +711,11 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::DemoteInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::ForceResetRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::UpdateConfigRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::CoordReplicationLagRpc)
-DECLARE_SLK_FREE_FUNCTIONS(coordination::UpdateDataInstanceConfigRpc)
+
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReq)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigResV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigRes)
 
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::StateCheckReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::StateCheckReqV2)

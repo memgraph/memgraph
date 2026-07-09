@@ -2890,7 +2890,7 @@ namespace {
 void NextPermittedEdge(mgp_edges_iterator::RealCursor &c, const mgp_vertex &source_vertex) {
   const auto *ctx = source_vertex.graph->ctx;
   if (!ctx || !ctx->auth_checker) return;
-  const auto *auth_checker = ctx->auth_checker.get();
+  const auto *auth_checker = ctx->auth_checker;
   const auto view = source_vertex.graph->view;
   while (c.it != c.edges.end()) {
     auto edgeAcc = *c.it;

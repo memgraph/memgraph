@@ -109,13 +109,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 
   auto const &heartbeat_res = *maybe_heartbeat_res;
 
-  if (heartbeat_res.success_) {
-    commit_ts_info_.store(CommitTsInfo{.ldt_ = heartbeat_res.current_commit_timestamp_,
-                                       .num_committed_txns_ = heartbeat_res.num_txns_committed_},
-                          std::memory_order_release);
-
-    spdlog::trace("Set num committed txns to {}", heartbeat_res.num_txns_committed_);
-  } else {
+  if (!heartbeat_res.success_) {
 #ifdef MG_ENTERPRISE  // Multi-tenancy is only supported in enterprise
     // Replica is missing the current database
     client_.state_.WithLock([&](auto &state) {
@@ -125,9 +119,14 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                     std::string{main_storage->uuid()});
       state = memgraph::replication::ReplicationClient::State::BEHIND;
     });
-    return;
 #endif
+    // A failed heartbeat carries no valid progress; bail out before the store below so a transient failure
+    // doesn't zero the cached replica progress (which would surface as a spurious behind / positive lag).
+    return;
   }
+  // The replica's reported num_committed_txns_ is recorded only once we know its history is not divergent (see the
+  // "No branching point" path below). Storing it here unconditionally would, for a former main that committed
+  // transactions this main never saw, expose a count larger than main's and surface as a negative replication lag.
 
   bool branching_point{false};
   // different epoch id, replica was main
@@ -227,16 +226,51 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     return;
   }
 
-  // No branching point
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
+
+  // While the replica is (force-)recovering, its cached commit_ts_info_ is owned by the recovery task, which resets
+  // it to 0 and then re-accumulates the true count. A heartbeat observation taken here reflects the pre-reset state,
+  // so merging it via the advance-only Max below would restore the stale (inflated) count, undo the reset, and
+  // resurface as a persistent negative replication lag. Two things keep this safe: the RECOVERY gate checked here,
+  // and the fact that this function and the recovery task both run on the same single-threaded per-client
+  // thread_pool_, so the reset can never execute between this check and the Max merge. Note that engine_lock_ does
+  // NOT protect this: the recovery task's reset takes no engine lock. If the pool ever became multi-threaded, this
+  // check-then-merge would be racy and would need to hold replica_state_'s lock across both the check and the merge.
+  if (*replica_state_.Lock() == ReplicaState::RECOVERY) {
+    spdlog::trace("Replica {} for db {} is recovering; skipping commit_ts_info_ update from heartbeat response.",
+                  client_.name_,
+                  main_db_name);
+    return;
+  }
+
+  // No branching point. The replica's history is consistent with main's, so its reported progress can't exceed
+  // main's; record it now.
+  // This needs to be done under the engine lock, otherwise this function could bump replica's num committed txns before
+  // commit thread on main. This would be possible because there is a time window between we release RPC lock and update
+  // main's number of committed txns in the commit thread. We fold in with a per-field max (advance-only) rather
+  // than a blind store: the commit thread may have already bumped num_committed_txns_ in that window, and ldt_ can
+  // independently be larger on the replica (e.g. due to snapshots), so neither field must be allowed to regress.
+  CommitTsInfo const observed{.ldt_ = heartbeat_res.current_commit_timestamp_,
+                              .num_committed_txns_ = heartbeat_res.num_txns_committed_};
+  atomic_struct_update<CommitTsInfo>(commit_ts_info_,
+                                     [observed](CommitTsInfo const &cur) { return Max(cur, observed); });
+
+  spdlog::trace("Set num committed txns to {}", heartbeat_res.num_txns_committed_);
+  if (spdlog::should_log(spdlog::level::trace)) {
+    spdlog::trace("Current num committed tnxs on main: {}",
+                  main_repl_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
+  }
+
   spdlog::trace("Current timestamp on replica {} for db {} is {}.",
                 client_.name_,
                 main_db_name,
                 heartbeat_res.current_commit_timestamp_);
-  spdlog::trace("Current durable timestamp on main for db {} is {}",
-                main_db_name,
-                main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
+  if (spdlog::should_log(spdlog::level::trace)) {
+    spdlog::trace("Current durable timestamp on main for db {} is {}",
+                  main_db_name,
+                  main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
+  }
 
   replica_state_.WithLock([&](auto &state) {
     // Recovered state didn't change in the meantime
@@ -505,7 +539,8 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
 
 auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
                                                               std::optional<ReplicaStream> &&replica_stream,
-                                                              uint64_t durability_commit_timestamp) const
+                                                              uint64_t durability_commit_timestamp,
+                                                              uint64_t commit_num_committed_txns) const
     -> std::expected<void, io::network::ClientCommunicationError> {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
@@ -546,6 +581,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
                protector = protector.clone(),
                replica_stream_obj = std::move(replica_stream),
                durability_commit_timestamp,
+               commit_num_committed_txns,
                is_async,
                arena_pool]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
     const memory::DbArenaScope db_arena_scope{arena_pool};
@@ -554,7 +590,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
       auto response = replica_stream_obj->Finalize();
       // NOLINTNEXTLINE
       return replica_state_.WithLock(
-          [this, response, &replica_stream_obj, durability_commit_timestamp, is_async](
+          [this, response, &replica_stream_obj, durability_commit_timestamp, commit_num_committed_txns, is_async](
               auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
             replica_stream_obj.reset();
 
@@ -572,11 +608,14 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
 
             // ASYNC replicas update their own commit_ts_info_ here upon confirmed
             // success rather than optimistically in the main commit path.
+            // Advance-only merge to this txn's absolute (ldt, num_committed_txns) rather than a blind +1: the
+            // heartbeat may have already folded in the replica's self-reported count for this txn, and a +1 on top
+            // would double-count it (and, being monotonic, never self-correct), showing up as a negative lag.
             if (is_async) {
-              auto update_func = [durability_commit_timestamp](CommitTsInfo const &info) -> CommitTsInfo {
-                return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = info.num_committed_txns_ + 1};
-              };
-              atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+              CommitTsInfo const observed{.ldt_ = durability_commit_timestamp,
+                                          .num_committed_txns_ = commit_num_committed_txns};
+              atomic_struct_update<CommitTsInfo>(commit_ts_info_,
+                                                 [observed](CommitTsInfo const &info) { return Max(info, observed); });
             }
 
             state = ReplicaState::READY;
@@ -636,6 +675,14 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   }
 
   spdlog::debug("Starting replica {} recovery for db {}.", client_.name_, main_db_name);
+
+  if (reset_needed) {
+    // A force reset wipes the replica's storage (incl. its num_committed_txns_) back to 0 before re-recovering
+    // from this main. Reset our cached view of the replica too, otherwise the WAL/current-WAL recovery steps
+    // accumulate onto the diverged replica's stale pre-reset count and leave a permanently inflated value,
+    // which surfaces as a persistent negative replication lag.
+    commit_ts_info_.store(CommitTsInfo{.ldt_ = 0, .num_committed_txns_ = 0}, std::memory_order_release);
+  }
 
   auto *main_mem_storage = static_cast<InMemoryStorage *>(main_storage);
 

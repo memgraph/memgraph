@@ -352,6 +352,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
 }
 
 void SessionHL::LogOff() {
+  Abort();
 #ifdef MG_ENTERPRISE
   interpreter_.ResetDB();
 #endif
@@ -359,7 +360,10 @@ void SessionHL::LogOff() {
   session_user_or_role_.reset();
 }
 
-void SessionHL::Abort() { interpreter_.Abort(); }
+void SessionHL::Abort() {
+  interpreter_.ResetCachedFga();
+  interpreter_.Abort();
+}
 
 bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
   try {
@@ -384,20 +388,7 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
-
-    std::unique_ptr<memgraph::query::FineGrainedAuthChecker> auth_checker;  // NOLINT(misc-const-correctness)
-#ifdef MG_ENTERPRISE
-    if (storage && interpreter_context_->auth_checker && interpreter_.user_or_role_ && *interpreter_.user_or_role_ &&
-        interpreter_.current_db_.execution_db_accessor_) {
-      auto *dba = &*interpreter_.current_db_.execution_db_accessor_;
-      auth_checker = interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*interpreter_.user_or_role_, dba);
-      DMG_ASSERT(auth_checker, "Auth checker should not be null");
-      if (!auth_checker->NeedsFineGrainedAuthChecker()) {
-        auth_checker = nullptr;
-      }
-    }
-#endif
-    TypedValueResultStream<TEncoder> stream(&encoder_, storage, auth_checker.get());
+    TypedValueResultStream<TEncoder> stream(&encoder_, storage, interpreter_.GetCachedFga());
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
@@ -460,6 +451,7 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
     auto result =
         interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
     interpreter_.CheckAuthorized(result.privileges, result.db);
+
     return {std::move(result.headers), result.qid};
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
@@ -626,6 +618,8 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
   // Runtime config is sent at the beginning of the transaction, but is missing during the transaction
   if (in_explicit_tx || (previous_run_time_info_ && run_time_info == *previous_run_time_info_)) return;
+
+  session_->interpreter_.ResetCachedFga();
 
   db_explicit_ = false;
   user_explicit_ = false;

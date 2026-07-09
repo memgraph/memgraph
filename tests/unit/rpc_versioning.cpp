@@ -11,12 +11,15 @@
 
 #include "gtest/gtest.h"
 
+#include <nlohmann/json.hpp>
+
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_state.hpp"
 #include "replication_coordination_glue/common.hpp"
 
 #include "rpc_messages.hpp"
 
+#include "auth/rpc.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/client.hpp"
 #include "rpc/file_replication_handler.hpp"
@@ -221,6 +224,152 @@ TEST(RpcVersioning, StateCheckRpc) {
     EXPECT_TRUE(reply.arg_.is_writing_enabled);
   }
 }
+
+// UpdateDataInstanceConfigReq gained a `disable_writing` flag in v2 alongside the existing deltas_batch_progress_size.
+// Verify the payload round-trips and that Upgrade/Downgrade bridge v1<->v2 correctly.
+TEST(RpcVersioning, UpdateDataInstanceConfigPayload) {
+  memgraph::coordination::UpdateDataInstanceConfigReq const req{7000, /*disable_writing=*/true};
+
+  auto const downgraded = req.Downgrade();
+  EXPECT_EQ(downgraded.deltas_batch_progress_size, 7000);
+
+  auto const upgraded = memgraph::coordination::UpdateDataInstanceConfigReq::Upgrade(downgraded);
+  EXPECT_EQ(upgraded.deltas_batch_progress_size, 7000);
+  // A v1 sender doesn't know about read-only mode, so upgrading keeps writing enabled.
+  EXPECT_FALSE(upgraded.disable_writing);
+}
+
+namespace memgraph::coordination {
+using UpdateDataInstanceConfigRpcV1 =
+    rpc::RequestResponse<UpdateDataInstanceConfigReqV1, UpdateDataInstanceConfigResV1>;
+}  // namespace memgraph::coordination
+
+TEST(RpcVersioning, UpdateDataInstanceConfigRpc) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  uint64_t received_deltas{0};
+  bool received_disable_writing{false};
+
+  rpc_server.Register<memgraph::coordination::UpdateDataInstanceConfigRpc>(
+      [&received_deltas, &received_disable_writing](
+          std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        memgraph::coordination::UpdateDataInstanceConfigReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        received_deltas = req.deltas_batch_progress_size;
+        received_disable_writing = req.disable_writing;
+
+        memgraph::coordination::UpdateDataInstanceConfigRes const res{true};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  {
+    // Send new (v2) request: both config items are carried through.
+    auto stream = client.Stream<memgraph::coordination::UpdateDataInstanceConfigRpc>(uint64_t{5000},
+                                                                                     /*disable_writing=*/true);
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_EQ(received_deltas, 5000);
+    EXPECT_TRUE(received_disable_writing);
+  }
+  {
+    // Send old (v1) request: server upgrades it, defaulting disable_writing to false, and downgrades its response.
+    auto stream = client.Stream<memgraph::coordination::UpdateDataInstanceConfigRpcV1>(uint64_t{9000});
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_EQ(received_deltas, 9000);
+    EXPECT_FALSE(received_disable_writing);
+  }
+}
+
+// PromoteToMainReq gained a `writing_enabled` flag in v2 (the projection of global_read_only) alongside the existing
+// uuid and replicas. Verify Upgrade/Downgrade bridge v1<->v2 correctly.
+TEST(RpcVersioning, PromoteToMainPayload) {
+  memgraph::utils::UUID const uuid{};
+  std::vector<memgraph::coordination::ReplicationClientInfo> const replicas{
+      {.instance_name = "instance_1",
+       .replication_mode = memgraph::replication_coordination_glue::ReplicationMode::SYNC,
+       .replication_server = memgraph::io::network::Endpoint{"localhost", 10000}}};
+
+  memgraph::coordination::PromoteToMainReq const req{uuid, replicas, /*writing_enabled=*/false};
+
+  auto const downgraded = req.Downgrade();
+  EXPECT_EQ(downgraded.main_uuid, uuid);
+  EXPECT_EQ(downgraded.replication_clients_info, replicas);
+
+  auto const upgraded = memgraph::coordination::PromoteToMainReq::Upgrade(downgraded);
+  EXPECT_EQ(upgraded.main_uuid, uuid);
+  EXPECT_EQ(upgraded.replication_clients_info, replicas);
+  // A v1 sender doesn't know about read-only mode, so upgrading keeps the promoted main writeable.
+  EXPECT_TRUE(upgraded.writing_enabled);
+}
+
+namespace memgraph::coordination {
+using PromoteToMainRpcV1 = rpc::RequestResponse<PromoteToMainReqV1, PromoteToMainResV1>;
+}  // namespace memgraph::coordination
+
+TEST(RpcVersioning, PromoteToMainRpc) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  bool received_writing_enabled{false};
+
+  rpc_server.Register<memgraph::coordination::PromoteToMainRpc>(
+      [&received_writing_enabled](
+          std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        memgraph::coordination::PromoteToMainReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        received_writing_enabled = req.writing_enabled;
+
+        memgraph::coordination::PromoteToMainRes const res{true};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  memgraph::utils::UUID const uuid{};
+  std::vector<memgraph::coordination::ReplicationClientInfo> const replicas{};
+  {
+    // Send new (v2) request: writing_enabled travels through.
+    auto stream = client.Stream<memgraph::coordination::PromoteToMainRpc>(uuid, replicas, /*writing_enabled=*/false);
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_FALSE(received_writing_enabled);
+  }
+  {
+    // Send old (v1) request: server upgrades it, defaulting writing_enabled to true, and downgrades its response.
+    auto stream = client.Stream<memgraph::coordination::PromoteToMainRpcV1>(uuid, replicas);
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_TRUE(received_writing_enabled);
+  }
+}
 #endif
 
 // Test: when request has 2 versions but response has only one version (no Downgrade),
@@ -383,3 +532,110 @@ TEST(RpcVersioning, SystemRecoveryRpc_V3Request_CarriesColdSet) {
   EXPECT_TRUE(seen_cold[0].stats.durability_wal_enabled);
   EXPECT_EQ(seen_cold[0].stats.schema_vertex_count, 9U);
 }
+
+#ifdef MG_ENTERPRISE
+
+namespace {
+// Build a V3-format role JSON (uses global_permission instead of global_grants/global_denies).
+nlohmann::json MakeV3RoleJson(std::string const &rolename, int64_t label_perm, int64_t edge_perm) {
+  nlohmann::json data;
+  data["rolename"] = rolename;
+  data["builtin"] = false;
+  data["permissions"] = nlohmann::json{{"grants", 0}, {"denies", 0}};
+  data["fine_grained_permissions"] = {
+      {"label_permissions", {{"global_permission", label_perm}, {"permissions", nlohmann::json::array()}}},
+      {"edge_type_permissions", {{"global_permission", edge_perm}, {"permissions", nlohmann::json::array()}}}};
+  data["databases"] = {{"allow_all", true},
+                       {"grants", nlohmann::json::array()},
+                       {"denies", nlohmann::json::array()},
+                       {"default", "memgraph"}};
+  return data;
+}
+
+// Build a V3-format user JSON.
+nlohmann::json MakeV3UserJson(std::string const &username, int64_t label_perm, int64_t edge_perm) {
+  nlohmann::json data;
+  data["username"] = username;
+  data["uuid"] = memgraph::utils::UUID{};
+  data["password_hash"] = nullptr;
+  data["permissions"] = nlohmann::json{{"grants", 0}, {"denies", 0}};
+  data["fine_grained_permissions"] = {
+      {"label_permissions", {{"global_permission", label_perm}, {"permissions", nlohmann::json::array()}}},
+      {"edge_type_permissions", {{"global_permission", edge_perm}, {"permissions", nlohmann::json::array()}}}};
+  data["databases"] = {{"allow_all", true},
+                       {"grants", nlohmann::json::array()},
+                       {"denies", nlohmann::json::array()},
+                       {"default", "memgraph"}};
+  return data;
+}
+
+}  // namespace
+
+// slk::Load<Role> migrates V3 FGA (global_permission) to V4 (global_grants/global_denies).
+TEST(RpcVersioning, SlkLoadRole_MigratesV3FGA) {
+  // Inject V3 JSON bytes directly into the SLK stream to simulate an old sender.
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+  // slk::Save<Role> calls self.Serialize().dump() — we bypass this to inject V3 JSON.
+  auto const v3_str = MakeV3RoleJson("myrole", /*label_perm=*/1, /*edge_perm=*/1).dump();
+  memgraph::slk::Save(v3_str, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::auth::Role loaded;
+  memgraph::slk::Load(&loaded, &reader);
+
+  EXPECT_EQ(loaded.rolename(), "myrole");
+  auto const &label_perms = loaded.fine_grained_access_handler().label_permissions();
+  ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+  EXPECT_FALSE(label_perms.GetGlobalDenies().has_value());
+
+  auto const &edge_perms = loaded.fine_grained_access_handler().edge_type_permissions();
+  ASSERT_TRUE(edge_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(edge_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+  EXPECT_FALSE(edge_perms.GetGlobalDenies().has_value());
+}
+
+// slk::Load<User> migrates V3 FGA and attached roles.
+TEST(RpcVersioning, SlkLoadUser_MigratesV3FGA) {
+  auto const user_json_str = MakeV3UserJson("alice", /*label_perm=*/1, /*edge_perm=*/1).dump();
+  auto const role_json_str = MakeV3RoleJson("testrole", /*label_perm=*/1, /*edge_perm=*/1).dump();
+
+  // Build the SLK byte stream manually: user JSON string, then roles vector, then MT mappings.
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+  // User JSON string
+  memgraph::slk::Save(user_json_str, &builder);
+  // Roles vector: size=1, then role JSON string
+  memgraph::slk::Save(static_cast<uint64_t>(1), &builder);
+  memgraph::slk::Save(role_json_str, &builder);
+  // MT mappings: empty map
+  std::unordered_map<std::string, std::unordered_set<std::string>> mt_map;
+  memgraph::slk::Save(mt_map, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::auth::User loaded;
+  memgraph::slk::Load(&loaded, &reader);
+
+  EXPECT_EQ(loaded.username(), "alice");
+
+  auto const &label_perms = loaded.fine_grained_access_handler().label_permissions();
+  ASSERT_TRUE(label_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(label_perms.GetGlobalGrants().value(), static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+  EXPECT_FALSE(label_perms.GetGlobalDenies().has_value());
+
+  // Attached role should also be migrated
+  ASSERT_EQ(loaded.roles().size(), 1);
+  auto const &role = *loaded.roles().begin();
+  EXPECT_EQ(role.rolename(), "testrole");
+  auto const &role_label_perms = role.fine_grained_access_handler().label_permissions();
+  ASSERT_TRUE(role_label_perms.GetGlobalGrants().has_value());
+  EXPECT_EQ(role_label_perms.GetGlobalGrants().value(),
+            static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
+}
+
+#endif  // MG_ENTERPRISE

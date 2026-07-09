@@ -48,8 +48,8 @@ struct UpdateAuthDataReq {
         profile{std::move(profile)} {}
 
   utils::UUID main_uuid;
-  uint64_t expected_group_timestamp;
-  uint64_t new_group_timestamp;
+  uint64_t expected_group_timestamp{};
+  uint64_t new_group_timestamp{};
   std::optional<auth::User> user;
   std::optional<auth::Role> role;
   std::optional<auth::UserProfiles::Profile> profile{};
@@ -65,7 +65,7 @@ struct UpdateAuthDataRes {
 
   explicit UpdateAuthDataRes(bool success) : success{success} {}
 
-  bool success;
+  bool success{};
 };
 
 using UpdateAuthDataRpc = rpc::RequestResponse<UpdateAuthDataReq, UpdateAuthDataRes>;
@@ -123,10 +123,10 @@ void Load(auth::UserProfiles::Profile *self, memgraph::slk::Reader *reader);
 void Save(const auth::Auth::Config &self, memgraph::slk::Builder *builder);
 void Load(auth::Auth::Config *self, memgraph::slk::Reader *reader);
 
+void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::UpdateAuthDataRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::UpdateAuthDataRes *self, memgraph::slk::Reader *reader);
-void Save(const memgraph::replication::UpdateAuthDataReq & /*self*/, memgraph::slk::Builder * /*builder*/);
-void Load(memgraph::replication::UpdateAuthDataReq * /*self*/, memgraph::slk::Reader * /*reader*/);
 void Save(const memgraph::replication::DropAuthDataRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::DropAuthDataReq & /*self*/, memgraph::slk::Builder * /*builder*/);
