@@ -114,6 +114,15 @@ class NameIdMapper {
     return maybe_name.value();
   }
 
+  // Resets the mapper to its initial empty state. Used when scrubbing a storage
+  // back to empty (e.g. bringing up a broken database after recovery failure).
+  // Must not be called while other threads hold references returned by IdToName.
+  virtual void Clear() {
+    name_to_id_.clear();
+    id_to_name_.clear();
+    counter_.store(0, std::memory_order_release);
+  }
+
  protected:
   std::optional<std::reference_wrapper<const std::string>> MaybeIdToName(uint64_t id) const {
     auto id_to_name_acc = id_to_name_.access();

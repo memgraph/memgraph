@@ -15,6 +15,7 @@
 #include "parameters/parameters.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::slk {
 
@@ -146,13 +147,13 @@ void Load(memgraph::replication::SystemRecoveryResV1 *self, memgraph::slk::Reade
   memgraph::slk::Load(&self->result, reader);
 }
 
+void Load(memgraph::replication::SystemRecoveryResV2 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->result, reader);
+}
+
 // Serialize code for SystemRecoveryResV2 (same layout as Res)
 void Save(const memgraph::replication::SystemRecoveryResV2 &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.result, builder);
-}
-
-void Load(memgraph::replication::SystemRecoveryResV2 *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->result, reader);
 }
 
 // Serialize code for SystemRecoveryRes

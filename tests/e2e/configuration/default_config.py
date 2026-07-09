@@ -250,6 +250,11 @@ startup_config_dict = {
         "Define periodic snapshot schedule via cron format or as a period in seconds.",
     ),
     "storage_snapshot_on_exit": ("false", "false", "Controls whether the storage creates another snapshot on exit."),
+    "storage_allow_recovery_failure": (
+        "false",
+        "false",
+        "If true, a database that fails to recover on startup comes up in a broken state instead of crashing the process. Broken databases reject queries until recovered via RECOVER SNAPSHOT.",
+    ),
     "storage_snapshot_retention_count": ("3", "3", "The number of snapshots that should always be kept."),
     "storage_wal_enabled": (
         "false",

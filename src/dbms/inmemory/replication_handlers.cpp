@@ -193,6 +193,20 @@ std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *de
   }
 }
 
+// Drains the current transaction's remaining deltas from the stream and replies with a failed
+// PrepareCommit, so the main sees a clean rejection and (re-)drives recovery. Used when the replica cannot
+// apply this transaction (the tenant is broken, or its previous commit timestamp is ahead of the request).
+void DrainAndRejectPrepareCommit(storage::replication::Decoder &decoder, uint64_t const request_version,
+                                 slk::Builder *res_builder, std::string_view db_name) {
+  bool transaction_complete{false};
+  while (!transaction_complete) {
+    const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
+    transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
+  }
+  const storage::replication::PrepareCommitRes res{false};
+  rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", db_name));
+}
+
 std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handler, const utils::UUID &uuid) {
   try {
 #ifdef MG_ENTERPRISE
@@ -374,7 +388,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
-  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   if (!db_acc) {
     spdlog::warn("No database accessor");
@@ -384,8 +398,19 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   }
   // Move db acc
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
-  auto const *storage = db_acc->get()->storage();
+  auto *storage = db_acc->get()->storage();
   auto const commit_info = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
+
+  // A broken tenant is empty (Clear()ed to ldt 0). When the main is also empty (main_commit_timestamp 0) there is
+  // nothing to recover: the replica already matches the main, so the recovery-path handlers that normally clear the
+  // broken flag are never driven. Reconcile here by clearing the flag so the replica can accept the main's first
+  // write. Without this, a STRICT_SYNC write to a never-written tenant would 2PC-abort on the broken guard forever and
+  // the main's ldt could never advance to trigger recovery.
+  if (storage->IsBroken() && req.main_commit_timestamp == memgraph::storage::kTimestampInitialId &&
+      commit_info.ldt_ == memgraph::storage::kTimestampInitialId) [[unlikely]] {
+    spdlog::info("Clearing broken flag for db {} after reconciling against an empty main.", storage->name());
+    storage->SetBroken(false);
+  }
 
   auto const last_epoch_with_commit = std::invoke([storage, ldt = commit_info.ldt_]() -> std::string {
     if (auto const &history = storage->repl_storage_state_.history; !history.empty()) {
@@ -457,6 +482,17 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
+  // A broken tenant must never apply incremental deltas: it has been Clear()ed, so its state is empty and any
+  // delta would be applied against the wrong base. In normal operation this cannot happen -- a broken tenant
+  // reports commit-ts 0 with a fresh epoch, so the main sees it as behind, drives it into RECOVERY and sends
+  // recovery steps (a snapshot, WAL files, or both) whose handlers clear the broken flag before any incremental
+  // PrepareCommit is sent. This explicit guard is defense-in-depth: it does not rely on that emergent invariant.
+  // Drain the delta stream and reject so the main (re-)drives recovery.
+  if (storage->IsBroken()) [[unlikely]] {
+    DrainAndRejectPrepareCommit(decoder, request_version, res_builder, storage->name());
+    return;
+  }
+
   // Abort prev txn if needed
   // It could happen that the main instance died before sending finalize for the previous commit and then
   // the new instance becomes main and sends prepare
@@ -476,15 +512,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
 
   // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
   if (req.previous_commit_timestamp > repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
-    // Empty the stream
-    bool transaction_complete{false};
-    while (!transaction_complete) {
-      const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
-      transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
-    }
-
-    const storage::replication::PrepareCommitRes res{false};
-    rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
+    DrainAndRejectPrepareCommit(decoder, request_version, res_builder, storage->name());
     return;
   }
 
@@ -736,6 +764,12 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
       return;
     }
+
+    // A successful snapshot load is the moment a broken replica tenant becomes healthy: the main has just full-synced
+    // it. Clearing the broken flag re-enables background durability and lets queries touch the tenant again (slice 1
+    // guards writes behind IsBroken(), so clearing the flag is sufficient to resume normal operation). Cleared under
+    // main_lock_ so the healthy transition is atomic with the recovered state.
+    storage->SetBroken(false);
   }
   spdlog::debug("Snapshot from {} loaded successfully.", dst_snapshot_file);
 
@@ -912,6 +946,13 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   }
 
   spdlog::debug("Replication recovery from WAL files succeeded for db {}.", storage->name());
+
+  // A broken replica tenant reports commit-ts 0 and the main heals it during RECOVERY. The recovery steps need not
+  // include a snapshot: when the main's WAL chain reaches back to the start (e.g. the main never took a snapshot),
+  // GetRecoverySteps sends WAL files only. Having fully applied them, the tenant is consistent with the main, so the
+  // broken flag is cleared here too (mirrors SnapshotHandler) to re-enable queries and background durability.
+  storage->SetBroken(false);
+
   const storage::replication::WalFilesRes res{
       storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, num_committed_txns};
 
@@ -1017,6 +1058,10 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
         storage->name());
   } else {
     spdlog::debug("Replication recovery from current WAL ended successfully! DB {}.", storage->name());
+    // The current WAL can be the only recovery step the main sends to heal a broken tenant (commit-ts 0, no snapshot
+    // on the main). On success the tenant is consistent with the main, so clear the broken flag here too, just like
+    // SnapshotHandler and WalFilesHandler do.
+    storage->SetBroken(false);
   }
 
   const storage::replication::CurrentWalRes res{
