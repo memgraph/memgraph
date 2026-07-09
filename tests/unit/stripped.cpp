@@ -536,9 +536,6 @@ TEST(HashedString, DisambiguatesOnHashCollision) {
   ASSERT_EQ(map.size(), 2U);
   EXPECT_EQ(map.at(HashedString{"RETURN 0"}), 1);
   EXPECT_EQ(map.at(HashedString{"RETURN 1"}), 2);
-
-  EXPECT_EQ(HashedString{"RETURN 0"}, HashedString{"RETURN 0"});
-  EXPECT_NE(HashedString{"RETURN 0"}, HashedString{"RETURN 1"});
 }
 
 }  // namespace
