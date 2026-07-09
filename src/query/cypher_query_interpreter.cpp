@@ -232,7 +232,12 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
   // whole server instead of aborting just the query.
   utils::MemoryTracker::OutOfMemoryExceptionEnabler const oom_exception_enabler;
 
-  // Skip plan cache when using experimental v2 planner - plans may change as v2 evolves
+  // Skip plan cache when using the experimental v2 planner. Beyond "plans may
+  // change as v2 evolves", this is a CORRECTNESS requirement: v2 lowering folds
+  // known parameter values into constants (see ConvertToEgraph / ExprLowering),
+  // so a plan is specialised to one execution's parameter values. Caching such a
+  // plan and reusing it for different values would be parameter sniffing / plan
+  // poisoning. Do not enable v2 plan caching without first removing that fold.
   const bool use_plan_cache = plan_cache && !flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2);
   if (use_plan_cache) {
     auto existing_plan =

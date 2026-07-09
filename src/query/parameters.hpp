@@ -41,15 +41,15 @@ struct Parameters {
    *  @return Value for the given token position.
    */
   const storage::ExternalPropertyValue &AtTokenPosition(int position) const {
-    // TODO: make it not a linear scan
-    auto found = std::ranges::find_if(storage_, [&](const auto &a) { return a.first == position; });
-    MG_ASSERT(found != storage_.end(), "Token position must be present in container");
-    return found->second;
+    auto const *value = MaybeAtTokenPosition(position);
+    MG_ASSERT(value != nullptr, "Token position must be present in container");
+    return *value;
   }
 
   /// The value at `position`, or nullptr if none is bound there. The non-throwing
   /// counterpart of AtTokenPosition, for callers that tolerate a missing entry.
   const storage::ExternalPropertyValue *MaybeAtTokenPosition(int position) const {
+    // TODO: make it not a linear scan
     auto found = std::ranges::find_if(storage_, [&](const auto &a) { return a.first == position; });
     return found != storage_.end() ? &found->second : nullptr;
   }

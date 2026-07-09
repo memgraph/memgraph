@@ -22,7 +22,9 @@ struct egraph;  // public e-graph facade
 
 /// Default list size when a built-in's produced size can't be deduced
 /// statically.  A small guess on purpose: an unknown list is assumed short so
-/// it doesn't dominate the row cardinality an Unwind later derives from it.
+/// it doesn't dominate the row cardinality an Unwind later derives from it. The
+/// exact figure is not empirically tuned - any small constant serves until the
+/// stats-backed estimator lands.
 inline constexpr double kDefaultListSize = 12.0;
 
 /// Estimates the produced size of a built-in whose size is *not* statically
@@ -35,6 +37,10 @@ inline constexpr double kDefaultListSize = 12.0;
 /// The estimator looks up FunctionInfo through the public e-graph facade (which
 /// the cost model passes alongside the EGraph for the e-class walk).
 struct BuiltinEstimator final : CardinalityEstimator {
+  // Reserved for the future storage-stats-backed estimator: the FunctionInfo
+  // lookup facade. Unused today - known sizes are analysis facts the cost model
+  // reads directly, and Estimate only returns kDefaultListSize - but kept so
+  // that seam needs no signature change later.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   egraph const &facade;
 

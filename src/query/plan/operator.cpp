@@ -7347,7 +7347,11 @@ std::unique_ptr<LogicalOperator> Unwind::Clone(AstStorage *storage) const {
 }
 
 CardinalityScale::CardinalityScale(const std::shared_ptr<LogicalOperator> &input, size_t scale_factor)
-    : input_(input ? input : std::make_shared<Once>()), scale_factor_(scale_factor) {}
+    : input_(input ? input : std::make_shared<Once>()), scale_factor_(scale_factor) {
+  // The planner elides the degenerate factors in the builder (0 -> EmptyResult,
+  // 1 -> identity), so a constructed CardinalityScale always scales by >= 2.
+  DMG_ASSERT(scale_factor >= 2, "CardinalityScale scale factor must be >= 2 (0 and 1 are elided at build time)");
+}
 
 ACCEPT_WITH_INPUT(CardinalityScale)
 

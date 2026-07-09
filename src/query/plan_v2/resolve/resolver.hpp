@@ -102,6 +102,10 @@ inline void ResolveUnwindDead(planner::core::ENode<symbol> const &enode, Resolve
 inline bool BinderIsAlive(planner::core::ENode<symbol> const &enode, VariableSet const &chosen_introduces,
                           SymbolContext const &syms) {
   using namespace child::bind;  // sym position shared with unwind
+  // Both binders resolve their sym at the same child index; this reads it by
+  // bind's constant for Bind and Unwind alike, so the two must agree.
+  static_assert(child::bind::sym == child::unwind::sym,
+                "BinderIsAlive reads the sym child by bind's index for both Bind and Unwind");
   return enode.children().size() == 3 && chosen_introduces.test(syms.variable_index.bit_of(enode.children()[sym]));
 }
 

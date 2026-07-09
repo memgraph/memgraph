@@ -55,6 +55,8 @@ struct CardinalityEstimator {
                         std::span<planner::core::EClassId const> children) const -> double = 0;
 
  protected:
+  // Reserved for a future estimator that walks the graph for stats-based
+  // deduction; unused by the current constant-fallback implementation.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   EGraph const &eg_;
 };
