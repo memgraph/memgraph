@@ -42,6 +42,7 @@
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -1742,7 +1743,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   }
 
   // Recover snapshot.
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
 
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
@@ -1754,7 +1755,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // Helper: create a single on-exit snapshot containing `count` vertices.
@@ -1876,7 +1877,7 @@ TEST_P(DurabilityTest, SnapshotCorruptCrashesWhenRecoveryFailureNotAllowed) {
     CorruptSnapshot(snapshot);
   }
 
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
@@ -1884,7 +1885,7 @@ TEST_P(DurabilityTest, SnapshotCorruptCrashesWhenRecoveryFailureNotAllowed) {
                  memgraph::dbms::Database db{config};
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }()),
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // Helper: create a WAL-only durability set (no snapshot) made of several small WAL files,
@@ -1959,7 +1960,7 @@ TEST_P(DurabilityTest, WalDeltaCorruptCrashesWhenRecoveryFailureNotAllowed) {
     DestroyWalFirstDelta(wals[wals.size() - 2]);
   }
 
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
@@ -1967,7 +1968,7 @@ TEST_P(DurabilityTest, WalDeltaCorruptCrashesWhenRecoveryFailureNotAllowed) {
                  memgraph::dbms::Database db{config};
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }()),
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // A WAL-only set whose first (seq_num == 0) file is missing must produce a broken tenant with
@@ -2004,7 +2005,7 @@ TEST_P(DurabilityTest, WalMissingPrefixCrashesWhenRecoveryFailureNotAllowed) {
     ASSERT_TRUE(std::filesystem::remove(wals.back()));
   }
 
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
@@ -2012,7 +2013,7 @@ TEST_P(DurabilityTest, WalMissingPrefixCrashesWhenRecoveryFailureNotAllowed) {
                  memgraph::dbms::Database db{config};
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }()),
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // A WAL chain with a sequence-number gap (a middle WAL removed) must produce a broken tenant
@@ -2050,7 +2051,7 @@ TEST_P(DurabilityTest, WalSeqNumGapCrashesWhenRecoveryFailureNotAllowed) {
     ASSERT_TRUE(std::filesystem::remove(wals[wals.size() - 2]));
   }
 
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
@@ -2058,7 +2059,7 @@ TEST_P(DurabilityTest, WalSeqNumGapCrashesWhenRecoveryFailureNotAllowed) {
                  memgraph::dbms::Database db{config};
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }()),
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // Byte-flip robustness: copy a real WAL file, flip the byte at each offset in turn, and attempt
@@ -2410,7 +2411,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
 
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
@@ -2420,7 +2421,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -3356,7 +3357,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
   }
 
   // Recover WALs.
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
 
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
@@ -3368,7 +3369,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -3461,7 +3462,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
   }
 
   // Recover WALs.
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
 
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
@@ -3473,7 +3474,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -3990,7 +3991,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
 
   // Recover data after all of the snapshots have been destroyed. The recovery
   // shouldn't be possible because the initial WALs are already deleted.
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
 
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
@@ -4002,7 +4003,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
