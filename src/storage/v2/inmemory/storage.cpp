@@ -44,6 +44,7 @@
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info_glue.hpp"
@@ -578,6 +579,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices_.edge_type_property_index_.get())->RunGC();
       static_cast<InMemoryEdgePropertyIndex *>(indices_.edge_property_index_.get())->RunGC();
+      static_cast<InMemoryVertexPropertyIndex *>(indices_.vertex_property_index_.get())->RunGC();
 
       // Constraints
       static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get())->RunGC();
