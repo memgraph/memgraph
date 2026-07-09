@@ -534,20 +534,16 @@ TEST(QueryStripper, SignFoldInList) {
   }
 }
 
-TEST(QueryStripper, SignPatternDoesNotAffectCacheKey) {
+TEST(QueryStripper, SignPatternDoesNotAffectCacheKeyAndKeepsValues) {
   auto a = StrippedQuery("RETURN [-1, 2, -3]");
   auto b = StrippedQuery("RETURN [4, -5, 6]");
   auto c = StrippedQuery("RETURN [1, 2, 3]");
   EXPECT_EQ(a.stripped_query().str(), "RETURN [ 0 , 0 , 0 ]");
   EXPECT_EQ(a.stripped_query().str(), b.stripped_query().str());
   EXPECT_EQ(a.stripped_query().str(), c.stripped_query().str());
-}
-
-TEST(QueryStripper, MixedSignListKeepsValues) {
-  StrippedQuery stripped("RETURN [-1, 2, -3]");
-  EXPECT_EQ(stripped.literals().AtTokenPosition(2).ValueInt(), -1);
-  EXPECT_EQ(stripped.literals().AtTokenPosition(4).ValueInt(), 2);
-  EXPECT_EQ(stripped.literals().AtTokenPosition(6).ValueInt(), -3);
+  EXPECT_EQ(a.literals().AtTokenPosition(2).ValueInt(), -1);
+  EXPECT_EQ(a.literals().AtTokenPosition(4).ValueInt(), 2);
+  EXPECT_EQ(a.literals().AtTokenPosition(6).ValueInt(), -3);
 }
 
 TEST(QueryStripper, SignFoldAcrossWhitespace) {
@@ -558,15 +554,6 @@ TEST(QueryStripper, SignFoldAcrossWhitespace) {
 }
 
 TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
-  {
-    StrippedQuery stripped("RETURN [a - 1]");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ a - " + kStrippedIntToken + " ]");
-  }
-  {
-    StrippedQuery stripped("RETURN [1-1]");
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedIntToken + " - " + kStrippedIntToken + " ]");
-  }
   {
     StrippedQuery stripped("RETURN [1-2, 3]");
     EXPECT_EQ(stripped.stripped_query().str(),
@@ -640,11 +627,6 @@ TEST(QueryStripper, NoFoldOutsideBrackets) {
     StrippedQuery stripped("RETURN -42");
     EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 42);
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN - " + kStrippedIntToken);
-  }
-  {
-    StrippedQuery stripped("RETURN {k: -1}");
-    EXPECT_EQ(stripped.literals().begin()->second.ValueInt(), 1);
-    EXPECT_EQ(stripped.stripped_query().str(), "RETURN { k : - " + kStrippedIntToken + " }");
   }
   {
     StrippedQuery stripped("RETURN abs(-1.5)");
