@@ -59,7 +59,7 @@ ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, co
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
   context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
-  context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(*auth_checker));
+  context.auth_checker = auth_checker;
   context.metric_handles = &TestMetricHandles();
   return context;
 }

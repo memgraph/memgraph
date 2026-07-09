@@ -6448,7 +6448,7 @@ class AggregateCursor : public Cursor {
 
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
     db_accessor_ = context->db_accessor;
-    auth_checker_ = context->auth_checker.get();
+    auth_checker_ = context->auth_checker;
     MG_ASSERT(db_accessor_, "Aggregation expects a current DB transaction");
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{frame, *context, storage::View::NEW, nullptr, &context->number_of_hops};

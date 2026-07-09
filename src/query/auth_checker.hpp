@@ -82,6 +82,14 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool HasUnrestrictedAccessToEdgeTypeProperties() const = 0;
 
+  [[nodiscard]] bool HasPropertyRestrictions() const {
+    if (!has_property_restrictions_) {
+      has_property_restrictions_ =
+          !HasUnrestrictedAccessToVertexProperties() || !HasUnrestrictedAccessToEdgeTypeProperties();
+    }
+    return *has_property_restrictions_;
+  }
+
   /// True when a FineGrainedAuthChecker must be attached for correct
   /// authorization, defined by either per-Label/per-Edge rules, or per-Property
   /// rules. When false, the checker is redundant as no restrictions to labels,
@@ -96,6 +104,8 @@ class FineGrainedAuthChecker {
                                                    memgraph::storage::PropertyId property,
                                                    AuthQuery::PropertyPermissionType type) const = 0;
 
+  virtual void UpdateDbAccessor(DbAccessor const * /*dba*/) {}
+
   // Used to make the auth checker thread safe
   // throw if not possible
   virtual void MakeThreadSafe() const = 0;
@@ -107,6 +117,10 @@ class FineGrainedAuthChecker {
   FineGrainedAuthChecker(FineGrainedAuthChecker &&) noexcept = default;
   FineGrainedAuthChecker &operator=(const FineGrainedAuthChecker &) = default;
   FineGrainedAuthChecker &operator=(FineGrainedAuthChecker &&) noexcept = default;
+
+  bool IsPropertyRestrictionsCached() const { return has_property_restrictions_.has_value(); }
+
+  mutable std::optional<bool> has_property_restrictions_;
 };
 
 class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecker {
@@ -208,6 +222,55 @@ class AllowEverythingAuthChecker final : public AuthChecker {
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const QueryUserOrRole & /*user*/,
                                                                     const DbAccessor * /*dba*/) const override {
     return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
+  }
+};
+
+struct CachedFineGrainedAuth {
+  enum class State : uint8_t {
+    EMPTY,            // No auth cached, need to to check licence and FGA
+    NO_LICENSE,       // No enterprise license, so re-evaluate every query
+    NO_RESTRICTIONS,  // Enterprise licensed, no FGA needed, and this is cached
+    ACTIVE,           // Enterprise licensed, FGA active and auth cached
+  };
+
+  std::unique_ptr<FineGrainedAuthChecker> checker;
+  std::string db_name;
+  State state{State::EMPTY};
+
+  FineGrainedAuthChecker const *get() const { return checker.get(); }
+
+  void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
+               std::string current_db) {
+    bool const must_rebuild = state == State::EMPTY || state == State::NO_LICENSE || db_name != current_db;
+
+    if (!must_rebuild) {
+      if (checker) checker->UpdateDbAccessor(dba);
+      return;
+    }
+
+    checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
+
+    if (!checker) {
+      db_name = std::move(current_db);
+      state = State::NO_LICENSE;
+      return;
+    }
+
+    if (!checker->NeedsFineGrainedAuthChecker()) {
+      checker.reset();
+      db_name = std::move(current_db);
+      state = State::NO_RESTRICTIONS;
+      return;
+    }
+
+    db_name = std::move(current_db);
+    state = State::ACTIVE;
+  }
+
+  void Reset() {
+    checker.reset();
+    db_name.clear();
+    state = State::EMPTY;
   }
 };
 
