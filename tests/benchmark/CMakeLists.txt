@@ -8,7 +8,12 @@ include_directories(${antlr4-runtime_INCLUDE_DIR})
 
 
 
-function(add_benchmark test_cpp)
+# Build a benchmark executable and attach it to the memgraph__benchmark target,
+# WITHOUT registering a ctest. CI's micro-benchmark job runs `ctest -R
+# memgraph__benchmark`, so a benchmark added this way is built (can't bit-rot, runs
+# locally) but never executed by any CI job. Use for benchmarks meant to be run
+# manually. add_benchmark() layers the ctest registration on top of this.
+function(add_local_benchmark test_cpp)
   # get exec name (remove extension from the abs path)
   get_filename_component(exec_name ${test_cpp} NAME_WE)
   set(target_name ${test_prefix}${exec_name})
@@ -18,10 +23,19 @@ function(add_benchmark test_cpp)
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
   target_link_libraries(${target_name} benchmark::benchmark gflags mg-memory)
+  add_dependencies(memgraph__benchmark ${target_name})
+endfunction(add_local_benchmark)
+
+# Benchmark that CI runs: builds it (add_local_benchmark) and registers a ctest
+# labeled "benchmark" so the micro-benchmark job (ctest -R memgraph__benchmark)
+# picks it up.
+function(add_benchmark test_cpp)
+  add_local_benchmark(${test_cpp} ${ARGN})
+  get_filename_component(exec_name ${test_cpp} NAME_WE)
+  set(target_name ${test_prefix}${exec_name})
   # register test - use modern add_test with COMMAND to get absolute path
   add_test(NAME ${target_name} COMMAND $<TARGET_FILE:${target_name}>)
   set_tests_properties(${target_name} PROPERTIES LABELS "benchmark")
-  add_dependencies(memgraph__benchmark ${target_name})
 endfunction(add_benchmark)
 
 add_benchmark(data_structures/ring_buffer.cpp)
@@ -39,7 +53,9 @@ target_link_libraries(${test_prefix}planner mg-query)
 add_benchmark(query/plan_v2_extract.cpp)
 target_link_libraries(${test_prefix}plan_v2_extract mg-query)
 
-add_benchmark(query/plan_v2_rewrite_saturation.cpp)
+# add_local_benchmark (not add_benchmark): built and runnable locally, but not
+# registered as a ctest, so no CI job runs it. Keep it this way.
+add_local_benchmark(query/plan_v2_rewrite_saturation.cpp)
 target_link_libraries(${test_prefix}plan_v2_rewrite_saturation mg-query)
 
 add_benchmark(query/profile.cpp)
