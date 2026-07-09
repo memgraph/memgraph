@@ -39,9 +39,9 @@ struct Parameters {
    *  @return Value for the given token position.
    */
   const storage::ExternalPropertyValue &AtTokenPosition(int position) const {
-    const auto found = storage_.find(position);
-    MG_ASSERT(found != storage_.end(), "Token position must be present in container");
-    return found->second;
+    auto const *value = MaybeAtTokenPosition(position);
+    MG_ASSERT(value != nullptr, "Token position must be present in container");
+    return *value;
   }
 
   /// The value at `position`, or nullptr if none is bound there. The non-throwing

@@ -257,10 +257,12 @@ struct symbol_build_traits<symbol::Unwind> {
   };
 
   // Dead Unwind's resolved children are the densely-packed [input, list]; the
-  // sym leaf is elided, so the list shifts down one slot.
+  // sym leaf is elided. Only the input is consumed here - the list child is
+  // resolved (for cost/extraction consistency) but its built form is discarded,
+  // since the row count comes from its analysis fact, not an Expression (see
+  // build_dead). No accessor for the list slot on purpose.
   struct dead_slots {
     using input = ChildSlot<child::unwind_dead::input, LogicalOperatorPtr>;
-    using list = ChildSlot<child::unwind_dead::list, Expression *>;
   };
 
   static auto build(BuildState &state, ENodeRef node, Children children) -> result_type {
@@ -279,8 +281,8 @@ struct symbol_build_traits<symbol::Unwind> {
 
   // Dead Unwind: the sym is unused and the list length is statically known (the
   // gate that picks this alt), so emit a CardinalityScale carrying that length.
-  // The list is never built or evaluated; the count comes from the list child's
-  // analysis on the e-node.
+  // The count comes from the list child's analysis fact on the e-node; the list
+  // is never evaluated at runtime (any built Expression for it is discarded).
   static auto build_dead(BuildState &state, ENodeRef node, LogicalOperatorPtr const &input) -> result_type {
     auto const list_eclass = node.children()[child::unwind::list];
     auto const *expr = state.egraph.analysis_of(list_eclass).expression();
