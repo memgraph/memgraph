@@ -122,7 +122,7 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
    private:
     utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_;
     utils::SkipListDb<Entry>::Accessor index_accessor_;
-    [[maybe_unused]] PropertyId property_;
+    PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
     bool bounds_valid_{true};
@@ -190,10 +190,10 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
    private:
     utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_;
     utils::SkipListDb<Entry>::Accessor index_accessor_;
-    [[maybe_unused]] PropertyId property_;
+    PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
-    [[maybe_unused]] bool bounds_valid_{true};
+    bool bounds_valid_{true};
     View view_;
     Storage *storage_;
     Transaction *transaction_;
