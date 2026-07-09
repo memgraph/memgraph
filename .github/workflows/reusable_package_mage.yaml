@@ -1151,7 +1151,10 @@ jobs:
           fi
           for f in "${artifacts[@]}"; do
             [[ -f "$f" ]] || continue
-            echo "::notice::Artifact URL: ${base}/$(basename "$f")"
+            # URL-encode the filename so unsafe chars (+, ~, etc. in daily-build
+            # versions like 3.12.0+5~<commit>) resolve correctly over HTTP.
+            enc=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$(basename "$f")")
+            echo "::notice::Artifact URL: ${base}/${enc}"
           done
 
       - name: Memgraph Docker Cleanup
