@@ -46,6 +46,7 @@
 #ifdef MG_ENTERPRISE
 
 #include <sys/resource.h>
+#include <unistd.h>  // geteuid — the transient-read-failure tests induce EACCES via chmod, which root bypasses
 
 #include <algorithm>
 #include <atomic>
@@ -77,9 +78,26 @@ static fs::path g_storage_root{fs::temp_directory_path() / "MG_test_unit_hot_col
 
 class HotColdResume : public ::testing::Test {
  protected:
+  // Delete `path` even if a prior test left an unreadable (chmod-000) directory behind — the transient
+  // read-failure tests chmod a durability dir to induce EACCES, and a regression that aborts the process
+  // before restoring perms (exactly the crash this suite guards against) would otherwise leave a dir that
+  // plain fs::remove_all cannot descend into, poisoning every subsequent run. Restore owner rwx pre-order
+  // (a dir is made traversable before we reach its children), then remove.
+  static void RemoveAllResilient(const fs::path &path) {
+    std::error_code ec;
+    if (!fs::exists(path, ec)) return;
+    fs::permissions(path, fs::perms::owner_all, fs::perm_options::add, ec);
+    for (auto it = fs::recursive_directory_iterator(path, fs::directory_options::skip_permission_denied, ec);
+         !ec && it != fs::recursive_directory_iterator();
+         it.increment(ec)) {
+      fs::permissions(it->path(), fs::perms::owner_all, fs::perm_options::add, ec);
+    }
+    fs::remove_all(path, ec);
+  }
+
   void SetUp() override {
     test_dir_ = g_storage_root / ::testing::UnitTest::GetInstance()->current_test_info()->name();
-    fs::remove_all(test_dir_);
+    RemoveAllResilient(test_dir_);
     fs::create_directories(test_dir_);
 
     memgraph::storage::UpdatePaths(conf_, test_dir_);
@@ -91,7 +109,7 @@ class HotColdResume : public ::testing::Test {
 
   void TearDown() override {
     handler_.reset();
-    fs::remove_all(test_dir_);
+    RemoveAllResilient(test_dir_);
   }
 
   // Simulate a process restart: tear down the handler (closes durability + storage) and reconstruct
@@ -1025,6 +1043,91 @@ TEST_F(HotColdResume, CorruptDurableEntrySkippedAndDataPreserved) {
   // CRUCIAL: the victim's data dir must NOT have been deleted — cleanup is skipped when the durable view
   // is incomplete, so a parse glitch never escalates to data loss.
   EXPECT_TRUE(fs::exists(victim_dir)) << "a corrupt entry's data dir must be preserved, not reaped by cleanup";
+}
+
+// Regression (hot_cold_oom stress crash @durability.cpp GetSnapshotFiles): a TRANSIENT directory-read
+// failure during a RESUME's recovery must surface as a clean, retriable RECOVERY_FAILED (tenant stays
+// COLD), NEVER a whole-process MG_ASSERT crash. In CI the memory-hog workload drove the snapshot
+// directory_iterator to ENOMEM under the 1 GiB ceiling; GetSnapshotFiles returned std::nullopt and
+// MG_ASSERT(maybe_snapshot_files.has_value()) fired -> LOG_FATAL -> the whole server aborted mid-stress
+// (the "Failed to read from defunct connection" cascade). The fix makes RecoverData throw RecoveryFailure
+// at that nullopt site, which Resume_ catches and maps to RECOVERY_FAILED.
+//
+// This reproduces the exact GetSnapshotFiles-returns-nullopt precondition DETERMINISTICALLY as EACCES
+// (chmod 000 on the snapshot dir) instead of the flaky ENOMEM — both set directory_iterator's error_code
+// and drive the identical `if (error_code) return std::nullopt` branch.
+//
+// Root note: chmod 000 does not deny root (root bypasses permission bits), so the induced EACCES only
+// occurs for a non-root euid — skip under root rather than silently pass a no-op.
+TEST_F(HotColdResume, ResumeTransientSnapshotDirReadFailureStaysColdRetriable) {
+  if (geteuid() == 0) GTEST_SKIP() << "chmod 000 does not induce EACCES for root";
+  constexpr int kNodes = 6;
+  auto name = CreateAndPopulate("snap_dir_eacces", kNodes);
+
+  // Capture the uuid BEFORE suspend — Get() trips the cold seam once the tenant is COLD.
+  std::string uuid_str;
+  {
+    auto acc = handler_->Get(name);
+    uuid_str = static_cast<std::string>(acc->storage()->uuid());
+  }
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  const auto snap_dir = test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / uuid_str / "snapshots";
+  // The snapshots dir must EXIST (so DirExists passes) but be unreadable (so directory_iterator sets
+  // error_code -> GetSnapshotFiles -> std::nullopt) — the exact CI crash precondition. An empty dir is
+  // enough: opendir() fails with EACCES on a chmod-000 dir regardless of its contents.
+  fs::create_directories(snap_dir);
+  fs::permissions(snap_dir, fs::perms::none);
+
+  auto failed = handler_->Resume(name);
+  // Restore perms right away so the dir is readable again for the retry below and TearDown's remove_all.
+  fs::permissions(snap_dir, fs::perms::owner_all);
+
+  ASSERT_FALSE(failed.has_value()) << "a transient snapshot-dir read failure must FAIL the resume, not crash";
+  EXPECT_EQ(failed.error(), DbmsHandler::ResumeError::RECOVERY_FAILED);
+  EXPECT_FALSE(InAll(name)) << "the tenant must stay COLD after the failed resume";
+  EXPECT_TRUE(handler_->IsSuspended(name)) << "the tenant must remain suspended/retriable, not stuck";
+
+  // Retriable + no data loss: with the dir readable again, the resume recovers all data (WAL replay).
+  auto ok = handler_->Resume(name);
+  ASSERT_TRUE(ok.has_value()) << "the resume must succeed once the transient read failure clears";
+  EXPECT_TRUE(InAll(name));
+  EXPECT_EQ(CountNodes(ok.value().db), kNodes) << "no data may be lost across the transient failure";
+}
+
+// Companion to the snapshot-dir case above, covering the WAL-directory read-failure site in RecoverData
+// (the no-snapshot branch's inline directory_iterator over wal_directory_). With snapshot_on_exit=false a
+// suspended tenant's durability lives entirely in the WAL, so on resume RecoverData skips straight to the
+// WAL scan; an unreadable WAL dir (EACCES, deterministic stand-in for the CI ENOMEM) must likewise fail
+// the resume as retriable RECOVERY_FAILED, not crash the process.
+TEST_F(HotColdResume, ResumeTransientWalDirReadFailureStaysColdRetriable) {
+  if (geteuid() == 0) GTEST_SKIP() << "chmod 000 does not induce EACCES for root";
+  constexpr int kNodes = 5;
+  auto name = CreateAndPopulate("wal_dir_eacces", kNodes);
+
+  std::string uuid_str;
+  {
+    auto acc = handler_->Get(name);
+    uuid_str = static_cast<std::string>(acc->storage()->uuid());
+  }
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  const auto wal_dir = test_dir_ / std::string(memgraph::dbms::kMultiTenantDir) / uuid_str / "wal";
+  ASSERT_TRUE(fs::exists(wal_dir)) << "suspend must have left a WAL dir to recover from";
+  fs::permissions(wal_dir, fs::perms::none);
+
+  auto failed = handler_->Resume(name);
+  fs::permissions(wal_dir, fs::perms::owner_all);
+
+  ASSERT_FALSE(failed.has_value()) << "a transient WAL-dir read failure must FAIL the resume, not crash";
+  EXPECT_EQ(failed.error(), DbmsHandler::ResumeError::RECOVERY_FAILED);
+  EXPECT_FALSE(InAll(name)) << "the tenant must stay COLD after the failed resume";
+  EXPECT_TRUE(handler_->IsSuspended(name)) << "the tenant must remain suspended/retriable, not stuck";
+
+  auto ok = handler_->Resume(name);
+  ASSERT_TRUE(ok.has_value()) << "the resume must succeed once the transient read failure clears";
+  EXPECT_TRUE(InAll(name));
+  EXPECT_EQ(CountNodes(ok.value().db), kNodes) << "no data may be lost across the transient failure";
 }
 
 #else

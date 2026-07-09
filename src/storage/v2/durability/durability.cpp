@@ -596,7 +596,13 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   auto *const epoch_history = &repl_storage_state.history;
 
   auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_);
-  MG_ASSERT(maybe_snapshot_files.has_value(), "Couldn't recover data because of the failure to read snapshot files");
+  // A failed directory read here (e.g. ENOMEM from directory_iterator under memory pressure during a
+  // hot/cold RESUME) is transient and retriable, NOT a programmer-invariant violation. Throw
+  // RecoveryFailure so it propagates out of RecoverData -> the resume path catches it and keeps the tenant
+  // COLD (retriable), instead of MG_ASSERT turning a transient OOM into a whole-process crash.
+  if (!maybe_snapshot_files.has_value()) {
+    throw RecoveryFailure("Couldn't recover data because of the failure to read snapshot files");
+  }
   auto const &snapshot_files = *maybe_snapshot_files;
 
   RecoveryInfo recovery_info;
@@ -682,7 +688,11 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         spdlog::error("Recovery failure while reading wal file: {}", e.what());
       }
     }
-    MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
+    // Transient directory-read failure (see the snapshot-files note above) — throw so a RESUME under
+    // memory pressure stays retriable instead of crashing the process.
+    if (error_code) {
+      throw RecoveryFailure("Couldn't recover data because an error occurred: {}!", error_code.message());
+    }
 
     if (wal_files.empty()) {
       spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
@@ -701,7 +711,10 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                   repl_storage_state.epoch_.id());
   }
   auto const maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
-  MG_ASSERT(maybe_wal_files.has_value(), "Couldn't recover data because of the failure to read wal files");
+  // Transient directory-read failure (see the snapshot-files note above) — throw so RESUME stays retriable.
+  if (!maybe_wal_files.has_value()) {
+    throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
+  }
 
   if (auto const &wal_files = *maybe_wal_files; !wal_files.empty()) {
     spdlog::info("Checking WAL files.");
