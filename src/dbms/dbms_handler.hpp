@@ -411,12 +411,6 @@ class DbmsHandler {
   void SetRestoreStreams(std::function<void(DatabaseAccess)> cb) { restore_streams_ = std::move(cb); }
 
   /**
-   * @brief Set the post-publish resume arm (runs AFTER the fresh gatekeeper is published).
-   *        Used for replication wiring. Default empty. Wired in a later (replication) commit.
-   */
-  void SetOnResumeRepl(std::function<void(DatabaseAccess)> cb) { on_resume_repl_ = std::move(cb); }
-
-  /**
    * @brief Resume (move COLD -> HOT) the named tenant, recovering its in-memory storage inline.
    *
    * Synchronous: recovery runs on the calling thread. Single-flight via the gatekeeper — concurrent
@@ -440,7 +434,7 @@ class DbmsHandler {
    */
   ResumeOutcomeResult Resume(std::string_view name, system::Transaction *txn = nullptr) {
     bool already_hot = false;
-    auto result = Resume_(name, /*rewire_replication=*/true, txn, &already_hot);
+    auto result = Resume_(name, txn, &already_hot);
     if (!result) return std::unexpected{result.error()};
     return ResumeOutcome{.db = std::move(*result), .already_hot = already_hot};
   }
@@ -459,9 +453,7 @@ class DbmsHandler {
   /**
    * @brief Resume a tenant identified by UUID (replica-apply path for ResumeDatabaseRpc).
    *
-   * Resolves the UUID to a name from the suspended-set, then runs Resume_ with
-   * rewire_replication=false (the caller holds the repl_state read lock; the post-publish
-   * replication arm would re-take it as a write lock -> self-deadlock).
+   * Resolves the UUID to a name from the suspended-set, then delegates to Resume_.
    *
    * @return ResumeResult — the HOT DatabaseAccess on success, NON_EXISTENT if no COLD tenant has
    *         this UUID (e.g. it was never suspended, or was already resumed by a racing caller).
@@ -579,13 +571,12 @@ class DbmsHandler {
   }
 
   /**
-   * @brief Resume a COLD tenant during replica SystemRecovery (rewire_replication=false).
+   * @brief Resume a COLD tenant during replica SystemRecovery.
    *
    * Called during SystemRecovery when MAIN's incoming HOT config names a tenant this replica holds
-   * COLD: Update() would throw on the COLD shell, so it must be resumed first. rewire=false because
-   * recovery runs in the replica apply context (on_resume_repl_ would re-take the repl_state lock).
+   * COLD: Update() would throw on the COLD shell, so it must be resumed first.
    */
-  ResumeResult ResumeForRecovery(std::string_view name) { return Resume_(name, /*rewire_replication=*/false); }
+  ResumeResult ResumeForRecovery(std::string_view name) { return Resume_(name); }
 
   /**
    * @brief Local uuid of a HOT tenant by name; nullopt if absent or COLD.
@@ -889,12 +880,6 @@ class DbmsHandler {
   /**
    * @brief Implementation of Resume. See Resume() for semantics.
    *
-   * rewire_replication: run the post-publish on_resume_repl_ arm (re-wire MAIN-side replication).
-   * MUST be false when called from the replica replication-apply path (added in a later commit):
-   * that caller already holds the repl_state read lock and on_resume_repl_ would re-take it as a
-   * write lock -> self-deadlock on the non-recursive RWSpinLock. Default true keeps the node-local
-   * (test + query-seam) callers unchanged.
-   *
    * txn: originating system transaction; on success records a ResumeDatabase system action (if
    * non-null) for ordered replication. Default nullptr keeps node-local callers unchanged.
    *
@@ -904,8 +889,7 @@ class DbmsHandler {
    * Left untouched on an error return. Default nullptr for callers that don't care (ResumeByUUID,
    * ResumeForRecovery, and Resume_'s own internal restarts).
    */
-  ResumeResult Resume_(std::string_view name, bool rewire_replication = true, system::Transaction *txn = nullptr,
-                       bool *already_hot = nullptr);
+  ResumeResult Resume_(std::string_view name, system::Transaction *txn = nullptr, bool *already_hot = nullptr);
 
   /**
    * @brief return the storage directory of the associated database
@@ -1138,8 +1122,7 @@ class DbmsHandler {
   std::function<void(DatabaseAccess)> on_resume_;    //!< pre-publish resume arm (triggers/streams/TTL); empty default
   std::function<void(DatabaseAccess)> on_suspend_;   //!< pre-teardown suspend arm (stop streams); empty default
   std::function<void(DatabaseAccess)>
-      restore_streams_;  //!< streams-only restore (undo a stopped suspend); empty default
-  std::function<void(DatabaseAccess)> on_resume_repl_;  //!< post-publish resume arm (replication); empty default
+      restore_streams_;                      //!< streams-only restore (undo a stopped suspend); empty default
   ResumeRetryPolicy resume_retry_policy_{};  //!< Resume_ retry/timeout knobs; test-overridable, production defaults
 #endif
 #ifndef MG_ENTERPRISE

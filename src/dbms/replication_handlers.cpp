@@ -290,8 +290,6 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   }
 
   try {
-    // ResumeByUUID -> Resume_(rewire_replication=false). The apply thread holds no repl_state
-    // lock, so the post-publish replication arm (which would take a repl_state write lock) is skipped.
     auto result = dbms_handler.ResumeByUUID(req.uuid);
     if (result) {
       res = ResumeDatabaseRes(ResumeDatabaseRes::Result::SUCCESS);

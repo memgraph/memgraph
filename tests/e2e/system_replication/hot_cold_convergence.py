@@ -1673,5 +1673,42 @@ def test_drop_recreate_cold_tenant_uuid_fix_converges(connection, test_name):
     assert tenant_probe(main_cursor, "tenant_x")() == 8, "MAIN must also hold 8 nodes after the marker write"
 
 
+def test_write_after_resume_replicates(connection, test_name):
+    instances = {
+        "replica_1": replica_args(test_name, recovery=False),
+        "main": main_args(test_name),
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    set_replica_role(replica_cursor)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    register_replica(main_cursor, sync=True)
+
+    # Create and populate tenant A on MAIN; wait for replica convergence.
+    create_and_populate(main_cursor, "A", 5)
+    mg_sleep_and_assert(5, tenant_probe(replica_cursor, "A"))
+
+    # SUSPEND -> RESUME round trip.
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
+    mg_sleep_and_assert("COLD", tenant_probe(replica_cursor, "A"))
+    execute_and_fetch_all(main_cursor, "RESUME DATABASE A;")
+    mg_sleep_and_assert(5, tenant_probe(replica_cursor, "A"))
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "CREATE ();")
+
+    # Replica must converge to 6 nodes: the 5 original plus the new node
+    mg_sleep_and_assert(6, tenant_probe(replica_cursor, "A"))
+
+    # Replica must be "ready", not "invalid".
+    replicas = execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")
+    assert len(replicas) == 1
+    data_info = replicas[0][4]  # data_info column
+    assert data_info["A"]["status"] == "ready", f"Expected replica db A status 'ready', got: {data_info}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
