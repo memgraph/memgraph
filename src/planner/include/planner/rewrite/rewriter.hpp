@@ -360,12 +360,12 @@ class Rewriter {
     return total_rewrites;
   }
 
-  /// Recompute arming_index_ and closure_depth_ from rules_; both are pure
+  /// Recompute arming_index_ and max_pattern_depth_ from rules_; both are pure
   /// functions of the rule set, so they change only when the rules do.
   // TODO: share as shared_ptr<const> instead of rebuilding per Rewriter (production rebuilds it every query).
   void rebuild_rule_cache() {
     arming_index_ = BuildArmingIndex(rules_);
-    closure_depth_ = MaxRuleSetPatternDepth(rules_);
+    max_pattern_depth_ = MaxRuleSetPatternDepth(rules_);
   }
 
   /// Arm the rules the next pass could newly enable: take the e-classes the last
@@ -374,8 +374,8 @@ class Rewriter {
   /// the change is sparse, retains the active set in active_eclasses_ for
   /// per-candidate matching. Reuses the member buffers across passes.
   void arm_from_touched() {
-    egraph_->touched_eclasses_into(active_eclasses_);              // canonical touched (reused buffer)
-    ComputeActiveSet(*egraph_, active_eclasses_, closure_depth_);  // close under parents, in place
+    egraph_->touched_eclasses_into(active_eclasses_);                  // canonical touched (reused buffer)
+    ComputeActiveSet(*egraph_, active_eclasses_, max_pattern_depth_);  // close under parents, in place
     active_symbols_.clear();
     for (auto const eclass_id : active_eclasses_) {
       for (auto const enode_id : egraph_->eclass(eclass_id).nodes()) {
@@ -422,14 +422,14 @@ class Rewriter {
   ProcessingContext<Symbol> proc_ctx_;
   RewriteContext<Graph> ctx_;
 
-  // Incremental-mode state (Incremental mode only). arming_index_/closure_depth_ are cached from
+  // Incremental-mode state (Incremental mode only). arming_index_/max_pattern_depth_ are cached from
   // rules_ (rebuilt on set_rules); the rest is per-pass scratch reused across
   // passes. full_arm_pending_ is true until this rewriter's first incremental pass,
   // which arms every rule; afterwards arming is driven by the touched-set.
   // active_eclasses_ holds the active set for per-candidate matching when
   // active_sparse_, otherwise it is empty and matching uses incremental arming alone.
   ArmingIndex<Symbol> arming_index_;
-  std::size_t closure_depth_ = 0;
+  std::size_t max_pattern_depth_ = 0;
   boost::unordered_flat_set<Symbol> active_symbols_;
   boost::unordered_flat_set<std::size_t> armed_;
   boost::unordered_flat_set<EClassId> active_eclasses_;
