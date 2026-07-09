@@ -14,6 +14,7 @@
 #include <cstring>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <range/v3/all.hpp>
 #include <ranges>
 #include <string>
@@ -3678,8 +3679,32 @@ antlrcpp::Any CypherMainVisitor::visitExpression4(MemgraphCypher::Expression4Con
   return visitChildren(ctx);
 }
 
+namespace {
+// `-9223372036854775808` (INT64_MIN) can be represented as a signed 64-bit integer, but its
+// unsigned magnitude `9223372036854775808` alone exceeds INT64_MAX and would fail to parse as a
+// bare integer literal. If `ctx` is a lone decimal integer literal with that exact magnitude and
+// nothing else (no node labels, member access, etc.), return the literal's raw text so the caller
+// can fold a directly preceding unary minus into it.
+std::string ExtractInt64MinMagnitude(MemgraphCypher::Expression2aContext *ctx) {
+  if (ctx->nodeLabels()) return {};
+  auto *expression2b = ctx->expression2b();
+  if (!expression2b->memberAccess().empty()) return {};
+  auto *literal = expression2b->atom()->literal();
+  if (!literal || !literal->numberLiteral()) return {};
+  auto *integer_literal = literal->numberLiteral()->integerLiteral();
+  if (!integer_literal || !integer_literal->DecimalLiteral()) return {};
+  return integer_literal->getText();
+}
+}  // namespace
+
 // Unary minus and plus.
 antlrcpp::Any CypherMainVisitor::visitExpression3(MemgraphCypher::Expression3Context *ctx) {
+  auto operators = ExtractOperators(ctx->children, {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
+  if (operators.size() == 1 && operators[0] == MemgraphCypher::MINUS &&
+      ExtractInt64MinMagnitude(ctx->expression2a()) == "9223372036854775808") {
+    return static_cast<Expression *>(
+        storage_->Create<PrimitiveLiteral>(std::numeric_limits<int64_t>::min(), ctx->getStart()->getTokenIndex()));
+  }
   return PrefixUnaryOperator(ctx->expression2a(), ctx->children, {MemgraphCypher::PLUS, MemgraphCypher::MINUS});
 }
 

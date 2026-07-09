@@ -564,6 +564,20 @@ TEST_P(CypherMainVisitorTest, IntegerLiteralTooLarge) {
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 10000000000000000000000000"), SemanticException);
 }
 
+TEST_P(CypherMainVisitorTest, IntegerLiteralInt64Min) {
+  // `-9223372036854775808` is INT64_MIN. Its magnitude alone, `9223372036854775808`, exceeds
+  // INT64_MAX, but the full signed literal is representable and should be accepted.
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN -9223372036854775808"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  ast_generator.CheckLiteral(
+      return_clause->body_.named_expressions[0]->expression_, std::numeric_limits<int64_t>::min(), 1);
+  CheckRWType(query, kRead);
+}
+
 TEST_P(CypherMainVisitorTest, BooleanLiteralTrue) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN TrUe"));
