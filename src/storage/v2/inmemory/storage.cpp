@@ -99,6 +99,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(EDGE_PROPERTY_INDEX_DROP);
     add_case(GLOBAL_EDGE_PROPERTY_INDEX_CREATE);
     add_case(GLOBAL_EDGE_PROPERTY_INDEX_DROP);
+    add_case(GLOBAL_VERTEX_PROPERTY_INDEX_CREATE);
+    add_case(GLOBAL_VERTEX_PROPERTY_INDEX_DROP);
     add_case(TEXT_INDEX_CREATE);
     add_case(TEXT_EDGE_INDEX_CREATE);
     add_case(TEXT_INDEX_DROP);
@@ -2139,6 +2141,35 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   return {};
 }
 
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::CreateGlobalVertexIndex(
+    PropertyId property, CheckCancelFunction cancel_check) {
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
+            "Creating global vertex property index requires unique or read-only access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_vertex_property_index =
+      static_cast<InMemoryVertexPropertyIndex *>(in_memory->indices_.vertex_property_index_.get());
+  auto updater = storage_->indices_.MakeUpdater();
+  if (!mem_vertex_property_index->RegisterIndex(property, updater)) {
+    return std::unexpected{IndexDefinitionError{}};
+  }
+  DowngradeToReadIfValid();
+  if (!mem_vertex_property_index
+           ->PopulateIndex(
+               property, in_memory->vertices_.access(), updater, std::nullopt, &transaction_, std::move(cancel_check))
+           .has_value()) {
+    return std::unexpected{IndexDefinitionCancelationError{}};
+  }
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [=](uint64_t commit_timestamp) { return mem_vertex_property_index->PublishIndex(property, commit_timestamp); });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
+  transaction_.abort_callbacks_.Add([mem_vertex_property_index, property, updater]() {
+    (void)mem_vertex_property_index->DropIndex(property, updater);
+  });
+
+  transaction_.md_deltas.emplace_back(MetadataDelta::global_vertex_property_index_create, property);
+  return {};
+}
+
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ,
@@ -2298,6 +2329,30 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
+  return {};
+}
+
+std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalVertexIndex(
+    PropertyId property) {
+  MG_ASSERT(type() == UNIQUE || type() == READ,
+            "Dropping global vertex property index requires unique or read access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_vertex_property_index =
+      static_cast<InMemoryVertexPropertyIndex *>(in_memory->indices_.vertex_property_index_.get());
+  auto updater = storage_->indices_.MakeUpdater();
+  std::shared_ptr<InMemoryVertexPropertyIndex::IndividualIndex> evicted;
+  storage_->invalidator_->invalidate_now([&] {
+    evicted = mem_vertex_property_index->DropIndex(property, updater);
+    return static_cast<bool>(evicted);
+  });
+  if (!evicted) {
+    return std::unexpected{IndexDefinitionError{}};
+  }
+  transaction_.abort_callbacks_.Add([mem_vertex_property_index, property, updater, evicted]() mutable {
+    mem_vertex_property_index->RestoreIndex(property, std::move(evicted), updater);
+  });
+
+  transaction_.md_deltas.emplace_back(MetadataDelta::global_vertex_property_index_drop, property);
   return {};
 }
 
@@ -2659,6 +2714,38 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
       static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_->label_properties_.get());
   return active_indices->ChunkedVertices(
       label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks, order);
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(PropertyId property, View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesIterable(active_indices->Vertices(
+      property, std::move(vertex_acc), std::nullopt, std::nullopt, view, storage_, &transaction_));
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(PropertyId property, PropertyValue const &value,
+                                                             View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesIterable(active_indices->Vertices(property,
+                                                   std::move(vertex_acc),
+                                                   utils::MakeBoundInclusive(value),
+                                                   utils::MakeBoundInclusive(value),
+                                                   view,
+                                                   storage_,
+                                                   &transaction_));
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
+    PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower_bound,
+    std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesIterable(active_indices->Vertices(
+      property, std::move(vertex_acc), lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
@@ -3764,6 +3851,13 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeEdgePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_property.property);
+        });
+        break;
+      }
+      case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
+      case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEdgePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.vertex_property.property);
         });
         break;
       }
@@ -5025,6 +5119,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       .edge_type_property =
           transaction_.active_indices_->edge_type_properties_->ListIndices(transaction_.start_timestamp),
       .edge_property = transaction_.active_indices_->edge_property_->ListIndices(transaction_.start_timestamp),
+      .vertex_property = transaction_.active_indices_->vertex_property_->ListIndices(transaction_.start_timestamp),
       .text_indices = transaction_.active_indices_->text_->ListIndices(),
       .text_edge_indices = transaction_.active_indices_->text_edge_->ListIndices(),
       .point_label_property = transaction_.active_indices_->point_->ListIndices(),

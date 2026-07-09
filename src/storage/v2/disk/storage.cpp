@@ -1823,6 +1823,10 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
           throw utils::NotYetImplemented(
               "Global edge property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
         }
+        case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE: {
+          throw utils::NotYetImplemented(
+              "Global vertex property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
         case MetadataDelta::Action::LABEL_INDEX_DROP: {
           if (!disk_storage->durable_metadata_.PersistLabelIndexDeletion(md_delta.label)) {
             return std::unexpected{StorageManipulationError{PersistenceError{}}};
@@ -1846,6 +1850,10 @@ std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::Prepare
         case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
           throw utils::NotYetImplemented(
               "Global edge property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
+        case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
+          throw utils::NotYetImplemented(
+              "Global vertex property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
         }
         case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
           throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage. {}", kErrorMessage);
@@ -2579,6 +2587,7 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
       .edge_type = {/* edge type indices */},
       .edge_type_property = {/* edge_type_property */},
       .edge_property = {/*edge property*/},
+      .vertex_property = {/*vertex property*/},
       .text_indices = transaction_.active_indices_->text_->ListIndices(),
       .text_edge_indices = {/* text edge indices */},
       .point_label_property = {/* point indices */},

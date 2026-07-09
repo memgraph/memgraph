@@ -97,6 +97,7 @@ struct IndicesInfo {
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<PropertyId> edge_property;
+  std::vector<PropertyId> vertex_property;
   std::vector<TextIndexSpec> text_indices;
   std::vector<TextEdgeIndexSpec> text_edge_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
@@ -557,6 +558,13 @@ class Accessor {
                                                   std::span<storage::PropertyValueRange const> property_ranges,
                                                   View view, size_t num_chunks, IndexOrder order = IndexOrder::ASC) = 0;
 
+  virtual VerticesIterable Vertices(PropertyId property, View view) = 0;
+
+  virtual VerticesIterable Vertices(PropertyId property, PropertyValue const &value, View view) = 0;
+
+  virtual VerticesIterable Vertices(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower_bound,
+                                    std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view) = 0;
+
   virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 
   virtual std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) = 0;
@@ -617,6 +625,13 @@ class Accessor {
 
   virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                           std::span<PropertyValueRange const> bounds) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(PropertyId property) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(PropertyId property, PropertyValue const &value) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower,
+                                          std::optional<utils::Bound<PropertyValue>> const &upper) const = 0;
 
   virtual uint64_t ApproximateEdgeCount() const = 0;
 
@@ -689,6 +704,10 @@ class Accessor {
   virtual bool EdgePropertyIndexReady(PropertyId property) const = 0;
 
   virtual bool EdgePropertyIndexExists(PropertyId property) const = 0;
+
+  virtual bool VertexPropertyIndexReady(PropertyId property) const = 0;
+
+  virtual bool VertexPropertyIndexExists(PropertyId property) const = 0;
 
   bool TextIndexExists(const std::string &index_name) const {
     return transaction_.active_indices_->text_->IndexExists(index_name);
@@ -783,6 +802,9 @@ class Accessor {
   virtual std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(PropertyId property,
                                                                                  CheckCancelFunction cancel_check) = 0;
 
+  virtual std::expected<void, StorageIndexDefinitionError> CreateGlobalVertexIndex(
+      PropertyId property, CheckCancelFunction cancel_check) = 0;
+
   // Convenience overloads with default cancel check
   auto CreateIndex(LabelId label) -> std::expected<void, StorageIndexDefinitionError> {
     return CreateIndex(label, neverCancel);
@@ -805,6 +827,10 @@ class Accessor {
     return CreateGlobalEdgeIndex(property, neverCancel);
   }
 
+  auto CreateGlobalVertexIndex(PropertyId property) -> std::expected<void, StorageIndexDefinitionError> {
+    return CreateGlobalVertexIndex(property, neverCancel);
+  }
+
   virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) = 0;
 
   virtual std::expected<void, StorageIndexDefinitionError> DropIndex(
@@ -816,6 +842,8 @@ class Accessor {
   virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property) = 0;
 
   virtual std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) = 0;
+
+  virtual std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(PropertyId property) = 0;
 
   virtual std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
                                                                                      storage::PropertyId property) = 0;

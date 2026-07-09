@@ -701,6 +701,8 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
     case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
+    case Marker::DELTA_GLOBAL_VERTEX_PROPERTY_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
     case Marker::DELTA_TEXT_EDGE_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
@@ -858,6 +860,8 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
     case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
+    case Marker::DELTA_GLOBAL_VERTEX_PROPERTY_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
     case Marker::DELTA_TEXT_EDGE_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:

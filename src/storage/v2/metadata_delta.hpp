@@ -45,6 +45,8 @@ struct MetadataDelta {
     EDGE_PROPERTY_INDEX_DROP,
     GLOBAL_EDGE_PROPERTY_INDEX_CREATE,
     GLOBAL_EDGE_PROPERTY_INDEX_DROP,
+    GLOBAL_VERTEX_PROPERTY_INDEX_CREATE,
+    GLOBAL_VERTEX_PROPERTY_INDEX_DROP,
     TEXT_INDEX_CREATE,
     TEXT_EDGE_INDEX_CREATE,
     TEXT_INDEX_DROP,
@@ -114,6 +116,12 @@ struct MetadataDelta {
 
   static constexpr struct GlobalEdgePropertyIndexDrop {
   } global_edge_property_index_drop;
+
+  static constexpr struct GlobalVertexPropertyIndexCreate {
+  } global_vertex_property_index_create;
+
+  static constexpr struct GlobalVertexPropertyIndexDrop {
+  } global_vertex_property_index_drop;
 
   static constexpr struct TextIndexCreate {
   } text_index_create;
@@ -209,6 +217,12 @@ struct MetadataDelta {
 
   MetadataDelta(GlobalEdgePropertyIndexDrop /*tag*/, PropertyId property)
       : action(Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP), edge_property{property} {}
+
+  MetadataDelta(GlobalVertexPropertyIndexCreate /*tag*/, PropertyId property)
+      : action(Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE), vertex_property{property} {}
+
+  MetadataDelta(GlobalVertexPropertyIndexDrop /*tag*/, PropertyId property)
+      : action(Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP), vertex_property{property} {}
 
   MetadataDelta(TextIndexCreate /*tag*/, TextIndexSpec text_index_info)
       : action(Action::TEXT_INDEX_CREATE), text_index(std::move(text_index_info)) {}
@@ -324,6 +338,11 @@ struct MetadataDelta {
       case Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
       case Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
         std::destroy_at(&edge_property);
+        break;
+      }
+      case Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
+      case Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
+        std::destroy_at(&vertex_property);
         break;
       }
       case EXISTENCE_CONSTRAINT_CREATE:
@@ -449,6 +468,10 @@ struct MetadataDelta {
     struct {
       PropertyId property;
     } edge_property;
+
+    struct {
+      PropertyId property;
+    } vertex_property;
 
     struct {
       EnumTypeId etype;

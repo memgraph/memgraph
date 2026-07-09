@@ -246,6 +246,13 @@ class InMemoryStorage final : public Storage {
                                             std::span<storage::PropertyValueRange const> property_ranges, View view,
                                             size_t num_chunks, IndexOrder order) override;
 
+    VerticesIterable Vertices(PropertyId property, View view) override;
+
+    VerticesIterable Vertices(PropertyId property, PropertyValue const &value, View view) override;
+
+    VerticesIterable Vertices(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower_bound,
+                              std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view) override;
+
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
@@ -319,6 +326,19 @@ class InMemoryStorage final : public Storage {
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                     std::span<PropertyValueRange const> bounds) const override {
       return transaction_.active_indices_->label_properties_->ApproximateVertexCount(label, properties, bounds);
+    }
+
+    uint64_t ApproximateVertexCount(PropertyId property) const override {
+      return transaction_.active_indices_->vertex_property_->ApproximateVertexCount(property);
+    }
+
+    uint64_t ApproximateVertexCount(PropertyId property, PropertyValue const &value) const override {
+      return transaction_.active_indices_->vertex_property_->ApproximateVertexCount(property, value);
+    }
+
+    uint64_t ApproximateVertexCount(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower,
+                                    std::optional<utils::Bound<PropertyValue>> const &upper) const override {
+      return transaction_.active_indices_->vertex_property_->ApproximateVertexCount(property, lower, upper);
     }
 
     uint64_t ApproximateEdgeCount() const override { return storage_->edge_count_.load(std::memory_order_acquire); }
@@ -433,6 +453,14 @@ class InMemoryStorage final : public Storage {
       return transaction_.active_indices_->edge_property_->IndexReady(property);
     }
 
+    bool VertexPropertyIndexExists(PropertyId property) const override {
+      return transaction_.active_indices_->vertex_property_->IndexExists(property);
+    }
+
+    bool VertexPropertyIndexReady(PropertyId property) const override {
+      return transaction_.active_indices_->vertex_property_->IndexReady(property);
+    }
+
     bool PointIndexExists(LabelId label, PropertyId property) const override;
 
     IndicesInfo ListAllIndices() const override;
@@ -467,6 +495,7 @@ class InMemoryStorage final : public Storage {
 
     // Bring base class convenience overloads into scope (they provide default neverCancel)
     using Storage::Accessor::CreateGlobalEdgeIndex;
+    using Storage::Accessor::CreateGlobalVertexIndex;
     using Storage::Accessor::CreateIndex;
 
     /// Create an index.
@@ -510,6 +539,9 @@ class InMemoryStorage final : public Storage {
     std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(PropertyId property,
                                                                            CheckCancelFunction cancel_check) override;
 
+    std::expected<void, StorageIndexDefinitionError> CreateGlobalVertexIndex(PropertyId property,
+                                                                             CheckCancelFunction cancel_check) override;
+
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
@@ -541,6 +573,8 @@ class InMemoryStorage final : public Storage {
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `IndexDefinitionError`: the index does not exist.
     std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) override;
+
+    std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(PropertyId property) override;
 
     std::expected<void, StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
                                                                       storage::PropertyId property) override;
