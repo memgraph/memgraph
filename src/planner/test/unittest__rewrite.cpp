@@ -230,13 +230,10 @@ TEST(IncrementalArming, ActiveRootRestrictionOnlyForRootEntryPatterns) {
 }
 
 TEST(IncrementalArming, IncrementalEqualsFullWhenDeepEntryMatchGrowsFromUntouchedChild) {
-  // Regression for the entry-vs-root soundness bug. double_neg = Neg(Neg(?x)) is a
-  // DEEP-ENTRY pattern: the VM enters at the inner Neg (deepest symbol), not the
-  // root outer Neg. When a new outer Neg is grown over an already-settled,
-  // UNTOUCHED inner chain, the touched-set holds only the outer class and the
-  // active set (closed under parents) never reaches the inner Neg - which is the
-  // entry. A per-candidate restriction keyed to the entry would drop the match
-  // Full finds. Incremental must still equal Full. Pre-fix this diverged.
+  // Incremental must equal Full for a deep-entry pattern. double_neg = Neg(Neg(?x))
+  // enters at the inner Neg (deepest symbol), not the root. Growing an outer Neg over
+  // an untouched inner chain leaves the inner Neg (the entry) outside the active set,
+  // so the rule matches all candidates instead of active-restricted ones.
   auto run = [](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
     EGraph<Op, NoAnalysis> eg;
     // Padding keeps the post-growth active set a sparse slice, so the
@@ -261,11 +258,10 @@ TEST(IncrementalArming, IncrementalEqualsFullWhenDeepEntryMatchGrowsFromUntouche
 }
 
 TEST(IncrementalArming, IncrementalEqualsFullAcrossReSaturateForRootEntryRule) {
-  // Incremental-reuse path: grow the graph between two saturate() calls on the
-  // same rewriter, so the second arms from a touched-set that survived the first.
-  // idempotent_f = F(?x,?x) is root-entry, so it does use the per-candidate active
-  // restriction - the grown match must still be found. Guards the cross-saturate
-  // path that was previously untested with a mutation between calls.
+  // Grows the graph between two saturate() calls on the same rewriter; the second
+  // arms from the touched-set that survived the first. idempotent_f = F(?x,?x) is
+  // root-entry, so it uses the per-candidate restriction - the grown match must
+  // still be found, and Incremental must equal Full.
   auto run = [](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
     EGraph<Op, NoAnalysis> eg;
     for (int i = 0; i < 24; ++i) eg.emplace(Op::A, static_cast<uint64_t>(i));
@@ -287,11 +283,10 @@ TEST(IncrementalArming, IncrementalEqualsFullAcrossReSaturateForRootEntryRule) {
 }
 
 TEST(IncrementalArming, ModeSwitchOnOneRewriterMatchesAllIncremental) {
-  // The touched-set is graph-level state both modes write; a Full pass does not
-  // clear it (see saturate()), so a later Incremental saturate on the SAME rewriter
-  // arms from what Full changed - the carry-over the iterate_once() oracle also
-  // relies on. Drive a sequence that ends on Incremental after a `middle` pass and
-  // confirm it reaches the same fixpoint whether `middle` was Full or Incremental.
+  // A Full pass leaves the graph-level touched-set intact, so a later Incremental
+  // saturate on the SAME rewriter arms from what Full changed. Checks that a
+  // `middle` pass (Full or Incremental) between two growths reaches the same
+  // fixpoint either way.
   auto run = [](ArmingMode middle) -> std::pair<std::size_t, std::size_t> {
     EGraph<Op, NoAnalysis> eg;
     auto top = BuildNegChain(eg, 6);
@@ -322,9 +317,9 @@ TEST(IncrementalArming, ModeSwitchOnOneRewriterMatchesAllIncremental) {
 }
 
 TEST(IncrementalArming, IncrementalEqualsFullUnderBoundedBudget) {
-  // An Incremental<->Full differential under a *bounded* budget (every other one uses
-  // Unlimited()). Given enough iterations to reach the fixpoint, Incremental must land
-  // on exactly Full's result - guards the production path (ApplyAllRewrites).
+  // Incremental equals Full under a *bounded* budget (others use Unlimited()): given
+  // enough iterations to reach the fixpoint, Incremental lands on exactly Full's
+  // result - the budget-limited production path (ApplyAllRewrites).
   constexpr RewriteConfig kBounded{.max_iterations = 16};  // > chain depth: both saturate
   EGraph<Op, NoAnalysis> arm_all_eg;
   BuildNegChain(arm_all_eg, 8);
