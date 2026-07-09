@@ -1882,6 +1882,27 @@ TYPED_TEST(InterpreterTest, AnalyzeGraphDeduplicatesAscDescIndexes) {
   EXPECT_EQ(deleted_labels, (std::set<std::string>{"LabelA", "LabelB"}));
 }
 
+TYPED_TEST(InterpreterTest, MixedSignListSharesCacheEntryAndKeepsValues) {
+  auto values = [](const auto &stream) {
+    std::vector<int64_t> out;
+    for (const auto &v : stream.GetResults()[0][0].ValueList()) out.push_back(v.ValueInt());
+    return out;
+  };
+  EXPECT_EQ(this->AstCacheSize(), 0U);
+  auto s1 = this->Interpret("RETURN [-1, 2, -3] AS x");
+  auto s2 = this->Interpret("RETURN [4, -5, 6] AS x");
+  EXPECT_EQ(values(s1), (std::vector<int64_t>{-1, 2, -3}));
+  EXPECT_EQ(values(s2), (std::vector<int64_t>{4, -5, 6}));
+  EXPECT_EQ(this->AstCacheSize(), 1U);
+}
+
+TYPED_TEST(InterpreterTest, ListWithSubtractionKeepsBinaryMinus) {
+  auto stream = this->Interpret("RETURN [1-2, 3] AS x");
+  const auto &list = stream.GetResults()[0][0].ValueList();
+  EXPECT_EQ(list[0].ValueInt(), -1);
+  EXPECT_EQ(list[1].ValueInt(), 3);
+}
+
 TEST(AstCacheBounded, EvictsBeyondMaxSize) {
   constexpr std::size_t kMaxSize = 2;
   memgraph::query::AstCache cache{kMaxSize};
