@@ -139,6 +139,15 @@ auto BuildNegChain(EGraph<Op, NoAnalysis> &eg, int depth) -> EClassId {
   for (int i = 0; i < depth; ++i) top = eg.emplace(Op::Neg, {top}).eclass_id;
   return top;
 }
+
+// Run `build_and_saturate(mode)` under both arming modes; the returned final shape
+// (e-class + live-node counts) must match - incremental arming only skips rules or
+// prunes candidates, so it reaches the same fixpoint as full.
+template <typename BuildAndSaturate>
+void ExpectSameShapeUnderBothModes(BuildAndSaturate build_and_saturate) {
+  EXPECT_EQ(build_and_saturate(ArmingMode::Incremental), build_and_saturate(ArmingMode::Full))
+      << "arming mode changed the final e-graph shape (e-class, live-node counts)";
+}
 }  // namespace
 
 TEST(IncrementalArming, IncrementalEqualsFull) {
@@ -221,7 +230,7 @@ TEST(IncrementalArming, IncrementalEqualsFullWhenDeepEntryMatchGrowsFromUntouche
   // enters at the inner Neg (deepest symbol), not the root. Growing an outer Neg over
   // an untouched inner chain leaves the inner Neg (the entry) outside the active set,
   // so the rule matches all candidates instead of active-restricted ones.
-  auto run = [](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothModes([](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
     EGraph<Op, NoAnalysis> eg;
     // Padding keeps the post-growth active set a sparse slice, so the
     // per-candidate path (not the >=half short-circuit) is exercised.
@@ -237,10 +246,7 @@ TEST(IncrementalArming, IncrementalEqualsFullWhenDeepEntryMatchGrowsFromUntouche
     rewriter.saturate(RewriteConfig::Unlimited(), mode);
 
     return {eg.num_classes(), eg.num_live_nodes()};
-  };
-  auto const arm_all = run(ArmingMode::Full);
-  auto const incremental = run(ArmingMode::Incremental);
-  EXPECT_EQ(incremental, arm_all) << "incremental arming diverged from Full (e-class, live-node counts)";
+  });
 }
 
 TEST(IncrementalArming, IncrementalEqualsFullAcrossReSaturateForRootEntryRule) {
@@ -248,7 +254,7 @@ TEST(IncrementalArming, IncrementalEqualsFullAcrossReSaturateForRootEntryRule) {
   // arms from the touched-set that survived the first. idempotent_f = F(?x,?x) is
   // root-entry, so it uses the per-candidate restriction - the grown match must
   // still be found, and Incremental must equal Full.
-  auto run = [](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothModes([](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
     EGraph<Op, NoAnalysis> eg;
     for (int i = 0; i < 24; ++i) eg.emplace(Op::A, static_cast<uint64_t>(i));
     auto const y = eg.emplace(Op::Var, 1).eclass_id;
@@ -261,10 +267,7 @@ TEST(IncrementalArming, IncrementalEqualsFullAcrossReSaturateForRootEntryRule) {
     rewriter.saturate(RewriteConfig::Unlimited(), mode);  // must merge f with y
 
     return {eg.num_classes(), eg.num_live_nodes()};
-  };
-  auto const arm_all = run(ArmingMode::Full);
-  auto const incremental = run(ArmingMode::Incremental);
-  EXPECT_EQ(incremental, arm_all);
+  });
 }
 
 TEST(IncrementalArming, ModeSwitchOnOneRewriterMatchesAllIncremental) {
@@ -272,7 +275,7 @@ TEST(IncrementalArming, ModeSwitchOnOneRewriterMatchesAllIncremental) {
   // saturate on the SAME rewriter arms from what Full changed. Checks that a
   // `middle` pass (Full or Incremental) between two growths reaches the same
   // fixpoint either way.
-  auto run = [](ArmingMode middle) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothModes([](ArmingMode middle) -> std::pair<std::size_t, std::size_t> {
     EGraph<Op, NoAnalysis> eg;
     auto top = BuildNegChain(eg, 6);
     TestRewriter rewriter{eg, TestRuleSet::Build(make_double_neg_rule())};
@@ -295,10 +298,7 @@ TEST(IncrementalArming, ModeSwitchOnOneRewriterMatchesAllIncremental) {
     EXPECT_TRUE(result.saturated());
     EXPECT_EQ(rewriter.iterate_once(), 0U);  // sharp oracle: a true fixpoint
     return {eg.num_classes(), eg.num_live_nodes()};
-  };
-  auto const all_incremental = run(ArmingMode::Incremental);
-  auto const mode_switched = run(ArmingMode::Full);
-  EXPECT_EQ(mode_switched, all_incremental) << "a Full pass mid-session corrupted the incremental carry-over";
+  });
 }
 
 TEST(IncrementalArming, SetRulesUnderIncrementalRearmsForTheNewRules) {
