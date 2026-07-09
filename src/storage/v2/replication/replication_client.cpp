@@ -68,6 +68,14 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   auto &main_repl_state = main_storage->repl_storage_state_;
   auto const &main_db_name = main_storage->name();
 
+  // A broken main holds no valid data for this tenant. Driving recovery from it would overwrite a
+  // healthy replica with corrupt/empty state, so skip until the tenant is cured. Recovery resumes
+  // automatically once the broken flag is cleared.
+  if (main_storage->IsBroken()) {
+    spdlog::trace("Skipping replica {} state check for db {}: main storage is broken.", client_.name_, main_db_name);
+    return;
+  }
+
   // stream should be destroyed so that RPC lock is released before taking engine lock
   std::optional<replication::HeartbeatRes> const maybe_heartbeat_res =
       std::invoke([&]() -> std::optional<replication::HeartbeatRes> {

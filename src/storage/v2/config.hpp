@@ -82,6 +82,10 @@ struct Config {
 
     bool recover_on_startup{false};  // PER INSTANCE SYSTEM FLAG
 
+    // When true, a tenant that fails durability recovery comes up in a broken
+    // state instead of crashing the process. PER INSTANCE SYSTEM FLAG.
+    bool allow_recovery_failure{false};
+
     SnapshotWalMode snapshot_wal_mode{
         SnapshotWalMode::DISABLED};  // PER DATABASE - as at time of initialization; can be changed by
                                      // enabling/disabling the periodic snapshot

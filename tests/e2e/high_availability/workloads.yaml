@@ -31,6 +31,14 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/durability.py"]
 
+  - name: "Broken replica self-heal"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/broken_replica_self_heal.py"]
+
+  - name: "HA broken cure flows"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/broken_cure_flows.py"]
+
   - name: "Strict sync mode"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/strict_sync.py"]

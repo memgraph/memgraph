@@ -1095,8 +1095,8 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
           "from MAIN — align the WAL/snapshot durability flags across the cluster.",
           name);
     }
-    // Suspend does NOT gate on whether replicas are registered. Hot/cold is a system-replicated operation (sibling of
-    // CREATE/DROP DATABASE): suspending a tenant that has replicas is the SUPPORTED flow — the
+    // Suspend does NOT gate on whether replicas are registered. Hot/cold is a system-replicated operation
+    // (sibling of CREATE/DROP DATABASE): suspending a tenant that has replicas is the SUPPORTED flow — the
     // SuspendDatabase system action streams a SuspendDatabaseRpc so each replica tears down its own
     // copy in system-timestamp order. The earlier "reject while replicating" guard encoded only the
     // v1 node-local limitation (no wire to tell replicas) and protects no MAIN-local invariant:

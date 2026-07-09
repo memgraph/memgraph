@@ -303,6 +303,12 @@ constexpr std::string_view kSocketErrorExplanation =
     "The socket address must be a string defining the address and port, delimited by a "
     "single colon. The address must be valid and the port must be an integer.";
 
+constexpr std::string_view kBrokenDatabaseError =
+    "Database is in the broken state because the recovery process failed. Please recover your database "
+    "using the RECOVER SNAPSHOT query. If you have a "
+    "backup of the whole data directory, please replace the current data directory with the backup one and "
+    "restart the process.";
+
 #ifdef MG_ENTERPRISE
 void EnsureMainInstance(InterpreterContext *interpreter_context, const std::string &operation_name) {
   if (interpreter_context->repl_state->ReadLock()->IsReplica()) {
@@ -3433,6 +3439,12 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         expect_rollback_ = false;
         if (!current_db_.db_acc_)
           throw DatabaseContextRequiredException("No current database for transaction defined.");
+        // Fail-closed on a broken database: an explicit transaction opens a data accessor and its queries
+        // bypass the per-query broken gate (which only runs outside explicit transactions), so reject the
+        // BEGIN itself. The tenant must first be recovered via RECOVER SNAPSHOT.
+        if ((*current_db_.db_acc_)->storage()->IsBroken()) {
+          throw QueryException(kBrokenDatabaseError);
+        }
         SetupDatabaseTransaction(true,
                                  extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE);
       };
@@ -6276,7 +6288,8 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
             }
             case BackupFailure: {
               throw utils::BasicException(
-                  "Failed to clear local wal and snapshots directories. Please clean them manually.");
+                  "The snapshot was recovered, but the old wal and snapshots directories could not be archived. "
+                  "Please clean them manually, or re-run RECOVER SNAPSHOT ... FORCE.");
             }
             case DownloadFailure: {
               throw utils::BasicException("Failed to download snapshot file from {}", path);
@@ -6294,7 +6307,9 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
               throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_SECRET_KEY));
             }
             case FailedOverwritingUUID: {
-              throw utils::BasicException("Failed to overwrite snapshot with a new storage UUID");
+              throw utils::BasicException(
+                  "The snapshot was recovered, but overwriting it with the new storage UUID failed; the on-disk "
+                  "snapshot may not be picked up on restart. Re-run RECOVER SNAPSHOT ... FORCE.");
             }
             default: {
               std::unreachable();
@@ -7417,6 +7432,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                TypedValue(tenant_limit > 0 ? utils::GetReadableSize(static_cast<double>(tenant_limit))
                                            : std::string("unlimited"))},
               {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
+              {TypedValue("health"), TypedValue(storage->IsBroken() ? "broken" : "ready")},
           };
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
@@ -7893,7 +7909,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   break;
                 case dbms::NewError::DEFUNCT:
                   throw QueryRuntimeException(
-                      "{} is defunct and in an unknown state. Try to delete it again or clean up storage and restart "
+                      "{} is broken and in an unknown state. Try to delete it again or clean up storage and restart "
                       "Memgraph.");
                 case dbms::NewError::GENERIC:
                   throw QueryRuntimeException("Failed while creating {}", db_name);
@@ -8260,9 +8276,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  // SHOW DATABASES carries a "state" column (HOT/COLD) and lists COLD tenants (which are excluded from
-  // All() as no-value shells, so they would otherwise vanish).
-  callback.header = std::vector<std::string>{"Name", "state"};
+  // SHOW DATABASES carries a "state" column (HOT/COLD) and a "health" column (ready/broken), and lists
+  // COLD tenants (which are excluded from All() as no-value shells, so they would otherwise vanish).
+  callback.header = std::vector<std::string>{"Name", "State", "Health"};
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
@@ -8278,6 +8294,17 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       status_of.emplace(std::move(name), std::move(st));
     }
 
+    // A database that failed durability recovery comes up broken (see
+    // --storage-allow-recovery-failure); report that so operators can spot it.
+    auto health_of = [db_handler](std::string_view name) -> std::string {
+      try {
+        return db_handler->Get(name)->storage()->IsBroken() ? "broken" : "ready";
+      } catch (const memgraph::dbms::UnknownDatabaseException &) {
+        // The database was dropped between listing and querying; treat it as ready (it is gone).
+        return "ready";
+      }
+    };
+
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
       Sort(all);
 
@@ -8288,7 +8315,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
         // status_of carries the HOT/COLD string. A granted name not in the
         // snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
         auto it = status_of.find(ns);
-        status.push_back({TypedValue(ns), TypedValue(it != status_of.end() ? it->second : std::string{"HOT"})});
+        status.push_back({TypedValue(ns),
+                          TypedValue(it != status_of.end() ? it->second : std::string{"HOT"}),
+                          TypedValue(health_of(ns))});
       }
 
       std::erase_if(status, [&](auto const &row) {
@@ -9918,6 +9947,54 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto transaction_requirements = QueryTransactionRequirements{
           parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
+
+      // Fail-closed gate for broken databases (those that failed durability recovery and
+      // came up empty under --storage-allow-recovery-failure). Any query that operates on
+      // the current database's data is rejected until it is recovered via RECOVER SNAPSHOT.
+      // Meta queries (USE/SHOW DATABASES, SHOW STORAGE INFO, auth,
+      // replication, ...) do not touch the tenant graph and are allowed through.
+      if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsBroken()) {
+        auto *q = parsed_query.query;
+        // Allowlist: in the broken state only the cure query (RECOVER SNAPSHOT)
+        // and meta/admin queries that never touch the tenant graph are permitted. Everything else
+        // (Cypher, DDL, CREATE SNAPSHOT, SHOW INDEX/CONSTRAINT/NODE LABELS/EDGE TYPES/METRICS INFO, ...)
+        // is rejected until the database is recovered: those SHOW ... INFO variants read tenant-graph
+        // metadata from the empty post-recovery-failure storage and would otherwise return a misleading
+        // clean 0-row result instead of surfacing the broken health. Auth, replication, profile and
+        // other instance-level queries operate on system state rather than the tenant graph, so they
+        // remain available for remediation while a tenant is broken.
+        auto const is_allowed =
+            [q]<typename... Ts>() {
+              return (... || (utils::Downcast<Ts>(q) != nullptr));
+            }.template operator()<RecoverSnapshotQuery,
+                                  SystemInfoQuery,
+                                  ReplicationInfoQuery,
+                                  ShowConfigQuery,
+                                  ShowQueryCallableMappingsQuery,
+                                  SettingQuery,
+                                  VersionQuery,
+                                  UseDatabaseQuery,
+                                  MultiDatabaseQuery,
+                                  ShowDatabaseQuery,
+                                  ShowDatabasesQuery,
+                                  ShowMemoryInfoQuery,
+                                  SessionTraceQuery,
+                                  SessionSettingQuery,
+                                  AuthQuery,
+                                  ReplicationQuery,
+                                  UserProfileQuery,
+                                  TenantProfileQuery,
+                                  ParameterQuery,
+                                  TransactionQueueQuery,
+                                  LockPathQuery,
+                                  FreeMemoryQuery,
+                                  CoordinatorQuery,
+                                  ReloadSSLQuery>();
+        if (!is_allowed) {
+          throw QueryException(kBrokenDatabaseError);
+        }
+      }
+
       if (transaction_requirements.accessor_type_) {
         if (transaction_requirements.isolation_level_override_) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);

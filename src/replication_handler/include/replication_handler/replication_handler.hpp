@@ -140,7 +140,10 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                           params_snapshot);
 #endif
     });
-    if (const auto response = stream.SendAndWait(); response.result == SystemRecoveryRes::Result::FAILURE) {
+    auto const response = stream.SendAndWait();
+    if (response.result == SystemRecoveryRes::Result::FAILURE) {
+      // System recovery failed; do not record confirmations so the reset is re-advertised on the next
+      // SystemRestore.
       client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
       return;
     }

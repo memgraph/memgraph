@@ -99,6 +99,7 @@ struct SystemRecoveryReqV2 {
 // replica converges to MAIN's authoritative {HOT ∪ COLD} set. Each entry carries a suspended tenant's
 // salient config and MAIN's as-of-suspend stats snapshot. ColdTenantRecovery is composed of storage::
 // types only, so the dbms reconcile signature stays cycle-free.
+
 struct SystemRecoveryReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_REQ, .name = "SystemRecoveryReq"};
   static constexpr uint64_t kVersion{3};
