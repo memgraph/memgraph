@@ -543,19 +543,13 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] u
       // skiplist is intentionally empty after recovery. RebuildFrom derives metadata
       // directly from the adjacency, so its count is correct by construction.
       if (edges->size() != 0) {
-        if (config.durability.allow_recovery_failure) {
-          throw RecoveryFailure("Edge skiplist must be empty after light-edge recovery!");
-        }
-        LOG_FATAL("Edge skiplist must be empty after light-edge recovery!");
+        throw RecoveryFailure("Edge skiplist must be empty after light-edge recovery!");
       }
     } else if (edges_metadata->size() != edges->size()) {
       // Every recovered edge must have an edge - metadata entry;
       //  fail at recovery rather
       //  than later in GC or via lookups.
-      if (config.durability.allow_recovery_failure) {
-        throw RecoveryFailure("Edge metadata count does not match edge count after recovery!");
-      }
-      LOG_FATAL("Edge metadata count does not match edge count after recovery!");
+      throw RecoveryFailure("Edge metadata count does not match edge count after recovery!");
     }
   }
 
@@ -606,10 +600,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
   auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_);
   if (!maybe_snapshot_files.has_value()) {
-    if (config.durability.allow_recovery_failure) {
-      throw RecoveryFailure("Couldn't recover data because of the failure to read snapshot files");
-    }
-    LOG_FATAL("Couldn't recover data because of the failure to read snapshot files");
+    throw RecoveryFailure("Couldn't recover data because of the failure to read snapshot files");
   }
   auto const &snapshot_files = *maybe_snapshot_files;
 
@@ -654,15 +645,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       }
     }
     if (!recovered_snapshot) {
-      if (config.durability.allow_recovery_failure) {
-        throw RecoveryFailure(
-            "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database. The "
-            "database is now in the broken state.");
-      }
-      LOG_FATAL(
-          "The database is configured to recover on startup, but couldn't "
-          "recover using any of the specified snapshots! Please inspect them "
-          "and restart the database.");
+      throw RecoveryFailure(
+          "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database. The "
+          "database is now in the broken state.");
     }
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
@@ -704,10 +689,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       }
     }
     if (error_code) {
-      if (config.durability.allow_recovery_failure) {
-        throw RecoveryFailure("Couldn't recover data because an error occurred: {}!", error_code.message());
-      }
-      LOG_FATAL("Couldn't recover data because an error occurred: {}!", error_code.message());
+      throw RecoveryFailure("Couldn't recover data because an error occurred: {}!", error_code.message());
     }
 
     if (wal_files.empty()) {
@@ -728,10 +710,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   }
   auto const maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
   if (!maybe_wal_files.has_value()) {
-    if (config.durability.allow_recovery_failure) {
-      throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
-    }
-    LOG_FATAL("Couldn't recover data because of the failure to read wal files");
+    throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
   }
 
   if (auto const &wal_files = *maybe_wal_files; !wal_files.empty()) {
@@ -748,24 +727,14 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           // We didn't recover from a snapshot, and we must have all WAL files
           // starting from the first one (seq_num == 0) to be able to recover
           // data from them.
-          if (config.durability.allow_recovery_failure) {
-            throw RecoveryFailure("There are missing prefix WAL files and data can't be recovered without them!");
-          }
-          LOG_FATAL(
-              "There are missing prefix WAL files and data can't be "
-              "recovered without them!");
+          throw RecoveryFailure("There are missing prefix WAL files and data can't be recovered without them!");
         } else if (first_wal.from_timestamp > *snapshot_durable_timestamp) {
           // We recovered from a snapshot and we must have at least one WAL file
           // that has at least one delta that was created before the snapshot in order to
           // verify that nothing is missing from the beginning of the WAL chain.
-          if (config.durability.allow_recovery_failure) {
-            throw RecoveryFailure(
-                "You must have at least one WAL file that contains at least one delta that was created before the "
-                "snapshot file!");
-          }
-          LOG_FATAL(
-              "You must have at least one WAL file that contains at least one "
-              "delta that was created before the snapshot file!");
+          throw RecoveryFailure(
+              "You must have at least one WAL file that contains at least one delta that was created before the "
+              "snapshot file!");
         }
       }
     }
@@ -775,11 +744,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
     for (const auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
-        if (config.durability.allow_recovery_failure) {
-          throw RecoveryFailure(
-              fmt::format("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1));
-        }
-        LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
+        throw RecoveryFailure("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
       }
       previous_seq_num = wal_file.seq_num;
 
@@ -826,10 +791,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         }
 
       } catch (const RecoveryFailure &e) {
-        if (config.durability.allow_recovery_failure) {
-          throw RecoveryFailure("Couldn't recover WAL deltas from {} because of: {}", wal_file.path.string(), e.what());
-        }
-        LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
+        throw RecoveryFailure("Couldn't recover WAL deltas from {} because of: {}", wal_file.path.string(), e.what());
       }
     }
     // The sequence number needs to be recovered even though `LoadWal` didn't

@@ -1,4 +1,4 @@
-# Slice 2 — Defunct/ready status reporting
+# Slice 2 — Broken/ready health reporting
 
 **Type:** AFK
 **Triage:** ready-for-agent
@@ -9,24 +9,24 @@
 
 ## What to build
 
-Surface a tenant's defunct/ready state through the two operator-facing queries:
+Surface a tenant's broken/ready state through the two operator-facing queries:
 
-- `SHOW DATABASES` gains a second column, `Status`, with values `ready` or
-  `defunct`, populated by reading each database's defunct flag.
-- `SHOW STORAGE INFO` gains an always-present key/value row `status` =
-  `ready` / `defunct` (for both healthy and defunct databases).
+- `SHOW DATABASES` gains a `Health` column, with values `ready` or
+  `broken`, populated by reading each database's broken flag.
+- `SHOW STORAGE INFO` gains an always-present key/value row `health` =
+  `ready` / `broken` (for both healthy and broken databases).
 
 ## Acceptance criteria
 
-- [ ] `SHOW DATABASES` returns columns `Name`, `Status`; defunct tenants show `defunct`, healthy show `ready`.
-- [ ] `SHOW STORAGE INFO` (current DB and `ON DATABASE <name>`) includes a `status` row with `ready`/`defunct`.
-- [ ] Both queries work when run against / listing a defunct tenant (they are on the gate allowlist).
+- [ ] `SHOW DATABASES` returns a `Health` column (alongside `Name`, `State`); broken tenants show `broken`, healthy show `ready`.
+- [ ] `SHOW STORAGE INFO` (current DB and `ON DATABASE <name>`) includes a `health` row with `ready`/`broken`.
+- [ ] Both queries work when run against / listing a broken tenant (they are on the gate allowlist).
 
 ### Tests (verification gate)
 
-- [ ] **E2E (`tests/e2e/durability/`):** with one defunct and one healthy tenant, assert `SHOW DATABASES` reports `defunct` and `ready` for the respective rows.
-- [ ] **E2E:** `SHOW STORAGE INFO ON DATABASE <defunct>` contains `status = defunct`; for a healthy DB it contains `status = ready`.
+- [ ] **E2E (`tests/e2e/durability/`):** with one broken and one healthy tenant, assert `SHOW DATABASES` reports `broken` and `ready` for the respective rows.
+- [ ] **E2E:** `SHOW STORAGE INFO ON DATABASE <broken>` contains `health = broken`; for a healthy DB it contains `health = ready`.
 
 ## Blocked by
 
-- Slice 1 (`specs/issues/01-walking-skeleton-flag-defunct-gate.md`)
+- Slice 1 (`specs/issues/01-walking-skeleton-flag-broken-gate.md`)

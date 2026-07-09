@@ -3433,7 +3433,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         // bypass the per-query broken gate (which only runs outside explicit transactions), so reject the
         // BEGIN itself. The tenant must first be recovered via RECOVER SNAPSHOT.
         if ((*current_db_.db_acc_)->storage()->IsBroken()) {
-          throw QueryException(std::string{kBrokenDatabaseError});
+          throw QueryException(kBrokenDatabaseError);
         }
         SetupDatabaseTransaction(true,
                                  extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE);
@@ -9978,7 +9978,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                   CoordinatorQuery,
                                   ReloadSSLQuery>();
         if (!is_allowed) {
-          throw QueryException(std::string{kBrokenDatabaseError});
+          throw QueryException(kBrokenDatabaseError);
         }
       }
 

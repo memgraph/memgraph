@@ -1,4 +1,4 @@
-# Slice 1 — Walking skeleton: flag + defunct-on-snapshot-failure + query gate
+# Slice 1 — Walking skeleton: flag + broken-on-snapshot-failure + query gate
 
 **Type:** HITL (foundation review before fan-out)
 **Triage:** ready-for-human
@@ -21,29 +21,33 @@ The end-to-end spine of the feature, exercised through the single
   `RecoveryFailure` instead of being fatal. When off, behavior is unchanged.
 - The `InMemoryStorage` constructor catches `RecoveryFailure` (flag on): scrubs
   partial state via the existing `Clear()` reset-to-empty path (plus reset of the
-  name-id mapper and description store), sets an **in-memory** `defunct` flag, and
+  name-id mapper and description store), sets an **in-memory** `broken` flag, and
   **skips the file-move-to-`.backup` branch** so the corrupt `snapshots/`/`wal/`
   files are left byte-for-byte untouched. Construction then succeeds, yielding a
-  valid-but-defunct storage (no `DbmsHandler` try/catch needed).
-- Defunct state is surfaced from `Storage` → `Database`.
+  valid-but-broken storage (no `DbmsHandler` try/catch needed).
+- Broken state is surfaced from `Storage` → `Database`.
 - Background snapshot writes are guarded: the periodic snapshot handler and the
-  exit-snapshot path early-return while defunct (no empty snapshot ever
+  exit-snapshot path early-return while broken (no empty snapshot ever
   overwrites the corrupt files). WAL is never written because commits are
   rejected.
-- A broad, fail-closed query gate: any query that would operate on a defunct
+- A broad, fail-closed query gate: any query that would operate on a broken
   current database throws the verbatim exception below. Allowlist: the cure query
-  `RECOVER SNAPSHOT` plus read-only meta / session / info queries that never touch
-  the tenant graph — `RecoverSnapshotQuery`, `DatabaseInfoQuery`,
-  `SystemInfoQuery`, `ReplicationInfoQuery`, `ShowConfigQuery`,
-  `ShowQueryCallableMappingsQuery`, `SettingQuery`, `VersionQuery`,
-  `UseDatabaseQuery`, `MultiDatabaseQuery`, `ShowDatabaseQuery`,
+  `RECOVER SNAPSHOT` plus meta / session / admin queries that operate on
+  instance-level or system state rather than the tenant graph —
+  `RecoverSnapshotQuery`, `SystemInfoQuery`, `ReplicationInfoQuery`,
+  `ShowConfigQuery`, `ShowQueryCallableMappingsQuery`, `SettingQuery`,
+  `VersionQuery`, `UseDatabaseQuery`, `MultiDatabaseQuery`, `ShowDatabaseQuery`,
   `ShowDatabasesQuery`, `ShowMemoryInfoQuery`, `SessionTraceQuery`,
-  `SessionSettingQuery`. (`RESET DATABASE` joins the allowlist when that query
-  lands in a later slice.) `RECOVER SNAPSHOT` requires UNIQUE access and must be
-  explicitly exempted.
+  `SessionSettingQuery`, `AuthQuery`, `ReplicationQuery`, `UserProfileQuery`,
+  `TenantProfileQuery`, `ParameterQuery`, `TransactionQueueQuery`,
+  `LockPathQuery`, `FreeMemoryQuery`, `CoordinatorQuery`, `ReloadSSLQuery`.
+  `DatabaseInfoQuery` is deliberately excluded — `SHOW INDEX/CONSTRAINT/NODE
+  LABELS/EDGE TYPES/METRICS INFO` would read the empty post-failure storage and
+  return a misleading 0-row result instead of surfacing the broken health.
+  `RECOVER SNAPSHOT` requires UNIQUE access and must be explicitly exempted.
 
 Exception text (exact):
-> Database is in the defunct state because the recovery process failed. Please recover your database using the RECOVER SNAPSHOT query or RESET DATABASE query + run your import queries. If you have a backup of the whole data directory, please replace the current data directory with the backup one and restart the process.
+> Database is in the broken state because the recovery process failed. Please recover your database using the RECOVER SNAPSHOT query. If you have a backup of the whole data directory, please replace the current data directory with the backup one and restart the process.
 
 In-memory storage only.
 
@@ -54,15 +58,15 @@ In-memory storage only.
 - [ ] With the flag off, a tenant that fails snapshot recovery still aborts startup (unchanged behavior).
 - [ ] With the flag on, an instance with a corrupt/unusable snapshot for one tenant boots successfully.
 - [ ] The failed tenant is empty in memory and its on-disk `snapshots/`/`wal/` are byte-for-byte unchanged after boot.
-- [ ] A data query against the defunct tenant throws the exact exception text above.
-- [ ] No periodic or exit snapshot is written for a defunct tenant.
+- [ ] A data query against the broken tenant throws the exact exception text above.
+- [ ] No periodic or exit snapshot is written for a broken tenant.
 
 ### Tests (verification gate)
 
-- [ ] **Unit:** constructing `InMemoryStorage` over a directory whose only snapshot is corrupt, with the flag on, yields a storage reporting `defunct`, with zero vertices/edges, and with the on-disk files unchanged (compare directory contents/bytes before and after).
+- [ ] **Unit:** constructing `InMemoryStorage` over a directory whose only snapshot is corrupt, with the flag on, yields a storage reporting `broken`, with zero vertices/edges, and with the on-disk files unchanged (compare directory contents/bytes before and after).
 - [ ] **Unit:** same construction with the flag off throws/aborts as today.
 - [ ] **E2E (`tests/e2e/configuration/`):** the existing configuration check passes with `--storage-allow-recovery-failure` present in `SHOW CONFIG`.
-- [ ] **E2E (`tests/e2e/durability/`):** boot a single instance with a corrupted snapshot for one tenant + flag on; assert the instance is up; assert a `MATCH`/`CREATE` against that tenant returns the exact defunct error.
+- [ ] **E2E (`tests/e2e/durability/`):** boot a single instance with a corrupted snapshot for one tenant + flag on; assert the instance is up; assert a `MATCH`/`CREATE` against that tenant returns the exact broken error.
 
 ## Blocked by
 

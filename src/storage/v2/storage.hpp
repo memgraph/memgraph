@@ -42,8 +42,6 @@
 #include "storage/v2/vertices_chunked_iterable.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/resource_lock.hpp"
-#include "utils/rw_spin_lock.hpp"
-#include "utils/synchronized.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 
 namespace memgraph::metrics {

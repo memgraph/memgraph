@@ -388,7 +388,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
-  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   if (!db_acc) {
     spdlog::warn("No database accessor");
@@ -398,8 +398,19 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   }
   // Move db acc
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
-  auto const *storage = db_acc->get()->storage();
+  auto *storage = db_acc->get()->storage();
   auto const commit_info = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
+
+  // A broken tenant is empty (Clear()ed to ldt 0). When the main is also empty (main_commit_timestamp 0) there is
+  // nothing to recover: the replica already matches the main, so the recovery-path handlers that normally clear the
+  // broken flag are never driven. Reconcile here by clearing the flag so the replica can accept the main's first
+  // write. Without this, a STRICT_SYNC write to a never-written tenant would 2PC-abort on the broken guard forever and
+  // the main's ldt could never advance to trigger recovery.
+  if (storage->IsBroken() && req.main_commit_timestamp == memgraph::storage::kTimestampInitialId &&
+      commit_info.ldt_ == memgraph::storage::kTimestampInitialId) [[unlikely]] {
+    spdlog::info("Clearing broken flag for db {} after reconciling against an empty main.", storage->name());
+    storage->SetBroken(false);
+  }
 
   auto const last_epoch_with_commit = std::invoke([storage, ldt = commit_info.ldt_]() -> std::string {
     if (auto const &history = storage->repl_storage_state_.history; !history.empty()) {

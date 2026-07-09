@@ -18,12 +18,10 @@
 #include <ranges>
 #include <thread>
 
-#include "dbms/database_protector.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/rpc.hpp"
 #include "license/license.hpp"
-#include "storage/v2/inmemory/storage.hpp"
 #include "system/state.hpp"
 
 #include "rpc/utils.hpp"
