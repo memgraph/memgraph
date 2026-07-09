@@ -32,19 +32,27 @@ namespace memgraph::memory {
 namespace testing {
 
 namespace {
-std::atomic<ArenaPoolFailureInjection> arena_pool_failure_injection{ArenaPoolFailureInjection::None};
-}
+// Thread-local so a test's injection is consumed only by the thread that armed it.
+// A live Database has background threads (storage GC, async indexer) that also
+// construct/Acquire/destroy per-DB arenas; with a process-global flag one of them
+// could steal the single-shot injection between a test's Set and its own Acquire,
+// making the fallback-arena assertions in the Database-backed ArenaPool tests
+// nondeterministic (fallback returned a freshly-created arena instead of the first).
+// Being thread-local, this is only ever set and consumed on the same thread, so a
+// plain value (no atomic) is sufficient.
+thread_local ArenaPoolFailureInjection arena_pool_failure_injection{ArenaPoolFailureInjection::None};
+}  // namespace
 
-void SetArenaPoolFailureInjection(ArenaPoolFailureInjection failure) { arena_pool_failure_injection.store(failure); }
+void SetArenaPoolFailureInjection(ArenaPoolFailureInjection failure) { arena_pool_failure_injection = failure; }
 
 }  // namespace testing
 
 namespace {
 
 bool ConsumeFailureInjection(testing::ArenaPoolFailureInjection failure) {
-  auto expected = failure;
-  return testing::arena_pool_failure_injection.compare_exchange_strong(expected,
-                                                                       testing::ArenaPoolFailureInjection::None);
+  if (testing::arena_pool_failure_injection != failure) return false;
+  testing::arena_pool_failure_injection = testing::ArenaPoolFailureInjection::None;
+  return true;
 }
 
 // ---------------------------------------------------------------------------

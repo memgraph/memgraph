@@ -767,6 +767,13 @@ def test_tenant_query_memory_pressure_with_churn(connection, test_name):
                     execute_and_fetch_all(cur, "USE DATABASE memgraph;")
                 except mgclient.DatabaseError:
                     pass
+            # Idle on the default DB for a real (randomized, so the four writers desync) window with tenant t
+            # released, giving the SUSPEND churner an actual chance to reach sole-accessor. Without this, the
+            # tenant is pinned HOT for the whole heavy-query duration every iteration and the free gap between
+            # iterations is ~0, so a SUSPEND essentially never won and the run flaked on "no SUSPEND ever
+            # succeeded". This window is also what lets a SUSPEND land so the NEXT on-tenant heavy query can hit
+            # the cold seam (cold_hits) — i.e. it enables, not weakens, the on-tenant race the test asserts.
+            time.sleep(random.uniform(0.05, 0.15))
 
     def churner(action, counter):
         cur = connection(BOLT_PORTS["main"], "main").cursor()
@@ -1038,8 +1045,13 @@ def test_tenant_churn_under_memory_pressure_replicated(connection, test_name):
     def writer(t):
         cur = connection(BOLT_PORTS["main"], "main").cursor()
         while not stop.is_set():
+            # Memory pressure on the always-HOT default `memgraph` DB (the session sits on `memgraph`
+            # at the top of every loop). This must NOT run while USE-ing tenant t: an open session on a
+            # tenant pins it HOT, so if the ~96 MiB query held t for its whole duration the suspender
+            # could never reach sole-accessor and NO SUSPEND would ever win — the churn would be
+            # vacuously un-exercised (suspends_ok/resumes_ok stuck at 0). Mirrors the non-replicated
+            # sibling test_concurrent_suspend_resume_under_memory_ceiling, whose writer runs it here too.
             try:
-                execute_and_fetch_all(cur, f"USE DATABASE {t};")
                 execute_and_fetch_all(cur, "WITH range(1, 6000000) AS r RETURN size(r);")
             except mgclient.DatabaseError as e:
                 _classify(e, unexpected)
