@@ -240,8 +240,7 @@ TEST(IncrementalArming, IncrementalEqualsFullWhenDeepEntryMatchGrowsFromUntouche
   };
   auto const arm_all = run(ArmingMode::Full);
   auto const incremental = run(ArmingMode::Incremental);
-  EXPECT_EQ(incremental.first, arm_all.first) << "e-class count diverged: incremental arming missed a deep-entry match";
-  EXPECT_EQ(incremental.second, arm_all.second) << "live-node count diverged";
+  EXPECT_EQ(incremental, arm_all) << "incremental arming diverged from Full (e-class, live-node counts)";
 }
 
 TEST(IncrementalArming, IncrementalEqualsFullAcrossReSaturateForRootEntryRule) {
@@ -265,8 +264,7 @@ TEST(IncrementalArming, IncrementalEqualsFullAcrossReSaturateForRootEntryRule) {
   };
   auto const arm_all = run(ArmingMode::Full);
   auto const incremental = run(ArmingMode::Incremental);
-  EXPECT_EQ(incremental.first, arm_all.first);
-  EXPECT_EQ(incremental.second, arm_all.second);
+  EXPECT_EQ(incremental, arm_all);
 }
 
 TEST(IncrementalArming, ModeSwitchOnOneRewriterMatchesAllIncremental) {
