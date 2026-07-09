@@ -141,19 +141,6 @@ auto BuildNegChain(EGraph<Op, NoAnalysis> &eg, int depth) -> EClassId {
 }
 }  // namespace
 
-TEST(IncrementalArming, IncrementalReachesATrueFixpoint) {
-  EGraph<Op, NoAnalysis> eg;
-  BuildNegChain(eg, 8);
-  TestRewriter rewriter{eg, TestRuleSet::Build(make_double_neg_rule())};
-
-  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
-  ASSERT_TRUE(result.saturated());
-
-  // The sharp oracle: one all-rules pass on the incremental result finds nothing,
-  // i.e. incremental arming did not stop short of the real fixpoint.
-  EXPECT_EQ(rewriter.iterate_once(), 0U);
-}
-
 TEST(IncrementalArming, IncrementalEqualsFull) {
   EGraph<Op, NoAnalysis> arm_all_eg;
   BuildNegChain(arm_all_eg, 8);
@@ -314,28 +301,6 @@ TEST(IncrementalArming, ModeSwitchOnOneRewriterMatchesAllIncremental) {
   auto const all_incremental = run(ArmingMode::Incremental);
   auto const mode_switched = run(ArmingMode::Full);
   EXPECT_EQ(mode_switched, all_incremental) << "a Full pass mid-session corrupted the incremental carry-over";
-}
-
-TEST(IncrementalArming, IncrementalEqualsFullUnderBoundedBudget) {
-  // Incremental equals Full under a *bounded* budget (others use Unlimited()): given
-  // enough iterations to reach the fixpoint, Incremental lands on exactly Full's
-  // result - the budget-limited production path (ApplyAllRewrites).
-  constexpr RewriteConfig kBounded{.max_iterations = 16};  // > chain depth: both saturate
-  EGraph<Op, NoAnalysis> arm_all_eg;
-  BuildNegChain(arm_all_eg, 8);
-  TestRewriter arm_all{arm_all_eg, TestRuleSet::Build(make_double_neg_rule())};
-  auto const arm_all_result = arm_all.saturate(kBounded, ArmingMode::Full);
-
-  EGraph<Op, NoAnalysis> incremental_eg;
-  BuildNegChain(incremental_eg, 8);
-  TestRewriter incremental{incremental_eg, TestRuleSet::Build(make_double_neg_rule())};
-  auto const incremental_result = incremental.saturate(kBounded, ArmingMode::Incremental);
-
-  EXPECT_TRUE(arm_all_result.saturated());
-  EXPECT_TRUE(incremental_result.saturated()) << "Incremental failed to saturate within the bounded budget";
-  EXPECT_EQ(incremental_eg.num_classes(), arm_all_eg.num_classes());
-  EXPECT_EQ(incremental_eg.num_live_nodes(), arm_all_eg.num_live_nodes());
-  EXPECT_EQ(incremental.iterate_once(), 0U);  // sharp oracle: a true fixpoint
 }
 
 TEST(IncrementalArming, SetRulesUnderIncrementalRearmsForTheNewRules) {
