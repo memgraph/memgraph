@@ -831,7 +831,7 @@ showMemoryInfo : SHOW MEMORY INFO ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-indexQuery : createIndex | dropIndex;
+indexQuery : createIndex | dropIndex | createGlobalVertexIndex | dropGlobalVertexIndex;
 
 nestedPropertyKeyList : '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' ;
 
@@ -842,6 +842,10 @@ createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG
             ;
 
 dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )? ;
+
+createGlobalVertexIndex : CREATE GLOBAL INDEX ON ':' '(' propertyKeyName ')' ;
+
+dropGlobalVertexIndex : DROP GLOBAL INDEX ON ':' '(' propertyKeyName ')' ;
 
 propertyKeyList : '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
 
