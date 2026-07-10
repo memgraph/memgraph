@@ -5158,6 +5158,10 @@ void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
     [[maybe_unused]] auto maybe_error = DropGlobalEdgeIndex(property_id);
   }
 
+  for (const auto &property_id : indices_info.vertex_property) {
+    [[maybe_unused]] auto maybe_error = DropGlobalVertexIndex(property_id);
+  }
+
   for (const auto &[label_id, property_id] : indices_info.point_label_property) {
     [[maybe_unused]] auto maybe_error = DropPointIndex(label_id, property_id);
   }

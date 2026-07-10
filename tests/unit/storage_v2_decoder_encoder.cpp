@@ -457,6 +457,8 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
+        case memgraph::storage::durability::Marker::DELTA_GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_GLOBAL_VERTEX_PROPERTY_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_TEXT_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_TEXT_EDGE_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_TEXT_INDEX_DROP:
