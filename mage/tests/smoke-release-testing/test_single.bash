@@ -70,14 +70,14 @@ test_load_csv_ssl
 test_load_jsonl
 test_load_parquet
 test_parallel_runtime
-test_mgconsole "1.5"
+test_mgconsole "1.6"
 
 # NOTE: If the testing container is NOT restarted (each test having their own
 # container), all the auth test have to come after all tests that assume there
 # are no users.
 # Add all the users to be able to perform the tests.
 echo "CREATE USER admin IDENTIFIED BY 'admin1234'; GRANT ALL PRIVILEGES TO admin;" | $MGCONSOLE_NEXT_DEFAULT
-echo "CREATE USER tester IDENTIFIED BY 'tester1234'; GRANT CREATE TO tester; GRANT CREATE ON NODES CONTAINING LABELS * TO tester; GRANT DELETE ON NODES CONTAINING LABELS * TO tester; GRANT DATABASE memgraph TO tester;" | $MGCONSOLE_NEXT_ADMIN
+echo "CREATE USER tester IDENTIFIED BY 'tester1234'; GRANT CREATE TO tester; GRANT CREATE ON NODES CONTAINING LABELS * TO tester; GRANT DELETE ON NODES CONTAINING LABELS * TO tester; GRANT READ, SET PROPERTY {*} ON NODES CONTAINING LABELS * TO tester; GRANT READ, SET PROPERTY {*} ON EDGES OF TYPE * TO tester; GRANT DATABASE memgraph TO tester;" | $MGCONSOLE_NEXT_ADMIN
 echo "SHOW USERS;" | $MGCONSOLE_NEXT_ADMIN
 echo "SHOW ACTIVE USERS;" | $MGCONSOLE_NEXT_ADMIN
 echo "NOTE: admin and tester users are created for testing purposes."

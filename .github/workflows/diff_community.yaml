@@ -36,6 +36,7 @@ env:
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
+
 jobs:
   core:
     if: ${{ inputs.run_core == 'true' }}
@@ -48,6 +49,12 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -68,6 +75,14 @@ jobs:
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
+
       - name: Build community binary
         run: |
           ./release/package/mgbuild.sh \
@@ -76,6 +91,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph --community \
+          --split-debug \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -97,6 +113,24 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+          MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+          MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+          CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+          CLUSTER_ENV: "ci-diff-community"
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()

@@ -27,7 +27,7 @@ class ClusterMonitor:
             show_replicas=True,
             show_instances=True,
             verify_up=True,
-            storage_info=["vertex_count", "edge_count", "memory_res"],
+            storage_info=["vertex_count", "edge_count", "memory_res", "memory_limit"],
             interval=5,
         )
         with monitor:
@@ -178,6 +178,11 @@ class ClusterMonitor:
             try:
                 coord, rows = self._query("SHOW STORAGE INFO;")
                 info = {row["storage info"]: row["value"] for row in rows if "storage info" in row}
+                # Per-DB fields (vertex_count, edge_count, ...) live in the per-DB variant only.
+                _, db_rows = self._query("SHOW STORAGE INFO ON CURRENT DATABASE;")
+                for row in db_rows:
+                    if "storage info" in row:
+                        info[row["storage info"]] = row["value"]
                 parts = [f"{f}={info.get(f, '?')}" for f in self._storage_fields]
                 print(f"\n[STORAGE INFO @ {time.strftime('%H:%M:%S')} via {coord}] {' '.join(parts)}")
             except Exception as e:

@@ -30,13 +30,9 @@ on:
         type: boolean
         description: "Run stress tests."
         default: true
-      package_memgraph:
+      build_memgraph:
         type: boolean
-        description: "Build Memgraph packages."
-        default: true
-      build_docker:
-        type: boolean
-        description: "Build Memgraph Docker images."
+        description: "Build Memgraph packages (deb/rpm) and Docker images. Docker production within the job is determined per-matrix-entry via build_docker_image."
         default: true
       run_issu_test:
         type: boolean
@@ -45,6 +41,10 @@ on:
       build_mage:
         type: boolean
         description: "Build MAGE."
+        default: true
+      run_cve_scan:
+        type: boolean
+        description: "Run CVE scan on the RC Memgraph and MAGE docker images."
         default: true
       mock:
         type: boolean
@@ -131,7 +131,7 @@ jobs:
       os: ubuntu-24.04
       arch: amd
       threads: 24
-      build_type: Release
+      build_type: RelWithDebInfo
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
@@ -144,162 +144,167 @@ jobs:
       os: ubuntu-24.04
       arch: "amd"
       threads: 24
-      build_type: Release
+      build_type: RelWithDebInfo
       run_stress_large: 'true'
       run_release_tests: 'false'
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
   PackageArtifact:
-    if: ${{ inputs.package_memgraph }}
+    if: ${{ inputs.build_memgraph }}
     name: Package Artifact
     needs: PrepareReleaseBranch
     strategy:
       fail-fast: false
       matrix:
-        os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04, ubuntu-24.04]
+        os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04]
         arch: [amd]
-        build_type: [Release]
         additional_build_args: ['']
-        include: # Add arm builds and RelwithDebInfo builds
+        include:
           - os: debian-12
-            build_type: Release
             arch: arm
             additional_build_args: ''
           - os: debian-13
-            build_type: Release
             arch: arm
             additional_build_args: ''
           - os: fedora-42
-            build_type: Release
             arch: arm
             additional_build_args: ''
           - os: ubuntu-24.04
-            build_type: Release
-            arch: arm
-            additional_build_args: ''
-          - os: ubuntu-24.04
-            build_type: Release
-            arch: amd
-            additional_build_args: '--disable-jemalloc'
-          - os: ubuntu-24.04
-            build_type: RelWithDebInfo
-            arch: arm
-            additional_build_args: ''
-          - os: ubuntu-24.04
-            build_type: RelWithDebInfo
             arch: amd
             additional_build_args: ''
+            build_docker_image: both
           - os: ubuntu-24.04
-            build_type: RelWithDebInfo
+            arch: arm
+            additional_build_args: ''
+            build_docker_image: both
+          - os: ubuntu-24.04
             arch: amd
             additional_build_args: '--disable-jemalloc'
+            build_docker_image: debug
           - os: ubuntu-24.04
-            build_type: RelWithDebInfo
             arch: arm
             additional_build_args: '--disable-jemalloc'
+            build_docker_image: debug
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
-      build_type: ${{ matrix.build_type }}
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ matrix.build_docker_image || 'none' }}
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
+      print_output_url: true
       s3_dest_dir: "memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       additional_build_args: ${{ matrix.additional_build_args }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
-      run_smoke_tests: false
-    secrets: inherit
-
-  DockerArtifact:
-    if: ${{ inputs.build_docker }}
-    name: Docker Artifact
-    needs: PrepareReleaseBranch
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04]
-        arch: [amd, arm]
-        build_type: [Release, RelWithDebInfo]
-        malloc: [false]
-        include:
-          - os: ubuntu-24.04
-            build_type: RelWithDebInfo
-            arch: amd
-            malloc: true
-          - os: ubuntu-24.04
-            build_type: RelWithDebInfo
-            arch: arm
-            malloc: true
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: ${{ matrix.os }}
-      arch: ${{ matrix.arch }}
-      build_type: ${{ matrix.build_type }}
-      additional_build_args: "--for-docker${{ matrix.malloc == true && ' --disable-jemalloc' || '' }}"
-      push_to_github: 'false'
-      push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
-      s3_dest_dir: "memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
-      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
-      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.build_type == 'Release' && matrix.arch == 'amd') && true || false }}
+      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.arch == 'amd' && matrix.additional_build_args == '' && matrix.build_docker_image == 'both') && true || false }}
       run_smoke_tests: true
+      upload_debug_symbols: true
     secrets: inherit
 
   BuildAndTestMAGE:
     if: ${{ inputs.build_mage }}
     name: Build and Test MAGE
-    needs: [PrepareReleaseBranch]
+    needs: [PrepareReleaseBranch, PackageArtifact]
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
       fail-fast: false
       matrix:
-        build_type: ["Release", "RelWithDebInfo"]
-        build_arch: ["amd", "arm"]
-        malloc: [false]
-        cuda: [false]
-        cugraph: [false]
         include:
-          - build_type: "Release"
-            build_arch: "amd"
+          - build_arch: "amd"
+            build_docker_image: "both"
+            malloc: false
+            cuda: false
+            cugraph: false
+            os: "ubuntu-24.04"
+          - build_arch: "arm"
+            build_docker_image: "both"
+            malloc: false
+            cuda: false
+            cugraph: false
+            os: "ubuntu-24.04"
+          - build_arch: "amd"
+            build_docker_image: "both"
             malloc: true
             cuda: false
             cugraph: false
-          - build_type: "RelWithDebInfo"
-            build_arch: "amd"
+            os: "ubuntu-24.04"
+          - build_arch: "arm"
+            build_docker_image: "debug"
+            malloc: true
+            cuda: false
+            cugraph: false
+            os: "ubuntu-24.04"
+          - build_arch: "amd"
+            build_docker_image: "debug"
             cuda: true
             malloc: false
             cugraph: false
-          - build_type: "RelWithDebInfo"
-            build_arch: "amd"
-            cuda: false
-            malloc: true
-            cugraph: false
-          - build_type: "RelWithDebInfo"
-            build_arch: "arm"
-            cuda: false
-            malloc: true
-            cugraph: false
-          - build_type: "RelWithDebInfo"
-            build_arch: "amd"
+            os: "ubuntu-24.04"
+          - build_arch: "amd"
+            build_docker_image: "debug"
             cuda: false
             malloc: false
             cugraph: true
+            os: "ubuntu-24.04"
+          - build_arch: "amd"
+            build_docker_image: "none"
+            cuda: false
+            malloc: false
+            cugraph: false
+            os: "centos-9"
+          - build_arch: "amd"
+            build_docker_image: "none"
+            cuda: false
+            malloc: false
+            cugraph: false
+            os: "centos-10"
     with:
       arch: ${{ matrix.build_arch }}
-      build_type: ${{ matrix.build_type }}
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ matrix.build_docker_image }}
+      os: ${{ matrix.os }}
+      memgraph_download_link: >-
+        ${{ startsWith(matrix.os, 'centos') && format(
+          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}/memgraph-{3}_1-1.x86_64.rpm',
+          inputs.mock && '-mock-rc' || '',
+          needs.PrepareReleaseBranch.outputs.tag_name,
+          matrix.os,
+          inputs.version
+        ) || format(
+          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb',
+          inputs.mock && '-mock-rc' || '',
+          needs.PrepareReleaseBranch.outputs.tag_name,
+          matrix.malloc && '-malloc' || '',
+          matrix.build_arch == 'arm' && '-aarch64' || '',
+          inputs.version, matrix.build_arch == 'arm' && 'arm64' || 'amd64'
+        ) }}
+      memgraph_debuginfo_download_link: >-
+        ${{
+          (matrix.build_docker_image == 'debug' || matrix.build_docker_image == 'both') &&
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph-debuginfo_{4}-1_{5}.deb',
+            inputs.mock && '-mock-rc' || '',
+            needs.PrepareReleaseBranch.outputs.tag_name,
+            matrix.malloc && '-malloc' || '',
+            matrix.build_arch == 'arm' && '-aarch64' || '',
+            inputs.version,
+            matrix.build_arch == 'arm' && 'arm64' || 'amd64'
+          ) || ''
+        }}
       s3_dest_dir: "mage${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       cuda: ${{ matrix.cuda }}
       cugraph: ${{ matrix.cugraph }}
       push_to_s3: true
+      print_output_url: true
       malloc: ${{ matrix.malloc }}
       run_smoke_tests: ${{ !matrix.cugraph }}
+      upload_debug_symbols: true
       run_tests: true
-      package_deb: "default"
-      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+      package_mage: "default"
+      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
+      build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
       version: ${{ inputs.version }}
     secrets: inherit
@@ -307,7 +312,7 @@ jobs:
   SetupISSUImageOutputs:
     if: ${{ inputs.run_issu_test }}
     name: Setup ISSU Image Outputs
-    needs: [PrepareReleaseBranch, DockerArtifact]
+    needs: [PrepareReleaseBranch, PackageArtifact]
     runs-on: ubuntu-24.04
     outputs:
       amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
@@ -429,4 +434,15 @@ jobs:
       memgraph_image: ${{ needs.SetupStressImageOutputs.outputs.amd_mage_image_url }}
       workload: ../workloads/publications/workload.yaml
       ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+  TriggerCVEScan:
+    name: Trigger CVE Scan
+    needs: [PackageArtifact, BuildAndTestMAGE]
+    if: ${{ inputs.run_cve_scan && inputs.build_memgraph && inputs.build_mage }}
+    uses: ./.github/workflows/cve_scan.yml
+    with:
+      version: ${{ inputs.version }}
+      rc_number: ${{ inputs.rc_number }}
+      mock: ${{ inputs.mock }}
     secrets: inherit

@@ -9,8 +9,6 @@ disallow_in_source_build()
 find_package(fmt REQUIRED)
 find_package(Boost REQUIRED CONFIG)
 
-# Everything that is installed here, should be under the "query_modules" component.
-set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "query_modules")
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 function(add_post_build_strip_in_release target build_type_var)
@@ -35,6 +33,7 @@ function(add_custom_library NAME SRC)
 
     # Apply post-build strip in release mode
     add_post_build_strip_in_release(${NAME} CMAKE_BUILD_TYPE)
+    mg_split_debug(${NAME} INSTALL_DESTINATION lib/memgraph/query_modules)
 
     set_target_properties(${NAME} PROPERTIES
         PREFIX ""
@@ -69,6 +68,7 @@ function(add_query_module target_name version src)
   target_compile_options(${target_name} PRIVATE -Wall)
 
   add_post_build_strip_in_release(${target_name} CMAKE_BUILD_TYPE)
+  mg_split_debug(${target_name} INSTALL_DESTINATION lib/memgraph/query_modules)
 
   set_target_properties(${target_name} PROPERTIES
       PREFIX "" # remove "lib" prefix
@@ -98,24 +98,36 @@ set(PYTHON_QUERY_MODULES_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/mgps.py
     ${CMAKE_CURRENT_SOURCE_DIR}/date.py
 )
-add_custom_target(copy_python_query_modules ALL
-    COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${QUERY_MODULES_BUILD_DIR}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${QUERY_MODULES_BUILD_DIR}/mage
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/mage/python/mage/__init__.py ${QUERY_MODULES_BUILD_DIR}/mage/__init__.py
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${QUERY_MODULES_BUILD_DIR}/mage/date
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/mage/python/mage/date ${QUERY_MODULES_BUILD_DIR}/mage/date
-    COMMAND ${CMAKE_COMMAND} -E touch ${QUERY_MODULES_BUILD_DIR}/mage/date/__init__.py
+file(GLOB MAGE_DATE_FILES "${CMAKE_SOURCE_DIR}/mage/python/mage/date/*")
+mg_add_stamped_custom_target(copy_python_query_modules ALL
+    STAMP_DIR ${QUERY_MODULES_BUILD_DIR}
+    COMMANDS
+        COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${QUERY_MODULES_BUILD_DIR}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${QUERY_MODULES_BUILD_DIR}/mage
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/mage/python/mage/__init__.py ${QUERY_MODULES_BUILD_DIR}/mage/__init__.py
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${QUERY_MODULES_BUILD_DIR}/mage/date
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/mage/python/mage/date ${QUERY_MODULES_BUILD_DIR}/mage/date
+        COMMAND ${CMAKE_COMMAND} -E touch ${QUERY_MODULES_BUILD_DIR}/mage/date/__init__.py
+    DEPENDS
+        ${PYTHON_QUERY_MODULES_FILES}
+        ${CMAKE_SOURCE_DIR}/mage/python/mage/__init__.py
+        ${MAGE_DATE_FILES}
     COMMENT "Copying Python query modules to build/query_modules"
 )
 
 file(GLOB MAGE_PYTHON_QUERY_MODULES "${CMAKE_SOURCE_DIR}/mage/python/*.py")
-add_custom_target(copy_mage_python_query_modules ALL
-    COMMAND ${CMAKE_COMMAND} -E copy ${MAGE_PYTHON_QUERY_MODULES} ${QUERY_MODULES_BUILD_DIR}
+mg_add_stamped_custom_target(copy_mage_python_query_modules ALL
+    STAMP_DIR ${QUERY_MODULES_BUILD_DIR}
+    COMMANDS
+        COMMAND ${CMAKE_COMMAND} -E copy ${MAGE_PYTHON_QUERY_MODULES} ${QUERY_MODULES_BUILD_DIR}
+    DEPENDS ${MAGE_PYTHON_QUERY_MODULES}
     COMMENT "Copying MAGE Python query modules to build/query_modules"
 )
 
 # Install C++ query modules
-install(TARGETS convert convert_c example_c example_cpp schema mgps_cpp text_search vector_search pagerank_online
+install(TARGETS
+    convert convert_c example_c example_cpp schema mgps_cpp
+    text_search vector_search pagerank_online
     community_detection_online katz_centrality_online
     DESTINATION lib/memgraph/query_modules
 )

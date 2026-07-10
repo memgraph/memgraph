@@ -25,6 +25,11 @@ on:
         description: Check for flakiness by running every selected job multiple times. Enter a number between 2 and 20.
         required: false
         default: 1
+      helm_charts_branch:
+        type: string
+        description: helm-charts repo branch to install the HA chart from (enables direct OpenMetrics scraping). Empty = pinned published chart version.
+        required: false
+        default: ''
 
 jobs:
   single_test:
@@ -35,6 +40,7 @@ jobs:
       last_image: ${{ inputs.prev_image }}
       next_image: ${{ inputs.next_image }}
       arch: ${{ inputs.arch }}
+      helm_charts_branch: ${{ inputs.helm_charts_branch }}
     secrets: inherit
 
   prepare_flakiness_matrix:
@@ -76,4 +82,5 @@ jobs:
       next_image: ${{ inputs.next_image }}
       arch: ${{ inputs.arch }}
       run_id: "${{ matrix.run_no }}"
+      helm_charts_branch: ${{ inputs.helm_charts_branch }}
     secrets: inherit

@@ -287,6 +287,13 @@ class OrderByEliminator {
             size_t ob_ptr = 0;
             for (size_t i = 0; i < s->properties_.size() && ob_ptr < group_size; ++i) {
               if (s->properties_[i] == entries[group_start + ob_ptr].resolved) {
+                // A composite index stores a missing property as NULL and sorts
+                // NULL first, but ORDER BY places NULL last, so the index order
+                // only matches ORDER BY when the sort column cannot be NULL. A
+                // column is guaranteed non-null when it carries a filter (every
+                // filter type -- EQUAL/RANGE/REGEX/IN/IS_NOT_NULL -- excludes
+                // NULL); an unconstrained column (no range entry) may be NULL.
+                if (i >= s->expression_ranges_.size()) return false;
                 ++ob_ptr;
               } else if (i < s->expression_ranges_.size() &&
                          s->expression_ranges_[i].type_ == PropertyFilter::Type::EQUAL) {

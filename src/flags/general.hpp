@@ -17,6 +17,8 @@
 
 #include "gflags/gflags.h"
 
+#include "utils/tls.hpp"
+
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(h);
@@ -30,6 +32,8 @@ DECLARE_int32(monitoring_port);
 DECLARE_string(metrics_address);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_int32(metrics_port);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(metrics_format);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(init_file);
@@ -78,6 +82,8 @@ DECLARE_uint64(storage_wal_file_flush_every_n_tx);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_snapshot_on_exit);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_allow_recovery_failure);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_items_per_batch);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_parallel_snapshot_creation);
@@ -95,6 +101,8 @@ DECLARE_bool(storage_automatic_label_index_creation_enabled);
 DECLARE_bool(storage_automatic_edge_type_index_creation_enabled);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_enable_edges_metadata);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_light_edge);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_delta_on_identical_property_update);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -139,3 +147,24 @@ auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
 DECLARE_string(license_key);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(organization_name);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(cluster_cert_file);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(cluster_key_file);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(cluster_ca_file);
+
+namespace memgraph::flags {
+auto IsIntraClusterTLSEnabled() -> bool;
+
+// Validates that --cluster-cert-file, --cluster-key-file, and --cluster-ca-file
+// are either all set or all empty. Calls LOG_FATAL on a partial configuration
+// (refuses to start in a half-configured TLS state). Emits an info banner when
+// intra-cluster TLS is fully configured. Should be called once at startup,
+// after the logger is initialized.
+void ValidateIntraClusterTLSFlags();
+
+auto TlsConfigFromClusterFlags() -> std::optional<utils::TlsConfig>;
+
+}  // namespace memgraph::flags

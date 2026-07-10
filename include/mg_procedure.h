@@ -1010,6 +1010,9 @@ MGP_ENUM_CLASS text_search_mode{
     SPECIFIED_PROPERTIES,
     REGEX,
     ALL_PROPERTIES,
+    // Fuzzy phrase search (ordered, adjacent terms; last term a prefix) over a single
+    // `data.<property>`. Appended last to keep the existing values' numbering stable.
+    FUZZY_PHRASE,
 };
 
 /// Search the named text index for the given query. The result is a map with the "search_results" and "error_msg" keys.
@@ -1018,7 +1021,8 @@ MGP_ENUM_CLASS text_search_mode{
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
 enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, const char *index_name, const char *search_query,
-                                           enum text_search_mode search_mode, size_t limit, struct mgp_memory *memory,
+                                           enum text_search_mode search_mode, size_t limit, uint8_t fuzzy_distance,
+                                           int fuzzy_prefix, int fuzzy_transpositions, struct mgp_memory *memory,
                                            struct mgp_map **result);
 
 /// Aggregate over the results of a search over the named text index. The result is a map with the "aggregation_results"
@@ -1037,7 +1041,9 @@ enum mgp_error mgp_graph_aggregate_over_text_edge_index(struct mgp_graph *graph,
 
 enum mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *index_name,
                                                 const char *search_query, enum text_search_mode search_mode,
-                                                size_t limit, struct mgp_memory *memory, struct mgp_map **result);
+                                                size_t limit, uint8_t fuzzy_distance, int fuzzy_prefix,
+                                                int fuzzy_transpositions, struct mgp_memory *memory,
+                                                struct mgp_map **result);
 
 enum mgp_error mgp_graph_search_vector_index(struct mgp_graph *graph, const char *index_name, struct mgp_list *query,
                                              int result_size, struct mgp_memory *memory, struct mgp_map **result);
@@ -1119,10 +1125,9 @@ enum mgp_error mgp_graph_is_mutable(struct mgp_graph *graph, int *result);
 /// Current implementation always returns without errors.
 enum mgp_error mgp_graph_is_transactional(struct mgp_graph *graph, int *result);
 
-/// Get the transaction ID associated with the current graph access.
-/// The result is set to the transaction ID associated with the active transaction.
-/// Current implementation always returns without errors.
-enum mgp_error mgp_graph_get_transaction_id(struct mgp_graph *graph, int64_t *result);
+/// Stable per-query id; preserved across `USING PERIODIC COMMIT`.
+/// Use as a cache key in batched procedures.
+enum mgp_error mgp_graph_get_start_timestamp(struct mgp_graph *graph, int64_t *result);
 
 /// Add a new vertex to the graph.
 /// Resulting vertex must be freed using mgp_vertex_destroy.

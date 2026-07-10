@@ -11,15 +11,10 @@
 
 #pragma once
 
-#include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 
 #include <fmt/core.h>
 #include <fmt/format.h>
-
-namespace memgraph::metrics {
-extern const Event WriteWriteConflicts;
-}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 
@@ -38,6 +33,29 @@ inline auto MessageWithDocsLink(fmt::format_string<Args...> fmt, Args &&...args)
 class QueryException : public utils::BasicException {
   using utils::BasicException::BasicException;
   SPECIALIZE_GET_EXCEPTION_NAME(QueryException)
+};
+
+/// Thrown when a query reaches a code path that is recognised but
+/// deliberately not yet implemented (e.g. a Cypher feature the v2 planner
+/// doesn't cover yet).  Distinct from a generic QueryException so callers
+/// can catch it as a class of error and the message has a uniform shape.
+class NotYetImplemented final : public QueryException {
+ public:
+  explicit NotYetImplemented(std::string_view feature)
+      : QueryException(fmt::format("{} is not implemented yet.", feature)) {}
+  SPECIALIZE_GET_EXCEPTION_NAME(NotYetImplemented)
+};
+
+/// Thrown when an internal planner invariant is violated.  Distinct from a
+/// generic QueryException so the Bolt layer can surface it as a DatabaseError
+/// (the client can do nothing; retrying will fail the same way) rather than
+/// a ClientError.  Inherits QueryException only so the existing
+/// catch-and-rewrap sites in glue continue to fire; the rewrap dispatch
+/// recognises this type and maps it to the DatabaseError classification.
+class PlannerBug final : public QueryException {
+ public:
+  using QueryException::QueryException;
+  SPECIALIZE_GET_EXCEPTION_NAME(PlannerBug)
 };
 
 /**
@@ -286,9 +304,7 @@ class TransactionSerializationException : public RetryBasicException {
  public:
   TransactionSerializationException()
       : RetryBasicException(MessageWithDocsLink("Cannot resolve conflicting transactions. Retry this transaction when "
-                                                "the conflicting transaction is finished.")) {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::WriteWriteConflicts);
-  }
+                                                "the conflicting transaction is finished.")) {}
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionSerializationException)
 };
 
@@ -516,8 +532,8 @@ class WriteQueryOnMainException : public QueryException {
  public:
   WriteQueryOnMainException()
       : QueryException(
-            "Write queries currently forbidden on the main instance. The cluster is in the process of setting up a new "
-            "main instance, please retry the query later on.") {}
+            "Write queries currently forbidden on the main instance. Either the cluster is in read-only mode, or a new "
+            "main instance is being set up. Please retry the query later on if this is transient.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnMainException)
 };
 

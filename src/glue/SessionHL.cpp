@@ -19,6 +19,7 @@
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
 #include "dbms/constants.hpp"
+#include "dbms/global.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "frontend/ast/ast.hpp"
@@ -27,7 +28,9 @@
 #include "glue/communication.hpp"
 #include "glue/run_id.hpp"
 #include "license/license.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/discard_value_stream.hpp"
+#include "query/exceptions.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
@@ -36,10 +39,6 @@
 #include "utils/resource_monitoring.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
-
-namespace memgraph::metrics {
-extern const Event ActiveBoltSessions;
-}  // namespace memgraph::metrics
 
 namespace {
 
@@ -88,14 +87,15 @@ auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query
 template <typename TEncoder>
 class TypedValueResultStream {
  public:
-  TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage)
-      : storage_{storage}, encoder_(encoder) {}
+  TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage,
+                         memgraph::query::FineGrainedAuthChecker const *auth_checker)
+      : storage_{storage}, auth_checker_{auth_checker}, encoder_(encoder) {}
 
   void Result(const std::vector<memgraph::query::TypedValue> &values) {
     // Splitting the MessageRecord allows us to skip vector insertion and just directly encode the value
     encoder_->MessageRecordHeader(values.size());
     for (const auto &v : values) {
-      auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW);
+      auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW, auth_checker_);
       if (!maybe_value) {
         switch (maybe_value.error()) {
           case memgraph::storage::Error::DELETED_OBJECT:
@@ -118,6 +118,7 @@ class TypedValueResultStream {
  private:
   // NOTE: Needed only for ToBoltValue conversions
   memgraph::storage::Storage *storage_;
+  memgraph::query::FineGrainedAuthChecker const *auth_checker_;
   TEncoder *encoder_;
 };
 
@@ -156,6 +157,25 @@ std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
 }
 
 #endif
+
+// Rewrap a query-layer QueryException as the right Bolt error class.  Most
+// QueryExceptions are client-fixable (bad syntax, undefined variable, ...) and
+// surface as ClientError so the driver does not retry.  A PlannerBug is an
+// internal invariant violation - retry will fail the same way, and there is
+// nothing the client can do; surface as DatabaseError so the driver does not
+// suggest retrying and the classification reflects "server-side problem".
+[[noreturn]] void RewrapQueryException(memgraph::query::QueryException const &e) {
+  memgraph::metrics::IncrementCounter(GetExceptionName(e));
+  if (dynamic_cast<memgraph::query::PlannerBug const *>(&e) != nullptr) {
+    throw memgraph::communication::bolt::VerboseError{
+        memgraph::communication::bolt::VerboseError::Classification::DATABASE_ERROR,
+        "Planner",
+        "InternalBug",
+        e.what()};
+  }
+  throw memgraph::communication::bolt::ClientError(e.what());
+}
+
 }  // namespace
 
 namespace memgraph::glue {
@@ -239,19 +259,27 @@ utils::Priority SessionHL::ApproximateQueryPriority() const {
 }
 
 void SessionHL::TryDefaultDB() {
+  try {
 #ifdef MG_ENTERPRISE
-  const auto default_db = GetDefaultDB();
-  if (default_db) {
-    // Start off with the default database
-    interpreter_.SetCurrentDB(*default_db, false);
-  } else {
-    // Failed to get default db, connect without db
-    interpreter_.ResetDB();
-  }
+    const auto default_db = GetDefaultDB();
+    if (default_db) {
+      // Start off with the default database
+      interpreter_.SetCurrentDB(*default_db, false);
+    } else {
+      // Failed to get default db, connect without db
+      interpreter_.ResetDB();
+    }
 #else
-  // Community has to connect to the default database
-  interpreter_.SetCurrentDB();
+    // Community has to connect to the default database
+    interpreter_.SetCurrentDB();
 #endif
+  } catch (const memgraph::dbms::SuspendedDatabaseException &e) {
+    // The default database is known but currently suspended (cold). This is a
+    // permanent client-visible condition — retrying will not help — so surface
+    // it as a ClientError rather than letting it propagate as a bare
+    // BasicException (which the Bolt handler would mis-classify as transient).
+    throw memgraph::communication::bolt::ClientError(e.what());
+  }
 }
 
 // This is called on connection establishment
@@ -324,6 +352,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
 }
 
 void SessionHL::LogOff() {
+  Abort();
 #ifdef MG_ENTERPRISE
   interpreter_.ResetDB();
 #endif
@@ -331,18 +360,17 @@ void SessionHL::LogOff() {
   session_user_or_role_.reset();
 }
 
-void SessionHL::Abort() { interpreter_.Abort(); }
+void SessionHL::Abort() {
+  interpreter_.ResetCachedFga();
+  interpreter_.Abort();
+}
 
 bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
   try {
     memgraph::query::DiscardValueResultStream stream;
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
@@ -360,14 +388,10 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
-    TypedValueResultStream<TEncoder> stream(&encoder_, storage);
+    TypedValueResultStream<TEncoder> stream(&encoder_, storage, interpreter_.GetCachedFga());
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
@@ -408,11 +432,7 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
     auto parsed_query = interpreter_.Parse(query, get_params_pv, query_extras);
     parsed_res_.emplace(std::move(parsed_query), std::move(get_params_pv), std::move(query_extras));
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -431,13 +451,10 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
     auto result =
         interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
     interpreter_.CheckAuthorized(result.privileges, result.db);
+
     return {std::move(result.headers), result.qid};
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -446,19 +463,14 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
 }
 
 #ifdef MG_ENTERPRISE
-auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const & /*bookmarks*/,
+auto SessionHL::Route(bolt_map_t const & /*routing*/, std::vector<bolt_value_t> const & /*bookmarks*/,
                       std::optional<std::string> const &db, bolt_map_t const &
                       /*extra*/) -> bolt_map_t {
-  auto const routing_map =
-      ranges::views::transform(routing,
-                               [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
-      ranges::to<std::map<std::string, std::string>>();
-
   if (db) {
     spdlog::trace("Handling routing request for the database: {}", *db);
   }
 
-  auto routing_table_res = interpreter_.Route(routing_map, db);
+  auto routing_table_res = interpreter_.Route(db);
 
   auto create_server = [](auto const &server_info) -> bolt_value_t {
     auto const &[addresses, role] = server_info;
@@ -492,11 +504,7 @@ void SessionHL::RollbackTransaction() {
   try {
     interpreter_.RollbackTransaction();
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -513,11 +521,7 @@ void SessionHL::CommitTransaction() {
   try {
     interpreter_.CommitTransaction();
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -534,11 +538,7 @@ void SessionHL::BeginTransaction(const bolt_map_t &extra) {
   try {
     interpreter_.BeginTransaction(ToQueryExtras(extra));
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -568,8 +568,7 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
 #endif
       auth_(context.auth),
       endpoint_(std::move(context.endpoint)) {
-  // Metrics update
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
+  bolt_session_gauge_ = metrics::ScopedGauge{metrics::Metrics().global.active_bolt_sessions};
 #ifdef MG_ENTERPRISE
   interpreter_.OnChangeCB([&](std::string_view db_name) {
     auto &user_or_role = interpreter_.user_or_role_;
@@ -580,7 +579,6 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
 }
 
 SessionHL::~SessionHL() {
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
 #ifdef MG_ENTERPRISE
   // User-related resource monitoring
@@ -593,7 +591,7 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
   auto *storage = db_acc ? db_acc->get()->storage() : nullptr;
   bolt_map_t decoded_summary;
   for (const auto &kv : summary) {
-    auto maybe_value = ToBoltValue(kv.second, storage, memgraph::storage::View::NEW);
+    auto maybe_value = ToBoltValue(kv.second, storage, memgraph::storage::View::NEW, nullptr);
     if (!maybe_value) {
       switch (maybe_value.error()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -620,6 +618,8 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
   // Runtime config is sent at the beginning of the transaction, but is missing during the transaction
   if (in_explicit_tx || (previous_run_time_info_ && run_time_info == *previous_run_time_info_)) return;
+
+  session_->interpreter_.ResetCachedFga();
 
   db_explicit_ = false;
   user_explicit_ = false;
@@ -680,7 +680,14 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // Handle database configuration (check access with current user)
   if (defined_db) {  // Db connection
     MultiDatabaseAuth(session_->interpreter_.user_or_role_.get(), *defined_db);
-    session_->interpreter_.SetCurrentDB(*defined_db, db_explicit_);
+    try {
+      session_->interpreter_.SetCurrentDB(*defined_db, db_explicit_);
+    } catch (const memgraph::dbms::SuspendedDatabaseException &e) {
+      // The explicitly-requested database is known but currently suspended
+      // (cold). Retrying will not help — surface as ClientError so the driver
+      // does not treat this as a transient failure.
+      throw memgraph::communication::bolt::ClientError(e.what());
+    }
   } else {  // Non-db connection
     session_->interpreter_.ResetDB();
   }

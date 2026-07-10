@@ -17,6 +17,7 @@
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -30,9 +31,6 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/atomic_memory_block.hpp"
-#include "utils/event_counter.hpp"
-#include "utils/event_gauge.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/small_vector.hpp"
@@ -90,7 +88,8 @@ auto CreateUniqueGuard(Storage *storage, const std::optional<std::chrono::millis
 }  // namespace
 
 Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
-                 memory::ArenaPool *db_arena_pool, utils::MemoryTracker *db_embedding_memory_tracker,
+                 metrics::DatabaseMetricHandles metric_handles, memory::ArenaPool *db_arena_pool,
+                 utils::MemoryTracker *db_embedding_memory_tracker,
                  std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory)
     : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
@@ -103,8 +102,11 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
       db_arena_pool_(db_arena_pool),
-      indices_(config, storage_mode, db_embedding_memory_tracker),
-      constraints_(config, storage_mode),
+      metric_handles_{metric_handles},
+      indices_(config, storage_mode, db_embedding_memory_tracker, metric_handles_.active_label_indices,
+               metric_handles_.active_label_property_indices, metric_handles_.active_edge_type_indices,
+               metric_handles_.active_edge_type_property_indices, metric_handles_.active_edge_property_indices),
+      constraints_(config, storage_mode, metric_handles_),
       invalidator_{std::move(invalidator)},
       database_protector_factory_{database_protector_factory ? std::move(database_protector_factory)
                                                              : []() -> std::unique_ptr<DatabaseProtector> {
@@ -190,37 +192,6 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
 
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 
-std::vector<EventInfo> Storage::GetMetrics() noexcept {
-  std::vector<EventInfo> result;
-  result.reserve(metrics::CounterEnd() + metrics::GaugeEnd() + metrics::HistogramEnd());
-
-  const auto *kCounterName = "Counter";
-  const auto *kGaugeName = "Gauge";
-  const auto *kHistogramName = "Histogram";
-
-  for (auto i = 0; i < metrics::CounterEnd(); i++) {
-    result.emplace_back(
-        metrics::GetCounterName(i), metrics::GetCounterType(i), kCounterName, metrics::global_counters[i]);
-  }
-
-  for (auto i = 0; i < metrics::GaugeEnd(); i++) {
-    result.emplace_back(
-        metrics::GetGaugeName(i), metrics::GetGaugeTypeString(i), kGaugeName, metrics::global_gauges[i]);
-  }
-
-  for (auto i = 0; i < metrics::HistogramEnd(); i++) {
-    const auto *name = metrics::GetHistogramName(i);
-    auto const &histogram = metrics::global_histograms[i];
-
-    for (auto &[percentile, value] : histogram.YieldPercentiles()) {
-      auto metric_name = fmt::format("{0}_{1}p", name, std::to_string(percentile));
-      result.emplace_back(std::move(metric_name), metrics::GetHistogramType(i), kHistogramName, value);
-    }
-  }
-
-  return result;
-}
-
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
@@ -235,9 +206,9 @@ std::vector<LabelId> Storage::ListAllPossiblyPresentVertexLabels() const { retur
 
 StorageMode Storage::Accessor::GetCreationStorageMode() const noexcept { return creation_storage_mode_; }
 
-std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
+std::optional<uint64_t> Storage::Accessor::GetStartTimestamp() const {
   if (is_transaction_active_) {
-    return transaction_.transaction_id;
+    return transaction_.original_start_timestamp;
   }
   return {};
 }
@@ -756,9 +727,10 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   // create that gets rolled back.
   auto updater = storage_->indices_.MakeUpdater();
   auto &text_index = storage_->indices_.text_index_;
-  transaction_.commit_callbacks_.Add([&text_index, updater](uint64_t /*commit_ts*/) {
+  auto &metric_handles = storage_->metric_handles_;
+  transaction_.commit_callbacks_.Add([&text_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
     text_index.PublishActiveIndices(updater);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
+    metric_handles.active_text_indices.Increment();
   });
   auto const index_name = text_index_info.index_name;
   transaction_.abort_callbacks_.Add([&text_index, index_name]() {
@@ -791,9 +763,10 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
   // Defer publication to commit time. See CreateTextIndex above.
   auto updater = storage_->indices_.MakeUpdater();
   auto &text_edge_index = storage_->indices_.text_edge_index_;
-  transaction_.commit_callbacks_.Add([&text_edge_index, updater](uint64_t /*commit_ts*/) {
+  auto &metric_handles = storage_->metric_handles_;
+  transaction_.commit_callbacks_.Add([&text_edge_index, updater, &metric_handles](uint64_t /*commit_ts*/) {
     text_edge_index.PublishActiveIndices(updater);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
+    metric_handles.active_text_edge_indices.Increment();
   });
   auto const edge_index_name = text_edge_index_info.index_name;
   transaction_.abort_callbacks_.Add([&text_edge_index, edge_index_name]() {
@@ -809,20 +782,17 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
     const std::string &index_name) {
   MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
   auto updater = storage_->indices_.MakeUpdater();
+  auto &metric_handles = storage_->metric_handles_;
   if (storage_->indices_.text_index_.IndexExists(index_name)) {
     auto evicted = storage_->indices_.text_index_.DropIndex(index_name);
     auto &text_index = storage_->indices_.text_index_;
-    // Flip deferred_drop only on commit so an aborted DROP leaves the on-disk
-    // tantivy directory intact (other snapshots still alias the same data).
     auto shared_evicted = std::shared_ptr<TextIndexData>(std::move(evicted));
-    transaction_.commit_callbacks_.Add([&text_index, updater, shared_evicted](uint64_t /*commit_ts*/) mutable {
-      shared_evicted->deferred_drop = true;
-      text_index.PublishActiveIndices(updater);
-      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
-    });
-    // Abort: re-install the evicted entry. deferred_drop stays false so
-    // ~TextIndexData keeps the on-disk directory when the shared_ptr in the
-    // reinstalled map is eventually released through normal snapshot churn.
+    transaction_.commit_callbacks_.Add(
+        [&text_index, updater, shared_evicted, &metric_handles](uint64_t /*commit_ts*/) mutable {
+          shared_evicted->deferred_drop = true;
+          text_index.PublishActiveIndices(updater);
+          metric_handles.active_text_indices.Decrement();
+        });
     transaction_.abort_callbacks_.Add([&text_index, index_name, shared_evicted]() mutable {
       text_index.RestoreIndex(index_name, std::move(shared_evicted));
     });
@@ -830,11 +800,12 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
     auto evicted = storage_->indices_.text_edge_index_.DropIndex(index_name);
     auto &text_edge_index = storage_->indices_.text_edge_index_;
     auto shared_evicted = std::shared_ptr<TextEdgeIndexData>(std::move(evicted));
-    transaction_.commit_callbacks_.Add([&text_edge_index, updater, shared_evicted](uint64_t /*commit_ts*/) mutable {
-      shared_evicted->deferred_drop = true;
-      text_edge_index.PublishActiveIndices(updater);
-      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
-    });
+    transaction_.commit_callbacks_.Add(
+        [&text_edge_index, updater, shared_evicted, &metric_handles](uint64_t /*commit_ts*/) mutable {
+          shared_evicted->deferred_drop = true;
+          text_edge_index.PublishActiveIndices(updater);
+          metric_handles.active_text_edge_indices.Decrement();
+        });
     transaction_.abort_callbacks_.Add([&text_edge_index, index_name, shared_evicted]() mutable {
       text_edge_index.RestoreIndex(index_name, std::move(shared_evicted));
     });

@@ -74,7 +74,7 @@ struct TextEdgeIndexActiveIndices {
                                    EdgeTypeId edge_type, Transaction &tx, PropertyId property) = 0;
 
   virtual std::vector<TextEdgeSearchResult> Search(const std::string &index_name, const std::string &search_query,
-                                                   text_search_mode search_mode, std::size_t limit,
+                                                   text_search_mode search_mode, const TextSearchConfig &config,
                                                    const Transaction &tx) = 0;
   virtual std::string Aggregate(const std::string &index_name, const std::string &search_query,
                                 const std::string &aggregation_query) = 0;
@@ -103,7 +103,7 @@ class TextEdgeIndex {
                              Transaction &tx, PropertyId property) override;
 
     std::vector<TextEdgeSearchResult> Search(const std::string &index_name, const std::string &search_query,
-                                             text_search_mode search_mode, std::size_t limit,
+                                             text_search_mode search_mode, const TextSearchConfig &config,
                                              const Transaction &tx) override;
     std::string Aggregate(const std::string &index_name, const std::string &search_query,
                           const std::string &aggregation_query) override;

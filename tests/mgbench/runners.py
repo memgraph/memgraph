@@ -638,6 +638,7 @@ class Memgraph(BaseRunner):
         kwargs["data_directory"] = data_directory
         kwargs["storage_properties_on_edges"] = True
         kwargs["bolt_num_workers"] = self._bolt_num_workers
+        kwargs["metrics_format"] = "OpenMetrics"
         for key, value in self._vendor_args.items():
             kwargs[key] = value
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)

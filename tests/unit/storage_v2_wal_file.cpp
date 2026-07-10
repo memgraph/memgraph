@@ -40,6 +40,11 @@
 #include "utils/file_locker.hpp"
 #include "utils/uuid.hpp"
 
+#include <spdlog/sinks/stdout_color_sinks.h>  // For color console logging
+#include "spdlog/sinks/ostream_sink.h"
+
+import memgraph.storage.property_value;
+
 static constexpr auto kMetricKind = "l2sq";
 static constexpr auto kResizeCoefficient = 2;
 static constexpr auto kScalarKind = unum::usearch::scalar_kind_t::f32_k;
@@ -173,6 +178,7 @@ class DeltaGenerator final {
     void Finalize(bool append_transaction_end = true) {
       auto commit_timestamp = gen_->timestamp_++;
       if (transaction_.deltas.empty()) return;
+      gen_->wal_file_.encoder().ResetCrcAcc();
       uint64_t encoded_deltas = 0;
       for (const auto &delta : transaction_.deltas) {
         if (delta.action == memgraph::storage::Delta::Action::ADD_IN_EDGE ||
@@ -201,7 +207,11 @@ class DeltaGenerator final {
         ++encoded_deltas;
       }
       if (append_transaction_end) {
-        gen_->wal_file_.AppendTransactionEnd(commit_timestamp);
+        auto const txn_end_pos = gen_->wal_file_.AppendTransactionEnd(commit_timestamp);
+        auto const crc_to_append = txn_end_pos.stored_crc_;
+        // crc_wal_pos_ is the byte right after the DELTA_TRANSACTION_END marker, so the marker itself is one byte
+        // before.
+        gen_->txn_end_marker_positions_.push_back(txn_end_pos.crc_wal_pos_ - 1);
         if (gen_->valid_) {
           gen_->UpdateStats(commit_timestamp, encoded_deltas + 1);
           for (auto &data : data_) {
@@ -229,7 +239,8 @@ class DeltaGenerator final {
             }
             gen_->data_.emplace_back(commit_timestamp, data);
           }
-          memgraph::storage::durability::WalDeltaData data{memgraph::storage::durability::WalTransactionEnd{}};
+          memgraph::storage::durability::WalDeltaData data{
+              memgraph::storage::durability::WalTransactionEnd{crc_to_append}};
           gen_->data_.emplace_back(commit_timestamp, data);
         }
       } else {
@@ -244,17 +255,21 @@ class DeltaGenerator final {
       if (gen_->valid_) {
         gen_->UpdateStats(timestamp, 1);
         memgraph::storage::durability::WalDeltaData data{memgraph::storage::durability::WalTransactionStart{
-            true, memgraph::storage::durability::TransactionAccessType::UNIQUE}};
+            .commit = true, .access_type = memgraph::storage::durability::TransactionAccessType::UNIQUE}};
         gen_->data_.emplace_back(timestamp, data);
       }
     }
 
     void FinalizeOperationTx() {
       auto timestamp = gen_->timestamp_;
-      gen_->wal_file_.AppendTransactionEnd(timestamp);
+      auto const txn_end_pos = gen_->wal_file_.AppendTransactionEnd(timestamp);
+      auto const crc_to_append = txn_end_pos.stored_crc_;
+      // crc_wal_pos_ is the byte right after the DELTA_TRANSACTION_END marker, so the marker itself is one byte before.
+      gen_->txn_end_marker_positions_.push_back(txn_end_pos.crc_wal_pos_ - 1);
       if (gen_->valid_) {
         gen_->UpdateStats(timestamp, 1);
-        memgraph::storage::durability::WalDeltaData data{memgraph::storage::durability::WalTransactionEnd{}};
+        memgraph::storage::durability::WalDeltaData data{
+            memgraph::storage::durability::WalTransactionEnd{crc_to_append}};
         gen_->data_.emplace_back(timestamp, data);
       }
     }
@@ -347,23 +362,27 @@ class DeltaGenerator final {
     std::optional<memgraph::storage::VectorIndexSpec> vector_index_spec;
     std::optional<memgraph::storage::VectorEdgeIndexSpec> vector_edge_index_spec;
     if (!vector_index_name.empty()) {
-      vector_index_spec = memgraph::storage::VectorIndexSpec{vector_index_name,
-                                                             label_id,
-                                                             first_property_id,
-                                                             memgraph::storage::MetricFromName(kMetricKind),
-                                                             vector_dimension,
-                                                             kResizeCoefficient,
-                                                             vector_capacity,
-                                                             kScalarKind};
-      vector_edge_index_spec =
-          memgraph::storage::VectorEdgeIndexSpec{vector_index_name,
-                                                 edge_type_id.value_or(memgraph::storage::EdgeTypeId::FromUint(0)),
-                                                 first_property_id,
-                                                 memgraph::storage::MetricFromName(kMetricKind),
-                                                 vector_dimension,
-                                                 kResizeCoefficient,
-                                                 vector_capacity,
-                                                 kScalarKind};
+      vector_index_spec = memgraph::storage::VectorIndexSpec{
+          .index_name = vector_index_name,
+          .label_filter = memgraph::storage::VectorLabelFilter{memgraph::storage::VectorMatchMode::SINGLE, {label_id}},
+          .property = first_property_id,
+          .metric_kind = memgraph::storage::MetricFromName(kMetricKind),
+          .dimension = vector_dimension,
+          .resize_coefficient = kResizeCoefficient,
+          .capacity = vector_capacity,
+          .scalar_kind = kScalarKind};
+      vector_edge_index_spec = memgraph::storage::VectorEdgeIndexSpec{
+          .index_name = vector_index_name,
+          .edge_type_filter =
+              memgraph::storage::VectorEdgeTypeFilter{
+                  memgraph::storage::VectorMatchMode::SINGLE,
+                  {edge_type_id.value_or(memgraph::storage::EdgeTypeId::FromUint(0))}},
+          .property = first_property_id,
+          .metric_kind = memgraph::storage::MetricFromName(kMetricKind),
+          .dimension = vector_dimension,
+          .resize_coefficient = kResizeCoefficient,
+          .capacity = vector_capacity,
+          .scalar_kind = kScalarKind};
     }
 
     auto const apply_encode = [&](memgraph::storage::durability::StorageMetadataOperation op, auto &&encode_operation) {
@@ -599,23 +618,25 @@ class DeltaGenerator final {
           case POINT_INDEX_DROP:
             return {WalPointIndexDrop{label, first_property}};
           case VECTOR_INDEX_CREATE:
-            return {WalVectorIndexCreate{vector_index_name,
-                                         label,
-                                         first_property,
-                                         kMetricKind,
-                                         vector_dimension,
-                                         kResizeCoefficient,
-                                         vector_capacity,
-                                         static_cast<uint8_t>(kScalarKind)}};
+            return {WalVectorIndexCreate{
+                vector_index_name,
+                VectorFilterInfo{static_cast<uint8_t>(memgraph::storage::VectorMatchMode::SINGLE), {label}},
+                first_property,
+                kMetricKind,
+                vector_dimension,
+                kResizeCoefficient,
+                vector_capacity,
+                static_cast<uint8_t>(kScalarKind)}};
           case VECTOR_EDGE_INDEX_CREATE:
-            return {WalVectorEdgeIndexCreate{vector_index_name,
-                                             edge_type,
-                                             first_property,
-                                             kMetricKind,
-                                             vector_dimension,
-                                             kResizeCoefficient,
-                                             vector_capacity,
-                                             static_cast<uint8_t>(kScalarKind)}};
+            return {WalVectorEdgeIndexCreate{
+                vector_index_name,
+                VectorFilterInfo{static_cast<uint8_t>(memgraph::storage::VectorMatchMode::SINGLE), {edge_type}},
+                first_property,
+                kMetricKind,
+                vector_dimension,
+                kResizeCoefficient,
+                vector_capacity,
+                static_cast<uint8_t>(kScalarKind)}};
           case VECTOR_INDEX_DROP:
             return {WalVectorIndexDrop{vector_index_name}};
           case TTL_OPERATION:
@@ -644,6 +665,10 @@ class DeltaGenerator final {
   }
 
   DataT GetData() { return data_; }
+
+  // Byte offsets of every DELTA_TRANSACTION_END marker written so far, in append order. Lets tests corrupt a specific
+  // transaction-end marker without having to re-parse the WAL.
+  std::vector<uint64_t> const &GetTxnEndMarkerPositions() const { return txn_end_marker_positions_; }
 
  private:
   void UpdateStats(uint64_t timestamp, uint64_t count) {
@@ -681,6 +706,8 @@ class DeltaGenerator final {
   memgraph::storage::NameIdMapper &mapper() { return *storage_->name_id_mapper_; }
 
   DataT data_;
+
+  std::vector<uint64_t> txn_end_marker_positions_;
 
   uint64_t deltas_count_{0};
   uint64_t tx_from_{0};
@@ -1367,6 +1394,118 @@ TEST_P(WalFileTest, PartialData) {
   }
   ASSERT_EQ(pos, infos.size() - 2);
   AssertWalInfoEqual(infos[infos.size() - 1].second, memgraph::storage::durability::ReadWalInfo(current_file));
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(WalFileTest, WalFileModification) {
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    TRANSACTION(true, { tx.CreateVertex(); });
+    TRANSACTION(true, {
+      auto vertex = tx.CreateVertex();
+      tx.AddLabel(vertex, "hello");
+    });
+    OPERATION_TX(LABEL_PROPERTIES_INDEX_CREATE, "hello", {{"world"}});
+    TRANSACTION(true, {
+      auto vertex1 = tx.CreateVertex();
+      auto vertex2 = tx.CreateVertex();
+      tx.AddLabel(vertex1, "test");
+      tx.AddLabel(vertex2, "hello");
+      tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue("nandare"));
+      tx.RemoveLabel(vertex1, "test");
+      tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue(123));
+      tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue());
+      tx.DeleteVertex(vertex1);
+    });
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  const auto &wal_file = wal_files.front();
+
+  // The pristine WAL file must read cleanly; ReadWalInfo verifies every transaction's CRC as it parses the deltas.
+  memgraph::storage::durability::WalInfo info{};
+  ASSERT_NO_THROW(info = memgraph::storage::durability::ReadWalInfo(wal_file));
+
+  memgraph::utils::InputFile original;
+  ASSERT_TRUE(original.Open(wal_file));
+  auto const wal_file_size = original.GetSize();
+
+  auto const corrupted_file = storage_directory / "corrupted_wal";
+  for (uint64_t pos = 0; pos < wal_file_size; ++pos) {
+    spdlog::trace("Testing byte: {}", pos);
+    uint8_t original_byte{};
+    ASSERT_TRUE(original.SetPosition(memgraph::utils::InputFile::Position::SET, pos).has_value());
+    ASSERT_TRUE(original.Read(&original_byte, 1));
+
+    std::filesystem::remove(corrupted_file);
+    ASSERT_TRUE(std::filesystem::copy_file(wal_file, corrupted_file));
+    {
+      memgraph::utils::OutputFile corrupted;
+      corrupted.Open(corrupted_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+      corrupted.SetPosition(memgraph::utils::OutputFile::Position::SET, pos);
+      uint8_t const flipped_byte = original_byte + 1;
+      corrupted.Write(&flipped_byte, 1);
+      corrupted.Sync();
+      corrupted.Close();
+    }
+    try {
+      auto const corrupted_info = memgraph::storage::durability::ReadWalInfo(corrupted_file);
+      EXPECT_NE(corrupted_info.num_deltas, info.num_deltas) << "Undetected WAL corruption at byte offset " << pos;
+    } catch (memgraph::storage::durability::RecoveryFailure const &e) {
+      spdlog::info(e.what());
+    }
+  }
+  original.Close();
+  std::filesystem::remove(corrupted_file);
+}
+
+TEST_P(WalFileTest, WalMissingTransactionEndMarker) {
+  uint64_t end_marker_pos = 0;
+  {
+    DeltaGenerator gen(storage_directory, GetParam(), 5);
+    TRANSACTION(true, { tx.CreateVertex(); });
+    TRANSACTION(true, {
+      auto vertex = tx.CreateVertex();
+      tx.AddLabel(vertex, "hello");
+    });
+    // First transaction's transaction-end marker.
+    end_marker_pos = gen.GetTxnEndMarkerPositions().front();
+  }
+
+  auto wal_files = GetFilesList();
+  ASSERT_EQ(wal_files.size(), 1);
+  const auto &wal_file = wal_files.front();
+
+  // The pristine file reads cleanly and contains both transactions' deltas.
+  memgraph::storage::durability::WalInfo pristine{};
+  ASSERT_NO_THROW(pristine = memgraph::storage::durability::ReadWalInfo(wal_file));
+  ASSERT_GT(pristine.num_deltas, 0U);
+
+  // Sanity check: the byte we are about to overwrite really is the transaction-end marker.
+  {
+    memgraph::utils::InputFile original;
+    ASSERT_TRUE(original.Open(wal_file));
+    uint8_t marker_byte{};
+    ASSERT_TRUE(original.SetPosition(memgraph::utils::InputFile::Position::SET, end_marker_pos).has_value());
+    ASSERT_TRUE(original.Read(&marker_byte, 1));
+    ASSERT_EQ(marker_byte, static_cast<uint8_t>(memgraph::storage::durability::Marker::DELTA_TRANSACTION_END));
+    original.Close();
+  }
+
+  // Overwrite the transaction-end marker with a transaction-start marker; the end is now never read.
+  {
+    memgraph::utils::OutputFile corrupted;
+    corrupted.Open(wal_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    corrupted.SetPosition(memgraph::utils::OutputFile::Position::SET, end_marker_pos);
+    auto const start_marker = static_cast<uint8_t>(memgraph::storage::durability::Marker::DELTA_TRANSACTION_START);
+    corrupted.Write(&start_marker, 1);
+    corrupted.Sync();
+    corrupted.Close();
+  }
+
+  EXPECT_THROW(static_cast<void>(memgraph::storage::durability::ReadWalInfo(wal_file)),
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 class StorageModeWalFileTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {

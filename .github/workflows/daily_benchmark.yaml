@@ -36,7 +36,7 @@ jobs:
       ARCH: "amd"
       OS: "ubuntu-24.04"
       TOOLCHAIN: "v7"
-      BUILD_TYPE: "Release"
+      BUILD_TYPE: "RelWithDebInfo"
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
@@ -50,6 +50,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -78,6 +84,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph \
+          --split-debug \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD

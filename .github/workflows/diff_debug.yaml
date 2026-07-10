@@ -40,6 +40,12 @@ env:
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
   RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-diff-debug"
+
 
 jobs:
   core:
@@ -53,6 +59,12 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -72,6 +84,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build debug binary
         run: |
@@ -114,6 +134,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph drivers
 
       - name: Run HA driver tests
@@ -124,6 +148,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph drivers-high-availability
 
       - name: Save drivers test report
@@ -150,6 +178,19 @@ jobs:
         with:
           name: "Code coverage(Debug build)${{ env.RUN_ID }}"
           path: tools/github/cppcheck_and_clang_format.txt
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()
@@ -182,6 +223,12 @@ jobs:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -200,6 +247,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build debug binary
         run: |
@@ -232,7 +287,24 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph integration
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()

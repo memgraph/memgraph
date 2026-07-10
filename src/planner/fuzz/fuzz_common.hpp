@@ -363,7 +363,7 @@ class PatternGenerator {
 
       case 7: {
         // Nested repeated variable: Plus(?x, Plus(?x, ?y)) or Mul(?x, Mul(?x, ?y))
-        // The same variable appears at two different depths — tests equality constraints
+        // The same variable appears at two different depths, tests equality constraints
         // across nested structures.
         if (pos >= size) return PatternAST::make_var(next_var_id_++);
         auto sym = static_cast<FuzzSymbol>(13 + (data[pos++] % 2));  // Plus or Mul
@@ -385,7 +385,7 @@ class PatternGenerator {
       }
 
       case 9: {
-        // DAG pattern: Plus(F(?x), G(?x)) — same variable in disjoint subtrees
+        // DAG pattern: Plus(F(?x), G(?x)), same variable in disjoint subtrees
         // Tests that the matcher correctly handles shared variables across branches.
         if (used_vars_.empty()) {
           used_vars_.push_back(next_var_id_++);

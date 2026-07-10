@@ -53,7 +53,24 @@ class AuthQuery : public memgraph::query::Query {
     SET_MAIN_DATABASE,
     GRANT_IMPERSONATE_USER,
     DENY_IMPERSONATE_USER,
+    GRANT_PROPERTY_PERMISSION,
+    DENY_PROPERTY_PERMISSION,
+    REVOKE_PROPERTY_PERMISSION,
   };
+
+  enum class PropertyPermissionType : uint8_t { NONE = 0, READ = 1, WRITE = 2 };
+
+  friend constexpr PropertyPermissionType operator|(PropertyPermissionType a, PropertyPermissionType b) {
+    return static_cast<PropertyPermissionType>(std::to_underlying(a) | std::to_underlying(b));
+  }
+
+  friend constexpr PropertyPermissionType operator&(PropertyPermissionType a, PropertyPermissionType b) {
+    return static_cast<PropertyPermissionType>(std::to_underlying(a) & std::to_underlying(b));
+  }
+
+  friend constexpr PropertyPermissionType &operator|=(PropertyPermissionType &a, PropertyPermissionType b) {
+    return a = a | b;
+  }
 
   enum class Privilege {
     CREATE,
@@ -87,6 +104,7 @@ class AuthQuery : public memgraph::query::Query {
     PARALLEL_EXECUTION,
     SERVER_SIDE_PARAMETERS,
     SERVER_SIDE_DESCRIPTIONS,
+    RELOAD_TLS
   };
 
   enum class FineGrainedPrivilege {
@@ -110,6 +128,8 @@ class AuthQuery : public memgraph::query::Query {
     USER,         // Explicitly specified as a USER; only the user namespace is checked.
     ROLE,         // Explicitly specified as a ROLE; only the role namespace is checked.
   };
+
+  enum class PropertyEntityKind { NODE, EDGE };
 
   enum class DatabaseSpecification {
     NONE,     // No database specification (non-enterprise)
@@ -139,6 +159,11 @@ class AuthQuery : public memgraph::query::Query {
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       edge_type_privileges_;
   std::vector<std::string> impersonation_targets_;
+  std::vector<std::string> property_permissions_;
+  std::vector<std::string> property_entity_names_;
+  PropertyEntityKind property_entity_kind_{PropertyEntityKind::NODE};
+  LabelMatchingMode property_matching_mode_{LabelMatchingMode::ANY};
+  PropertyPermissionType property_permission_types_{PropertyPermissionType::NONE};
 
   // Database specification for SHOW PRIVILEGES query
   DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
@@ -161,6 +186,11 @@ class AuthQuery : public memgraph::query::Query {
     object->label_matching_modes_ = label_matching_modes_;
     object->edge_type_privileges_ = edge_type_privileges_;
     object->impersonation_targets_ = impersonation_targets_;
+    object->property_permissions_ = property_permissions_;
+    object->property_entity_names_ = property_entity_names_;
+    object->property_entity_kind_ = property_entity_kind_;
+    object->property_matching_mode_ = property_matching_mode_;
+    object->property_permission_types_ = property_permission_types_;
     object->database_specification_ = database_specification_;
     object->entity_type_ = entity_type_;
     return object;
@@ -227,6 +257,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::PARALLEL_EXECUTION,
     AuthQuery::Privilege::SERVER_SIDE_PARAMETERS,
     AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS,
+    AuthQuery::Privilege::RELOAD_TLS,
 };
 
 }  // namespace memgraph::query

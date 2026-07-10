@@ -272,6 +272,18 @@ EXPECTED_JSON_METRICS = {
     },
     "StorageInfo": {
         "ShowStorageInfoOnDatabase",
+        "ShowStorageInfo",
+    },
+    "HotCold": {
+        "DatabaseSuspends",
+        "DatabaseResumes",
+        "ColdDatabases",
+        "DatabaseSuspendLatency_us_50p",
+        "DatabaseSuspendLatency_us_90p",
+        "DatabaseSuspendLatency_us_99p",
+        "DatabaseResumeLatency_us_50p",
+        "DatabaseResumeLatency_us_90p",
+        "DatabaseResumeLatency_us_99p",
     },
 }
 
@@ -347,7 +359,7 @@ def test_json_no_unexpected_metrics(populated_databases):
 
 def test_json_storage_fields_reflect_default_db(populated_databases):
     m = scrape_json()
-    # JSON endpoint reflects only the default database (memgraph)
+    # JSON endpoint reflects only the default database (memgraph), not an aggregate
     assert m["General"]["vertex_count"] == 3
     assert m["General"]["edge_count"] == 1
 
@@ -364,16 +376,17 @@ def test_json_constraint_gauges(populated_databases):
     assert m["Constraint"]["ActiveExistenceConstraints"] == 1
 
 
-def test_json_transaction_counters_incremented(populated_databases):
+@pytest.mark.parametrize(
+    "section,counter_a,counter_b",
+    [
+        ("Transaction", "CommitedTransactions", "SuccessfulQuery"),
+        ("QueryType", "WriteQuery", "ReadQuery"),
+    ],
+)
+def test_json_counters_incremented(populated_databases, section, counter_a, counter_b):
     m = scrape_json()
-    assert m["Transaction"]["CommitedTransactions"] > 0
-    assert m["Transaction"]["SuccessfulQuery"] > 0
-
-
-def test_json_query_type_counters_incremented(populated_databases):
-    m = scrape_json()
-    assert m["QueryType"]["WriteQuery"] > 0
-    assert m["QueryType"]["ReadQuery"] > 0
+    assert m[section][counter_a] > 0
+    assert m[section][counter_b] > 0
 
 
 def test_json_operator_counters_incremented(populated_databases):
@@ -386,6 +399,31 @@ def test_json_session_gauges(populated_databases):
     m = scrape_json()
     assert m["Session"]["ActiveSessions"] >= 1
     assert m["Session"]["ActiveBoltSessions"] >= 1
+
+
+@pytest.mark.parametrize(
+    "section,counter",
+    [
+        ("Transaction", "CommitedTransactions"),
+        ("QueryType", "WriteQuery"),
+    ],
+)
+def test_json_counters_are_aggregate_across_databases(populated_databases, section, counter):
+    """Counters aggregate across all databases."""
+    conn = mgclient.connect(host="localhost", port=7687)
+    conn.autocommit = True
+    cursor = conn.cursor()
+
+    before = scrape_json()[section][counter]
+
+    execute(cursor, "USE DATABASE memgraph")
+    execute(cursor, "CREATE ()")
+    execute(cursor, "USE DATABASE db2")
+    execute(cursor, "CREATE ()")
+
+    after = scrape_json()[section][counter]
+    assert after - before >= 2
+    conn.close()
 
 
 if __name__ == "__main__":

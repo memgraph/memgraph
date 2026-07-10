@@ -21,7 +21,6 @@
 #include <unistd.h>
 #include <cerrno>
 #include <chrono>
-#include <compare>
 #include <cstring>
 #include <string>
 
@@ -29,18 +28,10 @@
 #include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
 #include "io/network/socket.hpp"
-#include "utils/event_histogram.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
-#include "utils/metrics_timer.hpp"
-
-namespace {
-constexpr auto timeout_ms = std::chrono::milliseconds(5000);
-}  // namespace
-
-namespace memgraph::metrics {
-extern const Event SocketConnect_us;
-}  // namespace memgraph::metrics
 
 namespace memgraph::io::network {
 
@@ -82,7 +73,8 @@ void Socket::Close(int const sfd, std::string_view socket_addr) {
   }
 }
 
-bool Socket::Connect(const Endpoint &endpoint) {
+bool Socket::Connect(const Endpoint &endpoint, std::chrono::milliseconds const connect_timeout_ms,
+                     bool const keep_non_blocking) {
   if (socket_ != -1) {
     spdlog::trace("Socket::Connect failed, socket_ not ready!");
     return false;
@@ -92,7 +84,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
 
   try {
     for (const auto &it : AddrInfo{endpoint}) {
-      utils::MetricsTimer const timer{metrics::SocketConnect_us};
+      metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.socket_connect_seconds};
 
       int const sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
       if (sfd == -1) {
@@ -126,7 +118,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
         }
 
         auto const start_time = std::chrono::steady_clock::now();
-        auto const deadline = start_time + timeout_ms;
+        auto const deadline = start_time + connect_timeout_ms;
 
         while (true) {
           auto const now = std::chrono::steady_clock::now();
@@ -138,8 +130,8 @@ bool Socket::Connect(const Endpoint &endpoint) {
 
           auto const ms_remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
 
-          pollfd pfds[] = {{.fd = fd, .events = POLLOUT}};
-          int const poll_status = poll(pfds, 1, static_cast<int>(ms_remaining));
+          std::array<pollfd, 1> pfds{{{.fd = fd, .events = POLLOUT}}};
+          int const poll_status = poll(pfds.data(), pfds.size(), static_cast<int>(ms_remaining));
 
           // Socket is ready, likely writeable
           if (poll_status > 0) {
@@ -176,7 +168,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
         continue;
       }
 
-      if (fcntl(sfd, F_SETFL, sockfd_flags_orig) < 0) {
+      if (!keep_non_blocking && fcntl(sfd, F_SETFL, sockfd_flags_orig) < 0) {
         spdlog::error("Failed to set socket to blocking mode during connect");
         Close(sfd, socket_addr);
         continue;
@@ -185,6 +177,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
       // Success
       socket_ = sfd;
       endpoint_ = endpoint;
+
       break;
     }
   } catch (const NetworkError &e) {
@@ -274,29 +267,34 @@ bool Socket::Bind(const Endpoint &endpoint) {
 
 // Not const because of C-API
 // NOLINTNEXTLINE
-void Socket::SetNonBlocking() {
-  const unsigned flags = fcntl(socket_, F_GETFL);
-  constexpr unsigned o_nonblock = O_NONBLOCK;
-  MG_ASSERT(flags != -1, "Can't get socket mode");
-  MG_ASSERT(fcntl(socket_, F_SETFL, flags | o_nonblock) != -1, "Can't set socket nonblocking");
+[[nodiscard]] auto Socket::SetNonBlocking() -> std::expected<void, std::string> {
+  int flags = fcntl(socket_, F_GETFL);
+  if (flags < 0) {
+    return std::unexpected{"Failed to read flags when setting socket to the non-blocking mode"};
+  }
+  flags |= O_NONBLOCK;
+  if (fcntl(socket_, F_SETFL, flags) < 0) {
+    spdlog::error("Failed to restore socket to the non-blocking mode");
+    return std::unexpected{"Failed to restore socket to the non-blocking mode"};
+  }
+  return {};
 }
 
 // Not const because of C-API
 // NOLINTNEXTLINE
 void Socket::SetKeepAlive() {
-  int optval = 1;
-  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)), "Can't set socket keep alive");
+  auto const set_opt = [this](int const level, int const optname, int value, char const *const opt_name) {
+    if (setsockopt(socket_, level, optname, &value, sizeof(value)) != 0) {
+      int const err_sc = errno;
+      spdlog::error("Failed to set socket option {} for keep alive. Errno: {}", opt_name, std::strerror(err_sc));
+      LOG_FATAL("Can't set socket keep alive");
+    }
+  };
 
-  optval = 20;  // wait 20s before sending keep-alive packets
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, sizeof(optval)),
-            "Can't set socket keep alive");
-
-  optval = 4;  // 4 keep-alive packets must fail to close
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void *)&optval, sizeof(optval)), "Can't set socket keep alive");
-
-  optval = 15;  // send keep-alive packets every 15s
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void *)&optval, sizeof(optval)),
-            "Can't set socket keep alive");
+  set_opt(SOL_SOCKET, SO_KEEPALIVE, 1, "SO_KEEPALIVE");
+  set_opt(SOL_TCP, TCP_KEEPIDLE, 20, "TCP_KEEPIDLE");    // wait 20s before sending keep-alive packets
+  set_opt(SOL_TCP, TCP_KEEPCNT, 4, "TCP_KEEPCNT");       // 4 keep-alive packets must fail to close
+  set_opt(SOL_TCP, TCP_KEEPINTVL, 15, "TCP_KEEPINTVL");  // send keep-alive packets every 15s
 }
 
 // Not const because of C-API
@@ -420,9 +418,28 @@ bool Socket::WaitForReadyRead(std::optional<int> timeout_ms) const {
   // arguments), also we set the timeout to -1 to block indefinitely until an
   // event occurs.
 
-  // -1 for blocking indefinitely, otherwise wait for timeout_ms.
-  int const timeout = timeout_ms ? *timeout_ms : -1;
-  int const ret = poll(&p, 1, timeout);
+  auto deadline = std::invoke([&timeout_ms]() -> std::optional<std::chrono::steady_clock::time_point> {
+    if (!timeout_ms) return std::nullopt;
+    return std::chrono::steady_clock::now() + std::chrono::milliseconds(*timeout_ms);
+  });
+
+  int ret;
+  do {
+    // -1 for blocking indefinitely, otherwise wait for the remaining time until deadline.
+    auto const remaining_timeout_ms = std::invoke([&deadline]() -> int {
+      if (!deadline) return -1;
+      return static_cast<int>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - std::chrono::steady_clock::now()).count());
+    });
+
+    if (deadline.has_value() && remaining_timeout_ms < 0) {
+      spdlog::error("Waiting too long to get in ready state for reading. Timeout occurred.");
+      return false;
+    }
+
+    ret = poll(&p, 1, remaining_timeout_ms);
+  } while (ret < 0 && errno == EINTR);
+
   if (ret == -1) {
     spdlog::error("Error occurred while polling for file descriptors.");
     return false;
@@ -444,9 +461,29 @@ bool Socket::WaitForReadyWrite(std::optional<int> timeout_ms) const {
   // arguments), also we set the timeout to -1 to block indefinitely until an
   // event occurs.
 
-  // -1 for blocking indefinitely, otherwise wait for timeout_ms.
-  int const timeout = timeout_ms ? *timeout_ms : -1;
-  int const ret = poll(&p, 1, timeout);
+  auto deadline = std::invoke([&timeout_ms]() -> std::optional<std::chrono::steady_clock::time_point> {
+    if (!timeout_ms) return std::nullopt;
+    return std::chrono::steady_clock::now() + std::chrono::milliseconds(*timeout_ms);
+  });
+
+  int ret;
+  do {
+    // -1 for blocking indefinitely, otherwise wait for the remaining time until deadline.
+    auto const remaining_timeout_ms = std::invoke([&deadline]() -> int {
+      if (!deadline) return -1;
+      return static_cast<int>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - std::chrono::steady_clock::now()).count());
+    });
+
+    // -1 is allowed if there was no timeout set
+    if (deadline.has_value() && remaining_timeout_ms < 0) {
+      spdlog::error("Waiting too long to get in ready state for writing. Timeout occurred.");
+      return false;
+    }
+
+    ret = poll(&p, 1, remaining_timeout_ms);
+  } while (ret < 0 && errno == EINTR);
+
   if (ret == -1) {
     spdlog::error("Error occurred while polling for file descriptors.");
     return false;

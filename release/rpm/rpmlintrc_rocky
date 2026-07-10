@@ -3,9 +3,6 @@
 # We are not packaging log dir
 addFilter("E: logrotate-log-dir-not-packaged")
 
-# libstdc++ COPYING ships with the old FSF address
-addFilter("E: incorrect-fsf-address")
-
 # third-party LICENSE files may ship with CRLF line endings
 addFilter("W: wrong-file-end-of-line-encoding")
 
@@ -36,3 +33,8 @@ addFilter("W: dangerous-command-in-%post")
 
 # gethostbyname is pulled in transitively; no IPv6 regression
 addFilter("W: binary-or-shlib-calls-gethostbyname")
+
+# libatomic is required explicitly because CPACK_RPM_PACKAGE_AUTOREQ is off
+# (see release/CMakeLists.txt), so soname deps are not auto-generated. The dep
+# is intentional and resolves fine; only rpmlint objects to the lib package name.
+addFilter("E: explicit-lib-dependency libatomic")

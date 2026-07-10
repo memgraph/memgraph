@@ -16,6 +16,7 @@
 
 namespace memgraph::utils {
 
+// Make sure to append, otherwise values change and we're not backward compatible anymore
 enum class TypeId : uint64_t {
   UNKNOWN = 0,
 
@@ -348,9 +349,13 @@ enum class TypeId : uint64_t {
   AST_RELOAD_SSL_QUERY,
   AST_TENANT_PROFILE_QUERY,
   AST_SHOW_MEMORY_INFO_QUERY,
-
+  AST_SESSION_SETTING_QUERY,
   REP_TENANT_PROFILE_REQ,
   REP_TENANT_PROFILE_RES,
+  REP_SUSPEND_DATABASE_REQ,
+  REP_SUSPEND_DATABASE_RES,
+  REP_RESUME_DATABASE_REQ,
+  REP_RESUME_DATABASE_RES,
 
   // Symbol
   SYMBOL = 4000,

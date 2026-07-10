@@ -52,6 +52,7 @@ enum class text_search_mode;
 #include <cstdint>
 #include <optional>
 #include <ranges>
+#include <span>
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
@@ -59,6 +60,8 @@ enum class text_search_mode;
 namespace memgraph::query {
 
 class Graph;
+class VirtualGraph;
+class VirtualNode;
 
 class SubgraphVertexAccessor final {
  public:
@@ -88,9 +91,7 @@ class SubgraphVertexAccessor final {
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
-  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
-    return impl_.GetProperty(view, key);
-  }
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const;
 
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
     return impl_.GetPropertySize(key, view);
@@ -429,7 +430,7 @@ class DbAccessor final {
 
   auto &GetTransactionMemoryTracker() { return accessor_->GetTransactionMemoryTracker(); }
 
-  auto GetTransactionId() { return accessor_->GetTransactionId(); }
+  auto GetStartTimestamp() { return accessor_->GetStartTimestamp(); }
 
   bool TransactionHasSerializationError() const { return accessor_->TransactionHasSerializationError(); }
 
@@ -702,7 +703,8 @@ class DbAccessor final {
   bool TextIndexExists(const std::string &index_name) const;
 
   std::vector<storage::TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                                         text_search_mode search_mode, std::size_t limit) const;
+                                                         text_search_mode search_mode,
+                                                         const storage::TextSearchConfig &config) const;
 
   std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                  const std::string &aggregation_query) const;
@@ -712,7 +714,8 @@ class DbAccessor final {
 
   std::vector<storage::TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name,
                                                                  const std::string &search_query,
-                                                                 text_search_mode search_mode, std::size_t limit) const;
+                                                                 text_search_mode search_mode,
+                                                                 const storage::TextSearchConfig &config) const;
 
   bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const;
 
@@ -774,8 +777,8 @@ class DbAccessor final {
     return accessor_->ApproximateVerticesPointCount(label, property);
   }
 
-  std::optional<uint64_t> VerticesVectorCount(storage::LabelId label, storage::PropertyId property) const {
-    return accessor_->ApproximateVerticesVectorCount(label, property);
+  std::optional<uint64_t> VerticesVectorCount(std::string_view index_name) const {
+    return accessor_->ApproximateVerticesVectorCount(index_name);
   }
 
   std::optional<uint64_t> VerticesTextCount(std::string_view index_name) const {
@@ -1149,6 +1152,38 @@ class SubgraphDbAccessor final {
   std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view);
 
   Graph *getGraph();
+
+  storage::StorageMode GetStorageMode() const noexcept;
+
+  DbAccessor *GetAccessor();
+};
+
+class VirtualGraphDbAccessor final {
+  DbAccessor db_accessor_;
+  VirtualGraph *graph_;
+
+ public:
+  explicit VirtualGraphDbAccessor(DbAccessor db_accessor, VirtualGraph *graph);
+
+  void TrackCurrentThreadAllocations();
+
+  void UntrackCurrentThreadAllocations();
+
+  storage::PropertyId NameToProperty(std::string_view name);
+
+  storage::LabelId NameToLabel(std::string_view name);
+
+  storage::EdgeTypeId NameToEdgeType(std::string_view name);
+
+  const std::string &PropertyToName(storage::PropertyId prop) const;
+
+  const std::string &LabelToName(storage::LabelId label) const;
+
+  const std::string &EdgeTypeToName(storage::EdgeTypeId type) const;
+
+  [[nodiscard]] std::shared_ptr<const VirtualNode> FindNode(storage::Gid synthetic_gid) const;
+
+  [[nodiscard]] VirtualGraph *getGraph() const;
 
   storage::StorageMode GetStorageMode() const noexcept;
 

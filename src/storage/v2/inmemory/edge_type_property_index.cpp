@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include <range/v3/all.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
@@ -27,6 +28,8 @@ namespace r = ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
+
+InMemoryEdgeTypePropertyIndex::IndividualIndex::~IndividualIndex() = default;
 
 namespace {
 inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_type, PropertyId property,
@@ -132,18 +135,24 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_
       continue;
     }
 
+    if (!IsValueIncludedByLowerBound(index_iterator->value, lower_bound)) {
+      continue;
+    }
+
+    if (!IsValueIncludedByUpperBound(index_iterator->value, upper_bound)) {
+      index_iterator = end;
+      break;
+    }
+
+    // Visibility filters run after the value-bounds check: bounds depend only on the
+    // entry value, so checking them first lets the scan stop at the bound instead of
+    // walking past entries invisible to this transaction.
     if (index_iterator->edge->gid >= max_gid) {
       continue;
     }
 
     if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
       continue;
-    }
-
-    if (!IsValueIncludedByLowerBound(index_iterator->value, lower_bound)) continue;
-    if (!IsValueIncludedByUpperBound(index_iterator->value, upper_bound)) {
-      index_iterator = end;
-      break;
     }
 
     if (!CurrentEdgeVersionHasProperty(*index_iterator->edge, property, index_iterator->value, transaction, view)) {
@@ -204,19 +213,13 @@ bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, Property
 bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(edge_type, property);
   if (!index) return false;
-  index->Publish(commit_timestamp);
+  index->Publish(commit_timestamp, gauge_);
   return true;
 }
 
-void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypePropertyIndices);
-}
-
-InMemoryEdgeTypePropertyIndex::IndividualIndex::~IndividualIndex() {
-  if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypePropertyIndices);
-  }
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property,
@@ -247,6 +250,7 @@ auto InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId p
         updater(std::make_shared<ActiveIndices>(index_container));
         return evicted_entry;
       });
+
   CleanupAllIndices();
   return evicted;
 }
@@ -447,11 +451,11 @@ void InMemoryEdgeTypePropertyIndex::DropGraphClearIndices() {
 
 InMemoryEdgeTypePropertyIndex::Iterable::Iterable(
     utils::SkipListDb<InMemoryEdgeTypePropertyIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-    EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, Gid max_gid)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),
@@ -507,7 +511,7 @@ void InMemoryEdgeTypePropertyIndex::RunGC() {
 
 InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveIndices::Edges(
     EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
   auto it = index_container_->find({edge_type, property});
@@ -515,10 +519,12 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
             "Index for edge type {} and property {} doesn't exist",
             edge_type.AsUint(),
             property.AsUint());
+  // Pin before snapshotting max_gid so the accessor epoch covers everything the scan may touch.
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
   return {it->second->skiplist.access(),
           std::move(vertex_accessor),
-          std::move(edge_accessor),
+          std::move(edge_pin),
           edge_type,
           property,
           lower_bound,
@@ -531,7 +537,7 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
 
 InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::ActiveIndices::ChunkedEdges(
     EdgeTypeId edge_type, PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks) {
   auto it = index_container_->find({edge_type, property});
@@ -539,10 +545,12 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable InMemoryEdgeTypePropertyIndex::Ac
             "Index for edge type {} and property {} doesn't exist",
             edge_type.AsUint(),
             property.AsUint());
+  // Pin before snapshotting max_gid so the accessor epoch covers everything the scan may touch.
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
   return {it->second->skiplist.access(),
           std::move(vertex_accessor),
-          std::move(edge_accessor),
+          std::move(edge_pin),
           edge_type,
           property,
           lower_bound,
@@ -596,11 +604,11 @@ void InMemoryEdgeTypePropertyIndex::CleanupAllIndices() {
 
 InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<InMemoryEdgeTypePropertyIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-    EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction, size_t num_chunks, Gid max_gid)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),

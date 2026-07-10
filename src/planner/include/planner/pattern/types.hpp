@@ -22,8 +22,10 @@ namespace memgraph::planner::core::pattern {
 
 /// Index into the slots array (pattern variable bindings).
 /// Slots hold the e-class IDs matched to pattern variables.
-using SlotIdx =
-    strong::type<uint8_t, struct SlotIdx_, strong::regular, strong::ordered, strong::formattable, strong::ostreamable>;
+using SlotIdx = strong::type<uint8_t, struct SlotIdx_, strong::regular, strong::ordered, strong::hashable,
+                             strong::formattable, strong::ostreamable>;
+
+inline std::size_t hash_value(SlotIdx const &slot) { return std::hash<SlotIdx>{}(slot); }
 
 /**
  * @brief Pattern variable for binding during e-matching

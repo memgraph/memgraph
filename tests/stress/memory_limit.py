@@ -146,7 +146,7 @@ def get_tracker_data(session) -> Optional[float]:
 
     try:
         data, _ = try_execute(session, f"SHOW STORAGE INFO")
-        memory_tracker_data = isolate_value(data, "global_memory_tracked")
+        memory_tracker_data = isolate_value(data, "memory_tracked")
 
         return parse_data(memory_tracker_data)
 

@@ -24,19 +24,22 @@
 #include "utils/uuid.hpp"
 
 DEFINE_string(endpoint, "http://127.0.0.1:5500/", "Endpoint that should be used for the test.");
-DEFINE_string(license_type, "enterprise", "License type; can be enterprise, oem, or ai_platform.");
+DEFINE_string(license_type, "enterprise", "License type; can be enterprise, oem, oem_community, or ai_platform.");
 DEFINE_int64(interval, 1, "Interval used for reporting telemetry in seconds.");
 DEFINE_int64(duration, 10, "Duration of the test in seconds.");
 
 memgraph::license::LicenseType StringToLicenseType(const std::string_view license_type) {
-  if (license_type == "enterprise") {
+  if (license_type == memgraph::license::kLicenseTypeEnterprise) {
     return memgraph::license::LicenseType::ENTERPRISE;
   }
-  if (license_type == "oem") {
-    return memgraph::license::LicenseType::OEM;
+  if (license_type == memgraph::license::kLicenseTypeOemCommunity) {
+    return memgraph::license::LicenseType::OEM_COMMUNITY;
   }
-  if (license_type == "ai_platform") {
+  if (license_type == memgraph::license::kLicenseTypeAiPlatform) {
     return memgraph::license::LicenseType::AI_PLATFORM;
+  }
+  if (license_type == memgraph::license::kLicenseTypeOem) {
+    return memgraph::license::LicenseType::OEM;
   }
   spdlog::critical("Invalid license type!");
   std::terminate();

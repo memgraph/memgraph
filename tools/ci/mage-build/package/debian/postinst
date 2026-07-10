@@ -6,8 +6,35 @@ case "$1" in
         # install requirements as user memgraph
         CUDA=@CUDA@
         ARCH=@ARCH@
-        su - memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA --arch $ARCH"
-        systemctl restart memgraph.service
+        # install_python_requirements.sh attempts to fetch torch/PyG/DGL wheels
+        # from the internet. During an offline install (i.e. via the .run
+        # installer) the wheels are already on disk and the network call fails
+        # — but the python deps are still in place, so we want the postinst
+        # to succeed. The offline installer sets MEMGRAPH_OFFLINE_INSTALL=1
+        # before invoking dpkg, which propagates into the postinst env; in
+        # that mode we treat failure as a warning. For normal apt/dpkg
+        # installs the env var is unset and the failure remains hard so a
+        # genuine network/pip error doesn't silently leave MAGE broken.
+        if ! su - memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA --arch $ARCH"; then
+            if [ "${MEMGRAPH_OFFLINE_INSTALL:-}" = "1" ]; then
+                echo "WARNING: install_python_requirements.sh exited non-zero." >&2
+                echo "         Tolerated because MEMGRAPH_OFFLINE_INSTALL=1 — the python deps" >&2
+                echo "         were installed by the offline installer's wheel pass." >&2
+            else
+                echo "ERROR: install_python_requirements.sh failed." >&2
+                echo "       Check network connectivity and pip configuration, then retry." >&2
+                exit 1
+            fi
+        fi
+        # Only restart memgraph if systemd is actually running. /run/systemd/system
+        # exists iff systemd is the active init system; it's absent in containers,
+        # chroots, and minimal images. Without this check, `systemctl restart`
+        # exits 127 (command not found) on systemd-less hosts and the postinst
+        # fails, leaving the package half-configured. The user can restart
+        # memgraph by hand in those environments.
+        if [ -d /run/systemd/system ]; then
+            systemctl restart memgraph.service
+        fi
     ;;
 esac
 

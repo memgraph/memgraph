@@ -10,14 +10,13 @@
 // licenses/APL.txt.
 #include "flags/logging.hpp"
 
-#include <spdlog/async_logger.h>
-#include <spdlog/logger.h>
-#include <spdlog/sinks/sink.h>
-#include <spdlog/spdlog.h>
+#include <unistd.h>
+
 #include <array>
 #include <cstdint>
 #include <ctime>
 #include <expected>
+#include <filesystem>
 #include <functional>
 #include <iostream>
 #include <limits>
@@ -25,16 +24,25 @@
 #include <utility>
 #include <vector>
 
-#include "flags/run_time_configurable.hpp"
+#include <fmt/format.h>
+
 #include "gflags/gflags.h"
 #include "spdlog/async.h"
+#include "spdlog/async_logger.h"
 #include "spdlog/common.h"
+#include "spdlog/logger.h"
 #include "spdlog/sinks/daily_file_sink.h"
 #include "spdlog/sinks/dist_sink.h"
+#include "spdlog/spdlog.h"
+
+#include "flags/run_time_configurable.hpp"
 #include "utils/enum.hpp"
+#include "utils/exit_codes.hpp"
 #include "utils/file.hpp"
+#include "utils/file_owner.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
+#include "utils/startup_failure.hpp"
 #include "utils/string.hpp"
 
 using namespace std::string_view_literals;
@@ -51,6 +59,27 @@ spdlog::level::level_enum ParseLogLevel() {
   MG_ASSERT(log_level, "Invalid log level");
   return *log_level;
 }
+
+// Owner diagnosis for a failed log-file open: stat the file itself, falling
+// back to its parent directory (the file usually doesn't exist yet).  The log
+// path needs write access, not ownership, so the advice is the loose variant.
+std::optional<std::string> LogFileOwnerHint(std::filesystem::path const &log_file) {
+  namespace mu = memgraph::utils;
+  auto checked = log_file;
+  auto owner = mu::OwnerOf(checked);
+  if (!owner) {
+    checked = log_file.parent_path();
+    owner = mu::OwnerOf(checked);
+    if (!owner) return std::nullopt;
+  }
+  auto const process_euid = geteuid();
+  auto const fact = mu::OwnerMismatchFact(checked, process_euid, *owner);
+  if (!fact) return std::nullopt;
+  return fmt::format("{} Make it writable for {} (chown/chmod), or run the process as {}.",
+                     *fact,
+                     mu::UsernameFor(process_euid),
+                     mu::UsernameFor(*owner));
+}
 }  // namespace
 
 // Logging flags
@@ -62,7 +91,7 @@ DEFINE_VALIDATED_string(logger_type, "sync",
                         "Controls whether synchronous or asynchronous logger will be used. Options: sync, async", {
                           auto const logger_lower = memgraph::utils::ToLowerCase(value);
                           if (logger_lower != kSync && logger_lower != kAsync) {
-                            std::cout << "Expected --" << flagname << " to be 'sync' or 'async' string\n";
+                            std::cerr << "Expected --" << flagname << " to be 'sync' or 'async' string\n";
                             return false;
                           }
                           return true;
@@ -81,6 +110,9 @@ inline constexpr std::array log_level_mappings{std::pair{"TRACE"sv, spdlog::leve
                                                std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
 namespace memgraph::flags {
+
+auto LogRetentionDays() -> uint64_t { return FLAGS_log_retention_days; }
+
 const std::string &GetAllowedLogLevels() {
   static const std::string allowed_levels = memgraph::utils::GetAllowedEnumValuesString(log_level_mappings);
   return allowed_levels;
@@ -91,11 +123,11 @@ bool ValidLogLevel(std::string_view value) {
     const auto error = result.error();
     switch (error) {
       case memgraph::utils::ValidationError::EmptyValue: {
-        std::cout << "Log level cannot be empty." << '\n';
+        std::cerr << "Log level cannot be empty." << '\n';
         break;
       }
       case memgraph::utils::ValidationError::InvalidValue: {
-        std::cout << "Invalid value for log level. Allowed values: " << GetAllowedLogLevels() << '\n';
+        std::cerr << "Invalid value for log level. Allowed values: " << GetAllowedLogLevels() << '\n';
         break;
       }
     }
@@ -109,6 +141,14 @@ std::optional<spdlog::level::level_enum> LogLevelToEnum(std::string_view value) 
   return memgraph::utils::StringToEnum<spdlog::level::level_enum>(value, log_level_mappings);
 }
 
+auto GetSinkLocalTime() -> tm {
+  time_t current_time{0};
+  (void)time(&current_time);
+  tm local_time{};
+  localtime_r(&current_time, &local_time);  // localtime_r is thread-safe, unlike localtime
+  return local_time;
+}
+
 // We use dist_sink which is MT safe together with _st subsinks
 // This allows us MT safe
 void InitializeLogger() {
@@ -119,16 +159,18 @@ void InitializeLogger() {
   sub_sinks.emplace_back(stderr_sink());
 
   if (!FLAGS_log_file.empty()) {
-    // get local time
-    time_t current_time{0};
-    struct tm *local_time{nullptr};
-
-    // Silent the error
-    (void)time(&current_time);
-    local_time = localtime(&current_time);
-
-    sub_sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_st>(
-        FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false, FLAGS_log_retention_days));
+    auto const local_time = GetSinkLocalTime();
+    try {
+      sub_sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_st>(
+          FLAGS_log_file, local_time.tm_hour, local_time.tm_min, false, LogRetentionDays()));
+    } catch (spdlog::spdlog_ex const &e) {
+      auto message = fmt::format("Failed to open log file '{}': {}.", FLAGS_log_file, e.what());
+      if (auto const hint = LogFileOwnerHint(FLAGS_log_file)) {
+        message += ' ';
+        message += *hint;
+      }
+      utils::FailStartup(utils::ExitCode::LogFileNotWritable, message);
+    }
   }
 
   auto dist_sink = std::make_shared<spdlog::sinks::dist_sink_mt>(std::move(sub_sinks));
@@ -180,7 +222,7 @@ void CleanLogsDir() {
 
   auto const log_path = std::filesystem::path{FLAGS_log_file};
   auto const log_directory = log_path.parent_path();
-  auto const cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::days(FLAGS_log_retention_days);
+  auto const cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::days(LogRetentionDays());
 
   // Logs error only at the end, doesn't log for each file
   std::error_code ec;

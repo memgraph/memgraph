@@ -212,12 +212,16 @@ void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::S
 
   // check everything
   std::vector<Value> vals;
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va1)),
+                                              db.get(),
+                                              memgraph::storage::View::NEW,
+                                              nullptr));
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va2)),
+                                              db.get(),
+                                              memgraph::storage::View::NEW,
+                                              nullptr));
   vals.push_back(*memgraph::glue::ToBoltValue(
-      memgraph::query::TypedValue(memgraph::query::VertexAccessor(va1)), db.get(), memgraph::storage::View::NEW));
-  vals.push_back(*memgraph::glue::ToBoltValue(
-      memgraph::query::TypedValue(memgraph::query::VertexAccessor(va2)), db.get(), memgraph::storage::View::NEW));
-  vals.push_back(*memgraph::glue::ToBoltValue(
-      memgraph::query::TypedValue(memgraph::query::EdgeAccessor(ea)), db.get(), memgraph::storage::View::NEW));
+      memgraph::query::TypedValue(memgraph::query::EdgeAccessor(ea)), db.get(), memgraph::storage::View::NEW, nullptr));
   bolt_encoder.MessageRecord(vals);
 
   // The vertexedge_encoded testdata has hardcoded zeros for IDs,

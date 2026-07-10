@@ -273,8 +273,9 @@ PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
 PropertyFilter::PropertyFilter(Symbol symbol, PropertyIxPath properties, Type type)
     : symbol_(std::move(symbol)), property_ids_(std::move(properties)), type_(type) {}
 
-IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expression *value)
-    : symbol_(symbol), value_(value) {
+IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expression *value, bool expects_string_id,
+                   Type type)
+    : symbol_(symbol), value_(value), expects_string_id_(expects_string_id), type_(type) {
   MG_ASSERT(value);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
@@ -734,24 +735,48 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     all_filters_.emplace_back(filter);
     return;
   };
-  // Check if maybe_id_fun is ID invocation on an indentifier and add it as
-  // IdFilter.
+  // Returns the identifier argument of id(ident)/elementId(ident) with whether
+  // it was elementId (a string id), or a null identifier if expr is neither.
+  auto as_id_function = [](auto *expr) -> std::pair<Identifier *, bool> {
+    auto *id_fun = utils::Downcast<Function>(expr);
+    if (!id_fun) return {nullptr, false};
+    const bool is_element_id = id_fun->function_name_ == kElementId;
+    if (id_fun->function_name_ != kId && !is_element_id) return {nullptr, false};
+    if (id_fun->arguments_.size() != 1U) return {nullptr, false};
+    return {utils::Downcast<Identifier>(id_fun->arguments_.front()), is_element_id};
+  };
+  // Adds `id(n) = val_expr` (or elementId) as an equality IdFilter.
   auto add_id_equal = [&](auto *maybe_id_fun, auto *val_expr) -> bool {
-    auto *id_fun = utils::Downcast<Function>(maybe_id_fun);
-    if (!id_fun) return false;
-    if (id_fun->function_name_ != kId) return false;
-    if (id_fun->arguments_.size() != 1U) return false;
-    auto *ident = utils::Downcast<Identifier>(id_fun->arguments_.front());
+    auto [ident, is_element_id] = as_id_function(maybe_id_fun);
     if (!ident) return false;
     auto filter = make_filter(FilterInfo::Type::Id);
-    filter.id_filter.emplace(symbol_table, symbol_table.at(*ident), val_expr);
+    filter.id_filter.emplace(symbol_table, symbol_table.at(*ident), val_expr, is_element_id);
+    all_filters_.emplace_back(filter);
+    return true;
+  };
+  // A statically-known non-list literal (e.g. `IN 'a'`) can never be a
+  // membership list, so leave it to the generic Filter: rewriting it would
+  // throw even on empty input, where the Filter yields no rows. Parameters and
+  // other expressions are admitted; their list-ness is only known at runtime.
+  auto is_non_list_literal = [](Expression *expr) {
+    return utils::Downcast<BaseLiteral>(expr) && !utils::Downcast<ListLiteral>(expr);
+  };
+  // Classifies `id(n) IN val_expr` as an IN-flavoured IdFilter. elementId() is
+  // excluded; string ids are deferred.
+  auto add_id_in_list = [&](auto *maybe_id_fun, auto *val_expr) -> bool {
+    if (is_non_list_literal(val_expr)) return false;
+    auto [ident, is_element_id] = as_id_function(maybe_id_fun);
+    if (!ident || is_element_id) return false;
+    auto filter = make_filter(FilterInfo::Type::Id);
+    filter.id_filter.emplace(
+        symbol_table, symbol_table.at(*ident), val_expr, /*expects_string_id=*/false, IdFilter::Type::IN);
     all_filters_.emplace_back(filter);
     return true;
   };
   // Checks if maybe_lookup is a property lookup, stores it as a
   // PropertyFilter and returns true. If it isn't, returns false.
   auto add_prop_in_list = [&](auto *maybe_lookup, auto *val_expr) -> bool {
-    if (!utils::Downcast<ListLiteral>(val_expr)) return false;
+    if (is_non_list_literal(val_expr)) return false;
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
     if (is_nested_property_lookup(maybe_lookup)) {
@@ -956,10 +981,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     }
   } else if (auto *in = utils::Downcast<InListOperator>(expr)) {
     // IN isn't equivalent to Equal because IN isn't a symmetric operator. The
-    // IN filter is captured here only if the property lookup occurs on the
-    // left side of the operator. In that case, it's valid to do the IN list
+    // IN filter is captured here only if the property lookup or id() occurs on
+    // the left side of the operator. In that case, it's valid to do the IN list
     // optimization during the index lookup rewrite phase.
-    if (!add_prop_in_list(in->expression1_, in->expression2_)) {
+    if (!add_prop_in_list(in->expression1_, in->expression2_) && !add_id_in_list(in->expression1_, in->expression2_)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *is_not = utils::Downcast<NotOperator>(expr)) {

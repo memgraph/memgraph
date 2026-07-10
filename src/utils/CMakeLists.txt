@@ -20,8 +20,11 @@ target_sources(mg-utils
     PRIVATE
     async_timer.cpp
     base64.cpp
+    crc_accumulator.cpp
     file.cpp
     file_locker.cpp
+    file_owner.cpp
+    startup_failure.cpp
     memory.cpp
     memory_tracker.cpp
     readable_size.cpp
@@ -44,6 +47,7 @@ target_sources(mg-utils
     priority_thread_pool.cpp
     resource_monitoring.cpp
     safe_string.cpp
+    session_context.cpp
     shared_quota.cpp
 
     PUBLIC
@@ -52,6 +56,7 @@ target_sources(mg-utils
     FILES
     allocator/page_aligned.hpp
     allocator/page_slab_memory_resource.hpp
+    crc_accumulator.hpp
     data_queue.hpp
     exponential_backoff.hpp
     fixed_string.hpp
@@ -60,6 +65,7 @@ target_sources(mg-utils
     small_vector.hpp
     static_vector.hpp
     logging.hpp
+    session_context.hpp
     string.hpp
     scheduler.hpp
     priority_thread_pool.hpp
@@ -69,6 +75,7 @@ target_sources(mg-utils
     resource_monitoring.hpp
     safe_string.hpp
     shared_quota.hpp
+    tls.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)
@@ -85,6 +92,9 @@ if (ENABLE_JEMALLOC)
 else()
   target_compile_definitions(mg-utils PUBLIC USE_JEMALLOC=0)
 endif()
+
+# Passed as a definition so build_info.cpp needn't include the generated version.hpp.
+target_compile_definitions(mg-utils PRIVATE MEMGRAPH_VERSION_STRING="${MEMGRAPH_VERSION}")
 
 
 add_library(mg-aws STATIC)
@@ -106,9 +116,6 @@ target_link_libraries(mg-settings PUBLIC mg-kvstore mg-utils PRIVATE mg-slk)
 add_library(mg-events STATIC)
 target_sources(mg-events
     PRIVATE
-    event_counter.cpp
-    event_gauge.cpp
-    event_histogram.cpp
     event_trigger.cpp
     event_map.cpp
 )

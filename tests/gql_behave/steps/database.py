@@ -11,6 +11,8 @@
 
 # -*- coding: utf-8 -*-
 
+import re
+
 
 def query(q, context, params={}):
     """
@@ -32,16 +34,21 @@ def query(q, context, params={}):
 
     is_on_disk = storage_mode == "ON_DISK_TRANSACTIONAL"
 
-    # Prepend USING PARALLEL EXECUTION to data queries (those with RETURN) when flag is set
-    # and storage mode is not ON_DISK_TRANSACTIONAL
+    # Add USING PARALLEL EXECUTION to data queries (those with RETURN) when flag is set
+    # and storage mode is not ON_DISK_TRANSACTIONAL.
+    # Per the grammar, the directive lives inside cypherQuery, which EXPLAIN/PROFILE wrap
+    # (explainQuery: EXPLAIN cypherQuery), so for those it must go *after* the keyword, e.g.
+    # "EXPLAIN USING PARALLEL EXECUTION RETURN 1" -- not before, which is a parse error.
     if parallel_execution and not is_on_disk:
         if "RETURN" in q.upper():
-            if q.strip().upper().startswith("USING"):
-                import re
-
-                q = re.sub(r"(?i)^(\s*USING\s+)", r"\1PARALLEL EXECUTION, ", q)
+            # Split off a leading EXPLAIN/PROFILE keyword (the directive goes after it).
+            match = re.match(r"(?is)^(\s*(?:EXPLAIN|PROFILE)\s+)(.*)$", q)
+            prefix, body = (match.group(1), match.group(2)) if match else ("", q)
+            if body.strip().upper().startswith("USING"):
+                body = re.sub(r"(?i)^(\s*USING\s+)", r"\1PARALLEL EXECUTION, ", body)
             else:
-                q = "USING PARALLEL EXECUTION " + q
+                body = "USING PARALLEL EXECUTION " + body
+            q = prefix + body
 
     # Store the actual query being executed (for logging and validation purposes)
     context.last_executed_query = q

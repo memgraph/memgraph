@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <nlohmann/json_fwd.hpp>
@@ -37,9 +38,12 @@ void Init();
  * @param url url to which to send the request
  * @param data json payload
  * @param timeout the timeout that should be used when making the request
+ * @param abort_flag optional pointer to an atomic flag. If set and true, the
+ *        in-progress transfer will be aborted via the progress callback.
  * @return bool true if the request was successful, false otherwise.
  */
-bool RequestPostJson(const std::string &url, const nlohmann::json &data, int timeout_in_seconds = 10);
+bool RequestPostJson(const std::string &url, const nlohmann::json &data, int timeout_in_seconds = 10,
+                     std::atomic<bool> const *abort_flag = nullptr);
 
 /**
  * This functions sends a GET request to the given `url` and writes the response

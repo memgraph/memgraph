@@ -146,7 +146,7 @@ def check_permissions(query_perms, user_perms):
 
 def execute_test(memgraph_binary, tester_binary, checker_binary):
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name]
+    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name, "--metrics-format=OpenMetrics"]
 
     def execute_admin_queries(queries, should_fail=False):
         return execute_tester(
@@ -389,7 +389,17 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
     # Test permissions from multiple roles
     print("\033[1;34m~~ Testing permissions from multiple roles ~~\033[0m")
     execute_admin_queries(
-        ["GRANT CREATE TO role1", "GRANT MATCH TO role2", "GRANT SET TO role3", "DENY DELETE TO role1"]
+        [
+            "GRANT CREATE TO role1",
+            "GRANT MATCH TO role2",
+            "GRANT SET TO role3",
+            "DENY DELETE TO role1",
+            "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO role1",
+            "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO role2",
+            "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO role3",
+            "GRANT READ {*} ON NODES CONTAINING LABELS * TO role2",
+            "GRANT SET PROPERTY {*} ON NODES CONTAINING LABELS * TO role3",
+        ]
     )
 
     # Test that user has combined permissions from all roles

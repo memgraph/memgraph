@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <optional>
 #include <storage/v2/replication/rpc.hpp>
@@ -70,7 +71,8 @@ class Client {
   };
   // Dependency injection of rpc_timeouts
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,
-         std::unordered_map<std::string_view, int> const &rpc_timeouts_ms = Client::default_rpc_timeouts_ms);
+         std::unordered_map<std::string_view, int> const &rpc_timeouts_ms = Client::default_rpc_timeouts_ms,
+         std::chrono::milliseconds connect_timeout_ms = std::chrono::milliseconds{5000});
 
   /// Object used to handle streaming of request data to the RPC server.
   template <class TRequestResponse>
@@ -413,6 +415,12 @@ class Client {
       return local_guard;  // RVO
     });
 
+    // The client has been aborted as part of shutdown. Refuse to open (or reconnect) a stream so a queued recovery
+    // task, heartbeat, or commit can't revive the connection after Abort() already tore it down.
+    if (aborted_.load(std::memory_order_acquire)) {
+      throw GenericRpcFailedException();
+    }
+
     // Check if the connection is broken (if we haven't used the client for a
     // long time the server could have died).
     if (client_ && client_->ErrorStatus()) {
@@ -421,7 +429,7 @@ class Client {
 
     // Connect to the remote server.
     if (!client_) {
-      client_.emplace(context_);
+      client_.emplace(context_, connect_timeout_ms_);
       if (!client_->Connect(endpoint_)) {
         spdlog::error("Couldn't connect to remote address {}", endpoint_.SocketAddress());
         client_ = std::nullopt;
@@ -490,8 +498,12 @@ class Client {
   communication::ClientContext *context_;
   std::optional<communication::Client> client_;
   std::unordered_map<std::string_view, int> rpc_timeouts_ms_;
+  std::chrono::milliseconds connect_timeout_ms_;
 
   mutable utils::ResourceLock mutex_;
+  // Set once by Abort() during shutdown. Latches permanently: an aborted client never opens another stream, so no
+  // in-flight or queued task can reconnect after teardown begins.
+  std::atomic<bool> aborted_{false};
 };
 
 }  // namespace memgraph::rpc

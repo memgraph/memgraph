@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <range/v3/all.hpp>
@@ -17,8 +16,11 @@
 #include <cerrno>
 #include <cstring>
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -30,6 +32,8 @@
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/edge.hpp"
+#include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
@@ -38,11 +42,12 @@
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/name_id_mapper.hpp"
-#include "utils/event_histogram.hpp"
+#include "utils/exit_codes.hpp"
+#include "utils/file_owner.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
-#include "utils/timer.hpp"
+#include "utils/startup_failure.hpp"
 
 #include "fmt/format.h"
 
@@ -78,10 +83,6 @@ class fmt::formatter<PropertyPathFormatter> {
   }
 };
 
-namespace memgraph::metrics {
-extern const Event SnapshotRecoveryLatency_us;
-}  // namespace memgraph::metrics
-
 namespace memgraph::storage::durability {
 
 void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path &storage_directory) {
@@ -98,20 +99,14 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path 
   MG_ASSERT(ret == 0, "Couldn't get stat for '{}' because of: {} ({})", storage_directory, strerror(errno), errno);
   auto directory_owner = statbuf.st_uid;
 
-  auto get_username = [](auto uid) {
-    auto info = getpwuid(uid);
-    if (!info) return std::to_string(uid);
-    return std::string(info->pw_name);
-  };
+  auto fact = utils::OwnerMismatchFact(storage_directory, process_euid, directory_owner);
+  if (!fact) return;
 
-  auto user_process = get_username(process_euid);
-  auto user_directory = get_username(directory_owner);
-  MG_ASSERT(process_euid == directory_owner,
-            "The process is running as user {}, but the data directory is "
-            "owned by user {}. Please start the process as user {}!",
-            user_process,
-            user_directory,
-            user_directory);
+  // The storage layer writes throughout the data directory, so ownership is
+  // required (not just write access): the advice is the strict variant.
+  utils::FailStartup(
+      utils::ExitCode::StorageDirectoryOwnerMismatch,
+      fmt::format("{} Please start the process as user {}!", *fact, utils::UsernameFor(directory_owner)));
 }
 
 bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry) {
@@ -227,6 +222,19 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // indices and constraints must be recovered after the data recovery is done
 // to ensure that the indices and constraints are consistent at the end of the
 // recovery process.
+
+namespace {
+void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                                 utils::SkipListDb<Vertex> *, NameIdMapper *,
+                                 const std::optional<ParallelizedSchemaCreationInfo> &,
+                                 std::optional<SnapshotObserverInfo> const &);
+void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                              utils::SkipListDb<Vertex> *, NameIdMapper *,
+                              const std::optional<ParallelizedSchemaCreationInfo> &,
+                              std::optional<SnapshotObserverInfo> const &);
+void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                            utils::SkipListDb<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &,
+                            std::optional<SnapshotObserverInfo> const &);
 
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                         Constraints *constraints, utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper,
@@ -418,9 +426,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     auto vertices_acc = vertices->access();
     for (auto &recovery_info : indices_metadata.vector_indices) {
       indices->vector_index_.RecoverIndex(recovery_info, vertices_acc, indices, name_id_mapper, updater, snapshot_info);
-      spdlog::info("Vector index on :{}({}) is recreated from metadata",
-                   name_id_mapper->IdToName(recovery_info.spec.label_id.AsUint()),
-                   name_id_mapper->IdToName(recovery_info.spec.property.AsUint()));
+      spdlog::info("Vector index {} is recreated from metadata", recovery_info.spec.index_name);
     }
     spdlog::info("Vector indices are recreated.");
   }
@@ -430,9 +436,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     auto vertices_acc = vertices->access();
     for (auto &recovery_info : indices_metadata.vector_edge_indices) {
       indices->vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, updater, snapshot_info);
-      spdlog::info("Vector edge index on :{}({}) is recreated from metadata",
-                   name_id_mapper->IdToName(recovery_info.spec.edge_type_id.AsUint()),
-                   name_id_mapper->IdToName(recovery_info.spec.property.AsUint()));
+      spdlog::info("Vector edge index {} is recreated from metadata", recovery_info.spec.index_name);
     }
     spdlog::info("Vector edge indices are recreated.");
   }
@@ -469,7 +473,8 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
 }
 
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                              Constraints *constraints, utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                              Constraints *constraints, utils::SkipListDb<Vertex> *vertices,
+                              NameIdMapper *name_id_mapper,
                               const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
   spdlog::info("Recreating {} unique constraints from metadata.", constraints_metadata.unique.size());
@@ -522,12 +527,32 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
 
   spdlog::info("Type constraints are recreated from metadata.");
 }
+}  // namespace
 
-void RecoverIndicesStatsAndConstraints(utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                                       Indices *indices, Constraints *constraints, Config const &config,
-                                       RecoveryInfo const &recovery_info, memory::ArenaPool *db_arena_pool,
-                                       RecoveredIndicesAndConstraints &indices_constraints, bool properties_on_edges,
-                                       std::optional<SnapshotObserverInfo> const &snapshot_info) {
+void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] utils::SkipListDb<Edge> *edges,
+                         NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
+                         RecoveryInfo const &recovery_info, memory::ArenaPool *db_arena_pool,
+                         RecoveredIndicesAndConstraints &indices_constraints, EdgeMetadataIndex *edges_metadata,
+                         bool properties_on_edges, std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  // Rebuild the edge metadata index from the fully recovered adjacency before any
+  // other derived structure observes it.
+  if (edges_metadata) {
+    edges_metadata->RebuildFrom(*vertices, GetParallelExecInfo(recovery_info, config, db_arena_pool));
+    if (config.salient.items.storage_light_edge) {
+      // Light edges live only in the vertex adjacency (pool-allocated); the edges_
+      // skiplist is intentionally empty after recovery. RebuildFrom derives metadata
+      // directly from the adjacency, so its count is correct by construction.
+      if (edges->size() != 0) {
+        throw RecoveryFailure("Edge skiplist must be empty after light-edge recovery!");
+      }
+    } else if (edges_metadata->size() != edges->size()) {
+      // Every recovered edge must have an edge - metadata entry;
+      //  fail at recovery rather
+      //  than later in GC or via lookups.
+      throw RecoveryFailure("Edge metadata count does not match edge count after recovery!");
+    }
+  }
+
   RecoverIndicesAndStats(indices_constraints.indices,
                          indices,
                          vertices,
@@ -556,7 +581,7 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
 
 std::optional<RecoveryInfo> Recovery::RecoverData(
     utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipListDb<Vertex> *vertices,
-    utils::SkipListDb<Edge> *edges, utils::SkipListDb<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
+    utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata, std::atomic<uint64_t> *edge_count,
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
     memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
@@ -572,10 +597,11 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   }
 
   auto *const epoch_history = &repl_storage_state.history;
-  utils::Timer timer;
 
   auto const maybe_snapshot_files = GetSnapshotFiles(snapshot_directory_);
-  MG_ASSERT(maybe_snapshot_files.has_value(), "Couldn't recover data because of the failure to read snapshot files");
+  if (!maybe_snapshot_files.has_value()) {
+    throw RecoveryFailure("Couldn't recover data because of the failure to read snapshot files");
+  }
   auto const &snapshot_files = *maybe_snapshot_files;
 
   RecoveryInfo recovery_info;
@@ -591,9 +617,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     spdlog::trace("UUID of the last snapshot file: {}", last_snapshot_uuid_str);
     std::optional<RecoveredSnapshot> recovered_snapshot;
 
-    for (auto it = snapshot_files.rbegin(); it != snapshot_files.rend(); ++it) {
-      auto const &path = (*it).path;
-      auto const &file_uuid = (*it).uuid;
+    for (const auto &snapshot_file : std::ranges::reverse_view(snapshot_files)) {
+      auto const &path = snapshot_file.path;
+      auto const &file_uuid = snapshot_file.uuid;
       if (file_uuid != last_snapshot_uuid_str) {
         spdlog::warn("The snapshot file {} isn't related to the latest snapshot file!", path);
         continue;
@@ -618,10 +644,11 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path, e.what());
       }
     }
-    MG_ASSERT(recovered_snapshot,
-              "The database is configured to recover on startup, but couldn't "
-              "recover using any of the specified snapshots! Please inspect them "
-              "and restart the database.");
+    if (!recovered_snapshot) {
+      throw RecoveryFailure(
+          "Couldn't recover using any of the specified snapshots! Please inspect them and restart the database. The "
+          "database is now in the broken state.");
+    }
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_durable_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
@@ -661,7 +688,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         spdlog::error("Recovery failure while reading wal file: {}", e.what());
       }
     }
-    MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
+    if (error_code) {
+      throw RecoveryFailure("Couldn't recover data because an error occurred: {}!", error_code.message());
+    }
 
     if (wal_files.empty()) {
       spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
@@ -680,7 +709,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                   repl_storage_state.epoch_.id());
   }
   auto const maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
-  MG_ASSERT(maybe_wal_files.has_value(), "Couldn't recover data because of the failure to read wal files");
+  if (!maybe_wal_files.has_value()) {
+    throw RecoveryFailure("Couldn't recover data because of the failure to read wal files");
+  }
 
   if (auto const &wal_files = *maybe_wal_files; !wal_files.empty()) {
     spdlog::info("Checking WAL files.");
@@ -696,16 +727,14 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           // We didn't recover from a snapshot, and we must have all WAL files
           // starting from the first one (seq_num == 0) to be able to recover
           // data from them.
-          LOG_FATAL(
-              "There are missing prefix WAL files and data can't be "
-              "recovered without them!");
+          throw RecoveryFailure("There are missing prefix WAL files and data can't be recovered without them!");
         } else if (first_wal.from_timestamp > *snapshot_durable_timestamp) {
           // We recovered from a snapshot and we must have at least one WAL file
           // that has at least one delta that was created before the snapshot in order to
           // verify that nothing is missing from the beginning of the WAL chain.
-          LOG_FATAL(
-              "You must have at least one WAL file that contains at least one "
-              "delta that was created before the snapshot file!");
+          throw RecoveryFailure(
+              "You must have at least one WAL file that contains at least one delta that was created before the "
+              "snapshot file!");
         }
       }
     }
@@ -715,7 +744,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
     for (const auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
-        LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
+        throw RecoveryFailure("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
       }
       previous_seq_num = wal_file.seq_num;
 
@@ -762,7 +791,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         }
 
       } catch (const RecoveryFailure &e) {
-        LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
+        throw RecoveryFailure("Couldn't recover WAL deltas from {} because of: {}", wal_file.path.string(), e.what());
       }
     }
     // The sequence number needs to be recovered even though `LoadWal` didn't
@@ -792,18 +821,18 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   }
 
   // Apply meta structures now after all graph data has been loaded
-  RecoverIndicesStatsAndConstraints(vertices,
-                                    name_id_mapper,
-                                    indices,
-                                    constraints,
-                                    config,
-                                    recovery_info,
-                                    db_arena_pool,
-                                    indices_constraints,
-                                    config.salient.items.properties_on_edges);
+  RecoverDerivedState(vertices,
+                      edges,
+                      name_id_mapper,
+                      indices,
+                      constraints,
+                      config,
+                      recovery_info,
+                      db_arena_pool,
+                      indices_constraints,
+                      edges_metadata,
+                      config.salient.items.properties_on_edges);
 
-  memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
-                             std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
   spdlog::trace("Epoch id: {}. Last durable commit timestamp: {}.",
                 std::string(repl_storage_state.epoch_.id()),
                 repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);

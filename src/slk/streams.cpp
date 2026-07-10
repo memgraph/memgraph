@@ -16,6 +16,7 @@
 #include <utility>
 
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::slk {
 
@@ -65,8 +66,11 @@ void Builder::PrepareForFileSending() {
 void Builder::Finalize() { FlushSegment(true); }
 
 void Builder::FlushInternal(size_t const size, bool const has_more) {
+  // Reset the write position even if write_func_ throws, so a failed flush leaves the builder empty and reusable.
+  // Callers that retry (e.g. recovery progress heartbeats) then start from a clean segment instead of tripping the
+  // "buffer must be empty" guard.
+  utils::OnScopeExit const reset_pos{[this] { pos_ = 0; }};
   write_func_(segment_.data(), size, has_more);
-  pos_ = 0;
 }
 
 // Flushes data and resets position
@@ -217,12 +221,10 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
 
     // Start of the new segment
     if (len == kFileSegmentMask) {
-      // When transitioning between files (remaining_file_size was set), verify sufficient data exists after the mask
-      // for the next file's metadata (filename + filesize). TCP can split the sender's segment such that the mask
-      // arrives but the metadata doesn't. Without this check, OpenFile would fail with "Size data missing in SLK
-      // stream!" because the Reader runs out of data.
-      // File metadata format: [string_marker(1)][string_length(8)][string_data(N)][uint_marker(1)][uint_value(8)]
-      if (remaining_file_size) {
+      // A file mask must be followed by its metadata before OpenFile can read it; wait
+      // (PARTIAL) if a read split the mask from its metadata.
+      // File metadata: [string_marker(1)][string_length(8)][string_data(N)][uint_marker(1)][uint_value(8)]
+      {
         constexpr size_t kStringPrefixSize = 1 + sizeof(uint64_t);  // marker + string length
         size_t const remaining_after_mask = size - pos;
 

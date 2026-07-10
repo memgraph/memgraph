@@ -40,6 +40,7 @@ enum class RenameError : uint8_t {
   USING,
   FAIL,
   SAME_NAME,
+  SUSPENDED,
 };
 #endif
 
@@ -63,6 +64,21 @@ class UnknownDatabaseException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
   SPECIALIZE_GET_EXCEPTION_NAME(UnknownDatabaseException)
+};
+
+/**
+ * SuspendedDatabase Exception
+ *
+ * Thrown when a database is known but currently suspended (cold). Derives from
+ * UnknownDatabaseException so existing fallback catch sites (SetupDefault_,
+ * RestoreTenantProfiles_, replication handlers) that treat a cold tenant as
+ * "not currently usable" keep working unchanged — but metrics/logs and the
+ * connection path can distinguish "suspended" from a genuinely unknown DB.
+ */
+class SuspendedDatabaseException : public UnknownDatabaseException {
+ public:
+  using UnknownDatabaseException::UnknownDatabaseException;
+  SPECIALIZE_GET_EXCEPTION_NAME(SuspendedDatabaseException)
 };
 
 }  // namespace memgraph::dbms

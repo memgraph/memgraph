@@ -34,6 +34,8 @@ def wait_for_server(port, delay=0.1):
 
 def prepare_memgraph(memgraph_args):
     # Start the memgraph binary
+    if "--metrics-format=OpenMetrics" not in memgraph_args:
+        memgraph_args = memgraph_args + ["--metrics-format=OpenMetrics"]
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"

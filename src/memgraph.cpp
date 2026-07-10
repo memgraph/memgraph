@@ -20,9 +20,11 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <variant>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
+#include "communication/cluster_tls.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -38,6 +40,7 @@
 #include "flags/general.hpp"
 #include "flags/logging.hpp"
 #include "glue/MonitoringServerT.hpp"
+#include "glue/PrometheusServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
@@ -45,6 +48,7 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -63,8 +67,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
-#include "utils/concurrency_hint.hpp"
-#include "utils/event_gauge.hpp"
+#include "utils/build_info.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/readable_size.hpp"
@@ -75,15 +78,12 @@
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
+#include "utils/variant_helpers.hpp"
 #include "version.hpp"
 
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
-
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-}  // namespace memgraph::metrics
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
@@ -107,8 +107,10 @@ void WarnDeprecatedFlags() {
 /// argv[1..argc-1] entries are unexpected — typically caused by writing `--bool-flag false`
 /// (space-separated) instead of `--bool-flag=false`. gflags bool flags don't consume the
 /// next argument; `--flag false` silently sets the flag to true and orphans "false".
-void CheckSuspiciousPositionalArgs(int argc, char **argv) {
-  if (argc <= 1) return;
+///
+/// @return true if startup should continue, false if `--strict-flag-check` requires aborting.
+[[nodiscard]] bool CheckSuspiciousPositionalArgs(int argc, char **argv) {
+  if (argc <= 1) return true;
 
   auto is_bool_like = [](std::string_view arg) {
     using namespace std::string_view_literals;
@@ -140,7 +142,7 @@ void CheckSuspiciousPositionalArgs(int argc, char **argv) {
     spdlog::log(
         level, "Unexpected positional argument(s): {}. Memgraph does not accept positional arguments.", all_args);
   }
-  if (FLAGS_strict_flag_check) std::exit(EXIT_FAILURE);
+  return !FLAGS_strict_flag_check;
 }
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
@@ -267,7 +269,7 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  CheckSuspiciousPositionalArgs(argc, argv);
+  if (!CheckSuspiciousPositionalArgs(argc, argv)) return EXIT_FAILURE;
   WarnDeprecatedFlags();
 
   // Publish worker count early so allocators can pre-size thread-local structures
@@ -288,6 +290,31 @@ int main(int argc, char **argv) {
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
   // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
+
+  {
+    const auto build_info = memgraph::utils::GetBuildInfo();
+    spdlog::info("Memgraph {} (build-id: {}, build-type: {})",
+                 build_info.version,
+                 build_info.build_id.empty() ? "unknown" : build_info.build_id,
+                 build_info.build_name);
+  }
+
+  // Fail fast if --cluster-{cert,key,ca}-file are partially configured.
+  // Must run after logger init so the fatal message is delivered.
+  memgraph::flags::ValidateIntraClusterTLSFlags();
+
+  // Initialize the cluster TLS singletons from the cluster flags. Every
+  // ClusterView ServerContext/ClientContext below will atomic-load from
+  // these. A bad cert/key/CA path here surfaces at boot, not at first peer
+  // connection.
+  if (auto const cluster_tls = memgraph::flags::TlsConfigFromClusterFlags()) {
+    if (auto const r = memgraph::communication::ClusterServerSsl::Instance().Init(*cluster_tls); !r.has_value()) {
+      LOG_FATAL("Failed to initialize cluster server TLS: {}", r.error().msg);
+    }
+    if (auto const r = memgraph::communication::ClusterClientSsl::Instance().Init(*cluster_tls); !r.has_value()) {
+      LOG_FATAL("Failed to initialize cluster client TLS: {}", r.error().msg);
+    }
+  }
 
   // Block SIGTERM/SIGINT as early as possible so that every thread we spawn
   // inherits the blocked mask.  The main thread will consume them
@@ -376,14 +403,14 @@ int main(int argc, char **argv) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
       mem_log_scheduler.SetInterval(std::chrono::seconds(3));
-      mem_log_scheduler.Run("Memory check", [] {
+      mem_log_scheduler.Run("Memory check", [peak_gauge = memgraph::metrics::Metrics().global.peak_memory_res_bytes] {
         auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn(memgraph::utils::MessageWithLink(
               "Running out of available RAM, only {} MB left.", *free_ram / 1024, "https://memgr.ph/ram"));
 
         auto memory_res = memgraph::utils::GetMemoryRES();
-        memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, memory_res);
+        memgraph::metrics::Metrics().UpdateAndGetPeakMemoryRes(memory_res);
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -494,6 +521,7 @@ int main(int argc, char **argv) {
       .durability = {.storage_directory = FLAGS_data_directory,
                      .root_data_directory = FLAGS_data_directory,
                      .recover_on_startup = FLAGS_data_recovery_on_startup,
+                     .allow_recovery_failure = FLAGS_storage_allow_recovery_failure,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
@@ -521,17 +549,31 @@ int main(int argc, char **argv) {
                         .enable_label_index_auto_creation = FLAGS_storage_automatic_label_index_creation_enabled,
                         .enable_edge_type_index_auto_creation =
                             FLAGS_storage_automatic_edge_type_index_creation_enabled,  // NOLINT(misc-include-cleaner)
+                        .storage_light_edge = FLAGS_storage_light_edge,
                         .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update,
                         .property_store_compression_enabled = FLAGS_storage_property_store_compression_enabled},
       .salient.storage_mode = memgraph::flags::ParseStorageMode(),
       .salient.property_store_compression_level = memgraph::flags::ParseCompressionLevel(),
       .track_label_counts = FLAGS_telemetry_enabled};
+  // Light edges require properties on edges: coerce BEFORE any check that
+  // depends on properties_on_edges (the edge-type auto-index fatal below and
+  // the edges-metadata warning) so they all observe the effective value.
+  if (db_config.salient.items.storage_light_edge && !db_config.salient.items.properties_on_edges) {
+    spdlog::warn("Light edges require properties on edges. Forcing properties_on_edges to true.");
+    db_config.salient.items.properties_on_edges = true;
+    // enable_edges_metadata was derived from the raw flag at struct-init
+    // (false when properties_on_edges was off) — re-derive it from the user's
+    // request now that properties_on_edges is effectively on.
+    db_config.salient.items.enable_edges_metadata = FLAGS_storage_enable_edges_metadata;
+  }
   if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {
     LOG_FATAL(
         "Automatic index creation on edge-types has been set but properties on edges are disabled. If you wish to use "
         "automatic edge-type index creation, enable properties on edges as well.");
   }
-  if (!FLAGS_storage_properties_on_edges && FLAGS_storage_enable_edges_metadata) {
+  // Read the POST-coercion config field so the warning reflects the effective
+  // value (light-edge coercion above may have forced properties_on_edges true).
+  if (!db_config.salient.items.properties_on_edges && FLAGS_storage_enable_edges_metadata) {
     spdlog::warn(
         "Properties on edges were not enabled, hence edges metadata will also be disabled. If you wish to utilize "
         "extra metadata on edges, enable properties on edges as well.");
@@ -569,6 +611,10 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
+  MG_ASSERT(!(coordination_setup.IsDataInstanceManagedByCoordinator() &&
+              db_config.salient.storage_mode == IN_MEMORY_ANALYTICAL),
+            "Data instances cannot use analytical mode!");
+
   if (coordination_setup.IsDataInstanceManagedByCoordinator() &&
       db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
     MG_ASSERT(db_config.durability.snapshot_wal_mode == PERIODIC_SNAPSHOT_WITH_WAL,
@@ -584,6 +630,7 @@ int main(int argc, char **argv) {
     MG_ASSERT(FLAGS_init_data_file.empty(),
               "Coordinator instances don't support --init-data-file flag. Please restart the instance by removing this "
               "flag.");
+    spdlog::warn("All storage-related flags are ignored since coordinators don't have storage.");
   }
 
   if (coordination_setup.IsDataInstanceManagedByCoordinator()) {
@@ -592,13 +639,6 @@ int main(int argc, char **argv) {
     MG_ASSERT(FLAGS_init_data_file.empty(),
               "Data instances don't support --init-data-file flag. Please restart the instance by removing this "
               "flag.");
-  }
-
-  if (std::chrono::seconds(FLAGS_instance_down_timeout_sec) <
-      std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)) {
-    LOG_FATAL(
-        "Instance down timeout config option must be greater than or equal to instance health check frequency config "
-        "option!");
   }
 
 #endif
@@ -703,10 +743,18 @@ int main(int argc, char **argv) {
           "started only with management port.");
     }
 
+    auto maybe_ssl = memgraph::flags::TlsConfigFromClusterFlags();
+    if (!maybe_ssl.has_value()) {
+      spdlog::warn(memgraph::utils::MessageWithLink(
+          "Running HA without intra-cluster TLS. Replication, coordinator, and management traffic is unencrypted.",
+          "https://memgr.ph/cluster-tls"));
+    }
+
     if (is_coordinator_instance) {
       constexpr auto kRaftDataDir = "/high_availability/raft_data";
       auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
+
       coordinator_state = std::make_shared<CoordinatorState>(
           CoordinatorInstanceInitConfig{.coordinator_id = coordination_setup.coordinator_id,
                                         .coordinator_port = coordination_setup.coordinator_port,
@@ -714,10 +762,11 @@ int main(int argc, char **argv) {
                                         .management_port = coordination_setup.management_port,
                                         .durability_dir = high_availability_data_dir,
                                         .coordinator_hostname = coordination_setup.coordinator_hostname,
-                                        .nuraft_log_file = coordination_setup.nuraft_log_file});
+                                        .nuraft_log_file = coordination_setup.nuraft_log_file,
+                                        .tls_config = std::move(maybe_ssl)});
     } else {
-      coordinator_state = std::make_shared<CoordinatorState>(
-          ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
+      coordinator_state = std::make_shared<CoordinatorState>(ReplicationInstanceInitConfig{
+          .management_port = coordination_setup.management_port, .tls_config = std::move(maybe_ssl)});
     }
   };
 
@@ -735,6 +784,20 @@ int main(int argc, char **argv) {
   if (!is_coordinator_instance) {
     dbms_handler.emplace(db_config);
   }
+
+  memgraph::metrics::Metrics().SetStorageSnapshotResolver(
+      [&dbms_handler](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
+        if (!dbms_handler) return std::nullopt;
+        return dbms_handler->TryGetStorageSnapshotForMetrics(uuid);
+      });
+
+#ifdef MG_ENTERPRISE
+  memgraph::metrics::Metrics().SetInstanceStatusResolver(
+      [&coordinator_state]() -> std::vector<memgraph::coordination::InstanceStatus> {
+        if (!coordinator_state || !coordinator_state->IsCoordinator()) return {};
+        return coordinator_state->ShowInstances();
+      });
+#endif
 
   // singleton replication state
   // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
@@ -868,6 +931,30 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
+  // Hot/cold suspend/resume arms (multi-tenant). Wired unconditionally (not gated on recover_on_startup):
+  //  - on_suspend_: before the freeze, stop the per-db stream consumers (each pins the tenant HOT via a
+  //    captured DatabaseAccess), preserving their durable metadata so resume rebuilds them;
+  //  - restore_streams_: undo that stop if a suspend does not commit (preserving each stream's run/stop state);
+  //  - on_resume_: after a COLD tenant's storage is rebuilt, re-arm its triggers AND streams from durable
+  //    metadata (BuildDetached does not auto-arm either). Triggers must come first (streams use modules).
+  if (dbms_handler.has_value()) {
+    auto *dh = &*dbms_handler;
+    auto *ic = &interpreter_context_;
+    dh->SetOnSuspend(
+        [](memgraph::dbms::DatabaseAccess db_acc) { memgraph::dbms::DbmsHandler::StopStreamsFor(db_acc); });
+    dh->SetRestoreStreams([dh, ic](memgraph::dbms::DatabaseAccess db_acc) { dh->RestoreStreamsFor(db_acc, ic); });
+    dh->SetOnResume([dh, ic, &repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+      memgraph::dbms::DbmsHandler::RestoreTriggersFor(db_acc, ic);
+      dh->RestoreStreamsFor(db_acc, ic);
+      db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
+        const auto locked_repl_state = repl_state->ReadLock();
+        return locked_repl_state->IsMainWriteable();
+      });
+    });
+  }
+#endif
+
+#ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
   // Needs to start after dbms_handler.RestoreTriggers has been run. Otherwise we have a deadlock:
   // This thread takes unique lock on dbms handler and waits for storage write access
@@ -937,12 +1024,11 @@ int main(int argc, char **argv) {
     telemetry->AddExceptionCollector();
     telemetry->Start();
   }
-  memgraph::license::LicenseInfoSender const license_info_sender(
-      telemetry_server,
-      memgraph::glue::run_id_,
-      machine_id,
-      memory_limit,
-      memgraph::license::global_license_checker.GetLicenseInfo());
+  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server,
+                                                           memgraph::glue::run_id_,
+                                                           machine_id,
+                                                           memory_limit,
+                                                           memgraph::license::global_license_checker.GetLicenseInfo());
 
   memgraph::communication::websocket::SafeAuth websocket_auth{auth_.get()};
   memgraph::communication::websocket::Server websocket_server{
@@ -957,11 +1043,19 @@ int main(int argc, char **argv) {
     spdlog::error("Skipping adding logger sync for websocket.");
   }
 
-// TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
-  memgraph::glue::MonitoringServerT metrics_server{{FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)},
-                                                   db_acc.has_value() ? db_acc->get()->storage() : nullptr,
-                                                   &bolt_server_context};
+  auto const metrics_endpoint =
+      memgraph::io::network::Endpoint{FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)};
+  using MetricsServerVariant = std::variant<memgraph::glue::PrometheusServerT, memgraph::glue::MonitoringServerT>;
+  MetricsServerVariant metrics_server =
+      FLAGS_metrics_format == "JSON" ? MetricsServerVariant{std::in_place_type<memgraph::glue::MonitoringServerT>,
+                                                            metrics_endpoint,
+                                                            &memgraph::metrics::Metrics(),
+                                                            &bolt_server_context}
+                                     : MetricsServerVariant{std::in_place_type<memgraph::glue::PrometheusServerT>,
+                                                            metrics_endpoint,
+                                                            &memgraph::metrics::Metrics(),
+                                                            &bolt_server_context};
   spdlog::trace("Metrics server created.");
 #endif
 
@@ -977,10 +1071,23 @@ int main(int argc, char **argv) {
                       &interpreter_context_,
                       &dbms_handler,
                       &repl_state,
-                      &worker_pool_] {
+                      &worker_pool_,
+                      &license_info_sender,
+                      &telemetry] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     spdlog::trace("Shutting down handler!");
+
+    // STOP LICENSE SENDER IMMEDIATELY
+    // Prevents blocking on license HTTP requests during shutdown
+    license_info_sender.Stop();
+
+    // STOP TELEMETRY IMMEDIATELY
+    // Prevents blocking on telemetry HTTP requests during shutdown
+    if (telemetry) {
+      telemetry->Stop();
+    }
+
     spdlog::info("Workers shutting down.");
     if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     // Shutdown communication server
@@ -998,7 +1105,7 @@ int main(int argc, char **argv) {
     // Don't replicate on shutdown anymore
     {
       // Read lock is fine because we are only shutting down all the state which should be concurrently safe to do with
-      // other operations This allow terminating current commit that is taking place
+      // other operations. This allows terminating current commit that is taking place
       if (!is_coordinator_instance) {
         auto locked_repl_state = repl_state->ReadLock();
         spdlog::trace("Closing repl state");
@@ -1024,7 +1131,7 @@ int main(int argc, char **argv) {
     spdlog::trace("Shutting down websocket server");
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
-    metrics_server.Shutdown();
+    std::visit([](auto &s) { s.Shutdown(); }, metrics_server);
     if (coordinator_state && coordinator_state->IsCoordinator()) {
       // Coordinator instance destruction will handle the complete shutdown
       coordinator_state.reset();
@@ -1042,8 +1149,17 @@ int main(int argc, char **argv) {
   spdlog::trace("Web socket server started.");
 
 #ifdef MG_ENTERPRISE
-  metrics_server.Start();
-  spdlog::trace("Metrics server started");
+  std::visit(
+      [](auto &s) {
+        s.Start();
+        if (s.IsRunning()) {
+          spdlog::trace("Metrics server started");
+        } else {
+          spdlog::warn("Metrics server failed to start on port {}. The port may already be in use.",
+                       FLAGS_metrics_port);
+        }
+      },
+      metrics_server);
 #endif
 
   if (!FLAGS_init_data_file.empty() && dbms_handler.has_value()) {
@@ -1073,7 +1189,7 @@ int main(int argc, char **argv) {
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
-  metrics_server.AwaitShutdown();
+  std::visit([](auto &s) { s.AwaitShutdown(); }, metrics_server);
 #endif
 
   if (!is_coordinator_instance) {

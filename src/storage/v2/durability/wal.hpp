@@ -236,7 +236,8 @@ struct WalTransactionStart {
 
 struct WalTransactionEnd {
   friend bool operator==(const WalTransactionEnd &, const WalTransactionEnd &) = default;
-  using ctr_types = std::tuple<>;
+  using ctr_types = std::tuple<VersionDependant<kCrcProtection, uint32_t>>;
+  std::optional<uint32_t> txn_crc;  // Started protecting txns with CRC summary since kCrcProtection version
 };
 
 struct WalLabelIndexCreate : LabelOpInfo {};
@@ -349,26 +350,43 @@ struct WalEnumAlterUpdate {
   std::string evalue_new;
 };
 
+// Filter on a vector index: mode (SINGLE/WILDCARD/ANY_OF/ALL_OF) + the ids it covers.
+// Pre-v34 WALs wrote a single label/edge_type name; the upgraders below promote that to
+// {mode=SINGLE, ids={label_name}}.
+struct VectorFilterInfo {
+  friend bool operator==(VectorFilterInfo const &, VectorFilterInfo const &) = default;
+  using ctr_types = std::tuple<std::uint8_t, std::vector<std::string>>;
+  std::uint8_t mode;
+  std::vector<std::string> ids;
+};
+
+inline auto UpgradeForVectorMultiLabel(std::string name) -> VectorFilterInfo {
+  return {.mode = static_cast<std::uint8_t>(VectorMatchMode::SINGLE), .ids = {std::move(name)}};
+}
+
+using UpgradableVectorFilter =
+    VersionDependantUpgradable<kVectorIndexMultiLabel, std::string, VectorFilterInfo, UpgradeForVectorMultiLabel>;
+
 struct WalVectorIndexCreate {
   friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
-  using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
-                               std::size_t, VersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
+  using ctr_types = std::tuple<std::string, UpgradableVectorFilter, std::string, std::string, std::uint16_t,
+                               std::uint16_t, std::size_t, VersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
   std::string index_name;
-  std::string label;
+  VectorFilterInfo label_filter;
   std::string property;
   std::string metric_kind;
   std::uint16_t dimension;
   std::uint16_t resize_coefficient;
   std::size_t capacity;
-  std::optional<std::uint8_t> scalar_kind;  //!< Optional scalar kind, if not set, scalar is not used
+  std::optional<std::uint8_t> scalar_kind;
 };
 
 struct WalVectorEdgeIndexCreate {
   friend bool operator==(const WalVectorEdgeIndexCreate &, const WalVectorEdgeIndexCreate &) = default;
-  using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
-                               std::size_t, uint8_t>;
+  using ctr_types = std::tuple<std::string, UpgradableVectorFilter, std::string, std::string, std::uint16_t,
+                               std::uint16_t, std::size_t, uint8_t>;
   std::string index_name;
-  std::string edge_type;
+  VectorFilterInfo edge_type_filter;
   std::string property;
   std::string metric_kind;
   std::uint16_t dimension;
@@ -473,17 +491,25 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
 void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp,
                  Gid in_vertex_gid, EdgeTypeId edge_type_id);
 
-/// Function used to encode the transaction start
-/// Returns the position in the WAL where the flag 'commit' is about to be written
-uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t timestamp, bool commit,
-                                StorageAccessType access_type);
+struct WalTxnDataPos {
+  uint64_t commit_flag_wal_position_{0};  // position of the commit flag inside the transaction-start frame
+  uint64_t crc_wal_pos_{0};               // position of the stored CRC value inside the transaction-end frame
+  uint32_t stored_crc_{0};                // the CRC value written at crc_wal_pos_ (kept in memory to patch in place)
+};
 
-/// Function use to encode the transaction start
-/// Used for replication
-void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
+/// Positions filled in when encoding the transaction end.
+struct WalTxnEndPos {
+  uint64_t crc_wal_pos_{0};  // position where the CRC value is written
+  uint32_t stored_crc_{0};   // the CRC value written at crc_wal_pos_
+};
+
+/// Function used to encode the transaction start
+/// Returns the position where the flag 'commit' is about to be written
+uint64_t EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
 
 /// Function used to encode the transaction end.
-void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
+/// Returns the end of the CRC-protected region and the position where the CRC value is written.
+WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
 // Common to WAL & replication
 void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type);
@@ -561,14 +587,12 @@ class WalFile {
 
   // True means storage should use deltas associated with this txn, false means skip until
   // you find the next txn.
-  // Returns the position in the WAL where the flag 'commit' is about to be written
   uint64_t AppendTransactionStart(uint64_t timestamp, bool commit, StorageAccessType access_type);
 
-  // Updates the commit flag in the WAL file with the new decision whether deltas should be read or skipped upon the
-  // recovery
-  void UpdateCommitStatus(uint64_t flag_pos, bool new_decision);
+  // Updates the commit flag in the WAL file by setting it to treu
+  void UpdateCommitStatus(WalTxnDataPos const &wal_positions);
 
-  void AppendTransactionEnd(uint64_t timestamp);
+  WalTxnEndPos AppendTransactionEnd(uint64_t timestamp);
 
   void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
                        LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,

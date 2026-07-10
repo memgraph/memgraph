@@ -41,6 +41,7 @@ env:
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
   RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
 
+
 jobs:
   core:
     if: ${{ inputs.run_core == 'true' }}
@@ -53,6 +54,12 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -73,6 +80,14 @@ jobs:
           --arch $ARCH \
           --no-ccache \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       # This is also needed if we want do to comparison against other branches
       # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
@@ -161,6 +176,24 @@ jobs:
           name: "Code coverage(Code analysis)${{ env.RUN_ID }}"
           path: tools/github/generated/code_coverage.tar.gz
 
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+          MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+          MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+          CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+          CLUSTER_ENV: "ci-diff-coverage"
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -192,6 +225,12 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref || github.ref }}
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -284,6 +323,12 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref || github.ref }}
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login

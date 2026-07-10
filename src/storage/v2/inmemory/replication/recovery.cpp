@@ -20,14 +20,37 @@
 namespace memgraph::storage {
 
 template <>
-// NOLINTNEXTLINE
-auto const RpcInfo<replication::WalFilesRpc>::timerLabel = metrics::WalFilesRpc_us;
+prometheus::Histogram *RpcInfo<replication::WalFilesRpc>::histogram() {
+  return metrics::Metrics().global.wal_files_rpc_seconds;
+}
+
 template <>
-// NOLINTNEXTLINE
-auto const RpcInfo<replication::CurrentWalRpc>::timerLabel = metrics::CurrentWalRpc_us;
+void RpcInfo<replication::WalFilesRpc>::ObserveThroughput(std::string const &instance_name,
+                                                          double const bytes_per_seconds) {
+  metrics::Metrics().ObserveWalThroughput(instance_name, bytes_per_seconds);
+}
+
 template <>
-// NOLINTNEXTLINE
-auto const RpcInfo<replication::SnapshotRpc>::timerLabel = metrics::SnapshotRpc_us;
+prometheus::Histogram *RpcInfo<replication::CurrentWalRpc>::histogram() {
+  return metrics::Metrics().global.current_wal_rpc_seconds;
+}
+
+template <>
+void RpcInfo<replication::CurrentWalRpc>::ObserveThroughput(std::string const &instance_name,
+                                                            double const bytes_per_second) {
+  metrics::Metrics().ObserveWalThroughput(instance_name, bytes_per_second);
+}
+
+template <>
+prometheus::Histogram *RpcInfo<replication::SnapshotRpc>::histogram() {
+  return metrics::Metrics().global.snapshot_rpc_seconds;
+}
+
+template <>
+void RpcInfo<replication::SnapshotRpc>::ObserveThroughput(std::string const &instance_name,
+                                                          double const bytes_per_second) {
+  metrics::Metrics().ObserveSnapshotThroughput(instance_name, bytes_per_second);
+}
 
 /// This method tries to find the optimal path for recovering a single replica.
 /// Based on the last commit transferred to replica it tries to update the

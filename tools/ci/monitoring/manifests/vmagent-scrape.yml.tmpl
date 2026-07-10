@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  external_labels:
+    cluster_id: "${CLUSTER_ID}"
+    service_name: "${SERVICE_NAME}"
+    cluster_env: "${CLUSTER_ENV}"
+
+scrape_configs:
+  # Memgraph exposes Prometheus/OpenMetrics directly on the metrics port
+  # (requires the instance to run with --metrics-format=OpenMetrics).
+  - job_name: memgraph
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+${MEMGRAPH_SCRAPE_TARGETS_BLOCK}

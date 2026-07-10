@@ -11,17 +11,16 @@
 
 #include <gtest/gtest.h>
 
-#include "test_symbols.hpp"
+#include "test_support/types.hpp"
 
 import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core {
 
 using namespace test;
-using TestProcessingContext = ProcessingContext<Op>;
 
 TEST(EGraph_Basic, EmptyEGraph) {
-  auto const egraph = EGraph<Op, NoAnalysis>{};
+  auto const egraph = TestEGraph{};
 
   EXPECT_TRUE(egraph.empty());
   EXPECT_EQ(egraph.num_classes(), 0);
@@ -29,7 +28,7 @@ TEST(EGraph_Basic, EmptyEGraph) {
 }
 
 TEST(EGraph_Basic, AddSimpleENodes) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
 
   // Add leaf nodes
   auto [info1, info1_node, inserted1] = egraph.emplace(Op::A);
@@ -45,7 +44,7 @@ TEST(EGraph_Basic, AddSimpleENodes) {
 }
 
 TEST(EGraph_Basic, AddNodesWithChildren) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
 
   // Add leaf nodes first
   auto [a, a_node, a_inserted] = egraph.emplace(Op::A);
@@ -65,7 +64,7 @@ TEST(EGraph_Basic, AddNodesWithChildren) {
 }
 
 TEST(EGraph_Basic, DuplicateNodesReturnSameEClass) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
 
   // Add same node twice
   auto [info1, info1_node, inserted1] = egraph.emplace(Op::A, 0);
@@ -79,7 +78,7 @@ TEST(EGraph_Basic, DuplicateNodesReturnSameEClass) {
 }
 
 TEST(EGraph_Basic, GetEClassByID) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
 
   auto [info, info_node, ins] = egraph.emplace(Op::Test);
   auto id = info;
@@ -93,7 +92,7 @@ TEST(EGraph_Basic, GetEClassByID) {
 }
 
 TEST(EGraph_Basic, ClearEmptiesTheGraph) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
 
   egraph.emplace(Op::A);
   egraph.emplace(Op::B);
@@ -108,7 +107,7 @@ TEST(EGraph_Basic, ClearEmptiesTheGraph) {
 }
 
 TEST(EGraph_Merge, MergeTwoDifferentEClasses) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
 
   auto [info1, info1_node, ins1] = egraph.emplace(Op::A);
   auto [info2, info2_node, ins2] = egraph.emplace(Op::B);
@@ -126,7 +125,7 @@ TEST(EGraph_Merge, MergeTwoDifferentEClasses) {
 }
 
 TEST(EGraph_Merge, MergeSameEClassIsNoOp) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
 
   auto [info1, info1_node, ins1] = egraph.emplace(Op::A);
   auto id1 = info1;
@@ -145,7 +144,7 @@ TEST(EGraph_DuplicateRemoval, CongruenceRemovesDuplicateENodes) {
   //   Merge a≡b → both canonicalize to F(canonical)
   //   One is kept, one is removed as duplicate, e-classes merge
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
@@ -185,7 +184,7 @@ TEST(EGraph_DuplicateRemoval, MultipleDuplicatesRemoved) {
   //   Merge a≡b≡c → all three F nodes canonicalize to F(canonical)
   //   Two duplicates removed, one kept
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
@@ -223,7 +222,7 @@ TEST(EGraph_DuplicateRemoval, CascadingCongruenceRemovesDuplicates) {
   //   Merge a≡b → F(a)≡F(b) by congruence, then G(F(a))≡G(F(b))
   //   Duplicates removed at each level
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
@@ -262,7 +261,7 @@ TEST(EGraph_DuplicateRemoval, CascadingCongruenceRemovesDuplicates) {
 }
 
 TEST(EGraph_DuplicateRemoval, ClearResetsDuplicateCount) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
@@ -285,7 +284,7 @@ TEST(EGraph_DuplicateRemoval, ManyDuplicatesInSameEclass) {
   // Multiple e-nodes in one eclass that all canonicalize to the same form.
   // Duplicate removal is deferred until after iteration of eclass.nodes()
   // completes, so all duplicates are found regardless of removal order.
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a0 = egraph.emplace(Op::A, 0).eclass_id;
@@ -316,7 +315,7 @@ TEST(EGraph_DuplicateRemoval, ManyDuplicatesInSameEclass) {
 
 TEST(EGraph_DuplicateRemoval, ManyDuplicatesExceedingSBO) {
   // 8 nodes exceeds small_vector SBO capacity (4).
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   constexpr int N = 8;
@@ -351,12 +350,12 @@ TEST(EGraph_DuplicateRemoval, TwoCongruentParentsCollapseAfterChildMerge) {
   // repair_hashcons_enode (hashcons_.find(ENodeRef{enode}) != end) cannot fire: each
   // parent has a DISTINCT pre-canonical hashcons key (otherwise add_enode would have
   // deduplicated at insertion), and repair only erases the key of the enode currently
-  // being repaired — it never removes a sibling's entry.
+  // being repaired - it never removes a sibling's entry.
   //
   // This test empirically confirms that: two F(a_i) nodes are forced into one
   // canonical_to_parents group by merging their children, rebuild must not trip the
   // assert (Debug build), and congruence closure holds.
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
   auto a0 = egraph.emplace(Op::A, 0).eclass_id;
   auto a1 = egraph.emplace(Op::A, 1).eclass_id;
@@ -376,14 +375,14 @@ TEST(EGraph_SelfReference, ChainCollapseWithDeferredNodes) {
   // Self-referential chain F(F(F(a))) where nodes are created between merge and rebuild.
   //
   //   n0 = A, n1 = F(n0), n2 = F(n1)
-  //   merge(n0, n1) — creates self-referential class
-  //   n3 = F(n2) — created AFTER merge, BEFORE rebuild
+  //   merge(n0, n1) - creates self-referential class
+  //   n3 = F(n2) - created AFTER merge, BEFORE rebuild
   //   rebuild()
   //
   // After merge, n1 = F(class_01) and n2 = F(class_01) become congruent duplicates.
   // This cascades: n3's child also collapses, merging everything into one class.
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   // n0 = A -> class 0
@@ -433,8 +432,8 @@ TEST(EGraph_SelfReference, IndirectCongruenceViaChildMerges) {
   // indirectly congruent.
   //
   //   c = F(a), d = F(b)
-  //   merge(c, a) — a's class now contains {a, F(a)}, so find(c) = find(a)
-  //   merge(d, b) — b's class now contains {b, F(b)}, so find(d) = find(b)
+  //   merge(c, a) - a's class now contains {a, F(a)}, so find(c) = find(a)
+  //   merge(d, b) - b's class now contains {b, F(b)}, so find(d) = find(b)
   //
   //   e = G(c, b) → G(E_a, E_b)
   //   f = G(a, d) → G(E_a, E_b)
@@ -442,7 +441,7 @@ TEST(EGraph_SelfReference, IndirectCongruenceViaChildMerges) {
   //   Both canonicalize to the same form via different self-ref paths,
   //   so they must be merged.
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   // Create two separate leaves
@@ -494,20 +493,20 @@ TEST(EGraph_SelfReference, TransitiveSelfRefCreatesIndirectCongruence) {
   // detecting that parent nodes are congruent.
   //
   //   a, b = leaves
-  //   fa = F(a, a),  fb = F(b, b)       — level 1
-  //   ffa = F(fa, fa), ffb = F(fb, fb)  — level 2
-  //   p = G(ffa, b),  q = G(a, ffb)     — parents using nodes from different chains
+  //   fa = F(a, a),  fb = F(b, b)       - level 1
+  //   ffa = F(fa, fa), ffb = F(fb, fb)  - level 2
+  //   p = G(ffa, b),  q = G(a, ffb)     - parents using nodes from different chains
   //
-  //   merge(fa, a) — a's class absorbs F(a,a), so fa collapses into a
-  //   merge(fb, b) — b's class absorbs F(b,b), so fb collapses into b
+  //   merge(fa, a) - a's class absorbs F(a,a), so fa collapses into a
+  //   merge(fb, b) - b's class absorbs F(b,b), so fb collapses into b
   //
   // After rebuild (transitive collapse, 2 hops each):
   //   fa → E_a, ffa = F(fa,fa) → F(E_a,E_a) → E_a
   //   fb → E_b, ffb = F(fb,fb) → F(E_b,E_b) → E_b
   //   p = G(ffa, b) → G(E_a, E_b)
-  //   q = G(a, ffb) → G(E_a, E_b)  — congruent with p
+  //   q = G(a, ffb) → G(E_a, E_b)  - congruent with p
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
@@ -517,7 +516,7 @@ TEST(EGraph_SelfReference, TransitiveSelfRefCreatesIndirectCongruence) {
   auto fa = egraph.emplace(Op::F, {a, a}).eclass_id;
   auto fb = egraph.emplace(Op::F, {b, b}).eclass_id;
 
-  // Level 2: F(F(x,x), F(x,x)) — two hops from leaf
+  // Level 2: F(F(x,x), F(x,x)) - two hops from leaf
   auto ffa = egraph.emplace(Op::F, {fa, fa}).eclass_id;
   auto ffb = egraph.emplace(Op::F, {fb, fb}).eclass_id;
 
@@ -545,7 +544,7 @@ TEST(EGraph_SelfReference, TransitiveSelfRefCreatesIndirectCongruence) {
 }
 
 TEST(EGraph_SelfReference, CongruenceAfterMergeAndRebuildSelfReference) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto [a, a_node, a_ins] = egraph.emplace(Op::A);
@@ -562,7 +561,7 @@ TEST(EGraph_SelfReference, CongruenceAfterMergeAndRebuildSelfReference) {
 }
 
 TEST(EGraph_SelfReference, CollapseAfterMergeWithParent) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A).eclass_id;
@@ -588,7 +587,7 @@ TEST(EGraph_SelfReference, BatchedMergesCollapseToSingleClass) {
   // Multiple leaves and unary nodes with mixed symbols (F, F2) are merged in a single
   // batch before rebuild. Cross-symbol self-references cause everything to collapse
   // into a single e-class.
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto leaf_0 = egraph.emplace(Op::A, 0).eclass_id;
@@ -621,7 +620,7 @@ TEST(EGraph_SelfReference, BatchedMergesCollapseToSingleClass) {
 }
 
 TEST(EGraph_SelfReference, BasicCycle) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto zero_1 = egraph.emplace(Op::A, 0).eclass_id;  // First zero
@@ -648,7 +647,7 @@ TEST(EGraph_Congruence, DuplicateInSameEClass) {
   //   rebuild should detect f2 as duplicate of f1 and remove it,
   //   but no inter-class merge is needed
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
@@ -700,7 +699,7 @@ TEST(EGraph_Congruence, MultipleParentsFromDifferentClasses) {
   //   merge(a, b), merge(b, c) - now a≡b≡c
   //   rebuild should merge fa, fb, fc because all canonicalize to F(E_abc)
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
@@ -742,7 +741,7 @@ TEST(EGraph_Congruence, AlreadyCanonicalNoChange) {
   //   Rebuild with no pending merges - f's children are already canonical
   //   No merges should occur, e-graph structure unchanged
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
@@ -773,7 +772,7 @@ TEST(EGraph_Congruence, ChainedPropagation) {
   //   merge(a, b)
   //   rebuild should propagate: a≡b -> fa≡fb -> gfa≡gfb -> hgfa≡hgfb
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
@@ -802,7 +801,7 @@ TEST(EGraph_Congruence, ChainedPropagation) {
 }
 
 TEST(EGraph_Congruence, HashconsUpdatedAfterChildMerge) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   // Create scenario to trigger single parent hashcons bug:
@@ -834,7 +833,7 @@ TEST(EGraph_Congruence, HashconsUpdatedAfterChildMerge) {
 }
 
 TEST(EGraph_Congruence, MultipleParentsAfterMerge) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   // Create scenario with multiple parents that become congruent after merge
@@ -860,7 +859,7 @@ TEST(EGraph_Congruence, MultipleParentsAfterMerge) {
 }
 
 TEST(EGraph_Congruence, DeepRebuildSingleParentChain) {
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   // Create a chain: a -> f(a) -> g(f(a)) where each has single parent
@@ -888,7 +887,7 @@ TEST(EGraph_Congruence, DeepRebuildSingleParentChain) {
 TEST(EGraph_Congruence, SwappedChildrenBecomeCongruent) {
   // F2(a,b) and F2(b,a) in the same eclass. After merge(a,b), both
   // canonicalize to F2(E_ab, E_ab) and the duplicate is removed.
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
@@ -911,7 +910,7 @@ TEST(EGraph_Congruence, SwappedChildrenBecomeCongruent) {
 TEST(EGraph_Congruence, ThreeWayChildMergeWithSharedParents) {
   // Three parents with different child pairs from {a,b,c}, all in the same
   // eclass. After merging all leaves, all canonicalize to the same form.
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
@@ -936,7 +935,7 @@ TEST(EGraph_Congruence, ThreeWayChildMergeWithSharedParents) {
 
 TEST(EGraph_EdgeCases, NeedsRebuildAndWorklistSize) {
   // Test: needs_rebuild() and worklist_size() utility functions
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   // Initially no rebuild needed
@@ -965,7 +964,7 @@ TEST(EGraph_EdgeCases, NeedsRebuildAndWorklistSize) {
 
 TEST(EGraph_EdgeCases, HasClassWithInvalidId) {
   // Test: has_class() returns false for invalid e-class ID
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
 
@@ -989,7 +988,7 @@ TEST(EGraph_EdgeCases, RepairHashconsEclassMergesAwayOriginal) {
   // congruent, fa's class is merged into fb's class. Parent nodes ga and gb
   // must still propagate correctly through this "reversed" merge.
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   // Create b first so it gets lower ID
@@ -1027,7 +1026,7 @@ TEST(EGraph_EdgeCases, RepairHashconsWithHigherRankTarget) {
   // union-find rank (built through preliminary merges) to force the merge
   // direction, rather than relying on creation order.
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
   TestProcessingContext ctx;
 
   // Create leaf nodes - we'll merge c1, c2, c3 to build rank
@@ -1071,7 +1070,7 @@ TEST(EGraph_EdgeCases, ValidateCongruenceClosureDetectsFailure) {
   // Strategy: Create congruent e-nodes, merge their children, but DON'T
   // call rebuild. The validation should detect the inconsistency.
 
-  EGraph<Op, NoAnalysis> egraph;
+  TestEGraph egraph;
 
   auto a = egraph.emplace(Op::A, 0).eclass_id;
   auto b = egraph.emplace(Op::A, 1).eclass_id;

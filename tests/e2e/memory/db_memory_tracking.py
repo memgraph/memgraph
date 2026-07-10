@@ -73,6 +73,10 @@ def fetch_all(cursor, query, params=None):
 
 
 def get_storage_info(cursor):
+    return {row[0]: row[1] for row in fetch_all(cursor, "SHOW STORAGE INFO ON CURRENT DATABASE")}
+
+
+def get_global_storage_info(cursor):
     return {row[0]: row[1] for row in fetch_all(cursor, "SHOW STORAGE INFO")}
 
 
@@ -84,10 +88,6 @@ def parse_size_bytes(size_str):
         return 0
     units = {"B": 1, "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4}
     return int(float(match.group(1)) * units[match.group(2)])
-
-
-def storage_metric_bytes(cursor, key):
-    return parse_size_bytes(get_storage_info(cursor)[key])
 
 
 def wait_until(predicate, timeout=15.0, interval=0.2, message="condition not met"):
@@ -161,13 +161,18 @@ def drop_all_triggers(cursor):
 
 
 def metric_triplet(cursor):
+    # Internal legacy key names (db_*) intentionally retained; they predate the
+    # SHOW STORAGE INFO split. The on-the-wire field names from SHOW STORAGE INFO
+    # ON CURRENT DATABASE are graph/query/vector_index_memory_tracked (+ tenant_*).
     info = get_storage_info(cursor)
+    graph = parse_size_bytes(info["graph_memory_tracked"])
+    vector = parse_size_bytes(info["vector_index_memory_tracked"])
+    query = parse_size_bytes(info["query_memory_tracked"])
     return {
-        "db_memory_tracked": parse_size_bytes(info["db_memory_tracked"]),
-        "db_storage_memory_tracked": parse_size_bytes(info["db_storage_memory_tracked"]),
-        "db_embedding_memory_tracked": parse_size_bytes(info["db_embedding_memory_tracked"]),
-        "db_query_memory_tracked": parse_size_bytes(info["db_query_memory_tracked"]),
-        "global_memory_tracked": parse_size_bytes(info["global_memory_tracked"]),
+        "db_memory_tracked": graph + vector + query,
+        "db_storage_memory_tracked": graph,
+        "db_embedding_memory_tracked": vector,
+        "db_query_memory_tracked": query,
     }
 
 
@@ -189,6 +194,47 @@ def assert_metric_returns_near_baseline(cursor, key, baseline, tolerance_bytes, 
         timeout=timeout,
         message=message,
     )
+
+
+def assert_global_metric_returns_near_baseline(cursor, key, baseline, tolerance_bytes, timeout=20.0, message=None):
+    if message is None:
+        message = f"global {key} did not return near baseline"
+    wait_until(
+        lambda: parse_size_bytes(get_global_storage_info(cursor).get(key, "0B")) <= baseline + tolerance_bytes,
+        timeout=timeout,
+        message=message,
+    )
+
+
+def stable_metric_value(cursor, key, epsilon=64 * 1024, timeout=30.0, interval=0.5):
+    """Return a stable reading of *key* from metric_triplet.
+
+    Polls until two consecutive readings differ by at most *epsilon* bytes,
+    then returns the second (newer) reading.  If *timeout* expires before
+    stability is achieved the last reading is returned so the caller can
+    proceed — the test should NOT fail on stabilization timeout alone.
+
+    Args:
+        cursor: An open mgclient cursor used to issue SHOW STORAGE INFO.
+        key: The metric_triplet key to stabilize on.
+        epsilon: Maximum byte difference between two consecutive readings
+                 that counts as "stable".  Defaults to 64 KiB.
+        timeout: Maximum seconds to wait for stability.  Defaults to 30 s.
+        interval: Seconds between successive poll attempts.  Defaults to 0.5 s.
+
+    Returns:
+        The byte value of *key* from the most-recent metric_triplet reading.
+    """
+    prev = metric_triplet(cursor)[key]
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(interval)
+        curr = metric_triplet(cursor)[key]
+        if abs(curr - prev) <= epsilon:
+            return curr
+        prev = curr
+    debug_log(f"stable_metric_value: {key} did not stabilize within {timeout}s; proceeding with last value {prev}")
+    return prev
 
 
 def release_query_memory_hold(cursor, signal_id):
@@ -287,11 +333,12 @@ def test_show_storage_info_contains_db_split_fields():
     conn.close()
 
     required = {
-        "db_memory_tracked",
-        "db_storage_memory_tracked",
-        "db_embedding_memory_tracked",
-        "db_query_memory_tracked",
-        "global_memory_tracked",
+        "graph_memory_tracked",
+        "vector_index_memory_tracked",
+        "query_memory_tracked",
+        "tenant_memory_tracked",
+        "tenant_peak_memory_tracked",
+        "tenant_memory_limit",
     }
     assert required.issubset(set(info.keys())), f"Missing keys: {required - set(info.keys())}"
 
@@ -299,12 +346,17 @@ def test_show_storage_info_contains_db_split_fields():
 def test_db_total_equals_storage_plus_embedding_plus_query():
     conn = connect()
     cursor = conn.cursor()
-    info = metric_triplet(cursor)
+    info = get_storage_info(cursor)
     conn.close()
 
+    graph = parse_size_bytes(info["graph_memory_tracked"])
+    vector = parse_size_bytes(info["vector_index_memory_tracked"])
+    query = parse_size_bytes(info["query_memory_tracked"])
+    tenant_total = parse_size_bytes(info["tenant_memory_tracked"])
+
     assert_metrics_close(
-        info["db_memory_tracked"],
-        info["db_storage_memory_tracked"] + info["db_embedding_memory_tracked"] + info["db_query_memory_tracked"],
+        tenant_total,
+        graph + vector + query,
         64 * 1024,
         "db total should match storage+embedding+query within readable-size rounding tolerance",
     )
@@ -692,11 +744,41 @@ def test_label_and_property_index_creation_grows_db_storage_memory():
     execute(cursor, "FREE MEMORY")
     execute(cursor, "FREE MEMORY")
 
+    # Stabilize the baseline: after FREE MEMORY the jemalloc arena may still be
+    # decaying committed pages back to the OS.  Poll until two consecutive readings
+    # agree within 64 KiB (or 30 s elapses) so a slow CI teardown does not inflate
+    # the 'before' sample and make the growth check appear as shrinkage.
+    before_storage = stable_metric_value(cursor, "db_storage_memory_tracked", epsilon=64 * 1024, timeout=30.0)
     before = metric_triplet(cursor)
-    debug_log(f"index create before db={db_name} metrics={before}")
+    # Overwrite with the stabilized reading so the growth assertions are consistent.
+    before["db_storage_memory_tracked"] = before_storage
+    before["db_memory_tracked"] = metric_triplet(cursor)["db_memory_tracked"]
+    debug_log(f"index create before (stabilized) db={db_name} metrics={before}")
+
     execute(cursor, "CREATE INDEX ON :Indexed;")
     execute(cursor, "CREATE INDEX ON :Indexed(value);")
-    after = metric_triplet(cursor)
+
+    # Wait for the index build to be reflected in the committed-page counter rather
+    # than asserting on a single-shot snapshot that may be taken before the arena
+    # has extended its committed pages.
+    after_holder: list[dict] = []
+
+    def _storage_grew() -> bool:
+        triplet = metric_triplet(cursor)
+        if triplet["db_storage_memory_tracked"] > before["db_storage_memory_tracked"]:
+            after_holder.append(triplet)
+            return True
+        return False
+
+    wait_until(
+        _storage_grew,
+        timeout=20.0,
+        message=(
+            f"db_storage_memory_tracked did not grow after CREATE INDEX "
+            f"(before={before['db_storage_memory_tracked']})"
+        ),
+    )
+    after = after_holder[0]
     debug_log(f"index create after db={db_name} metrics={after}")
 
     conn.close()
@@ -1004,8 +1086,9 @@ def test_drop_database_releases_global_memory():
     memgraph_cursor = memgraph_conn.cursor()
     execute(memgraph_cursor, "FREE MEMORY")
     execute(memgraph_cursor, "FREE MEMORY")
-    baseline = metric_triplet(memgraph_cursor)
-    debug_log(f"drop-db baseline db={db_name} metrics={baseline}")
+    global_info = get_global_storage_info(memgraph_cursor)
+    baseline_global = parse_size_bytes(global_info.get("memory_tracked", "0B"))
+    debug_log(f"drop-db baseline db={db_name} global_memory_tracked={baseline_global}")
 
     db_conn = connect(db_name)
     db_cursor = db_conn.cursor()
@@ -1013,28 +1096,30 @@ def test_drop_database_releases_global_memory():
     execute(db_cursor, "CREATE INDEX ON :DropNode;")
     execute(db_cursor, "FREE MEMORY")
     execute(db_cursor, "FREE MEMORY")
-    db_after_alloc = metric_triplet(memgraph_cursor)
-    debug_log(f"drop-db after alloc db={db_name} metrics={db_after_alloc}")
-    assert db_after_alloc["global_memory_tracked"] > baseline["global_memory_tracked"]
+    global_info = get_global_storage_info(memgraph_cursor)
+    db_after_alloc_global = parse_size_bytes(global_info.get("memory_tracked", "0B"))
+    debug_log(f"drop-db after alloc db={db_name} global_memory_tracked={db_after_alloc_global}")
+    assert db_after_alloc_global > baseline_global
 
     db_conn.close()
     drop_database(admin_cursor, db_name)
     execute(memgraph_cursor, "FREE MEMORY")
     execute(memgraph_cursor, "FREE MEMORY")
-    assert_metric_returns_near_baseline(
+    assert_global_metric_returns_near_baseline(
         memgraph_cursor,
-        "global_memory_tracked",
-        baseline["global_memory_tracked"],
+        "memory_tracked",
+        baseline_global,
         1024 * 1024,
         message="total memory tracker did not return near baseline after database drop",
     )
-    after_drop = metric_triplet(memgraph_cursor)
-    debug_log(f"drop-db after drop db={db_name} metrics={after_drop}")
+    global_info = get_global_storage_info(memgraph_cursor)
+    after_drop_global = parse_size_bytes(global_info.get("memory_tracked", "0B"))
+    debug_log(f"drop-db after drop db={db_name} global_memory_tracked={after_drop_global}")
 
     memgraph_conn.close()
     admin.close()
 
-    assert after_drop["global_memory_tracked"] <= baseline["global_memory_tracked"] + 1024 * 1024
+    assert after_drop_global <= baseline_global + 1024 * 1024
 
 
 if __name__ == "__main__":

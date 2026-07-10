@@ -45,7 +45,7 @@ class LicenseTest : public ::testing::Test {
 
 TEST_F(LicenseTest, EncodeDecode) {
   const std::array licenses = {
-      memgraph::license::License{"Organization", 1, 2, memgraph::license::LicenseType::OEM},
+      memgraph::license::License{"Organization", 1, 2, memgraph::license::LicenseType::OEM_COMMUNITY},
       memgraph::license::License{"", -1, 0, memgraph::license::LicenseType::ENTERPRISE},
       memgraph::license::License{
           "Some very long name for the organization Ltd", -999, -9999, memgraph::license::LicenseType::ENTERPRISE},
@@ -153,7 +153,7 @@ TEST_F(LicenseTest, LicenseType) {
     CheckLicenseValidity(true);
   }
   {
-    memgraph::license::License license_oem{organization_name, 0, 0, memgraph::license::LicenseType::OEM};
+    memgraph::license::License license_oem{organization_name, 0, 0, memgraph::license::LicenseType::OEM_COMMUNITY};
     const std::string license_key = memgraph::license::Encode(license_oem);
     license_checker->SetCliLicense(license_key, organization_name, *settings);
     CheckLicenseValidity(false);
@@ -162,7 +162,7 @@ TEST_F(LicenseTest, LicenseType) {
     memgraph::license::License license_oem{organization_name,
                                            std::numeric_limits<int64_t>::min(),
                                            std::numeric_limits<int64_t>::max(),
-                                           memgraph::license::LicenseType::OEM};
+                                           memgraph::license::LicenseType::OEM_COMMUNITY};
     const std::string license_key = memgraph::license::Encode(license_oem);
     license_checker->SetCliLicense(license_key, organization_name, *settings);
     CheckLicenseValidity(false);
@@ -171,7 +171,7 @@ TEST_F(LicenseTest, LicenseType) {
     memgraph::license::License license_oem{organization_name,
                                            std::numeric_limits<int64_t>::max(),
                                            std::numeric_limits<int64_t>::min(),
-                                           memgraph::license::LicenseType::OEM};
+                                           memgraph::license::LicenseType::OEM_COMMUNITY};
     const std::string license_key = memgraph::license::Encode(license_oem);
     license_checker->SetCliLicense(license_key, organization_name, *settings);
     CheckLicenseValidity(false);
@@ -186,32 +186,34 @@ TEST_F(LicenseTest, DetailedLicenseInfo_Enterprise) {
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_EQ(detailed_license_info.organization_name, "Memgraph");
   ASSERT_TRUE(detailed_license_info.is_valid);
-  ASSERT_EQ(detailed_license_info.license_type, "enterprise");
+  ASSERT_EQ(detailed_license_info.license_type, memgraph::license::kLicenseTypeEnterprise);
   ASSERT_EQ(detailed_license_info.valid_until, "FOREVER");
   ASSERT_EQ(detailed_license_info.memory_limit, 0);
   ASSERT_EQ(detailed_license_info.status, "You are running a valid Memgraph Enterprise License.");
 }
 
-TEST_F(LicenseTest, DetailedLicenseInfo_OemExpired) {
-  // An expired OEM key produces no valid candidate; previous_license_info_ is reset.
+TEST_F(LicenseTest, DetailedLicenseInfo_OemCommunityExpired) {
+  // An expired OEM Community key produces no valid candidate; previous_license_info_ is reset.
   // GetDetailedLicenseInfo returns is_valid=false with no license details.
   const std::string organization_name{"Memgraph"};
-  memgraph::license::License license_oem{organization_name, 1, 6, memgraph::license::LicenseType::OEM};
+  memgraph::license::License license_oem{organization_name, 1, 6, memgraph::license::LicenseType::OEM_COMMUNITY};
   const std::string license_key = memgraph::license::Encode(license_oem);
   license_checker->SetCliLicense(license_key, organization_name, *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
 }
 
-TEST_F(LicenseTest, DetailedLicenseInfo_OemNonExpiredIsInvalid) {
-  SCOPED_TRACE("Valid non-expired OEM license must report is_valid=false (not enterprise type)");
+TEST_F(LicenseTest, DetailedLicenseInfo_OemCommunityNonExpiredIsInvalid) {
+  SCOPED_TRACE("Valid non-expired OEM Community license must report is_valid=false (not enterprise tier)");
   const std::string organization_name{"Memgraph"};
-  memgraph::license::License license_oem{organization_name, 0, 0, memgraph::license::LicenseType::OEM};
+  memgraph::license::License license_oem{organization_name, 0, 0, memgraph::license::LicenseType::OEM_COMMUNITY};
   const std::string license_key = memgraph::license::Encode(license_oem);
   license_checker->SetCliLicense(license_key, organization_name, *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
-  ASSERT_EQ(detailed_license_info.license_type, "oem");
+  ASSERT_EQ(detailed_license_info.license_type, memgraph::license::kLicenseTypeOemCommunity);
+  ASSERT_EQ(detailed_license_info.status,
+            "You are running a valid Memgraph OEM Community License. Enterprise features are not enabled.");
 }
 
 TEST_F(LicenseTest, DetailedLicenseInfo_MismatchedOrgName) {
@@ -465,7 +467,7 @@ TEST_F(LicenseTest, AiPlatform_DetailedLicenseInfo) {
   license_checker->SetCliLicense(key, org, *settings);
   auto info = license_checker->GetDetailedLicenseInfo();
   ASSERT_TRUE(info.is_valid);
-  ASSERT_EQ(info.license_type, "ai_platform");
+  ASSERT_EQ(info.license_type, memgraph::license::kLicenseTypeAiPlatform);
   ASSERT_EQ(info.memory_limit, 512);
   ASSERT_EQ(info.status, "You are running a valid Memgraph AI Platform License.");
 }
@@ -516,4 +518,72 @@ TEST_F(LicenseTest, AiPlatform_SwitchToEnterpriseClearsGraphLimit) {
 TEST_F(LicenseTest, AiPlatform_TestingFlag) {
   license_checker->EnableTesting(memgraph::license::LicenseType::AI_PLATFORM);
   CheckLicenseValidity(true);
+}
+
+// ===========================================================================
+// OEM license type (enterprise-equivalent, wire value 3)
+// ===========================================================================
+
+TEST_F(LicenseTest, Oem_EnterpriseValidation) {
+  const std::string org{"Memgraph"};
+  memgraph::license::License lic{org, 0, 0, memgraph::license::LicenseType::OEM};
+  const auto key = memgraph::license::Encode(lic);
+  license_checker->SetCliLicense(key, org, *settings);
+  CheckLicenseValidity(true);
+}
+
+TEST_F(LicenseTest, Oem_DetailedLicenseInfo) {
+  const std::string org{"Memgraph"};
+  memgraph::license::License lic{org, 0, 0, memgraph::license::LicenseType::OEM};
+  const auto key = memgraph::license::Encode(lic);
+  license_checker->SetCliLicense(key, org, *settings);
+  auto info = license_checker->GetDetailedLicenseInfo();
+  ASSERT_TRUE(info.is_valid);
+  ASSERT_EQ(info.license_type, memgraph::license::kLicenseTypeOem);
+  ASSERT_EQ(info.valid_until, "FOREVER");
+  ASSERT_EQ(info.status, "You are running a valid Memgraph OEM License.");
+}
+
+TEST_F(LicenseTest, Oem_IsEnterpriseValidFastReturnsTrue) {
+  const std::string org{"Memgraph"};
+  memgraph::license::License lic{org, 0, 0, memgraph::license::LicenseType::OEM};
+  license_checker->SetCliLicense(memgraph::license::Encode(lic), org, *settings);
+  ASSERT_TRUE(license_checker->IsEnterpriseValidFast());
+}
+
+TEST_F(LicenseTest, Oem_MemoryLimitTreatedAsTotal) {
+  constexpr int64_t system_limit = 1'000'000'000;
+  memgraph::utils::total_memory_tracker.SetMaximumHardLimit(system_limit);
+  memgraph::utils::total_memory_tracker.SetHardLimit(system_limit);
+
+  const std::string org{"Memgraph"};
+  constexpr int64_t license_limit = 500'000'000;
+  memgraph::license::License lic{org, 0, license_limit, memgraph::license::LicenseType::OEM};
+  license_checker->SetCliLicense(memgraph::license::Encode(lic), org, *settings);
+
+  ASSERT_EQ(memgraph::utils::total_memory_tracker.HardLimit(), license_limit);
+  ASSERT_EQ(memgraph::utils::graph_memory_tracker.HardLimit(), 0);
+
+  memgraph::utils::graph_memory_tracker.ResetLimit();
+  memgraph::utils::total_memory_tracker.ResetTrackings();
+}
+
+// ===========================================================================
+// Wire-format compat for existing OEM license keys
+// ===========================================================================
+
+TEST_F(LicenseTest, BackwardCompat_WireValue1RoundTripsAsOem) {
+  const auto fixture = memgraph::license::License{"FixtureOrg", 0, 0, static_cast<memgraph::license::LicenseType>(1)};
+  const auto encoded = memgraph::license::Encode(fixture);
+  const auto decoded = memgraph::license::Decode(encoded);
+  ASSERT_TRUE(decoded.has_value());
+  EXPECT_EQ(decoded->type, memgraph::license::LicenseType::OEM);
+  EXPECT_EQ(static_cast<uint8_t>(decoded->type), 1);
+  EXPECT_EQ(decoded->organization_name, "FixtureOrg");
+}
+
+TEST_F(LicenseTest, Decode_RejectsUnknownLicenseTypeByte) {
+  const auto crafted = memgraph::license::License{"Memgraph", 0, 0, static_cast<memgraph::license::LicenseType>(0xFF)};
+  const auto encoded = memgraph::license::Encode(crafted);
+  EXPECT_FALSE(memgraph::license::Decode(encoded).has_value());
 }

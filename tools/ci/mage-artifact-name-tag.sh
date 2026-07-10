@@ -8,6 +8,9 @@ BUILD_TYPE=$3
 MALLOC=$4
 CUDA=$5
 CUGRAPH=$6
+# Default to "prod" so callers that haven't been updated still produce
+# a customer-shaped artifact name (no -relwithdebinfo suffix).
+PACKAGE_FLAVOUR=${7:-prod}
 
 IMAGE_TAG="${MEMGRAPH_VERSION}"
 IMAGE_TAG="${IMAGE_TAG//+/_}"
@@ -18,7 +21,10 @@ ARTIFACT_NAME="mage-${IMAGE_TAG}"
 if [[ "$ARCH" == 'arm' ]]; then
     ARTIFACT_NAME="${ARTIFACT_NAME}-arm64"
 fi
-if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
+# The -relwithdebinfo suffix marks the symbols-embedded debug variant.
+# Prod-flavour RWD builds (stripped + symbols archived to symbol store) keep
+# the customer-facing name with no suffix.
+if [[ "$BUILD_TYPE" == 'RelWithDebInfo' && "$PACKAGE_FLAVOUR" == 'debug' ]]; then
     ARTIFACT_NAME="${ARTIFACT_NAME}-relwithdebinfo"
     IMAGE_TAG="${IMAGE_TAG}-relwithdebinfo"
 fi

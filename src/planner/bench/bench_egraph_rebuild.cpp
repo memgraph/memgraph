@@ -18,7 +18,6 @@ import memgraph.planner.core.egraph;
 using namespace memgraph::planner::bench;
 using TestContext = ProcessingContext<Op>;
 
-// Benchmark e-graph rebuild with congruence closure on merged chains.
 static void BM_EGraph_CongruenceChain(benchmark::State &state) {
   TestEGraph egraph;
   TestContext ctx;
@@ -28,7 +27,6 @@ static void BM_EGraph_CongruenceChain(benchmark::State &state) {
   for (auto _ : state) {
     state.PauseTiming();
     egraph.clear();
-    // build the chains
 
     std::vector<EClassId> chain_head;
     for (auto chain_num = 0; chain_num != 5; ++chain_num) {
@@ -38,7 +36,6 @@ static void BM_EGraph_CongruenceChain(benchmark::State &state) {
         previous = egraph.emplace(Op::F, {previous.eclass_id});
       }
     }
-    // merge the chains
     auto rng = std::views::zip(chain_head | std::views::drop(1), chain_head);
     for (auto [a, b] : rng) {
       egraph.merge(a, b);
@@ -50,4 +47,8 @@ static void BM_EGraph_CongruenceChain(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations() * state.range(0));
 }
 
-BENCHMARK(BM_EGraph_CongruenceChain)->Range(100, 10'000)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_EGraph_CongruenceChain)
+    ->Name("EGraph/Rebuild/CongruenceChain")
+    ->Range(100, 10'000)
+    ->ArgName("length")
+    ->Unit(benchmark::kMicrosecond);

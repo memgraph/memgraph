@@ -23,13 +23,6 @@ on:
         options:
           - "amd"
           - "arm"
-      build_type:
-        type: choice
-        description: "Mage build type"
-        default: 'Release'
-        options:
-          - "Release"
-          - "RelWithDebInfo"
       memgraph_download_link:
         description: "Memgraph package download link. Leave empty to use the official download link."
         default: ""
@@ -74,8 +67,7 @@ jobs:
     needs: CallCreateStagingBranch
     uses: ./.github/workflows/package_mage.yaml
     with:
-      arch: ${{ inputs.build_arch }}
-      build_type: ${{ inputs.build_type }}
+      build_arch: ${{ inputs.build_arch }}
       memgraph_download_link: ${{ inputs.memgraph_download_link }}
       cuda: ${{ inputs.cuda }}
       push_to_s3: ${{ inputs.push_to_s3 }}

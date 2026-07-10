@@ -186,6 +186,16 @@ template <class TAllocator>
 std::basic_string<char, std::char_traits<char>, TAllocator> *Replace(
     std::basic_string<char, std::char_traits<char>, TAllocator> *out, const std::string_view src,
     const std::string_view match, const std::string_view replacement) {
+  if (match.empty()) {  // empty match inserts replacement at every byte boundary, matching std::regex_replace
+    out->clear();
+    out->reserve(src.size() + (src.size() + 1) * replacement.size());
+    out->append(replacement);
+    for (const char c : src) {
+      out->push_back(c);
+      out->append(replacement);
+    }
+    return out;
+  }
   // TODO: This could be implemented much more efficiently.
   *out = src;
   for (size_t pos = out->find(match); pos != std::string::npos; pos = out->find(match, pos + replacement.size())) {
@@ -321,15 +331,14 @@ inline int64_t ParseInt(const std::string_view s) {
   return t;
 }
 
-inline uint64_t ParseStringToUint64(const std::string_view s) {
-  if (uint64_t value = 0; std::from_chars(s.data(), s.data() + s.size(), value).ec == std::errc{}) {
-    return value;
-  }
-  throw utils::ParseException(s);
-}
-
-inline uint32_t ParseStringToUint32(const std::string_view s) {
-  if (uint32_t value = 0; std::from_chars(s.data(), s.data() + s.size(), value).ec == std::errc{}) {
+template <typename TNum>
+  requires std::is_same_v<TNum, uint32_t> || std::is_same_v<TNum, uint64_t>
+inline TNum ParseStringToUint(const std::string_view s) {
+  // from_chars only parses a prefix; require the whole string be consumed so trailing garbage (e.g. "10-0")
+  // is rejected rather than silently returning the parsed prefix.
+  TNum value = 0;
+  auto const [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
+  if (ec == std::errc{} && ptr == s.data() + s.size()) {
     return value;
   }
   throw utils::ParseException(s);

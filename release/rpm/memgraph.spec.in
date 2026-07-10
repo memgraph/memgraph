@@ -58,7 +58,6 @@ BuildRequires: systemd
 @FILE_NAME_DEFINE@
 %define _unpackaged_files_terminate_build 0
 @TMP_RPM_SPEC_INSTALL_POST@
-@CPACK_RPM_SPEC_MORE_DEFINE@
 @CPACK_RPM_COMPRESSION_TYPE_TMP@
 
 %description
@@ -140,4 +139,3 @@ echo "Don't forget to switch to the 'memgraph' user to use Memgraph" || exit 1
 
 %changelog
 @CPACK_RPM_SPEC_CHANGELOG@
-

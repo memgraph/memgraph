@@ -29,6 +29,7 @@
 #include "_mgp.hpp"
 #include "mg_exceptions.hpp"
 #include "mg_procedure.h"
+#include "text_search_config.hpp"
 
 namespace mgp {
 
@@ -5409,11 +5410,17 @@ inline constexpr std::string_view kSearchResultsKey = "search_results";
 inline constexpr std::string_view kAggregationResultsKey = "aggregation_results";
 
 inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
-                            text_search_mode search_mode, std::size_t limit) {
-  auto results_or_error =
-      Map(mgp::MemHandlerCallback(
-              graph_search_text_index, memgraph_graph, index_name.data(), search_query.data(), search_mode, limit),
-          StealType{});
+                            text_search_mode search_mode, const TextSearchConfig &config) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_index,
+                                                      memgraph_graph,
+                                                      index_name.data(),
+                                                      search_query.data(),
+                                                      search_mode,
+                                                      config.limit,
+                                                      config.fuzzy_distance,
+                                                      config.fuzzy_prefix,
+                                                      config.fuzzy_transpositions),
+                              StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
       throw TextSearchException{"The error message is not a string!"};
@@ -5433,11 +5440,17 @@ inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_na
 }
 
 inline List SearchTextEdgeIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
-                                text_search_mode search_mode, std::size_t limit) {
-  auto results_or_error =
-      Map(mgp::MemHandlerCallback(
-              graph_search_text_edge_index, memgraph_graph, index_name.data(), search_query.data(), search_mode, limit),
-          StealType{});
+                                text_search_mode search_mode, const TextSearchConfig &config) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_edge_index,
+                                                      memgraph_graph,
+                                                      index_name.data(),
+                                                      search_query.data(),
+                                                      search_mode,
+                                                      config.limit,
+                                                      config.fuzzy_distance,
+                                                      config.fuzzy_prefix,
+                                                      config.fuzzy_transpositions),
+                              StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
       throw TextSearchException{"The error message is not a string!"};

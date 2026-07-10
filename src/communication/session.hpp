@@ -102,14 +102,18 @@ class Session final {
     // are always sending optimal packets. Even if we don't send optimal
     // packets, there will be no delay between packets and throughput won't
     // suffer.
-    socket_.SetNonBlocking();
+    if (auto const val = socket_.SetNonBlocking(); !val.has_value()) {
+      LOG_FATAL(val.error());
+    }
+
     socket_.SetKeepAlive();
     socket_.SetNoDelay();
 
     // Prepare SSL if we should be using it.
     if (context->use_ssl()) {
       // Create a new SSL object that will be used for SSL communication.
-      ssl_ = SSL_new(context->context());
+      tls_context_ = context->context_clone();
+      ssl_ = SSL_new(tls_context_->native_handle());
       MG_ASSERT(ssl_ != nullptr, "Couldn't create server SSL object!");
 
       // Create a new BIO (block I/O) SSL object so that OpenSSL can communicate
@@ -319,6 +323,7 @@ class Session final {
   }
 
   // We own the socket.
+  std::shared_ptr<boost::asio::ssl::context> tls_context_;
   io::network::Socket socket_;
 
   // Input and output buffers/streams.

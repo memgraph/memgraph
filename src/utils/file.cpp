@@ -158,13 +158,17 @@ InputFile::InputFile(InputFile &&other) noexcept
       buffer_(other.buffer_),
       buffer_start_(other.buffer_start_),
       buffer_size_(other.buffer_size_),
-      buffer_position_(other.buffer_position_) {
+      buffer_position_(other.buffer_position_),
+      crc_acc_(other.crc_acc_),
+      crc_fold_position_(other.crc_fold_position_) {
   other.fd_ = -1;
   other.file_size_ = 0;
   other.file_position_ = 0;
   other.buffer_start_ = std::nullopt;
   other.buffer_size_ = 0;
   other.buffer_position_ = 0;
+  other.crc_acc_.Reset();
+  other.crc_fold_position_ = 0;
 }
 
 InputFile &InputFile::operator=(InputFile &&other) noexcept {
@@ -178,6 +182,8 @@ InputFile &InputFile::operator=(InputFile &&other) noexcept {
   buffer_start_ = other.buffer_start_;
   buffer_size_ = other.buffer_size_;
   buffer_position_ = other.buffer_position_;
+  crc_acc_ = other.crc_acc_;
+  crc_fold_position_ = other.crc_fold_position_;
 
   other.fd_ = -1;
   other.file_size_ = 0;
@@ -185,6 +191,8 @@ InputFile &InputFile::operator=(InputFile &&other) noexcept {
   other.buffer_start_ = std::nullopt;
   other.buffer_size_ = 0;
   other.buffer_position_ = 0;
+  other.crc_acc_.Reset();
+  other.crc_fold_position_ = 0;
 
   return *this;
 }
@@ -214,6 +222,8 @@ bool InputFile::Open(const std::filesystem::path &path) {
     return false;
   }
   file_size_ = *size;
+
+  ResetCrc();
 
   return true;
 }
@@ -245,6 +255,13 @@ bool InputFile::Peek(uint8_t *data, size_t size) {
   auto old_buffer_position = buffer_position_;
   auto real_position = GetPosition();
 
+  // A peek that leaves the current buffer goes through `LoadBuffer`/`SetPosition`, which fold pending bytes into the
+  // CRC as if they were consumed. Settle the CRC over the genuinely consumed bytes now and restore that state
+  // afterwards so peeked bytes never enter it. A peek served from the current buffer doesn't touch the CRC at all.
+  bool const leaves_buffer = !buffer_start_ || buffer_size_ - buffer_position_ < size;
+  if (leaves_buffer) FoldPendingCrc();
+  auto const settled_crc_acc = crc_acc_;
+
   auto ret = Read(data, size);
 
   if (buffer_start_ == old_buffer_start) {
@@ -254,6 +271,11 @@ bool InputFile::Peek(uint8_t *data, size_t size) {
     buffer_position_ = old_buffer_position;
   } else {
     SetPosition(Position::SET, static_cast<ssize_t>(real_position));
+  }
+
+  if (leaves_buffer) {
+    crc_acc_ = settled_crc_acc;
+    crc_fold_position_ = real_position;
   }
 
   return ret;
@@ -266,6 +288,7 @@ size_t InputFile::GetPosition() {
   return file_position_;
 }
 
+// TODO: (andi) SetPosition is not safe w.r.t to CRC loading
 std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) {
   // It would be wrong not to take into account buffering
   if (position == Position::RELATIVE_TO_CURRENT) {
@@ -278,6 +301,7 @@ std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) 
     auto target = static_cast<size_t>(offset);
     if (target >= *buffer_start_ && target < *buffer_start_ + buffer_size_) {
       buffer_position_ = target - *buffer_start_;
+      crc_fold_position_ = target;
       return target;
     }
   }
@@ -305,6 +329,7 @@ std::optional<size_t> InputFile::SetPosition(Position position, ssize_t offset) 
     buffer_start_ = std::nullopt;
     buffer_size_ = 0;
     buffer_position_ = 0;
+    crc_fold_position_ = pos;
     return pos;
   }
 }
@@ -332,7 +357,31 @@ void InputFile::Close() noexcept {
   path_ = "";
 }
 
+void InputFile::ResetCrc() {
+  crc_acc_.Reset();
+  crc_fold_position_ = GetPosition();
+}
+
+auto InputFile::CrcValue() -> uint32_t {
+  FoldPendingCrc();
+  return crc_acc_.Value();
+}
+
+void InputFile::FoldPendingCrc() {
+  if (!buffer_start_) return;  // Nothing buffered; all consumed bytes are already folded.
+  auto const consumed_up_to = *buffer_start_ + buffer_position_;
+  if (crc_fold_position_ >= consumed_up_to) return;
+  DMG_ASSERT(crc_fold_position_ >= *buffer_start_, "CRC fold position fell behind the current buffer");
+  crc_acc_.Update(buffer_.data() + (crc_fold_position_ - *buffer_start_),
+                  static_cast<uint32_t>(consumed_up_to - crc_fold_position_));
+  crc_fold_position_ = consumed_up_to;
+}
+
 bool InputFile::LoadBuffer() {
+  // The buffer is about to be discarded; fold its consumed bytes into the CRC first. When the buffer was fully
+  // consumed this is the single CRC computation covering it.
+  FoldPendingCrc();
+
   buffer_start_ = std::nullopt;
   buffer_size_ = 0;
   buffer_position_ = 0;

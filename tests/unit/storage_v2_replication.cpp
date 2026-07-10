@@ -86,6 +86,7 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
+        .register_metrics = false,
     };
     UpdatePaths(config, storage_directory);
     return config;
@@ -99,6 +100,7 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
+        .register_metrics = false,
     };
     UpdatePaths(config, repl_storage_directory);
     return config;
@@ -112,6 +114,7 @@ class ReplicationTest : public ::testing::Test {
 
             },
         .salient.items = {.properties_on_edges = true},
+        .register_metrics = false,
     };
     UpdatePaths(config, repl2_storage_directory);
     return config;
@@ -1560,6 +1563,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
               .properties_on_edges = true,
               .enable_schema_info = true,
           },
+      .register_metrics = false,
   };
 
   auto repl_conf = conf;
@@ -1892,4 +1896,302 @@ TEST_F(ReplicationTest, GetTelemetryJson) {
 
   auto const expected_json = nlohmann::json({{"async", 1}, {"sync", 1}, {"strict_sync", 0}});
   ASSERT_EQ(main_json.value(), expected_json);
+}
+
+// A replica recovered via snapshot transfer must end up with edge metadata, so
+// a later (replicated) delete + GC on the replica does not hit "metadata not
+// found". Exercises the snapshot-recovery path on the replica.
+TEST_F(ReplicationTest, EdgeMetadataRecoveredOnReplicaSnapshotTransfer) {
+  main_conf.salient.items.enable_edges_metadata = true;
+  repl_conf.salient.items.enable_edges_metadata = true;
+
+  Gid e0_gid{Gid::FromUint(0)};
+  Gid e1_gid{Gid::FromUint(0)};
+
+  MinMemgraph main(main_conf);
+
+  // Create a couple of edges on main.
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto v3 = acc->CreateVertex();
+    auto e0 = acc->CreateEdge(&v1, &v2, main.db.storage()->NameToEdgeType("et"));
+    auto e1 = acc->CreateEdge(&v1, &v3, main.db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(e0.has_value() && e1.has_value());
+    e0_gid = e0->Gid();
+    e1_gid = e1->Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // Force a snapshot. With no finalized WAL yet, registering a fresh replica makes
+  // GetRecoverySteps ship the SNAPSHOT (not WAL), exercising the snapshot-recovery
+  // metadata rebuild on the replica.
+  ASSERT_TRUE(static_cast<InMemoryStorage *>(main.db.storage())->CreateSnapshot(true).has_value());
+
+  MinMemgraph replica(repl_conf);
+  auto replica_store_handler = replica.repl_handler;
+  replica_store_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+  while (main.db.storage()->GetReplicaState(replicas[0]) != ReplicaState::READY) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  // Replica recovered via snapshot transfer must resolve both edges by id (metadata).
+  {
+    auto acc = replica.db.Access(memgraph::storage::READ);
+    ASSERT_TRUE(acc->FindEdge(e0_gid, View::OLD).has_value());
+    ASSERT_TRUE(acc->FindEdge(e1_gid, View::OLD).has_value());
+  }
+
+  // Delete one edge on main; SYNC replication applies it on the replica.
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto e = acc->FindEdge(e0_gid, View::OLD);
+    ASSERT_TRUE(e.has_value());
+    ASSERT_TRUE(acc->DeleteEdge(&*e).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+  while (main.db.storage()->GetReplicaState(replicas[0]) != ReplicaState::READY) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  // Replica GC removes the deleted edge's metadata cleanly.
+  replica.db.storage()->FreeMemory();
+
+  // Deleted edge gone on replica; surviving edge intact.
+  {
+    auto acc = replica.db.Access(memgraph::storage::READ);
+    ASSERT_FALSE(acc->FindEdge(e0_gid, View::OLD).has_value());
+    ASSERT_TRUE(acc->FindEdge(e1_gid, View::OLD).has_value());
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Light-edge replication tests
+// ---------------------------------------------------------------------------
+
+class ReplicationTestLightEdge : public ::testing::Test {
+ protected:
+  std::filesystem::path storage_directory{std::filesystem::temp_directory_path() /
+                                          "MG_test_unit_storage_v2_replication_light_edge"};
+  std::filesystem::path repl_storage_directory{std::filesystem::temp_directory_path() /
+                                               "MG_test_unit_storage_v2_replication_light_edge_repl"};
+
+  void SetUp() override { Clear(); }
+
+  void TearDown() override { Clear(); }
+
+  Config MakeLightEdgeConfig(const std::filesystem::path &dir) const {
+    Config config{
+        .durability =
+            {
+                .root_data_directory = dir,
+                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            },
+        .salient.items = {.properties_on_edges = true, .storage_light_edge = true},
+    };
+    UpdatePaths(config, dir);
+    return config;
+  }
+
+  const std::string local_host = "127.0.0.1";
+  const uint16_t port = 10'100;
+  const std::string replica_name = "LIGHT_REPLICA";
+
+ private:
+  void Clear() {
+    if (std::filesystem::exists(storage_directory)) std::filesystem::remove_all(storage_directory);
+    if (std::filesystem::exists(repl_storage_directory)) std::filesystem::remove_all(repl_storage_directory);
+  }
+};
+
+/// Verify that edge create, edge set-property, and edge delete are all
+/// replicated correctly when storage_light_edge=true on both main and replica.
+TEST_F(ReplicationTestLightEdge, EdgeCrudReplicatedSynchronously) {
+  MinMemgraph main(MakeLightEdgeConfig(storage_directory));
+  MinMemgraph replica(MakeLightEdgeConfig(repl_storage_directory));
+
+  replica.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{.repl_server = Endpoint(local_host, port)});
+
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replica_name,
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, port),
+                  })
+                  .has_value());
+
+  const auto *edge_type_name = "light_et";
+  const auto *edge_prop_name = "eprop";
+  const auto *edge_prop_value = "hello_light";
+
+  Gid v1_gid, v2_gid;
+  Gid edge_gid;
+
+  // Create two vertices + one edge with a property.
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    auto edge_res = acc->CreateEdge(&v1, &v2, main.db.storage()->NameToEdgeType(edge_type_name));
+    ASSERT_TRUE(edge_res.has_value());
+    auto edge = edge_res.value();
+    edge_gid = edge.Gid();
+    ASSERT_TRUE(edge.SetProperty(main.db.storage()->NameToProperty(edge_prop_name), PropertyValue(edge_prop_value))
+                    .has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // Replica should see the edge and its property.
+  {
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
+    const auto v1 = acc->FindVertex(v1_gid, View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    const auto out_edges = v1->OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_EQ(out_edges->edges.size(), 1U);
+    const auto &edge = out_edges->edges[0];
+    ASSERT_EQ(edge.Gid(), edge_gid);
+    ASSERT_EQ(edge.EdgeType(), replica.db.storage()->NameToEdgeType(edge_type_name));
+    const auto props = edge.Properties(View::OLD);
+    ASSERT_TRUE(props.has_value());
+    ASSERT_EQ(props->size(), 1U);
+    ASSERT_EQ(props->at(replica.db.storage()->NameToProperty(edge_prop_name)), PropertyValue(edge_prop_value));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Update edge property in a separate transaction (exercises WAL SET_PROPERTY for light edges).
+  const auto *updated_value = "updated_light";
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, View::OLD).value();
+    auto out_edges = v1.OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    auto edge = out_edges->edges[0];
+    ASSERT_TRUE(
+        edge.SetProperty(main.db.storage()->NameToProperty(edge_prop_name), PropertyValue(updated_value)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  {
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
+    const auto v1 = acc->FindVertex(v1_gid, View::OLD).value();
+    const auto out_edges = v1.OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    const auto &edge = out_edges->edges[0];
+    const auto props = edge.Properties(View::OLD);
+    ASSERT_TRUE(props.has_value());
+    ASSERT_EQ(props->at(replica.db.storage()->NameToProperty(edge_prop_name)), PropertyValue(updated_value));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Delete the edge.
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, View::OLD).value();
+    auto out_edges = v1.OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    auto edge = out_edges->edges[0];
+    ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  {
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
+    const auto v1 = acc->FindVertex(v1_gid, View::OLD).value();
+    const auto out_edges = v1.OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_TRUE(out_edges->edges.empty());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
+/// Verify that a replica recovers from snapshot+WAL written with light edges
+/// and then accepts live replication of further changes.
+TEST_F(ReplicationTestLightEdge, RecoveryProcess) {
+  Gid v1_gid, v2_gid, edge_gid;
+
+  // Phase 1: write data and snapshot to disk.
+  {
+    auto conf = MakeLightEdgeConfig(storage_directory);
+    conf.durability.snapshot_on_exit = true;
+    MinMemgraph main(conf);
+
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    auto edge_res = acc->CreateEdge(&v1, &v2, main.db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(edge_res.has_value());
+    edge_gid = edge_res->Gid();
+    ASSERT_TRUE(edge_res->SetProperty(main.db.storage()->NameToProperty("p"), PropertyValue(42)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // Phase 2: recover from snapshot, add a label, then register replica.
+  auto conf = MakeLightEdgeConfig(storage_directory);
+  conf.durability.recover_on_startup = true;
+  MinMemgraph main(conf);
+
+  // Verify recovery from snapshot restored the edge.
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto out_edges = v1->OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_EQ(out_edges->edges.size(), 1U);
+    ASSERT_EQ(out_edges->edges[0].Gid(), edge_gid);
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // Register replica (it will receive the snapshot for catch-up).
+  MinMemgraph replica(MakeLightEdgeConfig(repl_storage_directory));
+  replica.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{.repl_server = Endpoint(local_host, port)});
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replica_name,
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, port),
+                  })
+                  .has_value());
+
+  while (main.db.storage()->GetReplicaState(replica_name) != ReplicaState::READY) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  // Send one more live transaction; replica must apply it.
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, View::OLD).value();
+    ASSERT_TRUE(v1.AddLabel(main.db.storage()->NameToLabel("recovered")).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  {
+    auto acc = replica.db.Access(memgraph::storage::WRITE);
+    const auto v1 = acc->FindVertex(v1_gid, View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    const auto labels = v1->Labels(View::OLD);
+    ASSERT_TRUE(labels.has_value());
+    ASSERT_THAT(*labels, ::testing::Contains(replica.db.storage()->NameToLabel("recovered")));
+    // Edge must also be present on replica after recovery.
+    const auto out_edges = v1->OutEdges(View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_EQ(out_edges->edges.size(), 1U);
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
 }

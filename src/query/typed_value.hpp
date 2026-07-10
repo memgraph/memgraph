@@ -32,7 +32,10 @@
 
 namespace memgraph::query {
 
-class Graph;  // fwd declare
+class Graph;         // fwd declare
+class VirtualGraph;  // fwd declare
+class VirtualEdge;   // fwd declare
+class VirtualNode;   // fwd declare
 
 namespace {
 template <typename T>
@@ -102,10 +105,13 @@ class TypedValue {
     ZonedDateTime,
     Duration,
     Graph,
+    VirtualGraph,
     Function,
     Enum,
     Point2d,
-    Point3d
+    Point3d,
+    VirtualEdge,
+    VirtualNode
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -282,6 +288,10 @@ class TypedValue {
   explicit TypedValue(const EdgeAccessor &edge, allocator_type alloc = {})
       : alloc_{alloc}, edge_v{edge}, type_(Type::Edge) {}
 
+  explicit TypedValue(const VirtualEdge &ve, allocator_type alloc = {});
+
+  explicit TypedValue(const VirtualNode &vn, allocator_type alloc = {});
+
   explicit TypedValue(const Path &path, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Path) {
     auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(path);
     alloc_trait::construct(alloc_, &path_v, path_ptr);
@@ -376,6 +386,10 @@ class TypedValue {
   explicit TypedValue(EdgeAccessor &&edge, allocator_type alloc) noexcept
       : alloc_{alloc}, edge_v{std::move(edge)}, type_(Type::Edge) {}
 
+  explicit TypedValue(VirtualEdge &&ve, allocator_type alloc);
+
+  explicit TypedValue(VirtualNode &&vn, allocator_type alloc);
+
   /**
    * Construct with the value of path.
    * allocator_type is obtained from path. After the move, path will be
@@ -403,6 +417,9 @@ class TypedValue {
    * element-wise move and graph is not guaranteed to be empty.
    */
   TypedValue(Graph &&graph, allocator_type alloc);
+
+  explicit TypedValue(VirtualGraph &&graph);
+  TypedValue(VirtualGraph &&graph, allocator_type alloc);
 
   explicit TypedValue(std::function<void(TypedValue *)> &&other)
       : function_v(std::move(other)), type_(Type::Function) {}
@@ -446,6 +463,8 @@ class TypedValue {
   TypedValue &operator=(const std::map<std::string, TypedValue> &);
   TypedValue &operator=(const VertexAccessor &);
   TypedValue &operator=(const EdgeAccessor &);
+  TypedValue &operator=(const VirtualEdge &);
+  TypedValue &operator=(const VirtualNode &);
   TypedValue &operator=(const Path &);
   TypedValue &operator=(const utils::Date &);
   TypedValue &operator=(const utils::LocalTime &);
@@ -502,6 +521,8 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, *virtual_edge_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, *virtual_node_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
@@ -513,6 +534,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(storage::Point2d, Point2d, point_2d_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, point_3d_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 
 #undef DECLARE_VALUE_AND_TYPE_GETTERS
@@ -768,7 +790,10 @@ class TypedValue {
     storage::Point3d point_3d_v;
     // As the unique_ptr is not allocator aware, it requires special attention when copying or moving graphs
     std::unique_ptr<Graph> graph_v;
+    std::unique_ptr<VirtualGraph> virtual_graph_v;
     std::function<void(TypedValue *)> function_v;
+    std::unique_ptr<VirtualEdge> virtual_edge_v;
+    std::unique_ptr<VirtualNode> virtual_node_v;
   };
 
   /**

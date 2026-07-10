@@ -22,6 +22,7 @@
 namespace memgraph::query {
 
 class DbAccessor;
+class FineGrainedAuthChecker;
 class TypedValue;
 struct QueryUserOrRole;
 
@@ -30,6 +31,7 @@ const char kStartsWith[] = "STARTSWITH";
 const char kEndsWith[] = "ENDSWITH";
 const char kContains[] = "CONTAINS";
 const char kId[] = "ID";
+const char kElementId[] = "ELEMENTID";
 }  // namespace
 
 struct FunctionContext {
@@ -41,6 +43,7 @@ struct FunctionContext {
   int64_t hops_counter{0};
   const QueryUserOrRole *user_or_role{nullptr};
   const QueryUserOrRole *triggering_user{nullptr};
+  FineGrainedAuthChecker const *auth_checker{nullptr};
 };
 
 using func_impl =

@@ -455,7 +455,7 @@ Feature: Text edge search related features
             """
         When executing query:
             """
-            CALL text_search.search_edges('limitTestEdgeIndex', 'data.content:test', 2) YIELD edge
+            CALL text_search.search_edges('limitTestEdgeIndex', 'data.content:test', {limit: 2}) YIELD edge
             RETURN count(edge) AS count
             """
         Then the result should be:
@@ -481,3 +481,47 @@ Feature: Text edge search related features
         Then the result should be:
             | type      | score |
             | 'primary' | 1.0   |
+
+    Scenario: Fuzzy edge search with distance 1 tolerates a single edit
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT EDGE INDEX fuzzyEdgeIndex ON :RELATES_TO
+            """
+        And having executed
+            """
+            CREATE (a:Document)-[:RELATES_TO {title: 'memgraph'}]->(b:Document)
+            CREATE (c:Document)-[:RELATES_TO {title: 'memgrap'}]->(d:Document)
+            CREATE (e:Document)-[:RELATES_TO {title: 'coffee'}]->(f:Document)
+            """
+        When executing query:
+            """
+            CALL text_search.search_edges('fuzzyEdgeIndex', 'data.title:memgraph', {fuzzy_distance: 1}) YIELD edge
+            RETURN edge.title AS title
+            ORDER BY title ASC
+            """
+        Then the result should be:
+            | title       |
+            | 'memgrap'   |
+            | 'memgraph'  |
+
+    Scenario: Fuzzy phrase edge search enforces order with a last-word prefix
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT EDGE INDEX fuzzyPhraseEdgeIndex ON :LINK
+            """
+        And having executed
+            """
+            CREATE (a:Document)-[:LINK {text: 'big bad wolf'}]->(b:Document)
+            CREATE (c:Document)-[:LINK {text: 'bad big wolf'}]->(d:Document)
+            """
+        When executing query:
+            """
+            CALL text_search.fuzzy_phrase_search_edges('fuzzyPhraseEdgeIndex', 'data.text:big bad wo') YIELD edge
+            RETURN edge.text AS text
+            ORDER BY text ASC
+            """
+        Then the result should be:
+            | text         |
+            | 'big bad wolf' |

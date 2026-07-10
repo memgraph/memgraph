@@ -1,0 +1,61 @@
+# -*- rpm-spec -*-
+#
+# Hand-written CPack RPM specfile for the "debuginfo" component.
+#
+# Disables rpmbuild's brp-strip and build-id symlink generation so the
+# .debug sidecars (produced by `objcopy --only-keep-debug` in
+# cmake/SplitDebug.cmake) ship verbatim. Without these overrides, brp-strip
+# recognises the sidecars as ELF and strips their DWARF, defeating the
+# whole point of the package.
+%define __strip /bin/true
+%global __os_install_post %{nil}
+%global _build_id_links none
+
+BuildRoot:      %_topdir/@CPACK_PACKAGE_FILE_NAME@@CPACK_RPM_PACKAGE_COMPONENT_PART_PATH@
+Summary:        @CPACK_RPM_PACKAGE_SUMMARY@
+Name:           @CPACK_RPM_PACKAGE_NAME@
+Version:        @CPACK_RPM_PACKAGE_VERSION@
+Release:        @CPACK_RPM_PACKAGE_RELEASE@
+License:        @CPACK_RPM_PACKAGE_LICENSE@
+Vendor:         @CPACK_RPM_PACKAGE_VENDOR@
+
+@TMP_RPM_URL@
+@TMP_RPM_REQUIRES@
+@TMP_RPM_AUTOPROV@
+@TMP_RPM_AUTOREQ@
+@TMP_RPM_AUTOREQPROV@
+@TMP_RPM_BUILDARCH@
+
+@TMP_RPM_DEBUGINFO@
+
+%define _rpmdir %_topdir/RPMS
+%define _srcrpmdir %_topdir/SRPMS
+@FILE_NAME_DEFINE@
+%define _unpackaged_files_terminate_build 0
+@TMP_RPM_SPEC_INSTALL_POST@
+@CPACK_RPM_COMPRESSION_TYPE_TMP@
+
+%description
+@CPACK_RPM_PACKAGE_DESCRIPTION@
+
+# Shortcut spec: CPack stages the files into BuildRoot; we just rehome them.
+%prep
+mv $RPM_BUILD_ROOT %_topdir/tmpBBroot
+
+%install
+if [ -e $RPM_BUILD_ROOT ]; then
+  rm -rf $RPM_BUILD_ROOT
+fi
+mv %_topdir/tmpBBroot $RPM_BUILD_ROOT
+
+@TMP_RPM_DEBUGINFO_INSTALL@
+
+%clean
+
+%files
+%defattr(@TMP_DEFAULT_FILE_PERMISSIONS@,@TMP_DEFAULT_USER@,@TMP_DEFAULT_GROUP@,@TMP_DEFAULT_DIR_PERMISSIONS@)
+@CPACK_RPM_INSTALL_FILES@
+@CPACK_RPM_USER_INSTALL_FILES@
+
+%changelog
+@CPACK_RPM_SPEC_CHANGELOG@

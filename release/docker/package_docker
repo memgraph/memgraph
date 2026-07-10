@@ -19,9 +19,9 @@ package_path=""
 arch=""
 src_path=""
 custom_mirror=false
-generate_sbom=false
 malloc=false
 keep_image_loaded=false
+package_flavour="prod"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --latest)
@@ -57,10 +57,6 @@ while [[ $# -gt 0 ]]; do
         fi
         shift 2
     ;;
-    --generate-sbom)
-        generate_sbom=$2
-        shift 2
-    ;;
     --malloc)
         malloc=$2
         shift 2
@@ -69,24 +65,44 @@ while [[ $# -gt 0 ]]; do
         keep_image_loaded=$2
         shift 2
     ;;
+    --package-flavour)
+        package_flavour=$2
+        shift 2
+    ;;
     *)
         echo -e "Error: Unknown option '$1'"
         exit 1
     ;;
   esac
 done
-echo "latest_image: $latest_image, latest_tag: $latest_tag, package_path: $package_path, src_path: $src_path, toolchain: $toolchain, arch: $arch, custom_mirror: $custom_mirror"
+
+case "$package_flavour" in
+  prod|debug) ;;
+  *)
+    echo "Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')"
+    exit 1
+  ;;
+esac
+echo "latest_image: $latest_image, latest_tag: $tag_latest, package_path: $package_path, src_path: $src_path, toolchain: $toolchain_version, arch: $arch, custom_mirror: $custom_mirror"
 if [[ "$package_path" == "" || ! -f "$package_path" ]]; then
   echo "File '$package_path' does not exist!"
   exit 1
 fi
 
-dockerfile_path_rwdi_extension=""
+# Map the user-facing --package-flavour onto the dockerfile stage name. Both
+# flavours now share a single dockerfile per (toolchain, extension); the
+# 'debug' flavour is just a thin layer on top of 'prod' that adds the
+# memgraph-debuginfo package and debug tooling.
+docker_target="prod"
 docker_arg_source_code=""
 tag_extension=""
-if [[ -n "$src_path" ]]; then
+if [[ "$package_flavour" == "debug" ]]; then
+  if [[ -z "$src_path" ]]; then
+    echo "Error: --package-flavour debug requires --src-path"
+    exit 1
+  fi
   cp -r "$src_path" "${working_dir}/src"
-  dockerfile_path_rwdi_extension="_relwithdebinfo"
+  docker_target="relwithdebinfo"
   docker_arg_source_code="--build-arg SOURCE_CODE=src"
   tag_extension="-relwithdebinfo"
 fi
@@ -97,6 +113,32 @@ fi
 
 # Copy the .deb to working directory.
 cp "$package_path" "${working_dir}/"
+
+extension="${package_path##*.}"
+
+# For the debug flavour, locate the matching memgraph-debuginfo package next
+# to the main one and stage it into the build context. The dockerfile mounts
+# it into the relwithdebinfo stage and dpkg -i's it on top of the main install.
+debuginfo_package_path=""
+debuginfo_package_name=""
+if [[ "$package_flavour" == "debug" ]]; then
+  case "$extension" in
+    deb)
+      debuginfo_package_path="${package_path/memgraph_/memgraph-debuginfo_}"
+      ;;
+    rpm)
+      debuginfo_package_path="${package_path/memgraph-/memgraph-debuginfo-}"
+      ;;
+  esac
+  if [[ ! -f "$debuginfo_package_path" ]]; then
+    echo "Error: expected memgraph-debuginfo package next to '$package_path'"
+    echo "       (looked for '$debuginfo_package_path' — produce it via component-aware cpack)"
+    exit 1
+  fi
+  cp "$debuginfo_package_path" "${working_dir}/"
+  debuginfo_package_name="$(basename "$debuginfo_package_path" | sed "s/\.${extension}\$//")"
+fi
+
 cd ${working_dir}
 
 # copy SSL files to docker build directory
@@ -110,9 +152,8 @@ cp -v ../../src/auth/reference_modules/requirements.txt "${working_dir}/auth-mod
 # prebuilt linux wheels on PyPI (e.g. gssapi). Safe to be empty.
 mkdir -p "${working_dir}/wheels"
 
-extension="${package_path##*.}"
-dockerfile_path="${working_dir}/${toolchain_version}_${extension}${dockerfile_path_rwdi_extension}.dockerfile"
-echo "Dockerfile: $dockerfile_path"
+dockerfile_path="${working_dir}/${toolchain_version}_${extension}.dockerfile"
+echo "Dockerfile: $dockerfile_path (target: $docker_target)"
 if [[ "$extension" == "deb" ]]; then
   # Extract version and offering from deb name.
   package_name=`echo $(basename "$package_path") | sed 's/.deb$//'`
@@ -136,24 +177,33 @@ if [[ "$custom_mirror" == true ]]; then
   cp -v ../../tools/ci/ubuntu-mirrors/${arch}/ci.sources "${working_dir}/ci.sources"
 fi
 
+# Assemble the optional --build-arg for DEBUGINFO_BINARY_NAME so it only
+# appears when the relwithdebinfo target needs it.
+debuginfo_build_arg=()
+if [[ -n "$debuginfo_package_name" ]]; then
+  debuginfo_build_arg+=(--build-arg "DEBUGINFO_BINARY_NAME=${debuginfo_package_name}")
+fi
+
 # Build docker image.
 # NOTE: --pull is here to always pull that latest base image because of security patches.
 docker build --pull -t ${image_name} ${tag_latest} -f ${dockerfile_path} \
+--target ${docker_target} \
 --build-arg BINARY_NAME=${package_name} \
 --build-arg EXTENSION=${extension} ${docker_arg_source_code} \
+"${debuginfo_build_arg[@]}" \
 --build-arg CUSTOM_MIRROR=$custom_mirror \
 --build-arg TARGETARCH="" .
 docker save ${image_name} ${latest_image} | gzip > ${image_package_name}
 rm "${working_dir}/${package_name}.${extension}"
+if [[ -n "$debuginfo_package_name" ]]; then
+  rm -f "${working_dir}/${debuginfo_package_name}.${extension}"
+fi
 if [[ -n "$src_path" ]]; then
   rm -rf "${working_dir}/src"
 fi
 
-if [[ "$generate_sbom" == true ]]; then
-  echo "Generating SBOM for Docker image"
-  cd ../../
-  ./tools/ci/sbom/docker-sbom.sh "${tag}"
-fi
+# NOTE: the image SBOM is generated as an explicit step in the CI workflow
+# (stage 2), from the memgraph/infra scripts, after this image is built.
 if [[ "$keep_image_loaded" != "true" ]]; then
   docker image rm $image_name || true
 fi

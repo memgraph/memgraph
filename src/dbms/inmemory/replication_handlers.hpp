@@ -54,6 +54,14 @@ class InMemoryReplicationHandlers {
   // Destroys repl accessor needed for 2PC
   static void DestroyReplAccessor();
 
+  // TD-3': abort + reset the cached 2PC commit accessor ONLY if it belongs to the given tenant's
+  // storage. Invoked by the replica SuspendDatabaseRpc apply path before the tenant is torn down:
+  // the cached accessor is storage-level (not gatekeeper-counted), so the suspend freeze does not
+  // drain it, and destroying the storage with the accessor still cached would dangle it. The slot
+  // is a single global (not per-UUID), so the UUID check prevents wrongly aborting a pending 2PC for
+  // a different tenant.
+  static void AbortTwoPCForTenant(utils::UUID const &uuid);
+
  private:
   struct LoadWalStatus {
     bool success{false};

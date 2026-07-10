@@ -12,12 +12,111 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <optional>
+#include <set>
+#include <string_view>
+#include <thread>
+#include <vector>
+
+#include "flags/general.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "storage/v2/gc_status.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
 using testing::UnorderedElementsAre;
 
 namespace ms = memgraph::storage;
+
+class StorageV2GcMetricsTest : public testing::Test {
+ protected:
+  void SetUp() override {
+    FLAGS_metrics_format = "OpenMetrics";
+    db_name_ = testing::UnitTest::GetInstance()->current_test_info()->name();
+    InitStorage(std::chrono::seconds(3600));
+  }
+
+  void TearDown() override {
+    memgraph::metrics::Metrics().SetStorageSnapshotResolver({});
+    storage.reset();
+    memgraph::metrics::Metrics().RemoveDatabase(uuid_);
+    handles_ = {};
+    uuid_ = {};
+    registered_ = false;
+  }
+
+  void InitStorage(std::chrono::milliseconds interval) {
+    if (registered_) {
+      memgraph::metrics::Metrics().SetStorageSnapshotResolver({});
+      storage.reset();
+      memgraph::metrics::Metrics().RemoveDatabase(uuid_);
+      handles_ = {};
+      uuid_ = {};
+      registered_ = false;
+    }
+    memgraph::storage::Config config;
+    config.salient.name = db_name_;
+    config.gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = interval};
+    uuid_ = memgraph::utils::UUID{};
+    handles_ = memgraph::metrics::Metrics().AddDatabase(uuid_, db_name_);
+    registered_ = true;
+    storage = std::make_unique<memgraph::storage::InMemoryStorage>(
+        config, std::nullopt, std::make_unique<memgraph::storage::PlanInvalidatorDefault>(), handles_);
+    memgraph::metrics::Metrics().SetStorageSnapshotResolver(
+        [this](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
+          if (uuid != uuid_ || !storage) return std::nullopt;
+          auto const info = storage->GetBaseInfo();
+          return memgraph::metrics::StorageSnapshot{
+              .vertex_count = info.vertex_count,
+              .edge_count = info.edge_count,
+              .disk_usage = info.disk_usage,
+          };
+        });
+  }
+
+  std::unique_ptr<memgraph::storage::Storage> storage;
+  memgraph::metrics::DatabaseMetricHandles handles_{};
+  memgraph::utils::UUID uuid_{};
+  bool registered_{false};
+
+ private:
+  std::string db_name_;
+};
+
+TEST(StorageV2GcStatus, PhaseToString) {
+  using ms::GcPhase;
+  EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::IDLE), "idle");
+  EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::UNLINK), "unlink");
+  EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::INDEX_CLEANUP), "index_cleanup");
+  EXPECT_EQ(ms::GcProgress::PhaseToString(GcPhase::DELETE), "delete");
+}
+
+// Start publishes run-state, SetPhase advances it, Reset clears every field.
+// The Reset check is the regression guard: it once cleared only some fields.
+TEST(StorageV2GcStatus, RunStateLifecycle) {
+  ms::GcProgress gc;
+  EXPECT_FALSE(gc.TryGetRunInfo().has_value());
+
+  gc.Start(/*is_periodic=*/false, /*is_exclusive=*/true);
+  auto info = gc.TryGetRunInfo();
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->phase, ms::GcPhase::UNLINK);
+  EXPECT_FALSE(info->periodic);
+  EXPECT_TRUE(info->exclusive_lock);
+  EXPECT_GT(info->start_time_us, 0);
+
+  gc.SetPhase(ms::GcPhase::INDEX_CLEANUP);
+  EXPECT_EQ(gc.TryGetRunInfo()->phase, ms::GcPhase::INDEX_CLEANUP);
+
+  gc.Reset();
+  EXPECT_FALSE(gc.TryGetRunInfo().has_value());
+  EXPECT_EQ(gc.phase.load(), ms::GcPhase::IDLE);
+  EXPECT_FALSE(gc.exclusive_lock.load());
+  EXPECT_FALSE(gc.periodic.load());
+  EXPECT_EQ(gc.start_time_us.load(), 0);
+  EXPECT_EQ(gc.start_steady_ms.load(), 0);
+}
 
 // TODO: The point of these is not to test GC fully, these are just simple
 // sanity checks. These will be superseded by a more sophisticated stress test
@@ -208,13 +307,11 @@ TEST(StorageV2Gc, Indices) {
   }
 }
 
-TEST(StorageV2Gc, NonSequentialDeltasWithCommittedContributorsAreGarbagedCollected) {
+TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithCommittedContributorsAreGarbagedCollected) {
   // Need a periodic garbage collector so that certain fast path optimisations
   // aren't taken when cleaning deltas, but with an inter-collection pause large
   // enough that we can step through when debugging, etc, without anything being
   // unexpectedly reclaimed from underneath us.
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
@@ -247,7 +344,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithCommittedContributorsAreGarbagedCollect
     // - 2 x CREATE_OBJECT, to create the edges
     // - 2 x ADD_IN_EDGE
     // - 2 x ADD_OUT_EDGE
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(6, handles_.unreleased_delta_objects.Value());
 
     // Commit in order `acc1` and `acc2`. This means that even though `acc2` does
     // have non-sequential deltas, everything downstream from them is committed
@@ -257,7 +354,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithCommittedContributorsAreGarbagedCollect
     ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
 
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(6, handles_.unreleased_delta_objects.Value());
   }
 
   {
@@ -265,13 +362,10 @@ TEST(StorageV2Gc, NonSequentialDeltasWithCommittedContributorsAreGarbagedCollect
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
 }
 
-TEST(StorageV2Gc, NonSequentialDeltasWithAbortedContributorsAreGarbagedCollected) {
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
+TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithAbortedContributorsAreGarbagedCollected) {
   memgraph::storage::Gid v1_gid, v2_gid;
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
@@ -299,7 +393,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithAbortedContributorsAreGarbagedCollected
     auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
     ASSERT_TRUE(edge2_result.has_value());
 
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(6, handles_.unreleased_delta_objects.Value());
 
     ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
@@ -307,7 +401,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithAbortedContributorsAreGarbagedCollected
     acc1.reset();
     acc0.reset();
 
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(6, handles_.unreleased_delta_objects.Value());
   }
 
   // First GC: moves `waiting_gc_deltas_` to `aborted_transactions_` or
@@ -324,13 +418,10 @@ TEST(StorageV2Gc, NonSequentialDeltasWithAbortedContributorsAreGarbagedCollected
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
 }
 
-TEST(StorageV2Gc, NonSequentialDeltasWithMultipleAbortsAreGarbageCollected) {
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
+TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithMultipleAbortsAreGarbageCollected) {
   memgraph::storage::Gid v1_gid, v2_gid;
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
@@ -358,7 +449,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithMultipleAbortsAreGarbageCollected) {
     auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
     ASSERT_TRUE(edge2_result.has_value());
 
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(6, handles_.unreleased_delta_objects.Value());
 
     // Both transactions abort - all deltas should be cleaned up
     acc2->Abort();
@@ -368,7 +459,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithMultipleAbortsAreGarbageCollected) {
     acc1.reset();
     acc0.reset();
 
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(6, handles_.unreleased_delta_objects.Value());
   }
 
   // First GC: moves from waiting_gc_deltas_ to aborted_transactions_
@@ -389,13 +480,10 @@ TEST(StorageV2Gc, NonSequentialDeltasWithMultipleAbortsAreGarbageCollected) {
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
 }
 
-TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
+TEST_F(StorageV2GcMetricsTest, DownstreamDeltaChainsAreGarbageCollected) {
   memgraph::storage::Gid v1_gid, v2_gid;
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
@@ -428,7 +516,7 @@ TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
     ASSERT_TRUE(acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3")).has_value());
 
-    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(9, handles_.unreleased_delta_objects.Value());
 
     // Commit TX1, abort TX2 and TX3
     // TX3's deltas are downstream from TX2, which are downstream from TX1
@@ -440,7 +528,7 @@ TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
     acc2.reset();
     acc0.reset();
 
-    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(9, handles_.unreleased_delta_objects.Value());
   }
 
   // Multiple GC cycles to process the downstream chain
@@ -449,13 +537,10 @@ TEST(StorageV2Gc, DownstreamDeltaChainsAreGarbageCollected) {
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
 }
 
-TEST(StorageV2Gc, MixedCommitAbortCommitNonSequentialDeltasAreGarbageCollected) {
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
+TEST_F(StorageV2GcMetricsTest, MixedCommitAbortCommitNonSequentialDeltasAreGarbageCollected) {
   memgraph::storage::Gid v1_gid, v2_gid;
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
@@ -488,7 +573,7 @@ TEST(StorageV2Gc, MixedCommitAbortCommitNonSequentialDeltasAreGarbageCollected) 
     ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
     ASSERT_TRUE(acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3")).has_value());
 
-    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(9, handles_.unreleased_delta_objects.Value());
 
     // TX1 commits, TX2 aborts, TX3 commits
     ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -499,7 +584,7 @@ TEST(StorageV2Gc, MixedCommitAbortCommitNonSequentialDeltasAreGarbageCollected) 
     acc3.reset();
     acc0.reset();
 
-    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(9, handles_.unreleased_delta_objects.Value());
   }
 
   // Multiple GC cycles to handle mixed commit/abort
@@ -508,13 +593,10 @@ TEST(StorageV2Gc, MixedCommitAbortCommitNonSequentialDeltasAreGarbageCollected) 
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
 }
 
-TEST(StorageV2Gc, NonSequentialDeltasWithTwoContributorsAreGarbagedCollected) {
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
-
+TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithTwoContributorsAreGarbagedCollected) {
   memgraph::storage::Gid v1_gid, v2_gid;
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
@@ -549,7 +631,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithTwoContributorsAreGarbagedCollected) {
     auto edge3_result = acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3"));
     ASSERT_TRUE(edge3_result.has_value());
 
-    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(9, handles_.unreleased_delta_objects.Value());
 
     ASSERT_TRUE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc3.reset();
@@ -558,7 +640,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithTwoContributorsAreGarbagedCollected) {
     ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
 
-    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(9, handles_.unreleased_delta_objects.Value());
   }
 
   {
@@ -566,13 +648,12 @@ TEST(StorageV2Gc, NonSequentialDeltasWithTwoContributorsAreGarbagedCollected) {
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
 }
 
-TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedCollected) {
+TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithUncommittedContributorsAreGarbagedCollected) {
   // Use periodic GC with short interval to automatically test intermediate states
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
+  InitStorage(std::chrono::milliseconds(100));
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
@@ -606,7 +687,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedColle
     // - 4 x CREATE_OBJECT, to create the edges
     // - 4 x ADD_IN_EDGE
     // - 4 x ADD_OUT_EDGE
-    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(12, handles_.unreleased_delta_objects.Value());
 
     // When acc2 commits, its transaction has non-sequential deltas which are
     // uncommitted, meaning these deltas must sit in the waiting list until
@@ -619,7 +700,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedColle
 
     // At this point acc2 committed but acc1 hasn't - deltas should stay in waiting list
     // Wait for GC to run but deltas should remain due to uncommitted acc1
-    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(12, handles_.unreleased_delta_objects.Value());
 
     ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc1.reset();
@@ -627,12 +708,11 @@ TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedColle
 
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-  ASSERT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  ASSERT_EQ(0, handles_.unreleased_delta_objects.Value());
 }
 
-TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedCollected_SwapCommitOrder) {
-  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
+TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithUncommittedContributorsAreGarbagedCollected_SwapCommitOrder) {
+  InitStorage(std::chrono::milliseconds(100));
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
@@ -666,7 +746,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedColle
     // - 4 x CREATE_OBJECT, to create the edges
     // - 4 x ADD_IN_EDGE
     // - 4 x ADD_OUT_EDGE
-    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(12, handles_.unreleased_delta_objects.Value());
 
     // When acc1 commits first, its transaction has non-sequential deltas which are
     // uncommitted, meaning these deltas must sit in the waiting list until
@@ -679,7 +759,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedColle
 
     // At this point acc1 committed but acc2 hasn't - deltas should stay in waiting list
     // Wait for GC to run but deltas should remain due to uncommitted acc2
-    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(12, handles_.unreleased_delta_objects.Value());
 
     ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     acc2.reset();
@@ -687,7 +767,7 @@ TEST(StorageV2Gc, NonSequentialDeltasWithUncommittedContributorsAreGarbagedColle
 
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-  ASSERT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  ASSERT_EQ(0, handles_.unreleased_delta_objects.Value());
 }
 
 TEST(StorageV2Gc, ConcurrentEdgeOperationsAbortDeleteRepeat) {
@@ -1454,5 +1534,319 @@ TEST(StorageV2Gc, ClearDrainsWaitingGcDeltas) {
     auto acc = storage->Access(ms::WRITE);
     acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
+// Light-edge GC routing tests (storage_light_edge=true).
+
+namespace {
+auto MakeLightEdgeGcStorage() {
+  return std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)},
+                 .salient = {.items = {.properties_on_edges = true, .storage_light_edge = true}}});
+}
+}  // namespace
+
+// Mirrors StorageV2Gc/Sanity: GC running while a transaction is still alive must not free live data.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2GcLightEdge, Sanity) {
+  auto storage = MakeLightEdgeGcStorage();
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->CreateEdge(&v1, &v2, acc->NameToEdgeType("e")).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Reader keeps an open transaction.
+  auto reader = storage->Access(memgraph::storage::WRITE);
+
+  {
+    // Delete the edge in a second transaction while reader is alive.
+    auto writer = storage->Access(memgraph::storage::WRITE);
+    auto v1 = writer->FindVertex(v1_gid, ms::View::OLD).value();
+    auto edges = v1.OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 1U);
+    auto edge = edges->edges[0];
+    ASSERT_TRUE(writer->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(writer->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Let GC run while reader is still alive — it must NOT free the edge yet.
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  // Reader still sees the edge via View::OLD.
+  {
+    auto v1 = reader->FindVertex(v1_gid, ms::View::OLD).value();
+    auto edges = v1.OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 1U);
+  }
+
+  reader->Abort();
+
+  // After the reader closes, GC eventually collects the graveyard. A fresh
+  // transaction must no longer see the deleted edge.
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  {
+    auto checker = storage->Access(memgraph::storage::WRITE);
+    auto v1 = checker->FindVertex(v1_gid, ms::View::NEW).value();
+    auto edges = v1.OutEdges(ms::View::NEW);
+    ASSERT_TRUE(edges.has_value());
+    EXPECT_EQ(edges->edges.size(), 0U) << "deleted light edge must no longer be visible";
+  }
+}
+
+// Mirrors StorageV2Gc/ConcurrentEdgeOperationsAbortDeleteRepeat:
+// two transactions each create an edge, both abort; GC must not crash.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2GcLightEdge, ConcurrentEdgeOperationsAbortDeleteRepeat) {
+  auto storage = MakeLightEdgeGcStorage();
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto tx1 = storage->Access(memgraph::storage::WRITE);
+  auto tx2 = storage->Access(memgraph::storage::WRITE);
+
+  {
+    auto v1 = tx1->FindVertex(v1_gid, ms::View::OLD).value();
+    auto v2 = tx1->FindVertex(v2_gid, ms::View::OLD).value();
+    ASSERT_TRUE(tx1->CreateEdge(&v1, &v2, tx1->NameToEdgeType("Edge1")).has_value());
+  }
+  {
+    auto v1 = tx2->FindVertex(v1_gid, ms::View::OLD).value();
+    auto v2 = tx2->FindVertex(v2_gid, ms::View::OLD).value();
+    ASSERT_TRUE(tx2->CreateEdge(&v1, &v2, tx2->NameToEdgeType("Edge2")).has_value());
+  }
+
+  tx1->Abort();
+  tx2->Abort();
+
+  // GC runs; aborted light-edge creations must have been freed inline (not via graveyard).
+  std::this_thread::sleep_for(std::chrono::milliseconds(400));
+
+  {
+    auto reader = storage->Access(memgraph::storage::WRITE);
+    auto v1 = reader->FindVertex(v1_gid, ms::View::OLD);
+    if (v1.has_value()) {
+      auto edges = v1->OutEdges(ms::View::OLD);
+      ASSERT_TRUE(edges.has_value());
+      ASSERT_EQ(edges->edges.size(), 0U);
+    }
+  }
+}
+
+// Mirrors StorageV2Gc/Indices: index GC correctness with light edges.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2GcLightEdge, Indices) {
+  auto storage = MakeLightEdgeGcStorage();
+
+  {
+    auto unique_acc = storage->UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(storage->NameToLabel("label")).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    ASSERT_TRUE(*v1.AddLabel(acc->NameToLabel("label")));
+    ASSERT_TRUE(*v2.AddLabel(acc->NameToLabel("label")));
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_TRUE(acc->CreateEdge(&v1, &v2, acc->NameToEdgeType("e")).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    auto acc1 = storage->Access(memgraph::storage::WRITE);
+
+    auto acc2 = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc2->FindVertex(v1_gid, ms::View::OLD).value();
+    auto v2 = acc2->FindVertex(v2_gid, ms::View::OLD).value();
+    auto edges = v1.OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 1U);
+    auto edge = edges->edges[0];
+    ASSERT_TRUE(acc2->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(*v1.RemoveLabel(acc2->NameToLabel("label")));
+    ASSERT_TRUE(*v2.RemoveLabel(acc2->NameToLabel("label")));
+    ASSERT_TRUE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+
+    // GC runs while acc1 still holds a snapshot — must not collect index entries visible to acc1.
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    std::set<ms::Gid> gids;
+    for (auto vertex : acc1->Vertices(acc1->NameToLabel("label"), ms::View::OLD)) {
+      gids.insert(vertex.Gid());
+    }
+    EXPECT_EQ(gids.size(), 2U);
+  }
+}
+
+// Regression test: light edges deleted in analytical mode must be put in the graveyard
+// and freed by GC, not leaked.  Verifies that:
+//   - the storage destructor does not crash (no double-free / use-after-free)
+//   - ~Edge() is called (catches PropertyStore heap-allocation leak under ASan)
+//   - graveyard is drained correctly after mode switch back to transactional
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2GcLightEdge, AnalyticalModeDeleteGoesToGraveyard) {
+  auto storage = MakeLightEdgeGcStorage();
+  auto *mem_storage = static_cast<ms::InMemoryStorage *>(storage.get());
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    auto edge_res = acc->CreateEdge(&v1, &v2, acc->NameToEdgeType("e"));
+    ASSERT_TRUE(edge_res.has_value());
+    // Set a property so the PropertyStore has a heap allocation — caught by ASan if ~Edge() is skipped.
+    ASSERT_TRUE(edge_res->SetProperty(acc->NameToProperty("key"), ms::PropertyValue{"value"}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Switch to analytical mode and delete the edge there.
+  mem_storage->SetStorageMode(ms::StorageMode::IN_MEMORY_ANALYTICAL);
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto edges = v1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    ASSERT_EQ(edges->edges.size(), 1U);
+    auto edge = edges->edges[0];
+    ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Switch back — this triggers a FreeMemory/GC pass which must not crash.
+  mem_storage->SetStorageMode(ms::StorageMode::IN_MEMORY_TRANSACTIONAL);
+
+  // Run GC explicitly a second time to drain the graveyard.
+  {
+    auto main_guard = std::unique_lock{mem_storage->main_lock_};
+    mem_storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  // Verify the edge is gone and the two vertices are still intact.
+  {
+    auto acc = storage->Access(memgraph::storage::READ);
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value());
+    auto edges = v1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.has_value());
+    EXPECT_TRUE(edges->edges.empty());
+    EXPECT_TRUE(acc->FindVertex(v2_gid, ms::View::OLD).has_value());
+  }
+  // storage destructor runs here — must not crash or report sanitizer errors.
+}
+
+// ASan smoke test for the FastDiscard-vs-GC delta-buffer use-after-free.
+//
+// Background: when a transaction commits it is marked finished (advancing
+// commit_log_->OldestActive()) and only afterwards registers its deltas for GC.
+// A concurrent transaction that commits sole-active in that window can
+// fast-discard and free a delta a just-finished-but-unregistered transaction's
+// chain still references via `prev`, which a later CollectGarbage dereferences.
+//
+// This exercises exactly that shape: several threads delete edges off a single
+// shared vertex (so their commits chain deltas on the same object) while a GC
+// thread hammers FreeMemory(). It is intentionally a NON-deterministic smoke
+// test: the trigger window is a two-statement gap on the committing thread, so
+// reproduction depends on scheduling pressure and the fault is only observable
+// under a sanitizer (the free and the read are serialized by gc_lock_, so this
+// is a use-after-free, not a data race -> ASan catches it, TSan does not). In
+// CI it runs under the ASAN+UBSAN unit-coverage build (ctest -R memgraph__unit).
+// It cannot guarantee a hit on every run; a deterministic reproduction would
+// require a test-only hook in FinalizeTransaction, which we deliberately avoid.
+TEST(StorageV2Gc, ConcurrentDeleteAndGcUAFSmoke) {
+  constexpr int kRounds = 30;
+  constexpr int kEdges = 100;
+  constexpr int kDeleteThreads = 4;
+
+  std::unique_ptr<ms::Storage> store(std::make_unique<ms::InMemoryStorage>(
+      ms::Config{.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(1000)}}));
+
+  ms::Gid gid_from{};
+  ms::Gid gid_to{};
+  {
+    auto acc = store->Access(ms::WRITE);
+    gid_from = acc->CreateVertex().Gid();
+    gid_to = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  for (int round = 0; round < kRounds; ++round) {
+    {
+      auto acc = store->Access(ms::WRITE);
+      auto vf = acc->FindVertex(gid_from, ms::View::NEW);
+      auto vt = acc->FindVertex(gid_to, ms::View::NEW);
+      auto et = acc->NameToEdgeType("CONC");
+      for (int i = 0; i < kEdges; ++i) {
+        ASSERT_TRUE(acc->CreateEdge(&*vf, &*vt, et).has_value());
+      }
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    std::atomic<bool> gc_running{true};
+    std::atomic<uint64_t> total_deleted{0};
+    std::thread gc_thread([&]() {
+      while (gc_running.load()) {
+        store->FreeMemory();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+      store->FreeMemory();
+      store->FreeMemory();
+    });
+
+    std::vector<std::thread> deleters;
+    deleters.reserve(kDeleteThreads);
+    for (int t = 0; t < kDeleteThreads; ++t) {
+      deleters.emplace_back([&]() {
+        while (true) {
+          auto acc = store->Access(ms::WRITE);
+          auto vf = acc->FindVertex(gid_from, ms::View::NEW);
+          if (!vf) break;
+          auto out = vf->OutEdges(ms::View::NEW);
+          if (!out.has_value() || out->edges.empty()) break;
+          auto edge = out->edges[0];
+          auto del = acc->DeleteEdge(&edge);
+          if (!del.has_value()) continue;  // serialization conflict, retry
+          if (acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value()) {
+            total_deleted.fetch_add(1);
+          }
+        }
+      });
+    }
+
+    for (auto &d : deleters) d.join();
+    gc_running.store(false);
+    gc_thread.join();
+
+    // Functional check: every edge was deleted exactly once.
+    EXPECT_EQ(total_deleted.load(), kEdges);
+    auto acc = store->Access(ms::WRITE);
+    auto vf = acc->FindVertex(gid_from, ms::View::OLD);
+    ASSERT_TRUE(vf.has_value());
+    EXPECT_EQ(vf->OutEdges(ms::View::OLD)->edges.size(), 0);
   }
 }

@@ -131,3 +131,13 @@ Feature: Expressions
         Then the result should be:
             |   n   |
             | false |
+
+    Scenario: Test IS NULL binds looser than arithmetic
+        Given an empty graph
+        When executing query:
+            """
+            RETURN (null + 1) * 1 IS NULL AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |

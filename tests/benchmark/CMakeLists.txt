@@ -36,6 +36,9 @@ target_link_libraries(${test_prefix}execution mg-query mg-communication)
 add_benchmark(query/planner.cpp)
 target_link_libraries(${test_prefix}planner mg-query)
 
+add_benchmark(query/plan_v2_extract.cpp)
+target_link_libraries(${test_prefix}plan_v2_extract mg-query)
+
 add_benchmark(query/profile.cpp)
 target_link_libraries(${test_prefix}profile mg-query)
 
@@ -73,6 +76,9 @@ target_link_libraries(${test_prefix}storage_v2_property_store mg::storage)
 
 add_benchmark(storage_v2_enum_store_bench.cpp)
 target_link_libraries(${test_prefix}storage_v2_enum_store_bench mg::storage)
+
+add_benchmark(storage_v2_edge_index_scan.cpp)
+target_link_libraries(${test_prefix}storage_v2_edge_index_scan mg::storage)
 
 add_benchmark(thread_safe_memory.cpp)
 target_link_libraries(${test_prefix}thread_safe_memory mg-utils)

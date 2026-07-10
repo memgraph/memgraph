@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include <range/v3/all.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -90,19 +91,13 @@ auto InMemoryLabelIndex::GetIndividualIndex(LabelId label) const -> std::shared_
 auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) -> bool {
   auto index = GetIndividualIndex(label);
   if (!index) return false;
-  index->Publish(commit_timestamp);
+  index->Publish(commit_timestamp, gauge_);
   return true;
 }
 
-void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
-}
-
-InMemoryLabelIndex::IndividualIndex::~IndividualIndex() {
-  if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
-  }
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&index_accessor,

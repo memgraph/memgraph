@@ -19,11 +19,7 @@ on:
         default: false
       skip_package:
         type: boolean
-        description: "Skip packaging"
-        default: false
-      skip_docker_artifact:
-        type: boolean
-        description: "Skip Docker artifact"
+        description: "Skip packaging (deb/rpm and docker images). Docker production within the job is determined per-matrix-entry via build_docker_image."
         default: false
       skip_issu_tests:
         type: boolean
@@ -88,99 +84,63 @@ jobs:
       os: 'ubuntu-24.04'
       arch: amd
       threads: 24
-      build_type: 'Release'
+      build_type: 'RelWithDebInfo'
       run_release_tests: 'true'
       run_stress_large: 'true'
     secrets: inherit
 
   DailyPackageArtifact:
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_package)  }}
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_package) }}
     needs: [CurrentDateJob]
     strategy:
       fail-fast: false
       matrix:
-        os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04, ubuntu-24.04]
+        os: [centos-9, centos-10, debian-12, debian-13, fedora-42, rocky-10, ubuntu-22.04]
         arch: [amd]
-        build_type: [Release]
         additional_build_args: ['']
-        include: # Additional matrix entries for arm builds and RelWithDebInfo
+        include:
           - os: debian-12
-            build_type: Release
             arch: arm
             additional_build_args: ''
           - os: debian-13
-            build_type: Release
             arch: arm
             additional_build_args: ''
           - os: fedora-42
-            build_type: Release
             arch: arm
             additional_build_args: ''
           - os: ubuntu-24.04
-            build_type: Release
+            arch: amd
+            additional_build_args: ''
+            build_docker_image: both
+          - os: ubuntu-24.04
             arch: arm
             additional_build_args: ''
+            build_docker_image: both
           - os: ubuntu-24.04
-            build_type: Release
             arch: amd
             additional_build_args: '--disable-jemalloc'
           - os: ubuntu-24.04
-            build_type: RelWithDebInfo
-            arch: arm
-            additional_build_args: ''
-          - os: ubuntu-24.04
-            build_type: RelWithDebInfo
-            arch: amd
-            additional_build_args: ''
-          - os: ubuntu-24.04
-            build_type: RelWithDebInfo
-            arch: amd
-            additional_build_args: '--disable-jemalloc'
-          - os: ubuntu-24.04
-            build_type: RelWithDebInfo
             arch: arm
             additional_build_args: '--disable-jemalloc'
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
-      build_type: ${{ matrix.build_type }}
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ matrix.build_docker_image || 'none' }}
+      daily_build: true
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
+      print_output_url: true
       s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       additional_build_args: ${{ matrix.additional_build_args }}
-      run_smoke_tests: false
-    secrets: inherit
-
-  DailyDockerArtifact:
-    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_docker_artifact)  }}
-    needs: [CurrentDateJob]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04]
-        arch: [amd, arm]
-        build_type: [Release, RelWithDebInfo]
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: ${{ matrix.os }}
-      arch: ${{ matrix.arch }}
-      build_type: ${{ matrix.build_type }}
-      additional_build_args: '--for-docker'
-      push_to_github: 'false'
-      push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
-      s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
-      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.build_type == 'Release' && matrix.arch == 'amd') && true || false }}
-      run_smoke_tests: ${{ !inputs.skip_smoke_tests }}
+      generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.arch == 'amd' && matrix.additional_build_args == '' && matrix.build_docker_image == 'both') && true || false }}
+      run_smoke_tests: true
     secrets: inherit
 
   AggregateBuildTests:
     if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests && !inputs.mock)) && always() }}
-    needs: [CurrentDateJob,TestBuild,DailyPackageArtifact,DailyDockerArtifact]
+    needs: [CurrentDateJob,TestBuild,DailyPackageArtifact]
     runs-on: [self-hosted]
     steps:
       - name: Set up repository
@@ -217,57 +177,138 @@ jobs:
             https://api.github.com/repos/memgraph/daily-builds/dispatches \
             -d "$payload"
 
+  MemgraphVersionSetup:
+    name: Resolve memgraph version for MAGE deb URLs
+    if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
+    runs-on: ubuntu-latest
+    outputs:
+      memgraph_version: ${{ steps.version.outputs.memgraph_version }}
+      memgraph_version_url: ${{ steps.version.outputs.memgraph_version_url }}
+      memgraph_version_rpm: ${{ steps.version.outputs.memgraph_version_rpm }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+      - name: Resolve memgraph version
+        id: version
+        run: |
+          # The version string includes "+" and "~" — both are legal in S3 keys and
+          # stored verbatim, but "+" must be percent-encoded in URL paths or HTTP
+          # clients treat it as a space. memgraph_version_url is the URL-safe form
+          # for download links; memgraph_version stays raw for any filename matching.
+          version="$(tools/ci/get_master_package_version.sh)"
+          version_url="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$version")"
+          version_rpm="$(tools/ci/get_master_package_version.sh rpm)"
+          echo "Resolved memgraph version: $version"
+          echo "URL-safe version: $version_url"
+          echo "RPM version: $version_rpm"
+          echo "memgraph_version=$version" >> $GITHUB_OUTPUT
+          echo "memgraph_version_url=$version_url" >> $GITHUB_OUTPUT
+          echo "memgraph_version_rpm=$version_rpm" >> $GITHUB_OUTPUT
+
   BuildAndTestMAGE:
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
     name: Build and Test MAGE
-    needs: [CurrentDateJob]
+    needs: [CurrentDateJob, DailyPackageArtifact, MemgraphVersionSetup]
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
       fail-fast: false
       matrix:
-        build_type: ["Release", "RelWithDebInfo"]
-        build_arch: ["amd", "arm"]
-        malloc: [false]
-        cuda: [false]
-        cugraph: [false]
         include:
-          - build_type: "Release"
-            build_arch: "amd"
+          - build_arch: "amd"
+            build_docker_image: "both"
+            malloc: false
+            cuda: false
+            cugraph: false
+            os: "ubuntu-24.04"
+          - build_arch: "arm"
+            build_docker_image: "both"
+            malloc: false
+            cuda: false
+            cugraph: false
+            os: "ubuntu-24.04"
+          - build_arch: "amd"
+            build_docker_image: "both"
             malloc: true
             cuda: false
             cugraph: false
-          - build_type: "RelWithDebInfo"
-            build_arch: "amd"
+            os: "ubuntu-24.04"
+          - build_arch: "arm"
+            build_docker_image: "debug"
+            malloc: true
+            cuda: false
+            cugraph: false
+            os: "ubuntu-24.04"
+          - build_arch: "amd"
+            build_docker_image: "debug"
             cuda: true
             malloc: false
             cugraph: false
-          - build_type: "RelWithDebInfo"
-            build_arch: "amd"
-            cuda: false
-            malloc: true
-            cugraph: false
-          - build_type: "RelWithDebInfo"
-            build_arch: "arm"
-            cuda: false
-            malloc: true
-            cugraph: false
-          - build_type: "RelWithDebInfo"
-            build_arch: "amd"
+            os: "ubuntu-24.04"
+          - build_arch: "amd"
+            build_docker_image: "debug"
             cuda: false
             malloc: false
             cugraph: true
+            os: "ubuntu-24.04"
+          - build_arch: "amd"
+            build_docker_image: "none"
+            cuda: false
+            malloc: false
+            cugraph: false
+            os: "centos-9"
+          - build_arch: "amd"
+            build_docker_image: "none"
+            cuda: false
+            malloc: false
+            cugraph: false
+            os: "centos-10"
     with:
       arch: ${{ matrix.build_arch }}
-      build_type: ${{ matrix.build_type }}
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ matrix.build_docker_image }}
+      daily_build: true
+      os: ${{ matrix.os }}
+      memgraph_download_link: >-
+        ${{ startsWith(matrix.os, 'centos') && format(
+          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}/memgraph-{3}-1.x86_64.rpm',
+          inputs.mock && '_mock' || '',
+          needs.CurrentDateJob.outputs.current_date,
+          matrix.os,
+          needs.MemgraphVersionSetup.outputs.memgraph_version_rpm
+        ) || format(
+          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb',
+          inputs.mock && '_mock' || '',
+          needs.CurrentDateJob.outputs.current_date,
+          matrix.malloc && '-malloc' || '',
+          matrix.build_arch == 'arm' && '-aarch64' || '',
+          needs.MemgraphVersionSetup.outputs.memgraph_version_url,
+          matrix.build_arch == 'arm' && 'arm64' || 'amd64'
+        )}}
+      memgraph_debuginfo_download_link: >-
+        ${{
+          (matrix.build_docker_image == 'debug' || matrix.build_docker_image == 'both') &&
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph-debuginfo_{4}-1_{5}.deb',
+            inputs.mock && '_mock' || '',
+            needs.CurrentDateJob.outputs.current_date,
+            matrix.malloc && '-malloc' || '',
+            matrix.build_arch == 'arm' && '-aarch64' || '',
+            needs.MemgraphVersionSetup.outputs.memgraph_version_url,
+            matrix.build_arch == 'arm' && 'arm64' || 'amd64'
+          ) || ''
+        }}
       s3_dest_dir: "daily-build/mage${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       cuda: ${{ matrix.cuda }}
       cugraph: ${{ matrix.cugraph }}
       push_to_s3: true
+      print_output_url: true
       malloc: ${{ matrix.malloc }}
       run_smoke_tests: ${{ !matrix.cugraph && !inputs.skip_smoke_tests }}
       run_tests: true
-      package_deb: "default"
-      generate_sbom: ${{ matrix.build_arch == 'amd' && matrix.build_type == 'Release' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+      package_mage: "default"
+      upload_debug_symbols: true
+      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
     secrets: inherit
 
   AggregateMAGEBuildTests:
@@ -312,7 +353,7 @@ jobs:
 
   SetupDailyBuildImageOutputs:
     name: Setup Daily Build Image Outputs
-    needs: [CurrentDateJob, DailyDockerArtifact, BuildAndTestMAGE]
+    needs: [CurrentDateJob, DailyPackageArtifact, BuildAndTestMAGE]
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests || !inputs.skip_stress_tests) }}
     runs-on: ubuntu-24.04
     outputs:
@@ -380,7 +421,7 @@ jobs:
 
   TriggerCVEScan:
     name: Trigger CVE Scan
-    needs: [CurrentDateJob, DailyDockerArtifact, BuildAndTestMAGE]
+    needs: [CurrentDateJob, DailyPackageArtifact, BuildAndTestMAGE]
     if: ${{ (needs.CurrentDateJob.outputs.is_sunday == 'true' && github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && inputs.run_cve_scan) }}
     uses: ./.github/workflows/cve_scan.yml
     with:

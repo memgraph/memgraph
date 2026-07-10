@@ -1,0 +1,44 @@
+--- a/include/libnuraft/asio_service_options.hxx
++++ b/include/libnuraft/asio_service_options.hxx
+@@ -21,6 +21,11 @@
+ #include <string>
+ #include <system_error>
+ 
++// Forward-declare SSL_CTX (defined in <openssl/ssl.h>) so the embedder
++// can register a hook receiving the per-process SSL_CTX without forcing
++// this public header to pull in OpenSSL.
++typedef struct ssl_ctx_st SSL_CTX;
++
+ namespace nuraft {
+ 
+ /**
+@@ -171,6 +176,15 @@
+     std::function< bool(const std::string&) > verify_sn_;
+ 
+     /**
++     * Invoked once after the server and client SSL contexts have been
++     * constructed and their cert/key/CA files have been loaded. Receives
++     * the underlying OpenSSL `SSL_CTX *` of each so the embedder may
++     * install `SSL_CTX_set_cert_cb` (or other per-context configuration)
++     * for cert hot-reload. May be null; ignored when `enable_ssl_` is false.
++     */
++    std::function< void(SSL_CTX* server_ctx, SSL_CTX* client_ctx) > ssl_ctx_init_;
++
++    /**
+      * Custom IP address resolver. If given, it will be invoked
+      * before the connection is established.
+      *
+--- a/src/asio_service.cxx
++++ b/src/asio_service.cxx
+@@ -1670,6 +1670,11 @@
+ 
+         // For client
+         ssl_client_ctx_.load_verify_file(_opt.root_cert_file_);
++
++        if (_opt.ssl_ctx_init_) {
++            _opt.ssl_ctx_init_( ssl_server_ctx_.native_handle(),
++                                ssl_client_ctx_.native_handle() );
++        }
+ #endif
+     }
+ 

@@ -56,7 +56,7 @@ class PatternsCompilerBase {
 
   /// How the entry node connects to prior patterns or binds a new variable.
   struct JoinVar {
-    PatternVar var;  // Shared variable — enters via existing register
+    PatternVar var;  // Shared variable, enters via existing register
   };
 
   struct EclassBinding {
@@ -715,7 +715,7 @@ auto PatternsCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &
 
   // If no new bindings were added during parent traversal, the output tuple
   // is fully determined before the parent chain. Multiple parent paths from the
-  // same eclass would yield duplicates — skip them and advance to the next eclass.
+  // same eclass would yield duplicates; skip them and advance to the next eclass.
   // For shared-var (JoinVar) entries, eclass_exhaust == backtrack, so this is a no-op.
   auto const has_new_bindings = (seen_vars_.size() != bindings_before);
   if (!has_new_bindings) {
@@ -735,7 +735,7 @@ auto PatternsCompiler<Symbol>::emit_enode_verify_fragment(Pattern<Symbol> const 
                           auto const has_new_bindings = (seen_vars_.size() != bindings_before);
                           // For root entries (no parent walk), always use backtrack_addr to enumerate
                           // all child combinations. For non-root entries with no new bindings, the
-                          // verify is purely existential — use parent_traversal to skip duplicate
+                          // verify is purely existential; use parent_traversal to skip duplicate
                           // tuples from equivalent enodes. When the subtree introduces new bindings,
                           // inner enode alternatives can produce distinct tuples, so use backtrack_addr.
                           if (decision.path_to_root.empty() || has_new_bindings) {

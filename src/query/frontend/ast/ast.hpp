@@ -36,6 +36,7 @@
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/description_store.hpp"
 #include "storage/v2/indices/index_order.hpp"
+#include "storage/v2/indices/vector_match_mode.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -2400,7 +2401,8 @@ class VectorIndexQuery : public memgraph::query::Query {
 
   memgraph::query::VectorIndexQuery::Action action_;
   std::string index_name_;
-  memgraph::query::LabelIx label_;
+  storage::VectorMatchMode label_mode_{storage::VectorMatchMode::SINGLE};
+  std::vector<memgraph::query::LabelIx> labels_;
   memgraph::query::PropertyIx property_;
   std::variant<ConfigMap, Expression *> config_;
 
@@ -2408,7 +2410,10 @@ class VectorIndexQuery : public memgraph::query::Query {
     VectorIndexQuery *object = storage->Create<VectorIndexQuery>();
     object->action_ = action_;
     object->index_name_ = index_name_;
-    object->label_ = storage->GetLabelIx(label_.name);
+    object->label_mode_ = label_mode_;
+    for (const auto &label : labels_) {
+      object->labels_.push_back(storage->GetLabelIx(label.name));
+    }
     object->property_ = storage->GetPropertyIx(property_.name);
     object->config_ =
         std::visit(utils::Overloaded{[storage](const ConfigMap &map) -> std::variant<ConfigMap, Expression *> {
@@ -2426,11 +2431,12 @@ class VectorIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  VectorIndexQuery(Action action, std::string index_name, LabelIx label, PropertyIx property,
-                   std::variant<ConfigMap, Expression *> config)
+  VectorIndexQuery(Action action, std::string index_name, storage::VectorMatchMode label_mode,
+                   std::vector<LabelIx> labels, PropertyIx property, std::variant<ConfigMap, Expression *> config)
       : action_(action),
         index_name_(std::move(index_name)),
-        label_(std::move(label)),
+        label_mode_(label_mode),
+        labels_(std::move(labels)),
         property_(std::move(property)),
         config_(std::move(config)) {}
 
@@ -2449,14 +2455,18 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   std::string index_name_;
-  memgraph::query::EdgeTypeIx edge_type_;
+  storage::VectorMatchMode edge_type_mode_{storage::VectorMatchMode::SINGLE};
+  std::vector<memgraph::query::EdgeTypeIx> edge_types_;
   memgraph::query::PropertyIx property_;
   std::variant<ConfigMap, Expression *> config_;
 
   CreateVectorEdgeIndexQuery *Clone(AstStorage *storage) const override {
     CreateVectorEdgeIndexQuery *object = storage->Create<CreateVectorEdgeIndexQuery>();
     object->index_name_ = index_name_;
-    object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
+    object->edge_type_mode_ = edge_type_mode_;
+    for (const auto &et : edge_types_) {
+      object->edge_types_.push_back(storage->GetEdgeTypeIx(et.name));
+    }
     object->property_ = storage->GetPropertyIx(property_.name);
     object->config_ =
         std::visit(utils::Overloaded{[storage](const ConfigMap &map) -> std::variant<ConfigMap, Expression *> {
@@ -2474,10 +2484,12 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  CreateVectorEdgeIndexQuery(std::string index_name, EdgeTypeIx edge_type, PropertyIx property,
+  CreateVectorEdgeIndexQuery(std::string index_name, storage::VectorMatchMode edge_type_mode,
+                             std::vector<EdgeTypeIx> edge_types, PropertyIx property,
                              std::variant<ConfigMap, Expression *> config)
       : index_name_(std::move(index_name)),
-        edge_type_(std::move(edge_type)),
+        edge_type_mode_(edge_type_mode),
+        edge_types_(std::move(edge_types)),
         property_(std::move(property)),
         config_(std::move(config)) {}
 
@@ -3118,11 +3130,13 @@ class SystemInfoQuery : public memgraph::query::Query {
 
   memgraph::query::SystemInfoQuery::InfoType info_type_;
   std::optional<std::string> database_;
+  bool is_current_database_{false};
 
   SystemInfoQuery *Clone(AstStorage *storage) const override {
     SystemInfoQuery *object = storage->Create<SystemInfoQuery>();
     object->info_type_ = info_type_;
     object->database_ = database_;
+    object->is_current_database_ = is_current_database_;
     return object;
   }
 };
@@ -4055,7 +4069,7 @@ class MultiDatabaseQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  enum class Action { CREATE, DROP, RENAME };
+  enum class Action : uint8_t { CREATE, DROP, RENAME, SUSPEND, RESUME };
 
   memgraph::query::MultiDatabaseQuery::Action action_;
   std::string db_name_;
@@ -4315,9 +4329,15 @@ class ReloadSSLQuery : public memgraph::query::Query {
 
   ReloadSSLQuery() = default;
 
+  enum class Type : uint8_t { BOLT_SERVER, INTRA_CLUSTER } type_;
+
   DEFVISITABLE(QueryVisitor<void>);
 
-  ReloadSSLQuery *Clone(AstStorage *storage) const override { return storage->Create<ReloadSSLQuery>(); }
+  ReloadSSLQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ReloadSSLQuery>();
+    object->type_ = type_;
+    return object;
+  }
 
  private:
   friend class AstStorage;
@@ -4378,6 +4398,34 @@ class SessionTraceQuery : public memgraph::query::Query {
   SessionTraceQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<SessionTraceQuery>();
     object->enabled_ = enabled_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class SessionSettingQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action : uint8_t { SET_SETTING, RESET_SETTING };
+
+  SessionSettingQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::SessionSettingQuery::Action action_;
+  Expression *setting_name_{nullptr};
+  Expression *setting_value_{nullptr};
+
+  SessionSettingQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<SessionSettingQuery>();
+    object->action_ = action_;
+    object->setting_name_ = setting_name_ ? setting_name_->Clone(storage) : nullptr;
+    object->setting_value_ = setting_value_ ? setting_value_->Clone(storage) : nullptr;
     return object;
   }
 

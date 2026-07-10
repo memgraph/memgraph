@@ -53,6 +53,8 @@ env:
   docker_repo_release: memgraph/memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
   docker_repo_rc_mage: memgraph/memgraph-mage
   docker_repo_release_mage: memgraph/memgraph-mage${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
+  debugsym_bucket: ${{ github.event.inputs.test == 'true' && 'deps.memgraph.io' || 'memgraph-debugsym' }}
+  debugsym_prefix: ${{ github.event.inputs.test == 'true' && 'debugsym-release-test/' || '' }}
 
 jobs:
   PromotePackage:
@@ -105,14 +107,6 @@ jobs:
             arch: amd
             malloc: true
             build_type: Release
-          - os: ubuntu-24.04
-            arch: arm
-            malloc: false
-            build_type: RelWithDebInfo
-          - os: ubuntu-24.04
-            arch: amd
-            malloc: false
-            build_type: RelWithDebInfo
     steps:
       - name: Validate “use_test_rc” only with test
         if: inputs.use_test_rc && ! inputs.test
@@ -185,8 +179,46 @@ jobs:
           aws s3 cp s3://${rc_bucket}/${rc_dir}/${package_path} s3://${release_bucket}/${release_dir}/${package_path}
           echo "Successfully promoted RC package for ${os} to s3://${release_bucket}/${release_dir}/${package_path}!"
 
+      - name: Promote debuginfo companion (deb/rpm)
+        # Split-debug prod-flavour OS jobs emit a memgraph-debuginfo_*.deb /
+        # memgraph-debuginfo-*.rpm next to the main package. Docker entries
+        # have no separate companion (the relwithdebinfo docker image already
+        # bundles symbols). RelWithDebInfo OS entries are the legacy embedded-
+        # symbol flavour with no companion either.
+        if: ${{ matrix.os != 'docker' && matrix.build_type != 'RelWithDebInfo' }}
+        run: |
+          package_basename=$(basename "$package_path")
+          case "$package_basename" in
+            memgraph_*.deb)
+              debuginfo_basename="${package_basename/memgraph_/memgraph-debuginfo_}"
+              ;;
+            memgraph-*.rpm)
+              debuginfo_basename="${package_basename/memgraph-/memgraph-debuginfo-}"
+              ;;
+            *)
+              echo "Unrecognised package basename '$package_basename'; skipping debuginfo promotion."
+              exit 0
+              ;;
+          esac
+          debuginfo_path="$(dirname "$package_path")/${debuginfo_basename}"
+          src="s3://${rc_bucket}/${rc_dir}/${debuginfo_path}"
+          dst="s3://${release_bucket}/${release_dir}/${debuginfo_path}"
+          if ! aws s3 ls "$src" &> /dev/null; then
+            echo "No debuginfo companion at $src — skipping (older RCs without split-debug may not have one)."
+            exit 0
+          fi
+          if aws s3 ls "$dst" &> /dev/null && [[ "$FORCE_PROMOTE" != "true" ]]; then
+            echo "Debuginfo companion already exists at $dst — set force_promote to override."
+            exit 1
+          fi
+          aws s3 cp "$src" "$dst"
+          echo "Promoted debuginfo companion to $dst"
+
   PromoteDocker:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # keyless cosign signing via GitHub OIDC (Fulcio/Rekor)
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -336,6 +368,72 @@ jobs:
             echo "Successfully published ${RELEASE_IMAGE} to DockerHub!"
           fi
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      - name: Sign released image with cosign (keyless)
+        run: |
+          # Sign the multi-arch manifest; --recursive also signs each per-arch
+          # child image. Signatures are stored by digest in the same repo, so
+          # the `latest` tag (identical digest) is covered too. Registry auth
+          # comes from the earlier docker login. Keyless via GitHub OIDC.
+          cosign sign --yes --recursive "${RELEASE_IMAGE}"
+
+      - name: Attach provenance & SBOM attestations (cosign, keyless)
+        # Prod image only (Release, non-malloc). Attestations are attached via
+        # the OCI 1.1 referrers API (COSIGN_REGISTRY_REFERRERS_MODE=oci-1-1) so
+        # Docker Scout can discover them; the legacy `.att` tag scheme is not
+        # referrer-discoverable. The SBOM is the CycloneDX doc syft already
+        # scanned from this exact prod image (reused from S3). The SLSA
+        # provenance is generated here and references the RC source tag; it is a
+        # minimal statement — richer build provenance would be captured at build
+        # time. Verify Scout sees these with: docker scout attest list <ref>.
+        # (The only Release matrix entry is the prod, non-malloc image.)
+        if: ${{ matrix.build_type == 'Release' }}
+        env:
+          COSIGN_REGISTRY_REFERRERS_MODE: oci-1-1
+        run: |
+          set -euo pipefail
+
+          # SLSA provenance v0.2 predicate (cosign wraps it in the in-toto
+          # statement and sets the subject to the image digest).
+          cat > provenance.json <<EOF
+          {
+            "builder": { "id": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" },
+            "buildType": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/promote_rc_release.yml",
+            "invocation": {
+              "configSource": {
+                "uri": "git+${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}@refs/tags/v${RELEASE_VERSION}-${RC_VERSION}",
+                "entryPoint": ".github/workflows/promote_rc_release.yml"
+              }
+            },
+            "metadata": {
+              "buildInvocationId": "${GITHUB_RUN_ID}",
+              "reproducible": false,
+              "completeness": { "parameters": false, "environment": false, "materials": false }
+            }
+          }
+          EOF
+          cosign attest --yes --type slsaprovenance --predicate provenance.json "${RELEASE_IMAGE}"
+
+          # CycloneDX SBOM — reuse the one scanned from this prod image at build.
+          sbom_src="s3://${rc_bucket}/${rc_dir}/sbom/memgraph-docker-sbom.json"
+          if aws s3 cp "$sbom_src" sbom.json; then
+            cosign attest --yes --type cyclonedx --predicate sbom.json "${RELEASE_IMAGE}"
+          else
+            echo "::warning::SBOM not found at $sbom_src — skipping SBOM attestation"
+          fi
+
+      - name: Verify attestations are attached (cosign)
+        # Non-fatal self-check that the attestations we just attached are
+        # present in the registry (via referrers). Uses the already-pinned
+        # cosign — nothing extra is fetched. Never blocks a release.
+        if: ${{ matrix.build_type == 'Release' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail   # diagnostic only
+          echo "== attestations attached to ${RELEASE_IMAGE} =="
+          cosign tree "${RELEASE_IMAGE}" || echo "::warning::cosign tree failed for ${RELEASE_IMAGE}"
 
       - name: Clean up temporary images
         run: |
@@ -365,6 +463,9 @@ jobs:
           - build_type: "RelWithDebInfo"
             image_ext: "-relwithdebinfo-cugraph"
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # keyless cosign signing via GitHub OIDC (Fulcio/Rekor)
+      contents: read
     steps:
       - name: Validate “use_test_rc” only with test
         if: inputs.use_test_rc && ! inputs.test
@@ -515,7 +616,9 @@ jobs:
       - name: Check if MAGE ubuntu packages already exist
         if: ${{ matrix.image_ext == '' }}
         run: |
-          release_deb_check=$(aws s3 ls "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" | awk '/memgraph-mage_.*\.deb/ {print}')
+          # Match both memgraph-mage_*.deb (main) and
+          # memgraph-mage-debuginfo_*.deb (split-debug companion).
+          release_deb_check=$(aws s3 ls "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" | awk '/memgraph-mage.*\.deb/ {print}')
           if [[ -n "${release_deb_check}" ]]; then
             echo "MAGE ubuntu packages already exist under s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
             if [[ "$FORCE_PROMOTE" != "true" ]]; then
@@ -528,8 +631,93 @@ jobs:
       - name: Promote MAGE ubuntu packages to release bucket
         if: ${{ matrix.image_ext == '' }}
         run: |
-          aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" --recursive --exclude "*" --include "memgraph-mage_${RELEASE_VERSION}-1_*.deb"
-          echo "Copied Ubuntu 24.04 MAGE packages to s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
+          aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/" --recursive --exclude "*" --include "memgraph-mage*_${RELEASE_VERSION}-1_*.deb"
+          echo "Copied Ubuntu 24.04 MAGE packages (main + debuginfo) to s3://${release_bucket}/${mage_release_dir}/ubuntu-24.04/"
+
+      - name: Promote MAGE rpm packages to release bucket
+        if: ${{ matrix.image_ext == '' }}
+        run: |
+          # MAGE rpms are stored flat in the RC dir with the distro encoded in
+          # the filename (memgraph-mage*-1.<distro>.<arch>.rpm — main + debuginfo).
+          # Promote each distro's rpms into the matching per-distro subdir of the
+          # release bucket, mirroring the ubuntu-24.04 deb layout above. Extend
+          # the list as new distros are enabled for MAGE.
+          for os in centos-9 centos-10; do
+            dst="s3://${release_bucket}/${mage_release_dir}/${os}/"
+            existing=$(aws s3 ls "$dst" 2>/dev/null | awk '/memgraph-mage.*\.rpm/ {print}')
+            if [[ -n "${existing}" && "$FORCE_PROMOTE" != "true" ]]; then
+              echo "MAGE rpm packages already exist under ${dst}"
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            # --recursive copy is a no-op when a distro produced no rpm (e.g. only
+            # centos-9 was built), so missing distros are skipped gracefully.
+            aws s3 cp "s3://${rc_bucket}/${mage_rc_dir}/" "${dst}" --recursive --exclude "*" --include "memgraph-mage*-1.${os}.*.rpm"
+            echo "Copied ${os} MAGE rpms (main + debuginfo) to ${dst}"
+          done
+
+      - name: Setup offline installer paths
+        run: |
+          offline_run_amd="memgraph-mage-offline-${RELEASE_VERSION}-amd64${{ matrix.image_ext }}.run"
+          offline_run_arm="memgraph-mage-offline-${RELEASE_VERSION}-arm64${{ matrix.image_ext }}.run"
+          echo "offline_run_amd=${offline_run_amd}" >> $GITHUB_ENV
+          echo "offline_run_arm=${offline_run_arm}" >> $GITHUB_ENV
+          echo "s3_input_offline_amd=s3://${rc_bucket}/${mage_rc_dir}/${offline_run_amd}" >> $GITHUB_ENV
+          echo "s3_input_offline_arm=s3://${rc_bucket}/${mage_rc_dir}/${offline_run_arm}" >> $GITHUB_ENV
+          if [[ "${{ github.event.inputs.test }}" == "true" ]]; then
+            offline_dest_root="offline-installer-test"
+          else
+            offline_dest_root="offline-installer"
+          fi
+          echo "s3_output_offline_amd=s3://${rc_bucket}/${offline_dest_root}/v${RELEASE_VERSION}/${offline_run_amd}" >> $GITHUB_ENV
+          echo "s3_output_offline_arm=s3://${rc_bucket}/${offline_dest_root}/v${RELEASE_VERSION}/${offline_run_arm}" >> $GITHUB_ENV
+
+      - name: Check if RC offline installers for this build exist
+        run: |
+          if aws s3 ls "${s3_input_offline_amd}" &> /dev/null; then
+            echo "has_rc_offline_amd=true" >> $GITHUB_ENV
+            echo "Found amd64 RC offline installer at ${s3_input_offline_amd}"
+          else
+            echo "has_rc_offline_amd=false" >> $GITHUB_ENV
+            echo "No amd64 RC offline installer at ${s3_input_offline_amd}"
+          fi
+          if aws s3 ls "${s3_input_offline_arm}" &> /dev/null; then
+            echo "has_rc_offline_arm=true" >> $GITHUB_ENV
+            echo "Found arm64 RC offline installer at ${s3_input_offline_arm}"
+          else
+            echo "has_rc_offline_arm=false" >> $GITHUB_ENV
+            echo "No arm64 RC offline installer at ${s3_input_offline_arm}"
+          fi
+
+      - name: Check if release offline installers for this build already exist
+        run: |
+          if [[ "${has_rc_offline_amd}" == "true" ]] && aws s3 ls "${s3_output_offline_amd}" &> /dev/null; then
+            echo "Release amd64 offline installer already exists at ${s3_output_offline_amd}"
+            if [[ "$FORCE_PROMOTE" != "true" ]]; then
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            echo "Forcing promotion of existing amd64 offline installer ..."
+          fi
+          if [[ "${has_rc_offline_arm}" == "true" ]] && aws s3 ls "${s3_output_offline_arm}" &> /dev/null; then
+            echo "Release arm64 offline installer already exists at ${s3_output_offline_arm}"
+            if [[ "$FORCE_PROMOTE" != "true" ]]; then
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            echo "Forcing promotion of existing arm64 offline installer ..."
+          fi
+
+      - name: Promote offline installers to release bucket
+        run: |
+          if [[ "${has_rc_offline_amd}" == "true" ]]; then
+            aws s3 cp "${s3_input_offline_amd}" "${s3_output_offline_amd}"
+            echo "Copied amd64 offline installer to ${s3_output_offline_amd}"
+          fi
+          if [[ "${has_rc_offline_arm}" == "true" ]]; then
+            aws s3 cp "${s3_input_offline_arm}" "${s3_output_offline_arm}"
+            echo "Copied arm64 offline installer to ${s3_output_offline_arm}"
+          fi
 
       - name: Log in to Docker Hub
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
@@ -603,6 +791,66 @@ jobs:
             fi
           fi
 
+      - name: Install cosign
+        if: ${{ env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true' }}
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      - name: Sign released MAGE image with cosign (keyless)
+        # Only runs when a manifest was actually pushed (i.e. at least one arch
+        # RC package existed). --recursive also signs the per-arch children; the
+        # 'latest' tag on prod shares the digest, so it is covered too.
+        if: ${{ env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true' }}
+        run: |
+          cosign sign --yes --recursive "${release_image}"
+
+      - name: Attach provenance & SBOM attestations (cosign, keyless)
+        # Prod MAGE image only (image_ext == ''), and only when a manifest was
+        # pushed. Attestations go through the OCI 1.1 referrers API so Docker
+        # Scout can discover them. SBOM is the CycloneDX doc scanned from this
+        # prod MAGE image (reused from S3); provenance is a minimal SLSA v0.2
+        # statement referencing the RC source tag. Verify with:
+        # docker scout attest list <ref>.
+        if: ${{ matrix.image_ext == '' && (env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true') }}
+        env:
+          COSIGN_REGISTRY_REFERRERS_MODE: oci-1-1
+        run: |
+          set -euo pipefail
+
+          cat > provenance.json <<EOF
+          {
+            "builder": { "id": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" },
+            "buildType": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/promote_rc_release.yml",
+            "invocation": {
+              "configSource": {
+                "uri": "git+${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}@refs/tags/v${RELEASE_VERSION}-${RC_VERSION}",
+                "entryPoint": ".github/workflows/promote_rc_release.yml"
+              }
+            },
+            "metadata": {
+              "buildInvocationId": "${GITHUB_RUN_ID}",
+              "reproducible": false,
+              "completeness": { "parameters": false, "environment": false, "materials": false }
+            }
+          }
+          EOF
+          cosign attest --yes --type slsaprovenance --predicate provenance.json "${release_image}"
+
+          sbom_src="s3://${rc_bucket}/${mage_rc_dir}/sbom/mage-sbom.json"
+          if aws s3 cp "$sbom_src" sbom.json; then
+            cosign attest --yes --type cyclonedx --predicate sbom.json "${release_image}"
+          else
+            echo "::warning::SBOM not found at $sbom_src — skipping SBOM attestation"
+          fi
+
+      - name: Verify attestations are attached (cosign)
+        # Non-fatal self-check (see PromoteDocker for rationale).
+        if: ${{ matrix.image_ext == '' && (env.has_rc_package_amd == 'true' || env.has_rc_package_arm == 'true') }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail   # diagnostic only
+          echo "== attestations attached to ${release_image} =="
+          cosign tree "${release_image}" || echo "::warning::cosign tree failed for ${release_image}"
+
       - name: Clean up temporary images
         run: |
           sleep 5
@@ -620,6 +868,88 @@ jobs:
             curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release_mage}/tags/${image_tag_arm}/
           else
             echo "Skipping deletion for arm64: image not promoted."
+          fi
+
+  PromoteDebugSymbols:
+    name: Promote debug symbols to memgraph-debugsym
+    needs: [PromotePackage, PromoteDocker, PromoteDockerMAGE]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate “use_test_rc” only with test
+        if: inputs.use_test_rc && ! inputs.test
+        run: |
+          echo "Must not run 'use_test_rc=true' without setting 'test=true'"
+          exit 1
+
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_AK_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SAK }}
+          aws-region: ${{ env.s3_region }}
+
+      - name: Collect debug-symbol manifests
+        id: collect
+        run: |
+          # Walk both the memgraph and MAGE RC subtrees and pull every
+          # debug-symbols-manifest*.tsv. memgraph emits one per package
+          # subdir (PKG_ARTIFACT_NAME); MAGE emits one per artifact (flat
+          # dest_dir, so the ARTIFACT_NAME suffix in the filename prevents
+          # collisions).
+          mkdir -p manifests
+          for src in "s3://${rc_bucket}/${rc_dir}/" "s3://${rc_bucket}/${mage_rc_dir}/"; do
+            echo "Pulling manifests from $src ..."
+            # Leading `*` is load-bearing: aws s3 cp's filter rules treat
+            # the pattern as a glob against the full relative key, so a bare
+            # `debug-symbols-manifest*.tsv` only matches files at the
+            # immediate root of the recursion. MAGE manifests live flat at
+            # the RC root, but memgraph manifests sit one level deep at
+            # <PKG_ARTIFACT_NAME>/debug-symbols-manifest.tsv and were
+            # being silently skipped.
+            aws s3 cp "$src" manifests/ --recursive \
+              --exclude '*' --include '*debug-symbols-manifest*.tsv' || true
+          done
+          # Manifest format is "<build-id>\t<basename>" — extract column 1
+          # and dedupe. Cross-job overlap (e.g. memgraph and MAGE jobs sharing
+          # the memgraph binary's build-id) is expected and harmless.
+          find manifests -name 'debug-symbols-manifest*.tsv' -print0 \
+            | xargs -0 cat 2>/dev/null \
+            | awk -F '\t' 'NF >= 1 && $1 ~ /^[0-9a-fA-F]{4,}$/ { print $1 }' \
+            | sort -u > build_ids.txt
+          count=$(wc -l < build_ids.txt | tr -d ' ')
+          echo "Collected $count unique build-ids"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Promote .debug sidecars to release bucket
+        if: steps.collect.outputs.count != '0'
+        run: |
+          # Layout matches what gdb / lldb / debuginfod expect:
+          # <bucket>/<aa>/<rest>.debug where aa is the first two hex chars
+          # of the build-id and rest is everything else.
+          missing=0
+          copied=0
+          skipped_existing=0
+          while IFS= read -r build_id; do
+            [[ -z "$build_id" ]] && continue
+            key="debug-symbols/${build_id:0:2}/${build_id:2}.debug"
+            dst_key="${debugsym_prefix}${build_id:0:2}/${build_id:2}.debug"
+            src="s3://${rc_bucket}/${key}"
+            dst="s3://${debugsym_bucket}/${dst_key}"
+            if ! aws s3 ls "$src" &> /dev/null; then
+              echo "Warning: $src missing — manifest references a sidecar that isn't in the staging bucket"
+              missing=$((missing + 1))
+              continue
+            fi
+            if aws s3 ls "$dst" &> /dev/null && [[ "$FORCE_PROMOTE" != "true" ]]; then
+              skipped_existing=$((skipped_existing + 1))
+              continue
+            fi
+            aws s3 cp --only-show-errors "$src" "$dst"
+            copied=$((copied + 1))
+          done < build_ids.txt
+          echo "Copied: $copied, missing in staging: $missing, skipped (already in release): $skipped_existing"
+          if [[ "$missing" -gt 0 && "$FORCE_PROMOTE" != "true" ]]; then
+            echo "::warning::Some build-ids listed in the manifests had no sidecar in the staging bucket."
           fi
 
   TriggerBSLUpdate:

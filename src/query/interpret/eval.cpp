@@ -11,11 +11,27 @@
 
 #include "query/interpret/eval.hpp"
 
+#include "query/auth_checker.hpp"
 #include "query/graph.hpp"
+#include "query/virtual_graph.hpp"
 
+#include <ranges>
 #include <regex>
 
 namespace memgraph::query {
+
+namespace r = std::ranges;
+namespace rv = r::views;
+
+namespace {
+template <r::input_range R>
+TypedValue RangeToTypedValueList(R &&range, utils::MemoryResource *memory) {
+  utils::pmr::vector<TypedValue> out(memory);
+  if constexpr (r::sized_range<R>) out.reserve(r::size(range));
+  for (const auto &item : range) out.emplace_back(TypedValue(item, memory));
+  return {std::move(out), memory};
+}
+}  // namespace
 
 int64_t EvaluateInt(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what) {
   TypedValue value = expr->Accept(eval);
@@ -145,6 +161,13 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
       }
       return {result, ctx_->memory};
     }
+    case TypedValue::Type::VirtualEdge: {
+      for (auto const &[prop_id, prop_value] : expression_result.ValueVirtualEdge().Properties()) {
+        result.emplace(TypedValue::TString(dba_->PropertyToName(prop_id), ctx_->memory),
+                       TypedValue(prop_value, GetNameIdMapper(), ctx_->memory));
+      }
+      return {result, ctx_->memory};
+    }
     case TypedValue::Type::Map: {
       for (auto &[name, value] : expression_result.ValueMap()) {
         result.emplace(name, value);
@@ -215,22 +238,26 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
                      TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory));
       return {result, ctx_->memory};
     }
+    case TypedValue::Type::VirtualNode: {
+      for (auto const &[prop_id, prop_value] : expression_result.ValueVirtualNode().Properties()) {
+        result.emplace(TypedValue::TString(dba_->PropertyToName(prop_id), ctx_->memory),
+                       TypedValue(prop_value, GetNameIdMapper(), ctx_->memory));
+      }
+      return {result, ctx_->memory};
+    }
     case TypedValue::Type::Graph: {
       const auto &graph = expression_result.ValueGraph();
-      utils::pmr::vector<TypedValue> vertices(ctx_->memory);
-      vertices.reserve(graph.vertices().size());
-      for (const auto &v : graph.vertices()) {
-        vertices.emplace_back(v);
-      }
-      result.emplace(TypedValue::TString("nodes", ctx_->memory), TypedValue(std::move(vertices), ctx_->memory));
-
-      utils::pmr::vector<TypedValue> edges(ctx_->memory);
-      edges.reserve(graph.edges().size());
-      for (const auto &e : graph.edges()) {
-        edges.emplace_back(e);
-      }
-      result.emplace(TypedValue::TString("edges", ctx_->memory), TypedValue(std::move(edges), ctx_->memory));
-
+      result.emplace(TypedValue::TString("nodes", ctx_->memory), RangeToTypedValueList(graph.vertices(), ctx_->memory));
+      result.emplace(TypedValue::TString("edges", ctx_->memory), RangeToTypedValueList(graph.edges(), ctx_->memory));
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::VirtualGraph: {
+      const auto &vg = expression_result.ValueVirtualGraph();
+      result.emplace(TypedValue::TString("nodes", ctx_->memory),
+                     RangeToTypedValueList(vg.nodes() | rv::values |
+                                               rv::transform([](const auto &sp) -> const VirtualNode & { return *sp; }),
+                                           ctx_->memory));
+      result.emplace(TypedValue::TString("edges", ctx_->memory), RangeToTypedValueList(vg.edges(), ctx_->memory));
       return {result, ctx_->memory};
     }
 
@@ -390,22 +417,17 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
     return std::nullopt;
   };
   auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
+    if (prop_name == "nodes") return RangeToTypedValueList(graph.vertices(), ctx_->memory);
+    if (prop_name == "edges") return RangeToTypedValueList(graph.edges(), ctx_->memory);
+    return std::nullopt;
+  };
+  auto maybe_virtual_graph = [this](const auto &vg, const auto &prop_name) -> std::optional<TypedValue> {
     if (prop_name == "nodes") {
-      utils::pmr::vector<TypedValue> vertices(ctx_->memory);
-      vertices.reserve(graph.vertices().size());
-      for (const auto &v : graph.vertices()) {
-        vertices.emplace_back(TypedValue(v, ctx_->memory));
-      }
-      return TypedValue(vertices, ctx_->memory);
+      return RangeToTypedValueList(
+          vg.nodes() | rv::values | rv::transform([](const auto &sp) -> const VirtualNode & { return *sp; }),
+          ctx_->memory);
     }
-    if (prop_name == "edges") {
-      utils::pmr::vector<TypedValue> edges(ctx_->memory);
-      edges.reserve(graph.edges().size());
-      for (const auto &e : graph.edges()) {
-        edges.emplace_back(TypedValue(e, ctx_->memory));
-      }
-      return TypedValue(edges, ctx_->memory);
-    }
+    if (prop_name == "edges") return RangeToTypedValueList(vg.edges(), ctx_->memory);
     return std::nullopt;
   };
   switch (expression_result_ptr->type()) {
@@ -445,6 +467,18 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
                 GetNameIdMapper(),
                 ctx_->memory};
       }
+    case TypedValue::Type::VirtualEdge: {
+      auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
+      auto prop_value = expression_result_ptr->ValueVirtualEdge().GetProperty(prop_id);
+      if (prop_value.IsNull()) return TypedValue(ctx_->memory);
+      return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
+    }
+    case TypedValue::Type::VirtualNode: {
+      auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
+      auto prop_value = expression_result_ptr->ValueVirtualNode().GetProperty(prop_id);
+      if (prop_value.IsNull()) return TypedValue(ctx_->memory);
+      return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
+    }
     case TypedValue::Type::Map: {
       auto &map = expression_result_ptr->ValueMap();
       auto found = map.find(property_lookup.property_.name.c_str());
@@ -518,9 +552,43 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       }
       throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
     }
+    case TypedValue::Type::VirtualGraph: {
+      const auto &prop_name = property_lookup.property_.name;
+      const auto &vg = expression_result_ptr->ValueVirtualGraph();
+      if (auto vg_field = maybe_virtual_graph(vg, prop_name); vg_field) {
+        return {*vg_field, ctx_->memory};
+      }
+      throw QueryRuntimeException("Invalid property name {} for VirtualGraph", prop_name);
+    }
     default:
       throw QueryRuntimeException(
           "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
   }
 }
+
+#ifdef MG_ENTERPRISE
+bool ExpressionEvaluator::IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
+  if (!auth_checker_ || !auth_checker_->HasPropertyRestrictions()) return true;
+  return CheckPropertyPermission(accessor, prop);
+}
+
+bool ExpressionEvaluator::IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const {
+  if (!auth_checker_ || !auth_checker_->HasPropertyRestrictions()) return true;
+  return CheckPropertyPermission(accessor, prop);
+}
+
+bool ExpressionEvaluator::CheckPropertyPermission(VertexAccessor const &accessor, storage::PropertyId prop) const {
+  DMG_ASSERT(auth_checker_);
+  auto maybe_labels = accessor.Labels(view_);
+  if (!maybe_labels) return false;
+  return auth_checker_->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+}
+
+bool ExpressionEvaluator::CheckPropertyPermission(EdgeAccessor const &accessor, storage::PropertyId prop) const {
+  DMG_ASSERT(auth_checker_);
+  return auth_checker_->HasPropertyPermission(accessor.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+}
+
+#endif
+
 }  // namespace memgraph::query

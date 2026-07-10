@@ -66,14 +66,15 @@ class VectorIndexTest : public testing::Test {
     const auto property = unique_acc->NameToProperty(test_property.data());
 
     // Create a specification for the index
-    const auto spec = VectorIndexSpec{.index_name = test_index.data(),
-                                      .label_id = label,
-                                      .property = property,
-                                      .metric_kind = metric,
-                                      .dimension = dimension,
-                                      .resize_coefficient = resize_coefficient,
-                                      .capacity = capacity,
-                                      .scalar_kind = scalar_kind};
+    const auto spec =
+        VectorIndexSpec{.index_name = test_index.data(),
+                        .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {label}},
+                        .property = property,
+                        .metric_kind = metric,
+                        .dimension = dimension,
+                        .resize_coefficient = resize_coefficient,
+                        .capacity = capacity,
+                        .scalar_kind = scalar_kind};
 
     EXPECT_FALSE(!unique_acc->CreateVectorIndex(spec).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
@@ -462,14 +463,15 @@ TEST_F(VectorIndexTest, IndexCreationFailsWhenNodeHasNonVectorPropertyAndDatabas
     auto unique_acc = this->storage->UniqueAccess();
     const auto label_id = unique_acc->NameToLabel(label);
     const auto property_id = unique_acc->NameToProperty(prop_name);
-    const auto spec = VectorIndexSpec{.index_name = test_index.data(),
-                                      .label_id = label_id,
-                                      .property = property_id,
-                                      .metric_kind = metric,
-                                      .dimension = 2,
-                                      .resize_coefficient = resize_coefficient,
-                                      .capacity = 10,
-                                      .scalar_kind = scalar_kind};
+    const auto spec =
+        VectorIndexSpec{.index_name = test_index.data(),
+                        .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {label_id}},
+                        .property = property_id,
+                        .metric_kind = metric,
+                        .dimension = 2,
+                        .resize_coefficient = resize_coefficient,
+                        .capacity = 10,
+                        .scalar_kind = scalar_kind};
 
     EXPECT_THROW(static_cast<void>(unique_acc->CreateVectorIndex(spec)), std::exception);
   }
@@ -614,15 +616,17 @@ class VectorIndexRecoveryTest : public testing::Test {
 
   static VectorIndexRecoveryInfo CreateRecoveryInfo(const std::string &name = "test_index",
                                                     std::size_t capacity = kNumNodes) {
-    return VectorIndexRecoveryInfo{.spec = VectorIndexSpec{.index_name = name,
-                                                           .label_id = LabelId::FromUint(1),
-                                                           .property = PropertyId::FromUint(1),
-                                                           .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
-                                                           .dimension = kDimension,
-                                                           .resize_coefficient = 2,
-                                                           .capacity = capacity,
-                                                           .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
-                                   .index_entries = {}};
+    return VectorIndexRecoveryInfo{
+        .spec = VectorIndexSpec{.index_name = name,
+                                .label_filter =
+                                    VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {LabelId::FromUint(1)}},
+                                .property = PropertyId::FromUint(1),
+                                .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                                .dimension = kDimension,
+                                .resize_coefficient = 2,
+                                .capacity = capacity,
+                                .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
+        .index_entries = {}};
   }
 
   std::unique_ptr<InMemoryStorage> storage_;
@@ -730,7 +734,8 @@ TEST_F(VectorIndexTest, CreateVectorIndexAbortLeavesNoGhostEntry) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     spec = VectorIndexSpec{.index_name = test_index.data(),
-                           .label_id = acc->NameToLabel(test_label.data()),
+                           .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE,
+                                                             .ids = {acc->NameToLabel(test_label.data())}},
                            .property = acc->NameToProperty(test_property.data()),
                            .metric_kind = metric,
                            .dimension = 2,
@@ -757,15 +762,17 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
                           memgraph::utils::small_vector<float>{static_cast<float>(i), static_cast<float>(i + 1)});
   }
 
-  VectorIndexRecoveryInfo recovery_info{.spec = VectorIndexSpec{.index_name = "precomputed_index",
-                                                                .label_id = LabelId::FromUint(1),
-                                                                .property = PropertyId::FromUint(1),
-                                                                .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
-                                                                .dimension = kDimension,
-                                                                .resize_coefficient = 2,
-                                                                .capacity = kNumNodes,
-                                                                .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
-                                        .index_entries = std::move(index_entries)};
+  VectorIndexRecoveryInfo recovery_info{
+      .spec = VectorIndexSpec{.index_name = "precomputed_index",
+                              .label_filter =
+                                  VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {LabelId::FromUint(1)}},
+                              .property = PropertyId::FromUint(1),
+                              .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                              .dimension = kDimension,
+                              .resize_coefficient = 2,
+                              .capacity = kNumNodes,
+                              .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
+      .index_entries = std::move(index_entries)};
 
   EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
                                              vertices_acc,
@@ -776,4 +783,193 @@ TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
   const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
   EXPECT_EQ(vector_index_info.size(), 1);
   EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+}
+
+TEST_F(VectorIndexTest, OverlappingLabelIndicesBothUpdatedOnAddLabel) {
+  const std::string_view label_a_name = "A";
+  const std::string_view label_b_name = "B";
+  const std::string_view idx_a = "idx_a";
+  const std::string_view idx_ab = "idx_ab";
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto a = unique_acc->NameToLabel(label_a_name);
+    const auto b = unique_acc->NameToLabel(label_b_name);
+    const auto property = unique_acc->NameToProperty(test_property.data());
+    EXPECT_TRUE(unique_acc
+                    ->CreateVectorIndex({.index_name = std::string{idx_a},
+                                         .label_filter = {.mode = VectorMatchMode::SINGLE, .ids = {a}},
+                                         .property = property,
+                                         .metric_kind = metric,
+                                         .dimension = 2,
+                                         .resize_coefficient = resize_coefficient,
+                                         .capacity = 10,
+                                         .scalar_kind = scalar_kind})
+                    .has_value());
+    EXPECT_TRUE(unique_acc
+                    ->CreateVectorIndex({.index_name = std::string{idx_ab},
+                                         .label_filter = {.mode = VectorMatchMode::ANY_OF, .ids = {a, b}},
+                                         .property = property,
+                                         .metric_kind = metric,
+                                         .dimension = 2,
+                                         .resize_coefficient = resize_coefficient,
+                                         .capacity = 10,
+                                         .scalar_kind = scalar_kind})
+                    .has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    PropertyValue prop(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property.data()), prop));
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel(label_a_name)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  std::unordered_map<std::string, std::size_t> sizes_by_name;
+  for (const auto &info : acc->ListAllVectorIndices()) sizes_by_name[info.index_name] = info.size;
+  EXPECT_EQ(sizes_by_name[std::string{idx_a}], 1) << "single-label index :A(prop) missing vertex after adding :A";
+  EXPECT_EQ(sizes_by_name[std::string{idx_ab}], 1)
+      << "overlapping ANY_OF index :A|B(prop) missing vertex after adding :A";
+}
+
+TEST_F(VectorIndexTest, MultiLabelFilterEqualityIsOrderInsensitive) {
+  auto unique_acc = this->storage->UniqueAccess();
+  const auto a = unique_acc->NameToLabel("A");
+  const auto b = unique_acc->NameToLabel("B");
+  const auto property = unique_acc->NameToProperty(test_property.data());
+  EXPECT_TRUE(unique_acc
+                  ->CreateVectorIndex({.index_name = "ab",
+                                       .label_filter = {.mode = VectorMatchMode::ANY_OF, .ids = {a, b}},
+                                       .property = property,
+                                       .metric_kind = metric,
+                                       .dimension = 2,
+                                       .resize_coefficient = resize_coefficient,
+                                       .capacity = 10,
+                                       .scalar_kind = scalar_kind})
+                  .has_value());
+  EXPECT_FALSE(unique_acc
+                   ->CreateVectorIndex({.index_name = "ba",
+                                        .label_filter = {.mode = VectorMatchMode::ANY_OF, .ids = {b, a}},
+                                        .property = property,
+                                        .metric_kind = metric,
+                                        .dimension = 2,
+                                        .resize_coefficient = resize_coefficient,
+                                        .capacity = 10,
+                                        .scalar_kind = scalar_kind})
+                   .has_value());
+}
+
+TEST_F(VectorIndexTest, AddLabelToVertexAlreadyInIndexDoesNotDuplicateId) {
+  const std::string_view idx_ab = "idx_ab";
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto a = unique_acc->NameToLabel("A");
+    const auto b = unique_acc->NameToLabel("B");
+    const auto property = unique_acc->NameToProperty(test_property.data());
+    EXPECT_TRUE(unique_acc
+                    ->CreateVectorIndex({.index_name = std::string{idx_ab},
+                                         .label_filter = {.mode = VectorMatchMode::ANY_OF, .ids = {a, b}},
+                                         .property = property,
+                                         .metric_kind = metric,
+                                         .dimension = 2,
+                                         .resize_coefficient = resize_coefficient,
+                                         .capacity = 10,
+                                         .scalar_kind = scalar_kind})
+                    .has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    vertex_gid = vertex.Gid();
+    PropertyValue prop(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property.data()), prop));
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel("A")));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel("B")));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+  auto prop = vertex.GetProperty(acc->NameToProperty(test_property.data()), View::OLD).value();
+  ASSERT_TRUE(prop.IsVectorIndexId());
+  EXPECT_EQ(prop.ValueVectorIndexIds().size(), 1);
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+}
+
+TEST_F(VectorIndexTest, RemoveLabelFromNonMemberOfAllOfIndexIsNoOp) {
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto a = unique_acc->NameToLabel("A");
+    const auto b = unique_acc->NameToLabel("B");
+    const auto property = unique_acc->NameToProperty(test_property.data());
+    EXPECT_TRUE(unique_acc
+                    ->CreateVectorIndex({.index_name = "and_idx",
+                                         .label_filter = {.mode = VectorMatchMode::ALL_OF, .ids = {a, b}},
+                                         .property = property,
+                                         .metric_kind = metric,
+                                         .dimension = 2,
+                                         .resize_coefficient = resize_coefficient,
+                                         .capacity = 10,
+                                         .scalar_kind = scalar_kind})
+                    .has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    vertex_gid = vertex.Gid();
+    PropertyValue prop(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property.data()), prop));
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel("A")));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    EXPECT_NO_THROW(ASSERT_NO_ERROR(vertex.RemoveLabel(acc->NameToLabel("A"))));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+  auto prop = vertex.GetProperty(acc->NameToProperty(test_property.data()), View::OLD).value();
+  EXPECT_FALSE(prop.IsVectorIndexId());
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+}
+
+TEST_F(VectorIndexTest, SetPropertyToScalarRemovesIndexedVertex) {
+  this->CreateIndex(2, 10);
+
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto property_value = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 2.0F});
+    auto vertex = this->CreateVertex(acc.get(), test_property, property_value, test_label);
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), PropertyValue("not a vector")));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
 }

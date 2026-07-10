@@ -72,6 +72,9 @@ auto MakeMap(Ts &&...values) -> PropertyValue
        std::forward<std::tuple_element_t<1, std::decay_t<Ts>>>(std::get<1>(std::forward<Ts>(values)))}...}};
 };
 
+/// Tag type: run IndexTest with InMemoryStorage + storage_light_edge=true.
+struct InMemoryStorageLightEdge {};
+
 template <typename StorageType>
 class IndexTest : public testing::Test {
  protected:
@@ -79,7 +82,12 @@ class IndexTest : public testing::Test {
     FLAGS_storage_properties_on_edges = true;
     config_.salient.items.properties_on_edges = true;
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
-    this->storage = std::make_unique<StorageType>(config_);
+    if constexpr (std::is_same_v<StorageType, InMemoryStorageLightEdge>) {
+      config_.salient.items.storage_light_edge = true;
+      this->storage = std::make_unique<memgraph::storage::InMemoryStorage>(config_);
+    } else {
+      this->storage = std::make_unique<StorageType>(config_);
+    }
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     this->prop_id = acc->NameToProperty("id");
     this->prop_val = acc->NameToProperty("val");
@@ -97,7 +105,7 @@ class IndexTest : public testing::Test {
   }
 
   void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
     this->storage.reset(nullptr);
@@ -111,7 +119,8 @@ class IndexTest : public testing::Test {
   std::unique_ptr<memgraph::storage::Storage> storage;
 
   auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
-    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage> ||
+                  std::is_same_v<StorageType, InMemoryStorageLightEdge>) {
       return this->storage->ReadOnlyAccess();
     } else {
       return this->storage->UniqueAccess();
@@ -119,7 +128,8 @@ class IndexTest : public testing::Test {
   }
 
   auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
-    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage> ||
+                  std::is_same_v<StorageType, InMemoryStorageLightEdge>) {
       return this->storage->Access(memgraph::storage::StorageAccessType::READ);
     } else {
       return this->storage->UniqueAccess();
@@ -171,7 +181,8 @@ class IndexTest : public testing::Test {
   int vertex_id;
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes =
+    ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage, InMemoryStorageLightEdge>;
 
 TYPED_TEST_SUITE(IndexTest, StorageTypes);
 
@@ -3537,6 +3548,66 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexBasic) {
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, this->edge_prop_id2, View::NEW), View::NEW), IsEmpty());
 }
 
+// A bounded scan returns exactly the entries inside the requested range, with the
+// boundary entries included or excluded per the bound.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexBoundedScan) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->edge_type_id1, this->prop_id).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  for (int i = 0; i < 20; ++i) {
+    auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+    auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+    auto edge = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+    ASSERT_NO_ERROR(edge.SetProperty(this->prop_id, memgraph::storage::PropertyValue(i)));
+  }
+  acc->AdvanceCommand();
+
+  // Equality: only the exact value.
+  EXPECT_THAT(
+      this->GetIds(acc->Edges(this->edge_type_id1, this->prop_id, memgraph::storage::PropertyValue(12), View::OLD)),
+      UnorderedElementsAre(12));
+
+  // Inclusive bounds keep the boundary entries 5 and 10.
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1,
+                                      this->prop_id,
+                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(5)),
+                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(10)),
+                                      View::OLD)),
+              UnorderedElementsAre(5, 6, 7, 8, 9, 10));
+
+  // Exclusive bounds drop the boundary entries 5 and 10.
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1,
+                                      this->prop_id,
+                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(5)),
+                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(10)),
+                                      View::OLD)),
+              UnorderedElementsAre(6, 7, 8, 9));
+
+  // Lower bound only.
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1,
+                                      this->prop_id,
+                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(17)),
+                                      std::nullopt,
+                                      View::OLD)),
+              UnorderedElementsAre(17, 18, 19));
+
+  // Upper bound only.
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1,
+                                      this->prop_id,
+                                      std::nullopt,
+                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(3)),
+                                      View::OLD)),
+              UnorderedElementsAre(0, 1, 2));
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
   if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
@@ -3991,6 +4062,61 @@ TYPED_TEST(IndexTest, EdgePropertyIndexBasic) {
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id2, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id2, View::NEW), View::NEW), IsEmpty());
+}
+
+// A bounded scan returns exactly the entries inside the requested range, with the
+// boundary entries included or excluded per the bound.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgePropertyIndexBoundedScan) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateGlobalEdgeIndex(this->prop_id).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  for (int i = 0; i < 20; ++i) {
+    auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+    auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+    auto edge = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+    ASSERT_NO_ERROR(edge.SetProperty(this->prop_id, memgraph::storage::PropertyValue(i)));
+  }
+  acc->AdvanceCommand();
+
+  // Equality: only the exact value.
+  EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id, memgraph::storage::PropertyValue(12), View::OLD)),
+              UnorderedElementsAre(12));
+
+  // Inclusive bounds keep the boundary entries 5 and 10.
+  EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id,
+                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(5)),
+                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(10)),
+                                      View::OLD)),
+              UnorderedElementsAre(5, 6, 7, 8, 9, 10));
+
+  // Exclusive bounds drop the boundary entries 5 and 10.
+  EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id,
+                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(5)),
+                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(10)),
+                                      View::OLD)),
+              UnorderedElementsAre(6, 7, 8, 9));
+
+  // Lower bound only.
+  EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id,
+                                      memgraph::utils::MakeBoundInclusive(memgraph::storage::PropertyValue(17)),
+                                      std::nullopt,
+                                      View::OLD)),
+              UnorderedElementsAre(17, 18, 19));
+
+  // Upper bound only.
+  EXPECT_THAT(this->GetIds(acc->Edges(this->prop_id,
+                                      std::nullopt,
+                                      memgraph::utils::MakeBoundExclusive(memgraph::storage::PropertyValue(3)),
+                                      View::OLD)),
+              UnorderedElementsAre(0, 1, 2));
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

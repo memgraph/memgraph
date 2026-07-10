@@ -27,6 +27,7 @@
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "slk/serialization.hpp"
@@ -89,15 +90,19 @@ LicenseCheckResult IsValidLicenseInternal(const License &license, std::string_vi
 std::string LicenseTypeToString(const LicenseType license_type) {
   switch (license_type) {
     case LicenseType::ENTERPRISE: {
-      return "enterprise";
+      return std::string{kLicenseTypeEnterprise};
     }
-    case LicenseType::OEM: {
-      return "oem";
+    case LicenseType::OEM_COMMUNITY: {
+      return std::string{kLicenseTypeOemCommunity};
     }
     case LicenseType::AI_PLATFORM: {
-      return "ai_platform";
+      return std::string{kLicenseTypeAiPlatform};
+    }
+    case LicenseType::OEM: {
+      return std::string{kLicenseTypeOem};
     }
   }
+  std::unreachable();
 }
 
 void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &settings) {
@@ -312,9 +317,7 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
           "SET DATABASE SETTING \"enterprise.license\" TO \"your-license-key\"",
           feature);
     case LicenseCheckError::NOT_ENTERPRISE_LICENSE:
-      return fmt::format(
-          "Your license has an invalid type. To use {} you need to have an enterprise or ai_platform license.\n",
-          feature);
+      return fmt::format("Access to {} requires an enterprise, ai_platform, or oem license.", feature);
   }
 }
 
@@ -333,11 +336,15 @@ LicenseCheckResult LicenseChecker::IsEnterpriseValid(std::string_view license_ke
   if (!maybe_license) {
     return std::unexpected{LicenseCheckError::INVALID_LICENSE_KEY_STRING};
   }
-  if (maybe_license->type != LicenseType::ENTERPRISE && maybe_license->type != LicenseType::AI_PLATFORM) {
-    return std::unexpected{LicenseCheckError::NOT_ENTERPRISE_LICENSE};
+
+  if (auto basic = IsValidLicenseInternal(*maybe_license, organization_name); !basic) {
+    return basic;
   }
 
-  return IsValidLicenseInternal(*maybe_license, organization_name);
+  if (!IsEnterpriseTier(maybe_license->type)) {
+    return std::unexpected{LicenseCheckError::NOT_ENTERPRISE_LICENSE};
+  }
+  return {};
 }
 
 LicenseCheckResult LicenseChecker::IsEnterpriseValid() const {
@@ -413,19 +420,33 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
   }
 
   // Use the same validation logic as enterprise feature checks to ensure is_valid is consistent.
-  // IsEnterpriseValid(key, org) validates: decodeable key + ENTERPRISE type + org name match + not expired.
   // NOTE: this overload does not re-acquire previous_license_info_ lock, so no deadlock.
   const auto license_check_result = IsEnterpriseValid(info.license_key, info.organization_name);
   if (!license_check_result) {
     info.is_valid = false;
-    info.status = LicenseCheckErrorToString(license_check_result.error(), "Memgraph Enterprise");
+    if (license_check_result.error() == LicenseCheckError::NOT_ENTERPRISE_LICENSE &&
+        maybe_license->type == LicenseType::OEM_COMMUNITY) {
+      info.status = "You are running a valid Memgraph OEM Community License. Enterprise features are not enabled.";
+    } else {
+      info.status = LicenseCheckErrorToString(license_check_result.error(), "Memgraph Enterprise");
+    }
     return info;
   }
 
   info.is_valid = true;
-  info.status = maybe_license->type == LicenseType::AI_PLATFORM
-                    ? "You are running a valid Memgraph AI Platform License."
-                    : "You are running a valid Memgraph Enterprise License.";
+  switch (maybe_license->type) {
+    case LicenseType::ENTERPRISE:
+      info.status = "You are running a valid Memgraph Enterprise License.";
+      break;
+    case LicenseType::AI_PLATFORM:
+      info.status = "You are running a valid Memgraph AI Platform License.";
+      break;
+    case LicenseType::OEM:
+      info.status = "You are running a valid Memgraph OEM License.";
+      break;
+    case LicenseType::OEM_COMMUNITY:
+      std::unreachable();
+  }
   return info;
 }
 
@@ -433,8 +454,7 @@ bool LicenseChecker::IsEnterpriseValidFast() const {
   // Acquire synchronizes with release stores in RevalidateLicense/EnableTesting.
   // This ensures we see the license_type_ write that precedes those release stores,
   // avoiding a data race on the non-atomic license_type_.
-  return is_valid_.load(std::memory_order_acquire) &&
-         (license_type_ == LicenseType::ENTERPRISE || license_type_ == LicenseType::AI_PLATFORM);
+  return is_valid_.load(std::memory_order_acquire) && IsEnterpriseTier(license_type_);
 }
 
 std::string Encode(const License &license) {
@@ -483,7 +503,15 @@ std::optional<License> Decode(std::string_view license_key) {
     slk::Load(&memory_limit, &reader);
     std::underlying_type_t<LicenseType> license_type{0};
     slk::Load(&license_type, &reader);
-    return {License{organization_name, valid_until, memory_limit, LicenseType(license_type)}};
+    const auto typed = static_cast<LicenseType>(license_type);
+    switch (typed) {
+      case LicenseType::ENTERPRISE:
+      case LicenseType::OEM_COMMUNITY:
+      case LicenseType::AI_PLATFORM:
+      case LicenseType::OEM:
+        return License{organization_name, valid_until, memory_limit, typed};
+    }
+    return std::nullopt;
   } catch (const slk::SlkReaderException &e) {
     return std::nullopt;
   }

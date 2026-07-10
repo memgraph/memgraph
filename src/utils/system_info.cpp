@@ -28,16 +28,17 @@
 namespace memgraph::utils {
 
 std::string GetMachineId() {
-#ifdef MG_TELEMETRY_ID_OVERRIDE
-  return MG_TELEMETRY_ID_OVERRIDE;
-#else
+  // Set MEMGRAPH_TELEMETRY_ID=DOCKER in the Dockerfile.
+  if (const char *override_id = std::getenv("MEMGRAPH_TELEMETRY_ID");
+      override_id != nullptr && override_id[0] != '\0') {
+    return override_id;
+  }
   // We assume we're on linux and we need to read the machine id from /etc/machine-id
   const auto machine_id_lines = memgraph::utils::ReadLines("/etc/machine-id");
   if (machine_id_lines.size() != 1) {
     return "UNKNOWN";
   }
   return machine_id_lines[0];
-#endif
 }
 
 MemoryInfo GetMemoryInfo() {

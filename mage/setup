@@ -229,8 +229,16 @@ def build_and_copy_cpp_modules(args: Dict[str, Any]) -> bool:
     all_so = set(glob.glob("**/*.so", recursive=True))
     # Exclude libmgclient.so files - they are client libraries, not query modules
     all_so = {file for file in all_so if not os.path.basename(file) == "libmgclient.so"}
+    # Pick up split-debug sidecars alongside their .so counterparts. Use
+    # *.so*.debug so we match both `<name>.so.debug` (no SOVERSION) and
+    # `<name>.so.<N>.debug` (with SOVERSION, which mage's add_query_module
+    # sets — produces e.g. `betweenness_centrality.so.1.debug`).
+    # These files are only present when the build was configured with
+    # MG_SPLIT_DEBUG=ON. Downstream packaging (build-deb.sh) filters them out
+    # for the prod flavour.
+    all_debug = set(glob.glob("**/*.so*.debug", recursive=True))
 
-    for file in all_so:
+    for file in all_so | all_debug:
         shutil.copy2(file, MAGE_BUILD_DIRECTORY)
 
     logger.info(f"[Terminal]  (4/8) Successfully copied C++ modules to {MAGE_BUILD_DIRECTORY}.")

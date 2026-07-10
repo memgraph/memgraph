@@ -229,7 +229,7 @@ def main():
         coordinators=COORDINATORS,
         show_replicas=True,
         verify_up=True,
-        storage_info=["vertex_count", "memory_res", "global_runtime_allocation_limit"],
+        storage_info=["memory_res", "memory_limit"],
         interval=2,
         auth=AUTH,
     )

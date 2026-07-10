@@ -22,18 +22,14 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan_v2/frontend/egraph_converter.hpp"
 #include "query/query_user.hpp"
 #include "query/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
 #ifdef MG_ENTERPRISE
 #include "license/license.hpp"
 #endif
-
-namespace memgraph::metrics {
-extern const Event TriggersExecuted;
-}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 namespace {
@@ -206,11 +202,13 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
     std::ranges::transform(
         identifiers, std::back_inserter(predefined_identifiers), [](auto &identifier) { return &identifier.first; });
 
+    plan::v2::QueryPlannerContext planner_context;
     auto logical_plan = MakeLogicalPlan(std::move(ast_storage),
                                         utils::Downcast<CypherQuery>(parsed_statements_.query),
                                         parsed_statements_.parameters,
                                         db_accessor,
-                                        predefined_identifiers);
+                                        predefined_identifiers,
+                                        planner_context);
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
@@ -265,26 +263,25 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.evaluation_context.memory = execution_memory;
   ctx.protector = dbms::DatabaseProtector{db_acc}.clone();
   ctx.is_main = is_main;
+  ctx.metric_handles = db_acc->metric_handles();
   // used for authorization checks
   ctx.user_or_role = privilege_context_ == TriggerPrivilegeContext::DEFINER ? creator_ : triggering_user;
   // used for username() and roles() functions
   ctx.triggering_user = triggering_user;
 
 #ifdef MG_ENTERPRISE
+  std::unique_ptr<FineGrainedAuthChecker> fine_grained_checker;
   if (license::global_license_checker.IsEnterpriseValidFast() && auth_checker && ctx.user_or_role &&
       *ctx.user_or_role && dba) {
-    auto fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(*ctx.user_or_role, dba);
+    fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(*ctx.user_or_role, dba);
     DMG_ASSERT(fine_grained_checker, "Auth checker should not be null");
-    // if the user has unrestricted access to all labels and edge types, we don't need to perform authorization
-    // otherwise, we do assign the auth checker to check for label access control
-    if (!fine_grained_checker->HasUnrestrictedAccessToVertices() ||
-        !fine_grained_checker->HasUnrestrictedAccessToEdges()) {
-      ctx.auth_checker = std::move(fine_grained_checker);
+    if (fine_grained_checker->NeedsFineGrainedAuthChecker()) {
+      ctx.auth_checker = fine_grained_checker.get();
     }
   }
 #endif
 
-  auto cursor = plan.plan().MakeCursor(execution_memory);
+  auto cursor = plan.plan().MakeCursor(execution_memory, *db_acc->metric_handles());
   Frame frame{plan.symbol_table().max_position(), execution_memory};
   auto frame_writer = frame.GetFrameWriter(ctx.frame_change_collector, execution_memory);
   for (const auto &[identifier, tag] : identifiers) {
@@ -298,7 +295,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   while (cursor->Pull(frame, ctx));
 
   cursor->Shutdown();
-  memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);
+  if (auto *mh = db_acc->metric_handles()) mh->triggers_executed.Increment();
 }
 
 namespace {

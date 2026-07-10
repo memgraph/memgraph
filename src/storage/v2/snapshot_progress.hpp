@@ -14,6 +14,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <string_view>
 
 namespace memgraph::storage {
 
@@ -55,7 +56,7 @@ struct SnapshotProgress {
     start_steady_ms.store(0, std::memory_order_release);
   }
 
-  static const char *PhaseToString(Phase phase);
+  static std::string_view PhaseToString(Phase phase);
 };
 
 struct SnapshotProgressView {

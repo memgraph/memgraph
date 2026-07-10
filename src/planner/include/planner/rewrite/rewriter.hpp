@@ -317,7 +317,7 @@ class Rewriter {
   EGraph<Symbol, Analysis> *egraph_;
   RuleSet<Symbol, Analysis> rules_;  ///< Shared rules (cheap to copy)
   MatcherIndex<Symbol, Analysis> matcher_;
-  vm::VMExecutor<Symbol, Analysis> vm_executor_;  ///< VM pattern matcher
+  pattern::vm::VMExecutor<Symbol, Analysis> vm_executor_;  ///< VM pattern matcher
   ProcessingContext<Symbol> proc_ctx_;
   RewriteContext<Symbol, Analysis> ctx_;
 };

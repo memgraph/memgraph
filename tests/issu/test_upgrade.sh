@@ -130,6 +130,11 @@ version_gte() {
   ! version_lt "$a" "$b"
 }
 
+# return 0 if $1 > $2
+version_gt() {
+  version_lt "$2" "$1"
+}
+
 HA_39_MIGRATION_CUTOFF_VERSION="3.9.0"
 
 requires_ha_39_migration() {
@@ -182,6 +187,31 @@ behavior_for_tag() {
   else
     echo "auth_pre_upgrade.cypherl"   # 3.7.0 or later
   fi
+}
+
+# --- OpenMetrics support detection ---
+# Memgraph gained the --metrics-format flag / OpenMetrics endpoint in #3911.
+OPENMETRICS_CUTOFF_COMMIT="dbf744fd9b107a8e2ea24f8e1d46166b7f1bb2ff"
+OPENMETRICS_CUTOFF_VERSION="3.11.0"
+
+# return 0 if the Memgraph identified by $1 (tag/commit) supports --metrics-format=OpenMetrics
+supports_openmetrics() {
+  local tag="$1"
+  local tag_commit
+  tag_commit="$(extract_commit_from_tag "$tag")"
+  if [[ -n "$tag_commit" ]]; then
+    # tag carries a commit: does it contain the OpenMetrics commit? Guard with an
+    # `if` so a non-zero/128 exit (commit not in a shallow checkout, etc.) doesn't
+    # trip `set -e`; an unknown commit is treated as "not supported".
+    if git merge-base --is-ancestor "$OPENMETRICS_CUTOFF_COMMIT" "$tag_commit" 2>/dev/null; then
+      return 0
+    fi
+    return 1
+  fi
+  # otherwise fall back to a version compare
+  local v
+  v="$(extract_version_from_tag "$tag")"
+  [[ -n "$v" ]] && version_gte "$v" "$OPENMETRICS_CUTOFF_VERSION"
 }
 
 auth_pre_upgrade_file=$(behavior_for_tag "$LAST_TAG")
@@ -566,11 +596,134 @@ echo -e "${YELLOW} Creating secret with license details"
 kubectl create secret generic memgraph-secrets --from-literal=MEMGRAPH_ENTERPRISE_LICENSE=${ENTERPRISE_LICENSE} --from-literal=MEMGRAPH_ORGANIZATION_NAME=${ORGANIZATION_NAME}
 
 # --- Helm chart prep ---
-helm repo add memgraph https://memgraph.github.io/helm-charts
+# By default install the published chart pinned to a specific version. Optionally,
+# set HELM_CHARTS_BRANCH to install the HA chart from a branch of the helm-charts
+# repo instead (cloned locally; no --version pin).
+HELM_CHARTS_BRANCH="${HELM_CHARTS_BRANCH:-}"
+HELM_CHARTS_REPO_URL="${HELM_CHARTS_REPO_URL:-https://github.com/memgraph/helm-charts}"
+# TODO(matt): bump CHART_VERSION to the published chart release that includes
+# scrapeMemgraphDirectly (chart > 1.1.0) so the default path uses direct OpenMetrics
+# scraping instead of falling back to the mg-exporter.
+CHART_VERSION="${CHART_VERSION:-1.0.1}"
+
+if [[ -n "$HELM_CHARTS_BRANCH" ]]; then
+  echo -e "${GREEN}Using helm-charts branch '${HELM_CHARTS_BRANCH}' from ${HELM_CHARTS_REPO_URL}${NC}"
+  rm -rf helm-charts
+  git clone --depth 1 --branch "$HELM_CHARTS_BRANCH" "$HELM_CHARTS_REPO_URL" helm-charts
+  HA_CHART="helm-charts/charts/memgraph-high-availability"
+  CHART_VERSION_ARGS=()
+  # A branch is assumed to support direct OpenMetrics scraping (it's where the feature lives).
+  CHART_SUPPORTS_DIRECT_SCRAPE=true
+else
+  helm repo add memgraph https://memgraph.github.io/helm-charts >/dev/null 2>&1 || true
+  helm repo update memgraph
+  HA_CHART="memgraph/memgraph-high-availability"
+  CHART_VERSION_ARGS=(--version "$CHART_VERSION")
+  # The published chart only exposes scrapeMemgraphDirectly after 1.1.0.
+  if version_gt "$CHART_VERSION" "1.1.0"; then
+    CHART_SUPPORTS_DIRECT_SCRAPE=true
+  else
+    CHART_SUPPORTS_DIRECT_SCRAPE=false
+  fi
+fi
+
+MEMGRAPH_NAMESPACE="${MEMGRAPH_NAMESPACE:-default}"
+MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
+MONITORING_AUTH_SECRET_NAME="${MONITORING_AUTH_SECRET_NAME:-monitoring-basic-auth}"
+MONITORING_REMOTE_WRITE_PORT="${MONITORING_REMOTE_WRITE_PORT:-30091}"
+MONITORING_LOGS_PORT="${MONITORING_LOGS_PORT:-30454}"
+MONITORING_SCHEME="${MONITORING_SCHEME:-http}"
+MONITORING_REMOTE_WRITE_PATH="${MONITORING_REMOTE_WRITE_PATH:-/insert/0/prometheus/api/v1/write}"
+MONITORING_LOGS_PATH="${MONITORING_LOGS_PATH:-/insert}"
+VECTOR_WEBSOCKET_PORT="${VECTOR_WEBSOCKET_PORT:-7444}"
+SERVICE_NAME="${SERVICE_NAME:-memgraph-ha-issu}"
+
+
+REMOTE_MONITORING_ENABLED=false
+if [[ -n "${MONITORING_HOST:-}" && -n "${MONITORING_USERNAME:-}" && -n "${MONITORING_PASSWORD:-}" ]]; then
+  REMOTE_MONITORING_ENABLED=true
+fi
+
+helm_install_args=(
+  install "$RELEASE"
+  "$HA_CHART"
+  "${CHART_VERSION_ARGS[@]}"
+  -f old_values.yaml
+  --timeout 120s
+  --wait
+  --debug
+)
+
+if [[ "${REMOTE_MONITORING_ENABLED}" == "true" ]]; then
+  REMOTE_WRITE_URL="${MONITORING_SCHEME}://${MONITORING_HOST}:${MONITORING_REMOTE_WRITE_PORT}${MONITORING_REMOTE_WRITE_PATH}"
+  LOGS_ENDPOINT="${MONITORING_SCHEME}://${MONITORING_HOST}:${MONITORING_LOGS_PORT}${MONITORING_LOGS_PATH}"
+  echo -e "${GREEN}Remote monitoring enabled (host: ${MONITORING_HOST})${NC}"
+
+  kubectl create namespace "${MONITORING_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create secret generic "${MONITORING_AUTH_SECRET_NAME}" \
+    -n "${MONITORING_NAMESPACE}" \
+    --from-literal=username="${MONITORING_USERNAME}" \
+    --from-literal=password="${MONITORING_PASSWORD}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create secret generic "${MONITORING_AUTH_SECRET_NAME}" \
+    -n "${MEMGRAPH_NAMESPACE}" \
+    --from-literal=username="${MONITORING_USERNAME}" \
+    --from-literal=password="${MONITORING_PASSWORD}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  # Scrape Memgraph's OpenMetrics endpoint directly only when both the chart and the
+  # starting Memgraph version support it; the chart then appends
+  # --metrics-format=OpenMetrics to each instance. Otherwise fall back to the
+  # mg-exporter (Prometheus) path, which reads Memgraph's legacy JSON metrics and
+  # works with older Memgraph versions.
+  if [[ "$CHART_SUPPORTS_DIRECT_SCRAPE" == "true" ]] && supports_openmetrics "$LAST_TAG"; then
+    echo -e "${GREEN}Monitoring: scraping Memgraph OpenMetrics directly (chart supports it; start tag ${LAST_TAG} supports --metrics-format).${NC}"
+    helm_install_args+=(
+      --set prometheus.enabled=false
+      --set scrapeMemgraphDirectly=true
+    )
+  else
+    echo -e "${YELLOW}Monitoring: using mg-exporter (Prometheus) path — OpenMetrics unavailable (chart_supports=${CHART_SUPPORTS_DIRECT_SCRAPE}, start tag ${LAST_TAG}).${NC}"
+    helm_install_args+=(
+      --set prometheus.enabled=true
+      --set "prometheus.namespace=${MONITORING_NAMESPACE}"
+      --set prometheus.serviceMonitor.enabled=false
+    )
+  fi
+  helm_install_args+=(
+    --set vmagentRemote.enabled=true
+    --set "vmagentRemote.namespace=${MONITORING_NAMESPACE}"
+    --set "vmagentRemote.remoteWrite.url=${REMOTE_WRITE_URL}"
+    --set "vmagentRemote.remoteWrite.basicAuth.secretName=${MONITORING_AUTH_SECRET_NAME}"
+    --set vectorRemote.enabled=true
+    --set vectorRemote.data=true
+    --set vectorRemote.coordinators=true
+    --set "vectorRemote.websocketPort=${VECTOR_WEBSOCKET_PORT}"
+    --set "vectorRemote.logsEndpoint=${LOGS_ENDPOINT}"
+    --set "vectorRemote.auth.secretName=${MONITORING_AUTH_SECRET_NAME}"
+    --set "vmagentRemote.externalLabels.service_name=${SERVICE_NAME}"
+    --set "vectorRemote.extraLabels.service_name=${SERVICE_NAME}"
+  )
+
+  if [[ -n "${CLUSTER_ID:-}" ]]; then
+    helm_install_args+=(
+      --set "vmagentRemote.externalLabels.cluster_id=${CLUSTER_ID}"
+      --set "vectorRemote.extraLabels.cluster_id=${CLUSTER_ID}"
+    )
+  fi
+  if [[ -n "${CLUSTER_ENV:-}" ]]; then
+    helm_install_args+=(
+      --set "vmagentRemote.externalLabels.cluster_env=${CLUSTER_ENV}"
+      --set "vectorRemote.extraLabels.cluster_env=${CLUSTER_ENV}"
+    )
+  fi
+else
+  echo -e "${YELLOW}Remote monitoring disabled (missing MONITORING_HOST / MONITORING_USERNAME / MONITORING_PASSWORD).${NC}"
+fi
 
 # --- Helm install ---
 echo -e "${GREEN}Installing Helm chart...${NC}"
-helm install "$RELEASE" memgraph/memgraph-high-availability --version 1.0.1 -f old_values.yaml --timeout 120s --wait --debug | grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"
+helm "${helm_install_args[@]}" | grep -E "(Happy\ Helming|NAME\: |LAST DEPLOYED\: |NAMESPACE\: |STATUS\: |REVISION\: | TEST SUITE\: )"
 
 # --- Wait & verify resources ---
 echo -e "${GREEN}Waiting for resources to be created...${NC}"
@@ -697,7 +850,7 @@ kubectl exec memgraph-data-0-0 -- bash -c "mgconsole < /var/lib/memgraph/pre_upg
 echo "Run test queries on old version"
 
 # --- Upgrade chart values ---
-helm upgrade "$RELEASE" memgraph/memgraph-high-availability --version 1.0.1 -f new_values.yaml
+helm upgrade "$RELEASE" "$HA_CHART" "${CHART_VERSION_ARGS[@]}" -f new_values.yaml
 echo "Updated versions"
 
 
@@ -708,6 +861,21 @@ echo "Deleting pod memgraph-data-1-0 which serves as replica"
 kubectl delete pod memgraph-data-1-0
 wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-data-1-0 passed successfully"
+
+echo "Waiting for old MAIN to sync auth to upgraded replica..."
+kubectl cp verify_fga_post_upgrade.sh memgraph-data-1-0:/var/lib/memgraph/verify_fga_post_upgrade.sh
+for i in $(seq 1 30); do
+  if kubectl exec memgraph-data-1-0 -- bash /var/lib/memgraph/verify_fga_post_upgrade.sh --username=system_admin_user --password=admin_password 2>&1; then
+    echo "FGA synced to replica after ${i} attempt(s)"
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "FAIL: FGA did not sync to replica after 30 attempts"
+    exit 1
+  fi
+  echo "Auth not yet synced (attempt $i/30), retrying in 2s..."
+  sleep 2
+done
 
 echo "Deleting pod memgraph-data-0-0 which serves as main"
 kubectl scale statefulset memgraph-data-0 --replicas=0
@@ -789,16 +957,25 @@ run_coordinator_query_with_retry 'SHOW INSTANCES;'
 # --- Post-upgrade verification ---
 POST_UPGRADE_TARGET_POD="$(resolve_main_data_pod)"
 echo -e "${GREEN}Running post-upgrade tests on main data pod: ${POST_UPGRADE_TARGET_POD}${NC}"
-kubectl cp post_upgrade_mg.cypherl  "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_mg.cypherl"
-kubectl cp post_upgrade_db1.cypherl "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_db1.cypherl"
+kubectl cp post_upgrade_mg.cypherl       "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_mg.cypherl"
+kubectl cp post_upgrade_hot_cold.cypherl "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_hot_cold.cypherl"
+kubectl cp post_upgrade_db1.cypherl      "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_db1.cypherl"
 echo "Running post-upgrade tests on database 'memgraph'"
 kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_mg.cypherl  --username=system_admin_user --password=admin_password"
+# Hot/cold: SUSPEND -> RESUME the migrated tenant db1 BEFORE the db1 data check below,
+# so that check verifies the tenant survived the cold round trip on the upgraded binary.
+echo "Running post-upgrade hot/cold suspend/resume on database 'db1'"
+kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_hot_cold.cypherl --username=system_admin_user --password=admin_password"
 echo "Running post-upgrade tests on database 'db1'"
 kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_db1.cypherl --username=tenant1_admin_user --password=t1_admin_pass"
 
 echo "Running auth post-upgrade tests"
 kubectl cp auth_post_upgrade.cypherl "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/auth_post_upgrade.cypherl"
 kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/auth_post_upgrade.cypherl --username=system_admin_user --password=admin_password"
+
+echo "Verifying FGA grants survived rolling upgrade"
+kubectl cp verify_fga_post_upgrade.sh "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/verify_fga_post_upgrade.sh"
+kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash /var/lib/memgraph/verify_fga_post_upgrade.sh --username=system_admin_user --password=admin_password
 
 # --- Optional routing tests ---
 if [[ "$TEST_ROUTING" == "true" ]]; then

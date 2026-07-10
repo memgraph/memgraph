@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
@@ -20,23 +21,26 @@ namespace memgraph::dbms {
 inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     storage::Config config,
     storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>(),
+    metrics::DatabaseMetricHandles metric_handles = {},
     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
     memgraph::memory::ArenaPool *db_arena = nullptr, utils::MemoryTracker *db_embedding_memory_tracker = nullptr) {
   // Use default safe factory from Storage constructor for basic usage
   auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config),
                                                             std::nullopt,
                                                             std::move(invalidator),
+                                                            std::move(metric_handles),
                                                             std::move(database_protector_factory),
                                                             db_arena,
                                                             db_embedding_memory_tracker);
-  storage->CreateSnapshotHandler(
-      [storage = storage.get()]() -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
-        auto result = storage->CreateSnapshot();
-        if (!result) {
-          return std::unexpected(result.error());
-        }
-        return {};
-      });
+
+  storage->CreateSnapshotHandler([storage = storage.get()](std::string_view trigger)
+                                     -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
+    auto result = storage->CreateSnapshot(false, trigger);
+    if (!result) {
+      return std::unexpected(result.error());
+    }
+    return {};
+  });
   return storage;
 }
 

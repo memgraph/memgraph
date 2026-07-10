@@ -576,7 +576,7 @@ class FuzzerState {
     // sort applied to var_ids.  Lexicographic sort would mis-order IDs >= 10
     // (e.g. "?v10" < "?v2" lexicographically but 10 > 2 numerically), making
     // the column order in egglog's MatchResult inconsistent with the tuple order
-    // collected by MatcherIndex/VM — which would break any future tuple-level comparison.
+    // collected by MatcherIndex/VM, which would break any future tuple-level comparison.
     std::vector<std::string> v_vars(current_all_vars_.begin(), current_all_vars_.end());
     std::ranges::sort(v_vars, std::less{}, parse_var_id);
 

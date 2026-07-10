@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
       auto now = std::chrono::steady_clock::now();
       while (now - start < TIMEOUT) {
         auto client = mg::e2e::replication::Connect(database_endpoint);
-        client->Execute("SHOW STORAGE INFO;");
+        client->Execute("SHOW STORAGE INFO ON CURRENT DATABASE;");
         auto maybe_rows = client->FetchAll();
         if (!maybe_rows) {
           LOG_FATAL("Failed to fetch storage info from {}", database_endpoint.SocketAddress());

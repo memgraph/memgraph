@@ -76,12 +76,12 @@ void VerifyBytecode(std::span<Instruction const> code, std::span<Symbol const> s
 }
 
 // ============================================================================
-// GTestReporter — adapts validator Reporter concept to gtest
+// GTestReporter - adapts validator Reporter concept to gtest
 // ============================================================================
 
 /// Reporter that delegates to gtest EXPECT_* macros.
-/// Messages are formatted lazily — fmt::format is only called on failure (gtest
-/// short-circuits the << stream when the assertion passes).
+/// Messages are formatted lazily; fmt::format is only called on failure
+/// because gtest short-circuits the << stream when the assertion passes.
 /// assert_* methods return false on failure so validators can early-return.
 class GTestReporter {
  public:
@@ -123,28 +123,25 @@ class GTestReporter {
 
   template <typename A, typename B, typename... Args>
   auto assert_lt(A const &a, B const &b, fmt::format_string<Args...> fmt, Args &&...args) -> bool {
-    bool ok = a < b;
     EXPECT_LT(a, b) << fmt::format(fmt, std::forward<Args>(args)...);
-    return ok;
+    return a < b;
   }
 
   template <typename A, typename B, typename... Args>
   auto assert_gt(A const &a, B const &b, fmt::format_string<Args...> fmt, Args &&...args) -> bool {
-    bool ok = a > b;
     EXPECT_GT(a, b) << fmt::format(fmt, std::forward<Args>(args)...);
-    return ok;
+    return a > b;
   }
 
   template <typename A, typename B, typename... Args>
   auto assert_eq(A const &a, B const &b, fmt::format_string<Args...> fmt, Args &&...args) -> bool {
-    bool ok = a == b;
     EXPECT_EQ(a, b) << fmt::format(fmt, std::forward<Args>(args)...);
-    return ok;
+    return a == b;
   }
 };
 
 // ============================================================================
-// ExpectValidBytecode — gtest entry points
+// ExpectValidBytecode - gtest entry points
 // ============================================================================
 
 /// Run all structural invariant checks on a compiled pattern.

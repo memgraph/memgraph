@@ -1,3 +1,10 @@
 #!/usr/bin/make -f
 %:
 	dh $@
+
+# Disable dh_dwz. Our binaries are already split into stripped .so + sidecar
+# .so.<N>.debug via objcopy --only-keep-debug --compress-debug-sections=zlib.
+# dwz can't recompress the .debug files (compressed sections are off-limits)
+# and the stripped .so files have no .debug_info to optimise, so dh_dwz reports
+# "Too few files for multifile optimization" and fails the build.
+override_dh_dwz:

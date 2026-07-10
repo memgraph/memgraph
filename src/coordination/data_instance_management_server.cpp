@@ -13,8 +13,6 @@
 
 #include "coordination/data_instance_management_server.hpp"
 
-namespace memgraph::coordination {
-
 namespace {
 
 // NOTE: The coordinator server doesn't more than 1 processing thread - each replica can
@@ -24,8 +22,11 @@ constexpr auto kDataInstanceManagementServerThreads = 1;
 
 }  // namespace
 
-DataInstanceManagementServer::DataInstanceManagementServer(const ManagementServerConfig &config)
-    : rpc_server_context_{communication::ServerContext{}},
+namespace memgraph::coordination {
+
+DataInstanceManagementServer::DataInstanceManagementServer(const ManagementServerConfig &config,
+                                                           std::optional<utils::TlsConfig> const &tls_config)
+    : rpc_server_context_{communication::CreateServerContext(tls_config)},
       rpc_server_{config.endpoint, &rpc_server_context_, kDataInstanceManagementServerThreads} {}
 
 DataInstanceManagementServer::~DataInstanceManagementServer() { Shutdown(); }

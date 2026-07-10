@@ -56,11 +56,11 @@ DEFINE_VALIDATED_string(password_encryption_algorithm, "bcrypt",
                             const auto error = result.error();
                             switch (error) {
                               case memgraph::utils::ValidationError::EmptyValue: {
-                                std::cout << "Password encryption algorithm cannot be empty." << std::endl;
+                                std::cerr << "Password encryption algorithm cannot be empty." << std::endl;
                                 break;
                               }
                               case memgraph::utils::ValidationError::InvalidValue: {
-                                std::cout << "Invalid value for password encryption algorithm. Allowed values: "
+                                std::cerr << "Invalid value for password encryption algorithm. Allowed values: "
                                           << memgraph::utils::GetAllowedEnumValuesString(password_hash_mappings)
                                           << std::endl;
                                 break;

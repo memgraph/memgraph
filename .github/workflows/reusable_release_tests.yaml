@@ -50,6 +50,12 @@ env:
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
   CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
   CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-release-tests"
+
 
 jobs:
   community_build:
@@ -64,6 +70,12 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -83,6 +95,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build community binary
         run: |
@@ -116,6 +136,19 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
 
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -146,6 +179,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -165,6 +204,14 @@ jobs:
           --arch $ARCH \
           --no-ccache \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build coverage binaries
         run: |
@@ -214,6 +261,19 @@ jobs:
           name: "Code coverage(Coverage build)-${{ env.OS }}"
           path: tools/github/generated/code_coverage.tar.gz
 
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -245,6 +305,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -263,6 +329,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build debug binary
         run: |
@@ -307,6 +381,10 @@ jobs:
           --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph drivers
 
       - name: Run HA driver tests
@@ -318,6 +396,10 @@ jobs:
           --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph drivers-high-availability
 
       - name: Run cppcheck and clang-format
@@ -329,6 +411,10 @@ jobs:
           --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph cppcheck-and-clang-format
 
       - name: Save cppcheck and clang-format errors
@@ -336,6 +422,19 @@ jobs:
         with:
           name: "Code coverage(Debug build)-${{ env.OS }}"
           path: tools/github/cppcheck_and_clang_format.txt
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()
@@ -367,6 +466,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -385,6 +490,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build debug binary
         run: |
@@ -418,7 +531,24 @@ jobs:
           --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph integration
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()
@@ -449,6 +579,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -467,6 +603,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build release binaries
         run: |
@@ -497,6 +641,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph gql-behave
 
 
@@ -533,6 +681,19 @@ jobs:
           name: "${{ env.OS}}-enterprise-malloc"
           path: build/output/${{ env.OS }}/memgraph*.deb
 
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -560,6 +721,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -578,6 +745,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build release binaries
         run: |
@@ -608,6 +783,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph gql-behave
 
       - name: Save quality assurance status
@@ -651,6 +830,19 @@ jobs:
           name: "${{ env.OS}}-enterprise"
           path: build/output/${{ env.OS }}/memgraph*.deb
 
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -679,6 +871,12 @@ jobs:
           fetch-depth: 0
           ref:  ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -697,6 +895,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build release binaries
         run: |
@@ -758,6 +964,19 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph macro-benchmark-parallel
 
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -786,6 +1005,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -804,6 +1029,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build release binaries
         run: |
@@ -849,6 +1082,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph e2e
 
       - name: Ensure localstack is down
@@ -864,6 +1101,19 @@ jobs:
           docker compose down
           cd ../pulsar
           docker compose down
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()
@@ -893,6 +1143,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -911,6 +1167,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build release binaries
         run: |
@@ -941,6 +1205,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph stress-plain
 
       - name: Run stress test (SSL)
@@ -951,6 +1219,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph stress-ssl
 
       - name: Run durability test (plain)
@@ -961,6 +1233,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph durability
 
       - name: Run durability test (large)
@@ -971,6 +1247,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph durability-large
 
       - name: Copy stress and durability test logs
@@ -989,6 +1269,19 @@ jobs:
         with:
           name: "Stress and Durability Test Logs-${{ env.OS }}"
           path: build/stress/logs
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()
@@ -1018,6 +1311,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -1039,6 +1338,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build release binaries
         run: |
@@ -1066,6 +1373,7 @@ jobs:
           cd tests/jepsen
           ./run.sh unit-tests --binary ../../build/memgraph
 
+
       - name: Run replication bank test
         run: |
           cd tests/jepsen
@@ -1074,7 +1382,9 @@ jobs:
           --run-args "--workload bank --nodes-config resources/replication-config.edn --time-limit 120 --concurrency 5" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
-          --nodes-no 5
+          --nodes-no 5 \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME
 
       - name: Run replication large test
         run: |
@@ -1084,7 +1394,23 @@ jobs:
           --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 60 --concurrency 5" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
-          --nodes-no 5
+          --nodes-no 5 \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME
+
+      - name: Start Jepsen monitoring (habank)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          JEPSEN_NODE_COUNT=6 \
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-habank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="${{ github.run_id }}-${{ github.job }}" \
+          CLUSTER_ENV="ci-release-tests" \
+          SERVICE_NAME="jepsen-habank" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
 
       - name: Run HA bank test
         run: |
@@ -1098,12 +1424,34 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME
 
+      - name: Stop Jepsen monitoring (habank)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-habank" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
+
       - name: Process Jepsen results
         continue-on-error: true
         if: always()
         run: |
           cd tests/jepsen
           ./run.sh process-results
+
+      - name: Analyze Jepsen core dumps
+        if: always()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect_jepsen_cores.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Save Jepsen report
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
@@ -1140,6 +1488,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -1158,6 +1512,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build release binaries
         run: |
@@ -1188,6 +1550,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph stress-large
 
       - name: Copy stress test logs
@@ -1206,6 +1572,19 @@ jobs:
         with:
           name: "Stress Test Large Logs-${{ env.OS }}"
           path: build/stress/logs
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()
@@ -1235,6 +1614,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -1253,6 +1638,14 @@ jobs:
           --os $OS \
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
 
       - name: Build release binaries
         run: |
@@ -1291,6 +1684,19 @@ jobs:
             --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
             --organization-name $MEMGRAPH_ORGANIZATION_NAME \
             test-memgraph query_modules_e2e
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()

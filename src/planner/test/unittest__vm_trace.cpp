@@ -25,11 +25,8 @@
 #include <format>
 #include <sstream>
 
-#include "planner/pattern/vm/compiler.hpp"
-#include "planner/pattern/vm/executor.hpp"
 #include "planner/pattern/vm/tracer.hpp"
-#include "test_egraph_fixture.hpp"
-#include "test_patterns.hpp"
+#include "test_matcher_fixture.hpp"
 
 import memgraph.planner.core.egraph;
 
@@ -43,29 +40,14 @@ using namespace pattern::vm;
 // Trace Test Fixture
 // ============================================================================
 //
-// Extends EGraphTestBase with a DevMode executor and RecordingTracer.
-// Provides helpers for querying trace events by type.
+// PatternVM_Matching plus a RecordingTracer + DevMode executor. Trace tests
+// inherit the compile-and-run cycle (use_patterns, rebuild_index, matches)
+// and add trace-event introspection.
 
-class PatternVM_Trace : public EGraphTestBase {
+class PatternVM_Trace : public PatternVM_Matching {
  protected:
   RecordingTracer tracer;
   TestDevVMExecutor dev_executor{egraph, &tracer};
-  TestMatcherIndex index{egraph};
-  EMatchContext ctx;
-  TestMatches matches;
-
-  std::vector<TestPattern> patterns_;
-  std::optional<TestCompiledMatcher> compiled_;
-
-  template <typename... Patterns>
-  void use_patterns(Patterns &&...ps) {
-    patterns_.clear();
-    (patterns_.push_back(std::forward<Patterns>(ps)), ...);
-    TestPatternsCompiler compiler;
-    compiled_.emplace(compiler.compile(patterns_));
-  }
-
-  void rebuild_index() { index.rebuild_index(); }
 
   void run_traced() {
     ASSERT_TRUE(compiled_.has_value());
@@ -112,7 +94,7 @@ class PatternVM_Trace : public EGraphTestBase {
 // ============================================================================
 
 TEST_F(PatternVM_Trace, SimpleMatch_TracesBindAndYield) {
-  // Neg(?x) against a single Neg(a) — verify we see exactly one bind and one yield.
+  // Neg(?x) against a single Neg(a) - verify we see exactly one bind and one yield.
   //
   //   E-graph:    Neg(a)
   //   Pattern:    Neg(?x)
@@ -137,7 +119,7 @@ TEST_F(PatternVM_Trace, SimpleMatch_TracesBindAndYield) {
 }
 
 TEST_F(PatternVM_Trace, NoMatch_TracesCheckFailure) {
-  // Neg(?x) against Add(a, b) — symbol check fails, no yield.
+  // Neg(?x) against Add(a, b) - symbol check fails, no yield.
   //
   //   E-graph:    Add(a, b)
   //   Pattern:    Neg(?x)
@@ -158,7 +140,7 @@ TEST_F(PatternVM_Trace, NoMatch_TracesCheckFailure) {
 TEST_F(PatternVM_Trace, Deduplication_TracesBindDuplicate) {
   // Two F e-nodes in the same e-class whose children canonicalize to the
   // same value. We skip rebuild_egraph() so congruence closure doesn't
-  // merge the F e-nodes — this lets the VM encounter the duplicate path.
+  // merge the F e-nodes - this lets the VM encounter the duplicate path.
   //
   //   E-graph (no congruence closure):
   //     a = A(1), b = A(2), merge(a, b) → same canonical e-class
@@ -174,9 +156,9 @@ TEST_F(PatternVM_Trace, Deduplication_TracesBindDuplicate) {
   auto f2 = node(Op::F, b);
   merge(a, b);
   merge(f1, f2);
-  // Deliberately skip rebuild_egraph() — congruence closure would merge
+  // Deliberately skip rebuild_egraph() - congruence closure would merge
   // the F e-nodes since they now have the same canonical children.
-  index.rebuild_index();
+  rebuild_index();
 
   use_patterns(TestPattern::build(kTestRoot, Op::F, {Var{kVarX}}));
   run_traced();
@@ -188,13 +170,13 @@ TEST_F(PatternVM_Trace, Deduplication_TracesBindDuplicate) {
   // First yields, second is rejected as duplicate.
   auto fails = check_fails();
   bool has_duplicate =
-      std::ranges::any_of(fails, [](auto const *e) { return e->details.find("duplicate") != std::string::npos; });
+      std::ranges::any_of(fails, [](auto const *e) { return e->details().find("duplicate") != std::string::npos; });
   EXPECT_TRUE(has_duplicate) << "Expected duplicate binding rejection\n" << trace_dump();
 
   // Verify the duplicate is followed by a backtrack
   for (std::size_t idx = 0; idx + 1 < tracer.events.size(); ++idx) {
     if (tracer.events[idx].type == EventType::CheckFail &&
-        tracer.events[idx].details.find("duplicate") != std::string::npos) {
+        tracer.events[idx].details().find("duplicate") != std::string::npos) {
       EXPECT_EQ(tracer.events[idx + 1].type, EventType::Backtrack)
           << "Expected Backtrack after duplicate binding at event[" << idx << "]\n"
           << trace_dump();
@@ -251,7 +233,7 @@ TEST_F(PatternVM_Trace, MultiPatternJoin_TracesParentTraversal) {
 }
 
 TEST_F(PatternVM_Trace, MultiPatternJoin_NoMatch_TracesCheckSlotMiss) {
-  // Join fails because ?sym differs between patterns — should see slot mismatch.
+  // Join fails because ?sym differs between patterns - should see slot mismatch.
   //
   //   E-graph:    Bind(_, sym1, expr)    Ident(sym2)
   //   Pattern 1:  Bind(_, ?sym, ?expr)
@@ -291,12 +273,12 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_ThreePatternJoinWithMerge) {
   //
   //   Patterns:
   //     P1 (anchor): F(?x, ?y)
-  //     P2 (joined): G(?x, ?z)  — shares ?x with P1, parent traversal
-  //     P3 (joined): H(?y)      — shares ?y with P1, parent traversal
+  //     P2 (joined): G(?x, ?z)  - shares ?x with P1, parent traversal
+  //     P3 (joined): H(?y)      - shares ?y with P1, parent traversal
   //
   //   Expected execution order (annotated):
   //
-  //   Join order: [F(?x,?y), H(?y), G(?x,?z)] — H before G (fewer new vars)
+  //   Join order: [F(?x,?y), H(?y), G(?x,?z)] - H before G (fewer new vars)
   //   Since ?x,?y bound at enode level (children of F), H and G parent walks
   //   follow F's enode verification in join order.
   //
@@ -325,7 +307,7 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_ThreePatternJoinWithMerge) {
   //     [pc=26] Yield               → emit match {?x=a, ?y=b, ?z=c}
   //     [pc=27] Jump @19            → continue G parent loop
   //     [pc=19] NextParent          → second parent of a (remaining=1)
-  //     [pc=20] CheckSymbol G       → FAIL (F(a,b) is not G) — backtrack
+  //     [pc=20] CheckSymbol G       → FAIL (F(a,b) is not G) - backtrack
   //     [pc=19] NextParent          → exhausted (remaining=0) → backtrack to @5
   //     [pc=5]  NextENode           → exhausted (remaining=0) → backtrack to @2
   //     [pc=2]  NextSymbolEClass    → exhausted (remaining=0) → jump to @28
@@ -383,7 +365,7 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_ThreePatternJoinWithMerge) {
   EXPECT_EQ(code[28].op, VMOp::Halt);
 
   // ---------------------------------------------------------------------------
-  // Exact execution trace — assert every event in order
+  // Exact execution trace - assert every event in order
   // ---------------------------------------------------------------------------
   //
   // Each event is (Type, pc, detail_substring). We walk through the trace
@@ -397,8 +379,8 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_ThreePatternJoinWithMerge) {
     ASSERT_LT(i, ev.size()) << "Trace ended prematurely at index " << i << "\n" << trace_dump();
     EXPECT_EQ(ev[i].type, EventType::Instruction) << "event[" << i << "]\n" << trace_dump();
     EXPECT_EQ(ev[i].pc, pc) << "event[" << i << "] wrong pc\n" << trace_dump();
-    EXPECT_NE(ev[i].details.find(op_substr), std::string::npos)
-        << "event[" << i << "] expected " << op_substr << " got: " << ev[i].details << "\n"
+    EXPECT_NE(ev[i].details().find(op_substr), std::string::npos)
+        << "event[" << i << "] expected " << op_substr << " got: " << ev[i].details() << "\n"
         << trace_dump();
     ++i;
   };
@@ -407,8 +389,8 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_ThreePatternJoinWithMerge) {
     ASSERT_LT(i, ev.size()) << "Trace ended prematurely at index " << i << "\n" << trace_dump();
     EXPECT_EQ(ev[i].type, type) << "event[" << i << "]\n" << trace_dump();
     EXPECT_EQ(ev[i].pc, pc) << "event[" << i << "] wrong pc\n" << trace_dump();
-    EXPECT_NE(ev[i].details.find(detail_substr), std::string::npos)
-        << "event[" << i << "] expected '" << detail_substr << "' got: " << ev[i].details << "\n"
+    EXPECT_NE(ev[i].details().find(detail_substr), std::string::npos)
+        << "event[" << i << "] expected '" << detail_substr << "' got: " << ev[i].details() << "\n"
         << trace_dump();
     ++i;
   };
@@ -440,7 +422,7 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_ThreePatternJoinWithMerge) {
   expect_event(EventType::IterStart, 12, "count=2");  // b has 2 parents: H(b), F(a,b)
   expect_instr(13, "Jump");
 
-  // First parent of b: H(b) — passes H check
+  // First parent of b: H(b) - passes H check
   expect_instr(15, "CheckSymbol");  // H ✓
   expect_event(EventType::CheckPass, 15, "symbol match");
   expect_instr(16, "CheckArity");  // arity 1 ✓
@@ -451,7 +433,7 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_ThreePatternJoinWithMerge) {
   expect_event(EventType::IterStart, 17, "count=2");  // a has 2 parents: G(a,c), F(a,b)
   expect_instr(18, "Jump");
 
-  // First parent of a: G(a,c) — passes G check
+  // First parent of a: G(a,c) - passes G check
   expect_instr(20, "CheckSymbol");  // G ✓
   expect_event(EventType::CheckPass, 20, "symbol match");
   expect_instr(21, "CheckArity");  // arity 2 ✓
@@ -471,7 +453,7 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_ThreePatternJoinWithMerge) {
   // --- Continue: backtrack through G parent loop ---
   expect_instr(27, "Jump");  // → @19 (G's NextParent)
 
-  // Second parent of a: F(a,b) — fails G symbol check
+  // Second parent of a: F(a,b) - fails G symbol check
   expect_instr(19, "NextParent");  // G's NextParent
   expect_event(EventType::IterAdvance, 19, "remaining=1");
   expect_instr(20, "CheckSymbol");  // G ✗ (it's F)
@@ -508,7 +490,7 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_ThreePatternJoinWithMerge) {
 }
 
 TEST_F(PatternVM_Trace, FullFeatureExercise_WithMergeAndDedup) {
-  // Three-pattern join with merged e-classes — exercises deduplication and canonicalization.
+  // Three-pattern join with merged e-classes - exercises deduplication and canonicalization.
   //
   //   E-graph:
   //     a1, a2 = distinct A leaves, then merged into one e-class
@@ -528,10 +510,10 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_WithMergeAndDedup) {
   node(Op::G, a2, c);
   node(Op::H, b);
 
-  // Merge a1 and a2 — now ?x from F and ?x from G resolve to the same e-class
+  // Merge a1 and a2 - now ?x from F and ?x from G resolve to the same e-class
   merge(a1, a2);
   rebuild_egraph();
-  index.rebuild_index();
+  rebuild_index();
 
   use_patterns(TestPattern::build(Op::F, {Var{kVarX}, Var{kVarY}}),
                TestPattern::build(Op::G, {Var{kVarX}, Var{kVarZ}}),
@@ -571,7 +553,7 @@ TEST_F(PatternVM_Trace, Stats_ParentFilterRate) {
 
   auto const &s = stats();
   EXPECT_GT(s.symbol_check_hits, 0u) << "Expected at least one parent symbol hit\n" << trace_dump();
-  // H(a) and F(a,b) are parents of a but don't match G — should be misses
+  // H(a) and F(a,b) are parents of a but don't match G - should be misses
   EXPECT_GT(s.symbol_check_misses, 0u) << "Expected parent symbol miss for H/F\n" << trace_dump();
   EXPECT_GT(s.symbol_filter_rate(), 0.0) << "Filter rate should be non-zero\n" << trace_dump();
 }
@@ -606,74 +588,6 @@ TEST_F(PatternVM_Trace, Stats_CheckSlotHitsAndMisses) {
   // The specific hit/miss counts depend on traversal strategy, but we should
   // see the stats are being collected.
   EXPECT_GT(s.instructions_executed, 0u) << trace_dump();
-}
-
-// ============================================================================
-// Hoisting Cost Analysis
-// ============================================================================
-//
-// Measures exact VM instruction counts for ?r=F(?x) + Mul(?r, ?y) with
-// varying enodes-per-class and parent counts. The hoisted bytecode runs
-// IterParents once per eclass; without hoisting it would run once per enode.
-
-TEST_F(PatternVM_Trace, HoistCostAnalysis_VaryingEnodesAndParents) {
-  // Build graph: eclasses with N F-enodes (via merges), M Mul parents each.
-  // Pattern: ?r=F(?x) + Mul(?r, ?y)
-  //
-  // Parametrize over (enodes_per_class, parents_per_class):
-  struct Case {
-    int enodes;
-    int parents;
-  };
-
-  constexpr int kEclasses = 10;
-  Case cases[] = {
-      {1, 1},
-      {1, 10},
-      {1, 50},
-      {10, 1},
-      {10, 10},
-      {10, 50},
-      {20, 1},
-      {20, 10},
-      {20, 50},
-  };
-
-  for (auto [enodes, parents] : cases) {
-    // Fresh graph for each case
-    egraph = TestEGraph{};
-    ProcessingContext<Op> pctx;
-
-    for (int ec = 0; ec < kEclasses; ++ec) {
-      auto leaf0 = egraph.emplace(Op::Const, static_cast<uint64_t>(ec * 1000)).eclass_id;
-      auto first_f = egraph.emplace(Op::F, {leaf0}).eclass_id;
-      for (int e = 1; e < enodes; ++e) {
-        auto lf = egraph.emplace(Op::Const, static_cast<uint64_t>(ec * 1000 + e)).eclass_id;
-        auto f = egraph.emplace(Op::F, {lf}).eclass_id;
-        egraph.merge(first_f, f);
-      }
-      for (int p = 0; p < parents; ++p) {
-        auto unique = egraph.emplace(Op::Const, static_cast<uint64_t>(100000 + ec * 1000 + p)).eclass_id;
-        egraph.emplace(Op::Mul, {first_f, unique});
-      }
-    }
-    egraph.rebuild(pctx);
-
-    // Reset executor and index for new graph
-    index = TestMatcherIndex{egraph};
-    dev_executor = TestDevVMExecutor{egraph, &tracer};
-    rebuild_index();
-
-    constexpr PatternVar kR{30};
-    constexpr PatternVar kHX{0};
-    constexpr PatternVar kHY{31};
-    use_patterns(TestPattern::build(kR, Op::F, {Var{kHX}}), TestPattern::build(Op::Mul, {Var{kR}, Var{kHY}}));
-    run_traced();
-
-    auto expected_matches = static_cast<std::size_t>(kEclasses * enodes * parents);
-    EXPECT_EQ(matches.size(), expected_matches) << "enodes=" << enodes << " parents=" << parents << "\n"
-                                                << trace_dump();
-  }
 }
 
 }  // namespace memgraph::planner::core

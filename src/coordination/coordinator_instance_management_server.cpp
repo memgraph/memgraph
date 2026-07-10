@@ -12,17 +12,18 @@
 #include "coordination/coordinator_instance_management_server.hpp"
 
 #ifdef MG_ENTERPRISE
-namespace memgraph::coordination {
 
 namespace {
-
 // NOTE: The coordinator server doesn't need more than 1 processing thread - it's not a bottleneck
 constexpr auto kCoordInstanceManagementServerThreads = 1;
 
 }  // namespace
 
-CoordinatorInstanceManagementServer::CoordinatorInstanceManagementServer(const ManagementServerConfig &config)
-    : rpc_server_context_{communication::ServerContext{}},
+namespace memgraph::coordination {
+
+CoordinatorInstanceManagementServer::CoordinatorInstanceManagementServer(
+    const ManagementServerConfig &config, std::optional<utils::TlsConfig> const &tls_config)
+    : rpc_server_context_{communication::CreateServerContext(tls_config)},
       rpc_server_{config.endpoint, &rpc_server_context_, kCoordInstanceManagementServerThreads} {}
 
 CoordinatorInstanceManagementServer::~CoordinatorInstanceManagementServer() {

@@ -18,18 +18,13 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "parameters/parameters.hpp"
 #include "replication/include/replication/state.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/handler.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_handler/system_rpc.hpp"
-#include "utils/event_histogram.hpp"
-#include "utils/metrics_timer.hpp"
-
-namespace memgraph::metrics {
-extern const Event SystemRecoveryRpc_us;
-}  // namespace memgraph::metrics
 
 namespace memgraph::replication {
 
@@ -68,10 +63,18 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     return;
   }
 
-  // We still need to system replicate
+  // We still need to system replicate.
+  // NB: DbInfo is a local, in-process aggregate only — NOT a wire type, so it needs no versioning of
+  // its own. Its fields are passed individually to Stream<SystemRecoveryRpc> below; the serialized
+  // request is the versioned SystemRecoveryReq (V1 -> V2 adds parameters -> V3 adds cold_databases,
+  // with server-side upgrade of an older peer's request). A future layout change bumps that RPC version.
   struct DbInfo {
     std::vector<storage::SalientConfig> configs;
     uint64_t last_committed_timestamp;
+    // Hot/cold: COLD set carried so a reconnecting/lagging replica converges to {HOT ∪ COLD}.
+    // One ColdTenantRecovery per suspended tenant (salient + stats); empty on non-enterprise /
+    // no-license.
+    std::vector<storage::ColdTenantRecovery> cold_databases;
   };
 
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
@@ -88,13 +91,20 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
       auto configs = std::vector<storage::SalientConfig>{};
       dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
       // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
-      return DbInfo{configs, system.LastCommittedSystemTimestamp()};
+#ifdef MG_ENTERPRISE
+      // Snapshot the COLD set inside the same system-transaction guard as the HOT ForEach so the two
+      // are coherent as-of last_committed_timestamp.
+      auto cold_databases = dbms_handler.SuspendedConfigsForRecovery();
+      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), std::move(cold_databases)};
+#else
+      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), {}};
+#endif
     }
     // No license -> send only default config
-    return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
+    return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp(), {}};
   });
   try {
-    utils::MetricsTimer const timer{metrics::SystemRecoveryRpc_us};
+    metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();
     auto stream = std::invoke([&]() {
 #ifdef MG_ENTERPRISE
@@ -116,7 +126,8 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             locked_auth.AllUsers(),
                                                             locked_auth.AllRoles(),
                                                             locked_auth.AllProfiles(),
-                                                            params_snapshot);
+                                                            params_snapshot,
+                                                            std::move(db_info.cold_databases));
       });
 #else
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
@@ -129,7 +140,10 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                           params_snapshot);
 #endif
     });
-    if (const auto response = stream.SendAndWait(); response.result == SystemRecoveryRes::Result::FAILURE) {
+    auto const response = stream.SendAndWait();
+    if (response.result == SystemRecoveryRes::Result::FAILURE) {
+      // System recovery failed; do not record confirmations so the reset is re-advertised on the next
+      // SystemRestore.
       client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
       return;
     }

@@ -36,17 +36,26 @@
 #include "flags/experimental.hpp"
 #include "utils/flag_validation.hpp"
 
-// Bolt server flags.
-// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_string(experimental_enabled, "", "Experimental features to be used, comma-separated. Options []",
-                        { return memgraph::flags::ValidExperimentalFlag(value); });
-
-// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_string(experimental_config, "", "Experimental features to be used, JSON object. Options []",
-                        { return memgraph::flags::ValidExperimentalConfig(value); });
-
 using namespace std::string_view_literals;
 namespace rv = ranges::views;
+
+// The mapping tables MUST be defined before DEFINE_VALIDATED_string so the
+// help-string composition below sees them initialised.  Static-init order
+// within a single TU is source order for dynamically-initialised objects;
+// gflags' FlagRegisterer (constructed by DEFINE_VALIDATED_string further
+// down) reads description as `const char*` at construction, so we point it
+// at a static std::string built once from the mappings.
+namespace memgraph::flags {
+
+auto const mapping = std::map{
+    std::pair{"planner-v2"sv, Experiments::PLANNER_V2},
+};
+auto const reverse_mapping = std::map{
+    std::pair{Experiments::PLANNER_V2, "planner-v2"sv},
+};
+auto const config_mapping = std::map<std::string_view, Experiments>{};
+
+}  // namespace memgraph::flags
 
 namespace {
 
@@ -58,17 +67,41 @@ auto const canonicalize_string = [](auto &&rng) {
          ranges::to<std::string>;
 };
 
+/// Compose "prefix Options [name1, name2, ...]" from a mapping table.
+/// Used to keep --help text in sync with the actual recognised options
+/// without hand-maintaining the list at every DEFINE_*.
+template <typename Mapping>
+auto BuildHelp(std::string_view prefix, Mapping const &m) -> std::string {
+  std::string out{prefix};
+  out += " Options [";
+  bool first = true;
+  for (auto const &[name, _] : m) {
+    if (!first) out += ", ";
+    first = false;
+    out.append(name.data(), name.size());
+  }
+  out += "]";
+  return out;
+}
+
+// Static lifetime ⇒ pointer is valid for the program's lifetime, which is
+// the gflags registry's only requirement on description strings.
+std::string const kEnabledHelp =
+    BuildHelp("Experimental features to be used, comma-separated.", memgraph::flags::mapping);
+std::string const kConfigHelp =
+    BuildHelp("Experimental features to be used, JSON object.", memgraph::flags::config_mapping);
+
 }  // namespace
 
-namespace memgraph::flags {
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_string(experimental_enabled, "", kEnabledHelp.c_str(),
+                        { return memgraph::flags::ValidExperimentalFlag(value); });
 
-auto const mapping = std::map{
-    std::pair{"planner-v2"sv, Experiments::PLANNER_V2},
-};
-auto const reverse_mapping = std::map{
-    std::pair{Experiments::PLANNER_V2, "planner-v2"sv},
-};
-auto const config_mapping = std::map<std::string_view, Experiments>{};
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_string(experimental_config, "", kConfigHelp.c_str(),
+                        { return memgraph::flags::ValidExperimentalConfig(value); });
+
+namespace memgraph::flags {
 
 auto ExperimentsInstance() -> Experiments & {
   static auto instance = Experiments{};

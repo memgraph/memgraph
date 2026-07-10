@@ -18,14 +18,15 @@ copy_server_e2e_python_files(common.py)
 copy_server_e2e_python_files(test_ssl_hot_reload.py)
 copy_server_e2e_python_files(test_ssl_reload_no_ssl.py)
 copy_server_e2e_python_files(test_ssl_hot_reload_coordinator.py)
-copy_e2e_files(server ssl_reload_test.crt)
-copy_e2e_files(server ssl_reload_test.key)
-copy_e2e_files(server ssl_coordinator_1.crt)
-copy_e2e_files(server ssl_coordinator_1.key)
-copy_e2e_files(server ssl_coordinator_2.crt)
-copy_e2e_files(server ssl_coordinator_2.key)
-copy_e2e_files(server ssl_coordinator_3.crt)
-copy_e2e_files(server ssl_coordinator_3.key)
+# Copy the entire tls_certs/ directory (self-signed certs used by SSL
+# hot-reload tests) to the build dir. Tests resolve paths via SCRIPT_DIR
+# / BUILD_DIR + "tls_certs/".
+add_custom_target(memgraph__e2e__server__tls_certs_dir ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/tls_certs
+    ${CMAKE_CURRENT_BINARY_DIR}/tls_certs
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tls_certs)
+add_dependencies(memgraph__e2e memgraph__e2e__server__tls_certs_dir)
 
 copy_e2e_python_files_from_parent_folder(server ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(server ".." memgraph.py)

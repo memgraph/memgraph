@@ -87,11 +87,22 @@ auto DownloadProgressCb(void *clientp, curl_off_t dltotal, curl_off_t dlnow, cur
 
 size_t CurlWriteCallback(char * /*ptr*/, size_t /*size*/, size_t nmemb, void * /*userdata*/) { return nmemb; }
 
+// Progress callback for POST requests - checks per-request abort flag
+auto PostProgressCallback(void *clientp, curl_off_t /*dltotal*/, curl_off_t /*dlnow*/, curl_off_t /*ultotal*/,
+                          curl_off_t /*ulnow*/) -> int {
+  auto const *abort_flag = static_cast<std::atomic<bool> const *>(clientp);
+  if (abort_flag && abort_flag->load(std::memory_order_relaxed)) {
+    return 1;  // Return non-zero to abort transfer
+  }
+  return 0;  // Continue transfer
+}
+
 }  // namespace
 
 void Init() { curl_global_init(CURL_GLOBAL_ALL); }
 
-bool RequestPostJson(const std::string &url, const nlohmann::json &data, int timeout_in_seconds) {
+bool RequestPostJson(const std::string &url, const nlohmann::json &data, int timeout_in_seconds,
+                     std::atomic<bool> const *abort_flag) {
   CURL *curl = nullptr;
   CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
 
@@ -117,6 +128,11 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10);
   curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_in_seconds);
+
+  // Enable progress callback so an in-flight transfer can be aborted
+  curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+  curl_easy_setopt(curl, CURLOPT_XFERINFODATA, abort_flag);
+  curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, PostProgressCallback);
 
   res = curl_easy_perform(curl);
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);

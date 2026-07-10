@@ -20,6 +20,7 @@
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -38,11 +39,11 @@
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
-#include "utils/event_counter.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "utils/exponential_backoff.hpp"
 #include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
-#include "utils/metrics_timer.hpp"
 
 #include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
@@ -70,26 +71,6 @@ auto FindReplicationInstance(std::string_view replication_instance_name,
 }
 }  // namespace
 
-namespace memgraph::metrics {
-// Counters
-extern const Event SuccessfulFailovers;
-extern const Event RaftFailedFailovers;
-extern const Event NoAliveInstanceFailedFailovers;
-extern const Event BecomeLeaderSuccess;
-extern const Event FailedToBecomeLeader;
-extern const Event ShowInstance;
-extern const Event ShowInstances;
-extern const Event DemoteInstance;
-extern const Event UnregisterReplInstance;
-extern const Event RemoveCoordInstance;
-// Histogram
-extern const Event InstanceSuccCallback_us;
-extern const Event InstanceFailCallback_us;
-extern const Event ChooseMostUpToDateInstance_us;
-extern const Event GetHistories_us;
-extern const Event DataFailover_us;
-}  // namespace memgraph::metrics
-
 namespace memgraph::coordination {
 namespace {
 constexpr std::string_view kUp{"up"};
@@ -100,15 +81,17 @@ using nuraft::ptr;
 using namespace std::chrono_literals;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
-    : coordinator_management_server_{ManagementServerConfig{
-          io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}}} {
+    : tls_config_(config.tls_config),
+      coordinator_management_server_{ManagementServerConfig{io::network::Endpoint{
+                                         kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}},
+                                     config.tls_config} {
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
   // If something is not yet constructed in coordinator instance, we get UB
   raft_state_ = std::make_unique<RaftState>(
       config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback(), CoordinationClusterChangeObserver{this});
   UpdateClientConnectors(raft_state_->GetCoordinatorInstancesAux());
-  raft_state_->InitRaftServer();
+  raft_state_->InitRaftServer(config.tls_config);
 
   // Last thing to contruct is the server and RPC handlers (that use instance and raft state)
   CoordinatorInstanceManagementServerHandlers::Register(coordinator_management_server_, *this);
@@ -233,7 +216,10 @@ void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstance
                   coordinator.management_server);
     auto mgmt_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator.management_server);
     MG_ASSERT(mgmt_endpoint.has_value(), "Failed to create management server when creating new coordinator connector.");
-    connectors->emplace(connectors->end(), coordinator.id, ManagementServerConfig{std::move(*mgmt_endpoint)});
+    connectors->emplace(connectors->end(),
+                        std::piecewise_construct,
+                        std::forward_as_tuple(coordinator.id),
+                        std::forward_as_tuple(ManagementServerConfig{std::move(*mgmt_endpoint)}, tls_config_));
   }
 }
 
@@ -346,7 +332,7 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
 }
 
 auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
-  metrics::IncrementCounter(metrics::ShowInstance);
+  metrics::Metrics().global.show_instance->Increment();
   auto const curr_leader_id = raft_state_->GetLeaderId();
   auto const my_context = raft_state_->GetMyCoordinatorInstanceAux();
   std::string const role = std::invoke([curr_leader_id, my_id = raft_state_->GetMyCoordinatorId()] {
@@ -361,7 +347,7 @@ auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
 }
 
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
-  metrics::IncrementCounter(metrics::ShowInstances);
+  metrics::Metrics().global.show_instances->Increment();
   if (auto const leader_results = ShowInstancesAsLeader(); leader_results.has_value()) {
     return *leader_results;
   }
@@ -413,7 +399,7 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
           if (expected == CoordinatorStatus::FOLLOWER) {
             spdlog::trace(
                 "Reconcile cluster state finished successfully but coordinator in the meantime became follower.");
-            metrics::IncrementCounter(metrics::FailedToBecomeLeader);
+            metrics::Metrics().global.failed_to_become_leader->Increment();
             return ReconcileClusterStateStatus::NOT_LEADER_ANYMORE;
           }
           // We should never get into such state, but we log it for observability.
@@ -421,23 +407,23 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
           return result;
         }
         spdlog::trace("Reconcile cluster state finished successfully. Leader is ready now.");
-        metrics::IncrementCounter(metrics::BecomeLeaderSuccess);
+        metrics::Metrics().global.become_leader_success->Increment();
         return result;
       }
       case FAIL:
         spdlog::trace("ReconcileClusterState_ failed!");
-        metrics::IncrementCounter(metrics::FailedToBecomeLeader);
+        metrics::Metrics().global.failed_to_become_leader->Increment();
         break;
       case SHUTTING_DOWN:
         spdlog::trace("Stopping reconciliation as coordinator is shutting down.");
-        metrics::IncrementCounter(metrics::FailedToBecomeLeader);
+        metrics::Metrics().global.failed_to_become_leader->Increment();
         return result;
       case NOT_LEADER_ANYMORE:
         [[fallthrough]];
       case LEADER_FAILED:
         [[fallthrough]];
       case LEADER_NOT_FOUND: {
-        metrics::IncrementCounter(metrics::FailedToBecomeLeader);
+        metrics::Metrics().global.failed_to_become_leader->Increment();
         MG_ASSERT(false, "Invalid status handling. Crashing the database.");
       }
     }
@@ -489,7 +475,10 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     auto &instance = repl_instances_.emplace_back(data_instance.config,
                                                   this,
                                                   raft_state_->GetInstanceDownTimeoutSec(),
-                                                  raft_state_->GetInstanceHealthCheckFrequencySec());
+                                                  raft_state_->GetInstanceHealthCheckFrequencySec(),
+                                                  tls_config_
+
+    );
     instance.StartStateCheck();
   });
 
@@ -551,11 +540,11 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
 void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_release); }
 
 auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
-  utils::MetricsTimer const timer{metrics::DataFailover_us};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.data_failover_seconds};
   auto const maybe_most_up_to_date_instance = GetInstanceForFailover();
   if (!maybe_most_up_to_date_instance) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
-    metrics::IncrementCounter(metrics::NoAliveInstanceFailedFailovers);
+    metrics::Metrics().global.no_alive_instance_failed_failovers->Increment();
     return FailoverStatus::NO_INSTANCE_ALIVE;
   }
 
@@ -586,11 +575,11 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
 
   if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
     spdlog::error("Aborting failover. Writing to Raft failed.");
-    metrics::IncrementCounter(metrics::RaftFailedFailovers);
+    metrics::Metrics().global.raft_failed_failovers->Increment();
     return FailoverStatus::RAFT_FAILURE;
   }
 
-  metrics::IncrementCounter(metrics::SuccessfulFailovers);
+  metrics::Metrics().global.successful_failovers->Increment();
   return FailoverStatus::SUCCESS;
 }
 
@@ -674,7 +663,9 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
       ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
       ranges::to<ReplicationClientsInfo>();
 
-  if (!new_main_connector->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info))) {
+  // The new main comes up writeable unless the cluster is deliberately in read-only mode.
+  auto const writing_enabled = !raft_state_->GetGlobalReadOnly();
+  if (!new_main_connector->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info), writing_enabled)) {
     spdlog::warn(
         "Failed to promote instance {} to main. The change is however peristed in Raft so promotion will be tried "
         "again in the reconciliation loop. No need for you to retry the operation.",
@@ -687,7 +678,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
 }
 
 auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus {
-  metrics::IncrementCounter(metrics::DemoteInstance);
+  metrics::Metrics().global.demote_instance->Increment();
   auto lock = std::lock_guard{coord_instance_lock_};
 
   if (auto const res = ForwardToLeader<DemoteInstanceRpc, DemoteInstanceCoordinatorStatus>(std::string{instance_name});
@@ -801,8 +792,11 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     return RegisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
-  auto *new_instance = &repl_instances_.emplace_back(
-      config, this, raft_state_->GetInstanceDownTimeoutSec(), raft_state_->GetInstanceHealthCheckFrequencySec());
+  auto *new_instance = &repl_instances_.emplace_back(config,
+                                                     this,
+                                                     raft_state_->GetInstanceDownTimeoutSec(),
+                                                     raft_state_->GetInstanceHealthCheckFrequencySec(),
+                                                     tls_config_);
 
   // Try sending RPC now but the failure is not fatal, we will try again in the reconciliation loop
   // From the user's perspective, as soon as the log is committed to Raft logs, the in-memory state will eventually
@@ -839,7 +833,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
-  metrics::IncrementCounter(metrics::UnregisterReplInstance);
+  metrics::Metrics().global.unregister_repl_instance->Increment();
 
   if (auto const res =
           ForwardToLeader<UnregisterInstanceRpc, UnregisterInstanceCoordinatorStatus>(std::string{instance_name});
@@ -909,7 +903,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 }
 
 auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus {
-  metrics::IncrementCounter(metrics::RemoveCoordInstance);
+  metrics::Metrics().global.remove_coord_instance->Increment();
   if (auto const res = ForwardToLeader<RemoveCoordinatorRpc, RemoveCoordinatorInstanceStatus>(coordinator_id);
       res.has_value()) {
     return *res;
@@ -965,6 +959,11 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
   auto const id_to_add = config.coordinator_id;
 
   auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
+
+  if (std::ranges::contains(coordinator_instances_context, config.coordinator_id, &CoordinatorInstanceContext::id)) {
+    spdlog::error("Trying to set-up a coordinator with id which is already added to the cluster.");
+    return AddCoordinatorInstanceStatus::ID_ALREADY_EXISTS;
+  }
 
   {
     auto const existing_coord = std::ranges::find_if(
@@ -1088,27 +1087,41 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
                                     kMaxReplicaReadLag,
                                     kDeltasBatchProgressSize,
                                     kInstanceDownTimeoutSec,
-                                    kInstanceHealthCheckFreqSec};
+                                    kInstanceHealthCheckFreqSec,
+                                    kGlobalReadOnly};
       !std::ranges::contains(settings, setting_name)) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
 
+  auto const parse_bool = [](std::string_view const value) -> bool {
+    auto const lowered = utils::ToLowerCase(value);
+    if (lowered == "true"sv) {
+      return true;
+    }
+    if (lowered == "false"sv) {
+      return false;
+    }
+    throw std::invalid_argument{R"(Value must be either "true" or "false".)"};
+  };
+
   CoordinatorClusterStateDelta delta_state;
   try {
     if (setting_name == kMaxFailoverLagOnReplica) {
-      delta_state.max_failover_replica_lag_ = utils::ParseStringToUint64(setting_value);
+      delta_state.max_failover_replica_lag_ = utils::ParseStringToUint<uint64_t>(setting_value);
     } else if (setting_name == kEnabledReadsOnMain) {
       delta_state.enabled_reads_on_main_ = utils::ToLowerCase(setting_value) == "true"sv;
     } else if (setting_name == kSyncFailoverOnly) {
       delta_state.sync_failover_only_ = utils::ToLowerCase(setting_value) == "true"sv;
     } else if (setting_name == kMaxReplicaReadLag) {
-      delta_state.max_replica_read_lag_ = utils::ParseStringToUint64(setting_value);
+      delta_state.max_replica_read_lag_ = utils::ParseStringToUint<uint64_t>(setting_value);
     } else if (setting_name == kDeltasBatchProgressSize) {
-      delta_state.deltas_batch_progress_size_ = utils::ParseStringToUint64(setting_value);
+      delta_state.deltas_batch_progress_size_ = utils::ParseStringToUint<uint64_t>(setting_value);
     } else if (setting_name == kInstanceDownTimeoutSec) {
-      delta_state.instance_down_timeout_sec_ = utils::ParseStringToUint32(setting_value);
+      delta_state.instance_down_timeout_sec_ = utils::ParseStringToUint<uint32_t>(setting_value);
     } else if (setting_name == kInstanceHealthCheckFreqSec) {
-      delta_state.instance_health_check_frequency_sec_ = utils::ParseStringToUint32(setting_value);
+      delta_state.instance_health_check_frequency_sec_ = utils::ParseStringToUint<uint32_t>(setting_value);
+    } else if (setting_name == kGlobalReadOnly) {
+      delta_state.global_read_only_ = parse_bool(setting_value);
     }
   } catch (std::exception const &e) {
     spdlog::error("Error occurred while trying to update {} to {}. Error: {}", setting_name, setting_value, e.what());
@@ -1120,8 +1133,6 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     return SetCoordinatorSettingStatus::RAFT_LOG_ERROR;
   }
 
-  {
-  }
   // Kinda like post-commit hooks/callbacks
   if (setting_name == kInstanceDownTimeoutSec) {
     auto guard = std::lock_guard{coord_instance_lock_};
@@ -1139,7 +1150,7 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
 }
 
 void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name, InstanceState const &instance_state) {
-  utils::MetricsTimer const timer{metrics::InstanceSuccCallback_us};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.instance_succ_callback_seconds};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     spdlog::trace("Leader is not ready, not executing instance success callback.");
@@ -1160,6 +1171,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
   instance.OnSuccessPing();
 
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
+  auto const global_read_only = raft_state_->GetGlobalReadOnly();
 
   if (raft_state_->IsCurrentMain(instance_name)) {
     // Update cache with the information from the current main if there is a value received
@@ -1214,9 +1226,13 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     // According to raft, this is the current MAIN
     // Check if a promotion is needed:
     //  - instance is actually a replica
+    //  - instance is main, but not writeable while the cluster is NOT read-only (restart recovery / missed failover /
+    //    clearing read-only). A deliberately read-only main is left alone here; its writing state is reconciled below
+    //    through UpdateDataInstanceConfigRpc.
     //  - instance is main, but has stale state (missed a failover)
-    if (instance_state.inner_state.is_replica || !instance_state.inner_state.is_writing_enabled ||
-        !instance_state.inner_state.uuid || *instance_state.inner_state.uuid != curr_main_uuid) {
+    if (instance_state.inner_state.is_replica ||
+        (!instance_state.inner_state.is_writing_enabled && !global_read_only) || !instance_state.inner_state.uuid ||
+        *instance_state.inner_state.uuid != curr_main_uuid) {
       auto const data_instances_cache = raft_state_->GetDataInstancesContext();
       auto repl_clients_info =
           data_instances_cache |
@@ -1224,7 +1240,9 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
           ranges::views::transform([&](auto const &instance) { return instance.config.replication_client_info; }) |
           ranges::to<ReplicationClientsInfo>();
 
-      if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info))) {
+      // Promote the new main directly into the cluster's desired writing state so read-only is honored across
+      // failover and restart recovery, instead of coming up writeable and being reconciled a cycle later.
+      if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info), !global_read_only)) {
         spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
                       std::string{curr_main_uuid});
         switch (TryFailover()) {
@@ -1280,12 +1298,19 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     }
   }
 
-  if (auto const deltas_batch_progress_size = raft_state_->GetDeltasBatchProgressSize();
-      deltas_batch_progress_size != instance_state.deltas_batch_progress_size) {
-    if (!instance.SendRpc<UpdateDataInstanceConfigRpc>(deltas_batch_progress_size)) {
+  // deltas_batch_progress_size and the main's writing state are both carried by UpdateDataInstanceConfigRpc and always
+  // travel together. disable_writing is the projection of the coordinator's global_read_only setting; it is only
+  // meaningful on the current main (a no-op on replicas), so writing divergence is only considered there. This drives
+  // the disable direction of read-only mode; the enable direction is handled by the idempotent promotion path above.
+  auto const deltas_batch_progress_size = raft_state_->GetDeltasBatchProgressSize();
+  bool const deltas_diverged = deltas_batch_progress_size != instance_state.deltas_batch_progress_size;
+  bool const writing_diverged =
+      raft_state_->IsCurrentMain(instance_name) && instance_state.inner_state.is_writing_enabled == global_read_only;
+  if (deltas_diverged || writing_diverged) {
+    if (!instance.SendRpc<UpdateDataInstanceConfigRpc>(deltas_batch_progress_size, global_read_only)) {
       spdlog::warn(
-          "Couldn't update deltas_batch_progress_size on data instance {}. The operation will be retried in the next "
-          "iteration of the reconciliation loop.",
+          "Couldn't update config on data instance {}. The operation will be retried in the next iteration of the "
+          "reconciliation loop.",
           instance_name);
       return;
     }
@@ -1293,7 +1318,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 }
 
 void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name) {
-  utils::MetricsTimer const timer{metrics::InstanceFailCallback_us};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.instance_fail_callback_seconds};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     spdlog::trace("Leader is not ready, not executing instance fail callback.");
@@ -1336,7 +1361,7 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name) {
 auto CoordinatorInstance::ChooseMostUpToDateInstance(
     std::map<std::string, replication_coordination_glue::InstanceInfo> const &instances_info)
     -> std::optional<std::string> {
-  utils::MetricsTimer const timer{metrics::ChooseMostUpToDateInstance_us};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.choose_most_up_to_date_instance_seconds};
 
   // Find the instance with the largest system committed timestamp
   auto const largest_sys_ts_instance = std::ranges::max_element(instances_info, [](auto const &lhs, auto const &rhs) {
@@ -1490,7 +1515,7 @@ auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::s
 }
 
 auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {
-  utils::MetricsTimer const timer{metrics::GetHistories_us};
+  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.get_histories_seconds};
 
   if (repl_instances_.empty()) {
     return std::nullopt;
@@ -1588,7 +1613,8 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
       std::pair{std::string{kDeltasBatchProgressSize}, std::to_string(raft_state_->GetDeltasBatchProgressSize())},
       std::pair{std::string{kInstanceDownTimeoutSec}, std::to_string(raft_state_->GetInstanceDownTimeoutSec())},
       std::pair{std::string{kInstanceHealthCheckFreqSec},
-                std::to_string(raft_state_->GetInstanceHealthCheckFrequencySec().count())}};
+                std::to_string(raft_state_->GetInstanceHealthCheckFrequencySec().count())},
+      std::pair{std::string{kGlobalReadOnly}, raft_state_->GetGlobalReadOnly() ? "true" : "false"}};
   return settings;
 }
 

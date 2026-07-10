@@ -112,6 +112,7 @@ memgraphCypherKeyword : cypherKeyword
                       | INSTANCE
                       | INSTANCES
                       | INTEGER
+                      | INTRA_CLUSTER
                       | INVOKER
                       | ISOLATION
                       | JSONL
@@ -168,6 +169,7 @@ memgraphCypherKeyword : cypherKeyword
                       | RECOVER
                       | REGISTER
                       | RELOAD
+                      | RELOAD_TLS
                       | RENAME
                       | REPLACE
                       | REPLICA
@@ -176,6 +178,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REQUIRE
                       | RESET
                       | RESOURCE
+                      | RESUME
                       | REVOKE
                       | ROLE
                       | ROLES
@@ -205,6 +208,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STRICT_SYNC
                       | STRING
                       | SYNC
+                      | SUSPEND
                       | TERMINATE
                       | TEXT
                       | TIMEOUT
@@ -297,6 +301,7 @@ query : cypherQuery
       | showSchemaInfoQuery
       | ttlQuery
       | setSessionTraceQuery
+      | sessionSettingQuery
       | userProfileQuery
       | tenantProfileQuery
       | descriptionQuery
@@ -333,6 +338,9 @@ authQuery : createRole
           | setMainDatabase
           | grantImpersonateUser
           | denyImpersonateUser
+          | grantPropertyPermission
+          | denyPropertyPermission
+          | revokePropertyPermission
           ;
 
 replicationQuery : setReplicationRole
@@ -525,6 +533,18 @@ grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicName
 
 denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO target=userOrRole ;
 
+propertyPermissionList : '{' ( ASTERISK | listOfSymbolicNames ) '}' ;
+
+propertyPermissionType : READ | SET PROPERTY ;
+
+propertyPermissionTypeList : propertyPermissionType ( ',' propertyPermissionType )* ;
+
+grantPropertyPermission : GRANT permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
+
+denyPropertyPermission : DENY permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
+
+revokePropertyPermission : REVOKE permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec FROM target=userOrRole ;
+
 grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO target=userOrRole ;
 
 denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM target=userOrRole ;
@@ -536,6 +556,14 @@ showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR target=userOrRole ;
 setMainDatabase : SET MAIN DATABASE db=symbolicName FOR target=userOrRole ;
 
 setSessionTraceQuery : SET SESSION TRACE (ON | OFF) ;
+
+sessionSettingQuery : setSessionSetting
+                    | resetSessionSetting
+                    ;
+
+setSessionSetting : SET SESSION SETTING settingName TO settingValue ;
+
+resetSessionSetting : RESET SESSION SETTING settingName ;
 
 privilege : CREATE
           | DELETE
@@ -567,6 +595,7 @@ privilege : CREATE
           | PROFILE_RESTRICTION
           | PARALLEL_EXECUTION
           | SERVER_SIDE_PARAMETERS
+          | RELOAD_TLS
           ;
 
 granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
@@ -778,6 +807,8 @@ transactionId : literal ;
 multiDatabaseQuery : createDatabase
                    | dropDatabase
                    | renameDatabase
+                   | suspendDatabase
+                   | resumeDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
@@ -785,6 +816,10 @@ createDatabase : CREATE DATABASE databaseName ;
 dropDatabase: DROP DATABASE databaseName ( FORCE)?;
 
 renameDatabase : RENAME DATABASE databaseName TO databaseName ;
+
+suspendDatabase : SUSPEND DATABASE databaseName ;
+
+resumeDatabase : RESUME DATABASE databaseName ;
 
 useDatabase : USE DATABASE databaseName ;
 
@@ -843,9 +878,15 @@ dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
 
 pointIndexQuery : createPointIndex | dropPointIndex ;
 
-createVectorIndex : CREATE VECTOR INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMapOrExpression ;
+vectorIndexLabels
+    : '(' propertyKeyName ')'
+    | ':' labelName ( '|' ':'? labelName )* '(' propertyKeyName ')'
+    | ':' labelName ( '&' ':'? labelName )+ '(' propertyKeyName ')'
+    ;
 
-createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMapOrExpression ;
+createVectorIndex : CREATE VECTOR INDEX indexName ON vectorIndexLabels WITH CONFIG configsMap=configMapOrExpression ;
+
+createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON vectorIndexLabels WITH CONFIG configsMap=configMapOrExpression ;
 
 dropVectorIndex : DROP VECTOR INDEX indexName ;
 
@@ -904,7 +945,7 @@ ttlQuery: stopTtlQuery
         | startTtlQuery
         ;
 
-reloadSSLQuery: RELOAD BOLT_SERVER TLS ;
+reloadSSLQuery: RELOAD ( BOLT_SERVER | INTRA_CLUSTER ) TLS ;
 
 typeConstraintType : BOOLEAN
              | STRING
@@ -986,10 +1027,10 @@ showDescriptions
     : SHOW DESCRIPTIONS
     ;
 
-// Overrides Cypher.g4: storageInfo adds an optional 'ON DATABASE <name>' clause.
+// Overrides Cypher.g4: storageInfo adds an optional 'ON DATABASE <name>' or 'ON CURRENT DATABASE' clause.
 // systemInfoQuery is re-listed so it dispatches to the overridden storageInfo above.
 systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
-storageInfo : STORAGE INFO ( ON DATABASE db=symbolicName )? ;
+storageInfo : STORAGE INFO ( ON ( DATABASE db=symbolicName | CURRENT DATABASE ) )? ;
 
 edgeTypePatternNode
     : '(' ( ':' labelName )+ ')'

@@ -11,11 +11,16 @@
 
 #pragma once
 
+#include <algorithm>
+#include <list>
 #include <map>
 #include <shared_mutex>
+#include <span>
+
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
@@ -27,11 +32,13 @@ struct ActiveIndicesUpdater;
 struct Indices;
 class NameIdMapper;
 
+using VectorEdgeTypeFilter = VectorMembershipFilter<EdgeTypeId>;
+
 /// @struct VectorEdgeIndexSpec
 /// @brief Represents a specification for creating a vector index in the system.
 struct VectorEdgeIndexSpec {
   std::string index_name;
-  EdgeTypeId edge_type_id;
+  VectorEdgeTypeFilter edge_type_filter;
   PropertyId property;
   unum::usearch::metric_kind_t metric_kind;
   std::uint16_t dimension;
@@ -43,10 +50,9 @@ struct VectorEdgeIndexSpec {
 };
 
 /// @struct VectorEdgeIndexInfo
-/// @brief Represents information about a vector index in the system.
 struct VectorEdgeIndexInfo {
   std::string index_name;
-  EdgeTypeId edge_type_id;
+  VectorEdgeTypeFilter edge_type_filter;
   PropertyId property;
   std::string metric;
   std::uint16_t dimension;
@@ -78,7 +84,7 @@ struct VectorEdgeIndexActiveIndices {
   virtual ~VectorEdgeIndexActiveIndices() = default;
   virtual std::vector<VectorEdgeIndexSpec> ListIndices() const = 0;
   virtual std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const = 0;
-  virtual std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+  virtual std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const = 0;
 };
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
@@ -118,6 +124,7 @@ class VectorEdgeIndex {
   struct AbortProcessor {
     std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
     std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
+    std::set<PropertyId> wildcard_properties;
 
     struct EdgeAbortInfo {
       EdgeTypeId edge_type;
@@ -129,7 +136,9 @@ class VectorEdgeIndex {
     using AbortableInfo = std::map<Edge *, EdgeAbortInfo>;
     AbortableInfo cleanup_collection;
 
-    bool IsInteresting(PropertyId property) const { return p2et.contains(property); }
+    bool IsInteresting(PropertyId property) const {
+      return p2et.contains(property) || wildcard_properties.contains(property);
+    }
 
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, const PropertyValue &old_value,
                                  Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
@@ -139,6 +148,13 @@ class VectorEdgeIndex {
     Vertex *from_vertex;
     Vertex *to_vertex;
     Edge *edge;
+    EdgeTypeId edge_type;
+  };
+
+  struct EdgeEndpoints {
+    Vertex *from_vertex;
+    Vertex *to_vertex;
+    EdgeTypeId edge_type;
   };
 
   using VectorSearchEdgeResults = std::vector<std::tuple<EdgeIndexEntry, double, double>>;
@@ -155,7 +171,7 @@ class VectorEdgeIndex {
 
     std::vector<VectorEdgeIndexSpec> ListIndices() const override;
     std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const override;
-    std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override;
+    std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const override;
 
    private:
     std::shared_ptr<VectorEdgeIndexContainer const> index_container_;
@@ -200,7 +216,7 @@ class VectorEdgeIndex {
     uint64_t index_id;
     std::shared_ptr<EdgeTypeIndexItem> evicted_item;
     std::vector<Edge *> rewritten_edges;
-    std::vector<std::pair<Edge *, std::pair<Vertex *, Vertex *>>> evicted_endpoints;
+    std::vector<std::pair<Edge *, EdgeEndpoints>> evicted_endpoints;
   };
 
   /// @brief Drops an existing index. Returns enough state to undo the drop on
@@ -224,8 +240,8 @@ class VectorEdgeIndex {
   /// @brief Lists the labels and properties that have vector indices.
   std::vector<VectorEdgeIndexSpec> ListIndices() const;
 
-  /// @brief Returns number of edges in the index.
-  std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const;
+  /// @brief Returns number of edges in the named index, or nullopt if no such index.
+  std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const;
 
   /// @brief Searches for edges in the specified index using a query vector.
   VectorSearchEdgeResults SearchEdges(std::string_view index_name, uint64_t result_set_size,
@@ -244,9 +260,6 @@ class VectorEdgeIndex {
   /// @brief Checks if any vector index exists.
   bool Empty() const;
 
-  /// @brief Returns the EdgeTypeId for the given index name.
-  EdgeTypeId GetEdgeTypeId(std::string_view index_name);
-
   /// @brief Checks if a vector index exists for the given name.
   bool IndexExists(std::string_view index_name) const;
 
@@ -254,14 +267,12 @@ class VectorEdgeIndex {
   utils::small_vector<float> GetVectorPropertyFromEdgeIndex(Edge *edge, std::string_view index_name,
                                                             NameIdMapper *name_id_mapper) const;
 
-  /// @brief Looks up the endpoint vertices for an edge in any vector index.
-  std::pair<Vertex *, Vertex *> GetEdgeEndpoints(Edge *edge) const;
-
-  /// @brief Finds the index ID for the given (edge_type, property) pair.
-  std::optional<uint64_t> GetIndexIdForEdgeTypeProperty(EdgeTypeId edge_type, PropertyId property) const;
+  /// @brief Returns all index ids whose filter matches `edge_type` and which index `property`.
+  /// Multiple indices may overlap (e.g. wildcard '(p)' plus specific ':REL(p)'); all are returned.
+  utils::small_vector<uint64_t> GetIndexIdsForEdgeTypeProperty(EdgeTypeId edge_type, PropertyId property) const;
 
   /// @brief Gets all edge types that have vector indices for the given property.
-  std::unordered_map<EdgeTypeId, uint64_t> GetIndicesByProperty(PropertyId property) const;
+  std::vector<std::pair<uint64_t, VectorEdgeTypeFilter const *>> GetIndicesByProperty(PropertyId property) const;
 
   /// @brief Serializes all vector edge indices to a durability encoder in one pass.
   void SerializeAllVectorEdgeIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids) const;
@@ -271,11 +282,13 @@ class VectorEdgeIndex {
   std::optional<uint64_t> SetupIndex(const VectorEdgeIndexSpec &spec, NameIdMapper *name_id_mapper);
 
   /// @brief Adds a single edge to the index, converting its property to VectorIndexId.
-  void AddEdgeToIndex(uint64_t index_id, Edge *edge, Vertex *from_vertex, Vertex *to_vertex,
+  void AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
                       std::optional<std::size_t> thread_id = std::nullopt);
 
   /// @brief Removes an edge from a vector index.
   void RemoveEdgeFromIndex(Edge *edge, uint64_t index_id);
+
+  void EraseEndpointsIfUnreferenced(Edge *edge);
 
   utils::MemoryTracker *memory_tracker_{nullptr};
   // Invariant: `index_` is only mutated under UNIQUE storage access (see the MG_ASSERTs in
@@ -284,7 +297,8 @@ class VectorEdgeIndex {
   // published snapshot in `ActiveIndicesStore` -- UNIQUE excludes READ/WRITE, which is what makes
   // direct access to `index_` from commit-time hot paths race-free.
   std::shared_ptr<VectorEdgeIndexContainer> index_ = std::make_shared<VectorEdgeIndexContainer>();
-  mutable std::unordered_map<Edge *, std::pair<Vertex *, Vertex *>> edge_endpoints_;
+
+  mutable std::unordered_map<Edge *, EdgeEndpoints> edge_endpoints_;
   // Lock order: mg_index.mutex → edge_endpoints_mutex_ (never acquire mg_index.mutex while holding
   // edge_endpoints_mutex_)
   mutable std::shared_mutex edge_endpoints_mutex_;

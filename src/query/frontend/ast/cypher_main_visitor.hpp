@@ -41,6 +41,13 @@ struct ParsingContext {
   bool is_query_cached = false;
 };
 
+template <typename LabelOrEdgeTypeIx>
+struct VectorIndexLabelsInfo {
+  storage::VectorMatchMode mode;
+  std::vector<LabelOrEdgeTypeIx> ids;
+  PropertyIx property;
+};
+
 class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
  public:
   explicit CypherMainVisitor(ParsingContext context, AstStorage *storage, Parameters *parameters)
@@ -58,8 +65,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * Convert opencypher's n-ary production to ast binary operators.
    *
    * @param _expressions Subexpressions of child for which we construct ast
-   * operators, for example expression6 if we want to create ast nodes for
-   * expression7.
+   * operators, for example expression5 if we want to create ast nodes for
+   * expression6.
    */
   template <typename TExpression>
   Expression *LeftAssociativeOperatorExpression(std::vector<TExpression *> _expressions,
@@ -660,6 +667,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitCreateTextEdgeIndex(MemgraphCypher::CreateTextEdgeIndexContext *ctx) override;
 
+  template <typename LabelOrEdgeTypeIx>
+  VectorIndexLabelsInfo<LabelOrEdgeTypeIx> ParseVectorIndexLabels(MemgraphCypher::VectorIndexLabelsContext *ctx);
+
   /**
    * @return CreateVectorIndexQuery*
    */
@@ -751,6 +761,10 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
                        std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
    */
   antlrcpp::Any visitEntityPrivilegeList(MemgraphCypher::EntityPrivilegeListContext *ctx) override;
+
+  antlrcpp::Any visitGrantPropertyPermission(MemgraphCypher::GrantPropertyPermissionContext *ctx) override;
+  antlrcpp::Any visitDenyPropertyPermission(MemgraphCypher::DenyPropertyPermissionContext *ctx) override;
+  antlrcpp::Any visitRevokePropertyPermission(MemgraphCypher::RevokePropertyPermissionContext *ctx) override;
 
   /**
    * @return AuthQuery*
@@ -1015,42 +1029,42 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitPartialComparisonExpression(MemgraphCypher::PartialComparisonExpressionContext *ctx) override;
 
   /**
-   * Addition and subtraction.
+   * IS NULL, IS NOT NULL, STARTS WITH, ENDS WITH, =~, ...
    *
    * @return Expression*
    */
   antlrcpp::Any visitExpression7(MemgraphCypher::Expression7Context *ctx) override;
 
   /**
-   * Multiplication, division, modding.
+   * Addition and subtraction.
    *
    * @return Expression*
    */
   antlrcpp::Any visitExpression6(MemgraphCypher::Expression6Context *ctx) override;
 
   /**
-   * Exponentiation.
+   * Multiplication, division, modding.
    *
    * @return Expression*
    */
   antlrcpp::Any visitExpression5(MemgraphCypher::Expression5Context *ctx) override;
 
   /**
-   * Unary minus and plus.
+   * Exponentiation.
    *
    * @return Expression*
    */
   antlrcpp::Any visitExpression4(MemgraphCypher::Expression4Context *ctx) override;
 
   /**
-   * IS NULL, IS NOT NULL, STARTS WITH, END WITH, =~, ...
+   * Unary minus and plus.
    *
    * @return Expression*
    */
-  antlrcpp::Any visitExpression3a(MemgraphCypher::Expression3aContext *ctx) override;
+  antlrcpp::Any visitExpression3(MemgraphCypher::Expression3Context *ctx) override;
 
   /**
-   * Does nothing, everything is done in visitExpression3a.
+   * Does nothing, everything is done in visitExpression7.
    *
    * @return Expression*
    */
@@ -1287,6 +1301,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitRenameDatabase(MemgraphCypher::RenameDatabaseContext *ctx) override;
 
   /**
+   * @return MultiDatabaseQuery* (action=SUSPEND)
+   */
+  antlrcpp::Any visitSuspendDatabase(MemgraphCypher::SuspendDatabaseContext *ctx) override;
+
+  /**
+   * @return MultiDatabaseQuery* (action=RESUME)
+   */
+  antlrcpp::Any visitResumeDatabase(MemgraphCypher::ResumeDatabaseContext *ctx) override;
+
+  /**
    * @return UseDatabaseQuery*
    */
   antlrcpp::Any visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) override;
@@ -1352,6 +1376,21 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return SetSessionTraceQuery*
    */
   antlrcpp::Any visitSetSessionTraceQuery(MemgraphCypher::SetSessionTraceQueryContext *ctx) override;
+
+  /**
+   * @return SessionSettingQuery*
+   */
+  antlrcpp::Any visitSessionSettingQuery(MemgraphCypher::SessionSettingQueryContext *ctx) override;
+
+  /**
+   * @return SessionSettingQuery*
+   */
+  antlrcpp::Any visitSetSessionSetting(MemgraphCypher::SetSessionSettingContext *ctx) override;
+
+  /**
+   * @return SessionSettingQuery*
+   */
+  antlrcpp::Any visitResetSessionSetting(MemgraphCypher::ResetSessionSettingContext *ctx) override;
 
   /**
    * @return std::pair<std::string, UserProfileQuery::LimitValueResult>

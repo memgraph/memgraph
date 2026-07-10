@@ -65,6 +65,13 @@ startup_config_dict = {
         "Server name which the database should send to the client in the Bolt INIT message.",
     ),
     "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
+    "cluster_ca_file": (
+        "",
+        "",
+        "The file used for storing certificate of the Certificate Authority you trust for intra-cluster TLS communication.",
+    ),
+    "cluster_cert_file": ("", "", "Certificate file used for intra-cluster TLS communication."),
+    "cluster_key_file": ("", "", "Key file used for intra-cluster TLS communication."),
     "management_port": ("0", "0", "Port on which coordinator servers will be started."),
     "coordinator_port": ("0", "0", "Port on which raft servers will be started."),
     "coordinator_id": ("0", "0", "Unique ID of the raft server."),
@@ -108,6 +115,13 @@ startup_config_dict = {
         "TRACE",
         "Minimum log level. Allowed values: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL",
     ),
+    "log_min_duration_ms": (
+        "-1",
+        "-1",
+        "Log queries whose parse+plan+execute time (ms) reaches this threshold with a [slow-query] tag. -1 disables; 0 logs every successful query.",
+    ),
+    "log_failed_queries": ("false", "false", "Log each failed query with a [failed-query] tag."),
+    "log_query_plan": ("true", "true", "Append the query's EXPLAIN plan to its [slow-query] log line."),
     "memory_limit": (
         "0",
         "0",
@@ -122,6 +136,11 @@ startup_config_dict = {
         "0.0.0.0",
         "0.0.0.0",
         "IP address on which the Memgraph server for exposing metrics should listen.",
+    ),
+    "metrics_format": (
+        "JSON",
+        "JSON",
+        "Format for the metrics endpoint. Supported values: OpenMetrics, JSON. JSON is deprecated.",
     ),
     "metrics_port": ("9091", "9091", "Port on which the Memgraph server for exposing metrics should listen."),
     "monitoring_address": (
@@ -159,6 +178,11 @@ startup_config_dict = {
         "false",
         "false",
         "Controls whether additional metadata should be stored about the edges in order to do faster traversals on certain queries.",
+    ),
+    "storage_light_edge": (
+        "false",
+        "false",
+        "Controls whether edges are stored as lightweight objects in order to reduce memory footprint; implies --storage-properties-on-edges.",
     ),
     "storage_property_store_compression_enabled": (
         "false",
@@ -226,6 +250,11 @@ startup_config_dict = {
         "Define periodic snapshot schedule via cron format or as a period in seconds.",
     ),
     "storage_snapshot_on_exit": ("false", "false", "Controls whether the storage creates another snapshot on exit."),
+    "storage_allow_recovery_failure": (
+        "false",
+        "false",
+        "If true, a database that fails to recover on startup comes up in a broken state instead of crashing the process. Broken databases reject queries until recovered via RECOVER SNAPSHOT.",
+    ),
     "storage_snapshot_retention_count": ("3", "3", "The number of snapshots that should always be kept."),
     "storage_wal_enabled": (
         "false",
@@ -301,14 +330,13 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma-separated. Options []",
+        "Experimental features to be used, comma-separated. Options [planner-v2]",
     ),
     "experimental_config": (
         "",
         "",
         "Experimental features to be used, JSON object. Options []",
     ),
-    "query_log_directory": ("", "", "Path to directory where the query logs should be stored."),
     "schema_info_enabled": ("false", "false", "Set to true to enable run-time schema info tracking."),
     "storage_rocksdb_enable_thread_tracking": (
         "false",

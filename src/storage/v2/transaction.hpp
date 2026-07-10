@@ -133,11 +133,13 @@ struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
               ActiveIndicesPtr active_indices, ActiveConstraintsPtr active_constraints,
-              AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt)
+              AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt,
+              uint64_t last_durable_num_committed_txns = 0, metrics::GaugeHandle unreleased_delta_gauge = {})
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
+        original_start_timestamp(start_timestamp),
         command_id(0),
-        deltas(),
+        deltas(unreleased_delta_gauge),
         md_deltas(utils::NewDeleteResource()),
         has_serialization_error(false),
         isolation_level(isolation_level),
@@ -156,6 +158,7 @@ struct Transaction {
         point_index_change_collector_{point_index_ctx_},
         query_memory_tracker_{},
         last_durable_ts_{last_durable_ts},
+        last_durable_num_committed_txns_{last_durable_num_committed_txns},
         active_indices_{std::move(active_indices)},
         active_constraints_{std::move(active_constraints)},
         async_index_helper_(std::move(async_index_helper)) {}
@@ -219,7 +222,8 @@ struct Transaction {
 
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
-  std::optional<uint64_t> original_start_timestamp{};
+  // Set at construction; never reassigned. Stable across PeriodicCommit.
+  uint64_t original_start_timestamp{};
   // The `Transaction` object is stack allocated, but the `commit_info`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into
@@ -279,6 +283,9 @@ struct Transaction {
 
   /// Last durable timestamp at the moment of transaction creation
   std::optional<uint64_t> last_durable_ts_;
+  /// Number of committed txns paired with last_durable_ts_, captured from the same atomic load so a snapshot
+  /// writes a mutually consistent (durable_timestamp, num_committed_txns) pair.
+  uint64_t last_durable_num_committed_txns_{0};
 
   /// Concurrent safe indices that existed at the beginning of the transaction
   /// Used to insert new entries, and during planning to speed up scans

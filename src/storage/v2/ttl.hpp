@@ -16,6 +16,8 @@
 #include <optional>
 #include <string>
 
+#include "metrics/prometheus_metrics.hpp"
+
 #ifdef MG_ENTERPRISE
 
 #include <fmt/core.h>
@@ -24,7 +26,6 @@
 #include "utils/exceptions.hpp"
 #include "utils/scheduler.hpp"
 
-// Forward declarations
 namespace memgraph::storage {
 class Storage;
 }  // namespace memgraph::storage
@@ -141,7 +142,8 @@ inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
  */
 class TTL final {
  public:
-  explicit TTL(Storage *storage_ptr) : storage_ptr_(storage_ptr) {}
+  TTL(Storage *storage_ptr, metrics::CounterHandle deleted_nodes, metrics::CounterHandle deleted_edges)
+      : storage_ptr_(storage_ptr), deleted_nodes_(deleted_nodes), deleted_edges_(deleted_edges) {}
 
   ~TTL() = default;
 
@@ -234,6 +236,8 @@ class TTL final {
   TtlInfo info_{};        //!< configuration
   bool enabled_{false};   //!< feature enabler
   Storage *storage_ptr_{};
+  metrics::CounterHandle deleted_nodes_{};
+  metrics::CounterHandle deleted_edges_{};
 
   // User-defined function to check if this is a main instance
   // Returns true if this is a main instance, false if replica
@@ -265,7 +269,6 @@ class TTL final {
 
 #else  // MG_ENTERPRISE
 
-// Forward declarations
 namespace memgraph::storage {
 class Storage;
 }  // namespace memgraph::storage
@@ -297,7 +300,7 @@ class TTL final {
   std::optional<std::chrono::system_clock::time_point> start_time_{};
 
  public:
-  explicit TTL(Storage * /*storage_ptr*/) {}
+  TTL(Storage * /*storage_ptr*/, metrics::CounterHandle /*deleted_nodes*/, metrics::CounterHandle /*deleted_edges*/) {}
 
   void Shutdown() {}
 

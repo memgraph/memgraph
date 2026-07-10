@@ -46,6 +46,10 @@ class Streams;
 }  // namespace stream
 }  // namespace memgraph::query
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 namespace memgraph::dbms {
 
 struct DatabaseInfo;
@@ -64,7 +68,6 @@ class Database {
    */
   explicit Database(storage::Config config,
                     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
-
   ~Database();
 
   /**
@@ -229,6 +232,10 @@ class Database {
     ~GatekeeperGuard() noexcept { memory::tls_db_arena_state = prev_; }
   };
 
+  metrics::DatabaseMetricHandles const *metric_handles() const { return &metrics_.handles(); }
+
+  metrics::DatabaseMetricHandles *metric_handles() { return &metrics_.handles(); }
+
  private:
   // Enforcement-only: caps total per-DB memory (tenant profile limit).
   // No parent — does not roll up to any global. Per-DB domain trackers list this
@@ -243,7 +250,32 @@ class Database {
   // Avoids double-counting: if this had graph_memory_tracker as parent, we'd count each
   // query PMR byte twice (once via TrackingMemoryResource::Alloc, once via arena hooks).
   utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
-  std::unique_ptr<memory::ArenaPool> db_arena_;         //!< Per-DB jemalloc arena pool with tracking hooks
+  std::unique_ptr<memory::ArenaPool> db_arena_;  //!< Per-DB jemalloc arena pool with tracking hooks
+
+  // RAII guard that de-registers this database's metric handles from the
+  // global PrometheusMetrics registry on destruction.
+  class DatabaseMetricsRegistration {
+   public:
+    DatabaseMetricsRegistration(utils::UUID uuid, metrics::DatabaseMetricHandles handles)
+        : uuid_(uuid), handles_(std::move(handles)) {}
+
+    ~DatabaseMetricsRegistration();
+
+    DatabaseMetricsRegistration(DatabaseMetricsRegistration const &) = delete;
+    DatabaseMetricsRegistration &operator=(DatabaseMetricsRegistration const &) = delete;
+    DatabaseMetricsRegistration(DatabaseMetricsRegistration &&) = delete;
+    DatabaseMetricsRegistration &operator=(DatabaseMetricsRegistration &&) = delete;
+
+    metrics::DatabaseMetricHandles const &handles() const { return handles_; }
+
+    metrics::DatabaseMetricHandles &handles() { return handles_; }
+
+   private:
+    utils::UUID uuid_;
+    metrics::DatabaseMetricHandles handles_{};
+  };
+
+  DatabaseMetricsRegistration metrics_;                 //!< De-registration guard for this db's prometheus metrics
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};      //!< Thread pool for after commit triggers

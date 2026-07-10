@@ -20,7 +20,7 @@ class StandaloneMonitor:
         monitor = StandaloneMonitor(
             host="127.0.0.1",
             port=7687,
-            storage_info=["vertex_count", "edge_count", "memory_res"],
+            storage_info=["vertex_count", "edge_count", "memory_res", "memory_limit"],
             interval=10,
         )
         with monitor:
@@ -47,10 +47,16 @@ class StandaloneMonitor:
         self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=("", ""))
 
     def get_storage_info(self) -> dict[str, Any]:
-        """One-shot: query SHOW STORAGE INFO and return as dict."""
+        """One-shot: query both global and per-DB SHOW STORAGE INFO and return the merged dict.
+
+        Per-DB fields (e.g. vertex_count, edge_count) are scoped to the default
+        database. Per-DB fields take precedence over global ones on key collision.
+        """
         with self._driver.session() as session:
-            result = session.run("SHOW STORAGE INFO;")
-            return {row["storage info"]: row["value"] for row in result}
+            merged: dict[str, Any] = {row["storage info"]: row["value"] for row in session.run("SHOW STORAGE INFO;")}
+            for row in session.run("SHOW STORAGE INFO ON CURRENT DATABASE;"):
+                merged[row["storage info"]] = row["value"]
+            return merged
 
     def log_storage_info(self, label: str = "") -> dict[str, Any]:
         """Fetch and print storage info. Returns the info dict."""

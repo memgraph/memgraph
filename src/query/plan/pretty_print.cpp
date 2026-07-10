@@ -176,6 +176,13 @@ json ToJson(const Aggregate::Element &elem, const DbAccessor &dba) {
     if (elem.arg2) {
       json["relationships"] = ToJson(elem.arg2, dba);
     }
+  } else if (elem.op == Aggregation::Op::DERIVE) {
+    if (elem.arg1) {
+      json["path"] = ToJson(elem.arg1, dba);
+    }
+    if (elem.arg2) {
+      json["options"] = ToJson(elem.arg2, dba);
+    }
   } else if (elem.op == Aggregation::Op::COLLECT_MAP) {
     if (elem.arg1) {
       json["value"] = ToJson(elem.arg1, dba);
@@ -668,6 +675,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllById &op) {
   json self;
   self["name"] = "ScanAllById";
   self["output_symbol"] = ToJson(op.output_symbol_);
+  self["expects_string_id"] = op.expects_string_id_;
   op.input_->Accept(*this);
   self["input"] = PopOutput();
   output_ = std::move(self);
@@ -790,6 +798,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeId &op) {
   json self;
   self["name"] = "ScanAllByEdgeId";
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
+  self["expects_string_id"] = op.expects_string_id_;
   op.input_->Accept(*this);
   self["input"] = PopOutput();
   output_ = std::move(self);

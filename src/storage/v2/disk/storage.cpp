@@ -53,7 +53,6 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -63,10 +62,6 @@
 #include "utils/small_vector.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
-
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -229,10 +224,10 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 
 }  // namespace
 
-DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
+DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator, metrics::DatabaseMetricHandles metric_handles,
                          std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
                          memory::ArenaPool *db_arena_pool, utils::MemoryTracker *db_embedding_memory_tracker)
-    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator), db_arena_pool,
+    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator), metric_handles, db_arena_pool,
               db_embedding_memory_tracker, std::move(database_protector_factory)),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
@@ -947,9 +942,8 @@ StorageInfo DiskStorage::GetBaseInfo() {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_res = utils::GetMemoryRES();
-  memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
-  info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
-  info.unreleased_delta_objects = memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects);
+  info.peak_memory_res = metrics::Metrics().UpdateAndGetPeakMemoryRes(info.memory_res);
+  info.unreleased_delta_objects = static_cast<uint64_t>(metric_handles_.unreleased_delta_objects.Value());
 
   info.disk_usage = GetDiskSpaceUsage();
   return info;
@@ -2187,7 +2181,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
+  storage_->metric_handles_.active_label_indices.Increment();
   return {};
 }
 
@@ -2225,7 +2219,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Crea
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  storage_->metric_handles_.active_label_property_indices.Increment();
   return {};
 }
 
@@ -2262,7 +2256,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
+  storage_->metric_handles_.active_label_indices.Decrement();
   return {};
 }
 
@@ -2296,7 +2290,7 @@ std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::Drop
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  storage_->metric_handles_.active_label_property_indices.Decrement();
   return {};
 }
 
@@ -2508,7 +2502,9 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           std::move(active_indices),
           std::move(active_constraints),
           {},
-          std::nullopt};
+          std::nullopt,
+          0,
+          metric_handles_.unreleased_delta_objects};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }

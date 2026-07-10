@@ -1,0 +1,385 @@
+name: Promote Daily Docker Images
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Build date (YYYYMMDD)"
+        required: true
+        type: string
+      arch:
+        description: "Architecture(s) to promote"
+        required: true
+        type: choice
+        options:
+          - amd
+          - arm
+          - both
+        default: both
+      mg_release:
+        description: "Memgraph: Release"
+        type: boolean
+        default: false
+      mg_relwithdebinfo:
+        description: "Memgraph: RelWithDebInfo"
+        type: boolean
+        default: false
+      mg_release_malloc:
+        description: "Memgraph: Release + malloc"
+        type: boolean
+        default: false
+      mg_relwithdebinfo_malloc:
+        description: "Memgraph: RelWithDebInfo + malloc"
+        type: boolean
+        default: false
+      mage_release:
+        description: "MAGE: Release"
+        type: boolean
+        default: false
+      mage_relwithdebinfo:
+        description: "MAGE: RelWithDebInfo"
+        type: boolean
+        default: false
+      mage_release_malloc:
+        description: "MAGE: Release + malloc"
+        type: boolean
+        default: false
+      mage_relwithdebinfo_malloc:
+        description: "MAGE: RelWithDebInfo + malloc"
+        type: boolean
+        default: false
+      mage_cuda:
+        description: "MAGE: CUDA"
+        type: boolean
+        default: false
+      mage_cugraph:
+        description: "MAGE: cuGraph"
+        type: boolean
+        default: false
+      test:
+        description: "Push to test repos (memgraph-release-test, memgraph-mage-release-test)"
+        type: boolean
+        default: false
+      mock:
+        description: "Pull from mock daily build (daily-build/memgraph_mock, daily-build/mage_mock) — must be combined with test=true"
+        type: boolean
+        default: false
+
+env:
+  S3_REGION: eu-west-1
+  S3_BUCKET: deps.memgraph.io
+  DATE: ${{ inputs.date }}
+  MOCK: ${{ inputs.mock }}
+  DOCKER_REPO_MG: memgraph/memgraph${{ inputs.test && '-release-test' || '' }}
+  DOCKER_REPO_MAGE: memgraph/memgraph-mage${{ inputs.test && '-release-test' || '' }}
+
+jobs:
+  SetupMatrices:
+    runs-on: ubuntu-latest
+    outputs:
+      mg_matrix: ${{ steps.build.outputs.mg_matrix }}
+      mage_matrix: ${{ steps.build.outputs.mage_matrix }}
+      mg_has_variants: ${{ steps.build.outputs.mg_has_variants }}
+      mage_has_variants: ${{ steps.build.outputs.mage_has_variants }}
+    steps:
+      - name: Validate "mock" only with "test"
+        if: inputs.mock && ! inputs.test
+        run: |
+          echo "Must not run 'mock=true' without setting 'test=true'"
+          exit 1
+
+      - name: Validate date format
+        run: |
+          if [[ ! "${{ inputs.date }}" =~ ^[0-9]{8}$ ]]; then
+            echo "date must be in YYYYMMDD format, got: ${{ inputs.date }}"
+            exit 1
+          fi
+
+      - name: Build promotion matrices
+        id: build
+        run: |
+          mg='[]'
+          if [[ "${{ inputs.mg_release }}" == "true" ]]; then
+            mg=$(jq -c '. += [{"variant":"Release","tag_suffix":"","arch_key_amd":"x86_64","arch_key_arm":"arm64"}]' <<<"$mg")
+          fi
+          if [[ "${{ inputs.mg_relwithdebinfo }}" == "true" ]]; then
+            mg=$(jq -c '. += [{"variant":"RelWithDebInfo","tag_suffix":"-relwithdebinfo","arch_key_amd":"x86_64-relwithdebinfo","arch_key_arm":"arm64-relwithdebinfo"}]' <<<"$mg")
+          fi
+          if [[ "${{ inputs.mg_release_malloc }}" == "true" ]]; then
+            mg=$(jq -c '. += [{"variant":"Release-malloc","tag_suffix":"-malloc","arch_key_amd":"x86_64-malloc","arch_key_arm":"arm64-malloc"}]' <<<"$mg")
+          fi
+          if [[ "${{ inputs.mg_relwithdebinfo_malloc }}" == "true" ]]; then
+            mg=$(jq -c '. += [{"variant":"RelWithDebInfo-malloc","tag_suffix":"-relwithdebinfo-malloc","arch_key_amd":"x86_64-relwithdebinfo-malloc","arch_key_arm":"arm64-relwithdebinfo-malloc"}]' <<<"$mg")
+          fi
+
+          mage='[]'
+          if [[ "${{ inputs.mage_release }}" == "true" ]]; then
+            mage=$(jq -c '. += [{"variant":"Release","tag_suffix":"","arch_key_amd":"x86_64","arch_key_arm":"arm64"}]' <<<"$mage")
+          fi
+          if [[ "${{ inputs.mage_relwithdebinfo }}" == "true" ]]; then
+            mage=$(jq -c '. += [{"variant":"RelWithDebInfo","tag_suffix":"-relwithdebinfo","arch_key_amd":"x86_64-relwithdebinfo","arch_key_arm":"arm64-relwithdebinfo"}]' <<<"$mage")
+          fi
+          if [[ "${{ inputs.mage_release_malloc }}" == "true" ]]; then
+            mage=$(jq -c '. += [{"variant":"Release-malloc","tag_suffix":"-malloc","arch_key_amd":"x86_64-malloc","arch_key_arm":null}]' <<<"$mage")
+          fi
+          if [[ "${{ inputs.mage_relwithdebinfo_malloc }}" == "true" ]]; then
+            mage=$(jq -c '. += [{"variant":"RelWithDebInfo-malloc","tag_suffix":"-relwithdebinfo-malloc","arch_key_amd":"x86_64-relwithdebinfo-malloc","arch_key_arm":"arm64-relwithdebinfo-malloc"}]' <<<"$mage")
+          fi
+          if [[ "${{ inputs.mage_cuda }}" == "true" ]]; then
+            mage=$(jq -c '. += [{"variant":"CUDA","tag_suffix":"-relwithdebinfo-cuda","arch_key_amd":"x86_64-relwithdebinfo-cuda","arch_key_arm":null}]' <<<"$mage")
+          fi
+          if [[ "${{ inputs.mage_cugraph }}" == "true" ]]; then
+            mage=$(jq -c '. += [{"variant":"cuGraph","tag_suffix":"-relwithdebinfo-cugraph","arch_key_amd":"x86_64-relwithdebinfo-cugraph","arch_key_arm":null}]' <<<"$mage")
+          fi
+
+          echo "Memgraph matrix: $mg"
+          echo "MAGE matrix: $mage"
+
+          echo "mg_matrix={\"include\":$mg}" >> $GITHUB_OUTPUT
+          echo "mage_matrix={\"include\":$mage}" >> $GITHUB_OUTPUT
+          [[ "$mg" == "[]" ]] && echo "mg_has_variants=false" >> $GITHUB_OUTPUT || echo "mg_has_variants=true" >> $GITHUB_OUTPUT
+          [[ "$mage" == "[]" ]] && echo "mage_has_variants=false" >> $GITHUB_OUTPUT || echo "mage_has_variants=true" >> $GITHUB_OUTPUT
+
+  PromoteMemgraph:
+    needs: SetupMatrices
+    if: needs.SetupMatrices.outputs.mg_has_variants == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.SetupMatrices.outputs.mg_matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_AK_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SAK }}
+          aws-region: ${{ env.S3_REGION }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get DockerHub token
+        run: |
+          dockerhub_token=$(curl -s -H "Content-Type: application/json" -X POST \
+            -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' \
+            https://hub.docker.com/v2/users/login/ | jq -r .token)
+          echo "::add-mask::$dockerhub_token"
+          echo "dockerhub_token=$dockerhub_token" >> $GITHUB_ENV
+
+      - name: Resolve S3 paths
+        run: |
+          python3 tools/ci/resolve_daily_image_s3_paths.py memgraph \
+            --date "$DATE" \
+            --arch-key-amd "${{ matrix.arch_key_amd }}" \
+            --arch-key-arm "${{ matrix.arch_key_arm }}" \
+            --bucket "$S3_BUCKET" \
+            ${{ inputs.mock && '--mock' || '' }} \
+            | tee -a "$GITHUB_ENV"
+
+      - name: Set tag names
+        run: |
+          IMAGE_TAG="${DATE}${{ matrix.tag_suffix }}"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "IMAGE_TAG_AMD=${IMAGE_TAG}-amd64" >> $GITHUB_ENV
+          echo "IMAGE_TAG_ARM=${IMAGE_TAG}-arm64" >> $GITHUB_ENV
+          echo "RELEASE_IMAGE=${DOCKER_REPO_MG}:${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "RELEASE_IMAGE_AMD=${DOCKER_REPO_MG}:${IMAGE_TAG}-amd64" >> $GITHUB_ENV
+          echo "RELEASE_IMAGE_ARM=${DOCKER_REPO_MG}:${IMAGE_TAG}-arm64" >> $GITHUB_ENV
+
+      - name: Check that requested daily images exist
+        run: |
+          want_amd=false; want_arm=false
+          [[ "${{ inputs.arch }}" == "amd" || "${{ inputs.arch }}" == "both" ]] && want_amd=true
+          [[ "${{ inputs.arch }}" == "arm" || "${{ inputs.arch }}" == "both" ]] && want_arm=true
+          if [[ "$want_amd" == "true" ]]; then
+            if [[ -z "$s3_path_amd" ]] || ! aws s3 ls "$s3_path_amd" &> /dev/null; then
+              echo "AMD daily image for ${{ matrix.variant }} not found (looked up arch key '${{ matrix.arch_key_amd }}')"
+              exit 1
+            fi
+          fi
+          if [[ "$want_arm" == "true" ]]; then
+            if [[ -z "$s3_path_arm" ]] || ! aws s3 ls "$s3_path_arm" &> /dev/null; then
+              echo "ARM daily image for ${{ matrix.variant }} not found (looked up arch key '${{ matrix.arch_key_arm }}')"
+              exit 1
+            fi
+          fi
+
+      - name: Promote daily image to Docker Hub
+        run: |
+          push_amd=false; push_arm=false
+          [[ "${{ inputs.arch }}" == "amd" || "${{ inputs.arch }}" == "both" ]] && push_amd=true
+          [[ "${{ inputs.arch }}" == "arm" || "${{ inputs.arch }}" == "both" ]] && push_arm=true
+
+          if [[ "$push_arm" == "true" ]]; then
+            echo "Loading arm64 image from $s3_path_arm ..."
+            loaded=$(aws s3 cp "$s3_path_arm" - | docker load | sed -n 's/^Loaded image: //p' | head -n1)
+            echo "Loaded as: $loaded"
+            docker tag "$loaded" "$RELEASE_IMAGE_ARM"
+            docker push "$RELEASE_IMAGE_ARM"
+          fi
+
+          if [[ "$push_amd" == "true" ]]; then
+            echo "Loading amd64 image from $s3_path_amd ..."
+            loaded=$(aws s3 cp "$s3_path_amd" - | docker load | sed -n 's/^Loaded image: //p' | head -n1)
+            echo "Loaded as: $loaded"
+            docker tag "$loaded" "$RELEASE_IMAGE_AMD"
+            docker push "$RELEASE_IMAGE_AMD"
+          fi
+
+          manifest_args=""
+          [[ "$push_amd" == "true" ]] && manifest_args="$manifest_args --amend $RELEASE_IMAGE_AMD"
+          [[ "$push_arm" == "true" ]] && manifest_args="$manifest_args --amend $RELEASE_IMAGE_ARM"
+          docker manifest create "$RELEASE_IMAGE" $manifest_args
+          docker manifest push "$RELEASE_IMAGE"
+          echo "Successfully published $RELEASE_IMAGE to Docker Hub!"
+
+      - name: Clean up temporary per-arch tags
+        run: |
+          sleep 5
+          if [[ "${{ inputs.arch }}" == "amd" || "${{ inputs.arch }}" == "both" ]]; then
+            echo "Deleting temporary image $IMAGE_TAG_AMD"
+            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" \
+              "https://hub.docker.com/v2/repositories/${DOCKER_REPO_MG}/tags/${IMAGE_TAG_AMD}/"
+          fi
+          if [[ "${{ inputs.arch }}" == "arm" || "${{ inputs.arch }}" == "both" ]]; then
+            echo "Deleting temporary image $IMAGE_TAG_ARM"
+            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" \
+              "https://hub.docker.com/v2/repositories/${DOCKER_REPO_MG}/tags/${IMAGE_TAG_ARM}/"
+          fi
+
+  PromoteMage:
+    needs: SetupMatrices
+    if: needs.SetupMatrices.outputs.mage_has_variants == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.SetupMatrices.outputs.mage_matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_AK_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SAK }}
+          aws-region: ${{ env.S3_REGION }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get DockerHub token
+        run: |
+          dockerhub_token=$(curl -s -H "Content-Type: application/json" -X POST \
+            -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' \
+            https://hub.docker.com/v2/users/login/ | jq -r .token)
+          echo "::add-mask::$dockerhub_token"
+          echo "dockerhub_token=$dockerhub_token" >> $GITHUB_ENV
+
+      - name: Resolve S3 paths
+        run: |
+          python3 tools/ci/resolve_daily_image_s3_paths.py mage \
+            --date "$DATE" \
+            --arch-key-amd "${{ matrix.arch_key_amd }}" \
+            --arch-key-arm "${{ matrix.arch_key_arm }}" \
+            --bucket "$S3_BUCKET" \
+            ${{ inputs.mock && '--mock' || '' }} \
+            | tee -a "$GITHUB_ENV"
+
+      - name: Set tag names
+        run: |
+          IMAGE_TAG="${DATE}${{ matrix.tag_suffix }}"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "IMAGE_TAG_AMD=${IMAGE_TAG}-amd64" >> $GITHUB_ENV
+          echo "IMAGE_TAG_ARM=${IMAGE_TAG}-arm64" >> $GITHUB_ENV
+          echo "RELEASE_IMAGE=${DOCKER_REPO_MAGE}:${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "RELEASE_IMAGE_AMD=${DOCKER_REPO_MAGE}:${IMAGE_TAG}-amd64" >> $GITHUB_ENV
+          echo "RELEASE_IMAGE_ARM=${DOCKER_REPO_MAGE}:${IMAGE_TAG}-arm64" >> $GITHUB_ENV
+
+      - name: Check that requested daily images exist
+        run: |
+          want_amd=false; want_arm=false
+          [[ "${{ inputs.arch }}" == "amd" || "${{ inputs.arch }}" == "both" ]] && want_amd=true
+          [[ "${{ inputs.arch }}" == "arm" || "${{ inputs.arch }}" == "both" ]] && want_arm=true
+
+          has_amd=false; has_arm=false
+          [[ -n "$s3_path_amd" ]] && aws s3 ls "$s3_path_amd" &> /dev/null && has_amd=true
+          [[ -n "$s3_path_arm" ]] && aws s3 ls "$s3_path_arm" &> /dev/null && has_arm=true
+
+          if [[ "$want_amd" == "true" && "$has_amd" != "true" ]]; then
+            if [[ "${{ inputs.arch }}" == "amd" ]]; then
+              echo "Requested amd-only promotion but no amd image for ${{ matrix.variant }}"
+              exit 1
+            else
+              echo "No amd image for ${{ matrix.variant }} — will skip amd."
+            fi
+          fi
+          if [[ "$want_arm" == "true" && "$has_arm" != "true" ]]; then
+            if [[ "${{ inputs.arch }}" == "arm" ]]; then
+              echo "Requested arm-only promotion but no arm image for ${{ matrix.variant }}"
+              exit 1
+            else
+              echo "No arm image for ${{ matrix.variant }} — will skip arm."
+            fi
+          fi
+
+          push_amd=false; push_arm=false
+          [[ "$want_amd" == "true" && "$has_amd" == "true" ]] && push_amd=true
+          [[ "$want_arm" == "true" && "$has_arm" == "true" ]] && push_arm=true
+          if [[ "$push_amd" != "true" && "$push_arm" != "true" ]]; then
+            echo "No images available to promote for ${{ matrix.variant }}"
+            exit 1
+          fi
+          echo "push_amd=$push_amd" >> $GITHUB_ENV
+          echo "push_arm=$push_arm" >> $GITHUB_ENV
+
+      - name: Promote daily image to Docker Hub
+        run: |
+          if [[ "$push_arm" == "true" ]]; then
+            echo "Loading arm64 image from $s3_path_arm ..."
+            loaded=$(aws s3 cp "$s3_path_arm" - | docker load | sed -n 's/^Loaded image: //p' | head -n1)
+            echo "Loaded as: $loaded"
+            docker tag "$loaded" "$RELEASE_IMAGE_ARM"
+            docker push "$RELEASE_IMAGE_ARM"
+          fi
+
+          if [[ "$push_amd" == "true" ]]; then
+            echo "Loading amd64 image from $s3_path_amd ..."
+            loaded=$(aws s3 cp "$s3_path_amd" - | docker load | sed -n 's/^Loaded image: //p' | head -n1)
+            echo "Loaded as: $loaded"
+            docker tag "$loaded" "$RELEASE_IMAGE_AMD"
+            docker push "$RELEASE_IMAGE_AMD"
+          fi
+
+          manifest_args=""
+          [[ "$push_amd" == "true" ]] && manifest_args="$manifest_args --amend $RELEASE_IMAGE_AMD"
+          [[ "$push_arm" == "true" ]] && manifest_args="$manifest_args --amend $RELEASE_IMAGE_ARM"
+          docker manifest create "$RELEASE_IMAGE" $manifest_args
+          docker manifest push "$RELEASE_IMAGE"
+          echo "Successfully published $RELEASE_IMAGE to Docker Hub!"
+
+      - name: Clean up temporary per-arch tags
+        run: |
+          sleep 5
+          if [[ "$push_amd" == "true" ]]; then
+            echo "Deleting temporary image $IMAGE_TAG_AMD"
+            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" \
+              "https://hub.docker.com/v2/repositories/${DOCKER_REPO_MAGE}/tags/${IMAGE_TAG_AMD}/"
+          fi
+          if [[ "$push_arm" == "true" ]]; then
+            echo "Deleting temporary image $IMAGE_TAG_ARM"
+            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" \
+              "https://hub.docker.com/v2/repositories/${DOCKER_REPO_MAGE}/tags/${IMAGE_TAG_ARM}/"
+          fi

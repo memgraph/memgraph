@@ -73,6 +73,12 @@ def multi_tenant_setup(request):
             session.run("GRANT MATCH, MULTI_DATABASE_USE TO readonly;").consume()
             session.run("GRANT MATCH, CREATE, MULTI_DATABASE_USE TO limited;").consume()
 
+            for role in ["admin", "architect", "user", "limited"]:
+                session.run(f"GRANT READ, SET PROPERTY {{*}} ON NODES CONTAINING LABELS * TO {role};").consume()
+                session.run(f"GRANT READ, SET PROPERTY {{*}} ON EDGES OF TYPE * TO {role};").consume()
+            session.run("GRANT READ {*} ON NODES CONTAINING LABELS * TO readonly;").consume()
+            session.run("GRANT READ {*} ON EDGES OF TYPE * TO readonly;").consume()
+
             # Create databases
             session.run("CREATE DATABASE admin_db;").consume()
             session.run("CREATE DATABASE architect_db;").consume()

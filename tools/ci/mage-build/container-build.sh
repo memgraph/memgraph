@@ -76,3 +76,9 @@ docker exec -i $CONTAINER_NAME bash -c "cd /home/mg/memgraph/mage && ../tools/ci
 
 echo -e "${GREEN_BOLD}Copying compressed query modules${RESET}"
 docker cp $CONTAINER_NAME:/home/mg/mage.tar.gz ./mage/mage.tar.gz
+# mage-debug.tar.gz only exists for split-debug builds
+if docker exec -i $CONTAINER_NAME test -f /home/mg/mage-debug.tar.gz; then
+  docker cp $CONTAINER_NAME:/home/mg/mage-debug.tar.gz ./mage/mage-debug.tar.gz
+else
+  rm -f ./mage/mage-debug.tar.gz
+fi

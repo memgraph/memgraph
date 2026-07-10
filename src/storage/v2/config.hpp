@@ -50,6 +50,7 @@ struct SalientConfig {
     bool enable_schema_info{false};
     bool enable_label_index_auto_creation{false};
     bool enable_edge_type_index_auto_creation{false};
+    bool storage_light_edge{false};
     bool delta_on_identical_property_update{true};
     bool property_store_compression_enabled{false};
     friend bool operator==(const Items &lrh, const Items &rhs) = default;
@@ -80,6 +81,10 @@ struct Config {
     std::filesystem::path root_data_directory{"storage"};  // ROOT DATA DIR for instance not for DB
 
     bool recover_on_startup{false};  // PER INSTANCE SYSTEM FLAG
+
+    // When true, a tenant that fails durability recovery comes up in a broken
+    // state instead of crashing the process. PER INSTANCE SYSTEM FLAG.
+    bool allow_recovery_failure{false};
 
     SnapshotWalMode snapshot_wal_mode{
         SnapshotWalMode::DISABLED};  // PER DATABASE - as at time of initialization; can be changed by
@@ -126,6 +131,8 @@ struct Config {
   bool force_on_disk{false};  // TODO: cleanup.... remove + make the default storage_mode ON_DISK_TRANSACTIONAL if true
 
   bool track_label_counts{false};
+
+  bool register_metrics{true};
 
   friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };

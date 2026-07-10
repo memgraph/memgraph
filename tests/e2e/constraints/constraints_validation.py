@@ -285,7 +285,7 @@ def test_delta_release_on_unique_constraint_error(memgraph):
 
     memgraph.execute("FREE MEMORY;")
 
-    results = list(memgraph.execute_and_fetch("SHOW STORAGE INFO;"))
+    results = list(memgraph.execute_and_fetch("SHOW STORAGE INFO ON CURRENT DATABASE;"))
     unreleased_delta_objects_actual = [x for x in results if x["storage info"] == "unreleased_delta_objects"][0][
         "value"
     ]

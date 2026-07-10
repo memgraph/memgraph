@@ -14,6 +14,7 @@
 
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/include/coordination/data_instance_management_server.hpp"
+#include "flags/general.hpp"
 #include "replication/state.hpp"
 
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
@@ -101,7 +102,7 @@ void DataInstanceManagementServerHandlers::Register(memgraph::coordination::Data
                              uint64_t const request_version,
                              slk::Reader *req_reader,
                              slk::Builder *res_builder) -> void {
-        UpdateDeltasBatchProgressSizeHandler(replication_handler, request_version, req_reader, res_builder);
+        UpdateDataInstanceConfigHandler(replication_handler, request_version, req_reader, res_builder);
       });
 }
 
@@ -193,7 +194,8 @@ auto DataInstanceManagementServerHandlers::DoRegisterReplica(replication::Replic
   auto const converter = [&config](const auto &repl_info_config) {
     return replication::ReplicationClientConfig{.name = repl_info_config.instance_name,
                                                 .mode = repl_info_config.replication_mode,
-                                                .repl_server_endpoint = config.replication_server};
+                                                .repl_server_endpoint = config.replication_server,
+                                                .tls_config = flags::TlsConfigFromClusterFlags()};
   };
 
   if (auto instance_client = replication_handler.RegisterReplica(converter(config)); !instance_client.has_value()) {
@@ -273,10 +275,10 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
     slk::Builder *res_builder) {
   coordination::DemoteMainToReplicaReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-
   // Use localhost as ip for creating ReplicationServer
   const replication::ReplicationServerConfig clients_config{
-      .repl_server = io::network::Endpoint("0.0.0.0", req.replication_client_info_.replication_server.GetPort())};
+      .repl_server = io::network::Endpoint("0.0.0.0", req.replication_client_info_.replication_server.GetPort()),
+      .tls_config = flags::TlsConfigFromClusterFlags()};
 
   if (!replication_handler.SetReplicationRoleReplica(clients_config, req.main_uuid_)) {
     spdlog::error("Demoting main to replica failed.");
@@ -321,7 +323,10 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
     }
   }
 
-  replication_handler.GetReplState()->GetMainRole().writing_enabled_ = true;
+  // Honor the coordinator's intent: writing_enabled is the projection of global_read_only (false while the cluster is
+  // read-only). A v1 coordinator that predates read-only mode is upgraded to writing_enabled = true, preserving the
+  // previous unconditional behavior.
+  replication_handler.GetReplState()->GetMainRole().writing_enabled_ = req.writing_enabled;
 
   coordination::PromoteToMainRes const res{true};
   rpc::SendFinalResponse(res, request_version, res_builder);
@@ -432,7 +437,7 @@ void DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(
   spdlog::info("Enabled writing on main.");
 }
 
-void DataInstanceManagementServerHandlers::UpdateDeltasBatchProgressSizeHandler(
+void DataInstanceManagementServerHandlers::UpdateDataInstanceConfigHandler(
     replication::ReplicationHandler &replication_handler, uint64_t request_version, slk::Reader *req_reader,
     slk::Builder *res_builder) {
   coordination::UpdateDataInstanceConfigReq req;
@@ -440,7 +445,17 @@ void DataInstanceManagementServerHandlers::UpdateDeltasBatchProgressSizeHandler(
 
   {
     auto locked_repl_state = replication_handler.GetReplState();
-    locked_repl_state->UpdateDeltasBatchProgressSize(req.arg_);
+    locked_repl_state->UpdateDeltasBatchProgressSize(req.deltas_batch_progress_size);
+
+    // The writing flag only exists on the main-role state; touching it on a replica would assert. Replicas reject
+    // writes regardless of this flag, so the coordinator's intent is simply ignored there.
+    if (locked_repl_state->IsMain()) {
+      if (req.disable_writing) {
+        locked_repl_state->DisableWritingOnMain();
+      } else {
+        locked_repl_state->EnableWritingOnMain();
+      }
+    }
   }
 
   coordination::UpdateDataInstanceConfigRes const res{true};

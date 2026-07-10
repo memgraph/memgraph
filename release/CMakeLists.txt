@@ -30,8 +30,7 @@ set(CPACK_DEBIAN_PACKAGE_MAINTAINER "tech@memgraph.com (Memgraph Ltd.)")
 set(CPACK_DEBIAN_PACKAGE_SECTION non-free/database)
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE https://memgraph.com)
 set(CPACK_DEBIAN_PACKAGE_VERSION "${MEMGRAPH_VERSION_DEB}")
-set(CPACK_DEBIAN_FILE_NAME "memgraph_${MEMGRAPH_VERSION_DEB}_${MG_ARCH_EXTENSION_DEB}.deb")
-set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+set(CPACK_DEBIAN_MEMGRAPH_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/copyright;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/preinst;"
@@ -62,12 +61,12 @@ endif()
 # RPM specific
 set(CPACK_RPM_PACKAGE_URL https://memgraph.com)
 set(CPACK_RPM_PACKAGE_VERSION "${MEMGRAPH_VERSION_RPM}")
-set(CPACK_RPM_FILE_NAME "memgraph-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
+set(CPACK_RPM_MEMGRAPH_FILE_NAME "memgraph-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
 set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
     /var /var/lib /var/log /etc/logrotate.d
     /lib /lib/systemd /lib/systemd/system /lib/systemd/system/memgraph.service)
-set(CPACK_RPM_PACKAGE_REQUIRES_PRE "shadow-utils")
-set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph.spec.in")
+set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES_PRE "shadow-utils")
+set(CPACK_RPM_MEMGRAPH_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph.spec.in")
 set(CPACK_RPM_PACKAGE_LICENSE "Memgraph License")
 # CPACK deduces dependency to libstdc++ which:
 #   * can't be easily installed on Centos 7 (the one from the toolchain,
@@ -82,11 +81,66 @@ It aims to deliver developers the speed, simplicity and scale required to build
 the next generation of applications driver by real-time connected data.")
 
 # Add `openssl` package to dependencies list. Used to generate SSL certificates.
-# We also depend on `python3` because we embed it in Memgraph.
-set(CPACK_RPM_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, logrotate")
+# We also depend on `python3` because we embed it in Memgraph. `libatomic` is a
+# runtime dependency of the binary; since CPACK_RPM_PACKAGE_AUTOREQ is off
+# (above), soname deps aren't auto-detected and must be listed explicitly.
+set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, logrotate, libatomic")
+
+# When memgraph is built against an explicit Python (currently CentOS Stream 9,
+# where it embeds python 3.12 instead of the distro-default 3.9 — see
+# -DMG_PYTHON_VERSION), require that interpreter's package so the embedded
+# libpython is present and the MAGE %post (which runs python<ver> -m pip) works.
+if(NOT "${MG_PYTHON_VERSION}" STREQUAL "")
+    set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "${CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES}, python${MG_PYTHON_VERSION}")
+endif()
 
 # Configure CPack to build mgconsole using the unified install script
 set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
+
+# Component-based packaging. Produces:
+#   * memgraph_<ver>_<arch>.deb / memgraph-<ver>-1.<arch>.rpm
+#       main package: binary, libstdc++, query modules, configs, systemd unit
+#   * memgraph-debuginfo_<ver>_<arch>.deb / memgraph-debuginfo-<ver>-1.<arch>.rpm
+#       companion: .debug sidecars for memgraph + query modules. Depends on
+#       the main package at the exact matching version. .debug files install
+#       alongside their binaries; gdb resolves them via .gnu_debuglink.
+set(CPACK_COMPONENTS_ALL memgraph debuginfo)
+
+# --- DEB component config ---
+set(CPACK_DEB_COMPONENT_INSTALL ON)
+set(CPACK_DEBIAN_MEMGRAPH_PACKAGE_NAME "memgraph")
+set(CPACK_DEBIAN_MEMGRAPH_FILE_NAME
+    "memgraph_${MEMGRAPH_VERSION_DEB}_${MG_ARCH_EXTENSION_DEB}.deb")
+
+set(CPACK_DEBIAN_DEBUGINFO_PACKAGE_NAME "memgraph-debuginfo")
+set(CPACK_DEBIAN_DEBUGINFO_FILE_NAME
+    "memgraph-debuginfo_${MEMGRAPH_VERSION_DEB}_${MG_ARCH_EXTENSION_DEB}.deb")
+set(CPACK_DEBIAN_DEBUGINFO_PACKAGE_DEPENDS
+    "memgraph (= ${MEMGRAPH_VERSION_DEB})")
+set(CPACK_DEBIAN_DEBUGINFO_PACKAGE_SECTION "debug")
+set(CPACK_DEBIAN_DEBUGINFO_DESCRIPTION
+    "Debug symbols (.debug sidecars) for the matching memgraph package.
+ Install alongside memgraph for symbolicated stack traces; gdb auto-locates
+ each sidecar via .gnu_debuglink next to the corresponding binary.")
+
+# --- RPM component config ---
+set(CPACK_RPM_COMPONENT_INSTALL ON)
+set(CPACK_RPM_MEMGRAPH_PACKAGE_NAME "memgraph")
+set(CPACK_RPM_DEBUGINFO_PACKAGE_NAME "memgraph-debuginfo")
+
+# Both component specs are hand-written. The debuginfo spec disables
+# rpmbuild's brp-strip so our pre-extracted .debug sidecars keep their
+# DWARF; the main spec retains rpmbuild's default postprocessing.
+set(CPACK_RPM_DEBUGINFO_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph-debuginfo.spec.in")
+set(CPACK_RPM_DEBUGINFO_FILE_NAME
+    "memgraph-debuginfo-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
+set(CPACK_RPM_DEBUGINFO_PACKAGE_REQUIRES
+    "memgraph = ${MEMGRAPH_VERSION_RPM}-1")
+set(CPACK_RPM_DEBUGINFO_PACKAGE_AUTOREQ "no")
+set(CPACK_RPM_DEBUGINFO_PACKAGE_SUMMARY
+    "Debug symbols for memgraph")
+set(CPACK_RPM_DEBUGINFO_PACKAGE_DESCRIPTION
+    "Debug symbols (.debug sidecars) for the matching memgraph package.")
 
 # All variables must be set before including.
 include(CPack)

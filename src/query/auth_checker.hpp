@@ -25,9 +25,8 @@
 
 namespace memgraph::query {
 
-class FineGrainedAuthChecker;
-
 class DbAccessor;
+class FineGrainedAuthChecker;
 
 class AuthChecker {
  public:
@@ -38,10 +37,8 @@ class AuthChecker {
 
   virtual std::shared_ptr<QueryUserOrRole> GenEmptyUser() const = 0;
 
-#ifdef MG_ENTERPRISE
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
       const QueryUserOrRole &user, const DbAccessor *db_accessor) const = 0;
-#endif
 
  protected:
   AuthChecker() = default;
@@ -50,7 +47,7 @@ class AuthChecker {
   AuthChecker &operator=(const AuthChecker &) = default;
   AuthChecker &operator=(AuthChecker &&) noexcept = default;
 };
-#ifdef MG_ENTERPRISE
+
 class FineGrainedAuthChecker {
  public:
   virtual ~FineGrainedAuthChecker() = default;
@@ -81,6 +78,34 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool HasUnrestrictedAccessToEdges() const = 0;
 
+  [[nodiscard]] virtual bool HasUnrestrictedAccessToVertexProperties() const = 0;
+
+  [[nodiscard]] virtual bool HasUnrestrictedAccessToEdgeTypeProperties() const = 0;
+
+  [[nodiscard]] bool HasPropertyRestrictions() const {
+    if (!has_property_restrictions_) {
+      has_property_restrictions_ =
+          !HasUnrestrictedAccessToVertexProperties() || !HasUnrestrictedAccessToEdgeTypeProperties();
+    }
+    return *has_property_restrictions_;
+  }
+
+  /// True when a FineGrainedAuthChecker must be attached for correct
+  /// authorization, defined by either per-Label/per-Edge rules, or per-Property
+  /// rules. When false, the checker is redundant as no restrictions to labels,
+  /// edges, or properties are defined for the current user.
+  [[nodiscard]] virtual bool NeedsFineGrainedAuthChecker() const = 0;
+
+  [[nodiscard]] virtual bool HasPropertyPermission(std::span<memgraph::storage::LabelId const> labels,
+                                                   memgraph::storage::PropertyId property,
+                                                   AuthQuery::PropertyPermissionType type) const = 0;
+
+  [[nodiscard]] virtual bool HasPropertyPermission(memgraph::storage::EdgeTypeId const &edge_type,
+                                                   memgraph::storage::PropertyId property,
+                                                   AuthQuery::PropertyPermissionType type) const = 0;
+
+  virtual void UpdateDbAccessor(DbAccessor const * /*dba*/) {}
+
   // Used to make the auth checker thread safe
   // throw if not possible
   virtual void MakeThreadSafe() const = 0;
@@ -92,6 +117,10 @@ class FineGrainedAuthChecker {
   FineGrainedAuthChecker(FineGrainedAuthChecker &&) noexcept = default;
   FineGrainedAuthChecker &operator=(const FineGrainedAuthChecker &) = default;
   FineGrainedAuthChecker &operator=(FineGrainedAuthChecker &&) noexcept = default;
+
+  bool IsPropertyRestrictionsCached() const { return has_property_restrictions_.has_value(); }
+
+  mutable std::optional<bool> has_property_restrictions_;
 };
 
 class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecker {
@@ -132,13 +161,30 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
 
   bool HasUnrestrictedAccessToEdges() const override { return true; }
 
+  bool HasUnrestrictedAccessToVertexProperties() const override { return true; }
+
+  bool HasUnrestrictedAccessToEdgeTypeProperties() const override { return true; }
+
+  bool NeedsFineGrainedAuthChecker() const override { return false; }
+
+  bool HasPropertyPermission(std::span<memgraph::storage::LabelId const> /*labels*/,
+                             memgraph::storage::PropertyId /*property*/,
+                             AuthQuery::PropertyPermissionType /*type*/) const override {
+    return true;
+  }
+
+  bool HasPropertyPermission(memgraph::storage::EdgeTypeId const & /*edge_type*/,
+                             memgraph::storage::PropertyId /*property*/,
+                             AuthQuery::PropertyPermissionType /*type*/) const override {
+    return true;
+  }
+
   void MakeThreadSafe() const override {
     // No-op
   }
 
   bool IsThreadSafe() const override { return true; }
 };
-#endif
 
 class AllowEverythingAuthChecker final : public AuthChecker {
  public:
@@ -173,12 +219,59 @@ class AllowEverythingAuthChecker final : public AuthChecker {
 
   std::shared_ptr<QueryUserOrRole> GenEmptyUser() const override { return std::make_shared<User>(); }
 
-#ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const QueryUserOrRole & /*user*/,
                                                                     const DbAccessor * /*dba*/) const override {
     return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
   }
-#endif
+};
+
+struct CachedFineGrainedAuth {
+  enum class State : uint8_t {
+    EMPTY,            // No auth cached, need to to check licence and FGA
+    NO_LICENSE,       // No enterprise license, so re-evaluate every query
+    NO_RESTRICTIONS,  // Enterprise licensed, no FGA needed, and this is cached
+    ACTIVE,           // Enterprise licensed, FGA active and auth cached
+  };
+
+  std::unique_ptr<FineGrainedAuthChecker> checker;
+  std::string db_name;
+  State state{State::EMPTY};
+
+  FineGrainedAuthChecker const *get() const { return checker.get(); }
+
+  void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
+               std::string current_db) {
+    bool const must_rebuild = state == State::EMPTY || state == State::NO_LICENSE || db_name != current_db;
+
+    if (!must_rebuild) {
+      if (checker) checker->UpdateDbAccessor(dba);
+      return;
+    }
+
+    checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
+
+    if (!checker) {
+      db_name = std::move(current_db);
+      state = State::NO_LICENSE;
+      return;
+    }
+
+    if (!checker->NeedsFineGrainedAuthChecker()) {
+      checker.reset();
+      db_name = std::move(current_db);
+      state = State::NO_RESTRICTIONS;
+      return;
+    }
+
+    db_name = std::move(current_db);
+    state = State::ACTIVE;
+  }
+
+  void Reset() {
+    checker.reset();
+    db_name.clear();
+    state = State::EMPTY;
+  }
 };
 
 }  // namespace memgraph::query

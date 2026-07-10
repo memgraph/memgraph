@@ -20,24 +20,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# check if python environment exists
-create_env=false
 if [ ! -f "env/bin/activate" ]; then
-    create_env=true
-fi
-
-function exit_cleanup() {
-    status=$?
-    deactivate
-    if [ "$create_env" = true ]; then
-        rm -rf env
-    fi
-    exit $status
-}
-
-trap exit_cleanup EXIT ERR
-
-if [ "$create_env" = true ]; then
   echo "Creating python environment"
   python3 -m venv env
 fi

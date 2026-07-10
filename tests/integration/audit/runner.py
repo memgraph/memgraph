@@ -95,6 +95,7 @@ def execute_test(memgraph_binary, tester_binary):
         "--audit-enabled",
         "--log-file=memgraph.log",
         "--log-level=TRACE",
+        "--metrics-format=OpenMetrics",
     ]
 
     # Start the memgraph binary

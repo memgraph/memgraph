@@ -27,9 +27,23 @@
 
 namespace memgraph::license {
 
-enum class LicenseType : uint8_t { ENTERPRISE, OEM, AI_PLATFORM };
+enum class LicenseType : uint8_t {
+  ENTERPRISE = 0,
+  OEM = 1,
+  AI_PLATFORM = 2,
+  OEM_COMMUNITY = 3,
+};
+
+constexpr bool IsEnterpriseTier(LicenseType type) noexcept {
+  return type == LicenseType::ENTERPRISE || type == LicenseType::AI_PLATFORM || type == LicenseType::OEM;
+}
 
 std::string LicenseTypeToString(LicenseType license_type);
+
+inline constexpr std::string_view kLicenseTypeEnterprise = "enterprise";
+inline constexpr std::string_view kLicenseTypeOem = "oem";
+inline constexpr std::string_view kLicenseTypeOemCommunity = "oem_community";
+inline constexpr std::string_view kLicenseTypeAiPlatform = "ai_platform";
 
 struct License {
   License() = default;

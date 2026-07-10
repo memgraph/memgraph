@@ -65,6 +65,11 @@ add_unit_test(bfs_fine_grained
     LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
+add_unit_test(crc_accumulator
+        SOURCES crc_accumulator.cpp
+        LINK_TARGETS mg-utils
+)
+
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils
@@ -99,6 +104,11 @@ add_unit_test(plan_pretty_print
 add_unit_test(query_cost_estimator
     SOURCES query_cost_estimator.cpp
     LINK_TARGETS mg-query
+)
+
+add_unit_test(glue_communication
+    SOURCES glue_communication.cpp
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(query_dump
@@ -171,11 +181,38 @@ add_unit_test(query_plan_read_write_typecheck
     LINK_TARGETS mg-query disk_test_utils
 )
 
-add_unit_test(query_plan_v2_create_set_remove_delete
-    SOURCES query_plan_v2_create_set_remove_delete.cpp
-    LINK_TARGETS mg-query mg-glue disk_test_utils
+# ============================================================================
+# plan_v2 unit tests - Layer 1: Pure algebra (no egraph, no planner)
+# ============================================================================
+add_unit_test(query_plan_v2_variable_set
+    SOURCES query_plan_v2_variable_set.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
 )
 
+add_unit_test(query_plan_v2_algebra
+    SOURCES query_plan_v2_algebra.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 2: egraph -> v1 reconstruction + resolver semantics
+# ============================================================================
+add_unit_test(query_plan_v2_converter
+    SOURCES query_plan_v2_converter.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 3: Cardinality estimation (no full pipeline)
+# ============================================================================
+add_unit_test(query_plan_v2_cardinality
+    SOURCES query_plan_v2_cardinality.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 3: Full extraction pipeline + rewrites
+# ============================================================================
 add_unit_test(query_plan_v2_rewrites
     SOURCES query_plan_v2_rewrites.cpp
     LINK_TARGETS mg-query mg-planner
@@ -184,6 +221,14 @@ add_unit_test(query_plan_v2_rewrites
 add_unit_test(query_plan_v2_pipeline
     SOURCES query_plan_v2_pipeline.cpp
     LINK_TARGETS mg-query mg-planner
+)
+
+# ============================================================================
+# plan_v2 unit tests - Layer 4: End-to-end DML (CREATE/SET/REMOVE/DELETE)
+# ============================================================================
+add_unit_test(query_plan_v2_create_set_remove_delete
+    SOURCES query_plan_v2_create_set_remove_delete.cpp
+    LINK_TARGETS mg-query mg-glue disk_test_utils
 )
 
 add_unit_test(query_pretty_print
@@ -251,6 +296,12 @@ add_unit_test(query_procedure_py_module
 add_unit_test(query_procedures_mgp_graph
     SOURCES query_procedures_mgp_graph.cpp
     LINK_TARGETS mg-query storage_test_utils disk_test_utils
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+)
+
+add_unit_test(query_virtual_graph
+    SOURCES query_virtual_graph.cpp
+    LINK_TARGETS mg-query
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
 
@@ -363,6 +414,24 @@ add_unit_test(utils_algorithm
     LINK_TARGETS mg-utils
 )
 
+# Hot/cold tenants: gatekeeper 4-state lifecycle machine
+add_unit_test(hot_cold_gatekeeper
+    SOURCES hot_cold_gatekeeper.cpp
+    LINK_TARGETS mg-utils
+)
+
+# Hot/cold tenants: node-local suspend engine (HOT -> COLD teardown)
+add_unit_test(hot_cold_suspend
+    SOURCES hot_cold_suspend.cpp
+    LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+)
+
+# Hot/cold tenants: node-local resume engine (COLD -> HOT, single-flight)
+add_unit_test(hot_cold_resume
+    SOURCES hot_cold_resume.cpp
+    LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+)
+
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
@@ -385,18 +454,23 @@ add_unit_test(utils_priority_thread_pool
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_epoch_tracker
+    SOURCES utils_epoch_tracker.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_exceptions
     SOURCES utils_exceptions.cpp
     LINK_TARGETS mg-utils
 )
 
-add_unit_test(utils_histogram
-    SOURCES utils_histogram.cpp
-    LINK_TARGETS mg-utils mg-events
-)
-
 add_unit_test(utils_file
     SOURCES utils_file.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(utils_stat
+    SOURCES utils_stat.cpp
     LINK_TARGETS mg-utils
 )
 
@@ -678,6 +752,11 @@ add_unit_test(storage_v2_edge_inmemory
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_light_edges
+    SOURCES storage_v2_light_edges.cpp
+    LINK_TARGETS mg::storage mg-dbms
+)
+
 add_unit_test(storage_v2_edge_ondisk
     SOURCES storage_v2_edge_ondisk.cpp
     LINK_TARGETS mg::storage disk_test_utils
@@ -759,6 +838,40 @@ add_unit_test(storage_v2_schema_info
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_config
+    SOURCES storage_v2_config.cpp
+    LINK_TARGETS mg::storage
+)
+
+add_unit_test(replication_server
+    SOURCES replication_server.cpp
+    LINK_TARGETS mg::storage Boost::filesystem
+)
+
+add_custom_target(memgraph__unit__tls_certs_dir ALL
+     COMMAND ${CMAKE_COMMAND} -E copy_directory
+     ${CMAKE_CURRENT_SOURCE_DIR}/tls_certs
+     ${CMAKE_CURRENT_BINARY_DIR}/tls_certs
+     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tls_certs)
+ add_dependencies(memgraph__unit memgraph__unit__tls_certs_dir)
+ add_dependencies(${test_unit_prefix}replication_server memgraph__unit__tls_certs_dir)
+
+add_unit_test(cluster_client_ssl
+    SOURCES cluster_client_ssl.cpp
+    LINK_TARGETS mg-communication mg::io mg::utils Boost::filesystem
+)
+add_dependencies(${test_unit_prefix}cluster_client_ssl memgraph__unit__tls_certs_dir)
+
+if (MG_ENTERPRISE)
+    add_unit_test(management_servers
+        SOURCES management_servers.cpp
+        LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc Boost::filesystem
+    )
+    add_dependencies(${test_unit_prefix}management_servers memgraph__unit__tls_certs_dir)
+endif ()
+
+
+
 add_unit_test(replication_persistence_helper
     SOURCES replication_persistence_helper.cpp
     LINK_TARGETS mg::storage mg-repl_coord_glue
@@ -815,11 +928,13 @@ if (MG_ENTERPRISE)
         LINK_TARGETS mg-auth mg-license Boost::filesystem
     )
 
-    add_custom_target(memgraph__unit__auth_kvstore_dir ALL
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore
-        ${CMAKE_CURRENT_BINARY_DIR}/auth_kvstore
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore)
+    file(GLOB _auth_kvstore_files "${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore/*")
+    mg_add_stamped_custom_target(memgraph__unit__auth_kvstore_dir ALL
+        STAMP_DIR ${CMAKE_CURRENT_BINARY_DIR}
+        COMMANDS COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore
+            ${CMAKE_CURRENT_BINARY_DIR}/auth_kvstore
+        DEPENDS ${_auth_kvstore_files})
     add_dependencies(memgraph__unit memgraph__unit__auth_kvstore_dir)
     add_dependencies(${test_unit_prefix}auth memgraph__unit__auth_kvstore_dir)
 endif ()
@@ -858,11 +973,18 @@ if (MG_ENTERPRISE)
         SOURCES rpc_timeouts.cpp
         LINK_TARGETS mg-rpc mg-coordination mg-replication mg-repl_coord_glue rpc_messages
     )
+    add_dependencies(${test_unit_prefix}rpc_timeouts memgraph__unit__tls_certs_dir)
 endif ()
 
 # Test rpc-in-progress
 add_unit_test(rpc_in_progress
     SOURCES rpc_in_progress.cpp
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+)
+
+# Test rpc file framing (receive-buffer duplicate-file bug)
+add_unit_test(rpc_file_framing
+    SOURCES rpc_file_framing.cpp
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
@@ -886,6 +1008,11 @@ add_unit_test(snapshot_progress
 add_unit_test(rpc_versioning
     SOURCES rpc_versioning.cpp
     LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc rpc_messages
+)
+
+add_unit_test(replication_state_writing
+    SOURCES replication_state_writing.cpp
+    LINK_TARGETS mg-replication mg-repl_coord_glue
 )
 
 # Test websocket
@@ -936,6 +1063,11 @@ add_unit_test(query_hint_provider
 add_unit_test(counter
     SOURCES counter.cpp
     LINK_TARGETS mg-utils
+)
+
+add_unit_test(prometheus_metrics
+    SOURCES prometheus_metrics.cpp
+    LINK_TARGETS mg-metrics mg-dbms disk_test_utils
 )
 
 # Test coordination
@@ -1006,6 +1138,16 @@ if (MG_ENTERPRISE)
 
 endif ()
 
+# Test coordinator global_read_only SET/SHOW setting path
+if (MG_ENTERPRISE)
+    add_unit_test(coordinator_global_read_only_setting
+        SOURCES coordinator_global_read_only_setting.cpp
+        LINK_TARGETS gflags mg-coordination mg-repl_coord_glue
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+    )
+
+endif ()
+
 # Test coordinator env flag handler
 if (MG_ENTERPRISE)
     add_unit_test(coordinator_env_flag_handler
@@ -1056,6 +1198,7 @@ if (MG_ENTERPRISE)
         memgraph__unit__coordinator_state_manager
         memgraph__unit__coordinator_log_store
         memgraph__unit__coordinator_raft_state
+        memgraph__unit__coordinator_global_read_only_setting
         memgraph__unit__coordinator_env_flag_handler
         memgraph__unit__coordinator_instance_context
         memgraph__unit__coordinator_instance_aux

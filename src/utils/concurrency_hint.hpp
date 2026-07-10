@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <thread>
@@ -25,7 +26,9 @@ inline void SetNumWorkers(std::size_t n) { global_num_workers.store(n, std::memo
 
 inline auto GetNumWorkers() -> std::size_t {
   auto n = global_num_workers.load(std::memory_order_acquire);
-  return n > 0 ? n : std::thread::hardware_concurrency();
+  if (n > 0) return n;
+  // hardware_concurrency() may return 0 in restricted environments (cgroups, sandboxes).
+  return std::max<std::size_t>(std::thread::hardware_concurrency(), 1);
 }
 
 }  // namespace memgraph::utils

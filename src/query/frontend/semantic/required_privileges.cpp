@@ -164,6 +164,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
           AddPrivilege(AuthQuery::Privilege::TRANSACTION_MANAGEMENT);
         }
         break;
+      case MultiDatabaseQuery::Action::SUSPEND:
+      case MultiDatabaseQuery::Action::RESUME:
+        AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
+        break;
     }
   }
 
@@ -189,7 +193,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(AlterEnumUpdateValueQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
 
-  void Visit(ReloadSSLQuery & /*reload_ssl_query*/) override { /* no privilege needed to reload SSL */ }
+  void Visit(ReloadSSLQuery & /*reload_ssl_query*/) override { AddPrivilege(AuthQuery::Privilege::RELOAD_TLS); }
 
   void Visit(ShowMemoryInfoQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 
@@ -207,6 +211,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(ShowSchemaInfoQuery & /*schema_info_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 
   void Visit(SessionTraceQuery & /*session_trace_query*/) override {}
+
+  void Visit(SessionSettingQuery & /*session_setting_query*/) override {}
 
   void Visit(DescriptionQuery & /*description_query*/) override {
     AddPrivilege(AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS);

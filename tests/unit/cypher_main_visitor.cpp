@@ -924,6 +924,84 @@ TEST_P(CypherMainVisitorTest, IsNotNull) {
   CheckRWType(query, kRead);
 }
 
+TEST_P(CypherMainVisitorTest, IsNullBindsLooserThanArithmetic) {
+  // `IS NULL` applies to the whole arithmetic expression, not just its
+  // right-most operand. `(null + 1) * 1 IS NULL` parses as
+  // `((null + 1) * 1) IS NULL`, i.e. IsNullOperator wrapping the
+  // MultiplicationOperator, not MultiplicationOperator wrapping IsNullOperator.
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN (null + 1) * 1 IS NULL"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  auto *is_null = dynamic_cast<IsNullOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(is_null);
+  auto *mult = dynamic_cast<MultiplicationOperator *>(is_null->expression_);
+  ASSERT_TRUE(mult);
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, IsNullBindsLooserThanAddition) {
+  // `1 + 2 IS NULL` must parse as `(1 + 2) IS NULL`.
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 1 + 2 IS NULL"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  auto *is_null = dynamic_cast<IsNullOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(is_null);
+  auto *add = dynamic_cast<AdditionOperator *>(is_null->expression_);
+  ASSERT_TRUE(add);
+  ast_generator.CheckLiteral(add->expression1_, 1);
+  ast_generator.CheckLiteral(add->expression2_, 2);
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, ComparisonBindsLooserThanIsNull) {
+  // Comparison is looser than IS NULL: `1 = 2 IS NULL` parses as
+  // `1 = (2 IS NULL)`, so EqualOperator wraps IsNullOperator on its right side.
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 1 = 2 IS NULL"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  auto *eq = dynamic_cast<EqualOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(eq);
+  ast_generator.CheckLiteral(eq->expression1_, 1);
+  auto *is_null = dynamic_cast<IsNullOperator *>(eq->expression2_);
+  ASSERT_TRUE(is_null);
+  ast_generator.CheckLiteral(is_null->expression_, 2);
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, StringPredicateOperandsBindArithmetic) {
+  // Both sides of STARTS WITH bind the full arithmetic expression:
+  // `'a' + 'b' STARTS WITH 'a' + 'c'` -> startsWith(('a'+'b'), ('a'+'c')).
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 'a' + 'b' STARTS WITH 'a' + 'c'"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  auto *function = dynamic_cast<Function *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(function);
+  ASSERT_EQ(function->arguments_.size(), 2U);
+  ASSERT_TRUE(dynamic_cast<AdditionOperator *>(function->arguments_[0]));
+  ASSERT_TRUE(dynamic_cast<AdditionOperator *>(function->arguments_[1]));
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, InRightOperandBindsArithmetic) {
+  // The right operand of IN binds the full arithmetic expression:
+  // `1 IN [2] + [1]` -> 1 IN ([2] + [1]).
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 1 IN [2] + [1]"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  auto *in_list = dynamic_cast<InListOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(in_list);
+  ast_generator.CheckLiteral(in_list->expression1_, 1);
+  ASSERT_TRUE(dynamic_cast<AdditionOperator *>(in_list->expression2_));
+  CheckRWType(query, kRead);
+}
+
 TEST_P(CypherMainVisitorTest, NotOperator) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN not true"));
@@ -2802,6 +2880,31 @@ struct AuthQueryChecker {
     return *this;
   }
 
+  AuthQueryChecker &WithPropertyPermissions(std::vector<std::string> property_permissions) {
+    property_permissions_ = std::move(property_permissions);
+    return *this;
+  }
+
+  AuthQueryChecker &WithPropertyEntityNames(std::vector<std::string> names) {
+    property_entity_names_ = std::move(names);
+    return *this;
+  }
+
+  AuthQueryChecker &WithPropertyEntityKind(AuthQuery::PropertyEntityKind v) {
+    property_entity_kind_ = v;
+    return *this;
+  }
+
+  AuthQueryChecker &WithPropertyMatchingMode(AuthQuery::LabelMatchingMode m) {
+    property_matching_mode_ = m;
+    return *this;
+  }
+
+  AuthQueryChecker &WithPropertyPermissionTypes(AuthQuery::PropertyPermissionType types) {
+    property_permission_types_ = types;
+    return *this;
+  }
+
   void Check() const {
     auto *q = dynamic_cast<AuthQuery *>(ast_generator_->ParseQuery(input_));
     ASSERT_TRUE(q);
@@ -2820,6 +2923,11 @@ struct AuthQueryChecker {
     if (role_databases_) {
       EXPECT_EQ(q->role_databases_, *role_databases_);
     }
+    EXPECT_EQ(q->property_permissions_, property_permissions_);
+    EXPECT_EQ(q->property_entity_names_, property_entity_names_);
+    EXPECT_EQ(q->property_entity_kind_, property_entity_kind_);
+    EXPECT_EQ(q->property_matching_mode_, property_matching_mode_);
+    EXPECT_EQ(q->property_permission_types_, property_permission_types_);
   }
 
  private:
@@ -2835,6 +2943,11 @@ struct AuthQueryChecker {
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges_;
   std::vector<AuthQuery::LabelMatchingMode> label_matching_modes_;
   std::optional<std::unordered_set<std::string>> role_databases_;
+  std::vector<std::string> property_permissions_;
+  std::vector<std::string> property_entity_names_;
+  AuthQuery::PropertyEntityKind property_entity_kind_{AuthQuery::PropertyEntityKind::NODE};
+  AuthQuery::LabelMatchingMode property_matching_mode_{AuthQuery::LabelMatchingMode::ANY};
+  AuthQuery::PropertyPermissionType property_permission_types_{AuthQuery::PropertyPermissionType::NONE};
 };
 
 TEST_P(CypherMainVisitorTest, UserOrRoleName) {
@@ -4410,6 +4523,236 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
                SemanticException);
 }
 
+TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {
+  auto &ast_generator = *GetParam();
+  auto const kRead = AuthQuery::PropertyPermissionType::READ;
+
+  // GRANT READ with single property on nodes
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {ssn} ON NODES CONTAINING LABELS :Employee TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"ssn"})
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
+      .WithPropertyPermissionTypes(kRead)
+      .Check();
+
+  // GRANT READ with multiple properties on nodes
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {ssn, salary, dob} ON NODES CONTAINING LABELS :Employee TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"ssn", "salary", "dob"})
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
+      .WithPropertyPermissionTypes(kRead)
+      .Check();
+
+  // GRANT READ with wildcard properties on nodes
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {*} ON NODES CONTAINING LABELS * TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"*"})
+      .WithPropertyEntityNames({"*"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
+      .WithPropertyPermissionTypes(kRead)
+      .Check();
+
+  // GRANT READ with properties on edges
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {amount, currency} ON EDGES OF TYPE :PAID TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"amount", "currency"})
+      .WithPropertyEntityNames({"PAID"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::EDGE)
+      .WithPropertyPermissionTypes(kRead)
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, GrantPropertyMultiLabelMatchingModes) {
+  auto &ast_generator = *GetParam();
+  auto const kRead = AuthQuery::PropertyPermissionType::READ;
+
+  // Multi-label MATCHING ANY (default)
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {ssn} ON NODES CONTAINING LABELS :A, :B MATCHING ANY TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"ssn"})
+      .WithPropertyEntityNames({"A", "B"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
+      .WithPropertyMatchingMode(AuthQuery::LabelMatchingMode::ANY)
+      .WithPropertyPermissionTypes(kRead)
+      .Check();
+
+  // Multi-label MATCHING EXACTLY
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ {ssn} ON NODES CONTAINING LABELS :A, :B MATCHING EXACTLY TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"ssn"})
+      .WithPropertyEntityNames({"A", "B"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
+      .WithPropertyMatchingMode(AuthQuery::LabelMatchingMode::EXACTLY)
+      .WithPropertyPermissionTypes(kRead)
+      .Check();
+
+  // Wildcard with MATCHING clause is rejected
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {ssn} ON NODES CONTAINING LABELS * MATCHING ANY TO user"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {ssn} ON NODES CONTAINING LABELS * MATCHING EXACTLY TO user"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, DenyPropertyReadPrivilege) {
+  auto &ast_generator = *GetParam();
+  auto const kRead = AuthQuery::PropertyPermissionType::READ;
+
+  AuthQueryChecker(&ast_generator,
+                   "DENY READ {ssn} ON NODES CONTAINING LABELS :Employee TO user",
+                   AuthQuery::Action::DENY_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"ssn"})
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
+      .WithPropertyPermissionTypes(kRead)
+      .Check();
+
+  AuthQueryChecker(
+      &ast_generator, "DENY READ {amount} ON EDGES OF TYPE :PAID TO user", AuthQuery::Action::DENY_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"amount"})
+      .WithPropertyEntityNames({"PAID"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::EDGE)
+      .WithPropertyPermissionTypes(kRead)
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, RevokePropertyReadPrivilege) {
+  auto &ast_generator = *GetParam();
+  auto const kRead = AuthQuery::PropertyPermissionType::READ;
+
+  AuthQueryChecker(&ast_generator,
+                   "REVOKE READ {ssn} ON NODES CONTAINING LABELS :Employee FROM user",
+                   AuthQuery::Action::REVOKE_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"ssn"})
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
+      .WithPropertyPermissionTypes(kRead)
+      .Check();
+
+  AuthQueryChecker(&ast_generator,
+                   "REVOKE READ {amount} ON EDGES OF TYPE :PAID FROM user",
+                   AuthQuery::Action::REVOKE_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"amount"})
+      .WithPropertyEntityNames({"PAID"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::EDGE)
+      .WithPropertyPermissionTypes(kRead)
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, PropertyReadPrivilegeSyntaxErrors) {
+  auto &ast_generator = *GetParam();
+
+  // Empty braces
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {} ON NODES CONTAINING LABELS :Employee TO user"), SyntaxException);
+
+  // Trailing comma in property list
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {ssn,} ON NODES CONTAINING LABELS :Employee TO user"),
+               SyntaxException);
+
+  // Missing closing brace
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ {ssn ON NODES CONTAINING LABELS :Employee TO user"),
+               SyntaxException);
+
+  // Missing opening brace
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT READ ssn} ON NODES CONTAINING LABELS :Employee TO user"),
+               SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, GrantSetPropertyPermission) {
+  auto &ast_generator = *GetParam();
+
+  AuthQueryChecker(&ast_generator,
+                   "GRANT SET PROPERTY {department, title} ON NODES CONTAINING LABELS :Employee TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"department", "title"})
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
+      .WithPropertyPermissionTypes(AuthQuery::PropertyPermissionType::WRITE)
+      .Check();
+
+  AuthQueryChecker(&ast_generator,
+                   "GRANT SET PROPERTY {*} ON EDGES OF TYPE :PAID TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"*"})
+      .WithPropertyEntityNames({"PAID"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::EDGE)
+      .WithPropertyPermissionTypes(AuthQuery::PropertyPermissionType::WRITE)
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, DenySetPropertyPermission) {
+  auto &ast_generator = *GetParam();
+
+  AuthQueryChecker(&ast_generator,
+                   "DENY SET PROPERTY {salary, ssn} ON NODES CONTAINING LABELS :Employee TO user",
+                   AuthQuery::Action::DENY_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"salary", "ssn"})
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
+      .WithPropertyPermissionTypes(AuthQuery::PropertyPermissionType::WRITE)
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, RevokeSetPropertyPermission) {
+  auto &ast_generator = *GetParam();
+
+  AuthQueryChecker(&ast_generator,
+                   "REVOKE SET PROPERTY {salary} ON NODES CONTAINING LABELS :Employee FROM user",
+                   AuthQuery::Action::REVOKE_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"salary"})
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
+      .WithPropertyPermissionTypes(AuthQuery::PropertyPermissionType::WRITE)
+      .Check();
+}
+
+TEST_P(CypherMainVisitorTest, GrantCombinedReadSetPropertyPermission) {
+  auto &ast_generator = *GetParam();
+
+  auto const both = AuthQuery::PropertyPermissionType::READ | AuthQuery::PropertyPermissionType::WRITE;
+
+  AuthQueryChecker(&ast_generator,
+                   "GRANT READ, SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee TO user",
+                   AuthQuery::Action::GRANT_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"ssn"})
+      .WithPropertyEntityNames({"Employee"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::NODE)
+      .WithPropertyPermissionTypes(both)
+      .Check();
+
+  AuthQueryChecker(&ast_generator,
+                   "DENY SET PROPERTY, READ {amount} ON EDGES OF TYPE :PAID TO user",
+                   AuthQuery::Action::DENY_PROPERTY_PERMISSION)
+      .WithUserOrRole("user")
+      .WithPropertyPermissions({"amount"})
+      .WithPropertyEntityNames({"PAID"})
+      .WithPropertyEntityKind(AuthQuery::PropertyEntityKind::EDGE)
+      .WithPropertyPermissionTypes(both)
+      .Check();
+}
+
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR"), SyntaxException);
@@ -4871,9 +5214,28 @@ TEST_P(CypherMainVisitorTest, TestProfileAuthQuery) {
 
 TEST_P(CypherMainVisitorTest, TestShowStorageInfo) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO"));
-  ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::STORAGE);
+  {
+    auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::STORAGE);
+    EXPECT_FALSE(query->database_.has_value());
+    EXPECT_FALSE(query->is_current_database_);
+  }
+  {
+    auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO ON DATABASE memgraph"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::STORAGE);
+    ASSERT_TRUE(query->database_.has_value());
+    EXPECT_EQ(*query->database_, "memgraph");
+    EXPECT_FALSE(query->is_current_database_);
+  }
+  {
+    auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO ON CURRENT DATABASE"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::STORAGE);
+    EXPECT_FALSE(query->database_.has_value());
+    EXPECT_TRUE(query->is_current_database_);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, TestShowIndexInfo) {
@@ -8012,12 +8374,28 @@ TEST_P(CypherMainVisitorTest, ReloadSSLQuery) {
   {
     const auto *query = dynamic_cast<ReloadSSLQuery *>(ast_generator.ParseQuery("RELOAD BOLT_SERVER TLS;"));
     ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, ReloadSSLQuery::Type::BOLT_SERVER);
   }
 
   // Case insensitivity
   {
     const auto *query = dynamic_cast<ReloadSSLQuery *>(ast_generator.ParseQuery("reload bolt_server tls;"));
     ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, ReloadSSLQuery::Type::BOLT_SERVER);
+  }
+
+  // Valid: RELOAD INTRA_CLUSTER TLS
+  {
+    const auto *query = dynamic_cast<ReloadSSLQuery *>(ast_generator.ParseQuery("RELOAD INTRA_CLUSTER TLS;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, ReloadSSLQuery::Type::INTRA_CLUSTER);
+  }
+
+  // Case insensitivity
+  {
+    const auto *query = dynamic_cast<ReloadSSLQuery *>(ast_generator.ParseQuery("reload intra_cluster tls;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, ReloadSSLQuery::Type::INTRA_CLUSTER);
   }
 
   // Invalid: missing TLS keyword
@@ -8242,6 +8620,42 @@ TEST_P(CypherMainVisitorTest, CreateDatabaseStillWorks) {
     EXPECT_EQ(query->db_name_, "production_db");
     EXPECT_FALSE(query->force_);
   }
+}
+
+TEST_P(CypherMainVisitorTest, SuspendResumeDatabase) {
+  auto &ast_generator = *GetParam();
+
+  // SUSPEND DATABASE
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("SUSPEND DATABASE testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::SUSPEND);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_FALSE(query->force_);
+  }
+
+  // RESUME DATABASE
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("RESUME DATABASE testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::RESUME);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_FALSE(query->force_);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, SuspendResumeDatabaseInvalidSyntax) {
+  auto &ast_generator = *GetParam();
+
+  // SUSPEND does not accept FORCE
+  TestInvalidQuery("SUSPEND DATABASE testdb FORCE", ast_generator);
+
+  // RESUME does not accept FORCE
+  TestInvalidQuery("RESUME DATABASE testdb FORCE", ast_generator);
+
+  // Missing database name
+  TestInvalidQuery("SUSPEND DATABASE", ast_generator);
+  TestInvalidQuery("RESUME DATABASE", ast_generator);
 }
 
 TEST_P(CypherMainVisitorTest, UseHintWithCompositeIndices) {

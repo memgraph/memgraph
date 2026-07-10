@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include "metrics/prometheus_metrics.hpp"
 
 #include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
@@ -34,7 +35,11 @@ class MemoryTracker;
 namespace memgraph::storage {
 
 struct Indices {
-  Indices(const Config &config, StorageMode storage_mode, utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
+  Indices(const Config &config, StorageMode storage_mode, utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
+          metrics::GaugeHandle active_label_indices = {}, metrics::GaugeHandle active_label_property_indices = {},
+          metrics::GaugeHandle active_edge_type_indices = {},
+          metrics::GaugeHandle active_edge_type_property_indices = {},
+          metrics::GaugeHandle active_edge_property_indices = {});
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;
@@ -73,7 +78,7 @@ struct Indices {
     VectorIndex::AbortProcessor vector_;
     VectorEdgeIndex::AbortProcessor vector_edge_;
 
-    void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
+    void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, EdgeRef edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
     void CollectOnLabelAddition(LabelId labelId, Vertex *vertex);
     void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);

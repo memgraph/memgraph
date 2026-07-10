@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include <range/v3/all.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
@@ -199,20 +200,16 @@ bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpd
 bool InMemoryEdgeTypeIndex::PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(edge_type);
   if (!index) return false;
-  index->Publish(commit_timestamp);
+  index->Publish(commit_timestamp, gauge_);
   return true;
 }
 
-void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge) {
   status_.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
+  gauge_ = metrics::ScopedGauge{gauge.gauge};
 }
 
-InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() {
-  if (status_.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
-  }
-}
+InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() = default;
 
 auto InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater)
     -> std::shared_ptr<IndividualIndex> {
@@ -320,7 +317,8 @@ void InMemoryEdgeTypeIndex::ActiveIndices::AbortEntries(EdgeTypeIndex::Abortable
     auto &index_storage = it->second;
     auto acc = index_storage->skip_list_.access();
     for (const auto &[from_vertex, to_vertex, edge] : edges) {
-      acc.remove(Entry{from_vertex, to_vertex, edge, exact_start_timestamp});
+      acc.remove(Entry{
+          .from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge.ptr, .timestamp = exact_start_timestamp});
     }
   }
 }
@@ -343,10 +341,10 @@ void InMemoryEdgeTypeIndex::DropGraphClearIndices() {
 }
 
 InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipListDb<InMemoryEdgeTypeIndex::Entry>::Accessor index_accessor,
-                                          utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-                                          utils::SkipListDb<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
-                                          View view, Storage *storage, Transaction *transaction, Gid max_gid)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+                                          utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin,
+                                          EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction,
+                                          Gid max_gid)
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),
@@ -394,14 +392,16 @@ void InMemoryEdgeTypeIndex::RunGC() {
 }
 
 InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(
-    EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_acc,
-    utils::SkipListDb<Edge>::ConstAccessor edge_acc, View view, Storage *storage, Transaction *transaction) {
+    EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_acc, View view, Storage *storage,
+    Transaction *transaction) {
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
+  // Pin before snapshotting max_gid so the accessor epoch covers everything the scan may touch.
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
   return {it->second->skip_list_.access(),
           std::move(vertex_acc),
-          std::move(edge_acc),
+          std::move(edge_pin),
           edge_type,
           view,
           storage,
@@ -410,15 +410,16 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(
 }
 
 InMemoryEdgeTypeIndex::ChunkedIterable InMemoryEdgeTypeIndex::ActiveIndices::ChunkedEdges(
-    EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
-    utils::SkipListDb<Edge>::ConstAccessor edge_accessor, View view, Storage *storage, Transaction *transaction,
-    size_t num_chunks) {
+    EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, View view, Storage *storage,
+    Transaction *transaction, size_t num_chunks) {
   const auto it = index_container_->indices_.find(edge_type);
   MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
+  // Pin before snapshotting max_gid so the accessor epoch covers everything the scan may touch.
+  auto edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
   const auto max_gid = Gid::FromUint(storage->edge_id_.load(std::memory_order_acquire));
   return {it->second->skip_list_.access(),
           std::move(vertex_accessor),
-          std::move(edge_accessor),
+          std::move(edge_pin),
           edge_type,
           view,
           storage,
@@ -457,9 +458,9 @@ void InMemoryEdgeTypeIndex::CleanupAllIndices() {
 
 InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(
     utils::SkipListDb<InMemoryEdgeTypeIndex::Entry>::Accessor index_accessor,
-    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, utils::SkipListDb<Edge>::ConstAccessor edge_accessor,
-    EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction, size_t num_chunks, Gid max_gid)
-    : pin_accessor_edge_(std::move(edge_accessor)),
+    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type, View view,
+    Storage *storage, Transaction *transaction, size_t num_chunks, Gid max_gid)
+    : pin_accessor_edge_(std::move(edge_pin)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),

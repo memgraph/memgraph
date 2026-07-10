@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <string>
 
@@ -63,7 +64,7 @@ class Telemetry final {
   void AddExceptionCollector();
   void AddReplicationCollector(utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> const &repl_state);
 
-  ~Telemetry();
+  ~Telemetry() noexcept;
 
   Telemetry(const Telemetry &) = delete;
   Telemetry(Telemetry &&) = delete;
@@ -72,9 +73,15 @@ class Telemetry final {
 
   void Start();
 
+  /**
+   * Signal the telemetry service to stop immediately.
+   * Call this during shutdown to prevent blocking on in-flight HTTP requests.
+   */
+  void Stop();
+
  private:
   void StoreData(const nlohmann::json &event, const nlohmann::json &data);
-  void SendData();
+  void SendData(int timeout_seconds = 2 * 60);
   /// Iterates over all collectors and calls associated functions synchronously.
   void CollectData(const std::string &event = "");
 
@@ -94,6 +101,8 @@ class Telemetry final {
   std::vector<std::pair<std::string, FuncSig>> collectors_;
 
   kvstore::KVStore storage_;
+
+  std::atomic<bool> abort_{false};
 };
 
 }  // namespace memgraph::telemetry

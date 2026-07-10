@@ -224,3 +224,30 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             DROP ENUM Status;
             """
         Then an error should be raised
+
+    Scenario: EXPLAIN tolerates leading whitespace
+        Given an empty graph
+        When executing query:
+            """
+
+                EXPLAIN RETURN 1
+            """
+        Then the result should be:
+            | QUERY PLAN        |
+            | ' * Produce {0}'  |
+            | ' * Once'         |
+
+    Scenario: PROFILE tolerates leading whitespace
+        Given an empty graph
+        When executing query:
+            """
+
+                PROFILE RETURN 1
+            """
+        When executing query:
+            """
+            RETURN 1 AS n
+            """
+        Then the result should be:
+            | n |
+            | 1 |

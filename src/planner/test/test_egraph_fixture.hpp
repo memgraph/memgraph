@@ -13,7 +13,7 @@
 
 #include <gtest/gtest.h>
 
-#include "test_egraph.hpp"
+#include "test_support/types.hpp"
 
 import memgraph.planner.core.egraph;
 

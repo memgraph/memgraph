@@ -47,6 +47,7 @@ DEFAULT_DATA_FLAGS=(
     "--storage-snapshot-on-exit=false"
     "--telemetry-enabled=false"
     "--query-execution-timeout-sec=1200"
+    "--metrics-format=OpenMetrics"
 )
 
 # Default flags for Memgraph Coordinator Nodes
@@ -56,6 +57,7 @@ DEFAULT_COORD_FLAGS=(
     "--log-file="
     "--log-level=TRACE"
     "--telemetry-enabled=false"
+    "--metrics-format=OpenMetrics"
 )
 
 # Configuration for Data Nodes
@@ -107,6 +109,41 @@ merge_flags() {
     done
 
     echo "${final_flags[@]}"
+}
+
+extract_flag_value() {
+    local node_config="$1"
+    local flag_name="$2"
+    if [[ "$node_config" =~ --${flag_name}=([^[:space:]]+) ]]; then
+        echo "${BASH_REMATCH[1]}"
+    fi
+}
+
+print_monitoring_targets() {
+    local target_host="${1:-127.0.0.1}"
+    local metrics_targets=""
+    local log_ws_targets=""
+
+    for node in "${DATA_NODES[@]}"; do
+        local metrics_port monitoring_port
+        metrics_port="$(extract_flag_value "$node" "metrics-port")"
+        monitoring_port="$(extract_flag_value "$node" "monitoring-port")"
+        [[ -z "$metrics_port" || -z "$monitoring_port" ]] && continue
+        metrics_targets+="${metrics_targets:+,}${target_host}:${metrics_port}"
+        log_ws_targets+="${log_ws_targets:+,}${target_host}:${monitoring_port}"
+    done
+
+    for node in "${COORD_NODES[@]}"; do
+        local metrics_port monitoring_port
+        metrics_port="$(extract_flag_value "$node" "metrics-port")"
+        monitoring_port="$(extract_flag_value "$node" "monitoring-port")"
+        [[ -z "$metrics_port" || -z "$monitoring_port" ]] && continue
+        metrics_targets+="${metrics_targets:+,}${target_host}:${metrics_port}"
+        log_ws_targets+="${log_ws_targets:+,}${target_host}:${monitoring_port}"
+    done
+
+    echo "MEMGRAPH_METRICS_TARGETS=${metrics_targets}"
+    echo "MEMGRAPH_LOG_WS_TARGETS=${log_ws_targets}"
 }
 
 _start_processes() {
@@ -335,6 +372,9 @@ case "$1" in
         shift
         restart_all "$@"
         ;;
+    monitoring-targets)
+        print_monitoring_targets "$2"
+        ;;
     status)
         if nc -z 127.0.0.1 7687; then
             echo "Memgraph is running."
@@ -343,6 +383,6 @@ case "$1" in
         fi
         ;;
     *)
-        echo "Usage: $0 {start|stop|collect-logs [dir]|restart|status} [memgraph flags...]"
+        echo "Usage: $0 {start|stop|collect-logs [dir]|restart|monitoring-targets [host]|status} [memgraph flags...]"
         exit 1
 esac

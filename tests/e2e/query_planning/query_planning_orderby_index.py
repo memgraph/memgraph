@@ -57,7 +57,9 @@ def test_plan_with_renaming_allows_elimination(memgraph):
 
 
 def test_plan_equality_skip_elimination(memgraph):
-    """WHERE a = 5 ORDER BY b eliminated when index is (a, b) -- equality-pinned skip."""
+    """WHERE a = 5 AND b IS NOT NULL ORDER BY b eliminated when index is (a, b) -- equality-pinned
+    skip; b IS NOT NULL keeps the sort column non-nullable so the index order (NULL first) cannot
+    disagree with ORDER BY (NULL last)."""
     memgraph.execute("CREATE INDEX ON :L(a, b);")
 
     expected = [
@@ -66,8 +68,17 @@ def test_plan_equality_skip_elimination(memgraph):
         " * Once",
     ]
 
-    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.a = 5 RETURN n ORDER BY n.b")
+    actual = get_plan(memgraph, "MATCH (n:L) WHERE n.a = 5 AND n.b IS NOT NULL RETURN n ORDER BY n.b")
     assert expected == actual
+
+
+def test_plan_nullable_suffix_not_eliminated(memgraph):
+    """A nullable suffix column keeps its ORDER BY: a composite index sorts a missing NULL first
+    while ORDER BY places it last, so eliminating the sort would misorder the results."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+
+    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.a = 5 RETURN n ORDER BY n.b")
+    assert any("OrderBy" in step for step in plan), "OrderBy must be kept for an unconstrained (nullable) suffix column"
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +129,17 @@ def test_correctness_composite_order(memgraph):
     results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a > 0 RETURN n ORDER BY n.a, n.b"))
     pairs = [(r["n"]._properties["a"], r["n"]._properties["b"]) for r in results]
     assert pairs == [(1, 1), (1, 2), (2, 1), (2, 3), (3, 1)]
+
+
+def test_correctness_nullable_suffix_null_last(memgraph):
+    """A missing suffix property sorts last under ORDER BY (NULL last), even though the composite
+    index stores the missing value first. The sort must not be eliminated here."""
+    memgraph.execute("CREATE INDEX ON :L(a, b);")
+    memgraph.execute("CREATE (:L {a: 5, b: 3}), (:L {a: 5, b: 1}), (:L {a: 5}), (:L {a: 5, b: 2})")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b"))
+    values = [r["b"] for r in results]
+    assert values == [1, 2, 3, None]
 
 
 def test_correctness_with_expand(memgraph):
@@ -182,10 +204,13 @@ def test_correctness_in_filter_order_preserved(memgraph):
 
 
 def test_plan_composite_alias_elimination(memgraph):
-    """ORDER BY a, b eliminated when WITH projects both from composite index (a, b)."""
+    """ORDER BY a, b eliminated when WITH projects both from composite index (a, b); b IS NOT NULL
+    keeps the nullable suffix column non-null so elimination stays sound."""
     memgraph.execute("CREATE INDEX ON :L(a, b);")
 
-    plan = get_plan(memgraph, "MATCH (n:L) WHERE n.a > 0 WITH n.a AS a, n.b AS b RETURN a, b ORDER BY a, b")
+    plan = get_plan(
+        memgraph, "MATCH (n:L) WHERE n.a > 0 AND n.b IS NOT NULL WITH n.a AS a, n.b AS b RETURN a, b ORDER BY a, b"
+    )
     assert not any("OrderBy" in step for step in plan), "OrderBy should be eliminated (composite alias resolved)"
 
 

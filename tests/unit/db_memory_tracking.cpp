@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <unistd.h>
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
@@ -261,7 +262,8 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
 
   memgraph::storage::VectorIndexSpec spec{
       .index_name = "db1_embedding_index",
-      .label_id = label,
+      .label_filter =
+          memgraph::storage::VectorLabelFilter{.mode = memgraph::storage::VectorMatchMode::SINGLE, .ids = {label}},
       .property = property,
       .metric_kind = unum::usearch::metric_kind_t::cos_k,
       .dimension = 256,
@@ -329,7 +331,8 @@ TEST_F(DbMemoryTrackingTest, EmbeddingMemoryTracking) {
 
   memgraph::storage::VectorEdgeIndexSpec edge_spec{
       .index_name = "db1_edge_embedding_index",
-      .edge_type_id = edge_type,
+      .edge_type_filter = memgraph::storage::VectorEdgeTypeFilter{.mode = memgraph::storage::VectorMatchMode::SINGLE,
+                                                                  .ids = {edge_type}},
       .property = edge_property,
       .metric_kind = unum::usearch::metric_kind_t::cos_k,
       .dimension = 256,
@@ -796,13 +799,15 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_BaseArenaVsAcquireRelease) {
 // ---------------------------------------------------------------------------
 TEST_F(DbMemoryTrackingTest, ArenaPool_ConstructorFailureReleasesPendingArena) {
   memgraph::memory::GlobalArenaPool::Instance().Drain();
+  // Pre-warm CPU coverage so Acquire() below creates exactly one arena.
+  memgraph::memory::EnsureCpuArenaCoverage();
 
   memgraph::utils::MemoryTracker tracker1;
   memgraph::utils::MemoryTracker tracker2;
 
   const auto arena_count_before = JemallocArenaCount();
   memgraph::memory::testing::SetArenaPoolFailureInjection(
-      memgraph::memory::testing::ArenaPoolFailureInjection::ConstructorPublish);
+      memgraph::memory::testing::ArenaPoolFailureInjection::ConstructorThrow);
   EXPECT_THROW((memgraph::memory::ArenaPool{&tracker1}), std::runtime_error);
 
   const auto arena_count_after_failure = JemallocArenaCount();
@@ -1220,6 +1225,66 @@ TEST_F(DbMemoryTrackingTest, MixedAllocators_ConsistentAttribution) {
   EXPECT_GT(after, before + static_cast<int64_t>(1024 * 1024))
       << "Mixed allocator usage should consistently attribute to DB tracker. "
       << "before=" << before << " after=" << after;
+}
+
+// ---------------------------------------------------------------------------
+// 15. (continued) Destructor restore failure leaks hooks and abandons arena
+// ---------------------------------------------------------------------------
+TEST_F(DbMemoryTrackingTest, ArenaPool_DestructorRestoreFailureLeaksHooksAndAbandonsArena) {
+  memgraph::memory::GlobalArenaPool::Instance().Drain();
+
+  unsigned abandoned = 0;
+  {
+    memgraph::utils::MemoryTracker tracker;
+    memgraph::memory::ArenaPool pool{&tracker};
+    abandoned = pool.idx();
+    memgraph::memory::testing::SetArenaPoolFailureInjection(
+        memgraph::memory::testing::ArenaPoolFailureInjection::DestructorRestore);
+  }  // dtor consumes injection; tracker destroyed at scope exit
+
+  ASSERT_NE(abandoned, 0U);
+
+  {
+    memgraph::utils::MemoryTracker t2;
+    memgraph::memory::ArenaPool pool2{&t2};
+    EXPECT_NE(pool2.idx(), abandoned) << "abandoned arena must not be recycled into GlobalArenaPool";
+  }
+
+  // The abandoned arena still has the leaked hooks installed with tracker == nullptr
+  // and the MemoryTracker already destroyed; under ASan this regression-tests that
+  // callbacks no-op instead of UAF.
+  void *p = je_mallocx(2 * 1024 * 1024, MALLOCX_ARENA(abandoned) | MALLOCX_TCACHE_NONE);
+  EXPECT_NE(p, nullptr);
+  je_dallocx(p, MALLOCX_TCACHE_NONE);
+  const std::string purge_key = "arena." + std::to_string(abandoned) + ".purge";
+  je_mallctl(purge_key.c_str(), nullptr, nullptr, nullptr, 0);
+
+  memgraph::memory::testing::SetArenaPoolFailureInjection(memgraph::memory::testing::ArenaPoolFailureInjection::None);
+}
+
+// ---------------------------------------------------------------------------
+// 15. (continued) Per-DB arena indices must exceed every possible CPU id
+// ---------------------------------------------------------------------------
+TEST_F(DbMemoryTrackingTest, ArenaPool_PerDbArenaIndicesAboveEveryPossibleCpuId) {
+  const char *mode = nullptr;
+  size_t sz = sizeof(mode);
+  if (je_mallctl("opt.percpu_arena", &mode, &sz, nullptr, 0) != 0 || mode == nullptr ||
+      std::string{mode} == "disabled") {
+    GTEST_SKIP() << "percpu_arena disabled";
+  }
+
+  const long n_conf = sysconf(_SC_NPROCESSORS_CONF);
+  ASSERT_GT(n_conf, 0);
+  const auto max_cpu_id = static_cast<unsigned>(n_conf) - 1;
+
+  memgraph::memory::EnsureCpuArenaCoverage();
+
+  EXPECT_GT(JemallocArenaCount(), max_cpu_id) << "arena index space must cover every possible CPU id";
+
+  memgraph::memory::GlobalArenaPool::Instance().Drain();
+  const unsigned idx = memgraph::memory::GlobalArenaPool::Instance().Acquire();
+  EXPECT_GT(idx, max_cpu_id) << "per-DB arenas must be unreachable by percpu binding";
+  memgraph::memory::GlobalArenaPool::Instance().Release(idx);
 }
 
 #endif  // USE_JEMALLOC

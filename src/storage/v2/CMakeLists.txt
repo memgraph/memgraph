@@ -32,6 +32,7 @@ target_sources(mg-storage-v2
         durability/snapshot.cpp
         durability/wal.cpp
         edge_accessor.cpp
+        edge_metadata_index.cpp
         edge_ref.cpp
         edges_iterable.cpp
         id_types.cpp
@@ -69,6 +70,7 @@ target_sources(mg-storage-v2
         replication/rpc.cpp
         replication/serialization.cpp
         replication/slk.cpp
+        gc_status.cpp
         schema_info.cpp
         snapshot_progress.cpp
         storage.cpp
@@ -164,11 +166,11 @@ target_link_libraries(mg-storage-v2
     mg-utils
     mg-aws
     mg-flags
+    mg-metrics
     gflags
     abseil::abseil
     mg-rpc
     mg-slk
-    mg-events
     mg-memory
     range-v3::range-v3
     mgcxx_text_search

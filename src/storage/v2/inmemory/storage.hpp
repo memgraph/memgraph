@@ -13,15 +13,20 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <string_view>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "storage/v2/commit_log.hpp"
+#include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/edge_ref.hpp"
+#include "storage/v2/gc_status.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -120,6 +125,18 @@ class InMemoryStorage final : public Storage {
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
+
+  /// Light-weight wrapper around DbAwareAllocator<Edge> for light-edge
+  /// allocation and destruction. DbAwareAllocator is stateless (reads the
+  /// thread-local arena at each call), so Create/Destroy are safe to call
+  /// from any thread with an active DbArenaScope.
+  struct LightEdgePool {
+    // Throws (utils::OutOfMemoryException / std::bad_alloc) on allocation
+    // failure, like the heavy edges_.insert path — never returns nullptr.
+    static Edge *Create(Gid gid, Delta *delta);
+    static void Destroy(Edge *p) noexcept;
+  };
+
   enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
 
   static const char *CreateSnapshotErrorToString(CreateSnapshotError error) {
@@ -155,6 +172,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
                            PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>(),
+                           metrics::DatabaseMetricHandles metric_handles = {},
                            std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
                            memgraph::memory::ArenaPool *db_arena = nullptr,
                            utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
@@ -182,6 +200,12 @@ class InMemoryStorage final : public Storage {
     std::expected<void, ConstraintViolation> UniqueConstraintsViolation() const;
 
     void CheckForFastDiscardOfDeltas();
+
+    std::optional<EdgeAccessor> CreateEdgeInternal(Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type,
+                                                   DeltaChainState from_state, DeltaChainState to_state,
+                                                   storage::Gid gid,
+                                                   std::optional<SchemaInfo::ModifyingAccessor> &schema_acc,
+                                                   std::optional<utils::SkipListDb<Edge>::Accessor> &edge_acc);
 
     [[nodiscard]] auto HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     TransactionReplication &replicating_txn,
@@ -336,12 +360,12 @@ class InMemoryStorage final : public Storage {
       return transaction_.active_indices_->point_->ApproximatePointCount(label, property);
     }
 
-    std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const override {
-      return transaction_.active_indices_->vector_->ApproximateNodesVectorCount(label, property);
+    std::optional<uint64_t> ApproximateVerticesVectorCount(std::string_view index_name) const override {
+      return transaction_.active_indices_->vector_->ApproximateNodesVectorCount(index_name);
     }
 
-    std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override {
-      return transaction_.active_indices_->vector_edge_->ApproximateEdgesVectorCount(edge_type, property);
+    std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const override {
+      return transaction_.active_indices_->vector_edge_->ApproximateEdgesVectorCount(index_name);
     }
 
     std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const override {
@@ -704,12 +728,13 @@ class InMemoryStorage final : public Storage {
     /// During commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
-    void GCRapidDeltaCleanup(std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_edges,
+    void GCRapidDeltaCleanup(std::list<Edge *, memory::DbAwareAllocator<Edge *>> &current_deleted_edges,
                              std::list<Gid, memory::DbAwareAllocator<Gid>> &current_deleted_vertices,
                              IndexPerformanceTracker &impact_tracker);
     SalientConfig::Items config_;
 
-    uint64_t commit_flag_wal_position_{0};
+    // Bookkeeping
+    durability::WalTxnDataPos wal_txn_positions_;
     bool needs_wal_update_{false};
   };
 
@@ -729,7 +754,8 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(bool force = false);
+  std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> CreateSnapshot(
+      bool force = false, std::string_view trigger = "periodic");
 
   std::expected<void, InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path uri, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role,
@@ -739,8 +765,6 @@ class InMemoryStorage final : public Storage {
 
   std::optional<SnapshotFileInfo> ShowNextSnapshot();
 
-  bool IsSnapshotRunning() const { return snapshot_running_.load(std::memory_order_acquire); }
-
   SnapshotProgressView GetSnapshotProgress() const {
     return {.phase = snapshot_progress_.phase.load(std::memory_order_acquire),
             .items_done = snapshot_progress_.items_done.load(std::memory_order_acquire),
@@ -749,7 +773,19 @@ class InMemoryStorage final : public Storage {
             .start_steady_ms = snapshot_progress_.start_steady_ms.load(std::memory_order_acquire)};
   }
 
-  void CreateSnapshotHandler(std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>()> cb);
+  // Coherent read: nullopt unless a snapshot is running. Checks the flag after
+  // reading the fields so a snapshot ending mid-read reads as not-running, never
+  // a torn row.
+  std::optional<SnapshotProgressView> TryGetSnapshotProgress() const {
+    SnapshotProgressView progress = GetSnapshotProgress();
+    if (!snapshot_running_.load(std::memory_order_acquire)) return std::nullopt;
+    return progress;
+  }
+
+  std::optional<GcRunInfoView> TryGetGcRunInfo() const { return gc_progress_.TryGetRunInfo(); }
+
+  void CreateSnapshotHandler(
+      std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
@@ -793,13 +829,36 @@ class InMemoryStorage final : public Storage {
 
   void PrepareForNewEpoch() override;
 
-  void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
-
-  EdgeInfo FindEdge(Gid gid);
+  EdgeInfo FindEdge(Gid edge_gid);
 
   EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
 
-  EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
+  // Light-edge find helpers (gated by salient.items.storage_light_edge). The
+  // heavy path remains FindHeavyEdge (== prior FindEdge(Gid) body).
+  EdgeInfo FindLightEdgeFromMetadata(Gid edge_gid);
+  EdgeInfo FindLightEdgeByScan(Gid edge_gid);
+  EdgeInfo FindHeavyEdge(Gid edge_gid);
+
+  // Light-edge teardown (frees pool-allocated Edge* still live in vertex
+  // adjacency). Gated at every call site by salient.items.storage_light_edge.
+  // noexcept: body only calls LightEdgePool::Destroy (noexcept), SpinLock acquire
+  // (noexcept via MG_ASSERT), std::list::swap (noexcept), and clear(); the
+  // vertices_.access() ctor calls SkipList::gc_.AllocateId() which is a plain
+  // atomic fetch_add — no heap allocation, no throw.
+  void ClearLightEdges() noexcept;
+  // Free deleted light Edge* referenced ONLY by un-GC'd RECREATE_OBJECT deltas in
+  // committed_transactions_/waiting_gc_deltas_ at teardown (GC never unlinked them
+  // because an older txn was active at delete time). noexcept: the walk only reads
+  // lock-free delta prev pointers and calls the noexcept LightEdgePool::Destroy; no
+  // allocation. Disjoint from adjacency/deleted_edges_/graveyard by construction,
+  // so each edge is freed exactly once. Gated by the caller on
+  // salient.items.storage_light_edge.
+  void HarvestDeltaChainOnlyLightEdges() noexcept;
+  // Drain the light-edge graveyard: free each queued deleted Edge* once its
+  // guard_epoch watermark confirms every reader that existed before the delete has
+  // released its epoch. Called from FreeMemory after edges_.run_gc(); early-returns
+  // when the storage_light_edge flag is off.
+  void DrainLightEdgeGraveyard();
 
   // Database-owned arena pool for per-thread arena management.
   // Database must outlive Storage; Database member declaration order guarantees that.
@@ -809,8 +868,43 @@ class InMemoryStorage final : public Storage {
   // current DB TLS scope, while long-lived DB work establishes that scope at
   // the appropriate execution boundary.
   utils::SkipListDb<Vertex> vertices_;
+
+  // Graveyard for deleted light edges. Deleted light Edge* are pushed here ONLY
+  // at CollectGarbage time (after metadata + vector-index entries are already
+  // removed). The commit (FastDiscard) and abort light arms route deleted Edge*
+  // through deleted_edges_ so the guard_epoch watermark is snapped only after all
+  // concurrent readers are ordered; the drain then frees each entry once its
+  // guard_epoch confirms every pre-existing reader has released its epoch.
+  struct LightEdgeGraveyardEntry {
+    uint64_t guard_epoch{0};
+    // std::list (not vector): current_deleted_edges is std::move'd in under the
+    // light_edge_graveyard_ lock, so the transfer must be an O(1) list move, not
+    // an O(batch) copy. The drain iterates it once, off the lock.
+    std::list<Edge *, memory::DbAwareAllocator<Edge *>> edges;
+  };
+
+  // Returns a pin that keeps edge-index iterables' underlying Edge memory alive
+  // for the lifetime of the iterable. Heavy mode pins the edges_ skip-list
+  // ConstAccessor (the first alternative of the EdgePin variant). Light mode
+  // acquires an epoch from light_edge_iterable_tracker_ so the graveyard drain
+  // can determine when it is safe to free deleted Edge objects.
+  [[nodiscard]] EdgePin MakeEdgePin() const {
+    if (config_.salient.items.storage_light_edge) [[unlikely]] {
+      return LightEdgeIterableGuard{&light_edge_iterable_tracker_};
+    }
+    return edges_.access();
+  }
+
   utils::SkipListDb<Edge> edges_;
-  utils::SkipListDb<EdgeMetadata> edges_metadata_;
+  // Present iff salient.items.enable_edges_metadata && salient.items.properties_on_edges.
+  std::optional<EdgeMetadataIndex> edges_metadata_index_;
+
+  // Epoch tracker for light-edge edge-index iterables. Readers (edge-index
+  // iterables) Acquire an epoch ID via MakeEdgePin()->LightEdgeIterableGuard;
+  // the graveyard drain frees a deleted light Edge* only once IsSafeToFree(guard_epoch)
+  // confirms every reader that existed before the delete has Released. mutable
+  // because MakeEdgePin() const calls Acquire() (mutating) on it.
+  mutable utils::EpochTracker light_edge_iterable_tracker_;
 
   // Durability
   durability::Recovery recovery_;
@@ -846,6 +940,9 @@ class InMemoryStorage final : public Storage {
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
+  // GC run-state for SHOW TRANSACTIONS; see GcProgress.
+  GcProgress gc_progress_;
+
   struct GCDeltas {
     GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<CommitInfo> commit_info,
              uint64_t transaction_id)
@@ -879,8 +976,15 @@ class InMemoryStorage final : public Storage {
   utils::Synchronized<std::list<Gid, memory::DbAwareAllocator<Gid>>, utils::SpinLock> deleted_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
-  // storage.
-  utils::Synchronized<std::list<Gid, memory::DbAwareAllocator<Gid>>, utils::SpinLock> deleted_edges_;
+  // storage. A std::list (not vector) so the under-lock handover is an O(1)
+  // splice: the FastDiscard/Abort critical sections must not do O(batch) work
+  // while holding this SpinLock. The GC consume side runs off the lock.
+  utils::Synchronized<std::list<Edge *, memory::DbAwareAllocator<Edge *>>, utils::SpinLock> deleted_edges_;
+
+  // Deleted light edges awaiting deferred free (see DrainLightEdgeGraveyard).
+  utils::Synchronized<std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>>,
+                      utils::SpinLock>
+      light_edge_graveyard_;
 
   std::atomic<bool> gc_index_cleanup_vertex_performance_ = false;
   std::atomic<bool> gc_index_cleanup_edge_performance_ = false;
@@ -892,7 +996,7 @@ class InMemoryStorage final : public Storage {
   free_mem_fn free_memory_func_;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
-  std::function<void()> create_snapshot_handler{};
+  std::function<void(std::string_view)> create_snapshot_handler{};
 
   // Snapshot digest is the minimal meta info of a snapshot
   // Used to figure out if the current snapshot should be written or not

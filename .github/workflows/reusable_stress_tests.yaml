@@ -39,6 +39,11 @@ env:
   INPUT_IMAGE: ${{ inputs.memgraph_image }}
   WORKLOAD_PATH: ${{ inputs.workload }}
   REPLICATION_MODE: ${{ inputs.replication_mode }}
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-stress-tests"
 
 jobs:
   stress_test_standalone:
@@ -51,13 +56,19 @@ jobs:
       TOOLCHAIN: v7
       ARCH: amd
       THREADS: 24
-      BUILD_TYPE: Release
+      BUILD_TYPE: RelWithDebInfo
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -78,6 +89,14 @@ jobs:
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
+
       - name: Build enterprise binary
         run: |
           ./release/package/mgbuild.sh \
@@ -87,6 +106,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads $THREADS \
           build-memgraph \
+          --split-debug \
           --conan-remote ${{ secrets.CONAN_REMOTE }} \
           --conan-username ${{ secrets.CONAN_USERNAME }} \
           --conan-password ${{ secrets.CONAN_PASSWORD }}
@@ -107,6 +127,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
           test-memgraph stress-native-standalone
 
       - name: Copy stress test logs
@@ -125,6 +149,19 @@ jobs:
           name: stress-logs-native-standalone
           path: build/stress/logs/
           if-no-files-found: warn
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()
@@ -150,13 +187,19 @@ jobs:
       TOOLCHAIN: v7
       ARCH: amd
       THREADS: 24
-      BUILD_TYPE: Release
+      BUILD_TYPE: RelWithDebInfo
     steps:
       - name: Set up repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -177,6 +220,14 @@ jobs:
           --arch $ARCH \
           run --custom-mirror $USE_CUSTOM_MIRROR
 
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
+
       - name: Build enterprise binary
         run: |
           ./release/package/mgbuild.sh \
@@ -186,6 +237,7 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads $THREADS \
           build-memgraph \
+          --split-debug \
           --conan-remote ${{ secrets.CONAN_REMOTE }} \
           --conan-username ${{ secrets.CONAN_USERNAME }} \
           --conan-password ${{ secrets.CONAN_PASSWORD }}
@@ -199,6 +251,9 @@ jobs:
           init-tests
 
       - name: Run stress tests (native HA)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -206,10 +261,12 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
+          --service-name stress-native-ha \
           test-memgraph stress-native-ha
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
 
       - name: Copy stress test logs
         if: always()
@@ -227,6 +284,19 @@ jobs:
           name: stress-logs-native-ha
           path: build/stress/logs/
           if-no-files-found: warn
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
       - name: Stop mgbuild container
         if: always()
@@ -253,6 +323,12 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -303,6 +379,11 @@ jobs:
       - name: Run stress tests (docker HA)
         run: |
           ./release/package/mgbuild.sh \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
+          --service-name stress-docker-ha \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph stress-docker-ha
@@ -310,6 +391,31 @@ jobs:
           MEMGRAPH_IMAGE: ${{ env.MEMGRAPH_IMAGE }}
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+
+      - name: Collect core dumps
+        if: failure()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          # The ha/docker deployment bind-mounts /tmp/mg-cores from each memgraph
+          # container, so cores land on the host and survive container teardown.
+          # Analyze them in a throwaway container from the (debug) image.
+          ./tools/ci/core-dumps/collect_from_image.sh \
+          --host-cores-dir /tmp/mg-cores \
+          --image "$MEMGRAPH_IMAGE" \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}" \
+          --upload-core true
+
+      - name: Clean up core dumps
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/core-dumps/clean_host_cores.sh \
+          --cores-dir /tmp/mg-cores \
+          --image "$MEMGRAPH_IMAGE"
 
       - name: Upload stress test logs
         if: always()
@@ -335,6 +441,12 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -421,6 +533,11 @@ jobs:
       - name: Run stress tests (EKS HA)
         run: |
           ./release/package/mgbuild.sh \
+          --enable-monitoring \
+          --monitoring-host $MONITORING_HOST \
+          --cluster-id $CLUSTER_ID \
+          --cluster-env $CLUSTER_ENV \
+          --service-name stress-eks-ha \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph stress-eks-ha
@@ -436,6 +553,16 @@ jobs:
           name: stress-logs-eks-ha
           path: tests/stress/stress_logs/
           if-no-files-found: warn
+
+      - name: Cleanup EKS and monitoring (best effort)
+        if: always()
+        run: |
+          ./tests/stress/ha/eks/deployment/deployment.sh destroy || true
+          cd tools/ci/monitoring
+          MONITORING_USE_HOST_NETWORK=true ./down.sh || true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.EKS_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
 
       - name: Clean up Docker
         if: always()

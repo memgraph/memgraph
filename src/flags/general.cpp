@@ -21,9 +21,12 @@
 #include <string>
 #include <thread>
 
+#include <spdlog/spdlog.h>
+
 #include "storage/v2/config.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/system_info.hpp"
 
@@ -45,6 +48,27 @@ DEFINE_VALIDATED_int32(monitoring_port, 7444,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(metrics_port, 9091, "Port on which the Memgraph server for exposing metrics should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_string(metrics_format, "JSON",
+                        "Format for the metrics endpoint. Supported values: OpenMetrics, JSON. JSON is deprecated.", {
+                          (void)flagname;
+                          if (value == "OpenMetrics") return true;
+                          if (value == "JSON") {
+                            // As JSON is currently the default, if `--metrics-format=JSON` is
+                            // specified then this validator fires once at startup and again when
+                            // the flag is parsed, producing two deprecation warnings. This
+                            // suppresses the second one.
+                            static bool already_warned{false};
+                            if (!already_warned) {
+                              already_warned = true;
+                              spdlog::warn(
+                                  "--metrics-format=JSON is deprecated and will be removed in a future release. Please "
+                                  "use OpenMetrics instead.");
+                            }
+                            return true;
+                          }
+                          return false;
+                        });
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(init_file, "",
@@ -107,6 +131,11 @@ DEFINE_VALIDATED_uint64(storage_wal_file_flush_every_n_tx,
 DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creates another snapshot on exit.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_allow_recovery_failure, false,
+            "If true, a database that fails to recover on startup comes up in a broken state instead of crashing the "
+            "process. Broken databases reject queries until recovered via RECOVER SNAPSHOT.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_items_per_batch, memgraph::storage::Config::Durability().items_per_batch,
               "The number of edges and vertices stored in a batch in a snapshot file.");
 
@@ -144,6 +173,11 @@ DEFINE_bool(storage_automatic_edge_type_index_creation_enabled, false,
 DEFINE_bool(storage_enable_edges_metadata, false,
             "Controls whether additional metadata should be stored about the edges in order to do faster traversals on "
             "certain queries.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_light_edge, false,
+            "Controls whether edges are stored as lightweight objects in order to reduce memory footprint; implies "
+            "--storage-properties-on-edges.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_delta_on_identical_property_update, true,
@@ -198,8 +232,8 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
                           const auto directories = memgraph::utils::Split(value, ",");
                           for (const auto &dir : directories) {
                             if (!memgraph::utils::DirExists(dir)) {
-                              std::cout << "Expected --" << flagname << " to point to directories." << std::endl;
-                              std::cout << dir << " is not a directory." << std::endl;
+                              std::cerr << "Expected --" << flagname << " to point to directories." << std::endl;
+                              std::cerr << dir << " is not a directory." << std::endl;
                               return false;
                             }
                           }
@@ -225,3 +259,42 @@ DEFINE_string(query_callable_mappings_path, "",
 DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(cluster_cert_file, "", "Certificate file used for intra-cluster TLS communication.");
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(cluster_key_file, "", "Key file used for intra-cluster TLS communication.");
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(cluster_ca_file, "",
+              "The file used for storing certificate of the Certificate Authority you trust for intra-cluster TLS "
+              "communication.");
+
+auto memgraph::flags::IsIntraClusterTLSEnabled() -> bool {
+  return !FLAGS_cluster_cert_file.empty() && !FLAGS_cluster_key_file.empty() && !FLAGS_cluster_ca_file.empty();
+}
+
+void memgraph::flags::ValidateIntraClusterTLSFlags() {
+  const int set_count = static_cast<int>(!FLAGS_cluster_cert_file.empty()) +
+                        static_cast<int>(!FLAGS_cluster_key_file.empty()) +
+                        static_cast<int>(!FLAGS_cluster_ca_file.empty());
+  if (set_count != 0 && set_count != 3) {
+    LOG_FATAL(
+        "Intra-cluster TLS requires --cluster-cert-file, --cluster-key-file, and --cluster-ca-file to be set "
+        "together (or all three to be empty). Refusing to start in a partially-configured TLS state. "
+        "cert_file=\"{}\" key_file=\"{}\" ca_file=\"{}\"",
+        FLAGS_cluster_cert_file,
+        FLAGS_cluster_key_file,
+        FLAGS_cluster_ca_file);
+  }
+  if (set_count == 3) {
+    spdlog::info("Intra-cluster TLS enabled (mTLS).");
+  }
+}
+
+auto memgraph::flags::TlsConfigFromClusterFlags() -> std::optional<utils::TlsConfig> {
+  if (IsIntraClusterTLSEnabled()) {
+    return utils::TlsConfig{
+        .key_file = FLAGS_cluster_key_file, .cert_file = FLAGS_cluster_cert_file, .ca_file = FLAGS_cluster_ca_file};
+  }
+  return std::nullopt;
+}

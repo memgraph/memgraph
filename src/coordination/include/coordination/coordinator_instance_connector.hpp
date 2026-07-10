@@ -14,12 +14,15 @@
 #pragma once
 
 #include "coordination/coordinator_instance_client.hpp"
+#include "utils/tls.hpp"
 
 namespace memgraph::coordination {
 
 class CoordinatorInstanceConnector {
  public:
-  explicit CoordinatorInstanceConnector(ManagementServerConfig const &config) : client_{config} {}
+  explicit CoordinatorInstanceConnector(ManagementServerConfig const &config,
+                                        std::optional<utils::TlsConfig> const &tls_config)
+      : client_{config, tls_config} {}
 
   template <rpc::IsRpc Rpc, typename... Args>
   auto SendRpc(Args &&...args) {

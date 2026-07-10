@@ -124,7 +124,8 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterStateAllSettings) {
                                                  .max_replica_read_lag_ = 50,
                                                  .deltas_batch_progress_size_ = 25'000,
                                                  .instance_down_timeout_sec_ = 10,
-                                                 .instance_health_check_frequency_sec_ = 3};
+                                                 .instance_health_check_frequency_sec_ = 3,
+                                                 .global_read_only_ = true};
   auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
   auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
   ASSERT_EQ(delta_state, decoded_log_state);

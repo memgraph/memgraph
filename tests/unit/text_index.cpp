@@ -16,6 +16,7 @@
 #include <thread>
 
 #include "flags/experimental.hpp"
+#include "query/exceptions.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
@@ -30,7 +31,7 @@ using namespace memgraph::storage;
 
 static constexpr std::string_view test_index = "test_index";
 static constexpr std::string_view test_label = "test_label";
-static constexpr std::size_t default_limit = 10;
+static constexpr memgraph::storage::TextSearchConfig default_config{.limit = 10};
 
 class TextIndexTest : public testing::Test {
  public:
@@ -97,7 +98,7 @@ TEST_F(TextIndexTest, SimpleAbortTest) {
 
     // This is enough to check if abort works
     acc->Abort();
-    auto result = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX, default_limit);
+    auto result = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX, default_config);
     EXPECT_EQ(result.size(), 0);
   }
 }
@@ -118,7 +119,7 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto result = acc->TextIndexSearch(
-        test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(result.size(), 1);
   }
 
@@ -134,12 +135,12 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto result = acc->TextIndexSearch(
-        test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(result.size(), 0);
 
     // But content should still be searchable
     result = acc->TextIndexSearch(
-        test_index.data(), "data.content:Test", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.content:Test", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(result.size(), 1);
   }
 }
@@ -163,7 +164,7 @@ TEST_F(TextIndexTest, ConcurrencyTest) {
 
   // Check that all entries ended up in the index by searching
   auto acc = this->storage->Access(memgraph::storage::WRITE);
-  auto results = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX, default_limit);
+  auto results = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX, default_config);
   EXPECT_EQ(results.size(), index_size);
 }
 
@@ -181,7 +182,7 @@ TEST_F(TextIndexTest, PinnedSearcherSnapshotConsistency) {
   // Open a search accessor — its searcher snapshot is pinned on first search
   auto search_acc = this->storage->Access(memgraph::storage::WRITE);
   auto first_search = search_acc->TextIndexSearch(
-      test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+      test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_config);
   ASSERT_EQ(first_search.size(), 2);
 
   // Meanwhile, another transaction adds more data and commits
@@ -193,14 +194,14 @@ TEST_F(TextIndexTest, PinnedSearcherSnapshotConsistency) {
 
   // Second search in the same accessor should see the SAME snapshot (2 results, not 3)
   auto second_search = search_acc->TextIndexSearch(
-      test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+      test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_config);
   EXPECT_EQ(second_search.size(), 2);
 
   // A fresh accessor should see the new data
   {
     auto fresh_acc = this->storage->Access(memgraph::storage::WRITE);
     auto fresh_search = fresh_acc->TextIndexSearch(
-        test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(fresh_search.size(), 3);
   }
 }
@@ -222,7 +223,7 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto result = acc->TextIndexSearch(
-        test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(result.size(), 1);
   }
 
@@ -252,21 +253,21 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
 
     // Original node should still be there (delete was aborted)
     auto initial_result = acc->TextIndexSearch(
-        test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(initial_result.size(), 1);
 
     // First new node should be there (add was committed)
     auto new1_result = acc->TextIndexSearch(
-        test_index.data(), "data.title:\"New Title 1\"", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.title:\"New Title 1\"", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(new1_result.size(), 1);
 
     // Second new node should be there (add was committed)
     auto new2_result = acc->TextIndexSearch(
-        test_index.data(), "data.title:\"New Title 2\"", text_search_mode::SPECIFIED_PROPERTIES, default_limit);
+        test_index.data(), "data.title:\"New Title 2\"", text_search_mode::SPECIFIED_PROPERTIES, default_config);
     EXPECT_EQ(new2_result.size(), 1);
 
     // Total should be 3 nodes (1 original + 2 new)
-    auto all_results = acc->TextIndexSearch(test_index.data(), "*", text_search_mode::ALL_PROPERTIES, default_limit);
+    auto all_results = acc->TextIndexSearch(test_index.data(), "*", text_search_mode::ALL_PROPERTIES, default_config);
     EXPECT_EQ(all_results.size(), 3);
   }
 }
@@ -339,5 +340,62 @@ TEST_F(TextIndexTest, DropTextIndexAbortRestoresIndex) {
     ASSERT_TRUE(acc->DropTextIndex(test_index.data()).has_value())
         << "After an aborted DROP, the text index must be visible again and droppable.";
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+TEST_F(TextIndexTest, FuzzySearchToleratesSingleEdit) {
+  this->CreateIndex();
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    this->CreateVertex(acc.get(), "memgraph", "");
+    this->CreateVertex(acc.get(), "memgrap", "");
+    this->CreateVertex(acc.get(), "coffee", "");
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto exact = acc->TextIndexSearch(
+        test_index.data(), "data.title:memgraph", text_search_mode::SPECIFIED_PROPERTIES, default_config);
+    EXPECT_EQ(exact.size(), 1);
+
+    constexpr TextSearchConfig fuzzy_config{.limit = 10, .fuzzy_distance = 1};
+    auto fuzzy = acc->TextIndexSearch(
+        test_index.data(), "data.title:memgraph", text_search_mode::SPECIFIED_PROPERTIES, fuzzy_config);
+    EXPECT_EQ(fuzzy.size(), 2);
+  }
+}
+
+TEST_F(TextIndexTest, FuzzySearchAllProperties) {
+  this->CreateIndex();
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    this->CreateVertex(acc.get(), "memgraph", "");
+    this->CreateVertex(acc.get(), "coffee", "");
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto exact = acc->TextIndexSearch(test_index.data(), "memgrap", text_search_mode::ALL_PROPERTIES, default_config);
+    EXPECT_EQ(exact.size(), 0);
+
+    constexpr TextSearchConfig fuzzy_config{.limit = 10, .fuzzy_distance = 1};
+    auto fuzzy = acc->TextIndexSearch(test_index.data(), "memgrap", text_search_mode::ALL_PROPERTIES, fuzzy_config);
+    EXPECT_EQ(fuzzy.size(), 1);
+  }
+}
+
+TEST_F(TextIndexTest, FuzzyDistanceAboveTwoThrows) {
+  this->CreateIndex();
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    this->CreateVertex(acc.get(), "memgraph", "");
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    constexpr TextSearchConfig bad_config{.limit = 10, .fuzzy_distance = 3};
+    EXPECT_THROW(acc->TextIndexSearch(
+                     test_index.data(), "data.title:memgraph", text_search_mode::SPECIFIED_PROPERTIES, bad_config),
+                 memgraph::query::TextSearchException);
   }
 }

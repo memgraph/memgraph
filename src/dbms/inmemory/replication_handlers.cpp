@@ -12,7 +12,9 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "rpc/file_replication_handler.hpp"
+#include "rpc/protocol.hpp"
 #include "rpc/utils.hpp"  // Include after all SLK definitions are present
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -21,10 +23,9 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-
-#include "memory/db_arena_fwd.hpp"
 #include "utils/file.hpp"
 #include "utils/observer.hpp"
+#include "utils/on_scope_exit.hpp"
 
 #include <spdlog/spdlog.h>
 #include <optional>
@@ -59,7 +60,14 @@ class SnapshotObserver final : public utils::Observer<void> {
 
   void Update() override {
     auto guard = std::lock_guard{mtx_};
-    rpc::SendInProgressMsg(res_builder_);
+    try {
+      rpc::SendInProgressMsg(res_builder_);
+    } catch (const rpc::SessionException &e) {
+      // Progress heartbeats are advisory. If the peer is (temporarily) gone the send fails, but recovery must neither
+      // crash nor abort: the loaded state stands and main reconciles it via a later heartbeat RPC once reconnected.
+      // No latch: the next Update() retries on a now-clean builder (see slk::Builder::FlushInternal).
+      spdlog::trace("Failed to send recovery progress heartbeat: {}", e.what());
+    }
   }
 
  private:
@@ -185,6 +193,20 @@ std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *de
   }
 }
 
+// Drains the current transaction's remaining deltas from the stream and replies with a failed
+// PrepareCommit, so the main sees a clean rejection and (re-)drives recovery. Used when the replica cannot
+// apply this transaction (the tenant is broken, or its previous commit timestamp is ahead of the request).
+void DrainAndRejectPrepareCommit(storage::replication::Decoder &decoder, uint64_t const request_version,
+                                 slk::Builder *res_builder, std::string_view db_name) {
+  bool transaction_complete{false};
+  while (!transaction_complete) {
+    const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
+    transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
+  }
+  const storage::replication::PrepareCommitRes res{false};
+  rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", db_name));
+}
+
 std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handler, const utils::UUID &uuid) {
   try {
 #ifdef MG_ENTERPRISE
@@ -208,7 +230,15 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
     }
     return std::optional{std::move(acc)};
   } catch (const dbms::UnknownDatabaseException &) {
-    spdlog::warn("No database with UUID \"{}\" on replica!", std::string{uuid});
+    // A data/recovery RPC referenced a tenant that is not HOT on this replica (absent, or held COLD).
+    // We deliberately do NOT reheat it inline. The cluster's correctness model is recovery-driven: when an
+    // incoming RPC cannot be executed because this node is in a different state than MAIN expects, the
+    // replica FAILS the operation and lets MAIN's recovery converge it. A COLD tenant must be brought HOT
+    // only by the ordered RESUME system RPC, never as a side effect of a lagging/reordered data delta —
+    // reheating here would let the replica self-heal off MAIN's authoritative hot/cold map and drift.
+    // Returning nullopt fails the delta and surfaces the divergence to MAIN.
+    spdlog::warn("No HOT database with UUID \"{}\" on replica; failing the delta for MAIN to recover.",
+                 std::string{uuid});
     return std::nullopt;
   }
 }
@@ -310,9 +340,7 @@ void InMemoryReplicationHandlers::Register(
 auto InMemoryReplicationHandlers::TakeSnapshotLock(auto &snapshot_guard, storage::InMemoryStorage *storage) -> bool {
   if (snapshot_guard.try_lock()) return true;
 
-  spdlog::trace(
-      "Couldn't obtain the snapshot lock because there is an ongoing snapshot creation. Trying to abort snapshot "
-      "creation.");
+  spdlog::info("snapshot lock contention: another snapshot is in progress, requesting abort");
 
   // abort_snapshot_ will be reset to false in CreateSnapshot in storage.cpp at the end of its execution with
   // OnScopeExit block
@@ -352,14 +380,15 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
                                                    slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::HeartbeatReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
 
+  // Reject a deposed-MAIN RPC before any tenant work (defence-in-depth; GetDatabaseAccessor does not reheat).
   if (current_main_uuid != req.main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
     const storage::replication::HeartbeatRes res{false, 0, "", 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   if (!db_acc) {
     spdlog::warn("No database accessor");
@@ -369,8 +398,19 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   }
   // Move db acc
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
-  auto const *storage = db_acc->get()->storage();
+  auto *storage = db_acc->get()->storage();
   auto const commit_info = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
+
+  // A broken tenant is empty (Clear()ed to ldt 0). When the main is also empty (main_commit_timestamp 0) there is
+  // nothing to recover: the replica already matches the main, so the recovery-path handlers that normally clear the
+  // broken flag are never driven. Reconcile here by clearing the flag so the replica can accept the main's first
+  // write. Without this, a STRICT_SYNC write to a never-written tenant would 2PC-abort on the broken guard forever and
+  // the main's ldt could never advance to trigger recovery.
+  if (storage->IsBroken() && req.main_commit_timestamp == memgraph::storage::kTimestampInitialId &&
+      commit_info.ldt_ == memgraph::storage::kTimestampInitialId) [[unlikely]] {
+    spdlog::info("Clearing broken flag for db {} after reconciling against an empty main.", storage->name());
+    storage->SetBroken(false);
+  }
 
   auto const last_epoch_with_commit = std::invoke([storage, ldt = commit_info.ldt_]() -> std::string {
     if (auto const &history = storage->repl_storage_state_.history; !history.empty()) {
@@ -382,7 +422,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
 
   const storage::replication::HeartbeatRes res{
       true, commit_info.ldt_, last_epoch_with_commit, commit_info.num_committed_txns_};
-  rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+  rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
 }
 
 void InMemoryReplicationHandlers::PrepareCommitHandler(
@@ -442,6 +482,17 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
   const memory::DbArenaScope db_arena_scope{db_acc->get()};
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
+  // A broken tenant must never apply incremental deltas: it has been Clear()ed, so its state is empty and any
+  // delta would be applied against the wrong base. In normal operation this cannot happen -- a broken tenant
+  // reports commit-ts 0 with a fresh epoch, so the main sees it as behind, drives it into RECOVERY and sends
+  // recovery steps (a snapshot, WAL files, or both) whose handlers clear the broken flag before any incremental
+  // PrepareCommit is sent. This explicit guard is defense-in-depth: it does not rely on that emergent invariant.
+  // Drain the delta stream and reject so the main (re-)drives recovery.
+  if (storage->IsBroken()) [[unlikely]] {
+    DrainAndRejectPrepareCommit(decoder, request_version, res_builder, storage->name());
+    return;
+  }
+
   // Abort prev txn if needed
   // It could happen that the main instance died before sending finalize for the previous commit and then
   // the new instance becomes main and sends prepare
@@ -461,15 +512,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
 
   // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
   if (req.previous_commit_timestamp > repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
-    // Empty the stream
-    bool transaction_complete{false};
-    while (!transaction_complete) {
-      const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
-      transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
-    }
-
-    const storage::replication::PrepareCommitRes res{false};
-    rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+    DrainAndRejectPrepareCommit(decoder, request_version, res_builder, storage->name());
     return;
   }
 
@@ -487,7 +530,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     two_pc_cache_.durability_commit_timestamp_ = req.durability_commit_timestamp;
     res.success = true;
   }
-  rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+  rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
 }
 
 void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
@@ -575,6 +618,14 @@ void InMemoryReplicationHandlers::DestroyReplAccessor() {
   }
 }
 
+void InMemoryReplicationHandlers::AbortTwoPCForTenant(utils::UUID const &uuid) {
+  // TD-3': single global 2PC slot — only abort it when the cached accessor is this tenant's, else a
+  // pending 2PC for a different tenant would be wrongly dropped. uuid() == storage_->uuid().
+  if (two_pc_cache_.commit_accessor_ && two_pc_cache_.commit_accessor_->uuid() == uuid) {
+    DestroyReplAccessor();
+  }
+}
+
 void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage) {
   DestroyReplAccessor();
   if (storage->wal_file_) {
@@ -592,15 +643,16 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
                                                   slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
+  // Reject a deposed-MAIN RPC before any tenant work (defence-in-depth; GetDatabaseAccessor does not reheat).
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
+    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
+    return;
+  }
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in snapshot handler for request with storage_uuid {}",
                   std::string{req.storage_uuid});
-    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
-    return;
-  }
-  if (current_main_uuid != req.main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
@@ -634,10 +686,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
     spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
-    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0},
-                           request_version,
-                           res_builder,
-                           fmt::format("db: {}", storage->name()));
+    rpc::SendFinalResponse(
+        storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
     return;
   }
 
@@ -646,10 +696,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
       spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
-      rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0},
-                             request_version,
-                             res_builder,
-                             fmt::format("db: {}", storage->name()));
+      rpc::SendFinalResponse(
+          storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
       return;
     }
 
@@ -668,7 +716,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           dst_snapshot_file,
           &storage->vertices_,
           &storage->edges_,
-          &storage->edges_metadata_,
+          storage->edges_metadata_index_ ? &*storage->edges_metadata_index_ : nullptr,
           &storage->repl_storage_state_.history,
           storage->name_id_mapper_.get(),
           &storage->edge_count_,
@@ -693,16 +741,18 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       // We are the only active transaction, so mark everything up to the next timestamp
       if (storage->timestamp_ > 0) storage->commit_log_->MarkFinishedInRange(0, storage->timestamp_ - 1);
 
-      RecoverIndicesStatsAndConstraints(&storage->vertices_,
-                                        storage->name_id_mapper_.get(),
-                                        &storage->indices_,
-                                        &storage->constraints_,
-                                        storage->config_,
-                                        recovery_info,
-                                        storage->DbArenaPool(),
-                                        indices_constraints,
-                                        storage->config_.salient.items.properties_on_edges,
-                                        snapshot_observer_info);
+      RecoverDerivedState(&storage->vertices_,
+                          &storage->edges_,
+                          storage->name_id_mapper_.get(),
+                          &storage->indices_,
+                          &storage->constraints_,
+                          storage->config_,
+                          recovery_info,
+                          storage->DbArenaPool(),
+                          indices_constraints,
+                          storage->edges_metadata_index_ ? &*storage->edges_metadata_index_ : nullptr,
+                          storage->config_.salient.items.properties_on_edges,
+                          snapshot_observer_info);
     } catch (const storage::durability::RecoveryFailure &e) {
       spdlog::error(
           "Couldn't load the snapshot from {} because of: {}. Storage will be cleared. Snapshot and WAL files are "
@@ -711,45 +761,56 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           e.what());
       storage->Clear();
       const storage::replication::SnapshotRes res{std::nullopt, 0};
-      rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+      rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
       return;
     }
+
+    // A successful snapshot load is the moment a broken replica tenant becomes healthy: the main has just full-synced
+    // it. Clearing the broken flag re-enables background durability and lets queries touch the tenant again (slice 1
+    // guards writes behind IsBroken(), so clearing the flag is sufficient to resume normal operation). Cleared under
+    // main_lock_ so the healthy transition is atomic with the recovered state.
+    storage->SetBroken(false);
   }
   spdlog::debug("Snapshot from {} loaded successfully.", dst_snapshot_file);
 
   auto const [ldt, num_committed_txns] = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
 
-  const storage::replication::SnapshotRes res{ldt, num_committed_txns};
-  rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
+  // The old durability files (WALs and snapshots that predate this recovery snapshot) must be removed
+  // regardless of whether sending the response below succeeds. If SendFinalResponse throws (e.g. the
+  // connection to main drops mid-flush), leaving them behind orphans a stale WAL chain next to the
+  // freshly reset seq_num 0 WAL, which corrupts the next recovery. The guard body must never throw
+  // because it can run during stack unwinding.
+  utils::OnScopeExit const cleanup_old_durability_files{[&] {
+    try {
+      auto const current_wal_directory = storage->recovery_.wal_directory_;
+      auto const curr_snapshot_files = utils::GetFilesFromDir(current_snapshot_dir);
+      auto const curr_wal_files = utils::GetFilesFromDir(current_wal_directory);
+      auto const not_recovery_snapshot = [&dst_snapshot_file](auto const &snapshot_path) {
+        return snapshot_path != dst_snapshot_file;
+      };
+      auto snapshots_to_process = curr_snapshot_files | rv::filter(not_recovery_snapshot) | r::to_vector;
 
-  auto const curr_snapshot_files = utils::GetFilesFromDir(current_snapshot_dir);
-  auto const current_wal_directory = storage->recovery_.wal_directory_;
-  auto const curr_wal_files = utils::GetFilesFromDir(current_wal_directory);
-  auto const not_recovery_snapshot = [&dst_snapshot_file](auto const &snapshot_path) {
-    return snapshot_path != dst_snapshot_file;
-  };
-
-  auto snapshots_to_process = curr_snapshot_files | rv::filter(not_recovery_snapshot) | r::to_vector;
-
-  if (FLAGS_storage_backup_dir_enabled) {
-    // Read durability files
-
-    auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
-    if (!maybe_backup_dirs) {
-      spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
-      const storage::replication::SnapshotRes res{std::nullopt, 0};
-      rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
-      return;
+      if (FLAGS_storage_backup_dir_enabled) {
+        auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
+        if (!maybe_backup_dirs) {
+          spdlog::error("Couldn't create backup directories. Old durable files won't be moved to .old directory.");
+          return;
+        }
+        auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
+        MoveDurabilityFiles(
+            snapshots_to_process, backup_snapshot_dir, curr_wal_files, backup_wal_dir, &(storage->file_retainer_));
+      } else {
+        DeleteFiles(snapshots_to_process, &storage->file_retainer_);
+        DeleteFiles(curr_wal_files, &storage->file_retainer_);
+      }
+      spdlog::debug("Replication recovery from snapshot finished!");
+    } catch (const std::exception &e) {
+      spdlog::error("Failed to clean up old durability files after snapshot recovery: {}", e.what());
     }
-    auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
-    MoveDurabilityFiles(
-        snapshots_to_process, backup_snapshot_dir, curr_wal_files, backup_wal_dir, &(storage->file_retainer_));
-  } else {
-    DeleteFiles(snapshots_to_process, &storage->file_retainer_);
-    DeleteFiles(curr_wal_files, &storage->file_retainer_);
-  }
+  }};
 
-  spdlog::debug("Replication recovery from snapshot finished!");
+  const storage::replication::SnapshotRes res{ldt, num_committed_txns};
+  rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
 }
 
 // Commit timestamp on main's side shouldn't be updated if:
@@ -789,17 +850,18 @@ void InMemoryReplicationHandlers::WalFilesHandler(
 
   storage::replication::WalFilesReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
+  // Reject a deposed-MAIN RPC before any tenant work (defence-in-depth; GetDatabaseAccessor does not reheat).
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
+    rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
+    return;
+  }
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in wal files handler for request storage_uuid {}",
                   std::string{req.uuid});
     const storage::replication::WalFilesRes res{std::nullopt, 0};
     rpc::SendFinalResponse(res, request_version, res_builder);
-    return;
-  }
-  if (current_main_uuid != req.main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
-    rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
 
@@ -850,6 +912,22 @@ void InMemoryReplicationHandlers::WalFilesHandler(
 
   auto const &active_files = file_replication_handler.GetActiveFileNames();
 
+  // On a force reset the storage was cleared above, so the old durability files must be removed regardless of
+  // whether sending the response succeeds; otherwise a SendFinalResponse throw would orphan a stale WAL chain
+  // next to the reset seq_num 0 WAL and corrupt the next recovery. ProcessOldDurableFiles is a no-op when the
+  // reset wasn't requested. The guard body must never throw because it can run during stack unwinding.
+  utils::OnScopeExit const cleanup_old_durability_files{[&] {
+    try {
+      ProcessOldDurableFiles(req.reset_needed,
+                             storage->recovery_.snapshot_directory_,
+                             current_wal_directory,
+                             old_wal_files,
+                             &storage->file_retainer_);
+    } catch (const std::exception &e) {
+      spdlog::error("Failed to clean up old durability files after WAL files recovery: {}", e.what());
+    }
+  }};
+
   uint32_t local_batch_counter{0};
   uint64_t num_committed_txns{0};
   for (auto i = 0UL; i < wal_file_number; ++i) {
@@ -868,15 +946,17 @@ void InMemoryReplicationHandlers::WalFilesHandler(
   }
 
   spdlog::debug("Replication recovery from WAL files succeeded for db {}.", storage->name());
+
+  // A broken replica tenant reports commit-ts 0 and the main heals it during RECOVERY. The recovery steps need not
+  // include a snapshot: when the main's WAL chain reaches back to the start (e.g. the main never took a snapshot),
+  // GetRecoverySteps sends WAL files only. Having fully applied them, the tenant is consistent with the main, so the
+  // broken flag is cleared here too (mirrors SnapshotHandler) to re-enable queries and background durability.
+  storage->SetBroken(false);
+
   const storage::replication::WalFilesRes res{
       storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, num_committed_txns};
 
-  rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
-  ProcessOldDurableFiles(req.reset_needed,
-                         storage->recovery_.snapshot_directory_,
-                         current_wal_directory,
-                         old_wal_files,
-                         &storage->file_retainer_);
+  rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
 }
 
 // Commit timestamp on MAIN's side shouldn't be updated if:
@@ -914,16 +994,16 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
 
   storage::replication::CurrentWalReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
+  // Reject a deposed-MAIN RPC before any tenant work (defence-in-depth; GetDatabaseAccessor does not reheat).
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
+    rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
+    return;
+  }
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in current wal handler for request storage_uuid {}",
                   std::string{req.uuid});
-    rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
-    return;
-  }
-
-  if (current_main_uuid != req.main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
     rpc::SendFinalResponse(storage::replication::CurrentWalRes{std::nullopt, 0}, request_version, res_builder);
     return;
   }
@@ -978,18 +1058,33 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
         storage->name());
   } else {
     spdlog::debug("Replication recovery from current WAL ended successfully! DB {}.", storage->name());
+    // The current WAL can be the only recovery step the main sends to heal a broken tenant (commit-ts 0, no snapshot
+    // on the main). On success the tenant is consistent with the main, so clear the broken flag here too, just like
+    // SnapshotHandler and WalFilesHandler do.
+    storage->SetBroken(false);
   }
 
   const storage::replication::CurrentWalRes res{
       storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
       load_wal_res.num_txns_committed};
 
-  rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
-  ProcessOldDurableFiles(req.reset_needed,
-                         storage->recovery_.snapshot_directory_,
-                         current_wal_directory,
-                         old_wal_files,
-                         &storage->file_retainer_);
+  // On a force reset the storage was cleared above, so the old durability files must be removed regardless of
+  // whether sending the response succeeds; otherwise a SendFinalResponse throw would orphan a stale WAL chain
+  // next to the reset seq_num 0 WAL and corrupt the next recovery. ProcessOldDurableFiles is a no-op when the
+  // reset wasn't requested. The guard body must never throw because it can run during stack unwinding.
+  utils::OnScopeExit const cleanup_old_durability_files{[&] {
+    try {
+      ProcessOldDurableFiles(req.reset_needed,
+                             storage->recovery_.snapshot_directory_,
+                             current_wal_directory,
+                             old_wal_files,
+                             &storage->file_retainer_);
+    } catch (const std::exception &e) {
+      spdlog::error("Failed to clean up old durability files after current WAL recovery: {}", e.what());
+    }
+  }};
+
+  rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
 }
 
 // The method will return false and hence signal the failure of completely loading the WAL file if:
@@ -1088,9 +1183,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
     slk::Builder *res_builder, bool const two_phase_commit, bool const loading_wal, uint64_t deltas_batch_progress_size,
     uint32_t const start_batch_counter) {
-  auto edge_acc = storage->edges_.access();
-  auto vertex_acc = storage->vertices_.access();
-
   constexpr auto kSharedAccess = storage::StorageAccessType::WRITE;
   constexpr auto kUniqueAccess = storage::StorageAccessType::UNIQUE;
 
@@ -1175,12 +1267,12 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
   std::unordered_map<EdgeSetPropertyCacheKey, EdgeAccessor, EdgeSetPropertyCacheKeyHash> edge_set_property_cache;
 
+  decoder->ResetCrcAcc();
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx, ++current_batch_counter) {
     if (current_batch_counter == deltas_batch_progress_size) {
       rpc::SendInProgressMsg(res_builder);
       current_batch_counter = 0;
     }
-
     auto const [delta_timestamp, delta] = ReadDelta(decoder, version);
     if (delta_timestamp != prev_printed_timestamp) {
       spdlog::trace("Timestamp: {}", delta_timestamp);
@@ -1346,24 +1438,56 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             return;
           }
 
-          std::optional<std::tuple<EdgeRef,
-                                   memgraph::storage::EdgeTypeId,
-                                   memgraph::storage::Vertex *,
-                                   memgraph::storage::Vertex *>>
-              edge_info;
+          // Resolve EdgeInfo using the best available WAL data (newest to oldest format).
+          // Edge is alive by WAL ordering — a SET_PROPERTY delta proves it was not GC-collectable
+          // at main-side commit.
+          // Case 1 (newest WAL): from_gid + to_gid + edge_type → type-filtered out_edges scan via
+          //                      transaction->FindEdge, fastest. Light and heavy edges both supported.
+          // Case 2:              from_gid only → storage->FindEdge(gid, from_gid) handles both light
+          //                      and heavy edges internally; no special-casing needed. O(log V + deg).
+          // Case 3 (oldest WAL): gid only → storage->FindEdge(gid) handles both light and heavy edges
+          //                      internally; no special-casing needed. Full scan fallback.
+          const auto cached_edge_info = std::invoke([&]() -> storage::EdgeInfo {
+            if (data.from_gid.has_value() && data.to_gid.has_value() && data.edge_type.has_value() &&
+                *data.to_gid != storage::kInvalidGid && !data.edge_type->empty()) {
+              auto to_v = transaction->FindVertex(*data.to_gid, View::NEW);
+              if (!to_v)
+                throw utils::BasicException("Failed to find to vertex {} when setting edge property.",
+                                            data.to_gid->AsUint());
+              auto from_v = transaction->FindVertex(*data.from_gid, View::NEW);
+              if (!from_v)
+                throw utils::BasicException("Failed to find from vertex {} when setting edge property.",
+                                            data.from_gid->AsUint());
+              auto const edge_type_id = transaction->NameToEdgeType(*data.edge_type);
+              auto found = transaction->FindEdge(data.gid, View::NEW, edge_type_id, &*from_v, &*to_v);
+              if (!found) {
+                throw utils::BasicException("Failed to find edge {} when setting edge property.", edge_gid);
+              }
+              return storage::EdgeInfo{
+                  std::in_place, found->edge_, found->edge_type_, found->from_vertex_, found->to_vertex_};
+            } else if (data.from_gid.has_value()) {
+              auto info = storage->FindEdge(data.gid, *data.from_gid);
+              if (!info)
+                throw utils::BasicException("Failed to find edge {} from vertex {} when setting edge property.",
+                                            edge_gid,
+                                            data.from_gid->AsUint());
+              return info;
+            } else {
+              auto info = storage->FindEdge(data.gid);
+              if (!info) throw utils::BasicException("Failed to find edge {} when setting edge property.", edge_gid);
+              return info;
+            }
+          });
 
-          // Slow path: resolve edge via edge_acc / FindEdge (WAL or legacy replication).
-          auto edge = edge_acc.find(data.gid);
-          if (edge == edge_acc.end()) {
-            throw utils::BasicException("Failed to find edge {} when setting property.", edge_gid);
-          }
+          auto const &[er, et, fv, tv] = *cached_edge_info;
+          auto *edge_raw = er.ptr;
           {
             bool is_visible = true;
             Delta *local_delta = nullptr;
             {
-              auto guard = std::shared_lock{edge->lock};
-              is_visible = !edge->deleted();
-              local_delta = edge->delta();
+              auto guard = std::shared_lock{edge_raw->lock};
+              is_visible = !edge_raw->deleted();
+              local_delta = edge_raw->delta();
             }
             ApplyDeltasForRead(
                 &transaction->GetTransaction(), local_delta, View::NEW, [&is_visible](const Delta &delta) {
@@ -1388,70 +1512,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                   }
                 });
             if (!is_visible) {
-              throw utils::BasicException("Edge {} isn't visible when setting property.", edge_gid);
+              throw utils::BasicException("Edge {} isn't visible when setting edge property.", edge_gid);
             }
           }
-
-          auto [edge_ref, edge_type, from_vertex, vertex_to] = std::invoke([&] {
-            if (data.from_gid.has_value()) {
-              // Faster path: use to vertex and edge type from WAL delta.
-              // Newer versions store to_gid and edge_type when needed, so we can use the faster path via FindEdge.
-              // NOTE: WAL edge deltas mix vertex and edge deltas. For efficiency, we don't record the to gid and
-              // edge type in case the edge was created in this transaction. We should either be using the cached
-              // edge accessor (from EdgeCreate - actually a vertex delta) or we should have valid to gid and edge
-              // type.
-              if (data.to_gid.has_value() && data.edge_type.has_value() && *data.to_gid != storage::kInvalidGid &&
-                  !data.edge_type->empty()) {
-                auto to_vertex = transaction->FindVertex(*data.to_gid, View::NEW);
-                if (!to_vertex)
-                  throw utils::BasicException("Failed to find to vertex {} when setting edge property.",
-                                              data.to_gid->AsUint());
-
-                auto from_vertex = transaction->FindVertex(*data.from_gid, View::NEW);
-                if (!from_vertex)
-                  throw utils::BasicException("Failed to find from vertex {} when setting edge property.",
-                                              data.from_gid->AsUint());
-
-                auto const edge_type_id = transaction->NameToEdgeType(*data.edge_type);
-                auto found_edge = transaction->FindEdge(data.gid, View::NEW, edge_type_id, &*from_vertex, &*to_vertex);
-                if (!found_edge) {
-                  constexpr auto src_loc{std::source_location()};
-                  throw utils::BasicException(
-                      "Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(), src_loc.line());
-                }
-                return std::tuple{
-                    found_edge->edge_, found_edge->edge_type_, found_edge->from_vertex_, found_edge->to_vertex_};
-              }
-
-              // Fallback path: resolve edge via vertex_acc / FindEdge (legacy replication).
-              auto vertex_acc = storage->vertices_.access();
-              auto from_vertex = vertex_acc.find(data.from_gid);
-              if (from_vertex == vertex_acc.end())
-                throw utils::BasicException("Failed to find from vertex {} when setting edge property.",
-                                            data.from_gid->AsUint());
-
-              auto found_edge = r::find_if(from_vertex->out_edges, [raw_edge_ref = EdgeRef(&*edge)](auto &in) {
-                return std::get<2>(in) == raw_edge_ref;
-              });
-              if (found_edge == from_vertex->out_edges.end()) {
-                throw utils::BasicException(
-                    "Couldn't find edge {} in vertex {}'s out edge collection.", edge_gid, from_vertex->gid.AsUint());
-              }
-              const auto &[edge_type, vertex_to, edge_ref] = *found_edge;
-              return std::tuple{edge_ref, edge_type, &*from_vertex, vertex_to};
-            }
-            auto found_edge = storage->FindEdge(edge->gid);
-            if (!found_edge) {
-              constexpr auto src_loc{std::source_location()};
-              throw utils::BasicException(
-                  "Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(), src_loc.line());
-            }
-            const auto &[edge_ref, edge_type, vertex_from, vertex_to] = *found_edge;
-            return std::tuple{edge_ref, edge_type, vertex_from, vertex_to};
-          });
-          edge_info.emplace(edge_ref, edge_type, from_vertex, vertex_to);
-
-          auto const &[er, et, fv, tv] = *edge_info;
           EdgeAccessor ea{er, et, fv, tv, storage, &transaction->GetTransaction()};
           edge_set_property_cache.emplace(cache_key, ea);  // Fast edge accessor lookup cache
           auto ret = ea.SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
@@ -1472,11 +1535,17 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
           access_type = data.access_type ? std::optional(translate_access_type(*data.access_type)) : std::nullopt;
         },
-        [&](WalTransactionEnd const &) {
+        [&](WalTransactionEnd const &txn_end) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
           if (!commit_accessor || commit_timestamp != delta_timestamp) {
             throw utils::BasicException("Invalid commit data!");
           }
+          // We don't do CRC verification on PrepareCommitRpc because we are already using TCP sockets
+          if (loading_wal && txn_end.txn_crc.has_value() && !utils::CrcAccumulator::Verify(decoder->CrcAccValue())) {
+            throw utils::BasicException(
+                "Replication WAL CRC mismatch (stored {}, residue {}).", *txn_end.txn_crc, decoder->CrcAccValue());
+          }
+          decoder->ResetCrcAcc();
 
           // Durability could take some time on replica
           rpc::SendInProgressMsg(res_builder);
@@ -1812,17 +1881,23 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalVectorIndexCreate const &data) {
-          spdlog::trace("   Delta {}. Create vector index on :{}({})", current_delta_idx, data.label, data.property);
+          spdlog::trace(
+              "   Delta {}. Create vector index {} on property {}", current_delta_idx, data.index_name, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
           auto metric_kind = storage::MetricFromName(data.metric_kind);
           auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                               : unum::usearch::scalar_kind_t::f32_k;
 
+          std::vector<storage::LabelId> label_ids;
+          label_ids.reserve(data.label_filter.ids.size());
+          for (const auto &name : data.label_filter.ids) label_ids.push_back(storage->NameToLabel(name));
+
           auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
               .index_name = data.index_name,
-              .label_id = labelId,
+              .label_filter =
+                  storage::VectorLabelFilter{.mode = static_cast<storage::VectorMatchMode>(data.label_filter.mode),
+                                             .ids = std::move(label_ids)},
               .property = propId,
               .metric_kind = metric_kind,
               .dimension = data.dimension,
@@ -1831,20 +1906,28 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               .scalar_kind = scalar_kind,
           });
           if (!res) {
-            throw utils::BasicException("Failed to create vector index on :{}({})", data.label, data.property);
+            throw utils::BasicException(
+                "Failed to create vector index {} on property {}", data.index_name, data.property);
           }
         },
         [&](WalVectorEdgeIndexCreate const &data) {
-          spdlog::trace(
-              "   Delta {}. Create vector index on :{}({})", current_delta_idx, data.edge_type, data.property);
+          spdlog::trace("   Delta {}. Create vector edge index {} on property {}",
+                        current_delta_idx,
+                        data.index_name,
+                        data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto edgeType = storage->NameToEdgeType(data.edge_type);
           auto propId = storage->NameToProperty(data.property);
           auto metric_kind = storage::MetricFromName(data.metric_kind);
 
+          std::vector<storage::EdgeTypeId> edge_type_ids;
+          edge_type_ids.reserve(data.edge_type_filter.ids.size());
+          for (const auto &name : data.edge_type_filter.ids) edge_type_ids.push_back(storage->NameToEdgeType(name));
+
           auto res = transaction->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
               .index_name = data.index_name,
-              .edge_type_id = edgeType,
+              .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = static_cast<storage::VectorMatchMode>(
+                                                                    data.edge_type_filter.mode),
+                                                                .ids = std::move(edge_type_ids)},
               .property = propId,
               .metric_kind = metric_kind,
               .dimension = data.dimension,
@@ -1853,7 +1936,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind),
           });
           if (!res) {
-            throw utils::BasicException("Failed to create vector index on :{}({})", data.edge_type, data.property);
+            throw utils::BasicException(
+                "Failed to create vector edge index {} on property {}", data.index_name, data.property);
           }
         },
         [&](WalVectorIndexDrop const &data) {
@@ -1958,7 +2042,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
     };
-
     // If I received PrepareCommitRpc, deltas should be applied (loading_wal will be false)
     // If loading WAL file, WalTransactionStart is decision-maker whether to load the txn from WAL or not
     if (loading_wal && !should_commit) continue;

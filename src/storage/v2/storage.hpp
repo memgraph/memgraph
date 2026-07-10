@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <optional>
+#include <set>
+#include <string>
+
 #include "common_function_signatures.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "mg_procedure.h"
@@ -37,27 +41,11 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_chunked_iterable.hpp"
 #include "storage/v2/vertices_iterable.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 
 namespace memgraph::metrics {
-extern const Event SnapshotCreationLatency_us;
-
-extern const Event ActiveLabelIndices;
-extern const Event ActiveLabelPropertyIndices;
-extern const Event ActiveEdgeTypeIndices;
-extern const Event ActiveEdgeTypePropertyIndices;
-extern const Event ActiveEdgePropertyIndices;
-extern const Event ActivePointIndices;
-extern const Event ActiveTextIndices;
-extern const Event ActiveTextEdgeIndices;
-extern const Event ActiveVectorIndices;
-extern const Event ActiveVectorEdgeIndices;
-
-extern const Event ActiveExistenceConstraints;
-extern const Event ActiveUniqueConstraints;
-extern const Event ActiveTypeConstraints;
+struct DatabaseMetricHandles;
 }  // namespace memgraph::metrics
 
 namespace memgraph::utils {
@@ -146,13 +134,54 @@ struct StorageInfo {
   utils::CompressionLevel property_store_compression_level;
   uint64_t schema_vertex_count;
   uint64_t schema_edge_count;
+
+  friend bool operator==(const StorageInfo &, const StorageInfo &) = default;
 };
 
-struct EventInfo {
-  std::string name;
-  std::string type;
-  std::string event_type;
-  uint64_t value;
+// Single ordered list of StorageInfo's (de)serializable fields. Every persistence/wire path —
+// the durability cold_stats JSON (Durability::StatsToJson/StatsFromJson) and the V3 SystemRecovery SLK
+// (system_rpc.cpp Save/Load) — drives serialization through this one visitor, so adding a field to
+// StorageInfo extends all of them at once instead of silently drifting (the field-drift hazard flagged
+// in earlier reviews). `visit(key, ref)` is invoked once per field in declaration order; the caller's
+// visitor handles scalars directly and enums via `if constexpr (std::is_enum_v<T>)`. Templated on Self so
+// the SAME field list serves a const StorageInfo (save) and a mutable one (load).
+template <typename Self, typename Visit>
+void StorageInfoForEachField(Self &s, Visit &&visit) {
+  visit("vertex_count", s.vertex_count);
+  visit("edge_count", s.edge_count);
+  visit("average_degree", s.average_degree);
+  visit("memory_res", s.memory_res);
+  visit("peak_memory_res", s.peak_memory_res);
+  visit("unreleased_delta_objects", s.unreleased_delta_objects);
+  visit("disk_usage", s.disk_usage);
+  visit("label_indices", s.label_indices);
+  visit("label_property_indices", s.label_property_indices);
+  visit("text_indices", s.text_indices);
+  visit("vector_indices", s.vector_indices);
+  visit("vector_edge_indices", s.vector_edge_indices);
+  visit("existence_constraints", s.existence_constraints);
+  visit("unique_constraints", s.unique_constraints);
+  visit("type_constraints", s.type_constraints);
+  visit("storage_mode", s.storage_mode);
+  visit("isolation_level", s.isolation_level);
+  visit("durability_snapshot_enabled", s.durability_snapshot_enabled);
+  visit("durability_wal_enabled", s.durability_wal_enabled);
+  visit("property_store_compression_enabled", s.property_store_compression_enabled);
+  visit("property_store_compression_level", s.property_store_compression_level);
+  visit("schema_vertex_count", s.schema_vertex_count);
+  visit("schema_edge_count", s.schema_edge_count);
+}
+
+// Hot/cold: the per-COLD-tenant recovery payload carried in SystemRecoveryReq V3 so a
+// reconnecting/lagging replica converges to MAIN's authoritative {HOT ∪ COLD} set. Replaces the
+// earlier two parallel (salient, stats) vectors; bundling them keeps the 1:1 pairing structural (no
+// length-mismatch guard). Composed of storage:: types only, so it can sit in both the dbms and
+// replication_handler signatures without a layer cycle. A resumed cold tenant trusts its own
+// on-disk WAL/snapshot epoch (BuildDetached); no epoch is carried here (cold-tenant epoch machinery
+// was intentionally removed — a cold tenant accumulates no divergent commits to reconcile).
+struct ColdTenantRecovery {
+  SalientConfig salient;
+  StorageInfo stats{};  // value-init: a default-constructed recovery carries zeroed stats
 };
 
 static inline nlohmann::json ToJson(const StorageInfo &info) {
@@ -218,7 +247,8 @@ class Storage {
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
-          memory::ArenaPool *db_arena_pool = nullptr, utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
+          metrics::DatabaseMetricHandles metric_handles = {}, memory::ArenaPool *db_arena_pool = nullptr,
+          utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
           std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
 
   Storage(const Storage &) = delete;
@@ -235,6 +265,13 @@ class Storage {
   auto uuid() const -> utils::UUID const & { return config_.salient.uuid; }
 
   auto uuid() -> utils::UUID & { return config_.salient.uuid; }
+
+  // A storage is broken when it failed durability recovery on startup and was
+  // brought up empty (see --storage-allow-recovery-failure). A broken storage
+  // rejects data queries until recovered via RECOVER SNAPSHOT.
+  bool IsBroken() const noexcept { return broken_.load(std::memory_order_acquire); }
+
+  void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
 
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
@@ -269,6 +306,14 @@ class Storage {
 
   StorageMode GetStorageMode() const noexcept;
 
+  // True iff this storage's durability mode keeps BOTH periodic snapshots AND a WAL
+  // chain — the precondition for hot/cold suspend (suspend tears down RAM and relies
+  // on {snapshot + WAL} on disk to recover). PERIODIC_SNAPSHOT-only or DISABLED is
+  // NOT suspendable.
+  [[nodiscard]] bool IsDurabilityCompleteForSuspend() const {
+    return config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  }
+
   virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) = 0;
 
   void FreeMemory() { FreeMemory(std::unique_lock{main_lock_, std::defer_lock}, false); }
@@ -297,8 +342,6 @@ class Storage {
   IsolationLevel GetIsolationLevel() const noexcept;
 
   virtual StorageInfo GetBaseInfo() = 0;
-
-  static std::vector<EventInfo> GetMetrics() noexcept;
 
   virtual StorageInfo GetInfo() = 0;
 
@@ -365,6 +408,9 @@ class Storage {
   // for disk storage.
   std::atomic<uint64_t> edge_count_{0};
 
+  // Set when durability recovery failed and the storage was brought up empty.
+  std::atomic<bool> broken_{false};
+
   std::unique_ptr<NameIdMapper> name_id_mapper_;
   Config config_;
 
@@ -376,6 +422,8 @@ class Storage {
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
   memory::ArenaPool *db_arena_pool_{nullptr};
+
+  metrics::DatabaseMetricHandles metric_handles_{};
 
   Indices indices_;
   Constraints constraints_;
@@ -405,7 +453,7 @@ class Storage {
   // A way to tell async operation to stop
   std::stop_source stop_source;
 
-  ttl::TTL ttl_{this};  // TTL handler
+  ttl::TTL ttl_{this, metric_handles_.deleted_nodes, metric_handles_.deleted_edges};  // TTL handler
 
   // Factory function to create database protectors for async operations
   // Used by async indexer and TTL system to get protectors for committing transactions
@@ -592,9 +640,9 @@ class Accessor {
 
   virtual std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const = 0;
 
-  virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
+  virtual std::optional<uint64_t> ApproximateVerticesVectorCount(std::string_view index_name) const = 0;
 
-  virtual std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+  virtual std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const = 0;
 
   virtual std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const = 0;
 
@@ -647,8 +695,8 @@ class Accessor {
   }
 
   std::vector<TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                                text_search_mode search_mode, std::size_t limit) const {
-    return transaction_.active_indices_->text_->Search(index_name, search_query, search_mode, limit, transaction_);
+                                                text_search_mode search_mode, const TextSearchConfig &config) const {
+    return transaction_.active_indices_->text_->Search(index_name, search_query, search_mode, config, transaction_);
   }
 
   std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
@@ -662,8 +710,10 @@ class Accessor {
   }
 
   std::vector<TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name, const std::string &search_query,
-                                                        text_search_mode search_mode, std::size_t limit) const {
-    return transaction_.active_indices_->text_edge_->Search(index_name, search_query, search_mode, limit, transaction_);
+                                                        text_search_mode search_mode,
+                                                        const TextSearchConfig &config) const {
+    return transaction_.active_indices_->text_edge_->Search(
+        index_name, search_query, search_mode, config, transaction_);
   }
 
   virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;
@@ -686,7 +736,8 @@ class Accessor {
 
   virtual void FinalizeTransaction() = 0;
 
-  std::optional<uint64_t> GetTransactionId() const;
+  // Stable per-query id; preserved across PERIODIC COMMIT.
+  std::optional<uint64_t> GetStartTimestamp() const;
 
   utils::QueryMemoryTracker &GetTransactionMemoryTracker();
 

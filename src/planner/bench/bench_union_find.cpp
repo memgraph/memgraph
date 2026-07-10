@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,7 +39,6 @@ void BM_UnionFind_Find(benchmark::State &state) {
   UnionFind uf;
   std::vector<uint32_t> ids;
 
-  // Setup: create sets
   ids.reserve(state.range(0));
   for (int i = 0; i < state.range(0); ++i) {
     ids.push_back(uf.MakeSet());
@@ -63,7 +62,6 @@ void BM_UnionFind_Find_OnAChain(benchmark::State &state) {
   UnionFind uf;
   std::vector<uint32_t> ids;
 
-  // Setup: create a chain of unions
   ids.reserve(state.range(0));
   for (int i = 0; i < state.range(0); ++i) {
     ids.push_back(uf.MakeSet());
@@ -91,14 +89,12 @@ void BM_UnionFind_Union(benchmark::State &state) {
     uf.Clear();
     ids.clear();
 
-    // Setup: create sets to union
     ids.reserve(state.range(0));
     for (int i = 0; i < state.range(0); ++i) {
       ids.push_back(uf.MakeSet());
     }
     state.ResumeTiming();
 
-    // Perform unions
     for (size_t i = 0; i < (state.range(0) - 1); ++i) {
       benchmark::DoNotOptimize(uf.UnionSets(ids[i], ids[i + 1]));
     }
@@ -125,7 +121,6 @@ void BM_UnionFind_BulkUnion(benchmark::State &state) {
 
     state.ResumeTiming();
 
-    // Bulk union
     uf.UnionSets(ids, ctx);
 
     benchmark::DoNotOptimize(uf);
@@ -137,8 +132,16 @@ void BM_UnionFind_BulkUnion(benchmark::State &state) {
 
 }  // namespace
 
-BENCHMARK(BM_UnionFind_MakeSet)->Range(kRangeLow, kRangeHigh)->Complexity();
-BENCHMARK(BM_UnionFind_Find)->Range(kRangeLow, kRangeHigh)->Complexity();
-BENCHMARK(BM_UnionFind_Find_OnAChain)->Range(kRangeLow, kRangeHigh)->Complexity();
-BENCHMARK(BM_UnionFind_Union)->Range(kRangeLow, kRangeHigh)->Complexity();
-BENCHMARK(BM_UnionFind_BulkUnion)->Range(kRangeLow, kRangeHigh)->Complexity();
+BENCHMARK(BM_UnionFind_MakeSet)->Name("UnionFind/MakeSet")->Range(kRangeLow, kRangeHigh)->ArgName("n")->Complexity();
+BENCHMARK(BM_UnionFind_Find)->Name("UnionFind/Find")->Range(kRangeLow, kRangeHigh)->ArgName("n")->Complexity();
+BENCHMARK(BM_UnionFind_Find_OnAChain)
+    ->Name("UnionFind/Find_OnAChain")
+    ->Range(kRangeLow, kRangeHigh)
+    ->ArgName("n")
+    ->Complexity();
+BENCHMARK(BM_UnionFind_Union)->Name("UnionFind/Union")->Range(kRangeLow, kRangeHigh)->ArgName("n")->Complexity();
+BENCHMARK(BM_UnionFind_BulkUnion)
+    ->Name("UnionFind/BulkUnion")
+    ->Range(kRangeLow, kRangeHigh)
+    ->ArgName("n")
+    ->Complexity();

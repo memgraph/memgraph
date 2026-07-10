@@ -599,7 +599,7 @@ def test_marked_commits_after_snapshot(test_name):
     # 6
     execute_and_fetch_all(cursor, "FREE MEMORY")
     execute_and_fetch_all(cursor, "FREE MEMORY")
-    info = execute_and_fetch_all(cursor, "SHOW STORAGE INFO")
+    info = execute_and_fetch_all(cursor, "SHOW STORAGE INFO ON CURRENT DATABASE")
     unreleased_deltas = None
     for [key, val] in info:
         if key == "unreleased_delta_objects":
@@ -780,11 +780,11 @@ def test_snapshot_on_mode_change_analytical_to_transactional(test_name):
     interactive_mg_runner.kill_all()
 
 
-def _get_db_memory_tracked_bytes(cursor):
-    """Return the db_memory_tracked field from SHOW STORAGE INFO as bytes."""
-    info = execute_and_fetch_all(cursor, "SHOW STORAGE INFO")
+def _get_tenant_memory_tracked_bytes(cursor):
+    """Return the tenant_memory_tracked field from SHOW STORAGE INFO as bytes."""
+    info = execute_and_fetch_all(cursor, "SHOW STORAGE INFO ON CURRENT DATABASE")
     info_dict = {row[0]: row[1] for row in info}
-    return _parse_size_bytes(info_dict.get("db_memory_tracked", "0B"))
+    return _parse_size_bytes(info_dict.get("tenant_memory_tracked", "0B"))
 
 
 def _parse_size_bytes(size_str):
@@ -798,13 +798,13 @@ def _parse_size_bytes(size_str):
     return int(float(m.group(1)) * units[m.group(2)])
 
 
-def test_db_memory_tracked_after_recover_snapshot(test_name):
+def test_tenant_memory_tracked_after_recover_snapshot(test_name):
     """
-    After RECOVER SNAPSHOT, db_memory_tracked must be non-zero.
+    After RECOVER SNAPSHOT, tenant_memory_tracked must be non-zero.
 
     The snapshot recovery path runs on threads that are fully pinned to the DB arena via
     je_mallctl (GC/scheduler threads), so all recovered vertices and edges are attributed
-    to db_memory_tracked.
+    to tenant_memory_tracked.
     """
     data_directory = get_data_path("snapshot_recovery", test_name)
     interactive_mg_runner.start(memgraph_instances(data_directory), "default")
@@ -820,8 +820,8 @@ def test_db_memory_tracked_after_recover_snapshot(test_name):
     )
 
     # Capture memory before snapshot (data is loaded in-memory)
-    before_snapshot = _get_db_memory_tracked_bytes(cursor)
-    assert before_snapshot > 0, "db_memory_tracked should be non-zero after creating dataset"
+    before_snapshot = _get_tenant_memory_tracked_bytes(cursor)
+    assert before_snapshot > 0, "tenant_memory_tracked should be non-zero after creating dataset"
 
     # Take a snapshot of the current state
     result = execute_and_fetch_all(cursor, "CREATE SNAPSHOT")
@@ -831,17 +831,17 @@ def test_db_memory_tracked_after_recover_snapshot(test_name):
     # Recover from the snapshot — this replaces in-memory state by re-loading from disk
     execute_and_fetch_all(cursor, f"RECOVER SNAPSHOT '{snapshot_path}' FORCE")
 
-    after_recovery = _get_db_memory_tracked_bytes(cursor)
+    after_recovery = _get_tenant_memory_tracked_bytes(cursor)
 
     interactive_mg_runner.kill_all()
 
     assert after_recovery > 0, (
-        f"db_memory_tracked must be non-zero after RECOVER SNAPSHOT. "
+        f"tenant_memory_tracked must be non-zero after RECOVER SNAPSHOT. "
         f"before_snapshot={before_snapshot} after_recovery={after_recovery}"
     )
 
 
-def test_db_memory_tracked_recover_snapshot_into_correct_db(test_name):
+def test_tenant_memory_tracked_recover_snapshot_into_correct_db(test_name):
     """
     RECOVER SNAPSHOT executed while USE DATABASE other_db is active must attribute
     memory to other_db, not to the default memgraph database.
@@ -863,7 +863,7 @@ def test_db_memory_tracked_recover_snapshot_into_correct_db(test_name):
 
     # Clean up the default DB so we can confirm cross-DB attribution
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
-    baseline_memgraph = _get_db_memory_tracked_bytes(cursor)
+    baseline_memgraph = _get_tenant_memory_tracked_bytes(cursor)
 
     # Create a second database and recover the snapshot there (enterprise feature)
     try:
@@ -875,25 +875,25 @@ def test_db_memory_tracked_recover_snapshot_into_correct_db(test_name):
 
     # Switch to snapshot_target_db and recover
     other_cursor = mt_cursor(connection, "snapshot_target_db")
-    baseline_other = _get_db_memory_tracked_bytes(other_cursor)
+    baseline_other = _get_tenant_memory_tracked_bytes(other_cursor)
 
     execute_and_fetch_all(other_cursor, f"RECOVER SNAPSHOT '{snapshot_path}' FORCE")
 
-    after_other = _get_db_memory_tracked_bytes(other_cursor)
+    after_other = _get_tenant_memory_tracked_bytes(other_cursor)
 
     # Switch back to memgraph and verify it did NOT grow
     cursor2 = mt_cursor(connection, "memgraph")
-    after_memgraph = _get_db_memory_tracked_bytes(cursor2)
+    after_memgraph = _get_tenant_memory_tracked_bytes(cursor2)
 
     interactive_mg_runner.kill_all()
 
     assert after_other > baseline_other, (
-        f"snapshot_target_db db_memory_tracked should grow after RECOVER SNAPSHOT. "
+        f"snapshot_target_db tenant_memory_tracked should grow after RECOVER SNAPSHOT. "
         f"baseline={baseline_other} after={after_other}"
     )
     # Allow 512 KiB noise for background threads
     assert after_memgraph <= baseline_memgraph + 512 * 1024, (
-        f"memgraph db_memory_tracked should NOT grow when recovering into snapshot_target_db. "
+        f"memgraph tenant_memory_tracked should NOT grow when recovering into snapshot_target_db. "
         f"baseline_memgraph={baseline_memgraph} after_memgraph={after_memgraph}"
     )
 

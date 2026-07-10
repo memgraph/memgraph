@@ -18,7 +18,7 @@ from common import connect, execute_and_fetch_all
 def test_empty_show_storage_info(connect):
     cursor = connect.cursor()
     execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
-    results = execute_and_fetch_all(cursor, "SHOW STORAGE INFO")
+    results = execute_and_fetch_all(cursor, "SHOW STORAGE INFO ON CURRENT DATABASE")
     results = dict(map(lambda pair: (pair[0], pair[1]), results))
     assert results["vertex_count"] == 0
     assert results["edge_count"] == 0
@@ -30,7 +30,7 @@ def test_show_storage_info_after_initialization(connect):
     execute_and_fetch_all(cursor, "CREATE (n:User {id: 1})")
     execute_and_fetch_all(cursor, "CREATE (n:User {id: 2})")
     execute_and_fetch_all(cursor, "MATCH (n:User {id: 1}), (m:User {id: 2}) CREATE (n)-[r:FRIEND {id: 1}]->(m)")
-    results = execute_and_fetch_all(cursor, "SHOW STORAGE INFO")
+    results = execute_and_fetch_all(cursor, "SHOW STORAGE INFO ON CURRENT DATABASE")
     results = dict(map(lambda pair: (pair[0], pair[1]), results))
     assert results["vertex_count"] == 2
     assert results["edge_count"] == 1
@@ -44,7 +44,7 @@ def test_show_storage_info_detach_delete_vertex(connect):
     execute_and_fetch_all(cursor, "CREATE (n:User {id: 2})")
     execute_and_fetch_all(cursor, "MATCH (n:User {id: 1}), (m:User {id: 2}) CREATE (n)-[r:FRIEND {id: 1}]->(m)")
     execute_and_fetch_all(cursor, "MATCH (n:User {id: 1}) DETACH DELETE n;")
-    results = execute_and_fetch_all(cursor, "SHOW STORAGE INFO")
+    results = execute_and_fetch_all(cursor, "SHOW STORAGE INFO ON CURRENT DATABASE")
     results = dict(map(lambda pair: (pair[0], pair[1]), results))
     assert results["vertex_count"] == 1
     assert results["edge_count"] == 0
@@ -58,7 +58,7 @@ def test_show_storage_info_delete_edge(connect):
     execute_and_fetch_all(cursor, "CREATE (n:User {id: 2})")
     execute_and_fetch_all(cursor, "MATCH (n:User {id: 1}), (m:User {id: 2}) CREATE (n)-[r:FRIEND {id: 1}]->(m)")
     execute_and_fetch_all(cursor, "MATCH (n:User {id: 1})-[r]->(m:User {id: 2}) DELETE r;")
-    results = execute_and_fetch_all(cursor, "SHOW STORAGE INFO")
+    results = execute_and_fetch_all(cursor, "SHOW STORAGE INFO ON CURRENT DATABASE")
     results = dict(map(lambda pair: (pair[0], pair[1]), results))
     assert results["vertex_count"] == 2
     assert results["edge_count"] == 0

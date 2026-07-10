@@ -89,6 +89,12 @@ struct SchemaTracking final : public SchemaTrackingInterface {
                         const std::function<bool(VertexKey const &)> &node_predicate,
                         const std::function<bool(EdgeTypeId)> &edge_predicate) const override;
 
+  nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
+                        const std::function<bool(VertexKey const &)> &node_predicate,
+                        const std::function<bool(EdgeTypeId)> &edge_predicate,
+                        const std::function<bool(VertexKey const &, PropertyId)> &node_property_predicate,
+                        const std::function<bool(EdgeTypeId, PropertyId)> &edge_property_predicate) const;
+
   void RecoverVertex(Vertex *vertex) override;
 
   void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) override;
@@ -155,6 +161,16 @@ struct SchemaInfo {
                         const std::function<bool(EdgeTypeId)> &edge_predicate) const {
     auto lock = std::unique_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
     return tracking_.ToJson(name_id_mapper, enum_store, node_predicate, edge_predicate);
+  }
+
+  nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
+                        const std::function<bool(VertexKey const &)> &node_predicate,
+                        const std::function<bool(EdgeTypeId)> &edge_predicate,
+                        const std::function<bool(VertexKey const &, PropertyId)> &node_property_predicate,
+                        const std::function<bool(EdgeTypeId, PropertyId)> &edge_property_predicate) const {
+    auto lock = std::unique_lock{operation_ordering_mutex_};
+    return tracking_.ToJson(
+        name_id_mapper, enum_store, node_predicate, edge_predicate, node_property_predicate, edge_property_predicate);
   }
 
   void ProcessTransaction(LocalSchemaTracking &tracking, SchemaInfoPostProcess &post_process, uint64_t start_ts,

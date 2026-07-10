@@ -18,7 +18,7 @@ from behave import given
 
 
 def clear_graph(context):
-    result = database.query("SHOW STORAGE INFO", context)
+    result = database.query("SHOW STORAGE INFO ON CURRENT DATABASE", context)
     storage_mode = next(record["value"] for record in result if record["storage info"] == "storage_mode")
     if storage_mode == "ON_DISK_TRANSACTIONAL":
         database.query("MATCH (n) DETACH DELETE n", context)

@@ -330,8 +330,8 @@ inline bool graph_is_transactional(mgp_graph *graph) { return MgInvoke<int>(mgp_
 
 inline bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }
 
-inline int64_t graph_get_transaction_id(mgp_graph *graph) {
-  return MgInvoke<int64_t>(mgp_graph_get_transaction_id, graph);
+inline int64_t graph_get_start_timestamp(mgp_graph *graph) {
+  return MgInvoke<int64_t>(mgp_graph_get_start_timestamp, graph);
 }
 
 inline mgp_vertex *graph_create_vertex(mgp_graph *graph, mgp_memory *memory) {
@@ -364,8 +364,18 @@ inline bool graph_has_text_index(mgp_graph *graph, const char *index_name) {
 }
 
 inline mgp_map *graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
-                                        text_search_mode search_mode, std::size_t limit, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_search_text_index, graph, index_name, search_query, search_mode, limit, memory);
+                                        text_search_mode search_mode, std::size_t limit, std::uint8_t fuzzy_distance,
+                                        bool fuzzy_prefix, bool fuzzy_transpositions, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_text_index,
+                             graph,
+                             index_name,
+                             search_query,
+                             search_mode,
+                             limit,
+                             fuzzy_distance,
+                             fuzzy_prefix,
+                             fuzzy_transpositions,
+                             memory);
 }
 
 inline mgp_map *graph_aggregate_over_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
@@ -375,9 +385,19 @@ inline mgp_map *graph_aggregate_over_text_index(mgp_graph *graph, const char *in
 }
 
 inline mgp_map *graph_search_text_edge_index(mgp_graph *graph, const char *index_name, const char *search_query,
-                                             text_search_mode search_mode, std::size_t limit, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(
-      mgp_graph_search_text_edge_index, graph, index_name, search_query, search_mode, limit, memory);
+                                             text_search_mode search_mode, std::size_t limit,
+                                             std::uint8_t fuzzy_distance, bool fuzzy_prefix, bool fuzzy_transpositions,
+                                             mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_text_edge_index,
+                             graph,
+                             index_name,
+                             search_query,
+                             search_mode,
+                             limit,
+                             fuzzy_distance,
+                             fuzzy_prefix,
+                             fuzzy_transpositions,
+                             memory);
 }
 
 inline mgp_map *graph_aggregate_over_text_edge_index(mgp_graph *graph, const char *index_name, const char *search_query,

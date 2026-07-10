@@ -43,7 +43,9 @@ class EdgeConstants(Enum):
 class Graph:
     """Wrapper around a NetworkX MultiDiGraph instance."""
 
-    __slots__ = ("nx", "_highest_vertex_id", "_highest_edge_id", "_valid")
+    __slots__ = ("nx", "_highest_vertex_id", "_highest_edge_id", "_valid", "start_timestamp")
+
+    _next_start_timestamp = 0
 
     def __init__(self, graph: nx.MultiDiGraph) -> None:
         if not isinstance(graph, nx.MultiDiGraph):
@@ -53,6 +55,10 @@ class Graph:
         self._highest_vertex_id = None
         self._highest_edge_id = None
         self._valid = True
+        # Mirror the real Storage::Accessor::GetStartTimestamp contract: a value
+        # that is stable for the lifetime of this Graph instance.
+        Graph._next_start_timestamp += 1
+        self.start_timestamp = Graph._next_start_timestamp
 
     @property
     def vertex_ids(self):

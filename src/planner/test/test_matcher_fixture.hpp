@@ -15,7 +15,7 @@
 #include "planner/pattern/vm/executor.hpp"
 #include "test_binding_helpers.hpp"
 #include "test_egraph_fixture.hpp"
-#include "test_patterns.hpp"
+#include "test_support/patterns.hpp"
 
 namespace memgraph::planner::core::test {
 

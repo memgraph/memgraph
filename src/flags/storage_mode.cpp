@@ -36,11 +36,11 @@ DEFINE_VALIDATED_string(storage_mode, "IN_MEMORY_TRANSACTIONAL", storage_mode_he
       !result.has_value()) {
     switch (result.error()) {
       case memgraph::utils::ValidationError::EmptyValue: {
-        std::cout << "Storage mode cannot be empty." << std::endl;
+        std::cerr << "Storage mode cannot be empty." << std::endl;
         break;
       }
       case memgraph::utils::ValidationError::InvalidValue: {
-        std::cout << "Invalid value for storage mode. Allowed values: "
+        std::cerr << "Invalid value for storage mode. Allowed values: "
                   << memgraph::utils::GetAllowedEnumValuesString(memgraph::storage::storage_mode_mappings) << std::endl;
         break;
       }

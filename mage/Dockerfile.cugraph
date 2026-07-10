@@ -125,7 +125,36 @@ COPY make-dev-container.sh /make-dev-container.sh
 USER memgraph
 COPY --from=python-base --chown=memgraph:memgraph /home/memgraph/.local /home/memgraph/.local
 
+# Stable telemetry ID for containers — see release/docker/v7_deb.dockerfile
+# for the why. Resolved at runtime by GetMachineId() in
+# src/utils/system_info.cpp so the same memgraph build serves deb and image.
+ENV MEMGRAPH_TELEMETRY_ID=DOCKER
+
 EXPOSE 7687
 
 ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
 CMD []
+
+
+FROM prod AS relwithdebinfo
+
+USER root
+
+RUN --mount=type=bind,source="./memgraph-debuginfo.deb",target=/memgraph-debuginfo.deb,ro \
+  dpkg -i /memgraph-debuginfo.deb
+
+# Extract MAGE .debug sidecars next to their .so files. mage-debug.tar.gz
+# is always produced by compress-query-modules.sh — a near-empty tarball
+# (just the query_modules dir entry) when there are no sidecars, so this
+# extract is a no-op in that case. (type=bind requires the file to exist;
+# type=secret would support required=false but bind is the right kind for
+# build-context artefacts.)
+RUN --mount=type=bind,source="./mage-debug.tar.gz",target=/mage-debug.tar.gz,ro \
+  tar -xzvf /mage-debug.tar.gz -C /usr/lib/memgraph/
+
+COPY --chown=memgraph:memgraph ./ /mage/
+RUN --mount=type=bind,source="./heaptrack",target=/heaptrack,ro \
+  cp -vr /heaptrack/* /usr/
+COPY run_with_gdb.sh /usr/lib/memgraph/run_with_gdb.sh
+
+USER memgraph

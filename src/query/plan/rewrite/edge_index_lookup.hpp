@@ -743,6 +743,18 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     using ProvidedScan = typename OrderByEliminator<TDbAccessor>::ProvidedScan;
     const auto *target = (op->GetTypeInfo() == Filter::kType) ? op->input().get() : op;
 
+    // A value scan fed by an Unwind is invoked once per unwound element (e.g.
+    // an `x IN list` lowering, or a user UNWIND driving the lookup). When the
+    // lookup value derives from the element the results follow element order,
+    // not property order, so the scan cannot be assumed to provide ordered
+    // iteration and must not eliminate an ORDER BY. Suppressing is conservative:
+    // if the value is element-independent the scan is still ordered, but at
+    // worst we keep an unnecessary sort rather than risk dropping a needed one.
+    if (target->input() && target->input()->GetTypeInfo() == Unwind::kType) {
+      order_by_eliminator_.NotifyScan(std::nullopt);
+      return;
+    }
+
     std::optional<ProvidedScan> scan;
     if (const auto *etr = dynamic_cast<const ScanAllByEdgeTypePropertyRange *>(target)) {
       scan = etr;
@@ -826,6 +838,12 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
           continue;
         }
 
+        // Edge indexes are single-property; a nested lookup like `e.a.b` has a
+        // multi-element path that no edge index covers, so it must stay a Filter
+        // rather than be misread as a filter on the outer key.
+        if (filter.property_filter->property_ids_.path.size() != 1) {
+          continue;
+        }
         const auto &property = filter.property_filter->property_ids_.path[0];
         if (!db_->EdgeTypePropertyIndexReady(GetEdgeType(edge_type), GetProperty(property))) {
           continue;
@@ -848,6 +866,10 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
+      // Skip nested lookups: a single-property edge index cannot cover a multi-element path.
+      if (filter.property_filter->property_ids_.path.size() != 1) {
+        continue;
+      }
       const auto &property = filter.property_filter->property_ids_.path[0];
       if (!db_->EdgePropertyIndexReady(GetProperty(property))) {
         continue;
@@ -870,6 +892,10 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
+      // Skip nested lookups: a single-property edge index cannot cover a multi-element path.
+      if (filter.property_filter->property_ids_.path.size() != 1) {
+        continue;
+      }
       const auto &property = filter.property_filter->property_ids_.path[0];
       if (!db_->EdgeTypePropertyIndexReady(edge_type_from_relationship.value(), GetProperty(property))) {
         continue;
@@ -963,8 +989,25 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto *value = filter.id_filter->value_;
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
-      return std::make_unique<ScanAllByEdgeId>(
-          input, common.edge_symbol, common.node1_symbol, common.node2_symbol, common.direction, value, view);
+      if (filter.id_filter->type_ == IdFilter::Type::IN) {
+        auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, value);
+        return std::make_unique<ScanAllByEdgeId>(std::move(unwound.op),
+                                                 common.edge_symbol,
+                                                 common.node1_symbol,
+                                                 common.node2_symbol,
+                                                 common.direction,
+                                                 unwound.element,
+                                                 view,
+                                                 /*expects_string_id=*/false);
+      }
+      return std::make_unique<ScanAllByEdgeId>(input,
+                                               common.edge_symbol,
+                                               common.node1_symbol,
+                                               common.node2_symbol,
+                                               common.direction,
+                                               value,
+                                               view,
+                                               filter.id_filter->expects_string_id_);
     }
 
     if (common.edge_types.size() > 1) {
@@ -1027,18 +1070,15 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (prop_filter.type_ == PropertyFilter::Type::IN) {
         // TODO(buda): ScanAllByLabelProperties + Filter should be considered
         // here once the operator and the right cardinality estimation exist.
-        auto const &symbol = symbol_table_->CreateAnonymousSymbol();
-        auto *expression = ast_storage_->Create<Identifier>(symbol.name());
-        expression->MapTo(symbol);
-        auto unwind_operator = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
-        return std::make_unique<ScanAllByEdgeTypePropertyValue>(std::move(unwind_operator),
+        auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_);
+        return std::make_unique<ScanAllByEdgeTypePropertyValue>(std::move(unwound.op),
                                                                 common.edge_symbol,
                                                                 common.node1_symbol,
                                                                 common.node2_symbol,
                                                                 common.direction,
                                                                 GetEdgeType(found_index.value()),
                                                                 GetProperty(prop_filter.property_ids_.path[0]),
-                                                                expression,
+                                                                unwound.element,
                                                                 view);
       }
       if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
@@ -1136,17 +1176,14 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (prop_filter.type_ == PropertyFilter::Type::IN) {
         // TODO(buda): ScanAllByLabelProperties + Filter should be considered
         // here once the operator and the right cardinality estimation exist.
-        auto const &symbol = symbol_table_->CreateAnonymousSymbol();
-        auto *expression = ast_storage_->Create<Identifier>(symbol.name());
-        expression->MapTo(symbol);
-        auto unwind_operator = std::make_shared<Unwind>(input, prop_filter.value_, symbol);
-        return std::make_shared<ScanAllByEdgePropertyValue>(std::move(unwind_operator),
+        auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_);
+        return std::make_shared<ScanAllByEdgePropertyValue>(std::move(unwound.op),
                                                             common.edge_symbol,
                                                             common.node1_symbol,
                                                             common.node2_symbol,
                                                             common.direction,
                                                             GetProperty(prop_filter.property_ids_.path[0]),
-                                                            expression,
+                                                            unwound.element,
                                                             view);
       }
       if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {

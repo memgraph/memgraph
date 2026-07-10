@@ -50,7 +50,7 @@ DEFINE_VALIDATED_uint64(storage_floating_point_resolution_bits, 64,
                         "Smaller values save space but reduce precision (32=float, 16=half).",
                         {
                           if (value == 16 || value == 32 || value == 64) return true;
-                          std::cout << "Expected --" << flagname << " to be one of 16, 32, 64\n";
+                          std::cerr << "Expected --" << flagname << " to be one of 16, 32, 64\n";
                           return false;
                         });
 
@@ -2660,42 +2660,52 @@ class ReaderPropPositionHistory {
   std::vector<History> history_;
 };
 
+namespace {
+// Single forward pass over `reader`, exploiting the PropertyId-sorted order of
+// `ordered_properties`, handing each extracted value (or nullopt for missing)
+// to `sink`. Shared by the vector-returning and into-buffer overloads.
+template <typename Sink>
+void ForEachExtractedValueMissingAsNull(Reader &reader, std::span<PropertyPath const> ordered_properties, Sink sink) {
+  auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
+  ReaderPropPositionHistory history{max_history_depth};
+
+  auto const get_value =
+      [&](Reader &reader, PropertyPath const &path) -> std::pair<ExpectedPropertyStatus, std::optional<PropertyValue>> {
+    auto result = history.ScanToPropertyPathParent(reader, path);
+    if (result != ExpectedPropertyStatus::EQUAL) {
+      return {result, std::nullopt};
+    }
+    return MatchSpecificProperty(&reader, path.back());
+  };
+
+  auto safe_reader = SafeReader{reader, get_value, std::move(sink), std::nullopt};
+  for (auto &&path : ordered_properties) {
+    safe_reader(std::forward_as_tuple(path), std::tuple{});
+  }
+}
+}  // namespace
+
 std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
     std::span<PropertyPath const> ordered_properties) const {
-  auto get_properties = [&](Reader &reader) -> std::vector<PropertyValue> {
+  return WithReader([&](Reader &reader) -> std::vector<PropertyValue> {
     auto values = std::vector<PropertyValue>{};
     values.reserve(ordered_properties.size());
-
-    auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
-    ReaderPropPositionHistory history{max_history_depth};
-
-    auto const get_value =
-        [&](Reader &reader,
-            PropertyPath const &path) -> std::pair<ExpectedPropertyStatus, std::optional<PropertyValue>> {
-      auto result = history.ScanToPropertyPathParent(reader, path);
-      if (result != ExpectedPropertyStatus::EQUAL) {
-        return {result, std::nullopt};
-      }
-
-      auto leaf_property_id = path.back();
-      return MatchSpecificProperty(&reader, leaf_property_id);
-    };
-
-    auto const insert_value = [&](std::optional<PropertyValue> value) {
-      if (value) {
-        values.emplace_back(*std::move(value));
-      } else {
-        values.emplace_back();
-      }
-    };
-
-    auto safe_reader = SafeReader{reader, get_value, insert_value, std::nullopt};
-    for (auto &&path : ordered_properties) {
-      safe_reader(std::forward_as_tuple(path), std::tuple{});
-    }
+    ForEachExtractedValueMissingAsNull(reader, ordered_properties, [&](std::optional<PropertyValue> value) {
+      values.emplace_back(value ? *std::move(value) : PropertyValue{});
+    });
     return values;
-  };
-  return WithReader(get_properties);
+  });
+}
+
+void PropertyStore::ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties,
+                                                       std::span<PropertyValue> out) const {
+  DMG_ASSERT(out.size() == ordered_properties.size(), "Output buffer size must match the number of properties");
+  WithReader([&](Reader &reader) {
+    auto it = out.begin();
+    ForEachExtractedValueMissingAsNull(reader, ordered_properties, [&](std::optional<PropertyValue> value) {
+      *it++ = value ? *std::move(value) : PropertyValue{};
+    });
+  });
 }
 
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {

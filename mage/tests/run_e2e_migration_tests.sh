@@ -140,8 +140,7 @@ run_memgraph_tests() {
     python3 -m pytest e2e_migration/test_migration.py -v -k memgraph
 
     echo "Cleaning up Memgraph test data..."
-    docker exec -i "$MAGE_CONTAINER" mgconsole <<< "MATCH (n:DummyNode) DETACH DELETE n;"
-    docker exec -i "$MAGE_CONTAINER" mgconsole <<< "MATCH (n:DummyNode2) DETACH DELETE n;"
+    docker exec -i "$MAGE_CONTAINER" mgconsole <<< "MATCH (n) DETACH DELETE n;"
 }
 
 # Main execution

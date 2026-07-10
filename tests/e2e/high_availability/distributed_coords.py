@@ -1878,11 +1878,6 @@ def test_coordinator_user_action_demote_instance_to_replica(test_name):
     # 1
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
-    FAILOVER_PERIOD = 2
-    inner_instances_description["instance_1"]["args"].append(f"--instance-down-timeout-sec={FAILOVER_PERIOD}")
-    inner_instances_description["instance_2"]["args"].append(f"--instance-down-timeout-sec={FAILOVER_PERIOD}")
-    inner_instances_description["instance_3"]["args"].append(f"--instance-down-timeout-sec={FAILOVER_PERIOD}")
-
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
@@ -1963,7 +1958,7 @@ def test_coordinator_user_action_demote_instance_to_replica(test_name):
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
     assert str(e.value) == "Show replicas query should only be run on the main instance."
 
-    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3), FAILOVER_PERIOD + 1)
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_1))
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_2))
 
@@ -2102,8 +2097,14 @@ def test_all_coords_down_resume(test_name):
     # 4
 
     with concurrent.futures.ThreadPoolExecutor(2) as executor:
-        executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_2")
-        executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_1")
+        futures = [
+            executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_2"),
+            executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_1"),
+        ]
+        # Block until both coordinators have fully started and surface any startup errors,
+        # otherwise the connect below can race a coordinator whose Bolt server isn't up yet.
+        for future in concurrent.futures.as_completed(futures):
+            future.result()
 
     # 5
 

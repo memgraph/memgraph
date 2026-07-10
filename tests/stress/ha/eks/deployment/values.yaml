@@ -26,22 +26,14 @@ storage:
       tag: 1.37.0
       pullPolicy: IfNotPresent
     # Supports Helm templating (e.g. {{ .Release.Name }})
-    extraVolumes: []
-    # extraVolumes:
-    #   - name: bolt-certs
-    #     secret:
-    #       secretName: bolt-ssl-certificates-tls
-    #       items:
-    #         - key: tls.crt
-    #           path: tls.crt
-    #         - key: tls.key
-    #           path: tls.key
-    extraVolumeMounts: []
-    # Example:
-    # extraVolumeMounts:
-    #   - name: bolt-certs
-    #     mountPath: /etc/memgraph/ssl
-    #     readOnly: true
+    # migrate.duckdb writes its extension cache to $HOME/.duckdb; chart 1.0.1
+    # mounts the container root read-only, so we need a writable mount here.
+    extraVolumes:
+      - name: duckdb-home
+        emptyDir: {}
+    extraVolumeMounts:
+      - name: duckdb-home
+        mountPath: /home/memgraph/.duckdb
 
   coordinators:
     libPVCSize: "5Gi"
@@ -223,7 +215,7 @@ prometheus:
     port: 9115
     pullFrequencySeconds: 5
     repository: docker.io/memgraph/prometheus-exporter
-    tag: 0.2.1
+    tag: 0.2.3
     extraVolumes: []
     extraVolumeMounts: []
     # extraVolumes:
@@ -376,6 +368,10 @@ data:
       - "--storage-snapshot-on-exit=false"
       - "--logger-type=async"
       - "--telemetry-enabled=false"
+      - "--metrics-port=9091"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
+      - "--metrics-format=OpenMetrics"
 
   - id: "1"
     restoreDataFromSnapshot: false
@@ -386,6 +382,10 @@ data:
       - "--storage-snapshot-on-exit=false"
       - "--logger-type=async"
       - "--telemetry-enabled=false"
+      - "--metrics-port=9091"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
+      - "--metrics-format=OpenMetrics"
 
 coordinators:
   - id: "1"
@@ -396,6 +396,10 @@ coordinators:
     args:
       - "--telemetry-enabled=false"
       - "--query-modules-directory="
+      - "--metrics-port=9091"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
+      - "--metrics-format=OpenMetrics"
 
   - id: "2"
     restoreDataFromSnapshot: false
@@ -405,6 +409,11 @@ coordinators:
     args:
       - "--telemetry-enabled=false"
       - "--query-modules-directory="
+      - "--metrics-port=9091"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
+      - "--metrics-format=OpenMetrics"
+
 
   - id: "3"
     restoreDataFromSnapshot: false
@@ -414,6 +423,10 @@ coordinators:
     args:
       - "--telemetry-enabled=false"
       - "--query-modules-directory="
+      - "--metrics-port=9091"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
+      - "--metrics-format=OpenMetrics"
 
 userContainers:
   data: []

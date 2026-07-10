@@ -24,7 +24,9 @@
 #include <csignal>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <map>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -40,12 +42,14 @@
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_metadata_index.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -57,8 +61,10 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/crc_accumulator.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
 #include "utils/uuid.hpp"
@@ -78,7 +84,32 @@ std::chrono::milliseconds operator+(const memgraph::utils::SchedulerInterval &si
 
 }  // namespace
 
-class DurabilityTest : public ::testing::TestWithParam<bool> {
+// Parametrization for the durability suite.
+//
+// Historically this suite was parametrized on a bare `bool` that meant
+// "properties_on_edges". PR8 extends it with a light-edge arm. To keep every
+// existing `GetParam()` call site (which consumes the param as the
+// `properties_on_edges` bool) compiling and semantically identical, the struct
+// implicitly converts to that bool. The `light_edge` member is consulted only
+// where the storage config is built, to set `storage_light_edge`.
+//
+// Light edges require `properties_on_edges == true`, so the light arm carries
+// both flags on.
+struct DurabilityParam {
+  bool properties_on_edges{true};
+  bool light_edge{false};
+
+  // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
+  constexpr operator bool() const { return properties_on_edges; }
+};
+
+// Unique, human-readable test-instance names (e.g. "EdgesWithProperties/0").
+inline void PrintTo(const DurabilityParam &param, std::ostream *os) {
+  *os << (param.properties_on_edges ? "PropsOnEdges" : "NoPropsOnEdges")
+      << (param.light_edge ? "_LightEdge" : "_HeavyEdge");
+}
+
+class DurabilityTest : public ::testing::TestWithParam<DurabilityParam> {
  protected:
   const uint64_t kNumBaseVertices = 1000;
   const uint64_t kNumBaseEdges = 10'000;
@@ -139,15 +170,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_capacity = 100;
     const auto vector_index_resize_coefficient = 2;
     const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-    const auto vector_index_spec =
-        memgraph::storage::VectorIndexSpec{.index_name = vector_index_name,
-                                           .label_id = label_indexed,
-                                           .property = property_vector,
-                                           .metric_kind = vector_index_metric,
-                                           .dimension = vector_index_dim,
-                                           .resize_coefficient = vector_index_resize_coefficient,
-                                           .capacity = vector_index_capacity,
-                                           .scalar_kind = vector_index_scalar_kind};
+    const auto vector_index_spec = memgraph::storage::VectorIndexSpec{
+        .index_name = vector_index_name,
+        .label_filter =
+            memgraph::storage::VectorLabelFilter{memgraph::storage::VectorMatchMode::SINGLE, {label_indexed}},
+        .property = property_vector,
+        .metric_kind = vector_index_metric,
+        .dimension = vector_index_dim,
+        .resize_coefficient = vector_index_resize_coefficient,
+        .capacity = vector_index_capacity,
+        .scalar_kind = vector_index_scalar_kind};
 
     {
       // Create enum.
@@ -520,15 +552,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_resize_coefficient = 2;
     const auto vector_index_capacity = 100;
     const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-    const auto vector_edge_index_spec =
-        memgraph::storage::VectorEdgeIndexSpec{.index_name = vector_edge_index_name,
-                                               .edge_type_id = edge_type,
-                                               .property = prop,
-                                               .metric_kind = vector_index_metric,
-                                               .dimension = vector_index_dim,
-                                               .resize_coefficient = vector_index_resize_coefficient,
-                                               .capacity = vector_index_capacity,
-                                               .scalar_kind = vector_index_scalar_kind};
+    const auto vector_edge_index_spec = memgraph::storage::VectorEdgeIndexSpec{
+        .index_name = vector_edge_index_name,
+        .edge_type_filter =
+            memgraph::storage::VectorEdgeTypeFilter{memgraph::storage::VectorMatchMode::SINGLE, {edge_type}},
+        .property = prop,
+        .metric_kind = vector_index_metric,
+        .dimension = vector_index_dim,
+        .resize_coefficient = vector_index_resize_coefficient,
+        .capacity = vector_index_capacity,
+        .scalar_kind = vector_index_scalar_kind};
     {
       // Create edge-type vector index.
       auto unique_acc = store->UniqueAccess();
@@ -588,24 +621,25 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_capacity = 100;
     const auto vector_index_resize_coefficient = 2;
     const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
-    const auto vector_index_spec =
-        memgraph::storage::VectorIndexSpec{.index_name = vector_index_name,
-                                           .label_id = base_label_indexed,
-                                           .property = property_vector,
-                                           .metric_kind = vector_index_metric,
-                                           .dimension = vector_index_dim,
-                                           .resize_coefficient = vector_index_resize_coefficient,
-                                           .capacity = vector_index_capacity,
-                                           .scalar_kind = vector_index_scalar_kind};
-    const auto vector_edge_index_spec =
-        memgraph::storage::VectorEdgeIndexSpec{.index_name = vector_edge_index_name,
-                                               .edge_type_id = et1,
-                                               .property = property_vector,
-                                               .metric_kind = vector_index_metric,
-                                               .dimension = vector_index_dim,
-                                               .resize_coefficient = vector_index_resize_coefficient,
-                                               .capacity = vector_index_capacity,
-                                               .scalar_kind = vector_index_scalar_kind};
+    const auto vector_index_spec = memgraph::storage::VectorIndexSpec{
+        .index_name = vector_index_name,
+        .label_filter =
+            memgraph::storage::VectorLabelFilter{memgraph::storage::VectorMatchMode::SINGLE, {base_label_indexed}},
+        .property = property_vector,
+        .metric_kind = vector_index_metric,
+        .dimension = vector_index_dim,
+        .resize_coefficient = vector_index_resize_coefficient,
+        .capacity = vector_index_capacity,
+        .scalar_kind = vector_index_scalar_kind};
+    const auto vector_edge_index_spec = memgraph::storage::VectorEdgeIndexSpec{
+        .index_name = vector_edge_index_name,
+        .edge_type_filter = memgraph::storage::VectorEdgeTypeFilter{memgraph::storage::VectorMatchMode::SINGLE, {et1}},
+        .property = property_vector,
+        .metric_kind = vector_index_metric,
+        .dimension = vector_index_dim,
+        .resize_coefficient = vector_index_resize_coefficient,
+        .capacity = vector_index_capacity,
+        .scalar_kind = vector_index_scalar_kind};
 
     const auto vector_index_id = store->Access(memgraph::storage::READ)->GetNameIdMapper()->NameToId(vector_index_name);
     const auto vertex_vector_property_value = memgraph::storage::PropertyValue(
@@ -747,7 +781,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           check_label_property_stats(
               base_label_indexed, property_path, memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
-          ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
+          ASSERT_EQ(acc->ApproximateVerticesVectorCount(vector_index_name), 5);
           ASSERT_EQ(acc->ApproximateVerticesTextCount(text_index_name), 1);
           break;
         }
@@ -759,9 +793,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           check_label_property_stats(
               base_label_indexed, property_path, memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
-          ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
+          ASSERT_EQ(acc->ApproximateVerticesVectorCount(vector_index_name), 5);
           ASSERT_EQ(acc->ApproximateVerticesTextCount(text_index_name), 1);
-          ASSERT_EQ(acc->ApproximateEdgesVectorCount(et1, property_vector), 5);
+          ASSERT_EQ(acc->ApproximateEdgesVectorCount(vector_edge_index_name), 5);
           auto num = acc->ApproximateEdgesTextCount(text_edge_index_name);
           ASSERT_EQ(num, 1);
           break;
@@ -777,7 +811,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED: {
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
-          ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
+          ASSERT_EQ(acc->ApproximateVerticesVectorCount(vector_index_name), 5);
           ASSERT_EQ(acc->ApproximateVerticesTextCount(text_index_name), 1);
           [[fallthrough]];
         }
@@ -1451,18 +1485,24 @@ void DestroyWalSuffix(const std::filesystem::path &path) {
   file.Close();
 }
 
-INSTANTIATE_TEST_SUITE_P(EdgesWithProperties, DurabilityTest, ::testing::Values(true));
-INSTANTIATE_TEST_SUITE_P(EdgesWithoutProperties, DurabilityTest, ::testing::Values(false));
+INSTANTIATE_TEST_SUITE_P(EdgesWithProperties, DurabilityTest,
+                         ::testing::Values(DurabilityParam{.properties_on_edges = true, .light_edge = false}));
+INSTANTIATE_TEST_SUITE_P(EdgesWithoutProperties, DurabilityTest,
+                         ::testing::Values(DurabilityParam{.properties_on_edges = false, .light_edge = false}));
+// Light-edge arm: light edges require properties_on_edges == true.
+INSTANTIATE_TEST_SUITE_P(EdgesLightEdge, DurabilityTest,
+                         ::testing::Values(DurabilityParam{.properties_on_edges = true, .light_edge = true}));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, SnapshotOnExit) {
   // Create snapshot.
   {
-    memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_on_exit = true,
-                       .allow_parallel_snapshot_creation = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}}};
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory,
+                                                    .snapshot_on_exit = true,
+                                                    .allow_parallel_snapshot_creation = true},
+                                     .salient = {.items = {.properties_on_edges = GetParam(),
+                                                           .enable_schema_info = false,
+                                                           .storage_light_edge = GetParam().light_edge}}};
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
@@ -1479,7 +1519,9 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
   // Recover snapshot.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1504,7 +1546,9 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)}},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1520,7 +1564,9 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
   // Recover snapshot.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = false,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1555,7 +1601,9 @@ TEST_P(DurabilityTest, SnapshotFallback) {
                 .snapshot_retention_count = 10,  // We don't anticipate that we make this many
                 .allow_parallel_snapshot_creation = true,
             },
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1596,7 +1644,9 @@ TEST_P(DurabilityTest, SnapshotFallback) {
   // Recover snapshot.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1618,7 +1668,9 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   {
     memgraph::storage::Config config{
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1650,7 +1702,9 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)}},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1689,17 +1743,388 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   }
 
   // Recover snapshot.
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
 
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+                     .salient = {.items = {.properties_on_edges = GetParam(),
+                                           .enable_schema_info = true,
+                                           .storage_light_edge = GetParam().light_edge}},
                  };
                  memgraph::dbms::Database db{config};
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
-               "");
+               memgraph::storage::durability::RecoveryFailure);
+}
+
+// Helper: create a single on-exit snapshot containing `count` vertices.
+inline void CreateSimpleSnapshot(const std::filesystem::path &storage_directory, bool properties_on_edges,
+                                 uint64_t count) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+      .salient = {.items = {.properties_on_edges = properties_on_edges, .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto acc = db.Access(memgraph::storage::WRITE);
+  for (uint64_t i = 0; i < count; ++i) {
+    acc->CreateVertex();
+  }
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+// With --storage-allow-recovery-failure enabled, a database whose snapshots are all
+// corrupt comes up empty and broken instead of crashing the process, and its on-disk
+// durability files are left untouched (so the operator can RECOVER/RESET/restore).
+TEST_P(DurabilityTest, SnapshotCorruptBrokenWhenRecoveryFailureAllowed) {
+  CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+
+  for (const auto &snapshot : GetSnapshotsList()) {
+    CorruptSnapshot(snapshot);
+  }
+
+  // Capture on-disk durability state before the (failing) recovery.
+  auto const snapshots_before = GetSnapshotsList();
+  std::map<std::filesystem::path, uint64_t> sizes_before;
+  for (auto const &p : snapshots_before) sizes_before[p] = std::filesystem::file_size(p);
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  EXPECT_TRUE(db.storage()->IsBroken());
+  auto const info = db.storage()->GetBaseInfo();
+  EXPECT_EQ(info.vertex_count, 0);
+  EXPECT_EQ(info.edge_count, 0);
+
+  // On-disk durability files are left byte-for-byte untouched.
+  EXPECT_EQ(GetSnapshotsList().size(), snapshots_before.size());
+  EXPECT_EQ(GetBackupSnapshotsList().size(), 0);
+  for (auto const &p : snapshots_before) {
+    ASSERT_TRUE(std::filesystem::exists(p));
+    EXPECT_EQ(std::filesystem::file_size(p), sizes_before[p]);
+  }
+}
+
+// RECOVER SNAPSHOT cures a broken tenant: loading a known-good snapshot into the empty
+// broken placeholder clears the broken flag and brings the data back.
+TEST_P(DurabilityTest, RecoverSnapshotCuresBroken) {
+  CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+
+  // Stash a known-good copy of the snapshot outside the storage directory before corrupting
+  // the in-place file, so we can RECOVER from it later.
+  auto const good_snapshot_copy =
+      std::filesystem::temp_directory_path() / "MG_test_unit_storage_v2_durability_good_snapshot";
+  std::filesystem::remove(good_snapshot_copy);
+  {
+    auto const snapshots = GetSnapshotsList();
+    ASSERT_EQ(snapshots.size(), 1);
+    std::filesystem::copy_file(
+        snapshots.front(), good_snapshot_copy, std::filesystem::copy_options::overwrite_existing);
+  }
+
+  for (const auto &snapshot : GetSnapshotsList()) {
+    CorruptSnapshot(snapshot);
+  }
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  ASSERT_TRUE(db.storage()->IsBroken());
+  ASSERT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
+
+  auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+  auto const res = storage->RecoverSnapshot(
+      good_snapshot_copy, true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  ASSERT_TRUE(res.has_value());
+
+  // The cure clears broken and the recovered data is present.
+  EXPECT_FALSE(db.storage()->IsBroken());
+  EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 1000);
+
+  // The durability directory is restart-clean: a single recovered snapshot file remains
+  // (the prior corrupt snapshot was moved into the .old backup directory).
+  auto const remaining_snapshots = GetSnapshotsList();
+  size_t snapshot_file_count = 0;
+  for (auto const &p : remaining_snapshots) {
+    if (std::filesystem::is_regular_file(p)) ++snapshot_file_count;
+  }
+  EXPECT_EQ(snapshot_file_count, 1);
+
+  std::filesystem::remove(good_snapshot_copy);
+}
+
+// With the flag off (default), the same corruption still aborts startup.
+TEST_P(DurabilityTest, SnapshotCorruptCrashesWhenRecoveryFailureNotAllowed) {
+  CreateSimpleSnapshot(storage_directory, GetParam(), 1000);
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+
+  for (const auto &snapshot : GetSnapshotsList()) {
+    CorruptSnapshot(snapshot);
+  }
+
+  ASSERT_THROW(([&]() {
+                 memgraph::storage::Config config{
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+                 };
+                 memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+               }()),
+               memgraph::storage::durability::RecoveryFailure);
+}
+
+// Helper: create a WAL-only durability set (no snapshot) made of several small WAL files,
+// each containing one committed transaction, so the WAL chain spans multiple sequence numbers.
+inline void CreateMultiWalChain(const std::filesystem::path &storage_directory, bool properties_on_edges,
+                                uint64_t count) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .snapshot_wal_mode =
+                         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                     .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                     .wal_file_size_kibibytes = 1,
+                     .wal_file_flush_every_n_tx = 1},
+      .salient = {.items = {.properties_on_edges = properties_on_edges, .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  for (uint64_t i = 0; i < count; ++i) {
+    auto acc = db.Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
+// With the flag on, a corrupt WAL delta brings the database up broken + empty instead of
+// crashing, leaving the on-disk WAL files untouched.
+TEST_P(DurabilityTest, WalDeltaCorruptBrokenWhenRecoveryFailureAllowed) {
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 3);
+
+  // Corrupt the deltas of a non-first WAL file so the structural chain checks pass but the
+  // delta-level LoadWal fails.
+  {
+    auto wals = GetWalsList();  // sorted newest-first
+    DestroyWalFirstDelta(wals[wals.size() - 2]);
+  }
+
+  auto const wals_before = GetWalsList();
+  std::map<std::filesystem::path, uint64_t> sizes_before;
+  for (auto const &p : wals_before) sizes_before[p] = std::filesystem::file_size(p);
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  EXPECT_TRUE(db.storage()->IsBroken());
+  auto const info = db.storage()->GetBaseInfo();
+  EXPECT_EQ(info.vertex_count, 0);
+  EXPECT_EQ(info.edge_count, 0);
+
+  // On-disk WAL files are left byte-for-byte untouched.
+  EXPECT_EQ(GetWalsList().size(), wals_before.size());
+  EXPECT_EQ(GetBackupWalsList().size(), 0);
+  for (auto const &p : wals_before) {
+    ASSERT_TRUE(std::filesystem::exists(p));
+    EXPECT_EQ(std::filesystem::file_size(p), sizes_before[p]);
+  }
+}
+
+// With the flag off (default), a corrupt WAL delta still aborts startup.
+TEST_P(DurabilityTest, WalDeltaCorruptCrashesWhenRecoveryFailureNotAllowed) {
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
+  ASSERT_GE(GetWalsList().size(), 3);
+  {
+    auto wals = GetWalsList();
+    DestroyWalFirstDelta(wals[wals.size() - 2]);
+  }
+
+  ASSERT_THROW(([&]() {
+                 memgraph::storage::Config config{
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+                 };
+                 memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+               }()),
+               memgraph::storage::durability::RecoveryFailure);
+}
+
+// A WAL-only set whose first (seq_num == 0) file is missing must produce a broken tenant with
+// the flag on (missing prefix WAL), and remain fatal with the flag off.
+TEST_P(DurabilityTest, WalMissingPrefixBrokenWhenRecoveryFailureAllowed) {
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 3);
+
+  // Remove the oldest WAL file (the one with seq_num == 0). GetWalsList() is sorted newest-first.
+  {
+    auto wals = GetWalsList();
+    ASSERT_TRUE(std::filesystem::remove(wals.back()));
+  }
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  EXPECT_TRUE(db.storage()->IsBroken());
+  EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
+}
+
+TEST_P(DurabilityTest, WalMissingPrefixCrashesWhenRecoveryFailureNotAllowed) {
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
+  ASSERT_GE(GetWalsList().size(), 3);
+  {
+    auto wals = GetWalsList();
+    ASSERT_TRUE(std::filesystem::remove(wals.back()));
+  }
+
+  ASSERT_THROW(([&]() {
+                 memgraph::storage::Config config{
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+                 };
+                 memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+               }()),
+               memgraph::storage::durability::RecoveryFailure);
+}
+
+// A WAL chain with a sequence-number gap (a middle WAL removed) must produce a broken tenant
+// with the flag on, and remain fatal with the flag off.
+TEST_P(DurabilityTest, WalSeqNumGapBrokenWhenRecoveryFailureAllowed) {
+  CreateMultiWalChain(storage_directory, GetParam(), 100);
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 3);
+
+  // Remove a middle WAL file to introduce a sequence-number gap while keeping the prefix
+  // (seq_num == 0) file present. GetWalsList() is sorted newest-first, so back() is the prefix.
+  {
+    auto wals = GetWalsList();
+    ASSERT_TRUE(std::filesystem::remove(wals[wals.size() - 2]));
+  }
+
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .allow_recovery_failure = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  EXPECT_TRUE(db.storage()->IsBroken());
+  EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0);
+}
+
+TEST_P(DurabilityTest, WalSeqNumGapCrashesWhenRecoveryFailureNotAllowed) {
+  CreateMultiWalChain(storage_directory, GetParam(), 1000);
+  ASSERT_GE(GetWalsList().size(), 3);
+  {
+    auto wals = GetWalsList();
+    ASSERT_TRUE(std::filesystem::remove(wals[wals.size() - 2]));
+  }
+
+  ASSERT_THROW(([&]() {
+                 memgraph::storage::Config config{
+                     .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+                 };
+                 memgraph::dbms::Database db{config};
+                 const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+               }()),
+               memgraph::storage::durability::RecoveryFailure);
+}
+
+// Byte-flip robustness: copy a real WAL file, flip the byte at each offset in turn, and attempt
+// recovery with the flag on. The corruption must always be detected (broken + empty) rather than
+// crashing the process.
+TEST_P(DurabilityTest, WalByteFlipBrokenRobustness) {
+  CreateMultiWalChain(storage_directory, GetParam(), 200);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Snapshot a pristine copy of the whole durability directory so each iteration starts clean.
+  auto const pristine_dir = std::filesystem::temp_directory_path() / "MG_test_unit_storage_v2_durability_pristine";
+  std::filesystem::remove_all(pristine_dir);
+  std::filesystem::copy(storage_directory, pristine_dir, std::filesystem::copy_options::recursive);
+
+  // Target the last (newest) WAL file; it is small enough to scan exhaustively.
+  auto const target_wal = GetWalsList().front();
+  auto const wal_size = std::filesystem::file_size(target_wal);
+  ASSERT_GT(wal_size, 0u);
+
+  // Keep the runtime bounded by sampling a stride of byte offsets across the file.
+  uint64_t const stride = std::max<uint64_t>(1, wal_size / 256);
+  for (uint64_t offset = 0; offset < wal_size; offset += stride) {
+    // Restore the pristine durability directory.
+    std::filesystem::remove_all(storage_directory);
+    std::filesystem::copy(pristine_dir, storage_directory, std::filesystem::copy_options::recursive);
+
+    // Flip a single byte in the target WAL.
+    {
+      std::fstream f(target_wal, std::ios::binary | std::ios::in | std::ios::out);
+      ASSERT_TRUE(f.is_open());
+      f.seekg(static_cast<std::streamoff>(offset));
+      char b = 0;
+      f.read(&b, 1);
+      b = static_cast<char>(~static_cast<uint8_t>(b));
+      f.seekp(static_cast<std::streamoff>(offset));
+      f.write(&b, 1);
+      f.close();
+    }
+
+    // Recover with the flag on: this must never abort/crash the process. A flipped length byte can
+    // make a delta request an absurd allocation; the ReadSize bound turns that into a RecoveryFailure
+    // (-> broken) instead of an escaping std::bad_alloc, so bad_alloc must never escape here. When
+    // construction succeeds, a failed recovery must yield a broken + empty DB.
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .allow_recovery_failure = true},
+        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+    };
+    try {
+      memgraph::dbms::Database db{config};
+      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+      if (db.storage()->IsBroken()) {
+        EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 0) << "broken DB at byte offset " << offset;
+      }
+    } catch (const std::bad_alloc &) {
+      ADD_FAILURE() << "std::bad_alloc escaped recovery at byte offset " << offset
+                    << "; a corrupt length field must surface as RecoveryFailure (broken), not bad_alloc";
+    } catch (const std::exception &) {
+      // Other corruption shapes may still be reported via a thrown exception during construction;
+      // the guarantee tested here is process survival plus no bad_alloc from length fields.
+    }
+  }
+
+  std::filesystem::remove_all(pristine_dir);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -1708,7 +2133,9 @@ TEST_P(DurabilityTest, SnapshotRetention) {
   {
     memgraph::storage::Config config{
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1733,7 +2160,9 @@ TEST_P(DurabilityTest, SnapshotRetention) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)},
                        .snapshot_retention_count = 1},  // if the retention is more than 1 snapshots won't get created
         // due to db having the same state as before
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1758,7 +2187,9 @@ TEST_P(DurabilityTest, SnapshotRetention) {
   // Recover snapshot.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = false,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1785,7 +2216,9 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
                 .snapshot_on_exit = true,
                 .allow_parallel_snapshot_creation = true,
             },
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1805,7 +2238,9 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
     memgraph::storage::Config config{
 
         .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1816,7 +2251,9 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
   {
     memgraph::storage::Config config{
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1840,7 +2277,9 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
   // Recover snapshot.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = false,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1862,7 +2301,9 @@ TEST_P(DurabilityTest, SnapshotBackup) {
   {
     memgraph::storage::Config config{
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1884,7 +2325,9 @@ TEST_P(DurabilityTest, SnapshotBackup) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)}},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -1968,7 +2411,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
 
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
@@ -1978,7 +2421,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -2059,7 +2502,9 @@ TEST_P(DurabilityTest, WalBasic) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2075,7 +2520,9 @@ TEST_P(DurabilityTest, WalBasic) {
   // Recover WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2103,7 +2550,9 @@ TEST_P(DurabilityTest, WalBackup) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2127,7 +2576,9 @@ TEST_P(DurabilityTest, WalBackup) {
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)}},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2150,7 +2601,9 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2167,7 +2620,9 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
     memgraph::storage::Config config{
 
         .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     ;
     memgraph::dbms::Database db{config};
@@ -2185,7 +2640,9 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2200,7 +2657,9 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
   // Recover WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2230,7 +2689,9 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2267,7 +2728,9 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
   // Recover WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = false,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2380,7 +2843,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2434,7 +2899,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
   // Recover WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2481,7 +2948,9 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
                 .wal_file_size_kibibytes = 100'000,
                 .wal_file_flush_every_n_tx = kFlushWalEvery,
             },
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2534,9 +3003,20 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     wal.SetPosition(info.offset_deltas);
     ASSERT_EQ(info.num_deltas, 12);  // 9 data deltas + 3 txn start deltas
     std::vector<std::pair<uint64_t, memgraph::storage::durability::WalDeltaData>> data;
+    using namespace memgraph::storage::durability;
+
+    std::vector<uint32_t> crc_vals;
+    wal.ResetCrcAcc();
     for (uint64_t i = 0; i < info.num_deltas; ++i) {
       auto timestamp = memgraph::storage::durability::ReadWalDeltaHeader(&wal);
-      data.emplace_back(timestamp, memgraph::storage::durability::ReadWalDeltaData(&wal));
+      auto delta_data = memgraph::storage::durability::ReadWalDeltaData(&wal);
+      if (auto const *txn_end = std::get_if<WalTransactionEnd>(&delta_data.data_)) {
+        // The CRC trailer has been folded into the accumulator, so an intact transaction reduces to the residue.
+        EXPECT_TRUE(memgraph::utils::CrcAccumulator::Verify(wal.CrcAccValue()));
+        crc_vals.emplace_back(txn_end->txn_crc.value());
+        wal.ResetCrcAcc();
+      }
+      data.emplace_back(timestamp, delta_data);
     }
     // Verify timestamps.
     ASSERT_EQ(data[1].first, data[0].first);
@@ -2552,32 +3032,33 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     ASSERT_EQ(data[11].first, data[10].first);
 
     // Verify transaction 3.
-    using namespace memgraph::storage::durability;
     constexpr bool commit{true};
     auto write_delta = WalTransactionStart{commit, TransactionAccessType::WRITE};
     ASSERT_EQ(data[0].second, WalDeltaData{write_delta});
     ASSERT_EQ(data[1].second, WalDeltaData{WalVertexCreate{gid3}});
     ASSERT_EQ(data[2].second,
               WalDeltaData{WalVertexSetProperty(gid3, "id", memgraph::storage::ExternalPropertyValue(3))});
-    ASSERT_EQ(data[3].second, WalDeltaData{WalTransactionEnd{}});
+    ASSERT_EQ(data[3].second, WalDeltaData{WalTransactionEnd{crc_vals[0]}});
     // Verify transaction 1.
     ASSERT_EQ(data[4].second, WalDeltaData{write_delta});
     ASSERT_EQ(data[5].second, WalDeltaData{WalVertexCreate{gid1}});
     ASSERT_EQ(data[6].second,
               WalDeltaData{WalVertexSetProperty(gid1, "id", memgraph::storage::ExternalPropertyValue(1))});
-    ASSERT_EQ(data[7].second, WalDeltaData{WalTransactionEnd{}});
+    ASSERT_EQ(data[7].second, WalDeltaData{WalTransactionEnd{crc_vals[1]}});
     // Verify transaction 2.
     ASSERT_EQ(data[8].second, WalDeltaData{write_delta});
     ASSERT_EQ(data[9].second, WalDeltaData{WalVertexCreate{gid2}});
     ASSERT_EQ(data[10].second,
               WalDeltaData{WalVertexSetProperty(gid2, "id", memgraph::storage::ExternalPropertyValue(2))});
-    ASSERT_EQ(data[11].second, WalDeltaData{WalTransactionEnd{}});
+    ASSERT_EQ(data[11].second, WalDeltaData{WalTransactionEnd{crc_vals[2]}});
   }
 
   // Recover WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2617,7 +3098,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2644,7 +3127,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
   // Recover WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2679,7 +3164,9 @@ TEST_P(DurabilityTest, WalDeathResilience) {
                              memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                          .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                          .wal_file_flush_every_n_tx = kFlushWalEvery},
-          .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+          .salient = {.items = {.properties_on_edges = GetParam(),
+                                .enable_schema_info = false,
+                                .storage_light_edge = GetParam().light_edge}},
       };
       memgraph::dbms::Database db{config};
       const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2722,7 +3209,9 @@ TEST_P(DurabilityTest, WalDeathResilience) {
                 .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                 .wal_file_flush_every_n_tx = kFlushWalEvery,
             },
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2752,7 +3241,9 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   // Recover WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = false,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2788,7 +3279,9 @@ TEST_P(DurabilityTest, WalMissingSecond) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2816,7 +3309,9 @@ TEST_P(DurabilityTest, WalMissingSecond) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2862,17 +3357,19 @@ TEST_P(DurabilityTest, WalMissingSecond) {
   }
 
   // Recover WALs.
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
 
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+                     .salient = {.items = {.properties_on_edges = GetParam(),
+                                           .enable_schema_info = true,
+                                           .storage_light_edge = GetParam().light_edge}},
                  };
                  memgraph::dbms::Database db{config};
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -2887,7 +3384,9 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2915,7 +3414,9 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -2961,17 +3462,19 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
   }
 
   // Recover WALs.
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
 
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+                     .salient = {.items = {.properties_on_edges = GetParam(),
+                                           .enable_schema_info = false,
+                                           .storage_light_edge = GetParam().light_edge}},
                  };
                  memgraph::dbms::Database db{config};
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -2986,7 +3489,9 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3010,7 +3515,9 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
   // Recover WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3043,7 +3550,9 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3091,7 +3600,9 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
   // Recover WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = false,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3129,7 +3640,9 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
                 .wal_file_flush_every_n_tx = kFlushWalEvery,
                 .allow_parallel_snapshot_creation = true,
             },
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3146,7 +3659,9 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
   // Recover snapshot and WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3168,7 +3683,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   {
     memgraph::storage::Config config{
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3185,7 +3702,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
     memgraph::storage::Config config{
 
         .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3202,7 +3721,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3217,7 +3738,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   // Recover snapshot and WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3244,7 +3767,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
                 .snapshot_on_exit = true,
                 .allow_parallel_snapshot_creation = true,
             },
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3261,7 +3786,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
     memgraph::storage::Config config{
 
         .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3278,7 +3805,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3301,7 +3830,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3324,7 +3855,9 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   // Recover snapshot and WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3373,7 +3906,9 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3403,7 +3938,9 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::seconds(2)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = 1},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3435,7 +3972,9 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
       memgraph::storage::Config config{
 
           .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-          .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+          .salient = {.items = {.properties_on_edges = GetParam(),
+                                .enable_schema_info = false,
+                                .storage_light_edge = GetParam().light_edge}},
       };
       memgraph::dbms::Database db{config};
       const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3452,17 +3991,19 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
 
   // Recover data after all of the snapshots have been destroyed. The recovery
   // shouldn't be possible because the initial WALs are already deleted.
-  ASSERT_DEATH(([&]() {
+  ASSERT_THROW(([&]() {
                  memgraph::storage::Config config{
 
                      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-                     .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+                     .salient = {.items = {.properties_on_edges = GetParam(),
+                                           .enable_schema_info = false,
+                                           .storage_light_edge = GetParam().light_edge}},
                  };
                  memgraph::dbms::Database db{config};
                  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
                }())  // iile
                ,
-               "");
+               memgraph::storage::durability::RecoveryFailure);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -3477,7 +4018,9 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
                 .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::seconds(2)},
                 .allow_parallel_snapshot_creation = true,
             },
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3501,7 +4044,9 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::seconds(2)}},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3527,7 +4072,9 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
   // Recover snapshot and WALs.
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = false,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3552,7 +4099,9 @@ TEST_P(DurabilityTest, ParallelSnapshotRecovery) {
                        .snapshot_on_exit = true,
                        .items_per_batch = 13,
                        .allow_parallel_schema_creation = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3574,7 +4123,9 @@ TEST_P(DurabilityTest, ParallelSnapshotRecovery) {
                      .snapshot_on_exit = false,
                      .items_per_batch = 13,
                      .allow_parallel_schema_creation = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3593,7 +4144,9 @@ TEST_P(DurabilityTest, ParallelWalRecovery) {
                        .snapshot_on_exit = false,
                        .items_per_batch = 13,
                        .allow_parallel_schema_creation = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3617,7 +4170,9 @@ TEST_P(DurabilityTest, ParallelWalRecovery) {
                      .snapshot_on_exit = false,
                      .items_per_batch = 13,
                      .allow_parallel_schema_creation = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3640,7 +4195,9 @@ TEST_P(DurabilityTest, ParallelSnapshotWalRecovery) {
                 .allow_parallel_snapshot_creation = true,
                 .allow_parallel_schema_creation = true,
             },
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3666,7 +4223,9 @@ TEST_P(DurabilityTest, ParallelSnapshotWalRecovery) {
                      .snapshot_on_exit = false,
                      .items_per_batch = 13,
                      .allow_parallel_schema_creation = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -3681,7 +4240,9 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
                      .snapshot_on_exit = false,
                      .items_per_batch = 13,
                      .allow_parallel_schema_creation = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
   // Create snapshot.
   {
@@ -3704,16 +4265,35 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   config.durability.snapshot_on_exit = false;
   memgraph::utils::SkipListDb<memgraph::storage::Vertex> vertices;
   memgraph::utils::SkipListDb<memgraph::storage::Edge> edges;
-  memgraph::utils::SkipListDb<memgraph::storage::EdgeMetadata> edges_metadata;
+  // RecoverData below is driven directly into these bare containers (no
+  // InMemoryStorage), so the InMemoryStorage::ClearLightEdges() teardown that
+  // normally frees pool-allocated light edges never runs. Free them here:
+  // each light edge appears exactly once across all out_edges (mirrors
+  // ClearLightEdges, storage.cpp).
+  const memgraph::utils::OnScopeExit free_light_edges{[&] {
+    if (!GetParam().light_edge) return;
+    auto vertex_acc = vertices.access();
+    for (auto &vertex : vertex_acc) {
+      for (auto const &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
+        memgraph::storage::InMemoryStorage::LightEdgePool::Destroy(edge_ref.ptr);
+      }
+    }
+  }};
+  // Mirror InMemoryStorage: the metadata index only exists when both
+  // properties_on_edges and enable_edges_metadata are set.
+  std::optional<memgraph::storage::EdgeMetadataIndex> edges_metadata{
+      (config.salient.items.properties_on_edges && config.salient.items.enable_edges_metadata)
+          ? std::optional<memgraph::storage::EdgeMetadataIndex>{std::in_place}
+          : std::nullopt};
   std::unique_ptr<memgraph::storage::NameIdMapper> name_id_mapper = std::make_unique<memgraph::storage::NameIdMapper>();
   std::atomic<uint64_t> edge_count{0};
   uint64_t wal_seq_num{0};
   memgraph::utils::UUID uuid;
   memgraph::storage::Indices indices{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
-  memgraph::storage::Constraints constraints{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+  memgraph::storage::Constraints constraints{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL, {}};
   memgraph::storage::ReplicationStorageState repl_storage_state;
   memgraph::storage::EnumStore enum_store;
-  memgraph::storage::ttl::TTL ttl{nullptr};
+  memgraph::storage::ttl::TTL ttl{nullptr, {}, {}};
 
   memgraph::storage::durability::Recovery recovery{
       config.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory,
@@ -3725,7 +4305,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       repl_storage_state,
       &vertices,
       &edges,
-      &edges_metadata,
+      edges_metadata ? &*edges_metadata : nullptr,
       &edge_count,
       name_id_mapper.get(),
       &indices,
@@ -3774,7 +4354,9 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
   // Create snapshot.
   {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
-                                     .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+                                     .salient.items = {.properties_on_edges = GetParam(),
+                                                       .enable_schema_info = false,
+                                                       .storage_light_edge = GetParam().light_edge}};
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
@@ -3790,8 +4372,10 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-                                   .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient.items = {
+          .properties_on_edges = GetParam(), .enable_schema_info = false, .storage_light_edge = GetParam().light_edge}};
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(
@@ -3815,7 +4399,9 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
   // Create snapshot.
   {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
-                                     .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+                                     .salient.items = {.properties_on_edges = GetParam(),
+                                                       .enable_schema_info = false,
+                                                       .storage_light_edge = GetParam().light_edge}};
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
@@ -3839,8 +4425,10 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-                                   .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient.items = {
+          .properties_on_edges = GetParam(), .enable_schema_info = false, .storage_light_edge = GetParam().light_edge}};
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(),
@@ -3866,7 +4454,9 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
   // Create snapshot.
   {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
-                                     .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+                                     .salient.items = {.properties_on_edges = GetParam(),
+                                                       .enable_schema_info = false,
+                                                       .storage_light_edge = GetParam().light_edge}};
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
@@ -3887,8 +4477,10 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-                                   .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient.items = {
+          .properties_on_edges = GetParam(), .enable_schema_info = false, .storage_light_edge = GetParam().light_edge}};
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(),
@@ -3914,7 +4506,9 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
   // Create snapshot.
   {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
-                                     .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+                                     .salient.items = {.properties_on_edges = GetParam(),
+                                                       .enable_schema_info = false,
+                                                       .storage_light_edge = GetParam().light_edge}};
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBaseDataset(db.storage(), GetParam());
@@ -3927,9 +4521,11 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::storage::Config config{
-      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient.items = {.properties_on_edges = GetParam(), .enable_edges_metadata = true, .enable_schema_info = false}};
+  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                   .salient.items = {.properties_on_edges = GetParam(),
+                                                     .enable_edges_metadata = true,
+                                                     .enable_schema_info = false,
+                                                     .storage_light_edge = GetParam().light_edge}};
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -3962,6 +4558,91 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     ASSERT_FALSE(edge.has_value());
 
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Every recovered edge has a metadata entry, so delete + GC succeeds.
+  {
+    auto acc = db.Access(memgraph::storage::WRITE);
+    for (auto i{0U}; i < 5U; ++i) {
+      auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD);
+      ASSERT_TRUE(edge.has_value());
+      ASSERT_TRUE(acc->DeleteEdge(&*edge).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  db.storage()->FreeMemory();
+  {
+    auto acc = db.Access(memgraph::storage::READ);
+    for (auto i{0U}; i < 5U; ++i) {
+      ASSERT_FALSE(acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD).has_value());
+    }
+  }
+}
+
+// Edges recovered from WAL (no snapshot) are registered in edge metadata, so they
+// resolve by id and are deletable.
+TEST_P(DurabilityTest, EdgeMetadataRecoveredFromWal) {
+  if (!GetParam()) {
+    return;
+  }
+  // Create dataset, persisted to WAL only (no snapshot).
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient.items = {.properties_on_edges = GetParam(),
+                          .enable_schema_info = false,
+                          .storage_light_edge = GetParam().light_edge}};
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Recover from WAL with edge metadata enabled.
+  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                   .salient.items = {.properties_on_edges = GetParam(),
+                                                     .enable_edges_metadata = true,
+                                                     .enable_schema_info = false,
+                                                     .storage_light_edge = GetParam().light_edge}};
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
+
+  // Every WAL-recovered edge is resolvable by id via metadata.
+  {
+    auto acc = db.Access(memgraph::storage::WRITE);
+    for (auto i{0U}; i < kNumBaseEdges; ++i) {
+      auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD);
+      ASSERT_TRUE(edge.has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Delete + GC of WAL-recovered edges succeeds.
+  {
+    auto acc = db.Access(memgraph::storage::WRITE);
+    for (auto i{0U}; i < 5U; ++i) {
+      auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD);
+      ASSERT_TRUE(edge.has_value());
+      ASSERT_TRUE(acc->DeleteEdge(&*edge).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  db.storage()->FreeMemory();
+
+  // The deleted edges are now gone from both the edge store and the edge metadata index.
+  {
+    auto acc = db.Access(memgraph::storage::READ);
+    for (auto i{0U}; i < 5U; ++i) {
+      ASSERT_FALSE(acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD).has_value());
+    }
   }
 }
 
@@ -4325,7 +5006,9 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsPath) {
                      .snapshot_on_exit = false,
                      .items_per_batch = 13,
                      .allow_parallel_schema_creation = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
 
   memgraph::dbms::Database db{config};
@@ -4365,7 +5048,9 @@ TEST_P(DurabilityTest, CreateSnapshotReturnsErrorForReplica) {
                      .snapshot_on_exit = false,
                      .items_per_batch = 13,
                      .allow_parallel_schema_creation = true},
-      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+      .salient = {.items = {.properties_on_edges = GetParam(),
+                            .enable_schema_info = true,
+                            .storage_light_edge = GetParam().light_edge}},
   };
 
   memgraph::dbms::Database db{config};
@@ -4550,7 +5235,9 @@ TEST_P(DurabilityTest, SnapshotWithNonSequentialDeltas) {
   {
     memgraph::storage::Config config{
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -4600,7 +5287,9 @@ TEST_P(DurabilityTest, SnapshotWithNonSequentialDeltas) {
   {
     memgraph::storage::Config recovery_config{
         .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
     };
     memgraph::dbms::Database db{recovery_config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -4641,7 +5330,9 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
   // Create descriptions and snapshot.
   {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
-                                     .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+                                     .salient.items = {.properties_on_edges = GetParam(),
+                                                       .enable_schema_info = false,
+                                                       .storage_light_edge = GetParam().light_edge}};
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
@@ -4679,8 +5370,10 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromSnapshot) {
   ASSERT_EQ(GetWalsList().size(), 0);
 
   // Recover and verify.
-  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-                                   .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient.items = {
+          .properties_on_edges = GetParam(), .enable_schema_info = false, .storage_light_edge = GetParam().light_edge}};
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
@@ -4708,7 +5401,9 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_on_exit = false},
-        .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+        .salient.items = {.properties_on_edges = GetParam(),
+                          .enable_schema_info = false,
+                          .storage_light_edge = GetParam().light_edge}};
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
@@ -4737,8 +5432,10 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
   ASSERT_GE(GetWalsList().size(), 1);
 
   // Recover and verify.
-  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-                                   .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient.items = {
+          .properties_on_edges = GetParam(), .enable_schema_info = false, .storage_light_edge = GetParam().light_edge}};
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
@@ -4753,4 +5450,177 @@ TEST_P(DurabilityTest, DescriptionsRecoveredFromWal) {
     ASSERT_EQ(acc->GetEdgeTypePatternDescription(person_labels, "KNOWS", person_labels), "Person knows person");
     ASSERT_EQ(acc->GetAllDescriptions().size(), 5);
   }
+}
+
+// An edge present only in adjacency after one recovery cycle becomes fully
+// addressable (resolvable by id, deletable, GC-safe) after a snapshot-on-exit
+// round-trip, because the post-recovery rebuild repopulates its metadata from
+// the snapshot's adjacency. Phases: (1) create edge, persist to WAL only;
+// (2) recover from WAL, exit writing a snapshot-on-exit; (3) recover from that
+// snapshot.
+TEST_F(DurabilityTest, EdgeMetadataHealedByCleanRestart) {
+  memgraph::storage::Gid from_gid{memgraph::storage::Gid::FromUint(0)};
+  memgraph::storage::Gid edge_gid{memgraph::storage::Gid::FromUint(0)};
+
+  // Phase 1: create the edge, persisted to WAL only.
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = true, .enable_edges_metadata = true}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto acc = db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    from_gid = v1.Gid();
+    auto edge = acc->CreateEdge(&v1, &v2, db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(edge.has_value());
+    edge_gid = edge->Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Phase 2: recover from WAL (edge is metadata-less here - do NOT fetch by id),
+  // then exit writing a snapshot that captures it from adjacency.
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory, .recover_on_startup = true, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = true, .enable_edges_metadata = true}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    // Confirm the edge actually survived WAL recovery via adjacency (a vertex
+    // out-edge scan, which does not consult the edge metadata index).
+    auto acc = db.Access(memgraph::storage::READ);
+    auto v1 = acc->FindVertex(from_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1);
+    auto out_edges = v1->OutEdges(memgraph::storage::View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_EQ(out_edges->edges.size(), 1U);
+    ASSERT_EQ(out_edges->edges[0].Gid(), edge_gid);
+  }
+  ASSERT_GE(GetSnapshotsList().size(), 1);
+
+  // Phase 3: recover from the snapshot - metadata is rebuilt, so the edge is safe.
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = true, .enable_edges_metadata = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  {
+    auto acc = db.Access(memgraph::storage::READ);
+    auto edge = acc->FindEdge(edge_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(edge.has_value());
+  }
+  {
+    auto acc = db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(from_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1);
+    auto out_edges = v1->OutEdges(memgraph::storage::View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_EQ(out_edges->edges.size(), 1U);
+    auto edge = out_edges->edges[0];
+    ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  db.storage()->FreeMemory();
+}
+
+// Snapshot holds an edge, a WAL-tail delta DELETES it, then recovery + GC.
+// Because metadata is rebuilt from final adjacency (and WAL delete removes the
+// edge from both edges_ and adjacency together), the deleted edge ends up in
+// neither edges_ nor edge metadata - no stale entry, no "metadata not found".
+// The surviving edge must still be fully usable.
+TEST_F(DurabilityTest, EdgeMetadataConsistentAfterSnapshotThenWalDelete) {
+  memgraph::storage::Gid v1_gid{memgraph::storage::Gid::FromUint(0)};
+  memgraph::storage::Gid deleted_edge_gid{memgraph::storage::Gid::FromUint(0)};
+  memgraph::storage::Gid surviving_edge_gid{memgraph::storage::Gid::FromUint(0)};
+
+  // Phase 1: create two edges, snapshot them, then delete one (delete goes to WAL
+  // AFTER the snapshot).
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = true, .enable_edges_metadata = true}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      auto v1 = acc->CreateVertex();
+      auto v2 = acc->CreateVertex();
+      auto v3 = acc->CreateVertex();
+      v1_gid = v1.Gid();
+      auto e1 = acc->CreateEdge(&v1, &v2, db.storage()->NameToEdgeType("et"));
+      auto e2 = acc->CreateEdge(&v1, &v3, db.storage()->NameToEdgeType("et"));
+      ASSERT_TRUE(e1.has_value() && e2.has_value());
+      deleted_edge_gid = e1->Gid();
+      surviving_edge_gid = e2->Gid();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    // Snapshot now contains both edges.
+    ASSERT_TRUE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot(true).has_value());
+
+    // Delete one edge AFTER the snapshot -> recorded in the WAL tail.
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
+      ASSERT_TRUE(v1);
+      auto out_edges = v1->OutEdges(memgraph::storage::View::OLD);
+      ASSERT_TRUE(out_edges.has_value());
+      ASSERT_EQ(out_edges->edges.size(), 2U);
+      auto to_delete =
+          std::ranges::find_if(out_edges->edges, [&](auto const &e) { return e.Gid() == deleted_edge_gid; });
+      ASSERT_NE(to_delete, out_edges->edges.end());
+      ASSERT_TRUE(acc->DeleteEdge(&*to_delete).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+  }
+
+  ASSERT_GE(GetSnapshotsList().size(), 1);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  // Phase 2: recover (snapshot + WAL delete), then exercise both edges and GC.
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = true, .enable_edges_metadata = true}},
+  };
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+  {
+    auto acc = db.Access(memgraph::storage::READ);
+    // Deleted edge: gone from edges_ -> nullopt (never reaches metadata).
+    ASSERT_FALSE(acc->FindEdge(deleted_edge_gid, memgraph::storage::View::OLD).has_value());
+    // Surviving edge: present and resolvable via metadata.
+    ASSERT_TRUE(acc->FindEdge(surviving_edge_gid, memgraph::storage::View::OLD).has_value());
+  }
+  {
+    // The surviving edge is deletable and GC-safe.
+    auto acc = db.Access(memgraph::storage::WRITE);
+    auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1);
+    auto out_edges = v1->OutEdges(memgraph::storage::View::OLD);
+    ASSERT_TRUE(out_edges.has_value());
+    ASSERT_EQ(out_edges->edges.size(), 1U);
+    auto edge = out_edges->edges[0];
+    ASSERT_EQ(edge.Gid(), surviving_edge_gid);
+    ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  db.storage()->FreeMemory();
 }

@@ -36,12 +36,14 @@ DEFAULT_DATA_FLAGS=(
     "--query-execution-timeout-sec=0"
     "--log-level=TRACE"
     "--also-log-to-stderr=true"
+    "--metrics-format=OpenMetrics"
 )
 
 # Default flags for Memgraph Coordinator Nodes
 DEFAULT_COORD_FLAGS=(
     "--log-level=TRACE"
     "--also-log-to-stderr=true"
+    "--metrics-format=OpenMetrics"
 )
 
 # Data node configurations: name, bolt_port, management_port, monitoring_port, metrics_port
@@ -70,8 +72,14 @@ start_data_container() {
     local flags="${DEFAULT_DATA_FLAGS[*]} ${extra_flags}"
 
     echo "Starting data container: $container_name"
+    # Capture core dumps: ensure the host dir exists (kernel.core_pattern points
+    # here), allow unlimited core size, and bind-mount it so a crashing
+    # memgraph's core survives the container being removed at teardown.
+    mkdir -p /tmp/mg-cores && chmod 1777 /tmp/mg-cores 2>/dev/null || true
     docker run -d --name "$container_name" \
         --network host \
+        --ulimit core=-1 \
+        -v /tmp/mg-cores:/tmp/mg-cores \
         -e MEMGRAPH_ENTERPRISE_LICENSE="$MEMGRAPH_ENTERPRISE_LICENSE" \
         -e MEMGRAPH_ORGANIZATION_NAME="$MEMGRAPH_ORGANIZATION_NAME" \
         "$MEMGRAPH_IMAGE" \
@@ -102,8 +110,13 @@ start_coord_container() {
     local flags="${DEFAULT_COORD_FLAGS[*]} ${extra_flags}"
 
     echo "Starting coordinator container: $container_name"
+    # Capture core dumps (see start_data_container) — bind-mount so a crashing
+    # memgraph's core survives teardown.
+    mkdir -p /tmp/mg-cores && chmod 1777 /tmp/mg-cores 2>/dev/null || true
     docker run -d --name "$container_name" \
         --network host \
+        --ulimit core=-1 \
+        -v /tmp/mg-cores:/tmp/mg-cores \
         -e MEMGRAPH_ENTERPRISE_LICENSE="$MEMGRAPH_ENTERPRISE_LICENSE" \
         -e MEMGRAPH_ORGANIZATION_NAME="$MEMGRAPH_ORGANIZATION_NAME" \
         "$MEMGRAPH_IMAGE" \
@@ -617,6 +630,29 @@ restart_all() {
     echo "All Memgraph HA containers restarted"
 }
 
+print_monitoring_targets() {
+    local target_host="${1:-host.docker.internal}"
+    local metrics_targets=""
+    local log_ws_targets=""
+
+    for node in "${DATA_NODES[@]}"; do
+        read -r _ _ _ monitoring_port metrics_port <<< "$node"
+        [[ -z "$metrics_port" || -z "$monitoring_port" ]] && continue
+        metrics_targets+="${metrics_targets:+,}${target_host}:${metrics_port}"
+        log_ws_targets+="${log_ws_targets:+,}${target_host}:${monitoring_port}"
+    done
+
+    for node in "${COORD_NODES[@]}"; do
+        read -r _ _ _ _ _ monitoring_port metrics_port <<< "$node"
+        [[ -z "$metrics_port" || -z "$monitoring_port" ]] && continue
+        metrics_targets+="${metrics_targets:+,}${target_host}:${metrics_port}"
+        log_ws_targets+="${log_ws_targets:+,}${target_host}:${monitoring_port}"
+    done
+
+    echo "MEMGRAPH_METRICS_TARGETS=${metrics_targets}"
+    echo "MEMGRAPH_LOG_WS_TARGETS=${log_ws_targets}"
+}
+
 case "$1" in
     start)
         shift
@@ -638,8 +674,11 @@ case "$1" in
             restart_all
         fi
         ;;
+    monitoring-targets)
+        print_monitoring_targets "$2"
+        ;;
     *)
-        echo "Usage: $0 {start|stop|collect-logs [dir]|status|restart [instance_name]} [memgraph flags...]"
+        echo "Usage: $0 {start|stop|collect-logs [dir]|status|restart [instance_name]|monitoring-targets [host]} [memgraph flags...]"
         echo ""
         echo "Commands:"
         echo "  start                   - Start the HA cluster"
@@ -648,6 +687,7 @@ case "$1" in
         echo "  status                  - Check cluster status"
         echo "  restart                 - Restart all containers"
         echo "  restart <instance>      - Restart specific instance (e.g., data_1, coord_2)"
+        echo "  monitoring-targets [host] - Print monitoring targets as env assignments"
         echo ""
         echo "Instance names: data_1, data_2, coord_1, coord_2, coord_3"
         echo ""

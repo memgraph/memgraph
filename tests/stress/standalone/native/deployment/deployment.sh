@@ -32,6 +32,7 @@ DEFAULT_FLAGS=(
     "--storage-wal-enabled=true"
     "--storage-snapshot-on-exit=false"
     "--telemetry-enabled=false"
+    "--metrics-format=OpenMetrics"
 )
 
 is_memgraph_running() {

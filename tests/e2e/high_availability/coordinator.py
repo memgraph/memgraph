@@ -14,6 +14,7 @@ import sys
 from functools import partial
 
 import interactive_mg_runner
+import mgclient
 import pytest
 from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
 from mg_utils import mg_sleep_and_assert
@@ -201,6 +202,13 @@ def test_main_and_replicas_cannot_register_coord_server(test_name):
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7690', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
             )
         assert str(e.value) == "Only coordinator can register coordinator server!"
+
+
+def test_coord_cannot_change_storage_mode(test_name):
+    cursor = setup_test(test_name=test_name)
+    with pytest.raises(mgclient.DatabaseError) as e:
+        execute_and_fetch_all(cursor, "storage mode in_memory_analytical")
+    assert "Coordinator can run only coordinator queries!" in str(e.value)
 
 
 if __name__ == "__main__":

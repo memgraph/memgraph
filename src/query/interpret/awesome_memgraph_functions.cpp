@@ -17,17 +17,23 @@
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
+#include <iterator>
+#include <optional>
 #include <random>
+#include <ranges>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <variant>
 
+#include "query/auth_checker.hpp"
+#include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/query_user.hpp"
+#include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/point_functions.hpp"
 #include "utils/case_insensitve_set.hpp"
@@ -165,9 +171,9 @@ bool ArgIsType(const TypedValue &arg) {
   } else if constexpr (std::is_same_v<ArgType, Map>) {
     return arg.IsMap();
   } else if constexpr (std::is_same_v<ArgType, Vertex>) {
-    return arg.IsVertex();
+    return arg.IsVertex() || arg.IsVirtualNode();
   } else if constexpr (std::is_same_v<ArgType, Edge>) {
-    return arg.IsEdge();
+    return arg.IsEdge() || arg.IsVirtualEdge();
   } else if constexpr (std::is_same_v<ArgType, Path>) {
     return arg.IsPath();
   } else if constexpr (std::is_same_v<ArgType, Date>) {
@@ -421,6 +427,7 @@ void FType(const char *name, const TypedValue *args, int64_t nargs, int64_t pos 
 TypedValue EndNode(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("endNode", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
+  if (args[0].IsVirtualEdge()) return TypedValue(args[0].ValueVirtualEdge().To(), ctx.memory);
   return TypedValue(args[0].ValueEdge().To(), ctx.memory);
 }
 
@@ -440,10 +447,15 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   return TypedValue(list.back(), ctx.memory);
 }
 
+constexpr auto allow_all_properties = [](storage::PropertyId) { return true; };
+
+// NOTE: Denied properties appear as keys with null values. This differs from
+// keys() and values(), which omit denied properties entirely. This divergence
+// is by design.
 TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
   auto *dba = ctx.db_accessor;
-  auto get_properties = [&](const auto &record_accessor) {
+  auto get_properties = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TMap properties(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (!maybe_props) {
@@ -459,20 +471,55 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
       }
     }
     for (const auto &property : *maybe_props) {
-      auto typed_value =
-          TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-      properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory), std::move(typed_value));
+      auto key = TypedValue::TString(dba->PropertyToName(property.first), ctx.memory);
+      if (is_allowed(property.first)) {
+        auto typed_value =
+            TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
+        properties.emplace(std::move(key), std::move(typed_value));
+      } else {
+        properties.emplace(std::move(key), TypedValue(ctx.memory));
+      }
     }
     return TypedValue(std::move(properties));
   };
+  auto const *checker = ctx.auth_checker;
+
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
-  } else if (value.IsVertex()) {
-    return get_properties(value.ValueVertex());
-  } else {
-    return get_properties(value.ValueEdge());
+  } else if (value.IsVirtualNode()) {
+    auto const &vn = value.ValueVirtualNode();
+    TypedValue::TMap properties(ctx.memory);
+    for (auto const &[prop_id, prop_value] : vn.Properties()) {
+      properties.emplace(TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory),
+                         TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+    }
+    return TypedValue(std::move(properties));
+  } else if (value.IsVirtualEdge()) {
+    auto const &ve = value.ValueVirtualEdge();
+    TypedValue::TMap properties(ctx.memory);
+    for (auto const &[prop_id, prop_value] : ve.Properties()) {
+      properties.emplace(TypedValue::TString(dba->PropertyToName(prop_id), ctx.memory),
+                         TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+    }
+    return TypedValue(std::move(properties));
   }
+  if (value.IsVertex()) {
+    auto const &vertex = value.ValueVertex();
+    if (!checker) return get_properties(vertex, allow_all_properties);
+    auto maybe_labels = vertex.Labels(ctx.view);
+    if (!maybe_labels) {
+      ThrowVertexLabelsReadFailure(maybe_labels.error());
+    }
+    return get_properties(vertex, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+    });
+  }
+  auto const &edge = value.ValueEdge();
+  if (!checker) return get_properties(edge, allow_all_properties);
+  return get_properties(edge, [&](storage::PropertyId prop) {
+    return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+  });
 }
 
 TypedValue RandomUuid(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
@@ -523,6 +570,7 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
 TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("startNode", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
+  if (args[0].IsVirtualEdge()) return TypedValue(args[0].ValueVirtualEdge().From(), ctx.memory);
   return TypedValue(args[0].ValueEdge().From(), ctx.memory);
 }
 
@@ -588,8 +636,15 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContex
   return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
 }
 
+// Type-set shared by each strict to* and its *OrNull variant: strict throws on a rejected type, *OrNull
+// returns null; a parse failure on an accepted type returns null in both.
+using ToBooleanTypes = Or<Null, Bool, Integer, String>;  // Integer, not Number: toBoolean rejects floats.
+using ToNumericTypes = Or<Null, Bool, Number, String>;   // shared by toFloat and toInteger.
+using ToStringTypes =
+    Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum, Point2d, Point3d>;
+
 TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Integer, String>>("toBoolean", args, nargs);
+  FType<ToBooleanTypes>("toBoolean", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
@@ -608,7 +663,7 @@ TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Number, String>>("toFloat", args, nargs);
+  FType<ToNumericTypes>("toFloat", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
@@ -628,7 +683,7 @@ TypedValue ToFloat(const TypedValue *args, int64_t nargs, const FunctionContext 
 }
 
 TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Number, String>>("toInteger", args, nargs);
+  FType<ToNumericTypes>("toInteger", args, nargs);
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
@@ -649,6 +704,26 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
   }
 }
 
+// Null-on-rejected-type wrapper: accepted types delegate to the strict fn (still null on parse failure), rest -> null.
+template <typename Types, TypedValue (*StrictFn)(const TypedValue *, int64_t, const FunctionContext &)>
+TypedValue ConvertOrNull(const char *name, const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  if (nargs != 1) throw QueryRuntimeException("'{}' requires exactly 1 argument.", name);
+  if (!Types::Check(args[0])) return TypedValue(ctx.memory);
+  return StrictFn(args, nargs, ctx);
+}
+
+TypedValue ToBooleanOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  return ConvertOrNull<ToBooleanTypes, ToBoolean>("toBooleanOrNull", args, nargs, ctx);
+}
+
+TypedValue ToFloatOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  return ConvertOrNull<ToNumericTypes, ToFloat>("toFloatOrNull", args, nargs, ctx);
+}
+
+TypedValue ToIntegerOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  return ConvertOrNull<ToNumericTypes, ToInteger>("toIntegerOrNull", args, nargs, ctx);
+}
+
 TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, List>>("toBooleanList", args, nargs);
   const auto &value = args[0];
@@ -658,7 +733,7 @@ TypedValue ToBooleanList(const TypedValue *args, int64_t nargs, const FunctionCo
   const auto &list = value.ValueList();
   TypedValue::TVector values(ctx.memory);
   values.reserve(list.size());
-  for (const auto &element : list) values.emplace_back(ToBoolean(&element, 1, ctx));
+  for (const auto &element : list) values.emplace_back(ToBooleanOrNull(&element, 1, ctx));
   return TypedValue(std::move(values));
 }
 
@@ -671,7 +746,7 @@ TypedValue ToFloatList(const TypedValue *args, int64_t nargs, const FunctionCont
   const auto &list = value.ValueList();
   TypedValue::TVector values(ctx.memory);
   values.reserve(list.size());
-  for (const auto &element : list) values.emplace_back(ToFloat(&element, 1, ctx));
+  for (const auto &element : list) values.emplace_back(ToFloatOrNull(&element, 1, ctx));
   return TypedValue(std::move(values));
 }
 
@@ -684,7 +759,7 @@ TypedValue ToIntegerList(const TypedValue *args, int64_t nargs, const FunctionCo
   const auto &list = value.ValueList();
   TypedValue::TVector values(ctx.memory);
   values.reserve(list.size());
-  for (const auto &element : list) values.emplace_back(ToInteger(&element, 1, ctx));
+  for (const auto &element : list) values.emplace_back(ToIntegerOrNull(&element, 1, ctx));
   return TypedValue(std::move(values));
 }
 
@@ -692,6 +767,7 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   FType<Or<Null, Edge>>("type", args, nargs);
   auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
+  if (args[0].IsVirtualEdge()) return {args[0].ValueVirtualEdge().EdgeTypeName(), ctx.memory};
   return TypedValue(dba->EdgeTypeToName(args[0].ValueEdge().EdgeType()), ctx.memory);
 }
 
@@ -736,6 +812,10 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("NODE", ctx.memory);
     case TypedValue::Type::Edge:
       return TypedValue("RELATIONSHIP", ctx.memory);
+    case TypedValue::Type::VirtualEdge:
+      return TypedValue("VIRTUAL_RELATIONSHIP", ctx.memory);
+    case TypedValue::Type::VirtualNode:
+      return TypedValue("VIRTUAL_NODE", ctx.memory);
     case TypedValue::Type::Path:
       return TypedValue("PATH", ctx.memory);
     case TypedValue::Type::Date:
@@ -755,6 +835,8 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("ZONED_DATE_TIME", ctx.memory);
     case TypedValue::Type::Graph:
       return TypedValue("GRAPH", ctx.memory);
+    case TypedValue::Type::VirtualGraph:
+      return TypedValue("VIRTUAL_GRAPH", ctx.memory);
     case TypedValue::Type::Function:
       throw QueryRuntimeException("Unknown value type! Please report an issue!");
   }
@@ -764,7 +846,7 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
 TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
   auto *dba = ctx.db_accessor;
-  auto get_keys = [&](const auto &record_accessor) {
+  auto get_keys = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector keys(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (!maybe_props) {
@@ -780,19 +862,47 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
       }
     }
     for (const auto &property : *maybe_props) {
-      keys.emplace_back(dba->PropertyToName(property.first));
+      if (is_allowed(property.first)) keys.emplace_back(dba->PropertyToName(property.first));
     }
     return TypedValue(std::move(keys));
   };
+  auto const *checker = ctx.auth_checker;
+
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
   if (value.IsVertex()) {
-    return get_keys(value.ValueVertex());
+    auto const &vertex = value.ValueVertex();
+    if (!checker) return get_keys(vertex, allow_all_properties);
+    auto maybe_labels = vertex.Labels(ctx.view);
+    if (!maybe_labels) {
+      ThrowVertexLabelsReadFailure(maybe_labels.error());
+    }
+    return get_keys(vertex, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (value.IsEdge()) {
-    return get_keys(value.ValueEdge());
+    auto const &edge = value.ValueEdge();
+    if (!checker) return get_keys(edge, allow_all_properties);
+    return get_keys(edge, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+    });
+  }
+  if (value.IsVirtualNode()) {
+    TypedValue::TVector keys(ctx.memory);
+    for (auto const &[prop_id, prop_value] : value.ValueVirtualNode().Properties()) {
+      keys.emplace_back(dba->PropertyToName(prop_id));
+    }
+    return TypedValue(std::move(keys));
+  }
+  if (value.IsVirtualEdge()) {
+    TypedValue::TVector keys(ctx.memory);
+    for (auto const &[prop_id, prop_value] : value.ValueVirtualEdge().Properties()) {
+      keys.emplace_back(dba->PropertyToName(prop_id));
+    }
+    return TypedValue(std::move(keys));
   }
 
   // map
@@ -804,9 +914,9 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
+  FType<Or<Null, Vertex, Edge, Map>>("values", args, nargs);
 
-  auto get_values = [&](const auto &record_accessor) {
+  auto get_values = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector values(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (!maybe_props) {
@@ -822,21 +932,53 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
       }
     }
     for (const auto &[key, value] : *maybe_props) {
-      auto typed_value = TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-      values.emplace_back(std::move(typed_value));
+      if (is_allowed(key)) {
+        values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+      }
     }
     return TypedValue(std::move(values));
   };
+
+  auto const *checker = ctx.auth_checker;
 
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
   if (value.IsVertex()) {
-    return get_values(value.ValueVertex());
+    auto const &vertex = value.ValueVertex();
+    if (!checker) return get_values(vertex, allow_all_properties);
+    auto maybe_labels = vertex.Labels(ctx.view);
+    if (!maybe_labels) {
+      ThrowVertexLabelsReadFailure(maybe_labels.error());
+    }
+    return get_values(vertex, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (value.IsEdge()) {
-    return get_values(value.ValueEdge());
+    auto const &edge = value.ValueEdge();
+    if (!checker) return get_values(edge, allow_all_properties);
+    return get_values(edge, [&](storage::PropertyId prop) {
+      return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+    });
+  }
+  auto *dba = ctx.db_accessor;
+  if (value.IsVirtualNode()) {
+    TypedValue::TVector values(ctx.memory);
+    for (auto const &[prop_id, prop_value] : value.ValueVirtualNode().Properties()) {
+      // NOLINTNEXTLINE(modernize-use-emplace)
+      values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+    }
+    return TypedValue(std::move(values));
+  }
+  if (value.IsVirtualEdge()) {
+    TypedValue::TVector values(ctx.memory);
+    for (auto const &[prop_id, prop_value] : value.ValueVirtualEdge().Properties()) {
+      // NOLINTNEXTLINE(modernize-use-emplace)
+      values.emplace_back(TypedValue(prop_value, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+    }
+    return TypedValue(std::move(values));
   }
 
   // map
@@ -852,19 +994,18 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
   FType<Or<Null, Vertex>>("labels", args, nargs);
   auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
+  if (args[0].IsVirtualNode()) {
+    const auto &node_labels = args[0].ValueVirtualNode().Labels();
+    TypedValue::TVector labels(ctx.memory);
+    labels.reserve(node_labels.size());
+    std::ranges::transform(
+        node_labels, std::back_inserter(labels), [&](const auto &label) { return TypedValue(label, ctx.memory); });
+    return TypedValue(std::move(labels));
+  }
   TypedValue::TVector labels(ctx.memory);
   auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
   if (!maybe_labels) {
-    switch (maybe_labels.error()) {
-      case storage::Error::DELETED_OBJECT:
-        throw QueryRuntimeException("Trying to get labels from a deleted node.");
-      case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
-      case storage::Error::SERIALIZATION_ERROR:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::PROPERTIES_DISABLED:
-        throw QueryRuntimeException("Unexpected error when getting labels.");
-    }
+    ThrowVertexLabelsReadFailure(maybe_labels.error());
   }
   for (const auto &label : *maybe_labels) {
     labels.emplace_back(dba->LabelToName(label));
@@ -1119,22 +1260,35 @@ TypedValue Counter(const TypedValue *args, int64_t nargs, const FunctionContext 
   return TypedValue(value, context.memory);
 }
 
-TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex, Edge>>("id", args, nargs);
-  const auto &arg = args[0];
+TypedValue IdOf(const TypedValue &arg, const FunctionContext &ctx) {
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
+  } else if (arg.IsVirtualNode()) {
+    return TypedValue(arg.ValueVirtualNode().CypherId(), ctx.memory);
   } else if (arg.IsVertex()) {
     return TypedValue(arg.ValueVertex().CypherId(), ctx.memory);
+  } else if (arg.IsVirtualEdge()) {
+    return TypedValue(arg.ValueVirtualEdge().Gid().AsInt(), ctx.memory);
   } else {
     return TypedValue(arg.ValueEdge().CypherId(), ctx.memory);
   }
 }
 
-TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>>(
-      "toString", args, nargs);
-  const auto &arg = args[0];
+TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Vertex, Edge>>("id", args, nargs);
+  return IdOf(args[0], ctx);
+}
+
+// Returns the id as a string for compatibility with external integrations.
+TypedValue ElementId(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Vertex, Edge>>("elementId", args, nargs);
+  auto id = IdOf(args[0], ctx);
+  if (id.IsNull()) return id;
+  return TypedValue(std::to_string(id.ValueInt()), ctx.memory);
+}
+
+// Conversion core shared by toString and toStringOrNull; nullopt iff the enum can't be resolved to a name.
+std::optional<TypedValue> TryToString(const TypedValue &arg, const FunctionContext &ctx) {
   using enum TypedValue::Type;
   switch (arg.type()) {
     case Null: {
@@ -1142,7 +1296,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     }
 
     case String: {
-      return {arg, ctx.memory};
+      return TypedValue(arg, ctx.memory);
     }
 
     case Int: {
@@ -1177,7 +1331,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
 
     case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (!opt_str) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      if (!opt_str) return std::nullopt;
       return TypedValue(*opt_str, ctx.memory);
     }
 
@@ -1185,84 +1339,58 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
       return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
     }
 
+    case Point2d: {
+      return TypedValue(CypherConstructionFor(arg.ValuePoint2d()), ctx.memory);
+    }
+
+    case Point3d: {
+      return TypedValue(CypherConstructionFor(arg.ValuePoint3d()), ctx.memory);
+    }
+
     case List:
     case Map:
     case Vertex:
     case Edge:
+    case VirtualEdge:
+    case VirtualNode:
     case Path:
     case Graph:
-    case Function:
-    case Point2d:
-    case Point3d: {
+    case VirtualGraph:
+    case Function: {
       MG_ASSERT(false, "unexpected TypedValue::Type");
     }
   }
+}
+
+TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<ToStringTypes>("toString", args, nargs);
+  auto converted = TryToString(args[0], ctx);
+  if (!converted) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+  return *std::move(converted);
 }
 
 TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   if (nargs != 1) {
     throw QueryRuntimeException("'toStringOrNull' requires exactly 1 argument.");
   }
+  // Rejected type or unconvertible value -> null.
+  if (!ToStringTypes::Check(args[0])) return TypedValue(ctx.memory);
+  auto converted = TryToString(args[0], ctx);
+  return converted ? *std::move(converted) : TypedValue(ctx.memory);
+}
 
-  const auto &arg = args[0];
-  using enum TypedValue::Type;
-  switch (arg.type()) {
-    case String: {
-      return {arg, ctx.memory};
-    }
-
-    case Int: {
-      // TODO: This is making a pointless copy of std::string, we may want to
-      // use a different conversion to string
-      return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
-    }
-
-    case Double: {
-      return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
-    }
-
-    case Date: {
-      return TypedValue(arg.ValueDate().ToString(), ctx.memory);
-    }
-
-    case LocalTime: {
-      return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
-    }
-
-    case LocalDateTime: {
-      return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
-    }
-
-    case Duration: {
-      return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
-    }
-    case ZonedDateTime: {
-      return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
-    }
-
-    case Enum: {
-      auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-      if (!opt_str) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
-      return TypedValue(*opt_str, ctx.memory);
-    }
-
-    case Bool: {
-      return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
-    }
-
-    case Null:
-    case List:
-    case Map:
-    case Vertex:
-    case Edge:
-    case Path:
-    case Graph:
-    case Function:
-    case Point2d:
-    case Point3d: {
-      return TypedValue(ctx.memory);
-    }
+TypedValue ToStringList(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List>>("toStringList", args, nargs);
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
   }
+  const auto &list = value.ValueList();
+  TypedValue::TVector values(ctx.memory);
+  values.reserve(list.size());
+  // Per-element via ToStringOrNull (not ToString): non-stringifiable elements become null.
+  for (const auto &element : list) values.emplace_back(ToStringOrNull(&element, 1, ctx));
+  return TypedValue(std::move(values));
 }
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1938,6 +2066,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"ENDNODE", func_info{.func_ = EndNode, .is_pure_ = true}},
     {"HEAD", func_info{.func_ = Head, .is_pure_ = true}},
     {kId, func_info{.func_ = Id, .is_pure_ = true}},
+    {kElementId, func_info{.func_ = ElementId, .is_pure_ = true}},
     {"LAST", func_info{.func_ = Last, .is_pure_ = true}},
     {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true}},
     {"RANDOMUUID", func_info{.func_ = RandomUuid, .is_pure_ = false}},
@@ -1949,6 +2078,9 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"TOBOOLEAN", func_info{.func_ = ToBoolean, .is_pure_ = true}},
     {"TOFLOAT", func_info{.func_ = ToFloat, .is_pure_ = true}},
     {"TOINTEGER", func_info{.func_ = ToInteger, .is_pure_ = true}},
+    {"TOBOOLEANORNULL", func_info{.func_ = ToBooleanOrNull, .is_pure_ = true}},
+    {"TOFLOATORNULL", func_info{.func_ = ToFloatOrNull, .is_pure_ = true}},
+    {"TOINTEGERORNULL", func_info{.func_ = ToIntegerOrNull, .is_pure_ = true}},
     {"TOBOOLEANLIST", func_info{.func_ = ToBooleanList, .is_pure_ = true}},
     {"TOFLOATLIST", func_info{.func_ = ToFloatList, .is_pure_ = true}},
     {"TOINTEGERLIST", func_info{.func_ = ToIntegerList, .is_pure_ = true}},
@@ -2006,6 +2138,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"TOLOWER", func_info{.func_ = ToLower, .is_pure_ = true}},
     {"TOSTRING", func_info{.func_ = ToString, .is_pure_ = true}},
     {"TOSTRINGORNULL", func_info{.func_ = ToStringOrNull, .is_pure_ = true}},
+    {"TOSTRINGLIST", func_info{.func_ = ToStringList, .is_pure_ = true}},
     {"TOUPPER", func_info{.func_ = ToUpper, .is_pure_ = true}},
     {"TRIM", func_info{.func_ = Trim, .is_pure_ = true}},
 

@@ -79,7 +79,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
 
   std::variant<PlainSocket, SSLSocket> CreateSocket(tcp::socket &&socket, ServerContext &context) {
     if (context.use_ssl()) {
-      ssl_context_.emplace(context.context_clone());
+      ssl_context_ = context.context_clone();
       return Session::SSLSocket{std::move(socket), *ssl_context_};
     }
 
@@ -182,7 +182,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
     return std::visit(utils::Overloaded{std::forward<F>(fn)}, stream_);
   }
 
-  std::optional<std::reference_wrapper<boost::asio::ssl::context>> ssl_context_;
+  std::shared_ptr<boost::asio::ssl::context> ssl_context_;
   std::variant<PlainSocket, SSLSocket> stream_;
   boost::beast::flat_buffer buffer_;
 

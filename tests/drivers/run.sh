@@ -26,6 +26,7 @@ mg_binary_dir="$DIR/../../build"
 
 # Start memgraph.
 $mg_binary_dir/memgraph \
+    --metrics-format=OpenMetrics \
     --cartesian-product-enabled=false \
     --data-directory=$tmpdir \
     --query-execution-timeout-sec=5 \

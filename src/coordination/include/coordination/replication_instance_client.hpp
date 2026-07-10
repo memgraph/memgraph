@@ -16,38 +16,20 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/replication_lag_info.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/client.hpp"
-#include "utils/event_counter.hpp"
-#include "utils/metrics_timer.hpp"
 #include "utils/scheduler.hpp"
-
-namespace memgraph::metrics {
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define GenerateRpcCounterEvents(RPC) \
-  extern const Event RPC##Success;    \
-  extern const Event RPC##Fail;       \
-  extern const Event RPC##_us;
-
-// clang-format off
-GenerateRpcCounterEvents(PromoteToMainRpc)
-GenerateRpcCounterEvents(DemoteMainToReplicaRpc)
-GenerateRpcCounterEvents(RegisterReplicaOnMainRpc)
-GenerateRpcCounterEvents(UnregisterReplicaRpc)
-GenerateRpcCounterEvents(EnableWritingOnMainRpc)
-GenerateRpcCounterEvents(StateCheckRpc)
-GenerateRpcCounterEvents(GetDatabaseHistoriesRpc)
-GenerateRpcCounterEvents(UpdateDataInstanceConfigRpc)
-// clang-format on
-}  // namespace memgraph::metrics
+#include "utils/tls.hpp"
 
 namespace memgraph::coordination {
 
 template <rpc::IsRpc T>
 struct RpcInfo {
-  static const metrics::Event succCounter;
-  static const metrics::Event failCounter;
-  static const metrics::Event timerLabel;
+  static prometheus::Counter *succ_counter();
+  static prometheus::Counter *fail_counter();
+  static prometheus::Histogram *histogram();
 };
 
 class CoordinatorInstance;
@@ -57,7 +39,8 @@ class ReplicationInstanceClient {
  public:
   explicit ReplicationInstanceClient(std::string instance_name, io::network::Endpoint mgt_server,
                                      CoordinatorInstance *coord_instance,
-                                     std::chrono::seconds instance_health_check_frequency_sec);
+                                     std::chrono::seconds instance_health_check_frequency_sec,
+                                     std::optional<utils::TlsConfig> const &tls_config);
 
   ~ReplicationInstanceClient() = default;
 
@@ -87,21 +70,21 @@ class ReplicationInstanceClient {
 
   template <rpc::IsRpc T, typename... Args>
   auto SendRpc(Args &&...args) const -> bool {
-    utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
+    metrics::ScopedHistogramTimer const timer{RpcInfo<T>::histogram()};
     try {
       auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...);
 
       if (!stream.SendAndWait().arg_) {
         spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);
-        metrics::IncrementCounter(RpcInfo<T>::failCounter);
+        RpcInfo<T>::fail_counter()->Increment();
         return false;
       }
 
-      metrics::IncrementCounter(RpcInfo<T>::succCounter);
+      RpcInfo<T>::succ_counter()->Increment();
       return true;
     } catch (rpc::RpcFailedException const &e) {
       spdlog::error("Failed to receive response to {}. Error occurred: {}", T::Request::kType.name, e.what());
-      metrics::IncrementCounter(RpcInfo<T>::failCounter);
+      RpcInfo<T>::fail_counter()->Increment();
       return false;
     }
   }

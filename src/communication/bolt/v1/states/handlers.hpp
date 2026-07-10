@@ -26,19 +26,16 @@
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
 #include "license/license_sender.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/property_value.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 
-namespace memgraph::metrics {
-extern const Event TransientErrors;
-}  // namespace memgraph::metrics
-
 namespace memgraph::communication::bolt {
 // TODO: Revise these error messages
-inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::exception &e) {
+inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::exception &e,
+                                                                   metrics::DatabaseMetricHandles *metric_handles) {
   if (const auto *verbose = dynamic_cast<const VerboseError *>(&e)) {
     return {verbose->code(), verbose->what()};
   }
@@ -65,7 +62,14 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     // database probably aborted transaction because of some timeout,
     // deadlock, serialization error or something similar. We return
     // TransientError since retry of same transaction could succeed.
-    memgraph::metrics::IncrementCounter(memgraph::metrics::TransientErrors);
+
+    // If this is in the context of a database (i.e., we have database
+    // `metric_handles`), then log count failure in the db metrics;
+    // otherwise, count in the global metrics.
+    if (metric_handles)
+      metric_handles->transient_errors.Increment();
+    else
+      metrics::Metrics().global.transient_errors->Increment();
     return {"Memgraph.TransientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const std::bad_alloc *>(&e)) {
@@ -196,7 +200,7 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
   }
   session.encoder_buffer_.Clear();
 
-  auto code_message = ExceptionToErrorMessage(e);
+  auto code_message = ExceptionToErrorMessage(e, session.GetMetricHandles());
   bool fail_sent = session.encoder_.MessageFailure({{"code", code_message.first}, {"message", code_message.second}});
   if (!fail_sent) {
     spdlog::trace("Couldn't send failure message!");
@@ -509,7 +513,10 @@ State HandleGoodbye() {
 
 template <typename TSession, int bolt_major, int bolt_minor = 0>
 auto ReadDB(TSession &session) -> std::optional<std::string> {
-  if constexpr (bolt_major == 5) {
+  // The ROUTE message carries the database name differently across Bolt versions: 4.3 sends it as a standalone
+  // string field, while 4.4+ (and all of 5.x) moved it inside the trailing `extra` map. The third struct field
+  // must be consumed regardless so the decoder stays aligned, hence the explicit branch per layout.
+  if constexpr (bolt_major == 5 || (bolt_major == 4 && bolt_minor >= 4)) {
     Value extra;
     if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
       spdlog::trace("Couldn't read extra field!");
@@ -581,8 +588,15 @@ State HandleRoute(TSession &session, const Marker marker) {
 
 template <typename TSession>
 State HandleLogOff(TSession &session) {
-  // No arguments and cannot fail
-  session.LogOff();
-  return State::Init;
+  try {
+    session.LogOff();
+    if (!session.encoder_.MessageSuccess({})) {
+      spdlog::trace("Couldn't send success message!");
+      return State::Close;
+    }
+    return State::Init;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
 }
 }  // namespace memgraph::communication::bolt

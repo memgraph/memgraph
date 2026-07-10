@@ -20,6 +20,14 @@ void Encoder::WriteBool(bool value) {
   slk::Save(value, builder_);
 }
 
+// Just writes 0 as placeholder value. No need to encode replication stream when we are using TCP sockets
+uint32_t Encoder::WriteCrc() {
+  WriteMarker(durability::Marker::TYPE_INT);
+  uint64_t const placeholder{0};
+  slk::Save(placeholder, builder_);
+  return static_cast<uint32_t>(placeholder);
+}
+
 void Encoder::WriteUint(uint64_t value) {
   WriteMarker(durability::Marker::TYPE_INT);
   slk::Save(value, builder_);
@@ -87,6 +95,8 @@ bool Encoder::WriteFile(const std::filesystem::path &path, std::filesystem::path
   WriteFileData(&file);
   return true;
 }
+
+uint64_t Encoder::GetPosition() { return builder_->GetPosition(); }
 
 ////// Decoder //////
 std::optional<durability::Marker> Decoder::ReadMarker() {

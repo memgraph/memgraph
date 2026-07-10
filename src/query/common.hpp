@@ -18,6 +18,8 @@
 #include <string_view>
 
 #include <range/v3/view/zip.hpp>
+
+#include "metrics/prometheus_metrics.hpp"
 #include "query/exceptions.hpp"
 #include "query/fmt.hpp"
 #include "query/frontend/ast/ordering.hpp"
@@ -25,6 +27,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/logging.hpp"
 
@@ -72,8 +75,11 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case TypedValue::Type::Map:
       case TypedValue::Type::Vertex:
       case TypedValue::Type::Edge:
+      case TypedValue::Type::VirtualEdge:
+      case TypedValue::Type::VirtualNode:
       case TypedValue::Type::Path:
       case TypedValue::Type::Graph:
+      case TypedValue::Type::VirtualGraph:
       case TypedValue::Type::Function:
         throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
     }
@@ -103,6 +109,8 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case TypedValue::Type::Map:
       case TypedValue::Type::Vertex:
       case TypedValue::Type::Edge:
+      case TypedValue::Type::VirtualEdge:
+      case TypedValue::Type::VirtualNode:
       case TypedValue::Type::Path:
       case TypedValue::Type::Date:
       case TypedValue::Type::LocalTime:
@@ -113,6 +121,7 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case TypedValue::Type::Point2d:
       case TypedValue::Type::Point3d:
       case TypedValue::Type::Graph:
+      case TypedValue::Type::VirtualGraph:
       case TypedValue::Type::Function:
         LOG_FATAL("Invalid type");
     }
@@ -174,9 +183,24 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
   }
 }
 
-inline void ProcessError(const storage::Error error) {
+/// Map `storage::Error` from `VertexAccessor::Labels(...)` failures to `QueryRuntimeException`
+[[noreturn]] inline void ThrowVertexLabelsReadFailure(storage::Error error) {
+  switch (error) {
+    case storage::Error::DELETED_OBJECT:
+      throw QueryRuntimeException("Trying to get labels from a deleted node.");
+    case storage::Error::NONEXISTENT_OBJECT:
+      throw QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
+    case storage::Error::SERIALIZATION_ERROR:
+    case storage::Error::VERTEX_HAS_EDGES:
+    case storage::Error::PROPERTIES_DISABLED:
+      throw QueryRuntimeException("Unexpected error when getting labels.");
+  }
+}
+
+inline void ProcessError(const storage::Error error, metrics::DatabaseMetricHandles &metric_handles) {
   switch (error) {
     case storage::Error::SERIALIZATION_ERROR:
+      metric_handles.write_write_conflicts.Increment();
       throw TransactionSerializationException();
     case storage::Error::DELETED_OBJECT:
       throw QueryRuntimeException("Trying to set properties on a deleted object.");
@@ -199,11 +223,12 @@ concept AccessorWithSetProperty =
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithSetProperty T>
 storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value,
-                                       storage::NameIdMapper *name_id_mapper) {
+                                       storage::NameIdMapper *name_id_mapper,
+                                       metrics::DatabaseMetricHandles &metric_handles) {
   try {
     auto maybe_old_value = record->SetProperty(key, value.ToPropertyValue(name_id_mapper));
     if (!maybe_old_value) {
-      ProcessError(maybe_old_value.error());
+      ProcessError(maybe_old_value.error(), metric_handles);
     }
     return std::move(*maybe_old_value);
   } catch (const TypedValueException &) {
@@ -221,11 +246,12 @@ concept AccessorWithInitProperties =
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithInitProperties T>
-bool MultiPropsInitChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+bool MultiPropsInitChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                           metrics::DatabaseMetricHandles &metric_handles) {
   try {
     auto maybe_values = record->InitProperties(properties);
     if (!maybe_values) {
-      ProcessError(maybe_values.error());
+      ProcessError(maybe_values.error(), metric_handles);
     }
     return std::move(*maybe_values);
   } catch (const TypedValueException &) {
@@ -246,12 +272,13 @@ concept AccessorWithUpdateProperties = requires(T accessor,
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithUpdateProperties T>
-auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties)
+auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                             metrics::DatabaseMetricHandles &metric_handles)
     -> std::remove_reference_t<decltype(record->UpdateProperties(properties).value())> {
   try {
     auto maybe_values = record->UpdateProperties(properties);
     if (!maybe_values) {
-      ProcessError(maybe_values.error());
+      ProcessError(maybe_values.error(), metric_handles);
     }
     return std::move(*maybe_values);
   } catch (const TypedValueException &) {

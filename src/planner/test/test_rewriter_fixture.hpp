@@ -17,7 +17,7 @@
 
 #include "planner/rewrite/rewriter.hpp"
 #include "test_egraph_fixture.hpp"
-#include "test_patterns.hpp"
+#include "test_support/patterns.hpp"
 
 namespace memgraph::planner::core::test {
 

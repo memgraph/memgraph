@@ -17,6 +17,9 @@
 #include <variant>
 
 #include "absl/container/flat_hash_map.h"
+
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_gauge.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/constraints_mvcc.hpp"
@@ -31,8 +34,11 @@ namespace memgraph::storage {
 
 class ExistenceConstraints {
  public:
+  explicit ExistenceConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
+
   struct MultipleThreadsConstraintValidation {
-    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
+                    const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
 
@@ -40,7 +46,8 @@ class ExistenceConstraints {
   };
 
   struct SingleThreadConstraintValidation {
-    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
+                    const PropertyId &property,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const
         -> std::expected<void, ConstraintViolation>;
   };
@@ -62,6 +69,7 @@ class ExistenceConstraints {
   /// This pattern matches indices and unique constraints for consistency.
   struct IndividualConstraint {
     ConstraintStatus status{};
+    metrics::ScopedGauge gauge_{};
     ~IndividualConstraint();
   };
 
@@ -132,10 +140,9 @@ class ExistenceConstraints {
  private:
   auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
 
-  // Installs `ptr` under {label, property} if absent. Shared by RegisterConstraint
-  // (fresh populating ptr) and RestoreConstraint (evicted ptr).
   bool InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr);
 
+  metrics::GaugeHandle gauge_{};
   utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> constraints_{std::make_shared<Container const>()};
 };
 

@@ -16,7 +16,7 @@ from enum import Enum
 from typing import Any, Callable, Iterable, TypeVar
 
 from neo4j import GraphDatabase
-from neo4j.exceptions import ServiceUnavailable, TransientError
+from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
 
 # Suppress neo4j driver noise (connection pool chatter, retry warnings, etc.)
 # so they don't drown out workload and monitor output.
@@ -257,7 +257,7 @@ def _run_query(
             if SYNC_REPLICA_ERROR in str(e):
                 print(f"\nWARN: Sync replica error (instance={instance_name}, query={query!r}): {e}")
                 return None
-            if isinstance(e, ServiceUnavailable) or WRITE_ON_REPLICA_ERROR in str(e):
+            if isinstance(e, (ServiceUnavailable, SessionExpired)) or WRITE_ON_REPLICA_ERROR in str(e):
                 connection_attempt += 1
                 pid = os.getpid()
                 key = (pid, instance_name, protocol.value, auth[0], auth[1])
@@ -356,10 +356,12 @@ def _run_with_manual_retries(
                 # should investigate the replica to understand why it lagged.
                 print(f"\nWARN: SYNC_REPLICA_ERROR (instance={instance_name}, query={query!r}): {e}")
                 return fallback
-            retriable = isinstance(e, (TransientError, ServiceUnavailable)) or WRITE_ON_REPLICA_ERROR in str(e)
+            retriable = isinstance(
+                e, (TransientError, ServiceUnavailable, SessionExpired)
+            ) or WRITE_ON_REPLICA_ERROR in str(e)
             if not retriable:
                 raise
-            if isinstance(e, ServiceUnavailable) or WRITE_ON_REPLICA_ERROR in str(e):
+            if isinstance(e, (ServiceUnavailable, SessionExpired)) or WRITE_ON_REPLICA_ERROR in str(e):
                 pid = os.getpid()
                 key = (pid, instance_name, protocol.value, auth[0], auth[1])
                 _driver_cache.pop(key, None)

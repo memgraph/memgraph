@@ -12,6 +12,7 @@
 #pragma once
 
 #include <functional>
+#include <span>
 #include <utility>
 #include "query/edge_accessor.hpp"
 #include "query/typed_value.hpp"

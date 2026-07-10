@@ -11,18 +11,14 @@
 
 #pragma once
 
+#include <forward_list>
+
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/delta.hpp"
 #include "utils/allocator/page_aligned.hpp"
 #include "utils/allocator/page_slab_memory_resource.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/static_vector.hpp"
-
-#include <forward_list>
-
-namespace memgraph::metrics {
-extern const Event UnreleasedDeltaObjects;
-}
 
 namespace memgraph::storage {
 namespace {
@@ -245,11 +241,14 @@ struct delta_container {
 
   delta_container() = default;
 
+  explicit delta_container(metrics::GaugeHandle gauge) : gauge_{gauge} {}
+
   // move ctr: needed because of size_
   delta_container(delta_container &&other) noexcept
       : memory_resource_{std::move(other.memory_resource_)},
         deltas_{std::move(other.deltas_)},
-        size_{std::exchange(other.size_, 0)} {}
+        size_{std::exchange(other.size_, 0)},
+        gauge_{other.gauge_} {}
 
   // move assign: needed because of size_
   delta_container &operator=(delta_container &&other) noexcept {
@@ -258,10 +257,11 @@ struct delta_container {
     std::swap(memory_resource_, other.memory_resource_);
     std::swap(deltas_, other.deltas_);
     std::swap(size_, other.size_);
+    std::swap(gauge_, other.gauge_);
     return *this;
   }
 
-  ~delta_container() { memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, size_); }
+  ~delta_container() { gauge_.Decrement(static_cast<double>(size_)); }
 
   auto begin() { return Flatten(deltas_).begin(); }
 
@@ -278,7 +278,7 @@ struct delta_container {
         // no need for memory_resource
         auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)...);
         ++size_;
-        memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects);
+        gauge_.Increment();
         return delta;
       } else {
         // requires memory_resource
@@ -287,7 +287,7 @@ struct delta_container {
         }
         auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)..., memory_resource_.get());
         ++size_;
-        memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects);
+        gauge_.Increment();
         return delta;
       }
     };
@@ -308,7 +308,7 @@ struct delta_container {
   void clear() {
     deltas_.clear();
     memory_resource_.reset();
-    memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, size_);
+    gauge_.Decrement(static_cast<double>(size_));
     size_ = 0;
   }
 
@@ -322,5 +322,6 @@ struct delta_container {
   std::unique_ptr<utils::PageSlabMemoryResource> memory_resource_{};
   PageAlignedList<delta_slab> deltas_{};
   std::size_t size_{};
+  metrics::GaugeHandle gauge_{};
 };
 }  // namespace memgraph::storage

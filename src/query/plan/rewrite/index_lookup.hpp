@@ -36,6 +36,7 @@
 #include "frontend/ast/ast_storage.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/balanced_union.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "query/plan/rewrite/order_by_elimination.hpp"
 #include "storage/v2/id_types.hpp"
@@ -353,7 +354,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::optional<ProvidedScan> provided;
     if (indexed_scan && !has_in_filter) {
       if (auto *scan_by_props = dynamic_cast<ScanAllByLabelProperties *>(indexed_scan.get())) {
-        provided = scan_by_props;
+        // A value scan fed by an Unwind is invoked once per unwound element
+        // (e.g. a user UNWIND driving an equality lookup). When the lookup value
+        // derives from the element the results follow element order, not
+        // property order, so the scan cannot be assumed to provide ordered
+        // iteration and must not eliminate an ORDER BY. Suppressing is
+        // conservative: an element-independent value is still ordered, but at
+        // worst we keep an unnecessary sort. The IN-list lowering is already
+        // covered by has_in_filter.
+        if (!(scan_by_props->input() && scan_by_props->input()->GetTypeInfo() == Unwind::kType)) {
+          provided = scan_by_props;
+        }
       }
     }
     order_by_eliminator_.NotifyScan(provided);
@@ -1597,20 +1608,23 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
     };
 
-    // For any IN filters, we need to unwind
+    // Lower an `x IN list` filter to a per-element index scan: chain
+    // Unwind(toSet(coalesce(list_expr, []))) onto `input` and return the
+    // anonymous identifier bound to each unwound element for the caller's scan.
+    auto unwind_membership_list = [&](Expression *list_expr) -> Identifier * {
+      auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, list_expr);
+      input = std::move(unwound.op);
+      return unwound.element;
+    };
+
     // TODO(buda): ScanAllByLabelProperty + Filter should be considered
     // here once the operator and the right cardinality estimation exist.
     // TODO: Currently IN uses unwind, this means multiple scans, this could be better
     //  performance if we use single scan
-    // NOTE: make_unwinds has side-effectm changes input to include new unwind stage
     auto make_unwinds = [&](FilterInfo const &filter_info) -> FilterInfo {
       if (filter_info.property_filter->type_ == PropertyFilter::Type::IN) {
-        auto const &symbol = symbol_table_->CreateAnonymousSymbol();
-        auto *expression = ast_storage_->Create<Identifier>(symbol.name());
-        expression->MapTo(symbol);
-        input = std::make_unique<Unwind>(input, filter_info.property_filter->value_, symbol);
         FilterInfo cpy = filter_info;
-        cpy.property_filter->value_ = expression;
+        cpy.property_filter->value_ = unwind_membership_list(filter_info.property_filter->value_);
         return cpy;
       }
       return filter_info;
@@ -1626,7 +1640,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto *value = filter.id_filter->value_;
         metadata.filters_to_erase.push_back(filter);
         metadata.expressions_to_mark_for_removal.push_back(filter.expression);
-        return ScanByIndexResult{std::make_shared<ScanAllById>(input, node_symbol, value, view), std::move(metadata)};
+        if (filter.id_filter->type_ == IdFilter::Type::IN) {
+          // has_in_filter is set below so order-by elimination is disabled and
+          // an ORDER BY id(n) over the unwound scan is not wrongly elided.
+          auto *element = unwind_membership_list(value);
+          return ScanByIndexResult{
+              std::make_shared<ScanAllById>(input, node_symbol, element, view, /*expects_string_id=*/false),
+              std::move(metadata),
+              /*has_in_filter=*/true};
+        }
+        return ScanByIndexResult{
+            std::make_shared<ScanAllById>(input, node_symbol, value, view, filter.id_filter->expects_string_id_),
+            std::move(metadata)};
       }
     }
     // Now try to see if we can use label+property index. If not, try to use
@@ -1740,7 +1765,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it and chain
       // it in unions
       if ((!max_vertex_count || best_group.vertex_count <= *max_vertex_count) && !best_group.indices.empty()) {
-        std::unique_ptr<LogicalOperator> prev;
+        // Collect one index scan per disjoined label, then fold them into a
+        // balanced Union tree with a single deduplicating Distinct on top.
+        std::vector<std::unique_ptr<LogicalOperator>> scans;
+        scans.reserve(best_group.indices.size());
         metadata.labels_to_erase.reserve(best_group.indices.size());
         std::optional<std::vector<storage::PropertyPath>>
             filtered_property_ids;  // Used to check if all indices uses the same filter
@@ -1750,17 +1778,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           if (std::holds_alternative<LabelIx>(index)) {
             metadata.all_property_filters_same = false;
             metadata.labels_to_erase.push_back(std::get<LabelIx>(index));
-            auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view);
-            if (prev) {
-              auto union_op = std::make_unique<Union>(std::move(prev),
-                                                      std::move(scan),
-                                                      std::vector<Symbol>{node_symbol},
-                                                      std::vector<Symbol>{node_symbol},
-                                                      std::vector<Symbol>{node_symbol});
-              prev = std::make_unique<Distinct>(std::move(union_op), std::vector<Symbol>{node_symbol});
-            } else {
-              prev = std::move(scan);
-            }
+            scans.push_back(
+                std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view));
           } else {
             auto &label_property_index = std::get<LabelPropertyIndex>(index);
             metadata.labels_to_erase.push_back(label_property_index.label);
@@ -1789,20 +1808,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            std::move(expr_ranges),
                                                            view);
             label_property_index_scan->index_order_ = label_property_index.order;
-            if (prev) {
-              auto union_op = std::make_unique<Union>(std::move(prev),
-                                                      std::move(label_property_index_scan),
-                                                      std::vector<Symbol>{node_symbol},
-                                                      std::vector<Symbol>{node_symbol},
-                                                      std::vector<Symbol>{node_symbol});
-              prev = std::make_unique<Distinct>(std::move(union_op), std::vector<Symbol>{node_symbol});
-            } else {
-              prev = std::move(label_property_index_scan);
-            }
+            scans.push_back(std::move(label_property_index_scan));
           }
         }
         metadata.is_or_label_filter = true;
-        return ScanByIndexResult{std::move(prev), std::move(metadata)};
+        return ScanByIndexResult{BalancedDisjunctionUnion(std::move(scans), node_symbol), std::move(metadata)};
       }
     }
     return std::nullopt;

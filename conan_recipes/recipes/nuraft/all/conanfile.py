@@ -76,7 +76,7 @@ class NuRaftConan(ConanFile):
 
     def generate(self):
         tc = CMakeToolchain(self)
-        tc.cache_variables["DISABLE_SSL"] = 1
+        tc.cache_variables["DISABLE_SSL"] = 0
         if Version(self.version) >= 3:
             tc.cache_variables["WITH_CONAN"] = True
             tc.cache_variables["BOOST_ASIO"] = self.options.asio == "boost"

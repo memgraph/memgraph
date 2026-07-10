@@ -13,6 +13,7 @@ Usage:
 import argparse
 import multiprocessing
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -363,10 +364,27 @@ def run_workload_script(workload: Dict[str, Any], args: Args, timeout_sec: int, 
     run_env["PYTHONPATH"] = f"{ha_dir}:{script_dir}:{SCRIPT_DIR}:{existing}".rstrip(":")
 
     print(f"Executing workload script: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout_sec, env=run_env)
 
-    if result.returncode != 0:
-        raise Exception(f"Workload script returned non-zero ({result.returncode})!")
+    # start_new_session puts the workload in its own process group so a timeout
+    # can SIGKILL the whole tree (the workload's multiprocessing.Pool workers
+    # would otherwise be orphaned and keep hitting the cluster as it shuts down,
+    # polluting logs with confusing post-mortem SYNC replica errors).
+    process = subprocess.Popen(cmd, cwd=SCRIPT_DIR, env=run_env, start_new_session=True)
+    try:
+        returncode = process.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+        raise Exception(
+            f"Workload script timed out after {timeout_sec} seconds "
+            f"({timeout_sec // 60} min). Increase timeout_min or reduce workload size."
+        )
+
+    if returncode != 0:
+        raise Exception(f"Workload script returned non-zero ({returncode})!")
 
 
 def run_custom_workloads(config: Config, args: Args) -> Dict[str, Any]:

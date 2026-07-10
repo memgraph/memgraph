@@ -118,9 +118,15 @@ def prepare_tests():
             if not test_or_group_dir.is_dir():
                 continue
 
+            if test_or_group_dir.name.startswith(".") or test_or_group_dir.name == "__pycache__":
+                continue
+
             if test_or_group_dir.name.endswith(TestConstants.TEST_GROUP_DIR_SUFFIX):
                 for test_dir in test_or_group_dir.iterdir():
                     if not test_dir.is_dir():
+                        continue
+
+                    if test_dir.name.startswith(".") or test_dir.name == "__pycache__":
                         continue
 
                     tests.append(

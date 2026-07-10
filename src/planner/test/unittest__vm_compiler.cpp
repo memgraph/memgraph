@@ -15,7 +15,7 @@
 
 #include "planner/pattern/vm/compiler.hpp"
 #include "test_egraph_fixture.hpp"
-#include "test_patterns.hpp"
+#include "test_support/patterns.hpp"
 #include "test_vm_bytecode.hpp"
 
 namespace memgraph::planner::core {
@@ -345,7 +345,7 @@ INSTANTIATE_TEST_SUITE_P(PatternVM, Compile, testing::ValuesIn(kCompilerCases),
                          [](auto const &info) { return info.param.name; });
 
 // ============================================================================
-// Permutation tests (not data-driven — test stability across input orderings)
+// Permutation tests (not data-driven - test stability across input orderings)
 // ============================================================================
 //
 // Verifies that all permutations of a pattern set produce valid bytecode with
@@ -373,7 +373,7 @@ void ExpectStableAcrossPermutations(std::array<TestPattern, N> const &patterns) 
     TestPatternsCompiler perm_compiler;
     auto compiled = perm_compiler.compile(permuted);
     auto code = compiled.code();
-    auto bytecode = disassemble(code, compiled.symbols());
+    auto bytecode = LazyDisassembly{code, compiled.symbols()};
 
     ExpectValidBytecode(compiled);
     EXPECT_EQ(code.size(), canonical_size) << "Permutation " << count << "\n" << bytecode;
@@ -401,7 +401,7 @@ TEST_F(PatternVM_Compiler, JoinOrder_HubsAndLeaves_AllPermutations) {
 }
 
 TEST_F(PatternVM_Compiler, JoinOrder_LinearChain_AllPermutations) {
-  // Linear chain: F(?x) — G(?x,?y) — H(?y)
+  // Linear chain: F(?x) - G(?x,?y) - H(?y)
   ExpectStableAcrossPermutations(std::array{
       TestPattern::build(Op::F, {Var{kVarX}}),
       TestPattern::build(Op::G, {Var{kVarX}, Var{kVarY}}),

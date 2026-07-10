@@ -15,68 +15,87 @@
 (def sync-after-n-txn (atom 100000))
 (def storage-backup-dir-enabled (atom true))
 (def shutdown-signal (atom :KILL))
+(def intra-cluster-tls (atom false))
 
 (defn get-rnd-snapshot-interval-sec
   "Gets the random snapshot interval sec between 5 and 300 secs."
   []
   (+ 5 (rand-int 295)))
 
+(defn- tls-flags
+  "Flags to pass to memgraph when intra-cluster TLS is enabled. Paths match the
+  layout created by run.sh's COPY_FILES (canonical /opt/memgraph-certs/*)."
+  []
+  (when @intra-cluster-tls
+    ["--cluster-cert-file=/opt/memgraph-certs/cluster.crt"
+     "--cluster-key-file=/opt/memgraph-certs/cluster.key"
+     "--cluster-ca-file=/opt/memgraph-certs/ca.crt"]))
+
 (defn start-node!
   [test _]
-  (cu/start-daemon!
-   {:logfile mglog
-    :pidfile mgpid
-    :chdir   mgdir}
-   (:local-binary test)
-   :--also-log-to-stderr
-   :--data-recovery-on-startup
-   :--storage-wal-enabled
-   :--replication-restore-state-on-startup
-   "--log-level=TRACE"
-   (str "--storage-snapshot-interval-sec=" (get-rnd-snapshot-interval-sec))
-   (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
-   (str "--storage-wal-file-flush-every-n-tx=" @sync-after-n-txn)
-   "--telemetry-enabled=false"
-   :--storage-properties-on-edges))
+  (apply cu/start-daemon!
+         {:logfile mglog
+          :pidfile mgpid
+          :chdir   mgdir}
+         (:local-binary test)
+         (concat
+          [:--also-log-to-stderr
+           :--data-recovery-on-startup
+           :--storage-wal-enabled
+           :--replication-restore-state-on-startup
+           "--log-level=TRACE"
+           (str "--storage-snapshot-interval-sec=" (get-rnd-snapshot-interval-sec))
+           (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
+           (str "--storage-wal-file-flush-every-n-tx=" @sync-after-n-txn)
+           "--telemetry-enabled=false"
+           "--metrics-format=OpenMetrics"
+           :--storage-properties-on-edges]
+          (tls-flags))))
 
 (defn start-coordinator-node!
   [test node node-config]
-  (cu/start-daemon!
-   {:logfile mglog
-    :pidfile mgpid
-    :chdir   mgdir}
-   (:local-binary test)
-   :--also-log-to-stderr
-   :--data-recovery-on-startup
-   :--storage-wal-enabled
-   :--replication-restore-state-on-startup
-   :--storage-properties-on-edges
-   "--storage-snapshot-interval-sec=300"
-   "--telemetry-enabled=false"
-   "--log-level=TRACE"
-   (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
-   :--coordinator-id (get node-config :coordinator-id)
-   :--coordinator-port (get node-config :coordinator-port)
-   :--coordinator-hostname node
-   :--management-port (get node-config :management-port)))
+  (apply cu/start-daemon!
+         {:logfile mglog
+          :pidfile mgpid
+          :chdir   mgdir}
+         (:local-binary test)
+         (concat
+          [:--also-log-to-stderr
+           :--data-recovery-on-startup
+           :--storage-wal-enabled
+           :--replication-restore-state-on-startup
+           :--storage-properties-on-edges
+           "--storage-snapshot-interval-sec=300"
+           "--telemetry-enabled=false"
+           "--metrics-format=OpenMetrics"
+           "--log-level=TRACE"
+           (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
+           :--coordinator-id (get node-config :coordinator-id)
+           :--coordinator-port (get node-config :coordinator-port)
+           :--coordinator-hostname node
+           :--management-port (get node-config :management-port)]
+          (tls-flags))))
 
 (defn start-data-node!
   [test node-config]
-  (cu/start-daemon!
-   {:logfile mglog
-    :pidfile mgpid
-    :chdir   mgdir}
-   (:local-binary test)
-   :--also-log-to-stderr
-   :--storage-wal-enabled
-   "--storage-snapshot-interval-sec=300"
-   "--log-level=TRACE"
-   (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
-   "--telemetry-enabled=false"
-   :--replication-restore-state-on-startup
-   :--data-recovery-on-startup
-   :--storage-properties-on-edges
-   :--management-port (get node-config :management-port)))
+  (apply cu/start-daemon!
+         {:logfile mglog
+          :pidfile mgpid
+          :chdir   mgdir}
+         (:local-binary test)
+         (concat
+          [:--also-log-to-stderr
+           :--storage-wal-enabled
+           "--storage-snapshot-interval-sec=300"
+           "--log-level=TRACE"
+           (str "--storage-backup-dir-enabled=" @storage-backup-dir-enabled)
+           "--telemetry-enabled=false"
+           "--metrics-format=OpenMetrics"
+           :--replication-restore-state-on-startup
+           :--data-recovery-on-startup
+           :--storage-properties-on-edges
+           :--management-port (get node-config :management-port)]
+          (tls-flags))))
 
 (defn start-memgraph-node!
   "Start Memgraph node. Can start HA and normal node."
@@ -103,10 +122,12 @@
             nodes-config (:nodes-config opts)
             flush-after-n-txn (:sync-after-n-txn opts)
             storage-backup-dir-enabled-arg (:storage-backup-dir-enabled opts)
-            shutdown-signal-arg (:shutdown-signal opts)]
+            shutdown-signal-arg (:shutdown-signal opts)
+            intra-cluster-tls-arg (:intra-cluster-tls opts)]
         (reset! sync-after-n-txn flush-after-n-txn)
         (reset! storage-backup-dir-enabled storage-backup-dir-enabled-arg)
         (reset! shutdown-signal shutdown-signal-arg)
+        (reset! intra-cluster-tls intra-cluster-tls-arg)
         (c/su
          (c/exec :apt-get :update)
          (debian/install ['python3 'python3-dev]))

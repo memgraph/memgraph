@@ -30,11 +30,27 @@ namespace memgraph {
 
 namespace coordination {
 
+void PromoteToMainReqV1::Save(const PromoteToMainReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void PromoteToMainReqV1::Load(PromoteToMainReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 void PromoteToMainReq::Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
 
 void PromoteToMainReq::Load(PromoteToMainReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void PromoteToMainResV1::Save(const PromoteToMainResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void PromoteToMainResV1::Load(PromoteToMainResV1 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
@@ -206,11 +222,53 @@ void RegisterReplicaOnMainRes::Save(const RegisterReplicaOnMainRes &self, memgra
   memgraph::slk::Save(self, builder);
 }
 
+// UpdateDataInstanceConfigRpc
+
+void UpdateDataInstanceConfigReqV1::Save(const UpdateDataInstanceConfigReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void UpdateDataInstanceConfigReqV1::Load(UpdateDataInstanceConfigReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void UpdateDataInstanceConfigReq::Save(const UpdateDataInstanceConfigReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void UpdateDataInstanceConfigReq::Load(UpdateDataInstanceConfigReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void UpdateDataInstanceConfigResV1::Save(const UpdateDataInstanceConfigResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void UpdateDataInstanceConfigResV1::Load(UpdateDataInstanceConfigResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void UpdateDataInstanceConfigRes::Save(const UpdateDataInstanceConfigRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void UpdateDataInstanceConfigRes::Load(UpdateDataInstanceConfigRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 }  // namespace coordination
 
 namespace slk {
 
 // PromoteToMainRpc
+
+void Save(const memgraph::coordination::PromoteToMainResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.arg_, builder);
+}
+
+void Load(memgraph::coordination::PromoteToMainResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->arg_, reader);
+}
 
 void Save(const memgraph::coordination::PromoteToMainRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.arg_, builder);
@@ -220,14 +278,26 @@ void Load(memgraph::coordination::PromoteToMainRes *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->arg_, reader);
 }
 
+void Save(const memgraph::coordination::PromoteToMainReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.replication_clients_info, builder);
+}
+
+void Load(memgraph::coordination::PromoteToMainReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->replication_clients_info, reader);
+}
+
 void Save(const memgraph::coordination::PromoteToMainReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.replication_clients_info, builder);
+  memgraph::slk::Save(self.writing_enabled, builder);
 }
 
 void Load(memgraph::coordination::PromoteToMainReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->replication_clients_info, reader);
+  memgraph::slk::Load(&self->writing_enabled, reader);
 }
 
 // DemoteMainToReplicaRpc
@@ -311,6 +381,41 @@ void Load(memgraph::coordination::RegisterReplicaOnMainReq *self, memgraph::slk:
   memgraph::slk::Load(&self->replication_client_info, reader);
 }
 
+// UpdateDataInstanceConfigRpc
+void Save(const memgraph::coordination::UpdateDataInstanceConfigReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.deltas_batch_progress_size, builder);
+}
+
+void Load(memgraph::coordination::UpdateDataInstanceConfigReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->deltas_batch_progress_size, reader);
+}
+
+void Save(const memgraph::coordination::UpdateDataInstanceConfigReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.deltas_batch_progress_size, builder);
+  memgraph::slk::Save(self.disable_writing, builder);
+}
+
+void Load(memgraph::coordination::UpdateDataInstanceConfigReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->deltas_batch_progress_size, reader);
+  memgraph::slk::Load(&self->disable_writing, reader);
+}
+
+void Save(const memgraph::coordination::UpdateDataInstanceConfigResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.arg_, builder);
+}
+
+void Load(memgraph::coordination::UpdateDataInstanceConfigResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->arg_, reader);
+}
+
+void Save(const memgraph::coordination::UpdateDataInstanceConfigRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.arg_, builder);
+}
+
+void Load(memgraph::coordination::UpdateDataInstanceConfigRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->arg_, reader);
+}
+
 // ShowInstancesRpc
 void Save(const memgraph::coordination::ShowInstancesReq &self, memgraph::slk::Builder *builder) { /*empty*/ }
 
@@ -384,8 +489,6 @@ SLK_SINGLE_ARG_MSG(coordination::UpdateConfigReq)
 SLK_SINGLE_ARG_MSG(coordination::UpdateConfigRes)
 SLK_EMPTY_MSG(coordination::CoordReplicationLagReq)
 SLK_SINGLE_ARG_MSG(coordination::CoordReplicationLagRes)
-SLK_SINGLE_ARG_MSG(coordination::UpdateDataInstanceConfigReq)
-SLK_SINGLE_ARG_MSG(coordination::UpdateDataInstanceConfigRes)
 SLK_EMPTY_MSG(coordination::StateCheckReqV1)
 SLK_EMPTY_MSG(coordination::StateCheckReqV2)
 SLK_EMPTY_MSG(coordination::StateCheckReq)

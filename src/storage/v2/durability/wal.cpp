@@ -14,6 +14,7 @@
 #include <range/v3/all.hpp>
 #include <type_traits>
 #include <unordered_map>
+#include <vector>
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -32,12 +33,14 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/crc_accumulator.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 #include "utils/tag.hpp"
@@ -47,7 +50,7 @@ namespace r = ranges;
 namespace rv = r::views;
 
 static constexpr std::string_view kInvalidWalErrorMessage =
-    "Invalid WAL data! Your durability WAL files somehow got corrupted. Please contact the Memgraph team for support.";
+    "Invalid WAL data! Your durability WAL files got corrupted. Please contact the Memgraph team for support.";
 
 namespace memgraph::storage::durability {
 
@@ -286,6 +289,16 @@ auto Decode(utils::tag_type<bool> /*unused*/, BaseDecoder *decoder, const uint64
   if (!flag) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
     return *flag;
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<uint32_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, uint32_t, void> {
+  const auto val = decoder->ReadUint();
+  if (!val) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    return *val;
   }
 }
 
@@ -908,7 +921,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
   Decoder wal;
   auto version = wal.Initialize(path, kWalMagic);
   if (!version) throw RecoveryFailure("Couldn't read WAL magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid WAL version!");
+  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid WAL version {}!", *version);
 
   // Prepare return value.
   WalInfo info;
@@ -925,7 +938,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
       auto maybe_offset = wal.ReadUint();
       if (!maybe_offset) throw RecoveryFailure("Invalid WAL format!");
       auto offset = *maybe_offset;
-      if (offset > *wal_size) throw RecoveryFailure("Invalid WAL format!");
+      if (offset > wal_size) throw RecoveryFailure("Invalid WAL format!");
       return offset;
     };
 
@@ -935,8 +948,6 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
 
   // Read metadata.
   {
-    wal.SetPosition(info.offset_metadata);
-
     auto marker = wal.ReadMarker();
     if (!marker || *marker != Marker::SECTION_METADATA) throw RecoveryFailure(kInvalidWalErrorMessage);
 
@@ -953,12 +964,27 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     info.seq_num = *maybe_seq_num;
   }
 
+  if (version >= kCrcProtection) {
+    wal.ReadUint();
+    if (!utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+      throw RecoveryFailure("Durability mismatch in WAL header");
+    }
+  }
+
   // Read deltas.
   info.num_deltas = 0;
   auto validate_delta = [&wal, version = *version]() -> std::optional<std::pair<uint64_t, bool>> {
     try {
       auto timestamp = ReadWalDeltaHeader(&wal);
       auto is_transaction_end = SkipWalDeltaData(&wal, version);
+      if (is_transaction_end) {
+        if (version >= kCrcProtection && !utils::CrcAccumulator::Verify(wal.CrcAccValue())) {
+          spdlog::error("Durability CRC mismatch");
+          return std::nullopt;
+        }
+        wal.ResetCrcAcc();
+      }
+
       return {{timestamp, is_transaction_end}};
     } catch (const RecoveryFailure &e) {
       spdlog::error("Error occurred while reading WAL info: {}", e.what());
@@ -966,9 +992,15 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     }
   };
   auto size = wal.GetSize();
+  // CRC verification mirrors LoadWal. Parsing the magic, version, offsets and metadata sections above folded those
+  // bytes into the decoder's CRC accumulator; the position is now at the first delta, so reset the accumulator here.
+  // Each transaction's CRC is then computed over exactly its own byte range (txn start + deltas + transaction-end frame
+  // + CRC trailer), matching EncodeTransactionStart on the write side, and the accumulator is reset again after every
+  // verified transaction end below.
+  wal.ResetCrcAcc();
   std::optional<uint64_t> current_timestamp;
   uint64_t num_deltas_in_txn = 0;
-  while (wal.GetPosition() != size) {
+  while (wal.GetPosition() < size) {
     auto ret = validate_delta();
     if (!ret) break;
     auto [timestamp, is_end_of_transaction] = *ret;
@@ -1205,32 +1237,28 @@ auto convert_to_transaction_access_type(StorageAccessType access_type) -> Transa
 }
 }  // namespace
 
-uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t const timestamp, bool const commit,
+uint64_t EncodeTransactionStart(BaseEncoder *encoder, uint64_t const timestamp, bool const commit,
                                 StorageAccessType access_type) {
+  encoder->ResetCrcAcc();
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
-  auto const flag_pos = encoder->GetPosition();
+  auto const commit_flag_wal_position = encoder->GetPosition();
   encoder->WriteBool(commit);
   encoder->WriteUint(static_cast<uint8_t>(convert_to_transaction_access_type(access_type)));
-  return flag_pos;
+  return commit_flag_wal_position;
 }
 
-void EncodeTransactionStart(BaseEncoder *encoder, uint64_t const timestamp, bool const commit,
-                            StorageAccessType access_type) {
-  encoder->WriteMarker(Marker::SECTION_DELTA);
-  encoder->WriteUint(timestamp);
-  encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
-  encoder->WriteBool(commit);
-  encoder->WriteUint(static_cast<uint8_t>(convert_to_transaction_access_type(access_type)));
-}
-
-void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
+WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_END);
+  auto const crc_wal_pos = encoder->GetPosition();  // position where the CRC value is stored
+  auto const txn_crc = encoder->WriteCrc();
+  return {.crc_wal_pos_ = crc_wal_pos, .stored_crc_ = txn_crc};
 }
 
+// CRC verification is done in ReadWalInfo and is not needed later on
 std::optional<RecoveryInfo> LoadWal(
     const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
     const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipListDb<Vertex> *vertices,
@@ -1263,6 +1291,9 @@ std::optional<RecoveryInfo> LoadWal(
   auto edge_acc = edges->access();
   auto vertex_acc = vertices->access();
   spdlog::info("WAL file contains {} deltas.", info.num_deltas);
+  spdlog::info("WAL recovery: properties_on_edges={}, storage_light_edge={}",
+               items.properties_on_edges,
+               items.storage_light_edge);
 
   // In 2PC, we can have deltas stored on disk which shouldn't be applied when recovering
   bool should_commit{true};
@@ -1352,6 +1383,13 @@ std::optional<RecoveryInfo> LoadWal(
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
+            if (items.storage_light_edge) {
+              auto *edge_ptr = InMemoryStorage::LightEdgePool::Create(data.gid, nullptr);
+              if (!edge_ptr)
+                throw RecoveryFailure("Failed to allocate a light edge! Current ldt is: {}",
+                                      ret->last_durable_timestamp);
+              return EdgeRef{edge_ptr};
+            }
             auto [edge, inserted] = edge_acc.insert(Edge{(data.gid), nullptr});
             if (!inserted)
               throw RecoveryFailure("The edge must be inserted here! Current ldt is: {}", ret->last_durable_timestamp);
@@ -1360,9 +1398,14 @@ std::optional<RecoveryInfo> LoadWal(
           return EdgeRef{data.gid};
         });
         auto out_link = std::tuple{edge_type_id, &*to_vertex, edge_ref};
-        if (r::contains(from_vertex->out_edges, out_link))
+        if (r::contains(from_vertex->out_edges, out_link)) {
+          // The light edge is not yet wired into any vertex adjacency, so the constructor's
+          // ClearLightEdges() catch-net (which walks out_edges/graveyard/deleted_edges_) cannot
+          // reach it — free it here to avoid leaking the pool Edge* on this corrupt-WAL path.
+          if (items.storage_light_edge) InMemoryStorage::LightEdgePool::Destroy(edge_ref.ptr);
           throw RecoveryFailure("The from vertex already has this edge! Current ldt is: {}",
                                 ret->last_durable_timestamp);
+        }
         from_vertex->out_edges.push_back(out_link);
         auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
         if (r::contains(to_vertex->in_edges, in_link))
@@ -1374,13 +1417,15 @@ std::optional<RecoveryInfo> LoadWal(
         // Increment edge count.
         edge_count->fetch_add(1, std::memory_order_acq_rel);
 
+        // Always populate the cache regardless of schema_info: prevents O(V) fallback
+        // per subsequent SetProperty delta on the same edge (correctness-neutral, perf-critical).
+        edge_recovery_cache.insert_or_assign(data.gid,
+                                             EdgeRecoveryCacheEntry{.edge_ref = edge_ref,
+                                                                    .edge_type = edge_type_id,
+                                                                    .from_vertex = &*from_vertex,
+                                                                    .to_vertex = &*to_vertex});
         if (schema_info) {
           schema_info->CreateEdge(&*from_vertex, &*to_vertex, edge_type_id);
-          edge_recovery_cache.insert_or_assign(data.gid,
-                                               EdgeRecoveryCacheEntry{.edge_ref = edge_ref,
-                                                                      .edge_type = edge_type_id,
-                                                                      .from_vertex = &*from_vertex,
-                                                                      .to_vertex = &*to_vertex});
         }
       },
       [&](WalEdgeDelete const &data) {
@@ -1392,6 +1437,49 @@ std::optional<RecoveryInfo> LoadWal(
           throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
 
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
+
+        // Light-edge path: locate the out_edge entry once and reuse the iterator for both
+        // the EdgeRef extraction and the swap-and-pop removal (avoids a second O(degree) scan).
+        if (items.properties_on_edges && items.storage_light_edge) {
+          auto it = r::find_if(from_vertex->out_edges,
+                               [&data](const auto &e) { return std::get<2>(e).ptr->gid == data.gid; });
+          if (it == from_vertex->out_edges.end())
+            throw RecoveryFailure("The edge doesn't exist in out_edges! Current ldt is: {}",
+                                  ret->last_durable_timestamp);
+          auto edge_ref = std::get<2>(*it);
+
+          // Locate the in_edges entry BEFORE unlinking anything from either vector: if this
+          // lookup fails and throws, edge_ref must still be reachable from from_vertex->out_edges
+          // so that ClearLightEdges() (the recovery-failure cleanup path, which reclaims pool
+          // edges by walking adjacency) can still free the pool Edge*. Unlinking first would
+          // orphan it from all adjacency, leaking the pool slot on this corrupt-WAL path.
+          auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
+          auto in_it = r::find(to_vertex->in_edges, in_link);
+          if (in_it == to_vertex->in_edges.end())
+            throw RecoveryFailure("The to vertex doesn't have this edge! Current ldt is: {}",
+                                  ret->last_durable_timestamp);
+
+          // Both iterators are now known-valid; unlink from both independent vectors. Popping
+          // one does not invalidate the other's iterator, but neither `it` nor `in_it` may be
+          // used after its own vector's pop_back.
+          std::swap(*it, from_vertex->out_edges.back());
+          from_vertex->out_edges.pop_back();
+          std::swap(*in_it, to_vertex->in_edges.back());
+          to_vertex->in_edges.pop_back();
+          // Update schema info before edge deallocation (it reads edge properties).
+          if (schema_info) {
+            schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
+          }
+          // Erase from the recovery cache UNCONDITIONALLY (the cache is populated
+          // unconditionally at create time): the Edge* is about to be freed, so a
+          // stale cache entry would dangle and a later SET_PROPERTY for a reused
+          // gid would read freed memory (UAF). Must not be gated on schema_info.
+          edge_recovery_cache.erase(data.gid);
+          InMemoryStorage::LightEdgePool::Destroy(edge_ref.ptr);
+          edge_count->fetch_sub(1, std::memory_order_acq_rel);
+          return;
+        }
+
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
             auto edge = edge_acc.find(data.gid);
@@ -1420,18 +1508,21 @@ std::optional<RecoveryInfo> LoadWal(
           std::swap(*it, to_vertex->in_edges.back());
           to_vertex->in_edges.pop_back();
         }
+        // Update schema info before any edge deallocation (it reads edge properties).
+        if (schema_info) {
+          schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
+        }
+        // Erase from the recovery cache unconditionally (populated unconditionally at
+        // create time): the edge is about to be removed/freed, so a stale entry would
+        // dangle. Must not be gated on schema_info.
+        edge_recovery_cache.erase(data.gid);
+        // Light-edge path returns early above; here items.storage_light_edge is always false.
         if (items.properties_on_edges) {
           if (!edge_acc.remove(data.gid))
             throw RecoveryFailure("The edge must be removed here! Current ldt is: {}", ret->last_durable_timestamp);
         }
-
         // Decrement edge count.
         edge_count->fetch_add(-1, std::memory_order_acq_rel);
-
-        if (schema_info) {
-          schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
-          edge_recovery_cache.erase(data.gid);
-        }
       },
       [&](WalEdgeSetProperty const &data) {
         if (!items.properties_on_edges)
@@ -1439,6 +1530,69 @@ std::optional<RecoveryInfo> LoadWal(
               "The WAL has properties on edges, but the storage is "
               "configured without properties on edges! Current ldt is: {}",
               ret->last_durable_timestamp);
+
+        if (items.storage_light_edge) {
+          const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+          const auto property_value = ToPropertyValue(data.value, name_id_mapper);
+
+          // Light edges are not in edge_acc; resolve via cache (O(1)), then out_edges scan, then find_edge.
+          EdgeRef edge_ref{data.gid};
+          EdgeTypeId edge_type_id{};
+          Vertex *from_v = nullptr;
+          Vertex *to_v = nullptr;
+
+          if (auto cit = edge_recovery_cache.find(data.gid); cit != edge_recovery_cache.end()) {
+            const auto &[cached_ref, cached_type, cached_from, cached_to] = cit->second;
+            edge_ref = cached_ref;
+            edge_type_id = cached_type;
+            from_v = cached_from;
+            to_v = cached_to;
+          } else if (data.from_gid.has_value()) {
+            const auto from_vertex = vertex_acc.find(*data.from_gid);
+            if (from_vertex == vertex_acc.end())
+              throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
+            const auto found = r::find_if(from_vertex->out_edges,
+                                          [&data](const auto &e) { return std::get<2>(e).ptr->gid == data.gid; });
+            if (found == from_vertex->out_edges.end())
+              throw RecoveryFailure("Edge not found in out_edges! Current ldt is: {}", ret->last_durable_timestamp);
+            const auto &[found_type, found_to, found_ref] = *found;
+            edge_ref = found_ref;
+            edge_type_id = found_type;
+            from_v = &*from_vertex;
+            to_v = found_to;
+          } else {
+            const auto maybe_edge = find_edge(data.gid);
+            if (!maybe_edge)
+              throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}", ret->last_durable_timestamp);
+            const auto &[e_ref, e_type, e_from, e_to] = *maybe_edge;
+            edge_ref = e_ref;
+            edge_type_id = e_type;
+            from_v = e_from;
+            to_v = e_to;
+          }
+
+          Edge *edge_raw = edge_ref.ptr;
+          // Always populate the cache: prevents O(degree)/O(V) fallback per subsequent
+          // SetProperty delta on the same edge (correctness-neutral, perf-critical).
+          edge_recovery_cache.insert_or_assign(
+              data.gid,
+              EdgeRecoveryCacheEntry{
+                  .edge_ref = edge_ref, .edge_type = edge_type_id, .from_vertex = from_v, .to_vertex = to_v});
+          if (schema_info) {
+            const auto old_type = edge_raw->properties.GetExtendedPropertyType(property_id);
+            schema_info->SetProperty(edge_type_id,
+                                     from_v,
+                                     to_v,
+                                     property_id,
+                                     ExtendedPropertyType{property_value},
+                                     old_type,
+                                     items.properties_on_edges);
+          }
+          edge_raw->properties.SetProperty(property_id, property_value);
+          VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(
+              property_id, property_value, edge_raw, indices_constraints->indices.vector_edge_indices);
+          return;
+        }
 
         auto edge = edge_acc.find(data.gid);
         if (edge == edge_acc.end())
@@ -1750,37 +1904,49 @@ std::optional<RecoveryInfo> LoadWal(
         }
       },
       [&](WalVectorIndexCreate const &data) {
-        const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                                   : unum::usearch::scalar_kind_t::f32_k;
-        auto spec = VectorIndexSpec{.index_name = data.index_name,
-                                    .label_id = label_id,
-                                    .property = property_id,
-                                    .metric_kind = unum_metric_kind,
-                                    .dimension = data.dimension,
-                                    .resize_coefficient = data.resize_coefficient,
-                                    .capacity = data.capacity,
-                                    .scalar_kind = scalar_kind};
+        std::vector<LabelId> labels;
+        labels.reserve(data.label_filter.ids.size());
+        for (const auto &name : data.label_filter.ids) {
+          labels.push_back(LabelId::FromUint(name_id_mapper->NameToId(name)));
+        }
+        auto spec = VectorIndexSpec{
+            .index_name = data.index_name,
+            .label_filter = VectorLabelFilter{.mode = static_cast<VectorMatchMode>(data.label_filter.mode),
+                                              .ids = std::move(labels)},
+            .property = property_id,
+            .metric_kind = unum_metric_kind,
+            .dimension = data.dimension,
+            .resize_coefficient = data.resize_coefficient,
+            .capacity = data.capacity,
+            .scalar_kind = scalar_kind};
         indices_constraints->indices.vector_indices.emplace_back(VectorIndexRecoveryInfo{
             .spec = spec, .index_entries = absl::flat_hash_map<Gid, utils::small_vector<float>>{}});
       },
       [&](WalVectorEdgeIndexCreate const &data) {
-        const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind);
-        indices_constraints->indices.vector_edge_indices.emplace_back(
-            VectorEdgeIndexRecoveryInfo{.spec = VectorEdgeIndexSpec{.index_name = data.index_name,
-                                                                    .edge_type_id = edge_type_id,
-                                                                    .property = property_id,
-                                                                    .metric_kind = unum_metric_kind,
-                                                                    .dimension = data.dimension,
-                                                                    .resize_coefficient = data.resize_coefficient,
-                                                                    .capacity = data.capacity,
-                                                                    .scalar_kind = scalar_kind},
-                                        .index_entries = {}});
+        std::vector<EdgeTypeId> edge_types;
+        edge_types.reserve(data.edge_type_filter.ids.size());
+        for (const auto &name : data.edge_type_filter.ids) {
+          edge_types.push_back(EdgeTypeId::FromUint(name_id_mapper->NameToId(name)));
+        }
+        indices_constraints->indices.vector_edge_indices.emplace_back(VectorEdgeIndexRecoveryInfo{
+            .spec = VectorEdgeIndexSpec{.index_name = data.index_name,
+                                        .edge_type_filter = VectorEdgeTypeFilter{.mode = static_cast<VectorMatchMode>(
+                                                                                     data.edge_type_filter.mode),
+                                                                                 .ids = std::move(edge_types)},
+                                        .property = property_id,
+                                        .metric_kind = unum_metric_kind,
+                                        .dimension = data.dimension,
+                                        .resize_coefficient = data.resize_coefficient,
+                                        .capacity = data.capacity,
+                                        .scalar_kind = scalar_kind},
+            .index_entries = {}});
       },
       [&](WalVectorIndexDrop const &data) {
         VectorIndexRecovery::UpdateOnIndexDrop(
@@ -1910,7 +2076,6 @@ std::optional<RecoveryInfo> LoadWal(
         (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, *version);
-
       // We should always check if the delta is WalTransactionStart to update should_commit
       if (auto *txn_start = std::get_if<WalTransactionStart>(&delta.data_)) {
         should_commit = txn_start->commit.value_or(true);
@@ -1932,7 +2097,6 @@ std::optional<RecoveryInfo> LoadWal(
       }
 
     } else {
-      // This delta should be skipped.
       SkipWalDeltaData(&wal, *version);
     }
   }
@@ -1963,27 +2127,45 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   // Initialize the WAL file.
   MG_ASSERT(wal_.Initialize(path_, kWalMagic, kVersion), "Failed to open WAL file {}", path_);
 
-  // Write placeholder offsets.
   wal_.WriteMarker(Marker::SECTION_OFFSETS);
+  auto const crc_header_prefix = wal_.CrcAccValue();
   uint64_t const offset_offsets = wal_.GetPosition();
   uint64_t offset_metadata{0};
   wal_.WriteUint(offset_metadata);
   uint64_t offset_deltas{0};
   wal_.WriteUint(offset_deltas);
 
-  // Write metadata.
+  // Write metadata with a clean accumulator so it captures exactly the metadata bytes.
   offset_metadata = wal_.GetPosition();
+  wal_.ResetCrcAcc();
   wal_.WriteMarker(Marker::SECTION_METADATA);
   wal_.WriteString(std::string{uuid});
   wal_.WriteString(epoch_id);
   wal_.WriteUint(seq_num);
 
-  // Write final offsets.
-  offset_deltas = wal_.GetPosition();
+  uint64_t const offset_header_crc = wal_.GetPosition();
+  wal_.WriteMarker(Marker::TYPE_INT);
+  auto const crc_metadata = wal_.CrcAccValue();  // crc(metadata + trailer TYPE_INT marker)
+  uint64_t const crc_metadata_len = wal_.GetPosition() - offset_metadata;
+  offset_deltas = offset_header_crc + sizeof(Marker) + sizeof(uint64_t);
+
+  // Back-patch the offsets with their final values, capturing crc(offsets) from a clean accumulator.
   wal_.SetPosition(offset_offsets);
+  wal_.ResetCrcAcc();
   wal_.WriteUint(offset_metadata);
   wal_.WriteUint(offset_deltas);
+  static constexpr uint64_t kOffsetsBytes = 2 * (sizeof(Marker) + sizeof(uint64_t));
+  auto const crc_offsets = wal_.CrcAccValue();
+
+  // Stitch the pieces in file order: prefix ++ offsets ++ (metadata ++ trailer marker).
+  auto const crc_prefix_offsets = utils::CrcAccumulator::Combine(crc_header_prefix, crc_offsets, kOffsetsBytes);
+  auto const header_crc = utils::CrcAccumulator::Combine(crc_prefix_offsets, crc_metadata, crc_metadata_len);
+
+  // Patch the reserved trailer with the final header CRC.
+  wal_.WriteCrcAt(offset_header_crc, header_crc);
+
   wal_.SetPosition(offset_deltas);
+  wal_.ResetCrcAcc();
 
   // Sync the initial data.
   wal_.Sync();
@@ -2038,21 +2220,43 @@ void WalFile::AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, St
 }
 
 uint64_t WalFile::AppendTransactionStart(uint64_t const timestamp, bool const commit, StorageAccessType access_type) {
-  auto const flag_pos = EncodeTransactionStart(&wal_, timestamp, commit, access_type);
+  auto const commit_txn_wal_pos = EncodeTransactionStart(&wal_, timestamp, commit, access_type);
   UpdateStats(timestamp);
-  return flag_pos;
+  return commit_txn_wal_pos;
 }
 
-void WalFile::UpdateCommitStatus(uint64_t const flag_pos, bool const new_decision) {
-  auto const curr_pos = wal_.GetPosition();
-  wal_.SetPosition(flag_pos);
-  wal_.WriteBool(new_decision);
-  wal_.SetPosition(curr_pos);
+void WalFile::UpdateCommitStatus(WalTxnDataPos const &wal_positions) {
+  // Remember where appending should resume. GetPosition() also flushes the buffer to disk.
+  auto const end_pos = wal_.GetPosition();
+
+  // Flip the commit flag inside the already-written transaction-start frame.
+  wal_.SetPosition(wal_positions.commit_flag_wal_position_);
+  wal_.WriteBool(true);
+
+  constexpr auto old_value_byte = static_cast<uint8_t>(Marker::VALUE_FALSE);
+  constexpr auto new_value_byte = static_cast<uint8_t>(Marker::VALUE_TRUE);
+  constexpr auto delta = static_cast<unsigned char>(old_value_byte ^ new_value_byte);
+  constexpr unsigned char zero = 0;
+  const auto t_delta = static_cast<uint32_t>(crc32(0, &delta, 1) ^ crc32(0, &zero, 1));
+
+  // The TYPE_BOOL marker precedes the actual value byte, which is the only byte that changes.
+  auto const changed_byte_pos = wal_positions.commit_flag_wal_position_ + sizeof(Marker);
+  // The stored CRC covers everything up to and including the TYPE_INT marker that introduces the CRC trailer;
+  // crc_wal_pos_ points at that marker. bytes_after = bytes following the flipped value byte within that region.
+  auto const bytes_after = wal_positions.crc_wal_pos_ - changed_byte_pos;
+  auto const new_crc = utils::CrcAccumulator::PatchByte(wal_positions.stored_crc_, t_delta, bytes_after);
+
+  // Overwrite the stored CRC value in place.
+  wal_.WriteCrcAt(wal_positions.crc_wal_pos_, new_crc);
+
+  // Restore the append position; seeking flushes the rewritten CRC to disk.
+  wal_.SetPosition(end_pos);
 }
 
-void WalFile::AppendTransactionEnd(uint64_t timestamp) {
-  EncodeTransactionEnd(&wal_, timestamp);
+WalTxnEndPos WalFile::AppendTransactionEnd(uint64_t timestamp) {
+  auto const txn_end_pos = EncodeTransactionEnd(&wal_, timestamp);
   UpdateStats(timestamp);
+  return txn_end_pos;
 }
 
 void WalFile::Sync() { wal_.Sync(); }
@@ -2195,9 +2399,20 @@ void EncodeTextEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
   }
 }
 
+namespace {
+template <typename IdT>
+void EncodeVectorFilter(BaseEncoder &encoder, NameIdMapper &name_id_mapper, VectorMembershipFilter<IdT> const &filter) {
+  encoder.WriteUint(static_cast<uint64_t>(filter.mode));
+  encoder.WriteUint(filter.ids.size());
+  for (const auto &id : filter.ids) {
+    encoder.WriteString(name_id_mapper.IdToName(id.AsUint()));
+  }
+}
+}  // namespace
+
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &index_spec) {
   encoder.WriteString(index_spec.index_name);
-  encoder.WriteString(name_id_mapper.IdToName(index_spec.label_id.AsUint()));
+  EncodeVectorFilter(encoder, name_id_mapper, index_spec.label_filter);
   encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
   encoder.WriteString(NameFromMetric(index_spec.metric_kind));
   encoder.WriteUint(index_spec.dimension);
@@ -2209,7 +2424,7 @@ void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, c
 void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
                                const VectorEdgeIndexSpec &index_spec) {
   encoder.WriteString(index_spec.index_name);
-  encoder.WriteString(name_id_mapper.IdToName(index_spec.edge_type_id.AsUint()));
+  EncodeVectorFilter(encoder, name_id_mapper, index_spec.edge_type_filter);
   encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
   encoder.WriteString(NameFromMetric(index_spec.metric_kind));
   encoder.WriteUint(index_spec.dimension);

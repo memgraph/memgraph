@@ -461,6 +461,9 @@ constexpr utils::TypeInfo query::TtlQuery::kType{
 constexpr utils::TypeInfo query::SessionTraceQuery::kType{
     .id = utils::TypeId::AST_SESSION_TRACE_QUERY, .name = "SessionTraceQuery", .superclass = &query::Query::kType};
 
+constexpr utils::TypeInfo query::SessionSettingQuery::kType{
+    .id = utils::TypeId::AST_SESSION_SETTING_QUERY, .name = "SessionSettingQuery", .superclass = &query::Query::kType};
+
 constexpr utils::TypeInfo query::UserProfileQuery::kType{
     .id = utils::TypeId::AST_USER_PROFILE_QUERY, .name = "UserProfileQuery", .superclass = &query::Query::kType};
 
@@ -538,8 +541,9 @@ Aggregation::Aggregation(Expression *expression1, Expression *expression2, Aggre
     : BinaryOperator(expression1, expression2), op_(op), distinct_(distinct) {
   // COUNT without expression denotes COUNT(*) in cypher.
   DMG_ASSERT(expression1 || op == Aggregation::Op::COUNT, "All aggregations, except COUNT require expression1");
-  DMG_ASSERT((expression2 == nullptr) ^ (op == Aggregation::Op::PROJECT_LISTS || op == Aggregation::Op::COLLECT_MAP),
-             "expression2 is obligatory in COLLECT_MAP and PROJECT_LISTS, and invalid otherwise");
+  DMG_ASSERT((expression2 == nullptr) ^ (op == Aggregation::Op::PROJECT_LISTS || op == Aggregation::Op::COLLECT_MAP ||
+                                         op == Aggregation::Op::DERIVE),
+             "expression2 is obligatory in COLLECT_MAP, PROJECT_LISTS and DERIVE, and invalid otherwise");
 }
 
 auto PropertyIxPath::Clone(AstStorage *storage) const -> PropertyIxPath {

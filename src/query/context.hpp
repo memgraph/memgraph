@@ -31,6 +31,10 @@ namespace memgraph::memory {
 class ArenaPool;
 }  // namespace memgraph::memory
 
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
+
 namespace memgraph::query {
 
 class FineGrainedAuthChecker;
@@ -125,9 +129,7 @@ struct ExecutionContext {
   int64_t number_of_hops{0};
   HopsLimit hops_limit;
   std::optional<uint64_t> periodic_commit_frequency;
-#ifdef MG_ENTERPRISE
-  std::shared_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
-#endif
+  FineGrainedAuthChecker const *auth_checker{nullptr};
   std::shared_ptr<storage::DatabaseProtector> protector;
   bool is_main{true};
   std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution
@@ -136,6 +138,7 @@ struct ExecutionContext {
   // acquire from it when work leaves the main query thread, so TLS-scoped
   // allocations still attribute to the parent DB.
   memgraph::memory::ArenaPool *db_arena_pool{nullptr};
+  metrics::DatabaseMetricHandles *metric_handles{nullptr};
 
   auto commit_args() -> storage::CommitArgs;
 };

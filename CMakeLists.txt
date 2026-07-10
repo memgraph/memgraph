@@ -13,6 +13,13 @@ endif()
 # to download dependencies
 project(memgraph LANGUAGES C CXX)
 
+# Default component for any install(...) that doesn't specify COMPONENT.
+# With component-aware CPack (CPACK_DEB_COMPONENT_INSTALL=ON), only files in
+# components listed in CPACK_COMPONENTS_ALL (memgraph, debuginfo) are packaged.
+# An install rule without a COMPONENT would otherwise land in the implicit
+# "Unspecified" bucket and disappear. Subdirectories override this locally.
+set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
+
 # Enable ccache
 find_program(CCACHE_PROGRAM ccache)
 
@@ -242,6 +249,7 @@ find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
 # Now load mgclient which depends on OpenSSL
 find_package(OpenSSL REQUIRED)
 find_package(mgclient REQUIRED)
+find_package(prometheus-cpp REQUIRED)
 
 # -----------------------------------------------------------------------------
 
@@ -288,10 +296,6 @@ add_compile_options(
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
 )
 
-# Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
-    "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
-
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
@@ -312,6 +316,8 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+
+include(SplitDebug)
 
 #debug flags
 set(PREFERRED_DEBUGGER "gdb" CACHE STRING
@@ -404,6 +410,15 @@ if (MG_MEMORY_PROFILE)
     add_compile_definitions(MG_MEMORY_PROFILE)
 endif ()
 
+# Profiling build: keep frame pointers so `perf` can walk the stack without
+# unwind metadata, plus -fno-optimize-sibling-calls so tail calls stay as real
+# frames. Reserving a register costs throughput, so keep OFF for shipped builds.
+option(MG_PROFILE "Retain frame pointers for perf profiling" OFF)
+if (MG_PROFILE)
+    message(STATUS "MG_PROFILE=ON: retaining frame pointers for profiling")
+    add_compile_options(-fno-omit-frame-pointer -fno-optimize-sibling-calls)
+endif ()
+
 if (ASAN)
   message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
   set(ENABLE_JEMALLOC OFF)
@@ -484,7 +499,7 @@ set_property(TARGET pulsar PROPERTY INTERFACE_LINK_LIBRARIES pulsar-client-cpp::
 # targets available during the normal build graph.
 if(NOT DEFINED MGCONSOLE_GIT_TAG)
   # Default used by release/install_mgconsole.cmake.
-  set(MGCONSOLE_GIT_TAG "v1.5.0")
+  set(MGCONSOLE_GIT_TAG "v1.6.0")
 endif()
 add_custom_target(mgconsole-proj)
 add_custom_target(mgconsole)

@@ -11,13 +11,6 @@ on:
         options:
           - "amd"
           - "arm"
-      build_type:
-        type: choice
-        description: "Mage build type"
-        default: 'Release'
-        options:
-          - "Release"
-          - "RelWithDebInfo"
       memgraph_download_link:
         description: "Memgraph package download link. Leave empty to use the official download link."
         default: ""
@@ -50,6 +43,14 @@ on:
         type: boolean
         description: "Run smoke tests on images after building (tests against previous tagged image)"
         default: false
+      run_tests:
+        type: boolean
+        description: "Run MAGE tests (unit/e2e) after building"
+        default: false
+      build_offline_installer:
+        type: boolean
+        description: "Build offline installer (.run) for Ubuntu 24.04"
+        default: false
       generate_sbom:
         type: boolean
         description: "Generate SBOM for the image"
@@ -58,17 +59,23 @@ on:
         type: string
         description: "Branch or tag to build"
         default: ''
+      os:
+        type: choice
+        description: Target OS
+        default: ubuntu-24.04
+        # Only Python-3.12 distros are currently supported (MAGE's deps are
+        # cp312-only); see tools/ci/package_mage_setup.py for the full note.
+        options:
+          - ubuntu-24.04
+          - centos-9
+          - centos-10
 
   workflow_call:
     inputs:
-      arch:
+      build_arch:
         type: string
         description: "Architecture to build the image for"
         required: true
-      build_type:
-        type: string
-        description: "Mage build type"
-        default: 'Release'
       memgraph_download_link:
         description: "Memgraph package download link. Leave empty to use the official download link."
         default: ""
@@ -101,6 +108,14 @@ on:
         type: boolean
         description: "Run smoke tests on images after building (tests against previous tagged image)"
         default: false
+      run_tests:
+        type: boolean
+        description: "Run MAGE tests (unit/e2e) after building"
+        default: false
+      build_offline_installer:
+        type: boolean
+        description: "Build offline installer (.run) for Ubuntu 24.04"
+        default: false
       generate_sbom:
         type: boolean
         description: "Generate SBOM for the image"
@@ -109,6 +124,10 @@ on:
         type: string
         description: "Branch or tag to build"
         default: ''
+      os:
+        type: string
+        description: Target OS
+        default: ubuntu-24.04
 
 
 jobs:
@@ -137,7 +156,7 @@ jobs:
   BuildMage:
     needs: PackageSetup
     if: ${{ needs.PackageSetup.outputs.build_packages == 'true' }}
-    name: Build MAGE for ${{ matrix.arch }} ${{ matrix.build_type }}${{ matrix.cuda == 'true' && ' CUDA' || '' }}${{ matrix.cugraph == 'true' && ' CuGraph' || '' }}${{ matrix.malloc == 'true' && ' Malloc' || '' }}
+    name: Build MAGE for ${{ matrix.arch }}${{ matrix.cuda == 'true' && ' CUDA' || '' }}${{ matrix.cugraph == 'true' && ' CuGraph' || '' }}${{ matrix.malloc == 'true' && ' Malloc' || '' }}
     uses: ./.github/workflows/reusable_package_mage.yaml
     strategy:
       fail-fast: false
@@ -145,16 +164,24 @@ jobs:
         include: ${{ fromJson(needs.PackageSetup.outputs.package_suite) }}
     with:
       arch: ${{ matrix.arch }}
-      build_type: ${{ matrix.build_type }}
+      build_type: RelWithDebInfo
+      # All matrix values come from tools/ci/package_mage_setup.py — the workflow
+      # just passes them through. build_docker_image defaults to 'none' (rpm
+      # distros publish no MAGE image; PR builds set 'debug' for ubuntu there).
+      build_docker_image: ${{ matrix.build_docker_image || 'none' }}
       memgraph_download_link: ${{ matrix.memgraph_download_link }}
       s3_dest_dir: ${{ matrix.s3_dest_dir }}
       cuda: ${{ matrix.cuda == 'true' }}
       cugraph: ${{ matrix.cugraph == 'true' }}
       push_to_s3: ${{ matrix.push_to_s3 == 'true' }}
+      print_output_url: true
+      upload_debug_symbols: ${{ matrix.push_to_s3 == 'true' }}
       malloc: ${{ matrix.malloc == 'true' }}
       run_smoke_tests: ${{ matrix.run_smoke_tests == 'true' }}
       run_tests: ${{ matrix.run_tests == 'true' }}
-      package_deb: ${{ matrix.package_deb }}
+      package_mage: ${{ matrix.package_mage }}
       generate_sbom: ${{ matrix.generate_sbom == 'true' }}
+      build_offline_installer: ${{ inputs.build_offline_installer == true }}
       ref: ${{ matrix.ref }}
+      os: ${{ matrix.os }}
     secrets: inherit

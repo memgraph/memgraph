@@ -50,7 +50,7 @@ using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
 class RaftState {
  public:
-  auto InitRaftServer() -> void;
+  auto InitRaftServer(std::optional<utils::TlsConfig> const &tls_config) -> void;
   explicit RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb,
                      std::optional<CoordinationClusterChangeObserver> observer = std::nullopt);
@@ -104,6 +104,7 @@ class RaftState {
   auto GetDeltasBatchProgressSize() const -> uint64_t;
   auto GetInstanceDownTimeoutSec() const -> uint32_t;
   auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
+  auto GetGlobalReadOnly() const -> bool;
 
  private:
   uint16_t coordinator_port_;

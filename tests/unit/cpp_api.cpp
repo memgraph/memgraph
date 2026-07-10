@@ -1335,7 +1335,14 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
     auto label = db_acc->NameToLabel(label_name);
     auto property = db_acc->NameToProperty(property_name);
     auto spec = memgraph::storage::VectorIndexSpec{
-        index_name, label, property, metric, dimension, resize_coefficient, max_elements, scalar_kind};
+        .index_name = index_name,
+        .label_filter = memgraph::storage::VectorLabelFilter{memgraph::storage::VectorMatchMode::SINGLE, {label}},
+        .property = property,
+        .metric_kind = metric,
+        .dimension = dimension,
+        .resize_coefficient = resize_coefficient,
+        .capacity = static_cast<std::size_t>(max_elements),
+        .scalar_kind = scalar_kind};
     ASSERT_TRUE(db_acc->CreateVectorIndex(spec).has_value());
     ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -1353,7 +1360,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
   auto vector_index_info_list = vector_index_info[0].ValueList();
   ASSERT_EQ(vector_index_info_list.Size(), 9);
   ASSERT_EQ(vector_index_info_list[0].ValueString(), index_name);
-  ASSERT_EQ(vector_index_info_list[1].ValueString(), label_name);
+  ASSERT_EQ(vector_index_info_list[1].ValueString(), std::string(":") + label_name);
   ASSERT_EQ(vector_index_info_list[2].ValueString(), property_name);
   ASSERT_EQ(vector_index_info_list[3].ValueString(), metric_as_str);
   ASSERT_EQ(vector_index_info_list[4].ValueInt(), dimension);
@@ -1386,7 +1393,14 @@ TYPED_TEST(CppApiTestFixture, TestVectorIndexPropertyFetchedAsList) {
     auto label = db_acc->NameToLabel(label_name);
     auto property = db_acc->NameToProperty(property_name);
     auto spec = memgraph::storage::VectorIndexSpec{
-        index_name, label, property, metric, dimension, resize_coefficient, max_elements, scalar_kind};
+        .index_name = index_name,
+        .label_filter = memgraph::storage::VectorLabelFilter{memgraph::storage::VectorMatchMode::SINGLE, {label}},
+        .property = property,
+        .metric_kind = metric,
+        .dimension = dimension,
+        .resize_coefficient = resize_coefficient,
+        .capacity = static_cast<std::size_t>(max_elements),
+        .scalar_kind = scalar_kind};
     ASSERT_TRUE(db_acc->CreateVectorIndex(spec).has_value());
     ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -1434,7 +1448,14 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearchOnEdges) {
     auto edge = db_acc->NameToEdgeType(edge_type);
     auto property = db_acc->NameToProperty(property_name);
     auto spec = memgraph::storage::VectorEdgeIndexSpec{
-        index_name, edge, property, metric, dimension, resize_coefficient, max_elements, scalar_kind};
+        .index_name = index_name,
+        .edge_type_filter = memgraph::storage::VectorEdgeTypeFilter{memgraph::storage::VectorMatchMode::SINGLE, {edge}},
+        .property = property,
+        .metric_kind = metric,
+        .dimension = dimension,
+        .resize_coefficient = resize_coefficient,
+        .capacity = static_cast<std::size_t>(max_elements),
+        .scalar_kind = scalar_kind};
     ASSERT_TRUE(db_acc->CreateVectorEdgeIndex(spec).has_value());
     ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -1453,7 +1474,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearchOnEdges) {
   auto vector_index_info_list = vector_index_info[0].ValueList();
   ASSERT_EQ(vector_index_info_list.Size(), 9);
   ASSERT_EQ(vector_index_info_list[0].ValueString(), index_name);
-  ASSERT_EQ(vector_index_info_list[1].ValueString(), edge_type);
+  ASSERT_EQ(vector_index_info_list[1].ValueString(), std::string(":") + edge_type);
   ASSERT_EQ(vector_index_info_list[2].ValueString(), property_name);
   ASSERT_EQ(vector_index_info_list[3].ValueString(), metric_as_str);
   ASSERT_EQ(vector_index_info_list[4].ValueInt(), dimension);
@@ -1471,7 +1492,7 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnNodes) {
   constexpr auto index_name = "node_text_index";
   constexpr auto label_name = "Document";
   constexpr auto property_name = "content";
-  constexpr auto text_search_limit = 10;
+  constexpr std::size_t text_search_limit = 10;
   // Create text index
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -1506,12 +1527,70 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnNodes) {
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
     // Test search functionality
-    auto search_results = mgp::SearchTextIndex(
-        &raw_graph, index_name, "data.content:document", text_search_mode::SPECIFIED_PROPERTIES, text_search_limit);
+    auto search_results = mgp::SearchTextIndex(&raw_graph,
+                                               index_name,
+                                               "data.content:document",
+                                               text_search_mode::SPECIFIED_PROPERTIES,
+                                               mgp::TextSearchConfig{.limit = text_search_limit});
     ASSERT_GE(search_results.Size(), 1);
   }
 
   // Cleanup - drop text index
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    ASSERT_TRUE(db_acc->DropTextIndex(index_name).has_value());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
+TYPED_TEST(CppApiTestFixture, TestTextIndexFuzzySearch) {
+  constexpr auto index_name = "fuzzy_node_text_index";
+  constexpr auto label_name = "Document";
+  constexpr auto property_name = "content";
+  constexpr std::size_t text_search_limit = 10;
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    auto label = db_acc->NameToLabel(label_name);
+    auto property = db_acc->NameToProperty(property_name);
+    auto text_index_spec =
+        memgraph::storage::TextIndexSpec{.index_name = index_name, .label = label, .properties = {property}};
+    ASSERT_TRUE(db_acc->CreateTextIndex(text_index_spec).has_value());
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto graph = mgp::Graph(&raw_graph);
+    auto node = graph.CreateNode();
+    node.AddLabel(label_name);
+    node.SetProperty(property_name, mgp::Value("memgraph"));
+    ASSERT_TRUE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    auto storage_acc = this->storage->Access(memgraph::storage::StorageAccessType::READ);
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+
+    auto exact = mgp::SearchTextIndex(&raw_graph,
+                                      index_name,
+                                      "data.content:memgrap",
+                                      text_search_mode::SPECIFIED_PROPERTIES,
+                                      mgp::TextSearchConfig{.limit = text_search_limit});
+    EXPECT_EQ(exact.Size(), 0);
+
+    auto fuzzy = mgp::SearchTextIndex(&raw_graph,
+                                      index_name,
+                                      "data.content:memgrap",
+                                      text_search_mode::SPECIFIED_PROPERTIES,
+                                      mgp::TextSearchConfig{.limit = text_search_limit, .fuzzy_distance = 1});
+    EXPECT_EQ(fuzzy.Size(), 1);
+  }
+
   {
     auto storage_acc = this->storage->UniqueAccess();
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
@@ -1527,7 +1606,7 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnEdges) {
   constexpr auto index_name = "edge_text_index";
   constexpr auto edge_type = "CONTAINS";
   constexpr auto property_name = "description";
-  constexpr auto text_search_limit = 10;
+  constexpr std::size_t text_search_limit = 10;
 
   // Create text edge index
   {
@@ -1568,7 +1647,7 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnEdges) {
                                                    index_name,
                                                    "data.description:information",
                                                    text_search_mode::SPECIFIED_PROPERTIES,
-                                                   text_search_limit);
+                                                   mgp::TextSearchConfig{.limit = text_search_limit});
     ASSERT_GE(search_results.Size(), 1);
   }
 

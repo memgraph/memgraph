@@ -26,10 +26,20 @@ on:
         required: false
         type: string
         default: ''
+      helm_charts_branch:
+        description: 'helm-charts repo branch to install the HA chart from (enables direct OpenMetrics scraping). Empty = pinned published chart version (default).'
+        required: false
+        type: string
+        default: ''
 
 env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-issu-test"
 
 jobs:
   test:
@@ -41,6 +51,12 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -110,6 +126,8 @@ jobs:
           echo "MEMGRAPH_NEXT_TAG=${NEXT_TAG}" >> $GITHUB_ENV
 
       - name: Run ISSU Test
+        env:
+          HELM_CHARTS_BRANCH: ${{ inputs.helm_charts_branch }}
         run: |
           cd tests/issu
           ./test_upgrade.sh ${{ env.MEMGRAPH_LAST_TAG }} ${{ env.MEMGRAPH_NEXT_TAG }} --test-routing=false --debug=false

@@ -98,6 +98,11 @@ class PropertyStore {
   /// @param ordered_properties: a pre-sorted collection of `PropertyPath`
   std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties) const;
 
+  /// As above, but writes into the caller-provided `out` (one slot per ordered property, same single pass), so a
+  /// fixed-size buffer can be filled without a heap allocation. `out.size()` must equal `ordered_properties.size()`.
+  void ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties,
+                                          std::span<PropertyValue> out) const;
+
   /// Checks whether the property `property` is equal to the specified value
   /// `value`. This function doesn't perform any memory allocations while
   /// performing the equality check. The time complexity of this function is

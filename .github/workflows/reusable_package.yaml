@@ -15,9 +15,13 @@ on:
         type: string
         description: "Memgraph Build type. Default value is Release."
         default: Release
+      build_docker_image:
+        type: string
+        description: "Docker image(s) to produce alongside the deb: 'none' (default), 'prod', 'debug', or 'both'. Builds run from the same memgraph binary as the deb so the ELF build-id is shared between standalone-deb installs and container installs. Requires os=ubuntu-24.04."
+        default: 'none'
       additional_build_args:
         type: string
-        description: "Additional build flags (--for-docker ...). Default value is empty."
+        description: "Additional cmake/build flags forwarded to mgbuild.sh. Default value is empty."
         default: ''
       push_to_github:
         type: string
@@ -27,22 +31,22 @@ on:
         type: string
         description: "Should the final package be pushed to an S3 bucket. Default value is false."
         default: false
-      s3_bucket:
-        type: string
-        description: "Name of the target S3 bucket."
-        default: ''
-      s3_region:
-        type: string
-        description: "Region for the target S3 bucket."
-        default: eu-west-1
       s3_dest_dir:
         type: string
         description: "Target dir path in S3 bucket."
         default: ''
+      print_output_url:
+        type: boolean
+        description: "Print the S3 URLs of all uploaded artifacts (package, debuginfo sidecar, prod/debug docker images) at the end of the workflow."
+        default: false
       ref:
         type: string
         description: "Git ref to checkout. Default value is the current ref."
         default: ''
+      daily_build:
+        type: boolean
+        description: "Selects the daily/master PR-style package naming (<tag>+pr<pr>~<commit>) instead of using release/get_version.py."
+        default: false
       generate_sbom:
         type: boolean
         description: "Generate SBOM"
@@ -50,6 +54,10 @@ on:
       run_smoke_tests:
         type: boolean
         description: "Run smoke tests on images after building (tests against previous tagged image)"
+        default: false
+      upload_debug_symbols:
+        type: boolean
+        description: "Upload .debug sidecars to the debuginfod-layout S3 bucket."
         default: false
     outputs:
       package_s3_url:
@@ -61,12 +69,17 @@ env:
   GENERATE_SBOM: ${{ inputs.generate_sbom }}
   ARCH: ${{ inputs.arch }}
   BUILD_TYPE: ${{ inputs.build_type }}
+  # Split-debug is implicit: always on for RelWithDebInfo packaging, the only
+  # build type CI uses. SplitDebug.cmake itself errors out under Release, so
+  # passing the flag unconditionally is safe.
+  SPLIT_DEBUG: ${{ inputs.build_type == 'RelWithDebInfo' && 'true' || 'false' }}
+  BUILD_DOCKER_IMAGE: ${{ inputs.build_docker_image }}
   OS: ${{ inputs.os }}
   ADDITIONAL_BUILD_ARGS: ${{ inputs.additional_build_args }}
   PUSH_TO_GITHUB: ${{ inputs.push_to_github }}
   PUSH_TO_S3: ${{ inputs.push_to_s3 }}
-  S3_BUCKET: ${{ inputs.s3_bucket }}
-  S3_REGION: ${{ inputs.s3_region }}
+  S3_BUCKET: deps.memgraph.io
+  S3_REGION: eu-west-1
   S3_DEST_DIR: ${{ inputs.s3_dest_dir }}
   REF: ${{ inputs.ref }}
   CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
@@ -76,28 +89,31 @@ env:
 jobs:
   PackageAndUpload:
     runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON((inputs.os == 'centos-10' || inputs.os == 'rocky-10') && '["self-hosted", "DockerMgBuild", "X64", "x86-64-v3"]' || '["self-hosted", "DockerMgBuild", "X64"]') }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     outputs:
       package_s3_url: ${{ steps.output_package_s3_url.outputs.package_s3_url }}
     steps:
-      - name: "Validate S3 dest dir for official package"
-        if: ${{ inputs.push_to_s3 == 'true' && inputs.s3_bucket == 'download.memgraph.com' }}
-        run: |
-          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
-            echo -e "Error: You are pushing a RelWithDebInfo build to 'download.memgraph.com'."
-            exit 1
-          fi
-          if ! [[ "$S3_DEST_DIR" =~ memgraph/v[0-9]\.[0-9]+\.[0-9]+$ ]]; then
-            echo -e "Error: $S3_DEST_DIR is not a valid official format. When pushing to 'download.memgraph.com' the dest dir has to match format 'memgraph/vX.Y.Z'!"
-            exit 1
-          fi
-          echo -e "Passed: Dest dir $S3_DEST_DIR has a valid official format."
-
       - name: "Set up repository"
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0 # Required because of release/get_version.py
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: "Checkout infra repository"
+        # SBOM generation uses the scripts from the memgraph/infra repo.
+        if: ${{ inputs.generate_sbom }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: memgraph/infra
+          path: infra
+          ref: master
+          token: ${{ secrets.REPO_PAT }}
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
 
       - name: "Log in to Docker Hub"
         uses: ./.github/actions/docker-login
@@ -107,24 +123,50 @@ jobs:
 
       - name: "Set artifact name and dir"
         run: |
-          artifact_name="$OS"
           artifact_dir='build/output'
-          if [[ "$ADDITIONAL_BUILD_ARGS" == *"--for-docker"* ]]; then
-            artifact_name='docker'
-            echo "FOR_DOCKER=true" >> $GITHUB_ENV
-            echo "DOCKER_ARTIFACT_DIR=${artifact_dir}/docker" >> $GITHUB_ENV
-          fi
+          pkg_artifact_name="$OS"
           if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
-            artifact_name="${artifact_name}-malloc"
+            pkg_artifact_name="${pkg_artifact_name}-malloc"
           fi
           if [[ "$ARCH" == 'arm' ]]; then
-            artifact_name="${artifact_name}-aarch64"
+            pkg_artifact_name="${pkg_artifact_name}-aarch64"
           fi
-          if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
-            artifact_name="${artifact_name}-relwithdebinfo"
-          fi
-          echo "ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
+          echo "PKG_ARTIFACT_NAME=$pkg_artifact_name" >> $GITHUB_ENV
           echo "PACKAGE_ARTIFACT_DIR=${artifact_dir}/package" >> $GITHUB_ENV
+
+          if [[ "$BUILD_DOCKER_IMAGE" != "none" ]]; then
+            docker_base='docker'
+            if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
+              docker_base="${docker_base}-malloc"
+            fi
+            if [[ "$ARCH" == 'arm' ]]; then
+              docker_base="${docker_base}-aarch64"
+            fi
+            echo "DOCKER_PROD_ARTIFACT_NAME=${docker_base}" >> $GITHUB_ENV
+            echo "DOCKER_DEBUG_ARTIFACT_NAME=${docker_base}-relwithdebinfo" >> $GITHUB_ENV
+            echo "DOCKER_PROD_ARTIFACT_DIR=${artifact_dir}/${docker_base}" >> $GITHUB_ENV
+            echo "DOCKER_DEBUG_ARTIFACT_DIR=${artifact_dir}/${docker_base}-relwithdebinfo" >> $GITHUB_ENV
+          fi
+
+      - name: "Validate build_docker_image"
+        run: |
+          case "$BUILD_DOCKER_IMAGE" in
+            none|prod|debug|both) ;;
+            *)
+              echo "Error: build_docker_image must be 'none', 'prod', 'debug', or 'both' (got '$BUILD_DOCKER_IMAGE')" >&2
+              exit 1
+            ;;
+          esac
+          if [[ "$BUILD_DOCKER_IMAGE" != "none" ]]; then
+            if [[ "$OS" != "ubuntu-24.04" ]]; then
+              echo "Error: build_docker_image='$BUILD_DOCKER_IMAGE' requires os=ubuntu-24.04 (got '$OS')" >&2
+              exit 1
+            fi
+            if [[ "$BUILD_TYPE" != "RelWithDebInfo" ]]; then
+              echo "Error: build_docker_image='$BUILD_DOCKER_IMAGE' requires build_type=RelWithDebInfo (got '$BUILD_TYPE')" >&2
+              exit 1
+            fi
+          fi
 
       - name: Set Additional Build Args
         run: |
@@ -151,12 +193,16 @@ jobs:
 
       - name: "Build Memgraph binaries"
         run: |
+          SPLIT_DEBUG_ARG=""
+          if [[ "$SPLIT_DEBUG" == "true" ]]; then
+            SPLIT_DEBUG_ARG="--split-debug"
+          fi
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os "$OS" \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph $ADDITIONAL_BUILD_ARGS \
+          build-memgraph $ADDITIONAL_BUILD_ARGS $SPLIT_DEBUG_ARG \
           --conan-remote $CONAN_REMOTE \
           --conan-username $CONAN_USERNAME \
           --conan-password $CONAN_PASSWORD
@@ -180,6 +226,25 @@ jobs:
           --package \
           --dest-dir $PACKAGE_ARTIFACT_DIR
 
+      - name: "Upload debug symbols"
+        if: ${{ inputs.upload_debug_symbols && env.SPLIT_DEBUG == 'true' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-west-1
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          copy-debug-symbols \
+          --dest-dir build/debug-symbols
+          # PKG_ARTIFACT_NAME is unique per (os, arch, malloc, flavour) so
+          # no two memgraph package jobs collide on the same manifest path.
+          manifest_url="s3://${S3_BUCKET}/${S3_DEST_DIR}/${PKG_ARTIFACT_NAME}/debug-symbols-manifest.tsv"
+          bash tools/ci/upload-debug-symbols.sh build/debug-symbols \
+            --manifest-s3-url "$manifest_url"
+
       - name: "Copy SBOM"
         if: ${{ env.GENERATE_SBOM == 'true' }}
         run: |
@@ -191,7 +256,7 @@ jobs:
           --sbom
 
       - name: "Build gssapi wheel for smoke image"
-        if: ${{ env.FOR_DOCKER != 'true' && inputs.run_smoke_tests }}
+        if: ${{ inputs.run_smoke_tests }}
         run: |
           # gssapi has no prebuilt linux wheels on PyPI, so build one inside
           # the MGBUILD container (which has libkrb5/krb5-devel available) and
@@ -205,8 +270,10 @@ jobs:
             --dest-dir build/output/smoke-wheels
 
       - name: "Build smoke image from package"
-        if: ${{ env.FOR_DOCKER != 'true' && inputs.run_smoke_tests }}
+        if: ${{ inputs.run_smoke_tests }}
         run: |
+          # Tag is fixed/derivable so the Run smoke tests step below can
+          # reference it without an extra env handoff.
           image_tag="smoke-${OS}-${ARCH}-${BUILD_TYPE}"
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -216,11 +283,11 @@ jobs:
             --src-dir $PACKAGE_ARTIFACT_DIR \
             --image-tag "$image_tag" \
             --wheels-dir build/output/smoke-wheels
-          echo "IMAGE_TAG=$image_tag" >> $GITHUB_ENV
-          echo "Resolved IMAGE_TAG=$image_tag"
+          echo "SMOKE_IMAGE_TAG=$image_tag" >> $GITHUB_ENV
+          echo "Resolved SMOKE_IMAGE_TAG=$image_tag"
 
       - name: "Build heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
+        if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -229,7 +296,7 @@ jobs:
           build-heaptrack
 
       - name: "Copy heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
+        if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
         run: |
           mkdir -p release/docker
           ./release/package/mgbuild.sh \
@@ -240,7 +307,7 @@ jobs:
           --dest-dir "$(pwd)/release/docker"
 
       - name: "Build OpenSSL"
-        if: ${{ env.FOR_DOCKER == 'true' }}
+        if: ${{ env.BUILD_DOCKER_IMAGE != 'none' }}
         run: |
           # This step is necessary so that we can build custom packages of OpenSSL and libssl3 for
           # the Docker images. These packages will be installed by apt, and as long as the remote
@@ -258,7 +325,7 @@ jobs:
             --conan-password $CONAN_PASSWORD
 
       - name: "Build gssapi wheel"
-        if: ${{ env.FOR_DOCKER == 'true' }}
+        if: ${{ env.BUILD_DOCKER_IMAGE != 'none' }}
         run: |
           # gssapi has no prebuilt linux wheels on PyPI, so build one in the
           # MGBUILD container (which has libkrb5/krb5-devel) and drop it into
@@ -271,6 +338,21 @@ jobs:
             build-gssapi \
             --dest-dir release/docker/wheels
 
+      - name: "Generate Memgraph build SBOM"
+        # Stage 1 of the SBOM: fetch the conan + MGCXX component SBOMs from the
+        # still-running build container onto the host and merge them into the
+        # binary build SBOM. Must run before the build container is stopped. The
+        # image SBOM (stage 2) is produced later from the prod Docker image.
+        if: ${{ env.GENERATE_SBOM == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          generate-memgraph-build-sbom \
+          --conan-remote $CONAN_REMOTE \
+          --sbom-scripts-dir "${GITHUB_WORKSPACE}/infra/infosec/sbom/memgraph"
+
       - name: "Stop mgbuild container"
         if: always()
         run: |
@@ -280,8 +362,8 @@ jobs:
           --arch $ARCH \
           stop --remove
 
-      - name: "Create docker image"
-        if: ${{ env.FOR_DOCKER == 'true' }}
+      - name: "Create docker image (prod)"
+        if: ${{ inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both' }}
         run: |
           malloc=false
           if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
@@ -299,38 +381,104 @@ jobs:
           --build-type $BUILD_TYPE \
           package-docker \
           --src-dir $PACKAGE_ARTIFACT_DIR \
-          --dest-dir $DOCKER_ARTIFACT_DIR \
-          --generate-sbom $GENERATE_SBOM \
+          --dest-dir $DOCKER_PROD_ARTIFACT_DIR \
           --malloc $malloc \
           --custom-mirror $USE_CUSTOM_MIRROR \
+          --package-flavour prod \
           --keep-image-loaded ${{ inputs.run_smoke_tests }}
-          image_archive="$(ls -1t "$DOCKER_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
+
+          image_archive="$(ls -1t "$DOCKER_PROD_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
           if [[ -z "$image_archive" ]]; then
-            echo "Error: Could not find docker image archive in '$DOCKER_ARTIFACT_DIR'."
+            echo "Error: Could not find prod docker image archive in '$DOCKER_PROD_ARTIFACT_DIR'."
             exit 1
           fi
           image_tag="$(basename "$image_archive")"
           image_tag="${image_tag#memgraph-}"
           image_tag="${image_tag%-docker.tar.gz}"
-          echo "IMAGE_TAG=$image_tag" >> $GITHUB_ENV
-          echo "Resolved IMAGE_TAG=$image_tag"
+          echo "PROD_IMAGE_TAG=$image_tag" >> $GITHUB_ENV
+          echo "Resolved PROD_IMAGE_TAG=$image_tag"
 
-      - name: "Bolt smoke test (no-arg startup)"
-        if: ${{ env.FOR_DOCKER == 'true' }}
+      - name: "Generate Memgraph image SBOM"
+        # Stage 2 of the SBOM: scan the prod Docker image and merge it with the
+        # binary build SBOM from stage 1. Runs after the build container is
+        # stopped and the prod image is built.
+        if: ${{ env.GENERATE_SBOM == 'true' && (inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both') }}
         run: |
-          image="memgraph/memgraph:${IMAGE_TAG}"
+          image="memgraph/memgraph:${PROD_IMAGE_TAG}"
           # --keep-image-loaded is only true when run_smoke_tests is set, so
           # load from the tarball when needed.
           if ! docker image inspect "$image" >/dev/null 2>&1; then
-            image_archive="$(ls -1t "$DOCKER_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
+            image_archive="$(ls -1t "$DOCKER_PROD_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
+            docker load -i "$image_archive"
+          fi
+          "${GITHUB_WORKSPACE}/infra/infosec/sbom/memgraph/memgraph-docker-sbom.sh" \
+            --tag "$PROD_IMAGE_TAG" \
+            --out-dir "${GITHUB_WORKSPACE}/sbom" \
+            --work-dir "${GITHUB_WORKSPACE}/sbom/work-docker"
+
+      - name: "Create docker image (debug)"
+        if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
+        run: |
+          malloc=false
+          if [[ "$ADDITIONAL_BUILD_ARGS" == *"--disable-jemalloc"* ]]; then
+            malloc=true
+          fi
+          if [[ "$OS" == "ubuntu-24.04" ]]; then
+            USE_CUSTOM_MIRROR=true
+          else
+            USE_CUSTOM_MIRROR=false
+          fi
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          package-docker \
+          --src-dir $PACKAGE_ARTIFACT_DIR \
+          --dest-dir $DOCKER_DEBUG_ARTIFACT_DIR \
+          --malloc $malloc \
+          --custom-mirror $USE_CUSTOM_MIRROR \
+          --package-flavour debug \
+          --keep-image-loaded ${{ inputs.run_smoke_tests }}
+          image_archive="$(ls -1t "$DOCKER_DEBUG_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
+          if [[ -z "$image_archive" ]]; then
+            echo "Error: Could not find debug docker image archive in '$DOCKER_DEBUG_ARTIFACT_DIR'."
+            exit 1
+          fi
+          image_tag="$(basename "$image_archive")"
+          image_tag="${image_tag#memgraph-}"
+          image_tag="${image_tag%-docker.tar.gz}"
+          echo "DEBUG_IMAGE_TAG=$image_tag" >> $GITHUB_ENV
+          echo "Resolved DEBUG_IMAGE_TAG=$image_tag"
+
+      - name: "Bolt smoke test (prod docker)"
+        if: ${{ inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both' }}
+        run: |
+          image="memgraph/memgraph:${PROD_IMAGE_TAG}"
+          # --keep-image-loaded is only true when run_smoke_tests is set, so
+          # load from the tarball when needed.
+          if ! docker image inspect "$image" >/dev/null 2>&1; then
+            image_archive="$(ls -1t "$DOCKER_PROD_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
             docker load -i "$image_archive"
           fi
           ./tools/ci/smoke_test_docker_image.sh "$image"
 
-      - name: "Generate Build SBOM"
-        if: ${{ env.GENERATE_SBOM == 'true'  && env.FOR_DOCKER != 'true' }}
+      - name: "Bolt smoke test (debug docker)"
+        if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
         run: |
-          ./tools/ci/sbom/build-sbom.sh
+          image="memgraph/memgraph:${DEBUG_IMAGE_TAG}"
+          if ! docker image inspect "$image" >/dev/null 2>&1; then
+            image_archive="$(ls -1t "$DOCKER_DEBUG_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
+            docker load -i "$image_archive"
+          fi
+          ./tools/ci/smoke_test_docker_image.sh "$image"
+
+      - name: "Telemetry shutdown smoke test (prod)"
+        if: ${{ inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both' }}
+        run: |
+          # The image is already loaded by the bolt smoke test step above.
+          # Fail if shutdown blocks > 20s on an unreachable telemetry server.
+          ./tools/ci/smoke_test_shutdown.sh "memgraph/memgraph:${PROD_IMAGE_TAG}" 20
 
       - name: "Upload SBOM Files"
         if: ${{ env.GENERATE_SBOM == 'true' }}
@@ -346,26 +494,23 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ inputs.s3_region }}
+          AWS_REGION: ${{ env.S3_REGION }}
 
-      - name: Run smoke tests
+      - name: "Resolve previous release tag"
         if: ${{ inputs.run_smoke_tests }}
+        run: |
+          last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+          last_version="${last_version#v}"
+          echo "LAST_VERSION=$last_version" >> $GITHUB_ENV
+          echo "Resolved LAST_VERSION=$last_version"
+          docker pull "memgraph/memgraph:${last_version}"
+
+      - name: "Run smoke tests (prod docker)"
+        if: ${{ inputs.run_smoke_tests && (inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both') }}
         env:
           MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
           MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
         run: |
-          # Test against the latest release version
-          last_version="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
-          last_version="${last_version#v}"
-          if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
-            last_version="${last_version}-relwithdebinfo"
-          fi
-          echo "Resolved LAST_VERSION=$last_version"
-          docker pull "memgraph/memgraph:${last_version}"
-
-          export MEMGRAPH_NEXT_DOCKERHUB_IMAGE="memgraph/memgraph:${IMAGE_TAG}"
-          export MEMGRAPH_LAST_DOCKERHUB_IMAGE="memgraph/memgraph:${last_version}"
-
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os $OS \
@@ -373,89 +518,185 @@ jobs:
             --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
             --organization-name $MEMGRAPH_ORGANIZATION_NAME \
             test-memgraph smoke \
-            --next-image $MEMGRAPH_NEXT_DOCKERHUB_IMAGE \
-            --last-image $MEMGRAPH_LAST_DOCKERHUB_IMAGE
+            --next-image "memgraph/memgraph:${PROD_IMAGE_TAG}" \
+            --last-image "memgraph/memgraph:${LAST_VERSION}"
+
+      - name: "Run smoke tests (debug docker)"
+        if: ${{ inputs.run_smoke_tests && (inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both') }}
+        env:
+          MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+          MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph smoke \
+            --next-image "memgraph/memgraph:${DEBUG_IMAGE_TAG}" \
+            --last-image "memgraph/memgraph:${LAST_VERSION}"
+
+      - name: "Run smoke tests (package smoke image)"
+        if: ${{ inputs.run_smoke_tests }}
+        env:
+          MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+          MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph smoke \
+            --next-image "memgraph/memgraph:${SMOKE_IMAGE_TAG}" \
+            --last-image "memgraph/memgraph:${LAST_VERSION}"
 
       - name: "Rename Package"
-        if: github.ref == 'refs/heads/master' && !inputs.ref
+        if: ${{ inputs.daily_build }}
         run: |
-          # during testing, we will keep the default naming because it uses the
-          # previous tag + number of commits since and the current commit hash
-          # if on master, then store the latest PR number and the commit
+          # Daily builds rename to the PR-style scheme (latest released tag +
+          # PR number + commit). All non-daily callers keep get_version.py
+          # naming via the default (false).
 
-          # get the latest tagged version
-          tag="$(tools/ci/get_latest_tag.sh)"
-
-          # fetch the most recent PR number from git log
-          pr="$(git log --pretty=%B | grep -oP '(?<=\(#)\d+(?=\))' | head -n 1)"
-
-          # use the short commit hash
-          commit="$(git rev-parse HEAD | cut -c1-12)"
-
-          # set the artifact directory containing the file we want to rename
-          if [ "$FOR_DOCKER" == "true" ]; then
-            artifact_path="$DOCKER_ARTIFACT_DIR"
+          old_debuginfo=""
+          new_debuginfo=""
+          if [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
+            core="$(tools/ci/get_master_package_version.sh)"
+            old_name="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph_*.deb 2>/dev/null | head -n 1)"
+            new_name="memgraph_${core}-1_${ARCH}64.deb"
+            old_debuginfo="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)"
+            new_debuginfo="memgraph-debuginfo_${core}-1_${ARCH}64.deb"
           else
-            artifact_path="$PACKAGE_ARTIFACT_DIR"
-          fi
-
-          # find the existing file name
-          old_name="$(ls -1 $artifact_path/memgraph* 2>/dev/null | head -n 1)"
-
-          # determine new name
-          if [ "$FOR_DOCKER" == "true" ]; then
-            new_name="memgraph-${tag}_pr${pr}_${commit}"
-            if [[ "$BUILD_TYPE" == 'RelWithDebInfo' ]]; then
-              new_name="${new_name}-relwithdebinfo"
-            fi
-            new_name="${new_name}-docker.tar.gz"
-          elif [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
-            new_name="memgraph_${tag}+pr${pr}~${commit}-1_${ARCH}64.deb"
-          elif [[ "$OS" == *"centos"* || "$OS" == *"fedora"* || "$OS" == *"rocky"* ]]; then
+            core="$(tools/ci/get_master_package_version.sh rpm)"
+            old_name="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-[0-9]*.rpm 2>/dev/null | head -n 1)"
             if [[ "$ARCH" == "amd" ]]; then
               arch_str="x86_64"
             else
               arch_str="aarch64"
             fi
-            new_name="memgraph-${tag}_0.pr${pr}.${commit}-1.${arch_str}.rpm"
+            new_name="memgraph-${core}-1.${arch_str}.rpm"
+            old_debuginfo="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-debuginfo-*.rpm 2>/dev/null | head -n 1)"
+            new_debuginfo="memgraph-debuginfo-${core}-1.${arch_str}.rpm"
+          fi
+          mv -v "$old_name" "$PACKAGE_ARTIFACT_DIR/$new_name"
+          # Sidecar only exists for split-debug (RelWithDebInfo) builds.
+          if [[ -n "$old_debuginfo" ]]; then
+            mv -v "$old_debuginfo" "$PACKAGE_ARTIFACT_DIR/$new_debuginfo"
           fi
 
-          # rename it
-          mv -v $old_name "$artifact_path/$new_name"
+          if [[ "$BUILD_DOCKER_IMAGE" != "none" ]]; then
+            docker_core="$(tools/ci/get_master_package_version.sh docker)"
+          fi
+          if [[ "$BUILD_DOCKER_IMAGE" == "prod" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            for old_name in "$DOCKER_PROD_ARTIFACT_DIR"/memgraph*-docker.tar.gz; do
+              [ -e "$old_name" ] || continue
+              new_name="memgraph-${docker_core}-docker.tar.gz"
+              mv -v "$old_name" "$DOCKER_PROD_ARTIFACT_DIR/$new_name"
+            done
+          fi
+          if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            for old_name in "$DOCKER_DEBUG_ARTIFACT_DIR"/memgraph*-docker.tar.gz; do
+              [ -e "$old_name" ] || continue
+              new_name="memgraph-${docker_core}-relwithdebinfo-docker.tar.gz"
+              mv -v "$old_name" "$DOCKER_DEBUG_ARTIFACT_DIR/$new_name"
+            done
+          fi
 
       - name: Output Package S3 URL
         id: output_package_s3_url
         run: |
-          if [[ "$FOR_DOCKER" == "true" ]]; then
-            filename="$(ls -1 $DOCKER_ARTIFACT_DIR/memgraph* 2>/dev/null | head -n 1)"
+          if [[ "$OS" == *"debian"* || "$OS" == *"ubuntu"* ]]; then
+            filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph_*.deb 2>/dev/null | head -n 1)"
           else
-            filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph* 2>/dev/null | head -n 1)"
+            filename="$(ls -1 $PACKAGE_ARTIFACT_DIR/memgraph-[0-9]*.rpm 2>/dev/null | head -n 1)"
           fi
           # URL-encode the filename to handle unsafe characters like +, ~, etc.
           encoded_filename=$(python3 -c "import urllib.parse; import sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$(basename "$filename")")
-          S3_URL="https://s3.eu-west-1.amazonaws.com/${S3_BUCKET}/${S3_DEST_DIR}/${{ env.ARTIFACT_NAME }}/${encoded_filename}"
+          S3_URL="https://s3.eu-west-1.amazonaws.com/${S3_BUCKET}/${S3_DEST_DIR}/${PKG_ARTIFACT_NAME}/${encoded_filename}"
           echo "package_s3_url=$S3_URL" >> $GITHUB_OUTPUT
 
-      - name: "Upload to Github"
-        if: ${{  inputs.push_to_github == 'true' }}
+      - name: "Upload package to Github"
+        if: ${{ inputs.push_to_github == 'true' }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: "${{ env.FOR_DOCKER == 'true' && env.DOCKER_ARTIFACT_DIR || env.PACKAGE_ARTIFACT_DIR }}/memgraph*"
+          name: ${{ env.PKG_ARTIFACT_NAME }}
+          path: "${{ env.PACKAGE_ARTIFACT_DIR }}/memgraph*"
 
-      - name: "Upload to S3"
+      - name: "Upload package to S3"
         if: ${{ inputs.push_to_s3 == 'true' }}
         run:
           aws s3 sync $SOURCE_DIR s3://${S3_BUCKET}/$DEST_DIR
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ inputs.s3_region }}
-          SOURCE_DIR: ${{ env.FOR_DOCKER == 'true' && env.DOCKER_ARTIFACT_DIR || env.PACKAGE_ARTIFACT_DIR }}
-          DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"
+          AWS_REGION: ${{ env.S3_REGION }}
+          SOURCE_DIR: ${{ env.PACKAGE_ARTIFACT_DIR }}
+          DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.PKG_ARTIFACT_NAME }}/"
+
+      - name: "Upload prod docker image to Github"
+        if: ${{ inputs.push_to_github == 'true' && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: ${{ env.DOCKER_PROD_ARTIFACT_NAME }}
+          path: "${{ env.DOCKER_PROD_ARTIFACT_DIR }}/memgraph*"
+
+      - name: "Upload prod docker image to S3"
+        if: ${{ inputs.push_to_s3 == 'true' && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        run:
+          aws s3 sync $SOURCE_DIR s3://${S3_BUCKET}/$DEST_DIR
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.S3_REGION }}
+          SOURCE_DIR: ${{ env.DOCKER_PROD_ARTIFACT_DIR }}
+          DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.DOCKER_PROD_ARTIFACT_NAME }}/"
+
+      - name: "Upload debug docker image to Github"
+        if: ${{ inputs.push_to_github == 'true' && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: ${{ env.DOCKER_DEBUG_ARTIFACT_NAME }}
+          path: "${{ env.DOCKER_DEBUG_ARTIFACT_DIR }}/memgraph*"
+
+      - name: "Upload debug docker image to S3"
+        if: ${{ inputs.push_to_s3 == 'true' && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
+        run:
+          aws s3 sync $SOURCE_DIR s3://${S3_BUCKET}/$DEST_DIR
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.S3_REGION }}
+          SOURCE_DIR: ${{ env.DOCKER_DEBUG_ARTIFACT_DIR }}
+          DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.DOCKER_DEBUG_ARTIFACT_NAME }}/"
+
+      - name: "Print artifact S3 URLs"
+        if: ${{ inputs.print_output_url && inputs.push_to_s3 == 'true' }}
+        run: |
+          base="https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET}/${S3_DEST_DIR}"
+          shopt -s nullglob
+          print_dir() {
+            local dir="$1" subdir="$2"
+            [[ -d "$dir" ]] || return 0
+            for f in "$dir"/*; do
+              [[ -f "$f" ]] || continue
+              enc=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$(basename "$f")")
+              echo "::notice::Artifact URL: ${base}/${subdir}/${enc}"
+            done
+          }
+          # The package dir (deb/rpm + debuginfo sidecar) is always uploaded when
+          # push_to_s3 is set; the image dirs only when the matching image built.
+          print_dir "$PACKAGE_ARTIFACT_DIR" "$PKG_ARTIFACT_NAME"
+          if [[ "$BUILD_DOCKER_IMAGE" == "prod" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            print_dir "$DOCKER_PROD_ARTIFACT_DIR" "$DOCKER_PROD_ARTIFACT_NAME"
+          fi
+          if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            print_dir "$DOCKER_DEBUG_ARTIFACT_DIR" "$DOCKER_DEBUG_ARTIFACT_NAME"
+          fi
 
       - name: Clean up heaptrack
-        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
+        if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
         run: |
           rm -rf release/docker/heaptrack
 

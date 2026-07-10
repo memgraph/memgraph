@@ -10,16 +10,9 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      build_type:
-        type: choice
-        description: "Memgraph Build type."
-        default: 'Release'
-        options:
-          - Release
-          - RelWithDebInfo
       os:
         type: choice
-        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS."
+        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. To produce a docker image, pick a ubuntu-24.04 variant and set build_docker_image."
         default: 'ubuntu-24.04'
         options:
           - all
@@ -29,14 +22,21 @@ on:
           - debian-12-arm
           - debian-13
           - debian-13-arm
-          - docker
-          - docker-arm
           - fedora-42
           - fedora-42-arm
           - rocky-10
           - ubuntu-22.04
           - ubuntu-24.04
           - ubuntu-24.04-arm
+      build_docker_image:
+        type: choice
+        description: "Docker image(s) to produce alongside the ubuntu-24.04 deb. 'none' (default), 'prod', 'debug' (relwithdebinfo, installs memgraph-debuginfo on top), or 'both'. Only the ubuntu-24.04 jobs that are enabled by the 'os' selection will produce docker images."
+        default: 'none'
+        options:
+          - none
+          - prod
+          - debug
+          - both
       push_to_s3:
         type: boolean
         description: "Push final packages to an S3 bucket?"
@@ -64,14 +64,14 @@ on:
 
   workflow_call:
     inputs:
-      build_type:
-        type: string
-        description: "Memgraph Build type."
-        default: 'Release'
       os:
         type: string
-        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS."
+        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. To produce a docker image, pick a ubuntu-24.04 variant and set build_docker_image."
         default: 'ubuntu-24.04'
+      build_docker_image:
+        type: string
+        description: "Docker image(s) to produce alongside the ubuntu-24.04 deb: 'none' (default), 'prod', 'debug', or 'both'."
+        default: 'none'
       toolchain:
         type: string
         description: "Toolchain version with which memgraph will be packaged."
@@ -116,8 +116,6 @@ jobs:
       run_package_debian_12_arm: ${{ steps.setup.outputs.run_package_debian_12_arm }}
       run_package_debian_13: ${{ steps.setup.outputs.run_package_debian_13 }}
       run_package_debian_13_arm: ${{ steps.setup.outputs.run_package_debian_13_arm }}
-      run_package_docker: ${{ steps.setup.outputs.run_package_docker }}
-      run_package_docker_arm: ${{ steps.setup.outputs.run_package_docker_arm }}
       run_package_fedora_42: ${{ steps.setup.outputs.run_package_fedora_42 }}
       run_package_fedora_42_arm: ${{ steps.setup.outputs.run_package_fedora_42_arm }}
       run_package_rocky_10: ${{ steps.setup.outputs.run_package_rocky_10 }}
@@ -125,7 +123,6 @@ jobs:
       run_package_ubuntu_24_04: ${{ steps.setup.outputs.run_package_ubuntu_24_04 }}
       run_package_ubuntu_24_04_arm: ${{ steps.setup.outputs.run_package_ubuntu_24_04_arm }}
       run_package_ubuntu_24_04_malloc: ${{ steps.setup.outputs.run_package_ubuntu_24_04_malloc }}
-      workflow_input_build_type: ${{ steps.setup.outputs.workflow_input_build_type }}
       workflow_input_toolchain: ${{ steps.setup.outputs.workflow_input_toolchain }}
       workflow_input_push_to_s3: ${{ steps.setup.outputs.workflow_input_push_to_s3 }}
       workflow_input_push_to_github: ${{ steps.setup.outputs.workflow_input_push_to_github }}
@@ -133,6 +130,9 @@ jobs:
       workflow_input_malloc: ${{ steps.setup.outputs.workflow_input_malloc }}
       workflow_input_generate_sbom: ${{ steps.setup.outputs.workflow_input_generate_sbom }}
       workflow_input_run_smoke_tests: ${{ steps.setup.outputs.workflow_input_run_smoke_tests }}
+      workflow_input_build_docker_image_amd: ${{ steps.setup.outputs.workflow_input_build_docker_image_amd }}
+      workflow_input_build_docker_image_arm: ${{ steps.setup.outputs.workflow_input_build_docker_image_arm }}
+      workflow_input_build_docker_image_malloc: ${{ steps.setup.outputs.workflow_input_build_docker_image_malloc }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
       GH_CONTEXT_FILE_NAME: github_context.json
@@ -155,12 +155,11 @@ jobs:
     with:
       os: "centos-9"
       arch: "amd"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
@@ -174,12 +173,11 @@ jobs:
     with:
       os: "centos-10"
       arch: "amd"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
@@ -193,12 +191,11 @@ jobs:
     with:
       os: "debian-12"
       arch: "amd"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
@@ -212,12 +209,11 @@ jobs:
     with:
       os: "debian-12"
       arch: "arm"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: false
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
@@ -231,12 +227,11 @@ jobs:
     with:
       os: "debian-13"
       arch: "amd"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: false
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
@@ -250,50 +245,11 @@ jobs:
     with:
       os: "debian-13"
       arch: "arm"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
-      s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
-      ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
-      run_smoke_tests: ${{ needs.PackageSetup.outputs.workflow_input_run_smoke_tests == 'true' }}
-    secrets: inherit
-
-  Docker:
-    needs: PackageSetup
-    if: ${{ needs.PackageSetup.outputs.run_package_docker == 'true' }}
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: "ubuntu-24.04"
-      arch: "amd"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
-      additional_build_args: "--for-docker ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}"
-      push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
-      s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
-      ref: ${{ inputs.ref || github.ref }}
-      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
-      run_smoke_tests: ${{ needs.PackageSetup.outputs.workflow_input_run_smoke_tests == 'true' }}
-    secrets: inherit
-
-  Docker-arm:
-    needs: PackageSetup
-    if: ${{ needs.PackageSetup.outputs.run_package_docker_arm == 'true' }}
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: "ubuntu-24.04"
-      arch: "arm"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
-      additional_build_args: "--for-docker ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}"
-      push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
@@ -307,12 +263,11 @@ jobs:
     with:
       os: "fedora-42"
       arch: "amd"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
@@ -326,12 +281,11 @@ jobs:
     with:
       os: "fedora-42"
       arch: "arm"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: false
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
@@ -345,12 +299,11 @@ jobs:
     with:
       os: "rocky-10"
       arch: "amd"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
@@ -364,12 +317,11 @@ jobs:
     with:
       os: "ubuntu-22.04"
       arch: "amd"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
@@ -383,12 +335,12 @@ jobs:
     with:
       os: "ubuntu-24.04"
       arch: "amd"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image_amd }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
@@ -402,12 +354,12 @@ jobs:
     with:
       os: "ubuntu-24.04"
       arch: "arm"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image_arm }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
@@ -421,12 +373,12 @@ jobs:
     with:
       os: "ubuntu-24.04"
       arch: "amd"
-      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image_malloc }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       additional_build_args: "--disable-jemalloc"
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
       ref: ${{ inputs.ref || github.ref }}
       generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
