@@ -33,10 +33,13 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
+#include <iostream>
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -44,6 +47,10 @@
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/ttl.hpp"
+#include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
 namespace fs = std::filesystem;
