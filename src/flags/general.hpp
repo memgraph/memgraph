@@ -106,6 +106,11 @@ DECLARE_bool(storage_delta_on_identical_property_update);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_backup_dir_enabled);
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(versioning_enabled);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(versioning_max_changelog_length);
+
 // RocksDB flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(storage_rocksdb_info_log_level);

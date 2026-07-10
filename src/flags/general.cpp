@@ -181,6 +181,15 @@ DEFINE_bool(storage_delta_on_identical_property_update, true,
 DEFINE_bool(storage_backup_dir_enabled, true,
             "Controls whether .old dir will be used to store latest snapshot and WAL files.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(versioning_enabled, false,
+            "Enable graph versioning (branches). Startup-only; enterprise feature; requires "
+            "IN_MEMORY_TRANSACTIONAL + WAL. Off by default.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(versioning_max_changelog_length, 1000000,
+              "Maximum number of recorded changes a single branch may accumulate before branch "
+              "writes are rejected (bounds retention). Provisional default pending product decision D5.");
+
 // RocksDB flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(storage_rocksdb_info_log_level, "INFO_LEVEL",

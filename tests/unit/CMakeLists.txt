@@ -70,6 +70,11 @@ add_unit_test(crc_accumulator
         LINK_TARGETS mg-utils
 )
 
+add_unit_test(versioning_gate
+        SOURCES versioning_gate.cpp
+        LINK_TARGETS mg::versioning
+)
+
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils
