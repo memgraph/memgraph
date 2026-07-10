@@ -616,6 +616,10 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitDropIndex(MemgraphCypher::DropIndexContext *ctx) override;
 
+  antlrcpp::Any visitCreateGlobalVertexIndex(MemgraphCypher::CreateGlobalVertexIndexContext *ctx) override;
+
+  antlrcpp::Any visitDropGlobalVertexIndex(MemgraphCypher::DropGlobalVertexIndexContext *ctx) override;
+
   /**
    * @return EdgeIndexQuery*
    */

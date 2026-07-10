@@ -882,6 +882,15 @@ class DbAccessor final {
     return accessor_->DropGlobalEdgeIndex(property);
   }
 
+  std::expected<void, storage::StorageIndexDefinitionError> CreateGlobalVertexIndex(
+      storage::PropertyId property, storage::CheckCancelFunction cancel_check = storage::neverCancel) {
+    return accessor_->CreateGlobalVertexIndex(property, std::move(cancel_check));
+  }
+
+  std::expected<void, storage::StorageIndexDefinitionError> DropGlobalVertexIndex(storage::PropertyId property) {
+    return accessor_->DropGlobalVertexIndex(property);
+  }
+
   std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
                                                                              storage::PropertyId property) {
     return accessor_->CreatePointIndex(label, property);

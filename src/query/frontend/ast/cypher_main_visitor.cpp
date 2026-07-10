@@ -667,6 +667,22 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
   return index_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitCreateGlobalVertexIndex(MemgraphCypher::CreateGlobalVertexIndexContext *ctx) {
+  auto *index_query = storage_->Create<IndexQuery>();
+  index_query->action_ = IndexQuery::Action::CREATE;
+  auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  index_query->properties_ = {PropertyIxPath{{std::move(name_key)}}};
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropGlobalVertexIndex(MemgraphCypher::DropGlobalVertexIndexContext *ctx) {
+  auto *index_query = storage_->Create<IndexQuery>();
+  index_query->action_ = IndexQuery::Action::DROP;
+  auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  index_query->properties_ = {PropertyIxPath{{std::move(name_key)}}};
+  return index_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitEdgeIndexQuery(MemgraphCypher::EdgeIndexQueryContext *ctx) {
   DMG_ASSERT(ctx->children.size() == 1, "EdgeIndexQuery should have exactly one child!");
   auto *index_query = std::any_cast<EdgeIndexQuery *>(ctx->children[0]->accept(this));
