@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string_view>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
@@ -750,6 +751,19 @@ class InMemoryStorage final : public Storage {
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) override;
 
+  // Capture the current logical timestamp as a branch fork point and pin GC at it so main's MVCC
+  // history back to this point is retained (R13/R16). Atomic under engine_lock_ so GC cannot
+  // advance past it between capture and registration. Returns the captured fork timestamp.
+  //
+  // Lock order: engine_lock_ then version_fork_pin_lock_ (never the reverse) -- established here
+  // and mirrored by ReleaseForkPin/CollectGarbage, which only ever take version_fork_pin_lock_ alone.
+  uint64_t RegisterForkPin();
+
+  // Release a previously acquired fork pin (call exactly once per RegisterForkPin, at DROP BRANCH).
+  // Exactly-once is a hard invariant, not recoverable: calling this twice for the same fork_ts, or
+  // for a fork_ts that was never registered, MG_ASSERTs (aborts) rather than silently no-op-ing.
+  void ReleaseForkPin(uint64_t fork_ts);
+
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
@@ -1041,6 +1055,15 @@ class InMemoryStorage final : public Storage {
   uint64_t last_processed_commit_ts_{0};
 
   void ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts);
+
+  // Live version-branch fork points pin GC's reclamation horizon back to the oldest one (R13/R16/C1).
+  // multiset because multiple branches may share the same fork_ts. Empty (the default, no branches
+  // registered) is a strict no-op in CollectGarbage -- zero behavior change for non-versioning DBs (E1).
+  //
+  // Lock order: engine_lock_ then version_fork_pin_lock_ (see RegisterForkPin). CollectGarbage and
+  // ReleaseForkPin take version_fork_pin_lock_ alone, never engine_lock_, so no inversion is possible.
+  mutable utils::SpinLock version_fork_pin_lock_;
+  std::multiset<uint64_t> version_fork_pins_;
 };
 
 class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {

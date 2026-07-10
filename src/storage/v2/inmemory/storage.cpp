@@ -1092,7 +1092,19 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   bool const no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
   bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
-  if (no_older_transactions && no_newer_transactions) [[unlikely]] {
+  // A live fork pin at fork_ts needs (must be able to undo) this committing delta iff
+  // commit_ts >= fork_ts -- MVCC visibility (mvcc.hpp: a reader at start_ts S sees a delta with
+  // commit_ts C as already-applied iff C < S, so it must undo it iff C >= S). Hence fast-discard
+  // is safe only when the OLDEST live fork pin is strictly GREATER than this commit's timestamp
+  // (P > C), i.e. no reader-at-fork needs to travel back through these deltas. The equality case
+  // P == C is routinely reachable because RegisterForkPin captures timestamp_ WITHOUT incrementing,
+  // so the boundary must be '>' not '>=' or a pinned delta is silently freed. Empty multiset (no
+  // branches) -> true -> identical behavior to before this guard existed (E1 no-op).
+  bool const no_fork_pin_needs_these_deltas = [&] {
+    auto guard = std::lock_guard{mem_storage->version_fork_pin_lock_};
+    return mem_storage->version_fork_pins_.empty() || *mem_storage->version_fork_pins_.begin() > *commit_timestamp_;
+  }();
+  if (no_older_transactions && no_newer_transactions && no_fork_pin_needs_these_deltas) [[unlikely]] {
     // STEP 0) Can only do fast discard if GC is not running
     //         We can't unlink our transactions deltas until all the older deltas in GC have been unlinked
     //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
@@ -2858,6 +2870,24 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           metric_handles_.unreleased_delta_objects};
 }
 
+uint64_t InMemoryStorage::RegisterForkPin() {
+  // Capture the fork boundary and register the pin atomically under engine_lock_ so that GC
+  // (which reads commit_log_->OldestActive() outside this lock) cannot advance its horizon past
+  // `fork_ts` in the window between capture and registration.
+  auto engine_guard = std::lock_guard{engine_lock_};
+  const uint64_t fork_ts = timestamp_;  // current snapshot boundary (do NOT increment)
+  auto pin_guard = std::lock_guard{version_fork_pin_lock_};
+  version_fork_pins_.insert(fork_ts);
+  return fork_ts;
+}
+
+void InMemoryStorage::ReleaseForkPin(uint64_t fork_ts) {
+  auto pin_guard = std::lock_guard{version_fork_pin_lock_};
+  auto it = version_fork_pins_.find(fork_ts);
+  MG_ASSERT(it != version_fork_pins_.end(), "ReleaseForkPin called for an unregistered fork_ts");
+  version_fork_pins_.erase(it);  // erase ONE (iterator), not all equal keys
+}
+
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   // Drain before UNIQUE: worker holds AsyncIndexer::mutex_ while waiting on
   // main_lock_, so draining under UNIQUE would deadlock.
@@ -2995,6 +3025,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         min_queued_start_ts = std::min(min_queued_start_ts, update_data.start_ts);
       }
       oldest_active_start_timestamp = std::min(min_queued_start_ts, oldest_active_start_timestamp);
+    }
+  }
+
+  // Version-branch fork points pin main's history back to the oldest live fork (R13/C1).
+  {
+    auto guard = std::lock_guard{version_fork_pin_lock_};
+    if (!version_fork_pins_.empty()) {
+      oldest_active_start_timestamp = std::min(oldest_active_start_timestamp, *version_fork_pins_.begin());
     }
   }
 

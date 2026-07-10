@@ -1850,3 +1850,259 @@ TEST(StorageV2Gc, ConcurrentDeleteAndGcUAFSmoke) {
     EXPECT_EQ(vf->OutEdges(ms::View::OLD)->edges.size(), 0);
   }
 }
+
+//==============================================================================
+// Graph Versioning CHUNK 2A: GC fork-pin primitive (RegisterForkPin/ReleaseForkPin).
+//
+// A live version branch captures its fork point via RegisterForkPin() and must be able
+// to reconstruct "main"'s MVCC history back to that point at any time in the future --
+// not just while some real transaction happens to still be alive near that timestamp.
+// These tests use the existing `unreleased_delta_objects` metric (see the
+// NonSequentialDeltas* tests above) as the ground truth for "has GC actually reclaimed
+// this delta yet", since it counts live delta objects directly rather than depending on
+// timing-sensitive background GC.
+
+// E1 regression guard: with no fork pin ever registered, retention is governed purely by
+// ordinary transaction liveness, exactly as before this change (multiset empty -> floor
+// untouched). Note this is NOT a lone-committer scenario: with no other accessor open, the
+// commits below would take the fast-discard path (CheckForFastDiscardOfDeltas) and the
+// backlog would already read 0 pre-GC, giving no real ">0 then reclaim" window to assert
+// against. To get a genuine backlog we keep a concurrent read accessor open across the
+// commits -- this makes no_older_transactions false, so the deltas land in the ordinary
+// waiting_gc_deltas_/committed_transactions_ bookkeeping instead, exactly like the
+// pre-existing NonSequentialDeltas* tests above.
+TEST_F(StorageV2GcMetricsTest, ForkPin_NoPinReclaimsAsBeforeE1) {
+  memgraph::storage::Gid v_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->CreateVertex();
+    v_gid = v.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Blocker keeps an older transaction alive so the commits below cannot fast-discard.
+  auto blocker = storage->Access(memgraph::storage::WRITE);
+
+  // Build up delta history via several committed transactions, no fork pin involved.
+  for (int i = 0; i < 5; ++i) {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_TRUE(v->AddLabel(acc->NameToLabel("L" + std::to_string(i))).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  // Blocker (an older live transaction) is still alive and there is no fork pin, so these deltas
+  // cannot be fast-discarded and are retained purely by ordinary transaction liveness -- exactly
+  // as before this change. Note we do NOT run a forced FreeMemory while the blocker is alive: it
+  // requires main_lock_ UNIQUE and the live blocker holds it shared, which would deadlock the
+  // test; retention here is asserted directly instead.
+  ASSERT_GT(handles_.unreleased_delta_objects.Value(), 0);
+
+  // Drop the blocker: with no fork pin, ordinary transaction liveness is the only gate, so GC
+  // must now be able to fully reclaim.
+  blocker.reset();
+  for (int i = 0; i < 4; ++i) {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+  EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
+}
+
+// A live fork pin must hold GC back from reclaiming history at or after the fork point,
+// and releasing it must let GC advance and reclaim again (R13/R16/C1).
+TEST_F(StorageV2GcMetricsTest, ForkPin_PinRetainsHistoryUntilReleased) {
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
+
+  memgraph::storage::Gid v_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->CreateVertex();
+    v_gid = v.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Fork the branch here: pin GC at the current logical timestamp.
+  const uint64_t fork_ts = mem_storage->RegisterForkPin();
+
+  // Commits on "main" after the fork point, which would normally let GC fully reclaim
+  // once no other accessor is alive (see ForkPin_NoPinReclaimsAsBeforeE1 above).
+  for (int i = 0; i < 5; ++i) {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_TRUE(v->AddLabel(acc->NameToLabel("L" + std::to_string(i))).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_GT(handles_.unreleased_delta_objects.Value(), 0);
+
+  // Run GC repeatedly: with the pin held, reclamation must not proceed past fork_ts --
+  // all 5 post-fork deltas are needed to reconstruct history back to the fork point.
+  for (int i = 0; i < 4; ++i) {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+  EXPECT_GT(handles_.unreleased_delta_objects.Value(), 0)
+      << "fork pin at " << fork_ts << " should have retained delta history, but GC reclaimed it all";
+
+  // Release the pin: GC must now be free to advance and reclaim everything.
+  mem_storage->ReleaseForkPin(fork_ts);
+  for (int i = 0; i < 4; ++i) {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+  EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
+}
+
+// Reproduces the fast-discard hole: a commit that IS the sole active transaction (no older,
+// no newer real transaction alive) takes InMemoryAccessor::CheckForFastDiscardOfDeltas's fast
+// path, which unlinks its own deltas immediately, bypassing CollectGarbage (and, before the
+// three-way guard fix, bypassing the fork-pin floor too). With a live fork pin older than the
+// commit, those deltas must survive this fast path -- a reconstruction reader at fork_ts needs
+// to time-travel back through them.
+TEST_F(StorageV2GcMetricsTest, ForkPin_BlocksFastDiscardOfSoleTransactionDeltas) {
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
+
+  memgraph::storage::Gid v_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->CreateVertex();
+    v_gid = v.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Fork the branch: pin GC at fork_ts (analogous to "100" in the bug scenario).
+  const uint64_t fork_ts = mem_storage->RegisterForkPin();
+
+  // A LONE commit after the fork point (analogous to "150"): no other accessor is open before,
+  // during, or after this transaction, so no_older_transactions && no_newer_transactions is true
+  // right when it commits -- this is exactly the fast path under test.
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_TRUE(v->AddLabel(acc->NameToLabel("Sole")).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    // CheckForFastDiscardOfDeltas runs synchronously as part of commit, before this scope ends --
+    // if the fork-pin guard were missing, the delta would already be gone here.
+  }
+
+  // The lone commit's delta must have survived fast-discard: fork_ts is still pinned and is
+  // older than the commit. Without the guard, this would already read 0.
+  EXPECT_GT(handles_.unreleased_delta_objects.Value(), 0)
+      << "fork pin at " << fork_ts << " should have blocked fast-discard of the sole commit's deltas";
+
+  // Explicit GC must also not reclaim it while the pin is held.
+  for (int i = 0; i < 4; ++i) {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+  EXPECT_GT(handles_.unreleased_delta_objects.Value(), 0);
+
+  // Release the pin: GC is now free to reclaim it.
+  mem_storage->ReleaseForkPin(fork_ts);
+  for (int i = 0; i < 4; ++i) {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+  EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
+}
+
+// Deterministic P == C boundary regression test. ForkPin_BlocksFastDiscardOfSoleTransactionDeltas
+// above only exercises P < C (fork_ts strictly before the commit), which passes under BOTH
+// `>=` and `>` in CheckForFastDiscardOfDeltas's fork-pin guard and so cannot catch an off-by-one
+// there. This test forces the pin timestamp to land EXACTLY on the commit timestamp.
+TEST_F(StorageV2GcMetricsTest, ForkPin_BlocksFastDiscardAtEqualTimestampBoundary) {
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
+
+  // a1 makes a change but does not commit yet. Its own start_timestamp already consumed one
+  // tick of `timestamp_`; while a1 stays open, nothing else advances the counter further.
+  auto a1 = storage->Access(memgraph::storage::WRITE);
+  (void)a1->CreateVertex();
+
+  // RegisterForkPin captures the CURRENT `timestamp_` counter WITHOUT incrementing it (see
+  // RegisterForkPin's "do NOT increment" comment). GetCommitTimestamp, by contrast, does
+  // `return timestamp_++;` (storage.cpp:4625) -- it returns the SAME value RegisterForkPin just
+  // read, then advances past it. Since a1 is the only open accessor and no other transaction is
+  // created in between, the very next commit (a1's) is deterministically assigned commit_ts ==
+  // fork_ts: this is the P == C boundary.
+  const uint64_t fork_ts = mem_storage->RegisterForkPin();
+
+  // Commit a1: it is the sole active transaction (no older, no newer), so it is fast-discard
+  // eligible, and its commit_ts == fork_ts per the above.
+  ASSERT_TRUE(a1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+
+  // Under the buggy '>=' comparison, `fork_ts >= commit_ts` holds at equality, so the guard
+  // would have (wrongly) reported "no pin needs these deltas" and fast-discarded them to 0. Under
+  // the correct '>' comparison, equality means the pin DOES need them (a reader forked exactly at
+  // commit_ts must still see the pre-commit state), so they must survive.
+  EXPECT_GT(handles_.unreleased_delta_objects.Value(), 0)
+      << "fork pin exactly AT the commit timestamp (P == C, fork_ts=" << fork_ts
+      << ") must still block fast-discard -- '>=' vs '>' off-by-one";
+
+  // a1 is committed; release the accessor before running a forced FreeMemory below (which needs
+  // main_lock_ UNIQUE and would deadlock against a1's live shared hold).
+  a1.reset();
+
+  // Release the pin: GC is now free to reclaim it.
+  mem_storage->ReleaseForkPin(fork_ts);
+  for (int i = 0; i < 4; ++i) {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+  EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
+}
+
+// version_fork_pins_ is a multiset: the GC floor tracks the OLDEST live fork_ts, so
+// releasing a newer pin must not move the floor while an older pin is still held.
+TEST_F(StorageV2GcMetricsTest, ForkPin_MultisetSemanticsOldestPinWins) {
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
+
+  memgraph::storage::Gid v_gid;
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->CreateVertex();
+    v_gid = v.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const uint64_t fork_ts_older = mem_storage->RegisterForkPin();
+
+  // A commit between the two fork points so the two pins are numerically distinct.
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_TRUE(v->AddLabel(acc->NameToLabel("Mid")).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const uint64_t fork_ts_newer = mem_storage->RegisterForkPin();
+  ASSERT_LT(fork_ts_older, fork_ts_newer);
+
+  for (int i = 0; i < 5; ++i) {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_TRUE(v->AddLabel(acc->NameToLabel("L" + std::to_string(i))).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_GT(handles_.unreleased_delta_objects.Value(), 0);
+  const uint64_t count_with_both_pins = handles_.unreleased_delta_objects.Value();
+
+  // Release the newer pin: the floor is min(pins), still fork_ts_older, so nothing changes.
+  mem_storage->ReleaseForkPin(fork_ts_newer);
+  for (int i = 0; i < 4; ++i) {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+  EXPECT_EQ(count_with_both_pins, handles_.unreleased_delta_objects.Value())
+      << "releasing the newer pin must not let GC advance past the still-live older pin";
+
+  // Release the older (and now only) pin: GC is fully unpinned and should reclaim everything.
+  mem_storage->ReleaseForkPin(fork_ts_older);
+  for (int i = 0; i < 4; ++i) {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+  EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
+}
