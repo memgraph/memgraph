@@ -33,10 +33,13 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
+#include <iostream>
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -44,6 +47,10 @@
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/ttl.hpp"
+#include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
 namespace fs = std::filesystem;
@@ -388,6 +395,172 @@ TEST_F(HotColdSuspend, SuspendCapturesFullStorageInfoNotBase) {
   EXPECT_EQ(cold_info->stats.label_indices, 1u)
       << "Suspend_ must capture the full StorageInfo (GetInfo()), not just the base counters "
          "(GetBaseInfo()), which always leaves label_indices at 0";
+}
+
+// Deadlock regression: Suspend_'s finish_suspend() holds the gatekeeper mutex across
+// ~Database/~InMemoryStorage, which JOINS the storage's TTL scheduler thread. If that join races a
+// live TTL tick calling make_database_protector() -> DatabaseHandler::Get() -> Gatekeeper::access(),
+// that call blocks on the SAME mutex the joiner holds -> circular wait -> permanent deadlock. The fix
+// stops the tenant's background tasks (StopAllBackgroundTasks()) BEFORE finish_suspend() so the
+// in-destructor join is a no-op.
+//
+// Reproducing it reliably needs the TTL scheduler to actually be MID-BATCH when the winning SUSPEND's
+// finish_suspend() joins it (if TTL has drained its backlog and parked in the scheduler CV wait, the
+// join returns instantly and no deadlock occurs -- that is exactly why tenant_0/tenant_1 suspended
+// fine but tenant_2 hung in the CI incident). So each tenant here is kept under CONTINUOUS TTL load by
+// a feeder thread that keeps re-inserting past-dated :TTL nodes, and several tenants are suspended in
+// sequence -- each suspend is an independent shot at the mid-batch join. A pre-fix build deadlocks on
+// the first shot that lands mid-batch (very likely across N tenants); the watchdog then converts the
+// hang into a fast, loud SIGABRT instead of blocking the test binary until the CI timeout. With the
+// fix every suspend completes quickly.
+TEST_F(HotColdSuspend, SuspendWhileTtlActiveDoesNotDeadlock) {
+  constexpr int kTenants = 4;
+  constexpr int kSeed = 150000;  // large backlog -> TTL stays inside its delete loop for a long stretch
+
+  auto past_ts_us = []() -> int64_t {
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+               (std::chrono::system_clock::now() - std::chrono::seconds(1)).time_since_epoch())
+        .count();
+  };
+
+  // Insert `count` past-dated :TTL vertices through a live accessor (mirrors ttl.cpp's Periodic test).
+  auto seed_nodes = [&](auto &acc, int count) {
+    auto ttl_label = acc->storage()->NameToLabel("TTL");
+    auto ttl_property = acc->storage()->NameToProperty("ttl");
+    auto wacc = acc->Access(memgraph::storage::WRITE);
+    for (int i = 0; i < count; ++i) {
+      auto v = wacc->CreateVertex();
+      if (v.AddLabel(ttl_label).has_value()) {
+        (void)v.SetProperty(ttl_property, memgraph::storage::PropertyValue(past_ts_us()));
+      }
+    }
+    (void)wacc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  };
+
+  // Count currently-visible vertices (mirrors ttl.cpp's CountVisibleVertices).
+  auto count_vertices = [](auto &acc) -> size_t {
+    auto racc = acc->Access(memgraph::storage::READ);
+    size_t n = 0;
+    for (const auto v : racc->Vertices(memgraph::storage::View::NEW)) {
+      if (v.IsVisible(memgraph::storage::View::NEW)) ++n;
+    }
+    return n;
+  };
+
+  // Watchdog: turns a hang into a fast, loud SIGABRT rather than blocking the binary until CI timeout.
+  std::atomic<bool> done{false};
+  std::thread watchdog([&done] {
+    constexpr auto kDeadline = std::chrono::seconds(90);
+    const auto start = std::chrono::steady_clock::now();
+    while (!done.load(std::memory_order_acquire)) {
+      if (std::chrono::steady_clock::now() - start > kDeadline) {
+        std::cerr << "DEADLOCK: SUSPEND DATABASE did not complete within 90s -- finish_suspend joined a "
+                     "background thread while holding the gatekeeper mutex"
+                  << std::endl;
+        std::abort();
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+  });
+
+  int suspended = 0;
+  std::vector<std::string> names;
+
+  for (int t = 0; t < kTenants; ++t) {
+    auto name = CreateTenant("ttl_deadlock_db_" + std::to_string(t));
+    names.push_back(name);
+
+    // ---- setup: enable TTL, create the :TTL(ttl) index, seed a large backlog, start the scheduler ----
+    {
+      auto acc = handler_->Get(name);
+      ASSERT_TRUE(acc);
+
+      auto &ttl = acc->ttl();
+      ttl.SetUserCheck([]() -> bool { return true; });  // behave as MAIN
+      ttl.Enable();
+
+      auto ttl_label = acc->storage()->NameToLabel("TTL");
+      auto ttl_property = acc->storage()->NameToProperty("ttl");
+      std::vector<memgraph::storage::PropertyPath> ttl_property_path = {ttl_property};
+
+      // Create the :TTL(ttl) label+property index synchronously (mirrors ttl.cpp's
+      // EnsureTTLIndicesReady) so lp_index_ready is true and every TTL run actually deletes.
+      {
+        auto unique_acc = acc->storage()->UniqueAccess();
+        ASSERT_TRUE(unique_acc->CreateIndex(ttl_label, ttl_property_path).has_value());
+        ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+
+      seed_nodes(acc, kSeed);
+
+      ttl.Configure(/*should_run_edge_ttl=*/false);
+      ttl.SetInterval(std::chrono::milliseconds(10));
+      ttl.Resume();
+
+      // GATE: confirm the TTL scheduler is actually DELETING before we depend on it. Without this the
+      // test could pass vacuously (a parked / no-op scheduler cannot reproduce the mid-batch-join
+      // deadlock -- a false green would hide a reintroduced bug).
+      bool ttl_deleting = false;
+      const auto gate_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+      while (std::chrono::steady_clock::now() < gate_deadline) {
+        if (count_vertices(acc) < static_cast<size_t>(kSeed)) {
+          ttl_deleting = true;
+          break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      }
+      ASSERT_TRUE(ttl_deleting) << "TTL scheduler never deleted a node -- setup is wrong, not a real pass";
+    }  // release the setup accessor before suspending (a held accessor pins count>1 -> ACTIVE_CONNECTIONS)
+
+    // ---- dedicated feeder: top this tenant's backlog back up so TTL keeps finding >1 batch of work
+    //      and stays INSIDE its delete loop (never parks) while we race SUSPEND against it. Fresh
+    //      short-lived accessor per insert + a tiny gap so SUSPEND can still catch the count==1 window;
+    //      Get() throws SuspendedDatabaseException once COLD, which we swallow. ----
+    std::atomic<bool> stop_feeder{false};
+    std::thread feeder([&, name] {
+      while (!stop_feeder.load(std::memory_order_acquire)) {
+        try {
+          auto racc = handler_->Get(name);
+          if (racc) {
+            auto ttl_label = racc->storage()->NameToLabel("TTL");
+            auto ttl_property = racc->storage()->NameToProperty("ttl");
+            auto wacc = racc->Access(memgraph::storage::WRITE);
+            for (int i = 0; i < 10000; ++i) {
+              auto v = wacc->CreateVertex();
+              if (v.AddLabel(ttl_label).has_value()) {
+                (void)v.SetProperty(ttl_property, memgraph::storage::PropertyValue(past_ts_us()));
+              }
+            }
+            (void)wacc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+          }
+        } catch (const std::exception &) {
+          // tenant went COLD / mid-suspend -> stop feeding it
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    });
+
+    // ---- suspend this tenant (retry until it wins the count==1 race). The winning attempt's
+    //      finish_suspend() joins the still-running TTL thread -- the deadlock trigger pre-fix. ----
+    for (int attempt = 0; attempt < 5000; ++attempt) {
+      if (handler_->Suspend(name).has_value()) {
+        ++suspended;
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    stop_feeder.store(true, std::memory_order_release);
+    feeder.join();
+  }
+
+  done.store(true, std::memory_order_release);
+  watchdog.join();
+
+  EXPECT_EQ(suspended, kTenants) << "every tenant must suspend without deadlocking";
+  for (const auto &name : names) {
+    EXPECT_TRUE(handler_->IsSuspended(name)) << "tenant not COLD after suspend: " << name;
+  }
 }
 
 #else
