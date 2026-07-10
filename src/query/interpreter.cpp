@@ -9581,6 +9581,10 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(MultiDatabaseQuery & /*unused*/) override {}
 
+  // TODO(versioning chunk 7): dispatch/accessor-type wiring for branch management queries lands
+  // with interpreter dispatch; parse/AST (chunk 1) has no execution semantics yet.
+  void Visit(VersioningQuery & /*unused*/) override {}
+
   void Visit(ReplicationQuery & /*unused*/) override {}
 
   void Visit(ShowConfigQuery & /*unused*/) override {}

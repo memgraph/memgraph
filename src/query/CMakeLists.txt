@@ -182,6 +182,7 @@ target_link_libraries(mg-query
     mg-coordination
     mg-parameters
     mg::planner
+    mg::versioning
     PRIVATE
     arrow::arrow
     mg-module-support

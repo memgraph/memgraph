@@ -2095,6 +2095,10 @@ struct PreQueryDirectives {
   /// Parallel execution
   bool parallel_execution_{false};
   memgraph::query::Expression *num_threads_{nullptr};
+  /// Graph versioning target (USING VERSION literal); see specs/graph-versioning.md §4.2.
+  /// Kept as an Expression (not resolved eagerly) for the same reason as hops_limit_/num_threads_:
+  /// the AST is cached across executions.
+  memgraph::query::Expression *version_target_{nullptr};
 
   PreQueryDirectives Clone(AstStorage *storage) const {
     PreQueryDirectives object;
@@ -2106,6 +2110,7 @@ struct PreQueryDirectives {
     object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
     object.parallel_execution_ = parallel_execution_;
     object.num_threads_ = num_threads_ ? num_threads_->Clone(storage) : nullptr;
+    object.version_target_ = version_target_ ? version_target_->Clone(storage) : nullptr;
     return object;
   }
 };
@@ -4082,6 +4087,60 @@ class MultiDatabaseQuery : public memgraph::query::Query {
     object->db_name_ = db_name_;
     object->force_ = force_;
     object->new_db_name_ = new_db_name_;
+    return object;
+  }
+};
+
+/// Graph Versioning (branches) query surface. See specs/graph-versioning.md §4.2.
+/// Parse/AST only in v1 chunk 1 — no semantics are attached here (chunk 7 wires dispatch).
+class VersioningQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  enum class Action : uint8_t {
+    CREATE_BRANCH,
+    CHECKOUT_BRANCH,
+    MERGE_BRANCH,
+    DROP_BRANCH,
+    SHOW_BRANCH,
+    SHOW_BRANCHES,
+    SHOW_BRANCH_DIFF
+  };
+
+  // name_/description_/parent_ are StringLiteral-or-symbolicName-derived, so (like hops_limit_,
+  // setting_name_/setting_value_ on CoordinatorQuery) they are kept as Expression* -- a
+  // PrimitiveLiteral when the value is known at parse time, or a ParameterLookup when the query
+  // is being parsed off a cached/stripped AST (see visitBranchName). Never resolve these to a
+  // plain std::string in the visitor: the AST is cached across executions with different
+  // stripped-literal values.
+  /// Branch being created/checked-out/merged/dropped (unused for SHOW_BRANCH; optional target for SHOW_BRANCH_DIFF).
+  memgraph::query::Expression *name_{nullptr};
+  /// WITH DESCRIPTION '...' on CREATE BRANCH / CHECKOUT BRANCH ... FROM ...
+  memgraph::query::Expression *description_{nullptr};
+  /// FROM branchName on CREATE BRANCH / CHECKOUT BRANCH ... FROM ...
+  memgraph::query::Expression *parent_{nullptr};
+  /// FOR DATABASE databaseName on SHOW BRANCHES -- a plain identifier (symbolicName), never
+  /// stripped into a parameter, so unlike name_/description_/parent_ it is safe to resolve eagerly.
+  std::optional<std::string> for_database_;
+  memgraph::query::VersioningQuery::Action action_;
+  /// Distinguishes CHECKOUT BRANCH x (switch only) from CHECKOUT BRANCH x FROM y (create-if-absent + switch).
+  bool checkout_{false};
+  /// FORMAT TABLE on SHOW BRANCH DIFF
+  bool format_table_{false};
+
+  VersioningQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<VersioningQuery>();
+    object->action_ = action_;
+    object->name_ = name_ ? name_->Clone(storage) : nullptr;
+    object->description_ = description_ ? description_->Clone(storage) : nullptr;
+    object->parent_ = parent_ ? parent_->Clone(storage) : nullptr;
+    object->for_database_ = for_database_;
+    object->checkout_ = checkout_;
+    object->format_table_ = format_table_;
     return object;
   }
 };

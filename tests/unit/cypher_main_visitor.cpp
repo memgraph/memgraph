@@ -8658,6 +8658,261 @@ TEST_P(CypherMainVisitorTest, SuspendResumeDatabaseInvalidSyntax) {
   TestInvalidQuery("RESUME DATABASE", ast_generator);
 }
 
+// Graph Versioning (branches) parser/AST round-trip tests. See specs/graph-versioning.md §4.2.
+// Parse/AST only (chunk 1) -- no semantics are asserted here. Name validation (§4.1) is deferred
+// to execution time (chunk 7); see the standalone `versioning_name` unit test for
+// `versioning::ValidateBranchName` coverage.
+//
+// name_/description_/parent_ on VersioningQuery are Expression* -- like CoordinatorQuery's
+// setting_name_/setting_value_ (cypher_main_visitor.cpp:1122) -- because a StringLiteral value may
+// be stripped into a parameter under a cached AST. Resolve them the same way those call sites do.
+namespace {
+// A quoted branchName ('feature') is StringLiteral-derived: under a cached AST it comes back as a
+// ParameterLookup, otherwise a PrimitiveLiteral -- exactly like any other string literal.
+std::string ResolveQuotedBranchName(Base &ast_generator, Expression *expr) {
+  return std::string{ast_generator.GetLiteral(expr, ast_generator.context_.is_query_cached).ValueString()};
+}
+
+// A bare branchName (feature) is symbolicName-derived: never stripped/parameterized, so it is
+// always a PrimitiveLiteral regardless of caching.
+std::string ResolveBareBranchName(Base &ast_generator, Expression *expr) {
+  return std::string{ast_generator.GetLiteral(expr, /*use_parameter_lookup=*/false).ValueString()};
+}
+}  // namespace
+
+TEST_P(CypherMainVisitorTest, CreateBranch) {
+  auto &ast_generator = *GetParam();
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CREATE BRANCH 'feature' FROM 'main'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::CREATE_BRANCH);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
+    ASSERT_NE(query->parent_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->parent_), "main");
+    EXPECT_EQ(query->description_, nullptr);
+  }
+
+  // Bare symbolic names (no quotes) are also accepted.
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CREATE BRANCH feature FROM main"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::CREATE_BRANCH);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(ResolveBareBranchName(ast_generator, query->name_), "feature");
+    ASSERT_NE(query->parent_, nullptr);
+    EXPECT_EQ(ResolveBareBranchName(ast_generator, query->parent_), "main");
+  }
+
+  // WITH DESCRIPTION
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(
+        ast_generator.ParseQuery("CREATE BRANCH 'feature' WITH DESCRIPTION 'a test branch' FROM 'main'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::CREATE_BRANCH);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
+    ASSERT_NE(query->description_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->description_), "a test branch");
+    ASSERT_NE(query->parent_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->parent_), "main");
+  }
+
+  // Forking off a non-main parent.
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CREATE BRANCH 'child' FROM 'feature'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "child");
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->parent_), "feature");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, CheckoutBranch) {
+  auto &ast_generator = *GetParam();
+
+  // Plain switch -- no FROM -- checkout_ must be false and no parent/description set.
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CHECKOUT BRANCH 'feature'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::CHECKOUT_BRANCH);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
+    EXPECT_FALSE(query->checkout_);
+    EXPECT_EQ(query->parent_, nullptr);
+    EXPECT_EQ(query->description_, nullptr);
+  }
+
+  // Switching back to 'main' (no FROM) -- name validation does not run at parse time at all
+  // (deferred to chunk 7), so this is unconditionally fine.
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CHECKOUT BRANCH 'main'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "main");
+    EXPECT_FALSE(query->checkout_);
+  }
+
+  // Combined create-if-absent + switch (FROM present) -- checkout_ must be true.
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("CHECKOUT BRANCH 'feature' FROM 'main'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::CHECKOUT_BRANCH);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
+    EXPECT_TRUE(query->checkout_);
+    ASSERT_NE(query->parent_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->parent_), "main");
+  }
+
+  // Combined create-if-absent + switch + description.
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(
+        ast_generator.ParseQuery("CHECKOUT BRANCH 'feature' WITH DESCRIPTION 'desc' FROM 'main'"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_TRUE(query->checkout_);
+    ASSERT_NE(query->description_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->description_), "desc");
+    ASSERT_NE(query->parent_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->parent_), "main");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, MergeBranch) {
+  auto &ast_generator = *GetParam();
+
+  auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("MERGE BRANCH 'feature'"));
+  ASSERT_NE(query, nullptr);
+  EXPECT_EQ(query->action_, VersioningQuery::Action::MERGE_BRANCH);
+  ASSERT_NE(query->name_, nullptr);
+  EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
+}
+
+TEST_P(CypherMainVisitorTest, MergeBranchDoesNotShadowOrdinaryMergeClause) {
+  // Regression: adding `MERGE BRANCH branchName` as a top-level query alternative must not break
+  // the ordinary Cypher MERGE clause (a Cypher upsert). See also the pre-existing `Merge` test.
+  auto &ast_generator = *GetParam();
+
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MERGE (n:Node {id: 1}) RETURN n"));
+  ASSERT_NE(query, nullptr);
+  ASSERT_TRUE(query->single_query_);
+  ASSERT_GE(query->single_query_->clauses_.size(), 1U);
+  EXPECT_NE(dynamic_cast<Merge *>(query->single_query_->clauses_[0]), nullptr);
+}
+
+TEST_P(CypherMainVisitorTest, DropBranch) {
+  auto &ast_generator = *GetParam();
+
+  auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("DROP BRANCH 'feature'"));
+  ASSERT_NE(query, nullptr);
+  EXPECT_EQ(query->action_, VersioningQuery::Action::DROP_BRANCH);
+  ASSERT_NE(query->name_, nullptr);
+  EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
+}
+
+TEST_P(CypherMainVisitorTest, ShowBranch) {
+  auto &ast_generator = *GetParam();
+
+  auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH"));
+  ASSERT_NE(query, nullptr);
+  EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCH);
+}
+
+TEST_P(CypherMainVisitorTest, ShowBranches) {
+  auto &ast_generator = *GetParam();
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCHES"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCHES);
+    EXPECT_FALSE(query->for_database_.has_value());
+  }
+
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCHES FOR DATABASE testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCHES);
+    ASSERT_TRUE(query->for_database_.has_value());
+    EXPECT_EQ(*query->for_database_, "testdb");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ShowBranchDiff) {
+  auto &ast_generator = *GetParam();
+
+  // Bare -- no name, no FORMAT.
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH DIFF"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, VersioningQuery::Action::SHOW_BRANCH_DIFF);
+    EXPECT_EQ(query->name_, nullptr);
+    EXPECT_FALSE(query->format_table_);
+  }
+
+  // With an explicit branch name.
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH DIFF 'feature'"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
+    EXPECT_FALSE(query->format_table_);
+  }
+
+  // With FORMAT TABLE.
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH DIFF 'feature' FORMAT TABLE"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_NE(query->name_, nullptr);
+    EXPECT_EQ(ResolveQuotedBranchName(ast_generator, query->name_), "feature");
+    EXPECT_TRUE(query->format_table_);
+  }
+
+  // FORMAT TABLE without a name.
+  {
+    auto *query = dynamic_cast<VersioningQuery *>(ast_generator.ParseQuery("SHOW BRANCH DIFF FORMAT TABLE"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->name_, nullptr);
+    EXPECT_TRUE(query->format_table_);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, UsingVersionDirective) {
+  auto &ast_generator = *GetParam();
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING VERSION 'feature' MATCH (n) RETURN n"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_NE(query->pre_query_directives_.version_target_, nullptr);
+    ast_generator.CheckLiteral(query->pre_query_directives_.version_target_, "feature");
+    CheckRWType(query, kRead);
+  }
+
+  // Composes with another USING directive (HOPS LIMIT), matching the existing PARALLEL EXECUTION
+  // + PERIODIC COMMIT composition test precedent.
+  {
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("USING VERSION 'feature', HOPS LIMIT 5 MATCH (n) RETURN n"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_NE(query->pre_query_directives_.version_target_, nullptr);
+    ast_generator.CheckLiteral(query->pre_query_directives_.version_target_, "feature");
+    ASSERT_NE(query->pre_query_directives_.hops_limit_, nullptr);
+    ast_generator.CheckLiteral(query->pre_query_directives_.hops_limit_, 5);
+  }
+
+  // Only settable once.
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING VERSION 'a', VERSION 'b' MATCH (n) RETURN n"), SyntaxException);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, VersioningQueryInvalidSyntax) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("CREATE BRANCH 'feature'", ast_generator);     // missing FROM
+  TestInvalidQuery("CREATE BRANCH FROM 'main'", ast_generator);   // missing branch name
+  TestInvalidQuery("MERGE BRANCH", ast_generator);                // missing branch name
+  TestInvalidQuery("DROP BRANCH", ast_generator);                 // missing branch name
+  TestInvalidQuery("SHOW BRANCHES FOR 'testdb'", ast_generator);  // missing DATABASE keyword
+}
+
 TEST_P(CypherMainVisitorTest, UseHintWithCompositeIndices) {
   auto &ast_generator = *GetParam();
   auto *query =

@@ -171,6 +171,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
   }
 
+  // TODO(versioning chunk 7): real privilege gating for branch management queries lands with
+  // interpreter dispatch; parse/AST (chunk 1) intentionally requires no privilege yet.
+  void Visit(VersioningQuery & /*unused*/) override {}
+
   void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 
   void Visit(ShowDatabaseQuery & /*unused*/) override { /* no privilege needed to show current database */ }

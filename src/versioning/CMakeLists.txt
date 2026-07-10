@@ -6,7 +6,9 @@ target_sources(mg-versioning
         BASE_DIRS ..
         FILES
         gate.hpp
+        name.hpp
 
         PRIVATE
         gate.cpp
+        name.cpp
 )

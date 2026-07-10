@@ -75,6 +75,11 @@ add_unit_test(versioning_gate
         LINK_TARGETS mg::versioning
 )
 
+add_unit_test(versioning_name
+        SOURCES versioning_name.cpp
+        LINK_TARGETS mg::versioning
+)
+
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils

@@ -1311,6 +1311,48 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitResumeDatabase(MemgraphCypher::ResumeDatabaseContext *ctx) override;
 
   /**
+   * @return Expression* -- a PrimitiveLiteral (symbolicName, or StringLiteral on an uncached AST)
+   * or a ParameterLookup (StringLiteral on a cached AST), mirroring visitLiteral(); see
+   * specs/graph-versioning.md §4.2.
+   */
+  antlrcpp::Any visitBranchName(MemgraphCypher::BranchNameContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=CREATE_BRANCH)
+   */
+  antlrcpp::Any visitCreateBranch(MemgraphCypher::CreateBranchContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=CHECKOUT_BRANCH)
+   */
+  antlrcpp::Any visitCheckoutBranch(MemgraphCypher::CheckoutBranchContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=MERGE_BRANCH)
+   */
+  antlrcpp::Any visitMergeBranch(MemgraphCypher::MergeBranchContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=DROP_BRANCH)
+   */
+  antlrcpp::Any visitDropBranch(MemgraphCypher::DropBranchContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=SHOW_BRANCH)
+   */
+  antlrcpp::Any visitShowBranch(MemgraphCypher::ShowBranchContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=SHOW_BRANCHES)
+   */
+  antlrcpp::Any visitShowBranches(MemgraphCypher::ShowBranchesContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=SHOW_BRANCH_DIFF)
+   */
+  antlrcpp::Any visitShowBranchDiff(MemgraphCypher::ShowBranchDiffContext *ctx) override;
+
+  /**
    * @return UseDatabaseQuery*
    */
   antlrcpp::Any visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) override;
@@ -1472,6 +1514,10 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   LabelIx AddLabel(const std::string &name);
   PropertyIx AddProperty(const std::string &name);
   EdgeTypeIx AddEdgeType(const std::string &name);
+  // Shared by visitBranchName/visitCreateBranch/visitCheckoutBranch: resolves a StringLiteral
+  // token to an Expression* the same way visitLiteral() resolves a literal's StringLiteral
+  // alternative (ParameterLookup under a cached AST, PrimitiveLiteral otherwise).
+  Expression *MakeStringLiteralExpression(antlr4::tree::TerminalNode *string_literal);
 
   ParsingContext context_;
   AstStorage *storage_;

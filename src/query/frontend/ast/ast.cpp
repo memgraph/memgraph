@@ -404,6 +404,9 @@ constexpr utils::TypeInfo query::CallSubquery::kType{
 constexpr utils::TypeInfo query::MultiDatabaseQuery::kType{
     .id = utils::TypeId::AST_MULTI_DATABASE_QUERY, .name = "MultiDatabaseQuery", .superclass = &query::Query::kType};
 
+constexpr utils::TypeInfo query::VersioningQuery::kType{
+    .id = utils::TypeId::AST_VERSIONING_QUERY, .name = "VersioningQuery", .superclass = &query::Query::kType};
+
 constexpr utils::TypeInfo query::UseDatabaseQuery::kType{
     .id = utils::TypeId::AST_USE_DATABASE, .name = "UseDatabaseQuery", .superclass = &query::Query::kType};
 
