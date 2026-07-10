@@ -269,6 +269,34 @@ TEST_F(PlannerV2InterpreterTest, UnaliasedColumnHeaderIsSourceTextNotFoldedValue
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
 }
 
+TEST_F(PlannerV2InterpreterTest, AliasedColumnHeaderIsAliasNotSourceText) {
+  // An aliased column takes its alias as both the header and the EXPLAIN column
+  // name, never the source text; this exercises OutputDisplayName's is_aliased_
+  // branch, which short-circuits the token_position lookup.
+  auto stream = Interpret("RETURN 1 + 2 AS foo;");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader()[0], "foo");
+
+  auto explained = Interpret("EXPLAIN RETURN 1 + 2 AS foo;");
+  auto const plan = PlanText(explained);
+  EXPECT_NE(plan.find("Produce {foo}"), std::string::npos) << plan;
+}
+
+TEST_F(PlannerV2InterpreterTest, MixedColumnHeadersAreResolvedPerColumn) {
+  // Each column's header is resolved from its own token_position, so an
+  // unaliased expression, an unaliased variable reference, and an aliased
+  // expression in one RETURN don't cross-contaminate.
+  auto stream = Interpret("UNWIND [1] AS x RETURN 1 + 1, x, 2 + 2 AS y;");
+  ASSERT_EQ(stream.GetHeader().size(), 3U);
+  EXPECT_EQ(stream.GetHeader()[0], "1 + 1");
+  EXPECT_EQ(stream.GetHeader()[1], "x");
+  EXPECT_EQ(stream.GetHeader()[2], "y");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[0][2].ValueInt(), 4);
+}
+
 TEST_F(PlannerV2InterpreterTest, ConcatenatedKnownListsHaveKnownLength) {
   // List concatenation of two known-length lists has a known length
   // (3 + 100 = 103), so an unused binding over it still elides to a
