@@ -1158,6 +1158,11 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
     cold_key = Durability::GenKey(name);
     cold_val = Durability::GenColdVal(entry.salient.uuid, entry.rel_dir, entry.cold_stats);
   }
+  // Capture a raw Database* for the pre-finish_suspend() background-task teardown below (see the
+  // StopAllBackgroundTasks() call after rollback.Disable()). Valid until finish_suspend() destroys
+  // value_: during SUSPENDING no other path can access() the value (returns nullopt) or destroy it,
+  // and this thread is the sole driver of the transition.
+  auto *db_for_teardown = acc->get();
   acc.reset();  // drop our accessor -> count == 0 (state still SUSPENDING)
   {
     auto wr = std::lock_guard{lock_};
@@ -1206,6 +1211,18 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // SUSPENDING -> COLD; if the guard fired afterwards it would abort_suspend() on a non-SUSPENDING
   // state and trip the debug assert.
   rollback.Disable();
+
+  // Stop this tenant's background tasks (stream consumers, after-commit trigger pool, storage's TTL
+  // scheduler + async indexer) HERE — while the gatekeeper mutex is NOT held. finish_suspend() below
+  // takes that mutex and holds it across ~Database -> ~InMemoryStorage, whose StopAllBackgroundTasks()
+  // JOINS the TTL / async-indexer threads. Those threads call make_database_protector() ->
+  // DatabaseHandler::Get() -> Gatekeeper::access(), which blocks acquiring the very mutex finish_suspend()
+  // holds -> the join would deadlock (joiner holds the lock the joinee waits on). By stopping them now,
+  // that in-destructor join is a no-op. The WAL-finalize-under-mutex suspend->resume directory handoff
+  // that finish_suspend() protects is unaffected: only the thread joins move earlier; FinalizeWal still
+  // runs under the mutex inside finish_suspend(). Placed AFTER rollback.Disable() (the point of no
+  // return) so a rolled-back suspend can never leave a HOT tenant with dead background schedulers.
+  db_for_teardown->StopAllBackgroundTasks();
 
   // OUTSIDE lock_: value_.reset() -> ~Database (stop threads, FinalizeWal, NO exit snapshot).
   // The COLD shell stays in db_handler_ so a later resume can move-assign a fresh gatekeeper.
