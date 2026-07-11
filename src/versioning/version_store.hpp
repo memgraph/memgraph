@@ -146,19 +146,20 @@ class VersionStore {
   // contract that a failed merge leaves main AND the branch byte-unchanged, retryable.
   void AbortMerge(std::string_view name);
 
-  // Graph Versioning v1 (materialize-per-checkout, CHUNK 7b(2)): exclusive single-writer
-  // checkout. A checked-out branch is materialized into a private per-session BranchEngine (see
-  // versioning/branch_engine.hpp) that STOCK Cypher operators write into directly -- if two
-  // sessions checked out the same branch concurrently, each would hold a DIFFERENT physical copy
-  // and their writes would silently diverge with no way to reconcile. TryAcquireCheckout enforces
-  // "at most one live checkout per branch" the exact same way `merging_` enforces "at most one
-  // live merge per branch" (see BeginMerge above): a bare membership set guarded by lock_, never
-  // persisted (purely live-session state; does not survive a restart, exactly like merging_).
+  // Graph Versioning v1 (lazy diff-context, slice E-1): exclusive single-writer checkout. A
+  // checked-out branch is served by a private per-session BranchContext (see
+  // versioning/branch_engine.hpp) -- its diff engine is where COW'd/branch-native writes land --
+  // if two sessions checked out the same branch concurrently, each would hold a DIFFERENT diff
+  // engine and their writes would silently diverge with no way to reconcile. TryAcquireCheckout
+  // enforces "at most one live checkout per branch" the exact same way `merging_` enforces "at
+  // most one live merge per branch" (see BeginMerge above): a bare membership set guarded by
+  // lock_, never persisted (purely live-session state; does not survive a restart, exactly like
+  // merging_).
   //
   // Returns false (no state changed) if `name` is already checked out by some session, or is
   // currently BeginMerge'd (a session should not be able to start writing to a branch that is
   // mid-merge onto its parent). The caller MUST pair a successful TryAcquireCheckout with exactly
-  // one later ReleaseCheckout -- CurrentDB::ClearBranchEngine (query/interpreter.hpp) is the sole
+  // one later ReleaseCheckout -- CurrentDB::ClearBranchContext (query/interpreter.hpp) is the sole
   // caller of ReleaseCheckout, invoked whenever the session's branch pointer is cleared or moves
   // to a different branch/database.
   bool TryAcquireCheckout(std::string_view name);
@@ -178,7 +179,7 @@ class VersionStore {
   // marker cannot legitimately survive a restart (the in-flight merge transaction itself
   // wouldn't have), so an empty set on load is always correct.
   std::set<std::string, std::less<>> merging_;
-  // Names currently checked out by some live session's BranchEngine (see TryAcquireCheckout's own
+  // Names currently checked out by some live session's BranchContext (see TryAcquireCheckout's own
   // doc-comment above). Never persisted, for the same reason `merging_` isn't: an exclusive
   // checkout is a live-session concept that cannot survive a restart.
   std::set<std::string, std::less<>> checked_out_;

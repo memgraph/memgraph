@@ -353,37 +353,224 @@ TEST_F(VersioningInterpreterTest, ReApplyingSameDatabaseAccessPreservesCheckout)
   EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "feature");
 }
 
-// Graph Versioning v1 (materialize-per-checkout, CHUNK 7b(2)): end-to-end regression for the unit
-// this file's CHECKOUT_BRANCH handler now wires up -- ordinary Cypher issued while checked out on
-// a branch must run against that branch's OWN private BranchEngine (built at CHECKOUT time from a
-// full copy of main as of the fork point), completely isolated from main, with the session
-// reading back its own writes (no shadowing/union-cursor trickery needed, single physical store).
-// Checking back out onto 'main' must route straight back to main's real storage, untouched by
-// anything the branch session wrote -- R35 (main is never written by branch activity).
+// Graph Versioning v1 (lazy diff-context, slice E-1): end-to-end regression for the unit this
+// file's CHECKOUT_BRANCH handler now wires up -- ordinary Cypher issued while checked out on a
+// branch resolves through that branch's own BranchContext (diff-engine-first, falling back to the
+// historical fork-state base), with the session reading back its own writes. Checking back out
+// onto 'main' must route straight back to main's real storage, untouched by anything the branch
+// session wrote -- R35 (main is never written by branch activity).
+//
+// VERTEX-ONLY (this slice's own scope, superseding the predecessor BranchEngine's full-copy
+// version of this same test): no edges. MATCH (n) here (rather than MATCH (n:A)) purely because
+// this test only ever has one vertex to find either way; see
+// BranchLabelScanIsUnionAwareNotJustDiffEngineIndex below for the dedicated label-indexed-scan
+// regression (DbAccessor::Vertices(view, label) is branch-aware too, as of the HIGH-3(b)
+// adversarial-review fix).
 TEST_F(VersioningInterpreterTest, BranchWriteIsIsolatedAndReadYourWrites) {
   SatisfyGate();
 
-  faker.Interpret("CREATE (s:S)-[:E]->(a:A {x:1})");
+  faker.Interpret("CREATE (:A {x:1})");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
   ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
 
-  faker.Interpret("MATCH (a:A) SET a.x = 2");
+  faker.Interpret("MATCH (n) SET n.x = 2");
 
-  // Read-your-writes against the branch's own engine.
+  // Read-your-writes against the branch's own diff engine.
   {
-    auto stream = faker.Interpret("MATCH (s:S)-[:E]->(a:A) RETURN a.x");
+    auto stream = faker.Interpret("MATCH (n) RETURN n.x");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
   }
 
-  // Tears the branch engine down and routes back to main's real storage.
+  // Releases the branch context and routes back to main's real storage.
   faker.Interpret("CHECKOUT BRANCH 'main'");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
 
   {
-    auto stream = faker.Interpret("MATCH (s:S)-[:E]->(a:A) RETURN a.x");
+    auto stream = faker.Interpret("MATCH (n) RETURN n.x");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
   }
+}
+
+// Graph Versioning v1 (lazy diff-context, slice E-1): the SELECTIVE-COW regression the redesign
+// exists for -- a branch touching ONE of two main vertices must copy-on-write ONLY that one; the
+// untouched vertex must keep resolving through the historical fork-state base, never materialized
+// into the diff engine. Also verifies the CHECKOUT-away isolation contract (R35) one more time
+// against a two-vertex graph (BranchWriteIsIsolatedAndReadYourWrites, above, only has one).
+//
+// VERTEX-ONLY: `WHERE 'A' IN labels(n)` (ScanAll + a labels() filter) stands in for `MATCH (n:A)`
+// here purely to keep this test's focus on selective-COW, independent of whether a label index
+// happens to exist -- see BranchLabelScanIsUnionAwareNotJustDiffEngineIndex below for the
+// dedicated MATCH (n:A) / label-indexed-scan regression.
+TEST_F(VersioningInterpreterTest, BranchVertexWriteIsLazyDiffAndIsolated) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:A {x:1}), (:B {y:9})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+
+  faker.Interpret("MATCH (n) WHERE 'A' IN labels(n) SET n.x = 2");
+
+  // Lower-level check straight against BranchContext (branch_context() is public on CurrentDB):
+  // exactly ONE vertex (A) should have been copy-on-write'd into the diff engine -- B must still
+  // be un-materialized there.
+  {
+    auto *ctx = faker.interpreter.current_db_.branch_context();
+    ASSERT_NE(ctx, nullptr);
+    auto acc = ctx->diff_engine().Access(memgraph::storage::StorageAccessType::READ);
+    size_t diff_vertex_count = 0;
+    for (auto v : acc->Vertices(memgraph::storage::View::OLD)) {
+      (void)v;
+      ++diff_vertex_count;
+    }
+    EXPECT_EQ(diff_vertex_count, 1U) << "only the touched vertex (A) should have been COW'd";
+  }
+
+  // ScanAll union read: A resolves to the diff-engine's COW'd copy (x=2); B resolves to the
+  // historical base, untouched (y=9).
+  {
+    auto stream = faker.Interpret("MATCH (n) RETURN n.x, n.y");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    bool found_a = false;
+    bool found_b = false;
+    for (auto &row : stream.GetResults()) {
+      if (row[0].type() != memgraph::communication::bolt::Value::Type::Null) {
+        EXPECT_EQ(row[0].ValueInt(), 2) << "A must resolve to the diff-engine's COW'd copy";
+        found_a = true;
+      } else {
+        ASSERT_NE(row[1].type(), memgraph::communication::bolt::Value::Type::Null);
+        EXPECT_EQ(row[1].ValueInt(), 9) << "B must resolve to historical_, untouched";
+        found_b = true;
+      }
+    }
+    EXPECT_TRUE(found_a);
+    EXPECT_TRUE(found_b);
+  }
+
+  // Checking back onto main: A must read back its ORIGINAL value (1) -- R35, main is never
+  // written by branch activity.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (n) WHERE 'A' IN labels(n) RETURN n.x");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+}
+
+// Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-1 regression (adversarial-review fix):
+// query::VertexAccessor::UpdateProperties (the `SET n += {...}` operator, plan/operator.cpp's
+// SetPropertiesOnRecord) was missing the COW guard SetProperty/AddLabel already had -- on a branch
+// it wrote straight through the READ-ONLY historical accessor, tripping transaction.hpp's
+// `is_historical_` MG_ASSERT. This must not crash, and the write must still be isolated from main
+// (R35).
+TEST_F(VersioningInterpreterTest, BranchUpdatePropertiesIsCowedAndIsolated) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:A {x:1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Must not crash -- HIGH-1's whole point (previously an MG_ASSERT abort against the historical,
+  // read-only accessor).
+  faker.Interpret("MATCH (n) SET n += {y: 2}");
+
+  {
+    auto stream = faker.Interpret("MATCH (n) RETURN n.y");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+
+  // Main was never touched -- R35.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (n) RETURN n.y");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null);
+  }
+}
+
+// Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-2 regression (adversarial-review fix):
+// single-STATEMENT read-your-write. `SET n.x=2` COWs the vertex and redirects `impl_` on the
+// mutator's OWN (transient, expression-evaluated) VertexAccessor -- but the Frame's own copy of
+// symbol `n` (the one `RETURN n.x`, further down the SAME operator tree, actually reads) is a
+// SEPARATE value that keeps pointing at the stale, pre-COW historical object unless every read is
+// made self-correcting (VertexAccessor::GetProperty/Labels/etc's own doc-comment). Must see the NEW
+// value, not the historical one, all within one autocommit statement/transaction -- no AdvanceCommand
+// or second statement involved.
+TEST_F(VersioningInterpreterTest, BranchSingleStatementSetThenReturnSeesNewValue) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:A {x:1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto stream = faker.Interpret("MATCH (n) SET n.x = 2 RETURN n.x");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "must see the post-SET value, not the stale historical one";
+}
+
+// Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(b) regression (adversarial-review fix):
+// a checked-out branch's OWN label index (created directly against the diff engine -- CREATE INDEX
+// is branch-aware via the same query::DbAccessor/accessor_ redirection as everything else, see
+// db_accessor.hpp's CreateIndex) only knows about vertices PHYSICALLY resident in the diff engine
+// (COW'd, or branch-native) -- it has no reconciliation with historical_'s fork-state vertices.
+// Once that index exists, the planner lowers `MATCH (n:A)` to a real ScanAllByLabel
+// (plan/rewrite/index_lookup.hpp gates on LabelIndexReady, which the diff engine's freshly-created
+// index now satisfies) -- DbAccessor::Vertices(view, label) must fall back to the filtered union
+// scan (MaterializeFilteredBranchScan) rather than trust the diff engine's own, structurally
+// incomplete index, or every still-historical (non-COW'd) A-labeled vertex would silently go
+// missing from the result.
+TEST_F(VersioningInterpreterTest, BranchLabelScanIsUnionAwareNotJustDiffEngineIndex) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:A {x:1}), (:A {x:5})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Creates the index against the DIFF ENGINE only -- main's (and hence historical_'s) two
+  // A-vertices are not, and never will be, reconciled into it.
+  faker.Interpret("CREATE INDEX ON :A");
+
+  // Touches (COWs) only the x=1 vertex -- the x=5 one stays purely historical, absent from the
+  // diff engine's own index.
+  faker.Interpret("MATCH (n:A) WHERE n.x = 1 SET n.x = 2");
+
+  auto stream = faker.Interpret("MATCH (n:A) RETURN n.x");
+  ASSERT_EQ(stream.GetResults().size(), 2U) << "must find BOTH the COW'd vertex and the still-historical one";
+  bool found_cowed = false;
+  bool found_historical = false;
+  for (auto &row : stream.GetResults()) {
+    const auto value = row[0].ValueInt();
+    if (value == 2) {
+      found_cowed = true;
+    } else if (value == 5) {
+      found_historical = true;
+    }
+  }
+  EXPECT_TRUE(found_cowed) << "the COW'd vertex (diff engine's own index DOES know about it) must still be found";
+  EXPECT_TRUE(found_historical)
+      << "the still-historical vertex (diff engine's own index does NOT know about it) must not be silently missed";
+}
+
+// Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-4 regression (adversarial-review fix):
+// DELETE has no defined semantics yet on a branch (this slice is VERTEX-ONLY -- no tombstone
+// concept exists in BranchContext::UnionVerticesIterable, see its own doc-comment) -- must be
+// rejected cleanly (NotYetImplemented) rather than crashing or silently misbehaving (e.g. deleting
+// a not-yet-COW'd historical object, or a resurrection once the union scan next runs).
+TEST_F(VersioningInterpreterTest, BranchDeleteThrowsNotYetImplemented) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:A {x:1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  ASSERT_THROW(faker.Interpret("MATCH (n) DELETE n"), memgraph::query::NotYetImplemented);
+
+  // Must not have crashed or left the session/transaction unusable -- an ordinary read still works.
+  auto stream = faker.Interpret("MATCH (n) RETURN n.x");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
 }

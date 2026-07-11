@@ -170,9 +170,9 @@ bool VersionStore::DropBranch(std::string_view name) {
   if (merging_.contains(name)) {
     return false;
   }
-  // Graph Versioning v1 (materialize-per-checkout): a branch some session currently has checked
-  // out (and is writing into via its private BranchEngine) must not be droppable out from under
-  // that session -- CHECKOUT BRANCH 'main' (releasing the checkout) first.
+  // Graph Versioning v1 (lazy diff-context): a branch some session currently has checked out (and
+  // is writing into via its private BranchContext's diff engine) must not be droppable out from
+  // under that session -- CHECKOUT BRANCH 'main' (releasing the checkout) first.
   if (checked_out_.contains(name)) {
     return false;
   }
@@ -230,10 +230,11 @@ std::expected<BranchInfo, std::string> VersionStore::BeginMerge(std::string_view
   if (merging_.contains(name)) {
     return std::unexpected(fmt::format("Branch '{}' is already being merged.", name));
   }
-  // Graph Versioning v1 (materialize-per-checkout): a session currently checked out onto `name`
-  // is writing straight into its own private BranchEngine, not into a captured change-log this
-  // merge could see -- refuse rather than silently merge a stale (pre-checkout) view. The
-  // session must CHECKOUT BRANCH 'main' (releasing the checkout) before `name` can be merged.
+  // Graph Versioning v1 (lazy diff-context): a session currently checked out onto `name` is
+  // writing straight into its own private BranchContext's diff engine, not into a captured
+  // change-log this merge could see -- refuse rather than silently merge a stale (pre-checkout)
+  // view. The session must CHECKOUT BRANCH 'main' (releasing the checkout) before `name` can be
+  // merged.
   if (checked_out_.contains(name)) {
     return std::unexpected(
         fmt::format("Branch '{}' is currently checked out by a session; check out 'main' there "

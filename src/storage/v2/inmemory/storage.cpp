@@ -390,9 +390,10 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  PlanInvalidatorPtr invalidator, metrics::DatabaseMetricHandles metric_handles,
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
                                  memgraph::memory::ArenaPool *db_arena,
-                                 utils::MemoryTracker *db_embedding_memory_tracker)
+                                 utils::MemoryTracker *db_embedding_memory_tracker,
+                                 std::shared_ptr<storage::NameIdMapper> shared_name_id_mapper)
     : Storage(config, config.salient.storage_mode, std::move(invalidator), metric_handles, db_arena,
-              db_embedding_memory_tracker, std::move(database_protector_factory)),
+              db_embedding_memory_tracker, std::move(database_protector_factory), std::move(shared_name_id_mapper)),
       db_arena_(db_arena),
       vertices_{},
       edges_{},

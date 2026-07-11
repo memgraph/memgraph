@@ -12,6 +12,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <optional>
 
 #include "common_function_signatures.hpp"
@@ -245,10 +246,18 @@ class Storage {
   friend class VectorIndex;
 
  public:
+  // `shared_name_id_mapper`: Graph Versioning v1 (lazy diff-context, slice E-1) -- when non-null,
+  // this Storage SHARES that NameIdMapper instance instead of constructing its own (see
+  // GetSharedNameIdMapper()'s own doc-comment above for why: versioning::BranchContext::
+  // BuildFromFork passes main's own mapper here so the diff engine and main's historical view
+  // decode label/property ids through the SAME id space). nullptr (the overwhelmingly common
+  // case) is byte-identical to the pre-versioning behavior -- a fresh mapper is constructed as
+  // before.
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
           metrics::DatabaseMetricHandles metric_handles = {}, memory::ArenaPool *db_arena_pool = nullptr,
           utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
-          std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
+          std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr,
+          std::shared_ptr<NameIdMapper> shared_name_id_mapper = nullptr);
 
   Storage(const Storage &) = delete;
   Storage(Storage &&) = delete;
@@ -295,6 +304,18 @@ class Storage {
   EdgeTypeId NameToEdgeType(const std::string_view name) const {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
+
+  // Graph Versioning v1 (lazy diff-context, slice E-1): lets versioning::BranchContext::
+  // BuildFromFork construct the diff engine's InMemoryStorage SHARING main's own NameIdMapper
+  // instance (see the Storage ctor's shared_name_id_mapper param below), rather than each store
+  // owning a numerically-unrelated mapper of its own. One shared id space means a historical
+  // (not-yet-COW'd) vertex's label/property ids decode correctly through the SAME mapper the
+  // diff-engine's own accessor uses -- no by-name translation needed at COW time. NameIdMapper is
+  // already safe for this: `NameToId`/`IdToName` are used concurrently by main's own multiple
+  // transactions today (SkipListDb-backed, atomic counter_), so a branch's diff engine adding a
+  // brand-new name concurrently with main reading/writing is the same already-supported access
+  // pattern, not a new concurrency hazard.
+  std::shared_ptr<NameIdMapper> GetSharedNameIdMapper() const { return name_id_mapper_; }
 
   StorageMode GetStorageMode() const noexcept;
 
@@ -400,7 +421,13 @@ class Storage {
   // for disk storage.
   std::atomic<uint64_t> edge_count_{0};
 
-  std::unique_ptr<NameIdMapper> name_id_mapper_;
+  // shared_ptr (not unique_ptr): Graph Versioning v1 (lazy diff-context, slice E-1) lets a branch's
+  // diff engine share THIS instance instead of owning a numerically-unrelated mapper of its own --
+  // see GetSharedNameIdMapper()'s own doc-comment above. All existing `.get()`-based call sites are
+  // unaffected (shared_ptr also has `.get()`, no refcounting on that path); the refcount is only
+  // touched at construction (main's own ctor, or a sharing BuildFromFork call) and at each Storage's
+  // destruction -- not on any hot per-query path.
+  std::shared_ptr<NameIdMapper> name_id_mapper_;
   Config config_;
 
   // Transaction engine

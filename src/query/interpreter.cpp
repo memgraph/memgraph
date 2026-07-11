@@ -225,19 +225,22 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   const memory::DbArenaScope db_arena_scope{db_acc.get()};
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
 
-  // Graph Versioning v1 (materialize-per-checkout, CHUNK 7b(2)): a checked-out branch routes
-  // ordinary Cypher straight at its own private storage::InMemoryStorage (built at CHECKOUT time
-  // -- see PrepareVersioningQuery's CHECKOUT_BRANCH handler) instead of the real database's
-  // storage. This is what lets STOCK query operators run completely unmodified against a branch
-  // (no union-cursor, no per-row shadowing lookups): the branch engine already physically
-  // contains every object as of the fork point. Database::Access/UniqueAccess/ReadOnlyAccess are
-  // themselves thin forwarders straight to Storage::Access/UniqueAccess/ReadOnlyAccess
-  // (dbms/database.cpp), so calling the SAME methods on the branch's own InMemoryStorage below is
-  // equivalent, just against a different physical engine. When current_version_ is unset (the
-  // overwhelmingly common case) or no engine is held, `target_storage` is `db_acc->storage()` and
-  // this is BYTE-FOR-BYTE the pre-versioning behavior.
-  storage::Storage *target_storage =
-      (current_version_ && branch_engine_) ? &branch_engine_->storage() : db_acc->storage();
+  // Graph Versioning v1 (lazy diff-context, slice E-1): a checked-out branch routes ordinary
+  // Cypher's WRITE path straight at its own private, empty diff engine (built at CHECKOUT time --
+  // see PrepareVersioningQuery's CHECKOUT_BRANCH handler) instead of the real database's storage.
+  // Database::Access/UniqueAccess/ReadOnlyAccess are themselves thin forwarders straight to
+  // Storage::Access/UniqueAccess/ReadOnlyAccess (dbms/database.cpp), so calling the SAME methods
+  // on the branch's own diff engine below is equivalent, just against a different physical engine
+  // -- this transaction's PrepareForCommitPhase/Abort machinery (Interpreter::Commit/Abort) works
+  // completely unmodified against it, exactly as it did for the predecessor BranchEngine's
+  // (fully-seeded) private storage. What's NEW in this slice is that the diff engine starts EMPTY:
+  // reads for a gid the diff engine doesn't (yet) have fall back to the branch's historical base
+  // (BranchContext::ResolveVertex/Vertices), and writes copy-on-write the touched object in first
+  // (BranchContext::CowVertex) -- both wired through DbAccessor below, not through target_storage.
+  // When current_version_ is unset (the overwhelmingly common case) or no context is held,
+  // `target_storage` is `db_acc->storage()` and this is BYTE-FOR-BYTE the pre-versioning behavior.
+  const bool on_branch = current_version_.has_value() && branch_context_ != nullptr;
+  storage::Storage *target_storage = on_branch ? &branch_context_->diff_engine() : db_acc->storage();
 
   switch (acc_type) {
     case storage::StorageAccessType::READ:
@@ -258,7 +261,19 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
       spdlog::error("Unknown accessor type: {}", static_cast<int>(acc_type));
       throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
   }
-  execution_db_accessor_.emplace(db_transactional_accessor_.get());
+  // `db_transactional_accessor_` IS the branch's diff-engine transaction when on_branch (see
+  // target_storage above) -- DbAccessor's ctx pointer lets its reads/writes additionally consult
+  // `branch_context_->historical()` and go through CowVertex, using this SAME accessor throughout
+  // (required for same-transaction MVCC self-visibility -- see BranchContext::CowVertex's own
+  // doc-comment). BranchContext itself only holds ONE such accessor at a time
+  // (current_diff_txn(), branch_engine.hpp -- collapsed from a second pointer duplicated onto every
+  // query::VertexAccessor, which blew the mgp_vertex C-API size budget); publish it here, BEFORE
+  // constructing DbAccessor below, so branch_ctx_->ResolveVertex/Vertices/CowVertex have it as soon
+  // as any query code can reach them.
+  if (on_branch) {
+    branch_context_->set_current_diff_txn(db_transactional_accessor_.get());
+  }
+  execution_db_accessor_.emplace(db_transactional_accessor_.get(), on_branch ? branch_context_.get() : nullptr);
 
   transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.gauge};
 
@@ -276,6 +291,15 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
 }
 
 void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
+  // Graph Versioning v1 (lazy diff-context, slice E-1): clear BranchContext's single current-txn
+  // slot BEFORE db_transactional_accessor_ itself is reset/destroyed below -- see
+  // SetupDatabaseTransaction's own doc-comment on why only one slot exists (exclusive
+  // single-writer checkout) and why it must never be left dangling past this query's own
+  // accessor's lifetime. Guarded on branch_context_ (not current_version_): CleanupDBTransaction
+  // runs on every ordinary (non-branch) query too, where branch_context_ is simply null.
+  if (branch_context_) {
+    branch_context_->set_current_diff_txn(nullptr);
+  }
   if (abort && db_transactional_accessor_) {
     db_transactional_accessor_->Abort();
   }
@@ -286,14 +310,14 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   transaction_gauge_ = {};
 }
 
-void memgraph::query::CurrentDB::ClearBranchEngine() {
-  if (!branch_engine_) {
+void memgraph::query::CurrentDB::ClearBranchContext() {
+  if (!branch_context_) {
     return;
   }
-  branch_engine_version_store_->ReleaseCheckout(branch_engine_name_);
-  branch_engine_.reset();
-  branch_engine_version_store_ = nullptr;
-  branch_engine_name_.clear();
+  branch_context_version_store_->ReleaseCheckout(branch_context_name_);
+  branch_context_.reset();
+  branch_context_version_store_ = nullptr;
+  branch_context_name_.clear();
 }
 
 struct QueryLogWrapper {
@@ -3613,7 +3637,14 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       &*current_db
             .execution_db_accessor_;  // todo pass the full current_db into planner...make plan optimisation optional
 
-  const auto is_cacheable = parsed_query.is_cacheable;
+  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(a) FIX (adversarial-review): the plan
+  // cache is per-Database, shared between main and every branch checked out against it. A plan
+  // built while on main (e.g. a ScanAllByLabel using main's populated label index) would otherwise
+  // be reused verbatim on a branch, where it scans the diff engine's own (always-empty) index
+  // instead -- silently returning 0 rows. Branches must always replan, and must never pollute (or
+  // read from) main's cache with a branch-shaped plan. Checked via current_db.branch_context()
+  // (non-null iff a branch is checked out for this transaction) rather than is_cacheable alone.
+  const auto is_cacheable = parsed_query.is_cacheable && current_db.branch_context() == nullptr;
   auto *plan_cache = is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query,
@@ -3745,7 +3776,12 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
   MG_ASSERT(current_db.execution_db_accessor_, "Explain query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-  auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
+  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(a) FIX: same branch-vs-main plan
+  // cache hazard as the main Cypher path above -- EXPLAIN must not read/write main's cache while a
+  // branch is checked out either (see the fuller comment at the CypherQuery plan-cache selection).
+  auto *plan_cache = (parsed_inner_query.is_cacheable && current_db.branch_context() == nullptr)
+                         ? current_db.db_acc_->get()->plan_cache()
+                         : nullptr;
 
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,
                                              std::move(parsed_inner_query.ast_storage),
@@ -3856,7 +3892,12 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-  auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
+  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(a) FIX: same branch-vs-main plan
+  // cache hazard as the main Cypher path above -- PROFILE must not read/write main's cache while a
+  // branch is checked out either (see the fuller comment at the CypherQuery plan-cache selection).
+  auto *plan_cache = (parsed_inner_query.is_cacheable && current_db.branch_context() == nullptr)
+                         ? current_db.db_acc_->get()->plan_cache()
+                         : nullptr;
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,
                                              std::move(parsed_inner_query.ast_storage),
                                              cypher_query,
@@ -8200,22 +8241,27 @@ std::vector<TypedValue> VersioningDetailRow(std::string_view name, const version
           TypedValue(info.parent)};
 }
 
-// Graph Versioning v1 (materialize-per-checkout, CHUNK 7b(2)): builds a private BranchEngine for
-// `name` and installs it onto `current_db`, acquiring this session's exclusive checkout on
-// `name` via `version_store` along the way. Called from the CHECKOUT_BRANCH query_handler (both
-// the plain-switch and create-and-switch forms) at Pull time, AFTER the caller has already
-// released any PREVIOUSLY held branch engine (via current_db.SetCurrentVersion(std::nullopt)) --
-// see this file's CHECKOUT_BRANCH case for the full release-old-then-acquire-new ordering.
+// Graph Versioning v1 (lazy diff-context, slice E-1): builds a private BranchContext for `name`
+// and installs it onto `current_db`, acquiring this session's exclusive checkout on `name` via
+// `version_store` along the way. Called from the CHECKOUT_BRANCH query_handler (both the
+// plain-switch and create-and-switch forms) at Pull time, AFTER the caller has already released
+// any PREVIOUSLY held branch context (via current_db.SetCurrentVersion(std::nullopt)) -- see this
+// file's CHECKOUT_BRANCH case for the full release-old-then-acquire-new ordering.
+//
+// (Still named CheckoutBranchEngine -- a local helper's name, not part of the versioning module's
+// public surface that was renamed BranchEngine -> BranchContext.)
 //
 // Throws QueryRuntimeException (leaving current_db's branch state untouched) if the checkout is
-// already held by another session, or if BuildFromFork itself fails (kForkStateUnavailable or
-// kUnsupportedEnumProperty -- see branch_engine.hpp); in the latter case the just-acquired
-// checkout is released first so a failed CHECKOUT never leaks an exclusive hold.
+// already held by another session, or if BuildFromFork itself fails (fork_ts no longer pinned --
+// see branch_engine.hpp's BranchContext::BuildError); in that case the just-acquired checkout is
+// released first so a failed CHECKOUT never leaks an exclusive hold.
 //
-// NOTE (scope of this unit): a freshly built engine seeds ONLY main's state as of the fork point
-// -- replaying the branch's own prior writes (its BranchLog) on re-checkout is a later unit, so a
-// checked-out branch's writes today do NOT survive a checkout-away. Acceptable for this slice
-// (see this file's CHECKOUT_BRANCH case doc-comment).
+// NOTE (scope of this slice): the diff engine starts EMPTY -- nothing is copied from main at
+// CHECKOUT time (contrast the predecessor BranchEngine, which seeded a full copy here). Ordinary
+// Cypher reads/writes resolve lazily through BranchContext (DbAccessor/query::VertexAccessor, see
+// db_accessor.hpp/vertex_accessor.hpp), vertices only this slice (no edges yet). Also unchanged
+// from the predecessor: replaying the branch's own prior writes (its BranchLog) on re-checkout is
+// a later unit, so a checked-out branch's writes today do NOT survive a checkout-away.
 void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *version_store,
                           memgraph::dbms::DatabaseAccess db_acc, const std::string &name,
                           const versioning::BranchInfo &info) {
@@ -8228,14 +8274,14 @@ void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *versi
   // MERGE_BRANCH's own identical downcast, this file's own comment there).
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
 
-  auto engine = versioning::BranchEngine::BuildFromFork(
+  auto context = versioning::BranchContext::BuildFromFork(
       *mem_storage, info.fork_ts, storage::CommitArgs::make_main(dbms::DatabaseProtector{db_acc}.clone()));
-  if (!engine) {
+  if (!context) {
     version_store->ReleaseCheckout(name);
-    throw QueryRuntimeException(engine.error().message);
+    throw QueryRuntimeException(context.error().message);
   }
 
-  current_db.SetBranchEngine(std::move(*engine), version_store, name);
+  current_db.SetBranchContext(std::move(*context), version_store, name);
 }
 }  // namespace
 
@@ -8598,9 +8644,9 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
               [version_store, &current_db, name = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                   AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
-              // Materialize-per-checkout (CHUNK 7b(2)): VersionStore::DropBranch now refuses a
-              // branch that's currently checked out by ANY session (a private BranchEngine can't
-              // be dropped out from under the session writing into it) -- but DROPPING THE BRANCH
+              // Lazy diff-context (slice E-1): VersionStore::DropBranch now refuses a branch
+              // that's currently checked out by ANY session (a private BranchContext can't be
+              // dropped out from under the session writing into it) -- but DROPPING THE BRANCH
               // YOU YOURSELF ARE CHECKED OUT ON must keep working (spec §4.2, and the pre-existing
               // CheckoutCreateAndSwitchClearsOnDrop test): VersionStore has no notion of WHICH
               // session holds a checkout, only that ONE does, so THIS session must release its own

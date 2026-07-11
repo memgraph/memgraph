@@ -728,7 +728,12 @@ struct mgp_vertex {
   mgp_graph *graph;
 };
 
-inline constexpr size_t kMaxMgpVertexSize = 64;
+// Graph Versioning v1: query::VertexAccessor carries one extra `versioning::BranchContext*` so a
+// checked-out-branch query can resolve/COW through the branch diff-context. That single pointer
+// widens the largest VerticesIterable variant alternative (SubgraphVertexAccessor) and thus this
+// C-API type by ~8 bytes. Budget bumped 64->80 to absorb it (the accepted footprint cost of the
+// query-layer diff approach; the pointer is null and inert when versioning is off).
+inline constexpr size_t kMaxMgpVertexSize = 80;
 static_assert(sizeof(mgp_vertex) <= kMaxMgpVertexSize, "mgp_vertex grew beyond the expected size budget");
 
 struct mgp_edge {
@@ -795,7 +800,9 @@ struct mgp_edge {
   mgp_vertex to;
 };
 
-inline constexpr size_t kMaxMgpEdgeSize = 192;
+// Graph Versioning v1: mgp_edge embeds two mgp_vertex members (from/to), so it inherits ~2x the
+// per-vertex growth noted above. Budget bumped 192->224 to absorb it.
+inline constexpr size_t kMaxMgpEdgeSize = 224;
 static_assert(sizeof(mgp_edge) <= kMaxMgpEdgeSize, "mgp_edge grew beyond the expected size budget");
 
 struct mgp_path {

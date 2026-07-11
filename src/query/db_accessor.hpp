@@ -31,6 +31,7 @@
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/variant_helpers.hpp"
+#include "versioning/branch_engine.hpp"
 
 namespace memgraph::storage {
 enum class PointDistanceCondition : uint8_t;
@@ -50,9 +51,12 @@ using WithinBBoxCondition = memgraph::storage::WithinBBoxCondition;
 enum class text_search_mode;
 
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <span>
+#include <vector>
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
@@ -107,8 +111,12 @@ class SubgraphVertexAccessor final {
     return impl_.SetProperty(key, value);
   }
 
+  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-1 knock-on fix: query::VertexAccessor::
+  // UpdateProperties dropped `const` (see its own doc-comment) so it could CowIfNeeded() on a
+  // branch -- `impl_` here is a by-value member (not a pointer), so a `const` SubgraphVertexAccessor
+  // method can no longer call it either. Mirrors SetProperty below, already non-const.
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
-  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
     return impl_.UpdateProperties(properties);
   }
 
@@ -119,16 +127,57 @@ class SubgraphVertexAccessor final {
 namespace memgraph::query {
 
 class VerticesIterable final {
-  std::variant<storage::VerticesIterable, std::unordered_set<VertexAccessor, std::hash<VertexAccessor>,
-                                                             std::equal_to<void>, utils::Allocator<VertexAccessor>> *>
+  // Graph Versioning v1 (lazy diff-context, slice E-1): the 3rd alternative -- a branch-checkout's
+  // gid-ordered union scan (versioning::BranchContext::UnionVerticesIterable, branch_engine.hpp) --
+  // is added ALONGSIDE the two pre-existing alternatives below (a plain storage-level scan, or a
+  // caller-materialized set), not in place of either. Only DbAccessor::Vertices (below) ever
+  // constructs this alternative, and only when a branch context is active.
+  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(b) FIX (adversarial-review): the 4th
+  // alternative is a fully-materialized, already-filtered result set for the branch label/property
+  // scan workaround (see DbAccessor::Vertices(view, label[, properties, property_ranges]) below) --
+  // a checked-out branch's diff engine has no label/property index reconciled with historical_, so
+  // those scans fall back to filtering the (already-existing) unfiltered union scan by label/
+  // property instead of seeking an index. Filtering eagerly into an owned std::shared_ptr<vector<>>
+  // (rather than lazily skipping non-matches during iteration, which would need a predicate-aware
+  // variant of BranchContext::UnionVerticesIterable::Iterator) trades some memory/time for
+  // correctness and keeps the existing union-scan machinery untouched -- "at minimum correct even
+  // if slower" per the adversarial-review fix. shared_ptr (not a raw owned member here) so the
+  // materialized vector's lifetime is independent of how many copies of this VerticesIterable (or
+  // of Iterator, which also holds a copy -- see below) get made; VertexAccessor is NOT subject to
+  // the mgp_vertex 64-byte C-API budget concern that shaped its own single-pointer design, since
+  // VerticesIterable/Iterator never appear inside mgp_vertex.
+  std::variant<storage::VerticesIterable,
+               std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                  utils::Allocator<VertexAccessor>> *,
+               versioning::BranchContext::UnionVerticesIterable, std::shared_ptr<std::vector<VertexAccessor>>>
       iterable_;
+  // Only meaningful for the 3rd (branch) alternative -- stamped onto every yielded VertexAccessor
+  // so its mutators can later CowVertex through the SAME context (see query::VertexAccessor's own
+  // doc-comment). NON-const: ResolveVertex/Vertices/CowVertex open accessors against the diff
+  // engine and are therefore non-const member functions of BranchContext -- a const pointer here
+  // could not call them. nullptr for the other two alternatives.
+  //
+  // SINGLE-POINTER COLLAPSE (mg_procedure_impl.hpp's kMaxMgpVertexSize budget, R6): there used to
+  // be a SECOND pointer here (the diff-engine accessor), duplicated onto every yielded
+  // VertexAccessor too -- that overflowed mgp_vertex's 64-byte C-API size budget and grew the hot
+  // accessor for every caller, branch or not. `BranchContext` now holds that accessor itself
+  // (`current_diff_txn()`, branch_engine.hpp) in a single per-query slot -- safe because a
+  // checked-out branch is exclusive single-writer, so at most one query ever runs against a given
+  // BranchContext at a time. `branch_ctx_` is therefore the ONLY extra pointer needed here.
+  versioning::BranchContext *branch_ctx_{nullptr};
 
  public:
   class Iterator final {
     std::variant<storage::VerticesIterable::Iterator,
                  std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
-                                    utils::Allocator<VertexAccessor>>::iterator>
+                                    utils::Allocator<VertexAccessor>>::iterator,
+                 versioning::BranchContext::UnionVerticesIterable::Iterator, std::vector<VertexAccessor>::iterator>
         it_;
+    versioning::BranchContext *branch_ctx_{nullptr};
+    // HIGH-3(b): keeps the materialized vector (4th alternative above) alive independently of the
+    // parent VerticesIterable -- cheap (one atomic refcount bump), and removes any doubt about
+    // Iterator outliving the VerticesIterable it was created from.
+    std::shared_ptr<std::vector<VertexAccessor>> materialized_;
 
    public:
     explicit Iterator(storage::VerticesIterable::Iterator it) : it_(std::move(it)) {}
@@ -137,8 +186,33 @@ class VerticesIterable final {
                                          utils::Allocator<VertexAccessor>>::iterator it)
         : it_(it) {}
 
+    Iterator(versioning::BranchContext::UnionVerticesIterable::Iterator it, versioning::BranchContext *ctx)
+        : it_(std::move(it)), branch_ctx_(ctx) {}
+
+    Iterator(std::vector<VertexAccessor>::iterator it, std::shared_ptr<std::vector<VertexAccessor>> materialized)
+        : it_(it), materialized_(std::move(materialized)) {}
+
+    // All four alternatives return the SAME type (query::VertexAccessor, std::visit requires a
+    // common return type across every Overloaded branch) -- the branch alternative additionally
+    // stamps ctx (2-arg VertexAccessor ctor) so a later mutation on the yielded accessor can
+    // CowVertex through `branch_ctx_->current_diff_txn()` (see query::VertexAccessor's own
+    // doc-comment). The materialized (4th) alternative already holds fully-stamped VertexAccessor
+    // values (branch_ctx_ set at materialization time, see DbAccessor::MaterializeFilteredBranchScan
+    // below) so it's just a dereference.
     VertexAccessor operator*() const {
-      return std::visit([](auto &it_) { return VertexAccessor(*it_); }, it_);
+      return std::visit(
+          memgraph::utils::Overloaded{[](const storage::VerticesIterable::Iterator &it) { return VertexAccessor(*it); },
+                                      [](const std::unordered_set<VertexAccessor,
+                                                                  std::hash<VertexAccessor>,
+                                                                  std::equal_to<void>,
+                                                                  utils::Allocator<VertexAccessor>>::iterator &it) {
+                                        return VertexAccessor(*it);
+                                      },
+                                      [this](const versioning::BranchContext::UnionVerticesIterable::Iterator &it) {
+                                        return VertexAccessor(*it, branch_ctx_);
+                                      },
+                                      [](const std::vector<VertexAccessor>::iterator &it) { return *it; }},
+          it_);
     }
 
     Iterator &operator++() {
@@ -157,6 +231,14 @@ class VerticesIterable final {
                                                utils::Allocator<VertexAccessor>> *vertices)
       : iterable_(vertices) {}
 
+  VerticesIterable(versioning::BranchContext::UnionVerticesIterable iterable, versioning::BranchContext *ctx)
+      : iterable_(std::move(iterable)), branch_ctx_(ctx) {}
+
+  // HIGH-3(b): the materialized/filtered branch label-or-property scan alternative -- see
+  // DbAccessor::MaterializeFilteredBranchScan.
+  explicit VerticesIterable(std::shared_ptr<std::vector<VertexAccessor>> materialized)
+      : iterable_(std::move(materialized)) {}
+
   Iterator begin() {
     return std::visit(
         memgraph::utils::Overloaded{[](storage::VerticesIterable &iterable_) { return Iterator(iterable_.begin()); },
@@ -165,6 +247,12 @@ class VerticesIterable final {
                                                           std::equal_to<void>,
                                                           utils::Allocator<VertexAccessor>> *iterable_) {
                                       return Iterator(iterable_->begin());
+                                    },
+                                    [this](versioning::BranchContext::UnionVerticesIterable &iterable_) {
+                                      return Iterator(iterable_.begin(), branch_ctx_);
+                                    },
+                                    [](std::shared_ptr<std::vector<VertexAccessor>> &materialized) {
+                                      return Iterator(materialized->begin(), materialized);
                                     }},
         iterable_);
   }
@@ -176,7 +264,13 @@ class VerticesIterable final {
             [](std::unordered_set<VertexAccessor,
                                   std::hash<VertexAccessor>,
                                   std::equal_to<void>,
-                                  utils::Allocator<VertexAccessor>> *iterable_) { return Iterator(iterable_->end()); }},
+                                  utils::Allocator<VertexAccessor>> *iterable_) { return Iterator(iterable_->end()); },
+            [this](versioning::BranchContext::UnionVerticesIterable &iterable_) {
+              return Iterator(iterable_.end(), branch_ctx_);
+            },
+            [](std::shared_ptr<std::vector<VertexAccessor>> &materialized) {
+              return Iterator(materialized->end(), materialized);
+            }},
         iterable_);
   }
 };
@@ -388,9 +482,50 @@ class VerticesChunkCollection final {
 
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
+  // Graph Versioning v1 (lazy diff-context, slice E-1): non-null iff this DbAccessor belongs to a
+  // checked-out branch's query transaction -- in which case `accessor_` IS the branch's diff-engine
+  // accessor for this transaction (see CurrentDB::SetupDatabaseTransaction, interpreter.cpp: it
+  // opens `db_transactional_accessor_` on `branch_context_->diff_engine()`, not on main, whenever a
+  // branch is active). nullptr on `main` -- every method below that checks it therefore costs
+  // exactly one extra pointer compare on the non-branch path (R6/zero-cost-when-off). NON-const:
+  // ResolveVertex/Vertices/CowVertex open accessors against the diff engine and are therefore
+  // non-const member functions of BranchContext -- a const pointer here could not call them (the
+  // context genuinely is mutated by a COW).
+  versioning::BranchContext *branch_ctx_{nullptr};
+
+  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(b) helpers (adversarial-review fix):
+  // only ever called when branch_ctx_ != nullptr, from the label/property Vertices() overloads
+  // below.
+
+  // HasLabel through the query-layer VertexAccessor (not the raw storage one) so it benefits from
+  // the HIGH-2 self-correcting-read fix -- a not-yet-resolved historical `v` still reads correctly
+  // even if some other reference to the same gid triggered a COW earlier in this same scan.
+  static bool VertexHasLabel(VertexAccessor &v, storage::View view, storage::LabelId label) {
+    auto has_label = v.HasLabel(view, label);
+    return has_label.has_value() && *has_label;
+  }
+
+  // Eagerly filters branch_ctx_->Vertices(view) (the unfiltered gid-ordered union scan) by
+  // `predicate`, materializing every match into an owned vector -- see VerticesIterable's own
+  // doc-comment on why eager materialization (not a lazy predicate-skipping iterator) was chosen
+  // here. O(fork-state graph size) -- a full scan -- regardless of how selective `predicate` is;
+  // flagged as a slower-but-correct fallback, not a permanent substitute for a real branch-aware
+  // index (out of scope for this slice).
+  auto MaterializeFilteredBranchScan(storage::View view, std::function<bool(VertexAccessor &)> predicate)
+      -> std::shared_ptr<std::vector<VertexAccessor>> {
+    auto result = std::make_shared<std::vector<VertexAccessor>>();
+    for (auto raw : branch_ctx_->Vertices(view)) {
+      VertexAccessor candidate(raw, branch_ctx_);
+      if (predicate(candidate)) {
+        result->push_back(candidate);
+      }
+    }
+    return result;
+  }
 
  public:
-  explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
+  explicit DbAccessor(storage::Storage::Accessor *accessor, versioning::BranchContext *branch_ctx = nullptr)
+      : accessor_(accessor), branch_ctx_(branch_ctx) {}
 
   void SetParallelExecution() { accessor_->GetTransaction()->SetParallelExecution(); }
 
@@ -401,6 +536,15 @@ class DbAccessor final {
   auto type() const { return accessor_->type(); }
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
+    if (branch_ctx_ != nullptr) {
+      // Diff-engine-first, falling back to the branch's historical (fork-state) base -- see
+      // BranchContext::ResolveVertex's own doc-comment. ResolveVertex reads the diff-engine
+      // accessor from branch_ctx_->current_diff_txn() (== accessor_, set once per query by
+      // CurrentDB::SetupDatabaseTransaction) rather than taking it as a parameter here.
+      auto maybe_vertex = branch_ctx_->ResolveVertex(gid, view);
+      if (maybe_vertex) return VertexAccessor(*maybe_vertex, branch_ctx_);
+      return std::nullopt;
+    }
     auto maybe_vertex = accessor_->FindVertex(gid, view);
     if (maybe_vertex) return VertexAccessor(*maybe_vertex);
     return std::nullopt;
@@ -434,9 +578,27 @@ class DbAccessor final {
 
   bool TransactionHasSerializationError() const { return accessor_->TransactionHasSerializationError(); }
 
-  VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
+  // Graph Versioning v1 (lazy diff-context, slice E-1): the plain ScanAll AND (as of the HIGH-3(b)
+  // adversarial-review fix, below) the label/property-indexed overloads are all branch-aware now.
+  // A checked-out branch's diff engine has no label/property index population reconciled with
+  // historical_ -- so the indexed overloads cannot seek an index like they do on main; instead they
+  // fall back to filtering the union scan (see MaterializeFilteredBranchScan). Slower than an index
+  // seek (O(fork-state graph size) instead of O(matches)), but CORRECT -- the prior version of this
+  // code silently used accessor_->Vertices(label, ...), which hit the diff engine's own, always-
+  // empty index and silently missed every historical (non-COW'd) vertex, e.g. `MATCH (n:A) RETURN
+  // n` after a branch SET on an existing vertex would come back empty.
+  VerticesIterable Vertices(storage::View view) {
+    if (branch_ctx_ != nullptr) {
+      return VerticesIterable(branch_ctx_->Vertices(view), branch_ctx_);
+    }
+    return VerticesIterable(accessor_->Vertices(view));
+  }
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
+    if (branch_ctx_ != nullptr) {
+      return VerticesIterable(MaterializeFilteredBranchScan(
+          view, [label, view](VertexAccessor &v) { return VertexHasLabel(v, view, label); }));
+    }
     return VerticesIterable(accessor_->Vertices(label, view));
   }
 
@@ -444,6 +606,38 @@ class DbAccessor final {
                             std::span<storage::PropertyPath const> properties,
                             std::span<storage::PropertyValueRange const> property_ranges,
                             storage::IndexOrder order = storage::IndexOrder::ASC) {
+    if (branch_ctx_ != nullptr) {
+      // Copy properties/ranges by VALUE into the predicate closure -- the caller's spans are not
+      // guaranteed to outlive this call (they typically point at a plan operator's own member
+      // vectors), but MaterializeFilteredBranchScan's predicate is invoked immediately (eagerly),
+      // during THIS call, never stored past it -- so this copy is defensive, not load-bearing, but
+      // cheap and avoids relying on that assumption.
+      std::vector<storage::PropertyPath> props(properties.begin(), properties.end());
+      std::vector<storage::PropertyValueRange> ranges(property_ranges.begin(), property_ranges.end());
+      // NOTE (flagged, not fixed): `order` is NOT honored on this fallback path -- the materialized
+      // result is in union-scan (gid) order, not property order. If a caller ever relies on
+      // IndexOrder to elide an explicit Sort (rather than treating it as a pure seek-order hint),
+      // ORDER BY on a branch label+property scan could silently come back unsorted. Out of scope
+      // for this fix (HIGH-3(b) only asked for label/property FILTER correctness); flagging for the
+      // coordinator to decide whether it needs its own follow-up.
+      return VerticesIterable(MaterializeFilteredBranchScan(
+          view, [label, view, props = std::move(props), ranges = std::move(ranges)](VertexAccessor &v) {
+            if (!VertexHasLabel(v, view, label)) return false;
+            for (size_t i = 0; i < props.size(); ++i) {
+              const auto &path = props[i];
+              if (path.size() != 1) {
+                // Composite/nested property paths (`CREATE INDEX ON :L(a.b.c)`) need a recursive
+                // walk through nested Map property values that isn't wired up here -- fail loud
+                // rather than silently return wrong (unfiltered-on-this-key) rows.
+                throw NotYetImplemented("Composite (nested) property index scans on a versioned branch");
+              }
+              auto prop_res = v.GetProperty(view, path.front());
+              if (!prop_res.has_value()) return false;
+              if (!ranges[i].IsValueInRange(*prop_res)) return false;
+            }
+            return true;
+          }));
+    }
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view, order));
   }
 
@@ -537,7 +731,17 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(property, lower, upper, view));
   }
 
-  VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
+  // Branch-native create: `accessor_->CreateVertex()` already targets the diff engine when
+  // branch_ctx_ is set (see branch_ctx_'s own doc-comment) -- stock CreateVertex, just stamped
+  // with the context so subsequent mutations/identity comparisons on the returned accessor are
+  // branch-aware. The gid-watermark reservation (branch_engine.cpp) keeps this auto-assigned gid
+  // disjoint from anything historical_ could ever contain.
+  VertexAccessor InsertVertex() {
+    if (branch_ctx_ != nullptr) {
+      return VertexAccessor(accessor_->CreateVertex(), branch_ctx_);
+    }
+    return VertexAccessor(accessor_->CreateVertex());
+  }
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
@@ -546,7 +750,19 @@ class DbAccessor final {
     return EdgeAccessor(*maybe_edge);
   }
 
+  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-4 FIX (adversarial-review): DELETE has
+  // no defined semantics yet on a branch (this slice is VERTEX-ONLY: create/label/property COW --
+  // no tombstone concept exists in BranchContext::UnionVerticesIterable, see its own doc-comment).
+  // Reaching accessor_->DeleteEdge/DeleteVertex/DetachDeleteVertex/DetachDelete on a branch would
+  // either silently misbehave (e.g. a delete against a not-yet-COW'd historical object, or a
+  // resurrection once the union scan next runs) or crash -- reject cleanly and loudly instead of
+  // guessing at a fix in a slice that was never scoped to support it. NotYetImplemented (not a bare
+  // QueryRuntimeException) so the message has this codebase's uniform "is not implemented yet"
+  // shape and callers can catch it as a recognized class of error.
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("DELETE on a versioned branch");
+    }
     auto res = accessor_->DeleteEdge(&edge->impl_);
     if (!res) {
       return std::unexpected{res.error()};
@@ -560,9 +776,14 @@ class DbAccessor final {
     return std::make_optional<EdgeAccessor>(*value);
   }
 
+  // HIGH-4 FIX: see RemoveEdge's own doc-comment above.
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       VertexAccessor *vertex_accessor) {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
+
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("DELETE on a versioned branch");
+    }
 
     auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
     if (!res) {
@@ -584,7 +805,11 @@ class DbAccessor final {
     return std::make_optional<ReturnType>(vertex, std::move(deleted_edges));
   }
 
+  // HIGH-4 FIX: see RemoveEdge's own doc-comment above.
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("DELETE on a versioned branch");
+    }
     auto res = accessor_->DeleteVertex(&vertex_accessor->impl_);
     if (!res) {
       return std::unexpected{res.error()};
@@ -598,9 +823,14 @@ class DbAccessor final {
     return std::make_optional<VertexAccessor>(*value);
   }
 
+  // HIGH-4 FIX: see RemoveEdge's own doc-comment above.
   storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
       std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
+
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("DELETE on a versioned branch");
+    }
 
     std::vector<storage::VertexAccessor *> nodes_impl;
     std::vector<storage::EdgeAccessor *> edges_impl;

@@ -90,14 +90,17 @@ auto CreateUniqueGuard(Storage *storage, const std::optional<std::chrono::millis
 Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
                  metrics::DatabaseMetricHandles metric_handles, memory::ArenaPool *db_arena_pool,
                  utils::MemoryTracker *db_embedding_memory_tracker,
-                 std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory)
-    : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
-        if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
-          return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
-                                                    config.disk.id_name_mapper_directory);
-        }
-        return std::make_unique<NameIdMapper>();
-      })),
+                 std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory,
+                 std::shared_ptr<NameIdMapper> shared_name_id_mapper)
+    : name_id_mapper_(shared_name_id_mapper
+                          ? std::move(shared_name_id_mapper)
+                          : std::invoke([config, storage_mode]() -> std::shared_ptr<NameIdMapper> {
+                              if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
+                                return std::make_shared<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
+                                                                          config.disk.id_name_mapper_directory);
+                              }
+                              return std::make_shared<NameIdMapper>();
+                            })),
       config_(config),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),

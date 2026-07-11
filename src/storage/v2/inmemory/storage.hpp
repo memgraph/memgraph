@@ -172,12 +172,19 @@ class InMemoryStorage final : public Storage {
 
   /// @throw std::system_error
   /// @throw std::bad_alloc
+  ///
+  /// `shared_name_id_mapper`: Graph Versioning v1 (lazy diff-context, slice E-1) -- forwarded
+  /// straight to the Storage base ctor (see its own doc-comment, storage.hpp). Lets
+  /// versioning::BranchContext::BuildFromFork construct the diff engine sharing main's own
+  /// NameIdMapper (one id space, no by-name translation needed at COW time). nullptr (the default)
+  /// is byte-identical to the pre-versioning behavior.
   explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
                            PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>(),
                            metrics::DatabaseMetricHandles metric_handles = {},
                            std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
                            memgraph::memory::ArenaPool *db_arena = nullptr,
-                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
+                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
+                           std::shared_ptr<storage::NameIdMapper> shared_name_id_mapper = nullptr);
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;

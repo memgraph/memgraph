@@ -241,12 +241,12 @@ struct CurrentDB {
   // CHUNK 7b(2): a session that is destroyed (disconnect / Interpreter teardown) while checked out
   // on a branch must still release its exclusive checkout, or the branch's `checked_out_` marker
   // leaks and it becomes permanently un-checkout-able/un-mergeable until process restart. The
-  // implicit destructor would free `branch_engine_` (unique_ptr) but never call ReleaseCheckout, so
-  // we do it here. Safe re: db_acc_ lifetime -- the destructor BODY runs before any member is
-  // destroyed, so db_acc_ (hence the Database's version_store_ that branch_engine_version_store_
+  // implicit destructor would free `branch_context_` (unique_ptr) but never call ReleaseCheckout,
+  // so we do it here. Safe re: db_acc_ lifetime -- the destructor BODY runs before any member is
+  // destroyed, so db_acc_ (hence the Database's version_store_ that branch_context_version_store_
   // points into) is still fully alive. (Copy ops are user-deleted above so no implicit move ever
   // existed; CurrentDB is constructed exactly once, in Interpreter's ctor, and never moved/copied.)
-  ~CurrentDB() { ClearBranchEngine(); }
+  ~CurrentDB() { ClearBranchContext(); }
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
@@ -268,15 +268,15 @@ struct CurrentDB {
     const bool same_db = db_acc_.has_value() && *db_acc_ == new_db;
     // do we lock here?
     if (!same_db) {
-      // A branch engine (if any) is scoped to the database it was checked out on -- a genuine
-      // db switch must release it (see ClearBranchEngine's own doc-comment below), same as
-      // current_version_ itself. Do this BEFORE reassigning db_acc_: ClearBranchEngine
-      // dereferences branch_engine_version_store_ (a raw pointer into the OLD Database's
+      // A branch context (if any) is scoped to the database it was checked out on -- a genuine
+      // db switch must release it (see ClearBranchContext's own doc-comment below), same as
+      // current_version_ itself. Do this BEFORE reassigning db_acc_: ClearBranchContext
+      // dereferences branch_context_version_store_ (a raw pointer into the OLD Database's
       // version_store_), and move-assigning db_acc_ releases the old accessor -- if that were the
       // last accessor, a background reaper could destroy the old Database (and its version_store_)
-      // concurrently, before ClearBranchEngine runs (cross-thread UAF). same_db was already
+      // concurrently, before ClearBranchContext runs (cross-thread UAF). same_db was already
       // computed against the old db_acc_ above, so the ordering swap is otherwise behavior-neutral.
-      ClearBranchEngine();
+      ClearBranchContext();
       current_version_.reset();
     }
     db_acc_ = std::move(new_db);
@@ -284,11 +284,11 @@ struct CurrentDB {
   }
 
   void ResetDB() {
-    // Release the branch engine/checkout BEFORE dropping db_acc_: ClearBranchEngine dereferences
-    // branch_engine_version_store_ (a raw pointer into the Database's version_store_); dropping the
-    // last db_acc_ first could let a background reaper destroy that Database concurrently, before
-    // ClearBranchEngine runs (cross-thread UAF).
-    ClearBranchEngine();
+    // Release the branch context/checkout BEFORE dropping db_acc_: ClearBranchContext dereferences
+    // branch_context_version_store_ (a raw pointer into the Database's version_store_); dropping
+    // the last db_acc_ first could let a background reaper destroy that Database concurrently,
+    // before ClearBranchContext runs (cross-thread UAF).
+    ClearBranchContext();
     current_version_.reset();
     db_acc_.reset();
     db_transactional_accessor_.reset();
@@ -307,35 +307,35 @@ struct CurrentDB {
   std::optional<std::string> const &CurrentVersion() const { return current_version_; }
 
   // CHUNK 7b(2): clearing the version (switching back to 'main', or being cleared out from under
-  // the session by MERGE/DROP) is exactly when any held branch engine/checkout must be released
-  // too -- see ClearBranchEngine's own doc-comment. Setting a NON-null version does NOT clear the
-  // engine here: a direct branch-to-branch CHECKOUT must release the OLD engine (via an explicit
+  // the session by MERGE/DROP) is exactly when any held branch context/checkout must be released
+  // too -- see ClearBranchContext's own doc-comment. Setting a NON-null version does NOT clear the
+  // context here: a direct branch-to-branch CHECKOUT must release the OLD context (via an explicit
   // SetCurrentVersion(std::nullopt) call) BEFORE building+installing the new one via
-  // SetBranchEngine, or the just-installed engine would be torn down again by this same call.
+  // SetBranchContext, or the just-installed context would be torn down again by this same call.
   void SetCurrentVersion(std::optional<std::string> version) {
     if (!version) {
-      ClearBranchEngine();
+      ClearBranchContext();
     }
     current_version_ = std::move(version);
   }
 
-  // Graph Versioning v1 (materialize-per-checkout, CHUNK 7b(2)): installs the private BranchEngine
+  // Graph Versioning v1 (lazy diff-context, slice E-1): installs the private BranchContext
   // CHECKOUT BRANCH built for `name`, plus the (non-owned) VersionStore + name needed to release
   // its exclusive checkout later. Caller contract: `version_store->TryAcquireCheckout(name)` must
-  // already have succeeded, and any PREVIOUSLY held engine must already have been released (via
+  // already have succeeded, and any PREVIOUSLY held context must already have been released (via
   // SetCurrentVersion(std::nullopt)) -- this setter does not do that itself, to keep the
   // release-old-then-acquire-new ordering explicit at the call site (see
   // PrepareVersioningQuery's CHECKOUT_BRANCH handler in interpreter.cpp).
-  void SetBranchEngine(std::unique_ptr<versioning::BranchEngine> engine, versioning::VersionStore *version_store,
-                       std::string name) {
-    branch_engine_ = std::move(engine);
-    branch_engine_version_store_ = version_store;
-    branch_engine_name_ = std::move(name);
+  void SetBranchContext(std::unique_ptr<versioning::BranchContext> context, versioning::VersionStore *version_store,
+                        std::string name) {
+    branch_context_ = std::move(context);
+    branch_context_version_store_ = version_store;
+    branch_context_name_ = std::move(name);
   }
 
-  // The session's private branch engine, if CurrentVersion() names a checked-out branch; nullptr
+  // The session's private branch context, if CurrentVersion() names a checked-out branch; nullptr
   // on `main`. Consulted by SetupDatabaseTransaction (interpreter.cpp) to route ordinary Cypher.
-  versioning::BranchEngine *branch_engine() { return branch_engine_.get(); }
+  versioning::BranchContext *branch_context() { return branch_context_.get(); }
 
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
@@ -348,26 +348,26 @@ struct CurrentDB {
   metrics::ScopedGauge transaction_gauge_;
   // Graph Versioning (branches) v1, CHUNK 7a -- see CurrentVersion()/SetCurrentVersion() above.
   std::optional<std::string> current_version_;
-  // Graph Versioning v1 (materialize-per-checkout, CHUNK 7b(2)) -- see SetBranchEngine()/
-  // branch_engine() above.
-  std::unique_ptr<versioning::BranchEngine> branch_engine_;
+  // Graph Versioning v1 (lazy diff-context, slice E-1) -- see SetBranchContext()/branch_context()
+  // above.
+  std::unique_ptr<versioning::BranchContext> branch_context_;
 
  private:
   // Not owned: the Database (hence its VersionStore) outlives any session's CurrentDB. Only ever
-  // non-null while branch_engine_ is held, so ReleaseCheckout is always called against the SAME
+  // non-null while branch_context_ is held, so ReleaseCheckout is always called against the SAME
   // VersionStore that granted the checkout, even if db_acc_ has since been reassigned.
-  versioning::VersionStore *branch_engine_version_store_{nullptr};
-  std::string branch_engine_name_;
+  versioning::VersionStore *branch_context_version_store_{nullptr};
+  std::string branch_context_name_;
 
   // Releases the exclusive checkout this session holds (if any) via
-  // versioning::VersionStore::ReleaseCheckout, and tears down the private engine. Safe to call
-  // unconditionally -- a no-op when no engine is held. Every place the session's branch pointer
+  // versioning::VersionStore::ReleaseCheckout, and tears down the private context. Safe to call
+  // unconditionally -- a no-op when no context is held. Every place the session's branch pointer
   // can change or disappear (SetCurrentVersion(std::nullopt), a genuine SetCurrentDB switch,
   // ResetDB) routes through here so a session's exclusive checkout is never leaked past the point
   // its own CurrentVersion() stops naming that branch.
   // Defined out-of-line in interpreter.cpp: the body calls versioning::VersionStore::ReleaseCheckout,
   // and VersionStore is only forward-declared in this header.
-  void ClearBranchEngine();
+  void ClearBranchContext();
 };
 
 using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;
