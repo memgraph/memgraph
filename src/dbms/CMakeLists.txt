@@ -19,6 +19,6 @@ target_sources(mg-dbms
 )
 
 target_link_libraries(mg-dbms
-    PUBLIC mg-utils mg::storage mg-query mg-auth mg-replication mg-metrics
+    PUBLIC mg-utils mg::storage mg-query mg-auth mg-replication mg-metrics mg::versioning
     PRIVATE mg-coordination mg-memory-utils
 )

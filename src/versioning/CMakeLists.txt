@@ -7,8 +7,12 @@ target_sources(mg-versioning
         FILES
         gate.hpp
         name.hpp
+        version_store.hpp
 
         PRIVATE
         gate.cpp
         name.cpp
+        version_store.cpp
 )
+
+target_link_libraries(mg-versioning PUBLIC mg-kvstore mg-utils)

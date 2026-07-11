@@ -22,9 +22,11 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
+#include "versioning/version_store.hpp"
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
@@ -125,6 +127,10 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
 
   // Postpone creation after the scope has been created
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
+  // Captured before config is std::move()'d into whichever storage engine gets constructed below;
+  // version_store_ itself can only be constructed after storage_ exists (its GC-pin callbacks bind
+  // to the concrete InMemoryStorage instance).
+  const auto versioning_directory = config.durability.storage_directory / "versioning";
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
 
   // Bound the per-DB cap by the global --memory-limit; SetHardLimit(0) falls back to it.
@@ -149,6 +155,17 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
                                            database_protector_factory,
                                            db_arena_.get(),
                                            &db_embedding_memory_tracker_);
+  }
+
+  // Graph versioning (branches) only runs against IN_MEMORY_TRANSACTIONAL storage (chunk-0 gate);
+  // version_store_ stays null for ON_DISK_TRANSACTIONAL and IN_MEMORY_ANALYTICAL. Safe to downcast:
+  // InMemoryStorage is the only concrete Storage subclass that ever reports IN_MEMORY_TRANSACTIONAL.
+  if (storage_->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    auto *in_memory_storage = static_cast<storage::InMemoryStorage *>(storage_.get());
+    version_store_ = std::make_unique<versioning::VersionStore>(
+        versioning_directory,
+        [in_memory_storage] { return in_memory_storage->RegisterForkPin(); },
+        [in_memory_storage](uint64_t fork_ts) { in_memory_storage->ReleaseForkPin(fork_ts); });
   }
 }
 
