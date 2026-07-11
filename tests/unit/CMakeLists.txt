@@ -85,6 +85,11 @@ add_unit_test(versioning_version_store
         LINK_TARGETS mg::versioning mg-kvstore
 )
 
+add_unit_test(versioning_branch_log
+        SOURCES versioning_branch_log.cpp
+        LINK_TARGETS mg::versioning mg::storage
+)
+
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils

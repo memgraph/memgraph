@@ -5,14 +5,16 @@ target_sources(mg-versioning
         FILE_SET HEADERS
         BASE_DIRS ..
         FILES
+        branch_log.hpp
         gate.hpp
         name.hpp
         version_store.hpp
 
         PRIVATE
+        branch_log.cpp
         gate.cpp
         name.cpp
         version_store.cpp
 )
 
-target_link_libraries(mg-versioning PUBLIC mg-kvstore mg-utils)
+target_link_libraries(mg-versioning PUBLIC mg-kvstore mg-utils mg-storage-v2)
