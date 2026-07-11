@@ -111,6 +111,14 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   if (parent != "main" && !branches_.contains(parent)) {
     return std::unexpected(fmt::format("Parent branch '{}' does not exist.", parent));
   }
+  // HIGH-2 fix: refuse to fork off a parent that is mid-merge (BeginMerge'd but not yet
+  // Finish/AbortMerge'd) -- otherwise a child could appear between a merge's own atomic
+  // existence/no-children check and its completion, which is exactly the race BeginMerge exists
+  // to close (see its doc-comment in version_store.hpp).
+  if (merging_.contains(parent)) {
+    return std::unexpected(
+        fmt::format("Parent branch '{}' is currently being merged; retry after it completes.", parent));
+  }
 
   BranchInfo info{
       .number = next_number_,
@@ -153,7 +161,13 @@ bool VersionStore::DropBranch(std::string_view name) {
   if (it == branches_.end()) {
     return false;
   }
-  if (HasChildren(name)) {
+  if (HasChildrenLocked(name)) {
+    return false;
+  }
+  // HIGH-2 fix: a branch mid-merge (BeginMerge'd) must not be droppable out from under the
+  // merge in progress -- FinishMerge (not a bare DropBranch) is the only way to remove it once a
+  // merge has begun.
+  if (merging_.contains(name)) {
     return false;
   }
 
@@ -189,7 +203,49 @@ bool VersionStore::Exists(std::string_view name) const {
 }
 
 bool VersionStore::HasChildren(std::string_view name) const {
+  std::lock_guard guard{lock_};
+  return HasChildrenLocked(name);
+}
+
+bool VersionStore::HasChildrenLocked(std::string_view name) const {
   return std::ranges::any_of(branches_, [&](const auto &kv) { return kv.second.parent == name; });
+}
+
+std::expected<BranchInfo, std::string> VersionStore::BeginMerge(std::string_view name) {
+  std::lock_guard guard{lock_};
+
+  auto it = branches_.find(name);
+  if (it == branches_.end()) {
+    return std::unexpected(fmt::format("Branch '{}' does not exist.", name));
+  }
+  if (HasChildrenLocked(name)) {
+    return std::unexpected(fmt::format("Branch '{}' has child branches.", name));
+  }
+  if (merging_.contains(name)) {
+    return std::unexpected(fmt::format("Branch '{}' is already being merged.", name));
+  }
+
+  merging_.emplace(name);
+  return it->second;
+}
+
+void VersionStore::FinishMerge(std::string_view name) {
+  std::lock_guard guard{lock_};
+
+  // BeginMerge already excluded new children and a second concurrent merge/drop for the ENTIRE
+  // window since it was called, so `it` existing (and childless) here is guaranteed -- this is
+  // not a re-check, just retrieving the fork pin to release.
+  if (auto it = branches_.find(name); it != branches_.end()) {
+    release_pin_(it->second.fork_ts);
+    storage_.Delete(name);
+    branches_.erase(it);
+  }
+  merging_.erase(std::string{name});
+}
+
+void VersionStore::AbortMerge(std::string_view name) {
+  std::lock_guard guard{lock_};
+  merging_.erase(std::string{name});
 }
 
 }  // namespace memgraph::versioning

@@ -101,9 +101,11 @@
 #include "replication/config.hpp"
 #include "replication/state.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/commit_args.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/fmt.hpp"
 #include "storage/v2/id_types.hpp"
@@ -138,6 +140,10 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
+#include "versioning/gate.hpp"
+#include "versioning/merge.hpp"
+#include "versioning/name.hpp"
+#include "versioning/version_store.hpp"
 
 import memgraph.utils.aws;
 
@@ -8143,6 +8149,485 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 #endif
 }
 
+namespace {
+// Graph Versioning (branches) v1, CHUNK 7a helpers ------------------------------------------------
+
+// `main` is the implicit, un-persisted version 1 (versioning::VersionStore's own doc-comment) --
+// it never appears in VersionStore::Get/List, so SHOW BRANCH/SHOW BRANCHES synthesize this number
+// directly rather than querying the registry for it.
+constexpr uint64_t kMainVersionNumber{1};
+
+// {version, number, description, parent} -- CREATE BRANCH's and CHECKOUT ... FROM's return row
+// (spec §4.2).
+std::vector<TypedValue> VersioningDetailRow(std::string_view name, const versioning::BranchInfo &info) {
+  return {TypedValue(std::string(name)),
+          TypedValue(static_cast<int64_t>(info.number)),
+          info.description ? TypedValue(*info.description) : TypedValue(),
+          TypedValue(info.parent)};
+}
+}  // namespace
+
+// Graph Versioning (branches) v1, CHUNK 7a: management-query dispatch for CREATE/CHECKOUT/MERGE/
+// DROP/SHOW BRANCH* -- mirrors PrepareMultiDatabaseQuery's shape (Downcast + switch(Action) +
+// PreparedQuery), but the registry here is a single database's VersionStore (chunk 2B) plus its
+// own main storage, not the DbmsHandler -- there is no system_transaction_ involved, and (like
+// CreateSnapshotQuery) no interpreter-level storage accessor is opened either: VersionStore has
+// its own internal locking and MergeBranch opens its own main.UniqueAccess() transaction.
+//
+// Control-plane ONLY (per the feature's own §4.2 split): this resolves/creates/drops registry
+// entries and flips the session's current_version_ pointer. Routing ordinary Cypher reads/writes
+// through a checked-out branch's overlay (BranchOverlay/BranchReconstruction, chunks 5a/5b) is
+// chunks 7b/7c and is NOT touched here -- CHECKOUT only moves the pointer that later code will
+// consult.
+//
+// R6 (zero cost when versioning is off): this function -- and everything it calls, including
+// FLAGS_versioning_enabled and the gate check -- is reached only when the parsed query actually IS
+// a VersioningQuery (see the dispatch ladder in Interpreter::Prepare), so an ordinary session that
+// never issues a branch query never executes a single line of it.
+PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
+                                     CurrentDB &current_db) {
+  auto *query = utils::Downcast<VersioningQuery>(parsed_query.query);
+  MG_ASSERT(query);
+
+  MG_ASSERT(current_db.db_acc_, "Versioning query expects a current DB");
+  auto db_acc = *current_db.db_acc_;
+  storage::Storage *storage = db_acc->storage();
+
+  // MEDIUM fix: SHOW BRANCHES FOR DATABASE reports on a DIFFERENT database's registry -- gating
+  // it against the CURRENT database's storage mode/WAL would wrongly reject an eligible target
+  // purely because the CURRENT db happens to be ineligible (e.g. current db is
+  // ON_DISK_TRANSACTIONAL while the FOR DATABASE target is a perfectly fine
+  // IN_MEMORY_TRANSACTIONAL tenant). Every other action -- and SHOW BRANCHES WITHOUT FOR DATABASE
+  // -- genuinely operates on the current db, so only THIS one case defers its storage-mode/WAL
+  // gate to the SHOW_BRANCHES case body below, once the target is resolved (see the re-gate
+  // there). flag_enabled/enterprise_valid are process-global, not per-database, so they are still
+  // enforced immediately below regardless -- a versioning-off operator cannot probe ANY
+  // database's registry via FOR DATABASE just because the current db is ineligible for a
+  // different reason.
+  const bool cross_tenant_show_branches =
+      query->action_ == VersioningQuery::Action::SHOW_BRANCHES && query->for_database_.has_value();
+
+  versioning::VersionStore *version_store = nullptr;
+  if (!cross_tenant_show_branches) {
+    // Chunk-0 gate (R6/D8/D9): checked BEFORE anything below ever touches VersionStore or main.
+    // IsDurabilityCompleteForSuspend() is exactly "periodic snapshots + WAL", the same durability
+    // precondition the gate's kWalDisabled error describes (storage.hpp's own doc-comment).
+    if (const auto gate_err =
+            versioning::CheckVersioningGate(FLAGS_versioning_enabled,
+                                            license::global_license_checker.IsEnterpriseValidFast(),
+                                            storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
+                                            storage->IsDurabilityCompleteForSuspend())) {
+      throw QueryRuntimeException(std::string(versioning::GateErrorMessage(*gate_err)));
+    }
+
+    version_store = db_acc->version_store();
+    // The gate above already guarantees IN_MEMORY_TRANSACTIONAL, and Database only ever
+    // constructs version_store_ for that mode (dbms/database.cpp) -- defensive, unreachable.
+    if (version_store == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("Graph versioning registry is unavailable for this database.");
+    }
+  } else if (!FLAGS_versioning_enabled) {
+    throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kDisabled)));
+  } else if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryRuntimeException(std::string(versioning::GateErrorMessage(versioning::GateError::kNoLicense)));
+  }
+
+  // name_/description_/parent_ are Expression* -- a PrimitiveLiteral, or under a cached AST a
+  // ParameterLookup (ast.hpp's own doc-comment) -- never resolved at parse time. Evaluate them
+  // here exactly like PrepareSessionSettingQuery/CoordinatorQuery resolve setting_name_/
+  // setting_value_.
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+  const auto name = GetOptionalStringValue(query->name_, evaluator);
+  const auto description = GetOptionalStringValue(query->description_, evaluator);
+  const auto parent = GetOptionalStringValue(query->parent_, evaluator);
+
+  switch (query->action_) {
+    case VersioningQuery::Action::CREATE_BRANCH: {
+      // Grammar guarantees name_/parent_ are both present (FROM is mandatory for CREATE BRANCH --
+      // see the parser's VersioningQueryInvalidSyntax test); these are invariants, not
+      // user-reachable error paths.
+      MG_ASSERT(name && parent, "CREATE BRANCH: grammar guarantees a name and a FROM parent");
+      if (auto err = versioning::ValidateBranchName(*name)) {
+        throw QueryRuntimeException(*err);
+      }
+
+      return PreparedQuery{
+          .header = {"version", "number", "description", "parent"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [version_store,
+                            name = *name,
+                            parent = *parent,
+                            description,
+                            pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                               AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+            if (!pull_plan) {
+              auto created = version_store->CreateBranch(name, parent, description);
+              if (!created) {
+                throw QueryRuntimeException(created.error());
+              }
+              std::vector<std::vector<TypedValue>> rows{VersioningDetailRow(name, *created)};
+              pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+            }
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          .rw_type = RWType::W};
+    }
+    case VersioningQuery::Action::CHECKOUT_BRANCH: {
+      MG_ASSERT(name, "CHECKOUT BRANCH: grammar guarantees a name");
+
+      if (query->checkout_) {
+        // Combined create-if-absent + switch (FROM present).
+        MG_ASSERT(parent, "CHECKOUT BRANCH ... FROM: grammar guarantees a parent");
+        if (auto err = versioning::ValidateBranchName(*name)) {
+          throw QueryRuntimeException(*err);
+        }
+
+        return PreparedQuery{
+            .header = {"version", "number", "description", "parent"},
+            .privileges = std::move(parsed_query.required_privileges),
+            .query_handler = [version_store,
+                              &current_db,
+                              name = *name,
+                              parent = *parent,
+                              description,
+                              pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                                 AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+              if (!pull_plan) {
+                auto created = version_store->CreateBranch(name, parent, description);
+                if (!created) {
+                  throw QueryRuntimeException(created.error());
+                }
+                current_db.SetCurrentVersion(name);
+                std::vector<std::vector<TypedValue>> rows{VersioningDetailRow(name, *created)};
+                pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+              }
+              if (pull_plan->Pull(stream, n)) {
+                return QueryHandlerResult::COMMIT;
+              }
+              return std::nullopt;
+            },
+            .rw_type = RWType::W};
+      }
+
+      // Plain switch -- 'main' clears the active version; any other name must already exist
+      // (spec §4.2: "Fails if <name> does not exist"). LOW fix: the existence check is now tied
+      // to the SAME Pull-time call as the current_version_ mutation (mirroring how CREATE/DROP/
+      // MERGE already tie their own check + mutation together) rather than checked here at
+      // Prepare time and acted on later at Pull time -- closes the TOCTOU window where the branch
+      // could have been dropped in between, which would otherwise switch the session onto a
+      // version that no longer exists with no error.
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler =
+              [version_store, &current_db, target = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                  AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+            if (!pull_plan) {
+              std::optional<std::string> new_version;
+              if (target != "main") {
+                if (!version_store->Exists(target)) {
+                  throw QueryRuntimeException("Version '{}' does not exist.", target);
+                }
+                new_version = target;
+              }
+              current_db.SetCurrentVersion(new_version);
+              std::vector<std::vector<TypedValue>> rows{{TypedValue("Switched to version '" + target + "'.")}};
+              pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+            }
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          // Spec §4.2 does not define a row shape for the plain-switch form (only the create-
+          // and-switch form returns `version, number, description, parent`); a single STATUS
+          // confirmation row mirrors LockPathQuery/CreateDatabase-style management-query
+          // responses. Flagged as a deliberate choice, not a spec requirement.
+          .rw_type = RWType::NONE};
+    }
+    case VersioningQuery::Action::MERGE_BRANCH: {
+      MG_ASSERT(name, "MERGE BRANCH: grammar guarantees a name");
+
+      // Fast, non-authoritative existence check only -- for a quick common-case error before
+      // building a PreparedQuery at all. This value is NOT relied on below: it could be stale by
+      // Pull time, which is exactly why the authoritative check lives in BeginMerge instead (see
+      // its call in the query_handler, and version_store.hpp's own doc-comment: HIGH-2 fix).
+      if (!version_store->Exists(*name)) {
+        throw QueryRuntimeException("Version '{}' does not exist.", *name);
+      }
+
+      return PreparedQuery{
+          .header = {"merged", "into"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler =
+              [version_store, &current_db, db_acc, name = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                  AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+            if (!pull_plan) {
+              // HIGH-2 fix: BeginMerge atomically (re-)validates existence + no-children +
+              // not-already-merging AND marks `name` as "merging", all under VersionStore's own
+              // lock. This closes the TOCTOU window a bare "HasChildren-then-later-DropBranch"
+              // pair left open: a concurrent CreateBranch(parent=name) landing between the two
+              // could make the post-merge DropBranch fail, leaving `name` a legal-looking,
+              // still-mergeable branch whose change-log a SECOND `MERGE BRANCH name` would replay
+              // again -- duplicating every CREATE op (D3 only catches MODIFY conflicts). With
+              // BeginMerge marking `name`, CreateBranch refuses to fork off it and a second
+              // concurrent merge/drop is refused too, so the FinishMerge below is now guaranteed
+              // to succeed -- no post-merge "could the drop have failed" branch is needed anymore.
+              auto info = version_store->BeginMerge(name);
+              if (!info) {
+                throw QueryRuntimeException(info.error());
+              }
+              const std::string parent = info->parent;
+              const uint64_t fork_ts = info->fork_ts;
+
+              // version_store_ is only ever constructed for IN_MEMORY_TRANSACTIONAL databases
+              // (dbms/database.cpp) -- the gate above already required that mode, so this downcast
+              // is safe (mirrors Database::Database's own identical downcast).
+              auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+
+              // CHUNK 7a scope note (flagged): real branch writes are not captured into a
+              // per-branch BranchLog yet -- that lifecycle (creating one at CreateBranch time,
+              // feeding it live commits) needs the branch write/dispatch path, which is chunks
+              // 7b/7c, not this one. Every branch is therefore necessarily empty today; merging
+              // one is a legitimate no-op fast-forward (the branch recorded no changes) that still
+              // exercises the FULL merge control-flow below -- gate, fork_ts resolution, a REAL
+              // PrepareForCommitPhase via a real DatabaseProtector, atomic FinishMerge-on-success,
+              // session-pointer clearing, and D3/error surfacing. Swapping this empty vector for a
+              // real captured change-log (versioning::BranchLog::ReadAll(...)) is the only change
+              // 7b/7c should need here.
+              std::vector<storage::durability::WalDeltaData> changelog;
+
+              storage::NameIdMapper *mapper = nullptr;
+              {
+                // Scoped tightly and closed BEFORE MergeBranch opens main.UniqueAccess() below --
+                // holding a READ accessor open across that call would self-deadlock (merge.cpp's
+                // top-of-file comment: HistoricalAccess/UniqueAccess can never overlap on one
+                // thread).
+                auto mapper_acc = mem_storage->Access(storage::StorageAccessType::READ);
+                mapper = mapper_acc->GetNameIdMapper();
+              }
+
+              auto commit_args = storage::CommitArgs::make_main(dbms::DatabaseProtector{db_acc}.clone());
+              auto result = versioning::MergeBranch(*mem_storage, fork_ts, changelog, mapper, std::move(commit_args));
+              if (!result) {
+                // AbortMerge: the branch and its fork pin are untouched (MergeBranch's own
+                // contract on failure) -- clear the "merging" marker so it's an ordinary,
+                // retryable branch again, exactly like it was before this call.
+                version_store->AbortMerge(name);
+                const auto &error = result.error();
+                switch (error.kind) {
+                  case versioning::MergeErrorKind::kModifyConflict:
+                    throw QueryRuntimeException(
+                        "Merge of '{}' into '{}' conflicts: '{}' changed objects that '{}' also changed since the "
+                        "fork. Redo the work on a fresh branch off the current '{}'. ({})",
+                        name,
+                        parent,
+                        parent,
+                        name,
+                        parent,
+                        error.message);
+                  case versioning::MergeErrorKind::kForkPinLost:
+                  case versioning::MergeErrorKind::kCorruptChangelog:
+                  case versioning::MergeErrorKind::kApplyFailed:
+                  case versioning::MergeErrorKind::kCommitFailed:
+                    throw QueryRuntimeException("Merge of '{}' into '{}' failed: {}", name, parent, error.message);
+                }
+              }
+
+              // Guaranteed to succeed -- see BeginMerge's own contract above.
+              version_store->FinishMerge(name);
+              if (current_db.CurrentVersion() == name) {
+                current_db.SetCurrentVersion(std::nullopt);
+              }
+
+              std::vector<std::vector<TypedValue>> rows{{TypedValue(name), TypedValue(parent)}};
+              pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+            }
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          .rw_type = RWType::W};
+    }
+    case VersioningQuery::Action::DROP_BRANCH: {
+      MG_ASSERT(name, "DROP BRANCH: grammar guarantees a name");
+      if (!version_store->Exists(*name)) {
+        throw QueryRuntimeException("Version '{}' does not exist.", *name);
+      }
+      // Fail fast for the same reason MERGE_BRANCH does above (no post-hoc DropBranch surprises).
+      if (version_store->HasChildren(*name)) {
+        throw QueryRuntimeException("Cannot drop '{}': it has child branches. Merge or drop its children first.",
+                                    *name);
+      }
+
+      return PreparedQuery{
+          .header = {},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler =
+              [version_store, &current_db, name = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                  AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+            if (!pull_plan) {
+              if (!version_store->DropBranch(name)) {
+                // TOCTOU: another connection raced a CreateBranch(parent=name) or DropBranch(name)
+                // between the pre-checks above and this call (VersionStore's own lock_ only
+                // serializes each call individually, not this check-then-act pair across two
+                // separate interpreter calls). Rare; surfaced rather than silently no-op'd.
+                throw QueryRuntimeException(
+                    "Version '{}' could not be dropped (it no longer exists, or gained a child branch "
+                    "concurrently). Retry DROP BRANCH.",
+                    name);
+              }
+              if (current_db.CurrentVersion() == name) {
+                current_db.SetCurrentVersion(std::nullopt);
+              }
+              pull_plan = std::make_shared<PullPlanVector>(std::vector<std::vector<TypedValue>>{});
+            }
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          .rw_type = RWType::W};
+    }
+    case VersioningQuery::Action::SHOW_BRANCH: {
+      return PreparedQuery{
+          .header = {"version", "number", "description"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [version_store, &current_db, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                               AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+            if (!pull_plan) {
+              std::vector<std::vector<TypedValue>> rows;
+              if (const auto &current = current_db.CurrentVersion(); current) {
+                auto info = version_store->Get(*current);
+                if (!info) {
+                  // The checked-out branch was dropped/merged (by this or another connection)
+                  // since CHECKOUT -- surfaced rather than silently reporting 'main' instead.
+                  throw QueryRuntimeException(
+                      "The checked-out version '{}' no longer exists. Use CHECKOUT BRANCH to select another "
+                      "version.",
+                      *current);
+                }
+                rows.push_back({TypedValue(*current),
+                                TypedValue(static_cast<int64_t>(info->number)),
+                                info->description ? TypedValue(*info->description) : TypedValue()});
+              } else {
+                rows.push_back({TypedValue(std::string("main")),
+                                TypedValue(static_cast<int64_t>(kMainVersionNumber)),
+                                TypedValue()});
+              }
+              pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+            }
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          .rw_type = RWType::NONE};
+    }
+    case VersioningQuery::Action::SHOW_BRANCHES: {
+      // FOR DATABASE targets ANOTHER tenant's registry. Full cross-tenant scoping/gating is chunk
+      // 8's job (grounded fact); this chunk resolves it when the enterprise multi-tenancy API is
+      // available (dbms_handler->Get(name) is MG_ENTERPRISE-only, mirroring UseDatabaseQuery) and
+      // otherwise flags it as not-yet-supported rather than silently ignoring the clause.
+      auto target_db_acc = db_acc;
+#ifdef MG_ENTERPRISE
+      if (query->for_database_) {
+        try {
+          target_db_acc = interpreter_context->dbms_handler->Get(*query->for_database_);
+        } catch (const utils::BasicException &e) {
+          throw QueryRuntimeException(e.what());
+        }
+      }
+#else
+      (void)interpreter_context;
+      if (query->for_database_) {
+        throw QueryRuntimeException("SHOW BRANCHES FOR DATABASE requires an enterprise multi-tenant build.");
+      }
+#endif
+      // MEDIUM fix: flag_enabled/enterprise_valid were already enforced above (for BOTH the
+      // plain and FOR DATABASE forms); storage mode and WAL are PER-DATABASE and were
+      // deliberately NOT checked above for the FOR DATABASE form (cross_tenant_show_branches),
+      // so gate the RESOLVED target here -- unconditionally whenever FOR DATABASE was given, not
+      // just when the target differs from the current db (a user naming their OWN db via FOR
+      // DATABASE must still go through this, since the top-level gate above was skipped for them
+      // too).
+      if (query->for_database_) {
+        storage::Storage *target_storage = target_db_acc->storage();
+        if (const auto target_gate_err = versioning::CheckVersioningGate(
+                FLAGS_versioning_enabled,
+                license::global_license_checker.IsEnterpriseValidFast(),
+                target_storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
+                target_storage->IsDurabilityCompleteForSuspend())) {
+          throw QueryRuntimeException(std::string(versioning::GateErrorMessage(*target_gate_err)));
+        }
+      }
+
+      return PreparedQuery{
+          .header = {"number", "version", "description"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [target_db_acc, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                               AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+            if (!pull_plan) {
+              std::vector<std::vector<TypedValue>> rows;
+              rows.push_back({TypedValue(static_cast<int64_t>(kMainVersionNumber)),
+                              TypedValue(std::string("main")),
+                              TypedValue()});
+              for (const auto &[branch_name, info] : target_db_acc->version_store()->List()) {
+                rows.push_back({TypedValue(static_cast<int64_t>(info.number)),
+                                TypedValue(branch_name),
+                                info.description ? TypedValue(*info.description) : TypedValue()});
+              }
+              pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
+            }
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          .rw_type = RWType::R};
+    }
+    case VersioningQuery::Action::SHOW_BRANCH_DIFF: {
+      std::string target;
+      if (name) {
+        target = *name;
+      } else if (current_db.CurrentVersion()) {
+        target = *current_db.CurrentVersion();
+      } else {
+        throw QueryRuntimeException(
+            "SHOW BRANCH DIFF with no name requires an active checked-out version (CHECKOUT BRANCH first), or name "
+            "one explicitly: SHOW BRANCH DIFF '<name>'.");
+      }
+      if (target == "main") {
+        throw QueryRuntimeException("SHOW BRANCH DIFF cannot target 'main' -- it names a branch's own change-log.");
+      }
+      if (!version_store->Exists(target)) {
+        throw QueryRuntimeException("Version '{}' does not exist.", target);
+      }
+
+      // CHUNK 7a gap (flagged, not silently skipped): SHOW BRANCH DIFF's row data (op, entity,
+      // gid, detail, txn_ts, ledger_time, query) is sourced from a branch's OWN finalized
+      // BranchLog (chunk 3a's ReadAll) -- but nothing yet creates or feeds a per-branch BranchLog
+      // across a real branch's lifetime (no log-path field on VersionStore::BranchInfo, no
+      // Database-level lifecycle hook); that capture wiring is chunks 7b/7c, the exact same gap
+      // MERGE_BRANCH above works around with an empty change-log. Additionally, WalDeltaData
+      // carries no `query`-text column at all (spec: "provenance/display only") -- sourcing it
+      // needs a separate per-transaction query-text log this chunk does not add. The validation
+      // above (name resolution, main-rejection, existence) is real and exercised now; only the
+      // actual row listing is deferred.
+      throw utils::NotYetImplemented("SHOW BRANCH DIFF (requires branch write-capture wiring from chunks 7b/7c)");
+    }
+  }
+  LOG_FATAL("Should not get here -- unknown VersioningQuery action!");
+}
+
 PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
                                       InterpreterContext *interpreter_context,
                                       std::optional<std::function<void(std::string_view)>> on_change_cb) {
@@ -9581,8 +10066,10 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   void Visit(MultiDatabaseQuery & /*unused*/) override {}
 
-  // TODO(versioning chunk 7): dispatch/accessor-type wiring for branch management queries lands
-  // with interpreter dispatch; parse/AST (chunk 1) has no execution semantics yet.
+  // Chunk 7a: VersioningQuery needs the current database (for VersionStore/storage mode/WAL
+  // config) but leaves accessor_type_ unset -- like CreateSnapshotQuery below, it manages its own
+  // storage access internally (VersionStore's own lock; MergeBranch opens its own
+  // main.UniqueAccess() transaction), so no interpreter-level accessor is set up for it.
   void Visit(VersioningQuery & /*unused*/) override {}
 
   void Visit(ReplicationQuery & /*unused*/) override {}
@@ -10149,6 +10636,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       /// SYSTEM (Replication) + INTERPRETER
       // DMG_ASSERT(system_guard);
       prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), interpreter_context_, *this);
+    } else if (utils::Downcast<VersioningQuery>(parsed_query.query)) {
+      // Graph Versioning (branches) v1, chunk 7a: management queries (CREATE/CHECKOUT/MERGE/DROP/
+      // SHOW BRANCH*) are autocommit-only, mirroring MultiDatabaseQuery immediately above (spec
+      // §4.1/§4.4).
+      if (in_explicit_transaction_) {
+        throw VersioningQueryInMulticommandTxException();
+      }
+      prepared_query = PrepareVersioningQuery(std::move(parsed_query), interpreter_context_, current_db_);
     } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw UseDatabaseQueryInMulticommandTxException();

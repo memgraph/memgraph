@@ -555,6 +555,15 @@ class UseDatabaseQueryInMulticommandTxException : public MulticommandTxException
   SPECIALIZE_GET_EXCEPTION_NAME(UseDatabaseQueryInMulticommandTxException)
 };
 
+// Graph Versioning (branches) v1, chunk 7a: management queries (CREATE/CHECKOUT/MERGE/DROP/
+// SHOW BRANCH*) are autocommit-only, mirroring MultiDatabaseQueryInMulticommandTxException above
+// (spec §4.1/§4.4).
+class VersioningQueryInMulticommandTxException : public MulticommandTxException {
+ public:
+  VersioningQueryInMulticommandTxException() : MulticommandTxException("Managing graph versioning branches") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(VersioningQueryInMulticommandTxException)
+};
+
 class DropGraphInMulticommandTxException : public MulticommandTxException {
  public:
   DropGraphInMulticommandTxException() : MulticommandTxException("Dropping the graph") {}

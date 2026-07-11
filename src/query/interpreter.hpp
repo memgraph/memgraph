@@ -242,9 +242,25 @@ struct CurrentDB {
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
+    // Graph Versioning v1 (chunk 7a, HIGH-1 fix): a branch pointer is scoped to the database it
+    // was checked out on (VersionStore lives on Database), so a genuine USE/db-change must still
+    // clear it -- but SetCurrentDB is NOT only called on a genuine db switch: the Bolt glue's
+    // RuntimeConfig::Configure re-invokes it with the SAME database whenever ANY field of the RUN
+    // "extra" map differs from the previous query ("mode"/"tx_timeout"/"tx_metadata" -- see
+    // glue/SessionHL.cpp's ToQueryExtras), which ordinary routing-aware drivers vary between
+    // successive autocommit queries. Unconditionally resetting here silently reverted a
+    // CHECKOUT BRANCH to main on the very next query under a real driver. Only reset when `new_db`
+    // is actually a DIFFERENT database -- compared by identity (Gatekeeper<Database>::Accessor's
+    // operator== compares the underlying Database, utils/gatekeeper.hpp), not name, so it is
+    // correct even across a DROP+recreate of a same-named database. Mirrors the "Already using X"
+    // fast path in PrepareUseDatabaseQuery (query/interpreter.cpp).
+    const bool same_db = db_acc_.has_value() && *db_acc_ == new_db;
     // do we lock here?
     db_acc_ = std::move(new_db);
     in_explicit_db_ = in_explicit_db;
+    if (!same_db) {
+      current_version_.reset();
+    }
   }
 
   void ResetDB() {
@@ -252,9 +268,20 @@ struct CurrentDB {
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
+    current_version_.reset();
   }
 
   std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
+
+  // Graph Versioning (branches) v1, CHUNK 7a: the session's active branch, if any -- per-connection
+  // state (spec §4.1 "per-connection session version"). std::nullopt means the session is on
+  // `main` (the default/unversioned base graph). CHECKOUT BRANCH '<name>' sets it; CHECKOUT BRANCH
+  // 'main' clears it (SetCurrentVersion(std::nullopt)). Trivially default-constructed (nullopt) so
+  // a session that never touches versioning pays zero cost (R6) beyond one empty
+  // std::optional<std::string> per CurrentDB.
+  std::optional<std::string> const &CurrentVersion() const { return current_version_; }
+
+  void SetCurrentVersion(std::optional<std::string> version) { current_version_ = std::move(version); }
 
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
@@ -265,6 +292,8 @@ struct CurrentDB {
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_db_{false};
   metrics::ScopedGauge transaction_gauge_;
+  // Graph Versioning (branches) v1, CHUNK 7a -- see CurrentVersion()/SetCurrentVersion() above.
+  std::optional<std::string> current_version_;
 };
 
 using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;

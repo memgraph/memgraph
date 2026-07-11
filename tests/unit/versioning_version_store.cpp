@@ -249,3 +249,83 @@ TEST_F(VersionStoreTest, ReloadAfterDroppingHighestNumberedBranchDoesNotReuseNum
   ASSERT_TRUE(b.has_value());
   EXPECT_EQ(b->number, 3);  // MUST NOT reuse 2, even though 'a' (the only branch) was dropped
 }
+
+// CHUNK 7a HIGH-2 fix: BeginMerge/FinishMerge/AbortMerge close the TOCTOU window a bare
+// "HasChildren-then-later-DropBranch" pair left open -- a child forked off a branch mid-merge
+// could make the post-merge drop fail, leaving the branch a legal, still-mergeable target whose
+// change-log a second MERGE would replay again (duplicate CREATEs). These tests exercise the new
+// VersionStore-level invariant directly (independent of the interpreter dispatch that consumes
+// it, see tests/unit/versioning_interpreter.cpp's own coverage of the end-to-end happy path).
+
+TEST_F(VersionStoreTest, BeginMergeRejectsNonExistentOrChildedBranch) {
+  auto store = MakeStore();
+
+  auto missing = store->BeginMerge("nope");
+  ASSERT_FALSE(missing.has_value());
+
+  ASSERT_TRUE(store->CreateBranch("parent", "main", std::nullopt).has_value());
+  ASSERT_TRUE(store->CreateBranch("child", "parent", std::nullopt).has_value());
+
+  auto childed = store->BeginMerge("parent");
+  ASSERT_FALSE(childed.has_value());
+  // Rejected read-only: 'parent' is untouched, still an ordinary droppable-once-childless branch.
+  EXPECT_TRUE(store->Exists("parent"));
+}
+
+TEST_F(VersionStoreTest, BeginMergeBlocksConcurrentForkAndSecondMergeUntilFinishOrAbort) {
+  auto store = MakeStore();
+  ASSERT_TRUE(store->CreateBranch("feature", "main", std::nullopt).has_value());
+
+  auto begun = store->BeginMerge("feature");
+  ASSERT_TRUE(begun.has_value());
+  EXPECT_EQ(begun->parent, "main");
+
+  // A concurrent fork off the merging branch must be refused (this is exactly the race that used
+  // to let a DropBranch-after-merge fail): if it were allowed, the branch would gain a child in
+  // the window between BeginMerge and FinishMerge/DropBranch.
+  auto fork_attempt = store->CreateBranch("late-child", "feature", std::nullopt);
+  ASSERT_FALSE(fork_attempt.has_value());
+  EXPECT_FALSE(store->Exists("late-child"));
+
+  // A second concurrent merge attempt on the same branch is refused too.
+  auto second_begin = store->BeginMerge("feature");
+  ASSERT_FALSE(second_begin.has_value());
+
+  // A direct DROP BRANCH while merging is refused (only FinishMerge may remove it now).
+  EXPECT_FALSE(store->DropBranch("feature"));
+
+  // FinishMerge is guaranteed to succeed -- BeginMerge already excluded every way this could fail.
+  store->FinishMerge("feature");
+  EXPECT_FALSE(store->Exists("feature"));
+
+  // Fork/merge are unblocked again since the merging marker is gone (no lingering "still
+  // merging" state, no fork_ts pin leaked).
+  ASSERT_TRUE(store->CreateBranch("feature", "main", std::nullopt).has_value());
+}
+
+TEST_F(VersionStoreTest, AbortMergeLeavesBranchIntactAndRetryable) {
+  auto store = MakeStore();
+  auto created = store->CreateBranch("feature", "main", std::nullopt);
+  ASSERT_TRUE(created.has_value());
+  const uint64_t fork_ts = created->fork_ts;
+
+  ASSERT_TRUE(store->BeginMerge("feature").has_value());
+  // A concurrent fork is refused while the (later-aborted) merge is in flight.
+  EXPECT_FALSE(store->CreateBranch("late-child", "feature", std::nullopt).has_value());
+
+  store->AbortMerge("feature");
+
+  // The branch and its fork pin are untouched -- mirrors MergeBranch's own "main and the branch
+  // are byte-unchanged on failure, retry after fixing up" contract (merge.hpp).
+  auto after_abort = store->Get("feature");
+  ASSERT_TRUE(after_abort.has_value());
+  EXPECT_EQ(after_abort->fork_ts, fork_ts);
+  EXPECT_FALSE(pins_.live_.empty());  // the pin was never released
+
+  // Ordinary operations on it work again: it may be forked off, merged, or dropped.
+  ASSERT_TRUE(store->CreateBranch("child", "feature", std::nullopt).has_value());
+  ASSERT_TRUE(store->DropBranch("child"));
+  ASSERT_TRUE(store->BeginMerge("feature").has_value());
+  store->FinishMerge("feature");
+  EXPECT_FALSE(store->Exists("feature"));
+}

@@ -17,6 +17,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -80,6 +81,9 @@ class VersionStore {
   // Structural checks only:
   //   - `name` must not already be a registered branch.
   //   - `parent` must be "main" or an existing branch.
+  //   - `parent` must not currently be BeginMerge'd (see below) -- otherwise a branch could be
+  //     forked off a parent mid-merge, only for that parent to vanish out from under it once
+  //     FinishMerge completes (CHUNK 7a HIGH-2 fix).
   // On success, acquires a GC fork pin (fork_ts = acquire_pin()), assigns the next monotonic
   // number, persists the record, and returns the resulting BranchInfo. On failure, returns an
   // end-user-facing error message and leaves all state (including any pin) untouched.
@@ -88,8 +92,8 @@ class VersionStore {
 
   // Structural check: a branch that is the parent of another branch cannot be dropped (mirrors
   // the spec's merge/drop "no children" rule). Returns false without changing any state if `name`
-  // doesn't exist or has children. On success, releases the GC fork pin, removes the durable
-  // record, and returns true.
+  // doesn't exist, has children, or is currently BeginMerge'd (see below). On success, releases
+  // the GC fork pin, removes the durable record, and returns true.
   bool DropBranch(std::string_view name);
 
   std::optional<BranchInfo> Get(std::string_view name) const;
@@ -99,12 +103,60 @@ class VersionStore {
 
   bool Exists(std::string_view name) const;
 
+  // Whether `name` currently has any child branch (some other branch's `parent == name`).
+  // CHUNK 7 (interpreter dispatch) needs this as a fail-fast pre-check before MERGE: DropBranch
+  // already refuses internally when a branch has children, but by the time MERGE would discover
+  // that via a failed DropBranch, it has ALREADY replayed the change-log onto main -- there is no
+  // way back from that. Checking HasChildren before ever starting the merge avoids ever reaching
+  // that state (spec's "Cannot merge/drop '<x>': it has child branches" errors are both fail-fast,
+  // not post-hoc). Minimal, additive public accessor over the existing private/locked check below;
+  // does not change DropBranch's own behavior or contract.
+  bool HasChildren(std::string_view name) const;
+
+  // CHUNK 7a HIGH-2 fix: atomic "begin a merge" -- the merge itself (versioning::MergeBranch)
+  // takes a while (opens its own transaction against main) and runs OUTSIDE any lock this class
+  // holds, so a bare "HasChildren check, then later DropBranch" pair (as chunk 7a originally did)
+  // has a TOCTOU window: a concurrent CreateBranch(parent=name) can land in between, making the
+  // post-merge DropBranch fail -- which would leave `name` a legal, un-merged-looking branch
+  // whose change-log a SECOND `MERGE BRANCH name` would replay again, duplicating every CREATE
+  // op (D3 only catches MODIFY conflicts, see merge.cpp). BeginMerge closes that window by doing
+  // the existence + no-children + not-already-merging check AND recording `name` as "merging" in
+  // one atomic, lock-held step; CreateBranch (above) refuses to fork off a merging parent, and a
+  // second concurrent BeginMerge/DropBranch on the same name is refused too. The caller MUST
+  // follow a successful BeginMerge with exactly one of FinishMerge (merge committed) or
+  // AbortMerge (merge failed/rejected) -- there is no other way to clear the "merging" marker.
+  //
+  // Returns the branch's (structurally validated) BranchInfo -- the SAME data Get() would have
+  // returned, captured atomically with the "merging" mark so the caller never needs a separate,
+  // separately-racy Get() call for fork_ts/parent. Returns an end-user-facing error message
+  // (mirrors CreateBranch's own contract) if `name` doesn't exist, has children, or a merge on it
+  // is already in progress.
+  std::expected<BranchInfo, std::string> BeginMerge(std::string_view name);
+
+  // Completes a merge BeginMerge'd on `name`: removes the branch's registry entry and releases
+  // its GC fork pin (same net effect as DropBranch), and clears the "merging" marker. Guaranteed
+  // to find `name` present and childless -- BeginMerge already excluded both for the entire
+  // window since it was called -- so, unlike DropBranch, this cannot fail. `name` must have a
+  // BeginMerge in progress (caller contract; see BeginMerge above).
+  void FinishMerge(std::string_view name);
+
+  // Aborts a merge BeginMerge'd on `name` without touching the branch or its fork pin: clears the
+  // "merging" marker so `name` becomes an ordinary, mergeable/droppable branch again. Used when
+  // the merge itself failed or was rejected (e.g. a D3 conflict) -- mirrors MergeBranch's own
+  // contract that a failed merge leaves main AND the branch byte-unchanged, retryable.
+  void AbortMerge(std::string_view name);
+
  private:
   // Caller must already hold lock_.
-  bool HasChildren(std::string_view name) const;
+  bool HasChildrenLocked(std::string_view name) const;
 
   mutable utils::SpinLock lock_;
   std::map<std::string, BranchInfo, std::less<>> branches_;
+  // Names currently between a BeginMerge and its matching FinishMerge/AbortMerge (CHUNK 7a
+  // HIGH-2 fix, see BeginMerge's own doc-comment). Never persisted -- a "merge in progress"
+  // marker cannot legitimately survive a restart (the in-flight merge transaction itself
+  // wouldn't have), so an empty set on load is always correct.
+  std::set<std::string, std::less<>> merging_;
   uint64_t next_number_{2};  // main is the implicit, un-persisted version 1
   kvstore::KVStore storage_;
   std::function<uint64_t()> acquire_pin_;

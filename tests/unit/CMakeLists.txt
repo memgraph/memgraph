@@ -105,6 +105,11 @@ add_unit_test(versioning_merge
         LINK_TARGETS mg::versioning mg::storage
 )
 
+add_unit_test(versioning_interpreter
+        SOURCES versioning_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+        LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
+)
+
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils

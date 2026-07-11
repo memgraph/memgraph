@@ -171,9 +171,16 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
   }
 
-  // TODO(versioning chunk 7): real privilege gating for branch management queries lands with
-  // interpreter dispatch; parse/AST (chunk 1) intentionally requires no privilege yet.
-  void Visit(VersioningQuery & /*unused*/) override {}
+  // D4 (spec §6): a single privilege gates the whole branch-management surface in v1 -- ownership/
+  // sharing come later. There is no dedicated BRANCH privilege yet (minting one is a full
+  // AuthQuery::Privilege addition: bitmask slot in auth/models.hpp, string in auth/models.cpp,
+  // glue/auth.cpp mapping, AND a new GRANT/DENY/REVOKE grammar keyword requiring an ANTLR
+  // regeneration -- out of scope for this dispatch-only chunk). MULTI_DATABASE_EDIT is reused as
+  // the closest existing enterprise-gated "manage tenant-like registry entries" privilege
+  // (branches are conceptually sub-database forks, and MultiDatabaseQuery already requires the
+  // same enterprise license VersioningQuery's own runtime gate requires). Flagged for chunk 8+ to
+  // revisit with a dedicated BRANCH privilege if product wants finer-grained grants.
+  void Visit(VersioningQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT); }
 
   void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 
