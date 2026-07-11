@@ -352,3 +352,38 @@ TEST_F(VersioningInterpreterTest, ReApplyingSameDatabaseAccessPreservesCheckout)
   ASSERT_EQ(stream.GetResults().size(), 1U);
   EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "feature");
 }
+
+// Graph Versioning v1 (materialize-per-checkout, CHUNK 7b(2)): end-to-end regression for the unit
+// this file's CHECKOUT_BRANCH handler now wires up -- ordinary Cypher issued while checked out on
+// a branch must run against that branch's OWN private BranchEngine (built at CHECKOUT time from a
+// full copy of main as of the fork point), completely isolated from main, with the session
+// reading back its own writes (no shadowing/union-cursor trickery needed, single physical store).
+// Checking back out onto 'main' must route straight back to main's real storage, untouched by
+// anything the branch session wrote -- R35 (main is never written by branch activity).
+TEST_F(VersioningInterpreterTest, BranchWriteIsIsolatedAndReadYourWrites) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (s:S)-[:E]->(a:A {x:1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+
+  faker.Interpret("MATCH (a:A) SET a.x = 2");
+
+  // Read-your-writes against the branch's own engine.
+  {
+    auto stream = faker.Interpret("MATCH (s:S)-[:E]->(a:A) RETURN a.x");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+
+  // Tears the branch engine down and routes back to main's real storage.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+
+  {
+    auto stream = faker.Interpret("MATCH (s:S)-[:E]->(a:A) RETURN a.x");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+}

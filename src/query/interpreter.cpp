@@ -140,6 +140,7 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
+#include "versioning/branch_engine.hpp"
 #include "versioning/gate.hpp"
 #include "versioning/merge.hpp"
 #include "versioning/name.hpp"
@@ -223,19 +224,34 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   auto &db_acc = *db_acc_;
   const memory::DbArenaScope db_arena_scope{db_acc.get()};
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
+
+  // Graph Versioning v1 (materialize-per-checkout, CHUNK 7b(2)): a checked-out branch routes
+  // ordinary Cypher straight at its own private storage::InMemoryStorage (built at CHECKOUT time
+  // -- see PrepareVersioningQuery's CHECKOUT_BRANCH handler) instead of the real database's
+  // storage. This is what lets STOCK query operators run completely unmodified against a branch
+  // (no union-cursor, no per-row shadowing lookups): the branch engine already physically
+  // contains every object as of the fork point. Database::Access/UniqueAccess/ReadOnlyAccess are
+  // themselves thin forwarders straight to Storage::Access/UniqueAccess/ReadOnlyAccess
+  // (dbms/database.cpp), so calling the SAME methods on the branch's own InMemoryStorage below is
+  // equivalent, just against a different physical engine. When current_version_ is unset (the
+  // overwhelmingly common case) or no engine is held, `target_storage` is `db_acc->storage()` and
+  // this is BYTE-FOR-BYTE the pre-versioning behavior.
+  storage::Storage *target_storage =
+      (current_version_ && branch_engine_) ? &branch_engine_->storage() : db_acc->storage();
+
   switch (acc_type) {
     case storage::StorageAccessType::READ:
       [[fallthrough]];
     case storage::StorageAccessType::WRITE:
-      db_transactional_accessor_ = db_acc->Access(acc_type,
-                                                  override_isolation_level,
-                                                  /*allow timeout*/ timeout);
+      db_transactional_accessor_ = target_storage->Access(acc_type,
+                                                          override_isolation_level,
+                                                          /*allow timeout*/ timeout);
       break;
     case storage::StorageAccessType::UNIQUE:
-      db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level, /*allow timeout*/ timeout);
+      db_transactional_accessor_ = target_storage->UniqueAccess(override_isolation_level, /*allow timeout*/ timeout);
       break;
     case storage::StorageAccessType::READ_ONLY:
-      db_transactional_accessor_ = db_acc->ReadOnlyAccess(override_isolation_level, /*allow timeout*/ timeout);
+      db_transactional_accessor_ = target_storage->ReadOnlyAccess(override_isolation_level, /*allow timeout*/ timeout);
       break;
     default:
       // TODO: no access case
@@ -246,7 +262,15 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
 
   transaction_gauge_ = metrics::ScopedGauge{db_acc->metric_handles()->active_transactions.gauge};
 
-  if (db_acc->trigger_store()->HasTriggers() && could_commit) {
+  // CHUNK 7b(2): do NOT collect/run triggers for a branch write. Triggers are a main-database
+  // concept; a checked-out branch is an isolated v1 workspace. Both BEFORE and AFTER commit trigger
+  // execution below are gated on trigger_context (populated only from this collector), so skipping
+  // the emplace disables both. This is required for correctness, not just semantics: AFTER-commit
+  // triggers re-open an accessor on MAIN and adapt the branch-collected TriggerContext onto main's
+  // gid space (RunTriggersAfterCommit -> TriggerContext::AdaptForAccessor), which -- because the
+  // branch engine's post-fork gid counter diverges from main's -- would silently misattribute or
+  // drop branch-only changes against unrelated main objects. Branch triggers are deferred.
+  if (db_acc->trigger_store()->HasTriggers() && could_commit && !current_version_) {
     trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
   }
 }
@@ -260,6 +284,16 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   trigger_context_collector_.reset();
   // Clear ScopedGauge, which decrements the gauge backing this metric.
   transaction_gauge_ = {};
+}
+
+void memgraph::query::CurrentDB::ClearBranchEngine() {
+  if (!branch_engine_) {
+    return;
+  }
+  branch_engine_version_store_->ReleaseCheckout(branch_engine_name_);
+  branch_engine_.reset();
+  branch_engine_version_store_ = nullptr;
+  branch_engine_name_.clear();
 }
 
 struct QueryLogWrapper {
@@ -8165,6 +8199,44 @@ std::vector<TypedValue> VersioningDetailRow(std::string_view name, const version
           info.description ? TypedValue(*info.description) : TypedValue(),
           TypedValue(info.parent)};
 }
+
+// Graph Versioning v1 (materialize-per-checkout, CHUNK 7b(2)): builds a private BranchEngine for
+// `name` and installs it onto `current_db`, acquiring this session's exclusive checkout on
+// `name` via `version_store` along the way. Called from the CHECKOUT_BRANCH query_handler (both
+// the plain-switch and create-and-switch forms) at Pull time, AFTER the caller has already
+// released any PREVIOUSLY held branch engine (via current_db.SetCurrentVersion(std::nullopt)) --
+// see this file's CHECKOUT_BRANCH case for the full release-old-then-acquire-new ordering.
+//
+// Throws QueryRuntimeException (leaving current_db's branch state untouched) if the checkout is
+// already held by another session, or if BuildFromFork itself fails (kForkStateUnavailable or
+// kUnsupportedEnumProperty -- see branch_engine.hpp); in the latter case the just-acquired
+// checkout is released first so a failed CHECKOUT never leaks an exclusive hold.
+//
+// NOTE (scope of this unit): a freshly built engine seeds ONLY main's state as of the fork point
+// -- replaying the branch's own prior writes (its BranchLog) on re-checkout is a later unit, so a
+// checked-out branch's writes today do NOT survive a checkout-away. Acceptable for this slice
+// (see this file's CHECKOUT_BRANCH case doc-comment).
+void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *version_store,
+                          memgraph::dbms::DatabaseAccess db_acc, const std::string &name,
+                          const versioning::BranchInfo &info) {
+  if (!version_store->TryAcquireCheckout(name)) {
+    throw QueryRuntimeException("Version '{}' is in use by another session.", name);
+  }
+
+  // version_store (hence this whole function) is only ever reached for IN_MEMORY_TRANSACTIONAL
+  // databases -- the chunk-0 gate in PrepareVersioningQuery already enforced that mode (mirrors
+  // MERGE_BRANCH's own identical downcast, this file's own comment there).
+  auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+
+  auto engine = versioning::BranchEngine::BuildFromFork(
+      *mem_storage, info.fork_ts, storage::CommitArgs::make_main(dbms::DatabaseProtector{db_acc}.clone()));
+  if (!engine) {
+    version_store->ReleaseCheckout(name);
+    throw QueryRuntimeException(engine.error().message);
+  }
+
+  current_db.SetBranchEngine(std::move(*engine), version_store, name);
+}
 }  // namespace
 
 // Graph Versioning (branches) v1, CHUNK 7a: management-query dispatch for CREATE/CHECKOUT/MERGE/
@@ -8294,6 +8366,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
             .privileges = std::move(parsed_query.required_privileges),
             .query_handler = [version_store,
                               &current_db,
+                              db_acc,
                               name = *name,
                               parent = *parent,
                               description,
@@ -8304,6 +8377,15 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
                 if (!created) {
                   throw QueryRuntimeException(created.error());
                 }
+                // Materialize-per-checkout (CHUNK 7b(2)): release whatever branch engine/checkout
+                // this session currently holds BEFORE acquiring the new, just-created branch's --
+                // a session can hold at most one exclusive checkout at a time. `name` here is
+                // always a freshly created (hence not-yet-checked-out-by-anyone) branch, so this
+                // is purely about releasing the OLD one, never a self-collision.
+                if (current_db.CurrentVersion()) {
+                  current_db.SetCurrentVersion(std::nullopt);
+                }
+                CheckoutBranchEngine(current_db, version_store, db_acc, name, *created);
                 current_db.SetCurrentVersion(name);
                 std::vector<std::vector<TypedValue>> rows{VersioningDetailRow(name, *created)};
                 pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
@@ -8326,18 +8408,44 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler =
-              [version_store, &current_db, target = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                  AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+          .query_handler = [version_store,
+                            &current_db,
+                            db_acc,
+                            target = *name,
+                            pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                               AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
-              std::optional<std::string> new_version;
+              // Resolve/validate the target FIRST, before touching any currently-held branch
+              // engine/checkout -- LOW fix (pre-existing): a CHECKOUT to a non-existent branch
+              // must leave the session on its PREVIOUS branch untouched, not silently reset it.
+              // Get (not the cheaper Exists) -- this call's result also supplies fork_ts for
+              // BuildFromFork below, so a single lookup now serves both the existence check and
+              // the data CheckoutBranchEngine needs.
+              std::optional<versioning::BranchInfo> info;
               if (target != "main") {
-                if (!version_store->Exists(target)) {
+                info = version_store->Get(target);
+                if (!info) {
                   throw QueryRuntimeException("Version '{}' does not exist.", target);
                 }
-                new_version = target;
               }
-              current_db.SetCurrentVersion(new_version);
+
+              // Materialize-per-checkout (CHUNK 7b(2)): only now that `target` is confirmed valid
+              // (or is 'main') release whatever branch engine/checkout this session currently
+              // holds -- release-old-then-acquire-new (see CheckoutBranchEngine's own
+              // doc-comment for why the new checkout must not be acquired before the old one is
+              // released; TryAcquireCheckout's single-writer contract forbids briefly
+              // double-holding). NOTE: if CheckoutBranchEngine itself still fails below (the
+              // target got checked out by another session, or BuildFromFork failed, between the
+              // Get() above and here), the session lands on 'main' rather than back on its
+              // now-released old branch -- an accepted, flagged trade-off of never double-holding
+              // two exclusive checkouts at once.
+              if (current_db.CurrentVersion()) {
+                current_db.SetCurrentVersion(std::nullopt);
+              }
+              if (info) {
+                CheckoutBranchEngine(current_db, version_store, db_acc, target, *info);
+                current_db.SetCurrentVersion(target);
+              }
               std::vector<std::vector<TypedValue>> rows{{TypedValue("Switched to version '" + target + "'.")}};
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }
@@ -8366,10 +8474,24 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
       return PreparedQuery{
           .header = {"merged", "into"},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler =
-              [version_store, &current_db, db_acc, name = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                  AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+          .query_handler = [version_store, db_acc, name = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                               AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
+              // Materialize-per-checkout (CHUNK 7b(2)): VersionStore::BeginMerge now refuses a
+              // branch ANY session currently has checked out -- INCLUDING this same session, if
+              // it happens to be the one issuing this MERGE. Unlike DROP_BRANCH (where dropping
+              // your own checked-out branch is a normal, spec-mandated operation, so the
+              // interpreter pre-releases it), auto-releasing here before a merge that might then
+              // itself FAIL (D3 conflict, apply failure, ...) would tear down this session's
+              // branch engine/checkout for a merge that never actually happened -- violating this
+              // file's own contract that a rejected merge leaves EVERYTHING (main, the branch,
+              // and now the session's checkout) untouched and retryable. So this is a deliberate,
+              // new restriction instead: CHECKOUT BRANCH 'main' first, then MERGE. No existing
+              // test exercises the opposite ("merge the branch you're checked out on" used to
+              // silently clear the session pointer post-merge in chunk 7a, back when there was no
+              // branch engine to protect); flagged as a product-visible behavior change worth
+              // confirming.
+              //
               // HIGH-2 fix: BeginMerge atomically (re-)validates existence + no-children +
               // not-already-merging AND marks `name` as "merging", all under VersionStore's own
               // lock. This closes the TOCTOU window a bare "HasChildren-then-later-DropBranch"
@@ -8441,11 +8563,12 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
                 }
               }
 
-              // Guaranteed to succeed -- see BeginMerge's own contract above.
+              // Guaranteed to succeed -- see BeginMerge's own contract above. (No post-merge
+              // session-pointer clearing needed anymore, unlike chunk 7a before branch engines
+              // existed: BeginMerge's checked_out_ guard above already proved NO session --
+              // including this one -- holds a live checkout on `name`, so current_db.CurrentVersion()
+              // can never equal `name` at this point.)
               version_store->FinishMerge(name);
-              if (current_db.CurrentVersion() == name) {
-                current_db.SetCurrentVersion(std::nullopt);
-              }
 
               std::vector<std::vector<TypedValue>> rows{{TypedValue(name), TypedValue(parent)}};
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
@@ -8475,18 +8598,27 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
               [version_store, &current_db, name = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                   AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
+              // Materialize-per-checkout (CHUNK 7b(2)): VersionStore::DropBranch now refuses a
+              // branch that's currently checked out by ANY session (a private BranchEngine can't
+              // be dropped out from under the session writing into it) -- but DROPPING THE BRANCH
+              // YOU YOURSELF ARE CHECKED OUT ON must keep working (spec §4.2, and the pre-existing
+              // CheckoutCreateAndSwitchClearsOnDrop test): VersionStore has no notion of WHICH
+              // session holds a checkout, only that ONE does, so THIS session must release its own
+              // hold (if any) before calling DropBranch -- that leaves DropBranch's checked_out_
+              // guard to only ever fire for a checkout some OTHER, still-active session holds.
+              if (current_db.CurrentVersion() == name) {
+                current_db.SetCurrentVersion(std::nullopt);
+              }
               if (!version_store->DropBranch(name)) {
                 // TOCTOU: another connection raced a CreateBranch(parent=name) or DropBranch(name)
                 // between the pre-checks above and this call (VersionStore's own lock_ only
                 // serializes each call individually, not this check-then-act pair across two
-                // separate interpreter calls). Rare; surfaced rather than silently no-op'd.
+                // separate interpreter calls) -- or another session currently has `name` checked
+                // out (see the comment above). Rare; surfaced rather than silently no-op'd.
                 throw QueryRuntimeException(
-                    "Version '{}' could not be dropped (it no longer exists, or gained a child branch "
-                    "concurrently). Retry DROP BRANCH.",
+                    "Version '{}' could not be dropped (it no longer exists, gained a child branch "
+                    "concurrently, or is checked out by another session). Retry DROP BRANCH.",
                     name);
-              }
-              if (current_db.CurrentVersion() == name) {
-                current_db.SetCurrentVersion(std::nullopt);
               }
               pull_plan = std::make_shared<PullPlanVector>(std::vector<std::vector<TypedValue>>{});
             }

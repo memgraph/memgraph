@@ -170,6 +170,12 @@ bool VersionStore::DropBranch(std::string_view name) {
   if (merging_.contains(name)) {
     return false;
   }
+  // Graph Versioning v1 (materialize-per-checkout): a branch some session currently has checked
+  // out (and is writing into via its private BranchEngine) must not be droppable out from under
+  // that session -- CHECKOUT BRANCH 'main' (releasing the checkout) first.
+  if (checked_out_.contains(name)) {
+    return false;
+  }
 
   release_pin_(it->second.fork_ts);
   storage_.Delete(name);
@@ -224,6 +230,16 @@ std::expected<BranchInfo, std::string> VersionStore::BeginMerge(std::string_view
   if (merging_.contains(name)) {
     return std::unexpected(fmt::format("Branch '{}' is already being merged.", name));
   }
+  // Graph Versioning v1 (materialize-per-checkout): a session currently checked out onto `name`
+  // is writing straight into its own private BranchEngine, not into a captured change-log this
+  // merge could see -- refuse rather than silently merge a stale (pre-checkout) view. The
+  // session must CHECKOUT BRANCH 'main' (releasing the checkout) before `name` can be merged.
+  if (checked_out_.contains(name)) {
+    return std::unexpected(
+        fmt::format("Branch '{}' is currently checked out by a session; check out 'main' there "
+                    "before merging.",
+                    name));
+  }
 
   merging_.emplace(name);
   return it->second;
@@ -246,6 +262,23 @@ void VersionStore::FinishMerge(std::string_view name) {
 void VersionStore::AbortMerge(std::string_view name) {
   std::lock_guard guard{lock_};
   merging_.erase(std::string{name});
+}
+
+bool VersionStore::TryAcquireCheckout(std::string_view name) {
+  std::lock_guard guard{lock_};
+  // Refuse a checkout mid-merge too: a session writing into a branch that's simultaneously being
+  // folded into its parent would race MergeBranch's own pass-1/pass-2 read of the (in this design,
+  // not-yet-existing) change-log -- see BeginMerge's symmetric checked_out_ check above.
+  if (merging_.contains(name) || checked_out_.contains(name)) {
+    return false;
+  }
+  checked_out_.emplace(name);
+  return true;
+}
+
+void VersionStore::ReleaseCheckout(std::string_view name) {
+  std::lock_guard guard{lock_};
+  checked_out_.erase(std::string{name});
 }
 
 }  // namespace memgraph::versioning
