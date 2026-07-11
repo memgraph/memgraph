@@ -574,3 +574,148 @@ TEST_F(VersioningInterpreterTest, BranchDeleteThrowsNotYetImplemented) {
   ASSERT_EQ(stream.GetResults().size(), 1U);
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
 }
+
+// Graph Versioning v1, slice E-2a (branch edge create + basic single-hop expansion): covers two
+// things at once --
+//   (1) a branch-native `CREATE (x)-[:R]->(y)` against two EXISTING (not-yet-COW'd historical)
+//       endpoints must COW both endpoints AND be visible from BOTH directions afterwards (the
+//       DbAccessor::InsertEdge COW-both fix -- without it, either the storage-layer same-transaction
+//       MG_ASSERT fires, or only one direction resolves correctly).
+//   (2) ENDPOINT SHADOWING: an edge created/resolved while one endpoint is still historical must
+//       re-Resolve that endpoint by gid on every subsequent access -- if the endpoint is COW'd by a
+//       LATER, unrelated statement, expanding across the (unmodified, historical) edge must still
+//       see the endpoint's latest (COW'd) value, not a stale historical snapshot pinned at
+//       expansion time (EdgeAccessor::To()'s own re-Resolve fix, edge_accessor.cpp).
+// Finally re-confirms R35 (main untouched) on the edge axis, mirroring BranchVertexWriteIsLazyDiff-
+// AndIsolated's own vertex-side confirmation.
+TEST_F(VersioningInterpreterTest, BranchEdgeCreateAndEndpointShadowingIsUnionAware) {
+  SatisfyGate();
+
+  // On main: A/B with no edge between them; S--[:E]-->A(name:a2) exists BEFORE the fork.
+  faker.Interpret("CREATE (:A {name:'a'}), (:B {name:'b'})");
+  faker.Interpret("CREATE (:S {name:'s'})-[:E]->(:A {name:'a2'})");
+
+  faker.Interpret("CREATE BRANCH 'br' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'br'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "br");
+
+  // Branch-native edge create between two still-historical endpoints (x=A/a, y=B/b) -- exercises
+  // DbAccessor::InsertEdge's COW-both-endpoints fix.
+  faker.Interpret("MATCH (x:A {name:'a'}), (y:B {name:'b'}) CREATE (x)-[:R]->(y)");
+
+  // (1) Visible from BOTH directions -- COW-both symmetry (neither endpoint was "the one" that
+  // happened to get COW'd first; both must resolve consistently either way the edge is traversed).
+  {
+    auto stream = faker.Interpret("MATCH (x:A {name:'a'})-[:R]->(y) RETURN y.name");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "b");
+  }
+  {
+    auto stream = faker.Interpret("MATCH (y:B {name:'b'})<-[:R]-(x) RETURN x.name");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "a");
+  }
+
+  // (2) Endpoint shadowing: COW a2 via an unrelated statement, then expand across the historical
+  // (never touched) S--[:E]-->a2 edge from S (still purely historical) -- a2 must resolve to its
+  // POST-SET (diff-engine) value, not the historical snapshot the edge's endpoint pointer was
+  // fixed at.
+  faker.Interpret("MATCH (a2:A {name:'a2'}) SET a2.name = 'a2_mod'");
+  {
+    auto stream = faker.Interpret("MATCH (:S)-[:E]->(a2) RETURN a2.name");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "a2_mod") << "endpoint must be re-Resolved, not stale";
+  }
+
+  // R35: main was never touched by any of the above.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (x:A {name:'a'})-[:R]->(y) RETURN y.name");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch-native edge must be invisible on main";
+  }
+  {
+    auto stream = faker.Interpret("MATCH (:S)-[:E]->(a2) RETURN a2.name");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "a2") << "main's a2 must be untouched by the branch's SET";
+  }
+}
+
+// Graph Versioning v1, slice E-2a HIGH regression (adversarial-review, ROUND 2): `DbAccessor::
+// FindEdge` (both overloads) was UNGUARDED for branch mode -- it called straight into
+// `accessor_->FindEdge`, i.e. the diff engine ONLY, so any pre-fork (historical) edge would silently
+// "not exist" on a branch. Reachable via `MATCH ()-[e]-() WHERE id(e) = <gid>`, which
+// `rewrite/edge_index_lookup.hpp` rewrites to a `ScanAllByEdgeId` operator UNCONDITIONALLY (no index
+// needed, see its own `IdFilters` rewrite) -- so this is a plain, always-on path, not a corner case
+// gated behind an index.
+//
+// ROUND 1 tried a real diff-vs-historical `ResolveEdge` fix here and it was adversarially found
+// WRONG (the historical half doesn't reliably find the edge -- see `BranchContext::ResolveEdge`'s
+// own doc-comment, branch_engine.hpp, for why). Pivoted to fail-loud: `FindEdge` on a branch now
+// unconditionally throws `NotYetImplemented`, mirroring the edge-mutator and edge-index-scan guards
+// elsewhere in this slice -- REAL edge-by-id resolution is deferred to E-2d. This test now checks
+// exactly that: the query throws cleanly (not silently wrong, not a crash), and the session/
+// transaction stays usable afterward (ordinary expansion still works).
+TEST_F(VersioningInterpreterTest, BranchFindEdgeByIdThrowsNotYetImplemented) {
+  SatisfyGate();
+
+  // Pre-fork edge on main.
+  faker.Interpret("CREATE (:S {name:'s'})-[:E]->(:A {name:'a2'})");
+
+  faker.Interpret("CREATE BRANCH 'br' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'br'");
+
+  // Directed pattern (not `()-[e]-()`) and an arbitrary id -- ScanAllByEdgeId's rewrite fires on the
+  // presence of an `id(e) = ...` filter alone, regardless of whether that id actually resolves to
+  // anything, so the guard must fire before `FindEdge` ever gets a chance to look the gid up either
+  // way.
+  ASSERT_THROW(faker.Interpret("MATCH ()-[e]->() WHERE id(e) = 0 RETURN type(e)"), memgraph::query::NotYetImplemented);
+
+  // Must not have crashed or left the session/transaction unusable -- ordinary (non-id) expansion
+  // across the pre-fork edge still works.
+  auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN type(e)");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "E");
+}
+
+// Graph Versioning v1, slice E-2a MED regression (adversarial-review): `DbAccessor::Edges(...)`
+// (every edge-type/property INDEX scan overload) was unguarded -- dead today only because a fresh
+// branch's diff engine has no edge index of its own, but silently wrong (diff-engine-only contents,
+// missing every still-historical edge) the moment one exists. `CREATE EDGE INDEX` is unguarded and
+// routes to the diff engine only (mirrors `BranchLabelScanIsUnionAwareNotJustDiffEngineIndex`'s own
+// vertex-side comment -- same accepted design, not a new bug: `EdgeTypeIndexReady`/
+// `EdgeTypePropertyIndexReady`/`EdgesCount` are ALL unguarded too, consulting the diff engine's own
+// index/count directly), which is enough to make `*IndexReady` report true and make the planner
+// consider an indexed edge scan.
+//
+// DIAGNOSIS (adversarial-review, ROUND 2): a first attempt at this test used a PLAIN edge-type index
+// (`CREATE EDGE INDEX ON :R`, no property) with no additional filter (`MATCH ()-[e:R]->() RETURN e`)
+// -- the guard did NOT fire, because `VariableStartPlanner`'s cost-based plan selection didn't pick
+// the edge-indexed start on that tiny graph (both endpoints fully anonymous, one edge total -- a
+// plain vertex-scan-then-expand plan was evidently cheaper by its estimate). This is a PLAN-SELECTION
+// artifact of that specific query/graph shape, not evidence the indexed path can never be reached on
+// a branch (nothing in CreateIndex/EdgeTypeIndexReady/EdgesCount blocks it, mirroring the vertex
+// label-index case that IS reachable). Rewritten below to mirror
+// `tests/unit/interpreter.cpp`'s own `EdgePropertyInListIndexedEquivalence` recipe exactly (edge-TYPE
+// -AND-PROPERTY index + an equality filter on the indexed property) -- that is an EXISTING,
+// already-relied-upon case in this codebase where the property-indexed path IS the one under test on
+// an equally small graph, giving much higher confidence the planner actually selects it here too.
+// NOT independently re-verified by a build (none was run for this fix) -- if this still doesn't
+// reach the guard, the correct fallback (per the review) is to assert the query returns the correct
+// result via the (uncontested) Expand fallback instead of asserting a throw.
+TEST_F(VersioningInterpreterTest, BranchEdgeTypePropertyIndexScanThrowsNotYetImplemented) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:X {name:'x'})-[:R {prop: 1}]->(:Y {name:'y'})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("CREATE EDGE INDEX ON :R(prop)");
+
+  ASSERT_THROW(faker.Interpret("MATCH ()-[e:R]->() WHERE e.prop = 1 RETURN e"), memgraph::query::NotYetImplemented);
+
+  // Must not have crashed or left the session/transaction unusable -- an ordinary (non-indexed)
+  // read still works.
+  auto stream = faker.Interpret("MATCH (:X)-[e:R]->(:Y) RETURN type(e)");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "R");
+}

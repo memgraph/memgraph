@@ -550,13 +550,35 @@ class DbAccessor final {
     return std::nullopt;
   }
 
+  // Graph Versioning v1 (lazy diff-context, slice E-2a) HIGH FIX (adversarial-review, ROUND 2): was
+  // UNGUARDED -- `accessor_->FindEdge` on a branch is the diff-engine's accessor ONLY (see
+  // `branch_ctx_`'s own doc-comment above), so any pre-fork (historical) edge silently "didn't
+  // exist" on a branch. Reachable via `MATCH ()-[e]-() WHERE id(e)=<gid>` (rewritten to a
+  // ScanAllByEdgeId unconditionally) and the `mgp_graph_get_edge_by_id` C-API.
+  //
+  // ROUND 1 of this fix routed through `BranchContext::ResolveEdge` (diff-first, falling back to
+  // `historical_->FindEdge`) -- adversarially verified WRONG: finding an edge by bare gid against
+  // `historical_` (a HistoricalAccess accessor) is not the simple diff-engine-mirroring point lookup
+  // ResolveVertex gets away with -- it depends on `properties_on_edges`/gid-storage-layout and
+  // HistoricalAccess's own scan semantics in ways that don't just work by calling the same
+  // `FindEdge(gid, view)` two of the storage layer already exposes elsewhere. Rather than get that
+  // subtly wrong (silently-wrong is exactly what this fix exists to avoid), REJECT cleanly instead
+  // -- mirrors the edge-property-mutator and edge-index-scan guards elsewhere in this slice
+  // (NotYetImplemented, not a crash or a wrong answer). Real edge-by-id resolution is E-2d.
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Finding an edge by id on a versioned branch");
+    }
     auto maybe_edge = accessor_->FindEdge(gid, view);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
     return std::nullopt;
   }
 
+  // HIGH FIX (adversarial-review, ROUND 2): same gap and same fix as the overload above.
   std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Finding an edge by id on a versioned branch");
+    }
     auto maybe_edge = accessor_->FindEdge(edge_gid, from_vertex_gid, view);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
     return std::nullopt;
@@ -698,36 +720,69 @@ class DbAccessor final {
                      TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
       -> PointIterable;
 
+  // Graph Versioning v1 (lazy diff-context, slice E-2a) MED FIX (adversarial-review): every
+  // `Edges(...)` overload below is an edge-TYPE-and/or-PROPERTY-INDEX scan (there is no non-indexed
+  // "all edges" primitive on this class, unlike the plain `Vertices(view)` full scan) -- exactly the
+  // class of gap HIGH-3(b) already closed on the vertex side (`Vertices(view, label)`,
+  // MaterializeFilteredBranchScan): `accessor_` on a branch is the diff engine ONLY, so
+  // `accessor_->Edges(...)` would silently return JUST the diff engine's own (structurally
+  // incomplete, unreconciled-with-`historical_`) index contents, missing every still-historical
+  // edge. Dead/unreachable TODAY only because the diff engine never has an edge-type/property index
+  // to begin with (nothing creates one on a branch yet) -- but silently wrong the moment that
+  // changes, so guard now rather than wait for a silent-data-loss bug report. Reject cleanly
+  // (NotYetImplemented, mirroring the edge-mutator-COW guard idiom above) rather than build the real
+  // union fallback here -- that's E-2d, symmetric to `MaterializeFilteredBranchScan` but for edges.
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Edge-type index scan on a versioned branch");
+    }
     return EdgesIterable(accessor_->Edges(edge_type, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Edge-type/property index scan on a versioned branch");
+    }
     return EdgesIterable(accessor_->Edges(edge_type, property, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                       const storage::PropertyValue value) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Edge-type/property index scan on a versioned branch");
+    }
     return EdgesIterable(accessor_->Edges(edge_type, property, value, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                       const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                       const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Edge-type/property index scan on a versioned branch");
+    }
     return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Global edge-property index scan on a versioned branch");
+    }
     return EdgesIterable(accessor_->Edges(property, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property, const storage::PropertyValue value) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Global edge-property index scan on a versioned branch");
+    }
     return EdgesIterable(accessor_->Edges(property, value, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property,
                       const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                       const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Global edge-property index scan on a versioned branch");
+    }
     return EdgesIterable(accessor_->Edges(property, lower, upper, view));
   }
 
@@ -743,8 +798,37 @@ class DbAccessor final {
     return VertexAccessor(accessor_->CreateVertex());
   }
 
+  // Graph Versioning v1 (lazy diff-context, slice E-2a) COW-BOTH-ENDPOINTS: `accessor_` IS the
+  // branch's diff-engine accessor for this transaction on a checked-out branch (see `branch_ctx_`'s
+  // own doc-comment above) -- so `accessor_->CreateEdge` itself needs no branch-specific dispatch,
+  // UNLIKE InsertVertex/CreateVertex above. The catch: `CreateEdge` (InMemoryAccessor::CreateEdgeEx's
+  // public, auto-gid sibling) MG_ASSERTs both endpoint VertexAccessors' `transaction_ == &this
+  // transaction`, i.e. both must already be PHYSICALLY resident in the diff engine -- a
+  // not-yet-touched endpoint (still resolving through the read-only `historical_`) would trip that
+  // assert. `CowVertex` (idempotent -- a no-op if either endpoint was already COW'd, e.g. by an
+  // earlier `MATCH`/`SET` in the same statement) brings both into the diff engine first, mirroring
+  // `VertexAccessor::CowIfNeeded`'s own mutator idiom one level up (there is no analogous
+  // `EdgeAccessor::CowIfNeeded` to call THROUGH here -- the edge doesn't exist yet, this call is
+  // what creates it). `from`/`to` are redirected to their diff-engine copies too (not just used
+  // locally) so the caller's own accessors -- and, per the HIGH-2 self-correcting-read precedent, any
+  // other outstanding copy of the same gid -- stay consistent with the just-created edge's actual
+  // endpoints.
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
+    if (branch_ctx_ != nullptr) {
+      auto from_diff = branch_ctx_->CowVertex(from->Gid());
+      if (!from_diff) throw QueryRuntimeException(from_diff.error().message);
+      auto to_diff = branch_ctx_->CowVertex(to->Gid());
+      if (!to_diff) throw QueryRuntimeException(to_diff.error().message);
+
+      from->impl_ = *from_diff;
+      to->impl_ = *to_diff;
+
+      auto maybe_edge = accessor_->CreateEdge(&*from_diff, &*to_diff, edge_type);
+      if (!maybe_edge) return std::unexpected{maybe_edge.error()};
+      return EdgeAccessor(*maybe_edge, branch_ctx_);
+    }
+
     auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
     if (!maybe_edge) return std::unexpected{maybe_edge.error()};
     return EdgeAccessor(*maybe_edge);

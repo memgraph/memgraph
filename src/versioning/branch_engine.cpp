@@ -13,6 +13,8 @@
 
 #include <fmt/format.h>
 
+#include <unordered_map>
+
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
@@ -60,20 +62,51 @@ bool ContainsEnum(const storage::PropertyValue &v) {
 // which would reintroduce an O(N) step at CHECKOUT time -- exactly what this slice's lazy-diff
 // redesign exists to eliminate).
 //
-// FLAGGED, not a full fix: this only covers vertex gids (this slice's scope). Edge gids need the
-// symmetric reservation before edges are handled (next slice) -- CreateEdgeEx bumps its own,
-// separate `edge_id_` counter (inmemory/storage.cpp), so this same trick applies unchanged, just
-// against edges instead of vertices.
+// Slice E-2a FOLLOW-UP: edge gids need the symmetric reservation now that edges are handled --
+// CreateEdgeEx bumps its own, separate `edge_id_` counter (inmemory/storage.cpp), so this same
+// trick applies unchanged, just against edges instead of vertices (see ReserveBranchNativeGidRange
+// below, which now reserves both in one transaction/commit).
 constexpr uint64_t kBranchNativeGidWatermark = 1ULL << 62;
 
 void ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_engine, storage::CommitArgs commit_args) {
   std::unique_ptr<storage::ReplicationAccessor> reserve(
       static_cast<storage::ReplicationAccessor *>(diff_engine.Access(storage::StorageAccessType::WRITE).release()));
 
+  // --- Vertex-gid watermark (E-1, unchanged) ---
   auto sacrificial = reserve->CreateVertexEx(storage::Gid::FromUint(kBranchNativeGidWatermark));
   MG_ASSERT(sacrificial.has_value(),
             "BranchContext::BuildFromFork: gid-watermark reservation collided on a freshly-created, empty diff "
             "engine -- should be impossible.");
+
+  // --- Edge-gid watermark (E-2a) ---
+  // CreateEdgeEx (unlike CreateVertexEx) needs two REAL, already-live, SAME-transaction vertex
+  // endpoints -- it MG_ASSERTs `from->transaction_ == to->transaction_ == &transaction_`
+  // (InMemoryAccessor::CreateEdgeEx, inmemory/storage.cpp). Plain auto-gid `CreateVertex()` is fine
+  // for these two: they (and the sacrificial edge between them) are deleted a few lines down in
+  // this SAME transaction/commit, so their auto-assigned gids are never observed by anything and
+  // never even become visible outside this function.
+  auto sac_from = reserve->CreateVertex();
+  auto sac_to = reserve->CreateVertex();
+  auto edge_type = reserve->NameToEdgeType("__branch_native_gid_watermark__");
+  auto sacrificial_edge =
+      reserve->CreateEdgeEx(&sac_from, &sac_to, edge_type, storage::Gid::FromUint(kBranchNativeGidWatermark));
+  MG_ASSERT(sacrificial_edge.has_value(),
+            "BranchContext::BuildFromFork: edge gid-watermark reservation collided on a freshly-created, empty diff "
+            "engine -- should be impossible.");
+
+  // Tear down in dependency order: the edge before its endpoints -- DeleteVertex (unlike
+  // DetachDeleteVertex) does not detach incident edges for it, so the two sacrificial vertices
+  // must already be edge-free by the time DeleteVertex reaches them.
+  auto deleted_edge = reserve->DeleteEdge(&*sacrificial_edge);
+  MG_ASSERT(deleted_edge.has_value() && deleted_edge->has_value(),
+            "BranchContext::BuildFromFork: failed to remove the edge gid-watermark placeholder edge.");
+
+  auto deleted_to = reserve->DeleteVertex(&sac_to);
+  MG_ASSERT(deleted_to.has_value() && deleted_to->has_value(),
+            "BranchContext::BuildFromFork: failed to remove an edge gid-watermark sacrificial vertex.");
+  auto deleted_from = reserve->DeleteVertex(&sac_from);
+  MG_ASSERT(deleted_from.has_value() && deleted_from->has_value(),
+            "BranchContext::BuildFromFork: failed to remove an edge gid-watermark sacrificial vertex.");
 
   auto deleted = reserve->DeleteVertex(&*sacrificial);
   MG_ASSERT(deleted.has_value() && deleted->has_value(),
@@ -121,6 +154,19 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
   config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED;
   config.durability.recover_on_startup = false;
   config.durability.snapshot_on_exit = false;
+  // Slice E-2a CONFIG PARITY FIX: `storage::Config` defaults to `properties_on_edges = true`,
+  // `enable_edges_metadata = false` -- but main may have been configured differently. These two
+  // flags aren't just behavioral toggles: `storage::EdgeAccessor::Gid()` (edge_accessor.cpp) reads
+  // a PHYSICALLY DIFFERENT field depending on `properties_on_edges` (a heavy `Edge*`-derived gid
+  // vs. a light `EdgeRef`-embedded one, see `GidPropertiesOnEdges`/`GidNoPropertiesOnEdges` above
+  // it), and edge property reads/writes reject outright when the flag is off (`Error::
+  // PROPERTIES_DISABLED`). A diff engine built with the WRONG value for either flag would silently
+  // decode/reject edges incompatibly with how `historical_`'s (main's) own edges actually behave --
+  // exactly the same class of divergence the shared-NameIdMapper comment above already guards
+  // against for labels/properties, just on the edge-layout axis instead. Copied directly (no
+  // translation needed, unlike ids): both are plain bools on `main`'s own `Config`.
+  config.salient.items.properties_on_edges = main.config_.salient.items.properties_on_edges;
+  config.salient.items.enable_edges_metadata = main.config_.salient.items.enable_edges_metadata;
   auto diff_engine = std::make_unique<storage::InMemoryStorage>(config,
                                                                 std::nullopt,
                                                                 std::make_unique<storage::PlanInvalidatorDefault>(),
@@ -238,6 +284,70 @@ std::optional<storage::VertexAccessor> BranchContext::ResolveVertex(storage::Gid
     return diff_vertex;
   }
   return historical_base_->FindVertex(gid, storage::View::OLD);
+}
+
+// Graph Versioning v1, slice E-2a -- TODO(E-2d), NOT CURRENTLY CALLED: see the declaration's own
+// doc-comment (branch_engine.hpp) for why `DbAccessor::FindEdge` does not use this today (the
+// `historical_->FindEdge` half was adversarially found to not reliably resolve a historical edge by
+// bare gid -- this shape mirrors ResolveVertex, but that mirroring was NOT verified sufficient for
+// edges). Kept as an unverified starting point for E-2d, not deleted.
+std::optional<storage::EdgeAccessor> BranchContext::ResolveEdge(storage::Gid edge_gid, storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr,
+            "BranchContext::ResolveEdge: no current diff transaction set -- "
+            "CurrentDB::SetupDatabaseTransaction must call set_current_diff_txn() before any query "
+            "runs against a checked-out branch.");
+  if (tombstoned_edges_.contains(edge_gid)) return std::nullopt;
+  if (auto diff_edge = current_diff_txn_->FindEdge(edge_gid, view)) {
+    return diff_edge;
+  }
+  return historical_base_->FindEdge(edge_gid, storage::View::OLD);
+}
+
+// Graph Versioning v1, slice E-2a -- see the declaration's own doc-comment (branch_engine.hpp) for
+// the full historical-vs-diff union/tie-break rationale; this mirrors ResolveVertex's fixed-
+// View::OLD-for-historical_ convention exactly, for the same reason (historical_ is a frozen,
+// self-pinned snapshot -- it has no "NEW" relative to this or any other transaction).
+std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vertex_gid,
+                                                               storage::EdgeDirection direction, storage::View view,
+                                                               const std::vector<storage::EdgeTypeId> &edge_types) {
+  MG_ASSERT(current_diff_txn_ != nullptr,
+            "BranchContext::ResolveEdges: no current diff transaction set -- "
+            "CurrentDB::SetupDatabaseTransaction must call set_current_diff_txn() before any query "
+            "runs against a checked-out branch.");
+
+  std::vector<storage::EdgeAccessor> result;
+  // gid -> index into `result`, so a later (diff-side) hit can overwrite an earlier
+  // (historical-side) entry for the same gid -- the diff engine's copy is always authoritative on a
+  // tie, mirroring UnionVerticesIterable::Iterator::SeekNext's own tie-break (branch_engine.cpp,
+  // above).
+  std::unordered_map<storage::Gid, size_t> seen;
+
+  auto collect = [&](storage::VertexAccessor &v, storage::View collect_view, bool diff_wins) {
+    auto maybe_result = (direction == storage::EdgeDirection::OUT) ? v.OutEdges(collect_view, edge_types, nullptr)
+                                                                   : v.InEdges(collect_view, edge_types, nullptr);
+    if (!maybe_result.has_value()) return;
+    for (auto &edge : maybe_result->edges) {
+      // Tombstone hook (inert this slice -- tombstoned_edges_ is never populated, see its own
+      // doc-comment): once E-4 lands, a tombstoned gid must never enter `result`, from EITHER side.
+      if (tombstoned_edges_.contains(edge.Gid())) continue;
+
+      auto [it, inserted] = seen.try_emplace(edge.Gid(), result.size());
+      if (inserted) {
+        result.push_back(edge);
+      } else if (diff_wins) {
+        result[it->second] = edge;
+      }
+    }
+  };
+
+  if (auto hist_vertex = historical_base_->FindVertex(vertex_gid, storage::View::OLD)) {
+    collect(*hist_vertex, storage::View::OLD, /*diff_wins=*/false);
+  }
+  if (auto diff_vertex = current_diff_txn_->FindVertex(vertex_gid, view)) {
+    collect(*diff_vertex, view, /*diff_wins=*/true);
+  }
+
+  return result;
 }
 
 BranchContext::UnionVerticesIterable BranchContext::Vertices(storage::View view) {

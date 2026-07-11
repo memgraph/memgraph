@@ -802,7 +802,15 @@ struct mgp_edge {
 
 // Graph Versioning v1: mgp_edge embeds two mgp_vertex members (from/to), so it inherits ~2x the
 // per-vertex growth noted above. Budget bumped 192->224 to absorb it.
-inline constexpr size_t kMaxMgpEdgeSize = 224;
+//
+// Slice E-2a FOLLOW-UP: `query::EdgeAccessor` (one of `EdgeImpl`'s two variant alternatives, see
+// `impl` below) now ALSO carries its own `versioning::BranchContext*` (mirrors query::VertexAccessor's
+// identical E-1 growth) -- widening `EdgeImpl` by up to one more pointer on top of the from/to
+// growth already absorbed above. Bumped 224->240 to cover it (same +16-byte margin-per-pointer
+// convention as the 64->80 mgp_vertex bump). FLAGGED FOR BUILD VERIFICATION: this worker could not
+// compile to measure the real `sizeof(mgp_edge)` -- if this static_assert still fails (or has slack
+// to spare), the Lead/build step should correct this constant to the real number.
+inline constexpr size_t kMaxMgpEdgeSize = 240;
 static_assert(sizeof(mgp_edge) <= kMaxMgpEdgeSize, "mgp_edge grew beyond the expected size budget");
 
 struct mgp_path {

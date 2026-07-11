@@ -164,9 +164,16 @@ class VertexAccessor final {
                                                      const VertexAccessor &dest,
                                                      query::HopsLimit *hops_limit = nullptr) const;
 
-  storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
+  // Graph Versioning v1 (lazy diff-context, slice E-2a): in branch mode, the degree must count the
+  // UNION (historical_ + diff engine), not just whatever `impl_` happens to point at -- same
+  // historical-vs-diff union hazard InEdges/OutEdges below have, just collapsed to a count. Falls
+  // back to a plain `ResolveEdges(...).size()` rather than a cheaper dedicated counting path (out of
+  // scope for this slice -- E-2d, mirrors the "correct over fast" tradeoff DbAccessor::Vertices(view,
+  // label)'s MaterializeFilteredBranchScan already made for the analogous vertex-side gap). Out-of-line
+  // for the same forward-declaration reason as Labels/Properties/etc above.
+  storage::Result<size_t> InDegree(storage::View view) const;
 
-  storage::Result<size_t> OutDegree(storage::View view) const { return impl_.OutDegree(view); }
+  storage::Result<size_t> OutDegree(storage::View view) const;
 
   int64_t CypherId() const { return impl_.Gid().AsInt(); }
 

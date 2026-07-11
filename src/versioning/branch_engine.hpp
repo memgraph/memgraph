@@ -16,8 +16,13 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 #include "storage/v2/commit_args.hpp"
+#include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_direction.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
@@ -46,10 +51,20 @@ namespace memgraph::versioning {
 // translation needed (enum-TYPE ids are the one exception -- enum_store_ is NOT shared, see
 // CowError).
 //
-// SCOPE OF THIS SLICE: vertices only (properties + labels + create). No edges/expansion (that is
-// the next slice) -- COW copies props+labels only, not adjacency. No delete op yet, hence no
-// tombstone concept in the read-side merge below (contrast BranchReconstruction's own
-// UnionVerticesIterable, chunk 5b, which DOES need one).
+// SCOPE OF THIS SLICE (E-1, vertices): properties + labels + create. No edges/expansion -- COW
+// copies props+labels only, not adjacency. No delete op yet, hence no tombstone concept in the
+// read-side merge below (contrast BranchReconstruction's own UnionVerticesIterable, chunk 5b,
+// which DOES need one).
+//
+// SCOPE OF SLICE E-2a (edges: branch-native create + basic single-hop expansion, added on top of
+// the above): `ResolveEdges` below is the edge-side analogue of `ResolveVertex` -- a per-vertex
+// UNION of historical_'s fork-state incident edges with current_diff_txn()'s own (branch-native
+// creates, or -- once E-2c lands -- COW'd copies), de-duped by edge gid with the diff engine's copy
+// winning ties. Edge property COW (SET on a branch-resident edge) is E-2c, not this slice --
+// query::EdgeAccessor's mutators reject with NotYetImplemented on a branch rather than risk writing
+// through historical_'s read-only accessor (the exact crash class HIGH-1 fixed for vertices, see
+// CowVertex's own history). Edge DELETE is E-4 and was already rejected before this slice (see
+// query::DbAccessor::RemoveEdge, db_accessor.hpp).
 //
 // R35 (main is never written): `historical_` is a read-only, self-pinned accessor (its own
 // HistoricalAccess doc-comment, inmemory/storage.hpp) held open for the whole checkout lifetime --
@@ -147,6 +162,24 @@ class BranchContext {
   // on a miss. No tombstone case this slice (no delete op exists yet).
   std::optional<storage::VertexAccessor> ResolveVertex(storage::Gid gid, storage::View view);
 
+  // Graph Versioning v1, slice E-2a -- the edge-side analogue of ResolveVertex -- a point lookup by
+  // edge gid, diff-engine-first, falling back to `historical_`.
+  //
+  // TODO(E-2d), NOT CURRENTLY CALLED (adversarial-review ROUND 2): `DbAccessor::FindEdge`
+  // (db_accessor.hpp) does NOT use this -- it throws NotYetImplemented on a branch instead. This
+  // function's `historical_->FindEdge(edge_gid, View::OLD)` half was adversarially verified to NOT
+  // reliably find a historical edge by bare gid in practice (the regression test built on top of it
+  // returned 0 rows) -- finding an edge by gid against a HistoricalAccess accessor is nontrivial
+  // (no gid index for edges at all, heavy vs. light edge gid-storage layout depends on
+  // `properties_on_edges`, and `HistoricalAccess`'s own scan semantics were not fully worked out
+  // this slice). Left here, UNUSED, as a documented starting point for E-2d rather than deleted --
+  // whoever picks up E-2d needs to actually verify (not assume) that `historical_->FindEdge` works
+  // the way `ResolveVertex`'s `historical_->FindVertex` does before wiring this back in.
+  //
+  // Tombstone hook (inert this slice, see `tombstoned_edges_`'s own doc-comment below): a
+  // tombstoned gid must never resolve, from EITHER side, once E-4 lands.
+  std::optional<storage::EdgeAccessor> ResolveEdge(storage::Gid edge_gid, storage::View view);
+
   // Gid-ordered streaming UNION of `historical_` (every fork-state vertex, resolved -- so a COW'd
   // gid yields the diff engine's copy, per the tie-break below) with
   // `current_diff_txn()->Vertices(view)` (branch-native creates, i.e. gids historical_ doesn't
@@ -208,6 +241,26 @@ class BranchContext {
 
   UnionVerticesIterable Vertices(storage::View view);
 
+  // Graph Versioning v1, slice E-2a (edge create + basic expansion) -- the edge-side analogue of
+  // ResolveVertex, but for a whole incident-edge set rather than a single gid: collects
+  // `vertex_gid`'s edges (in the given `direction`) from BOTH `historical_` (its fork-state
+  // in/out-edges, always read at View::OLD -- same fixed-view rationale as ResolveVertex's own
+  // historical_ lookup, since historical_ is a frozen, self-pinned snapshot with no notion of a
+  // caller-relative NEW) and `current_diff_txn()` (branch-native creates this slice; COW'd copies
+  // once E-2c lands), de-duping by `EdgeAccessor::Gid()` with the diff engine's copy winning a tie
+  // -- mirrors UnionVerticesIterable's own historical-vs-diff tie-break exactly (see its class
+  // comment). Unlike UnionVerticesIterable this is NOT a lazy streaming merge: a vertex's incident
+  // edge set is expected to be small (bounded by degree, not graph size), so an eagerly-built,
+  // owned vector is simpler and cheap here -- no O(H+D) full-scan concern the vertex-level union
+  // has to worry about.
+  //
+  // Tombstone hook (inert this slice, see `tombstoned_edges_` below): once edge DELETE exists
+  // (E-4), a gid present in `tombstoned_edges_` must be excluded from the result even if
+  // `historical_` still has it -- the empty set here is a structural no-op until then.
+  std::vector<storage::EdgeAccessor> ResolveEdges(storage::Gid vertex_gid, storage::EdgeDirection direction,
+                                                  storage::View view,
+                                                  const std::vector<storage::EdgeTypeId> &edge_types);
+
  private:
   BranchContext(std::unique_ptr<storage::InMemoryStorage> diff_engine,
                 std::unique_ptr<storage::Storage::Accessor> historical_base)
@@ -218,6 +271,12 @@ class BranchContext {
   // Not owned -- see set_current_diff_txn()/current_diff_txn()'s own doc-comment above. Points
   // into CurrentDB::db_transactional_accessor_ for the duration of one query; nullptr otherwise.
   storage::Storage::Accessor *current_diff_txn_{nullptr};
+
+  // Graph Versioning v1, slice E-2a: ALWAYS EMPTY this slice -- there is no edge delete op yet
+  // (E-4), so nothing ever populates it. Exists now, inert, purely so `ResolveEdges` has a single
+  // consult-point to wire the real filter into later rather than threading a new parameter through
+  // every caller once E-4 lands.
+  std::unordered_set<storage::Gid> tombstoned_edges_;
 };
 
 }  // namespace memgraph::versioning
