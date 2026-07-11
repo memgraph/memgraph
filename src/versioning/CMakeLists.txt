@@ -6,12 +6,14 @@ target_sources(mg-versioning
         BASE_DIRS ..
         FILES
         branch_log.hpp
+        branch_overlay.hpp
         gate.hpp
         name.hpp
         version_store.hpp
 
         PRIVATE
         branch_log.cpp
+        branch_overlay.cpp
         gate.cpp
         name.cpp
         version_store.cpp
