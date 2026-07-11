@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <functional>
 #include <optional>
 
 #include "common_function_signatures.hpp"
@@ -487,12 +488,42 @@ class Accessor {
   static constexpr struct ReadOnlyAccess {
   } read_only_access;
 
+  // R16 (graph versioning): tag for opening a READ-ONLY accessor from an already-built, explicit
+  // historical Transaction (start_timestamp = a past fork_ts) instead of calling
+  // Storage::CreateTransaction, which always issues a *fresh* logical timestamp. See
+  // InMemoryStorage::HistoricalAccess.
+  static constexpr struct HistoricalAccess {
+  } historical_access;
+
   Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
            StorageAccessType rw_type = StorageAccessType::WRITE,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+  // Uses a plain SHARED (READ-type) guard -- the same lock mode an ordinary read transaction
+  // uses (`shared_access` / `storage->Access(StorageAccessType::READ)`), NOT ReadOnlyAccess's
+  // READ_ONLY mode: a branch/historical read must COEXIST with concurrent main writers (spec
+  // S2/D2 -- main stays fully writable while branches exist), whereas READ_ONLY would block
+  // every writer AND GC for this accessor's entire lifetime. SHARED still blocks UNIQUE
+  // acquisition, so DDL/schema mutation and the MEDIUM-fix invariant below are both preserved.
+  // See the ctor body (storage.cpp) for the full rationale.
+  //
+  // Unlike the other constructors, the transaction is not built by a fixed `storage->
+  // CreateTransaction(...)` call but by an arbitrary caller-supplied callback -- invoked from
+  // THIS constructor's own `transaction_` member initializer, i.e. strictly after
+  // `storage_guard_` above it (member declaration order, see `storage_guard_`/`transaction_`
+  // below) already holds the shared main_lock_ guard. This closes a generation-vs-lock race
+  // (MEDIUM, graph versioning chunk 4): building the historical transaction's snapshot (active
+  // indices/constraints, engine_lock_ state) BEFORE acquiring storage_guard_ would let a
+  // concurrent main_lock_-UNIQUE op (SetStorageMode / Clear / RecoverSnapshot) rebuild storage
+  // out from under the just-captured snapshot. Every other Accessor ctor gets this property "for
+  // free" because `storage->CreateTransaction(...)` is itself called directly in the
+  // `transaction_` initializer; this ctor restores that same property for a caller
+  // (InMemoryStorage::HistoricalAccess) that can't call the ordinary virtual CreateTransaction
+  // (it needs an explicit past start_timestamp).
+  Accessor(HistoricalAccess /* tag */, Storage *storage, std::function<Transaction()> build_transaction,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;

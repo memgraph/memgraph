@@ -23,6 +23,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/skip_list.hpp"
@@ -174,6 +175,17 @@ struct Transaction {
 
   /// @throw std::bad_alloc if failed to create the `commit_info`
   void EnsureCommitInfoExists() {
+    // LATENT (R16): a historical (read-only, InMemoryStorage::HistoricalAccess) accessor has no
+    // type-level enforcement against mutation, so gate the write surface here instead of at every
+    // individual accessor method. This is the single narrowest chokepoint EVERY delta creation
+    // funnels through -- CreateDeleteObjectDelta (new vertex/edge), CreateAndLinkDelta (label/prop
+    // modify), CreateDeleteDeserializedObjectDelta (disk/replica deserialize-delete), and the
+    // metadata-delta commit path in PrepareForCommitPhase all call this first (mvcc.hpp / inmemory
+    // storage.cpp). NOTE: pure metadata/schema-DDL mutations (CreateEnum/EnumAlter*/description/TTL
+    // in storage.hpp) push directly to `md_deltas` WITHOUT going through this call and are NOT
+    // covered here -- they already require `unique_guard_.owns_lock()` (a HistoricalAccess accessor
+    // never holds unique_guard_), and full DDL rejection for branches is chunk 8's job.
+    MG_ASSERT(!is_historical_, "Attempted a write through a historical (read-only) accessor");
     if (commit_info != nullptr) return;
     commit_info = std::make_unique<CommitInfo>(transaction_id);
   }
@@ -223,6 +235,20 @@ struct Transaction {
   uint64_t start_timestamp{};
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
+  // True only for a read-only historical-timestamp accessor (graph versioning R16,
+  // InMemoryStorage::HistoricalAccess): `start_timestamp` is a PAST fork_ts captured and retained
+  // by a live RegisterForkPin (inmemory/storage.cpp:2873), not a freshly issued `timestamp_++` tick.
+  // Because that exact numeric tick is later dispensed for real to whatever transaction is created
+  // next (RegisterForkPin only peeks `timestamp_`, it does not consume it), finalization paths
+  // (Abort / the empty-delta PrepareForCommitPhase fast path / FinalizeCommitPhase) must NEVER call
+  // `commit_log_->MarkFinished(start_timestamp)` for such a transaction (R37): doing so would either
+  // prematurely advance commit_log_->OldestActive() past a still-needed boundary, or double-mark the
+  // same id once its real, later-dispensed owner also finishes. That finalization is owned exclusively
+  // by whoever the tick is genuinely dispensed to (a real transaction) and, for GC-retention purposes,
+  // by the fork pin itself (ReleaseForkPin, at DROP BRANCH) via the separate version_fork_pins_ set --
+  // never by a transient per-query historical reader. Default false leaves every pre-existing
+  // transaction/accessor unchanged.
+  bool is_historical_{false};
   // The `Transaction` object is stack allocated, but the `commit_info`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into

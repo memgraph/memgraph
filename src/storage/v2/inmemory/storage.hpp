@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <set>
@@ -194,6 +195,17 @@ class InMemoryStorage final : public Storage {
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                               StorageMode storage_mode,
+                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+    // R16: builds a semantically-read-only accessor (writes are refused via the `is_historical_`
+    // assert in Transaction::EnsureCommitInfoExists, NOT via lock mode -- this uses a plain SHARED
+    // guard, same as an ordinary read transaction, see the ctor's doc-comment in storage.hpp)
+    // whose transaction is built by `build_transaction` (see InMemoryStorage::
+    // CreateHistoricalTransaction / HistoricalAccess) from INSIDE the base Accessor(
+    // HistoricalAccess, ...) ctor, after storage_guard_ is already held (MEDIUM fix). Does not
+    // match the generic `auto tag` overload above because its shape differs (a callback, not
+    // isolation_level+storage_mode).
+    explicit InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
+                              std::function<Transaction()> build_transaction,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
@@ -759,10 +771,78 @@ class InMemoryStorage final : public Storage {
   // and mirrored by ReleaseForkPin/CollectGarbage, which only ever take version_fork_pin_lock_ alone.
   uint64_t RegisterForkPin();
 
-  // Release a previously acquired fork pin (call exactly once per RegisterForkPin, at DROP BRANCH).
-  // Exactly-once is a hard invariant, not recoverable: calling this twice for the same fork_ts, or
-  // for a fork_ts that was never registered, MG_ASSERTs (aborts) rather than silently no-op-ing.
+  // Release a previously acquired fork pin (call exactly once per RegisterForkPin/AddForkPinAt, at
+  // DROP BRANCH or at a historical accessor's own finalize). Exactly-once is a hard invariant, not
+  // recoverable: calling this twice for the same fork_ts, or for a fork_ts that was never
+  // registered, MG_ASSERTs (aborts) rather than silently no-op-ing. version_fork_pins_ is a
+  // multiset, so two independent pins on the same numeric fork_ts (e.g. the branch's own pin AND
+  // a reader's self-pin, see AddForkPinAt) coexist correctly: each ReleaseForkPin call removes
+  // exactly one instance (by iterator), never all equal keys.
   void ReleaseForkPin(uint64_t fork_ts);
+
+  // Insert an EXPLICIT fork_ts pin, without peeking/consuming `timestamp_` (unlike RegisterForkPin,
+  // which captures the CURRENT `timestamp_`). Sits beside RegisterForkPin/ReleaseForkPin: same
+  // multiset, same lock, same erase-one-instance discipline in ReleaseForkPin.
+  //
+  // HIGH-1 (UAF): a historical reader must not rely SOLELY on the branch's own RegisterForkPin
+  // pin -- DropBranch's ReleaseForkPin has no readers-refcount, so a concurrent DROP + GC could
+  // otherwise free the exact deltas a live reader is walking (ApplyDeltasForRead derefs freed
+  // Delta*). HistoricalAccess uses this to self-pin its OWN fork_ts for the accessor's lifetime,
+  // independent of and additional to the branch's pin, and releases it exactly once on its own
+  // finalize (see the `is_historical_` guards in InMemoryAccessor's empty-delta commit fast path
+  // and Abort()).
+  //
+  // NOTE: HistoricalAccess does NOT call this method directly for its self-pin -- it needs the
+  // pinned-check (`version_fork_pins_.contains(fork_ts)`) and the insert to be atomic under a
+  // SINGLE version_fork_pin_lock_ critical section (closing the open-time TOCTOU: a concurrent
+  // ReleaseForkPin could otherwise fully unpin fork_ts in the gap between our check and our own
+  // insert). Calling this separately would re-acquire the lock and reopen that exact window, so
+  // HistoricalAccess inlines the one-line insert itself instead.
+  void AddForkPinAt(uint64_t fork_ts);
+
+  enum class HistoricalAccessError : uint8_t {
+    // `fork_ts` is not a live entry in version_fork_pins_ -- either it was never registered via
+    // RegisterForkPin, or its pin has already been released (ReleaseForkPin, at DROP BRANCH). Main's
+    // MVCC history back to it may already be unreclaimable, so refuse rather than risk reading a
+    // reconstruction GC has partially torn down.
+    ForkTimestampNotPinned
+  };
+
+  // R16: open a semantically-read-only accessor whose transaction is snapshotted at `fork_ts` --
+  // a past logical timestamp captured by, and expected to still be held by, a live
+  // RegisterForkPin() (e.g. at CREATE BRANCH) -- rather than "now". Reads issued through the
+  // returned accessor time-travel main's live delta chains back to `fork_ts` via the existing
+  // MVCC visibility rule in ApplyDeltasForRead (mvcc.hpp: `ts < transaction->start_timestamp`);
+  // no change to the read path itself is needed, only `start_timestamp` has to carry the
+  // historical value. Uses the CURRENT active index/constraint snapshot (index-as-of-fork
+  // reconciliation is a later chunk; scans re-check MVCC visibility at `start_timestamp`
+  // regardless of which index snapshot serves the candidate set, so this is correct for the
+  // data-plane read).
+  //
+  // Locking: a plain SHARED (READ-type) main_lock_ guard, the same mode an ordinary read
+  // transaction uses -- NOT READ_ONLY. Main stays fully writable (and GC-able) for the whole
+  // lifetime of this accessor (spec S2/D2); "read-only" here is enforced semantically (the
+  // `is_historical_` write-assert in Transaction::EnsureCommitInfoExists), not via lock
+  // exclusivity. SHARED still blocks UNIQUE, so DDL/schema mutation remains unreachable. See
+  // Accessor(HistoricalAccess, ...)'s ctor (storage.cpp) for the full rationale.
+  //
+  // HIGH-2: unconditionally SNAPSHOT_ISOLATION, regardless of the database's configured ambient
+  // isolation level -- mirrors CreateSnapshot's own forced-SNAPSHOT_ISOLATION accessor. A branch
+  // reconstruction read under READ_COMMITTED/READ_UNCOMMITTED would otherwise silently see
+  // newer/uncommitted main state instead of the fork_ts snapshot (R16 + spec S9). No override
+  // parameter is accepted; there is deliberately no way to weaken this.
+  //
+  // R37: the returned accessor's transaction is flagged `Transaction::is_historical_`; its
+  // Abort/finalize path will NEVER call `commit_log_->MarkFinished(fork_ts)` -- see the flag's
+  // doc-comment in transaction.hpp for why that matters even beyond the fork-pin's own bookkeeping.
+  //
+  // HIGH-1: also self-pins fork_ts (AddForkPinAt) for the accessor's own lifetime, released
+  // exactly once on finalize -- see AddForkPinAt's doc-comment.
+  //
+  // Defensive check + self-pin, atomic under one version_fork_pin_lock_ critical section (closes
+  // the open-time TOCTOU): fails with ForkTimestampNotPinned unless `fork_ts` is currently a
+  // member of version_fork_pins_ at the moment we also insert our own pin.
+  std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(uint64_t fork_ts);
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
@@ -805,6 +885,24 @@ class InMemoryStorage final : public Storage {
 
   void SetStorageMode(StorageMode storage_mode);
 
+ private:
+  // R16: builds a Transaction pinned at an explicit PAST `start_timestamp` (fork_ts) instead of
+  // issuing a fresh tick from `timestamp_` (mirrors CreateTransaction, storage.cpp:2835, except for
+  // that field). `timestamp_` itself is left untouched -- a historical read must never advance the
+  // storage's logical clock. Isolation is unconditionally SNAPSHOT_ISOLATION (HIGH-2, no
+  // parameter -- there is deliberately no way to override it) and storage_mode is read directly
+  // from `storage_mode_`. Marks the returned Transaction `is_historical_ = true` (R37).
+  //
+  // MEDIUM: called ONLY via the `build_transaction` callback from inside
+  // Accessor(HistoricalAccess, ...)'s own `transaction_` initializer (InMemoryStorage::
+  // HistoricalAccess passes `[this, fork_ts] { return CreateHistoricalTransaction(fork_ts); }`),
+  // i.e. after storage_guard_ (the shared main_lock_ SHARED/READ-type guard) is already held. Reading
+  // `storage_mode_`/active indices/active constraints here is therefore coherent with respect to
+  // concurrent main_lock_-UNIQUE operations (SetStorageMode/Clear/RecoverSnapshot) the same way it
+  // is for every other accessor's CreateTransaction call.
+  Transaction CreateHistoricalTransaction(uint64_t fork_ts);
+
+ public:
   const durability::Recovery &GetRecovery() const noexcept { return recovery_; }
 
   auto GetAsyncIndexer() -> AsyncIndexer & { return async_indexer_; }

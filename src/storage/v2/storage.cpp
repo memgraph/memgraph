@@ -176,6 +176,35 @@ Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, Isolatio
       original_access_type_(StorageAccessType::READ_ONLY),
       creation_storage_mode_(storage_mode) {}
 
+Storage::Accessor::Accessor(HistoricalAccess /* tag */, Storage *storage,
+                            std::function<Transaction()> build_transaction,
+                            const std::optional<std::chrono::milliseconds> timeout)
+    : storage_(storage),
+      // The lock must be acquired before creating the transaction object, same as the other
+      // constructors -- a plain SHARED (READ-type) guard, the same kind an ordinary read
+      // transaction uses (`storage->Access(StorageAccessType::READ)`), NOT READ_ONLY.
+      // READ_ONLY ("ensures writers have gone", ResourceLock::lock_guard_condition<READ_ONLY>:
+      // waits for `w_count == 0`) would block every main writer AND GC (whose own lock
+      // acquisition defaults to the WRITE LockReq, which waits for `ro_count == 0`) for this
+      // accessor's entire lifetime -- violating the feature's core guarantee that main stays
+      // fully writable while a branch/historical read is open (spec S2/D2). READ-type coexists
+      // with other SHARED holders (ordinary writers use SHARED too) while still blocking UNIQUE
+      // acquisition (Clear/RecoverSnapshot/SetStorageMode/DDL), which is what actually preserves
+      // the MEDIUM-fix generation-vs-lock invariant below and keeps a historical accessor unable
+      // to reach unique_guard_-gated schema/DDL mutation. Read consistency here comes from
+      // SNAPSHOT_ISOLATION at fork_ts (MVCC), not from lock exclusivity -- so relaxing the lock
+      // mode costs nothing.
+      storage_guard_(CreateSharedGuard(storage, READ, timeout)),
+      unique_guard_(storage_->main_lock_, std::defer_lock),
+      // MEDIUM fix: invoked here, not by the caller before this constructor even started -- see
+      // this ctor's declaration comment in storage.hpp. `build_transaction` is
+      // InMemoryStorage::HistoricalAccess's `CreateHistoricalTransaction(fork_ts)` call, deferred
+      // until storage_guard_ (immediately above, per member declaration order) is already held.
+      transaction_(build_transaction()),
+      is_transaction_active_(true),
+      original_access_type_(StorageAccessType::READ),
+      creation_storage_mode_(transaction_.storage_mode) {}
+
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       storage_guard_(std::move(other.storage_guard_)),

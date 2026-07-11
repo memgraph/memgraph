@@ -787,6 +787,11 @@ add_unit_test(storage_v2_gc
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(versioning_historical_access
+    SOURCES versioning_historical_access.cpp
+    LINK_TARGETS mg::storage storage_test_utils
+)
+
 add_unit_test(storage_v2_non_sequential_isolation
     SOURCES storage_v2_non_sequential_isolation.cpp
     LINK_TARGETS mg::storage
