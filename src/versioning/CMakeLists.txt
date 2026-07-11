@@ -7,6 +7,7 @@ target_sources(mg-versioning
         FILES
         branch_log.hpp
         branch_overlay.hpp
+        branch_reconstruction.hpp
         gate.hpp
         name.hpp
         version_store.hpp
@@ -14,6 +15,7 @@ target_sources(mg-versioning
         PRIVATE
         branch_log.cpp
         branch_overlay.cpp
+        branch_reconstruction.cpp
         gate.cpp
         name.cpp
         version_store.cpp

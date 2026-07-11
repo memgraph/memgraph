@@ -95,6 +95,11 @@ add_unit_test(versioning_branch_overlay
         LINK_TARGETS mg::versioning mg::storage
 )
 
+add_unit_test(versioning_branch_reconstruction
+        SOURCES versioning_branch_reconstruction.cpp
+        LINK_TARGETS mg::versioning mg::storage
+)
+
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils
