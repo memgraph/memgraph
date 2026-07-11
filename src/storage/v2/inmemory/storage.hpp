@@ -738,6 +738,25 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
+    // Raw, MVCC-view-INDEPENDENT existence check: true iff an edge with this EXACT gid is
+    // currently physically present in main's live storage (heavy edges_ skip-list, or the light-
+    // edge adjacency/metadata-index path), regardless of logical delete status.
+    //
+    // Why this exists (versioning::MergeBranch, R11): unlike CreateVertexEx (which gracefully
+    // returns std::nullopt on a colliding gid), CreateEdgeEx has NO graceful collision path -- a
+    // colliding heavy edge gid trips `MG_ASSERT(inserted, ...)` in CreateEdgeInternal, i.e. crashes
+    // the process. A caller that must pre-check "is this explicit gid free" before calling
+    // CreateEdgeEx therefore cannot use the ordinary accessor-level `FindEdge(gid, view)`: that call
+    // applies THIS transaction's MVCC view on top of the raw lookup, so it can report "doesn't
+    // exist" for an object that is still physically retained (e.g. main created-then-deleted that
+    // exact gid after a branch's fork point, and the branch's own fork pin keeps the tombstoned
+    // node from being reclaimed) -- exactly the case that would otherwise sail past a view-filtered
+    // check and crash inside CreateEdgeEx. This method bypasses view filtering entirely and mirrors
+    // the same raw lookup `InMemoryAccessor::FindEdge(gid, view)` itself performs internally before
+    // applying that filtering (`InMemoryStorage::FindEdge(Gid)`), so it is authoritative for "would
+    // CreateEdgeEx(gid) collide right now".
+    bool EdgeGidExists(storage::Gid gid);
+
     /// During commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
@@ -1180,6 +1199,10 @@ class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {
   Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid) {
     return InMemoryAccessor::CreateEdgeEx(from, to, edge_type, gid);
   }
+
+  // See InMemoryAccessor::EdgeGidExists's doc-comment for why this raw, view-independent check is
+  // required (as opposed to FindEdge) before calling CreateEdgeEx with an explicit gid.
+  bool EdgeGidExists(storage::Gid gid) { return InMemoryAccessor::EdgeGidExists(gid); }
 
   auto GetCommitTimestamp() -> std::optional<uint64_t> & { return commit_timestamp_; }
 

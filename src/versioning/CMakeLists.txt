@@ -9,6 +9,7 @@ target_sources(mg-versioning
         branch_overlay.hpp
         branch_reconstruction.hpp
         gate.hpp
+        merge.hpp
         name.hpp
         version_store.hpp
 
@@ -17,6 +18,7 @@ target_sources(mg-versioning
         branch_overlay.cpp
         branch_reconstruction.cpp
         gate.cpp
+        merge.cpp
         name.cpp
         version_store.cpp
 )

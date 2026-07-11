@@ -1046,6 +1046,14 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   return *result;
 }
 
+bool InMemoryStorage::InMemoryAccessor::EdgeGidExists(storage::Gid gid) {
+  // Deliberately calls the RAW storage-level lookup (InMemoryStorage::FindEdge), NOT the
+  // accessor-level FindEdge(gid, view) -- see the doc-comment on the declaration (storage.hpp) for
+  // why the view-filtered accessor lookup is not a safe substitute here.
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  return static_cast<bool>(mem_storage->FindEdge(gid));
+}
+
 std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
   // ExistenceConstraints validation block
   auto const has_any_existence_constraints = !transaction_.active_constraints_->existence_->empty();
