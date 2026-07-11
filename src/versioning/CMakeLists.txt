@@ -5,6 +5,7 @@ target_sources(mg-versioning
         FILE_SET HEADERS
         BASE_DIRS ..
         FILES
+        branch_engine.hpp
         branch_log.hpp
         branch_overlay.hpp
         branch_reconstruction.hpp
@@ -14,6 +15,7 @@ target_sources(mg-versioning
         version_store.hpp
 
         PRIVATE
+        branch_engine.cpp
         branch_log.cpp
         branch_overlay.cpp
         branch_reconstruction.cpp

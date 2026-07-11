@@ -90,6 +90,11 @@ add_unit_test(versioning_branch_log
         LINK_TARGETS mg::versioning mg::storage
 )
 
+add_unit_test(versioning_branch_engine
+        SOURCES versioning_branch_engine.cpp
+        LINK_TARGETS mg::versioning mg::storage
+)
+
 add_unit_test(versioning_branch_overlay
         SOURCES versioning_branch_overlay.cpp
         LINK_TARGETS mg::versioning mg::storage
