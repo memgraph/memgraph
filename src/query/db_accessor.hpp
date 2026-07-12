@@ -866,12 +866,17 @@ class DbAccessor final {
   // see `tombstoned_vertices_`/`tombstoned_edges_`'s own doc-comment (branch_engine.hpp) for why a
   // bare diff-engine miss alone is not enough to hide a deleted fork object from the read path.
   //
-  // DETACH DELETE's automatic cascade (detach=true) is explicitly OUT of scope this slice (deferred,
-  // see DetachRemoveVertex's own doc-comment below) -- a COW'd fork vertex's diff-engine adjacency is
-  // EMPTY (CowVertex copies props+labels only, not adjacency), so the diff engine's OWN native
-  // cascade (storage.cpp's ClearEdgesOnVertices) would silently miss every fork-resident incident
-  // edge; doing this correctly needs every such edge COW'd in first, which needs its own dedicated
-  // (and separately risk-reviewed) slice rather than being folded in here.
+  // DETACH DELETE's automatic cascade (detach=true) IS implemented (slice E-4 increment 5) -- see
+  // DetachDelete/DetachRemoveVertex below. A COW'd fork vertex's diff-engine adjacency starts EMPTY
+  // (CowVertex copies props+labels only, not adjacency), so the diff engine's OWN native cascade
+  // (storage.cpp's PrepareDeletableEdges, which reads the physical in_edges/out_edges off each
+  // node) would silently miss every fork-resident incident edge if left as-is. The fix: before
+  // calling the native cascade, pre-COW every incident edge of every target vertex via
+  // `branch_ctx_->ResolveEdges(gid, direction, View::NEW, {})` (both OUT and IN) followed by
+  // `branch_ctx_->CowEdge(...)` for each -- CowEdge is idempotent (a no-op re-COW for an
+  // already-diff-resident edge, e.g. one also passed as a named edge or shared between two target
+  // vertices/a self-loop), so this is safe to run unconditionally per target vertex. Once every
+  // incident edge is diff-resident, the native cascade's adjacency read is complete and correct.
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
     if (branch_ctx_ != nullptr) {
       auto cowed = branch_ctx_->CowEdge(edge->impl_);
@@ -900,19 +905,48 @@ class DbAccessor final {
     return std::make_optional<EdgeAccessor>(*value);
   }
 
-  // Graph Versioning v1, slice E-4: DETACH DELETE for a SINGLE vertex (mgp C-API's
+  // Graph Versioning v1, slice E-4 increment 5: DETACH DELETE for a SINGLE vertex (mgp C-API's
   // `mgp_graph_detach_delete_vertex` only -- the Cypher `DETACH DELETE` clause always routes through
   // the batch `DetachDelete` below, query::plan::Delete::DeleteCursor::Pull, operator.cpp) always
-  // implies the automatic incident-edge cascade -- see RemoveEdge's own doc-comment for why that
-  // cascade is deferred (out of scope this slice): reject cleanly rather than ship a cascade that
-  // silently misses fork-resident edges. Plain (non-cascading) delete IS supported this slice --
-  // RemoveVertex below, and DetachDelete below with detach=false.
+  // implies the automatic incident-edge cascade -- see RemoveEdge's own doc-comment above for the
+  // general mechanism (pre-COW every incident edge via ResolveEdges + CowEdge, then run the native
+  // cascade). Plain (non-cascading) delete is also supported -- RemoveVertex below, and DetachDelete
+  // below with detach=false.
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       VertexAccessor *vertex_accessor) {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
     if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("DETACH DELETE (cascading) on a versioned branch");
+      auto cowed = branch_ctx_->CowVertex(vertex_accessor->Gid());
+      if (!cowed) throw QueryRuntimeException(cowed.error().message);
+      vertex_accessor->impl_ = *cowed;
+
+      for (auto direction : {storage::EdgeDirection::OUT, storage::EdgeDirection::IN}) {
+        for (auto &incident_edge :
+             branch_ctx_->ResolveEdges(vertex_accessor->Gid(), direction, storage::View::NEW, {})) {
+          auto cowed_edge = branch_ctx_->CowEdge(incident_edge);
+          if (!cowed_edge) throw QueryRuntimeException(cowed_edge.error().message);
+        }
+      }
+
+      auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
+      if (!res) return std::unexpected{res.error()};
+
+      const auto &value = res.value();
+      if (!value) return std::optional<ReturnType>{};
+
+      const auto &[vertex, edges] = *value;
+
+      branch_ctx_->TombstoneVertex(vertex.Gid());
+
+      std::vector<EdgeAccessor> deleted_edges;
+      deleted_edges.reserve(edges.size());
+      for (const auto &deleted_edge : edges) {
+        branch_ctx_->TombstoneEdge(deleted_edge.Gid());
+        deleted_edges.emplace_back(deleted_edge, branch_ctx_);
+      }
+
+      return std::make_optional<ReturnType>(VertexAccessor(vertex, branch_ctx_), std::move(deleted_edges));
     }
 
     auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
@@ -971,23 +1005,80 @@ class DbAccessor final {
     return std::make_optional<VertexAccessor>(*value);
   }
 
-  // Graph Versioning v1, slice E-4: EVERY Cypher `DELETE`/`DETACH DELETE` clause -- single node,
-  // single edge, or an arbitrary batch of both -- routes through THIS one method
-  // (query::plan::Delete::DeleteCursor::Pull, operator.cpp, always calls
-  // `dba.DetachDelete(nodes, edges, detach_)` regardless of clause shape); RemoveVertex/RemoveEdge
-  // above are only reached via the mgp C-API. See RemoveEdge's own doc-comment for the general
-  // COW + tombstone mechanism. `detach=true` (cascading DETACH DELETE) is explicitly deferred (see
-  // DetachRemoveVertex's own doc-comment) -- `detach=false` (plain DELETE of any mix of named nodes
-  // and/or edges) is fully supported: every node/edge is COW'd, then a branch-aware VERTEX_HAS_EDGES
-  // check runs (BranchVertexHasUncountedEdges, excluding edges THIS SAME statement is also deleting),
-  // then the real diff-engine DetachDelete runs, then every gid it actually deleted is tombstoned.
+  // Graph Versioning v1, slice E-4 (increment 5 adds the detach=true cascade): EVERY Cypher
+  // `DELETE`/`DETACH DELETE` clause -- single node, single edge, or an arbitrary batch of both --
+  // routes through THIS one method (query::plan::Delete::DeleteCursor::Pull, operator.cpp, always
+  // calls `dba.DetachDelete(nodes, edges, detach_)` regardless of clause shape); RemoveVertex/
+  // RemoveEdge above are only reached via the mgp C-API. See RemoveEdge's own doc-comment for the
+  // general COW + tombstone mechanism. `detach=false` (plain DELETE of any mix of named nodes and/or
+  // edges): every node/edge is COW'd, then a branch-aware VERTEX_HAS_EDGES check runs
+  // (BranchVertexHasUncountedEdges, excluding edges THIS SAME statement is also deleting), then the
+  // real diff-engine DetachDelete runs, then every gid it actually deleted is tombstoned. `detach=true`
+  // (cascading DETACH DELETE): the VERTEX_HAS_EDGES guard is skipped (detach means "cascade", never
+  // "reject") -- instead every named edge and every target node is COW'd, then EVERY incident edge of
+  // EVERY target node (both `storage::EdgeDirection::OUT` and `IN`, via `branch_ctx_->ResolveEdges`)
+  // is pre-COW'd into the diff engine (`branch_ctx_->CowEdge`, idempotent -- safe against
+  // already-COW'd/named/shared/self-loop edges), so the native diff-engine cascade's adjacency read
+  // (PrepareDeletableEdges, storage.cpp) is complete rather than silently missing fork-resident edges.
   storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
       std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach) {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
     if (branch_ctx_ != nullptr) {
       if (detach) {
-        throw NotYetImplemented("DETACH DELETE (cascading) on a versioned branch");
+        for (auto &edge : edges) {
+          auto cowed = branch_ctx_->CowEdge(edge.impl_);
+          if (!cowed) throw QueryRuntimeException(cowed.error().message);
+          edge.impl_ = *cowed;
+        }
+        for (auto &node : nodes) {
+          auto cowed = branch_ctx_->CowVertex(node.Gid());
+          if (!cowed) throw QueryRuntimeException(cowed.error().message);
+          node.impl_ = *cowed;
+        }
+
+        // Pre-COW every incident edge of every target node so the native diff-engine cascade's
+        // adjacency read (PrepareDeletableEdges, storage.cpp) sees fork-resident edges too --
+        // CowEdge is idempotent, so re-COWing a named/shared/self-loop edge here is a safe no-op.
+        for (auto &node : nodes) {
+          for (auto direction : {storage::EdgeDirection::OUT, storage::EdgeDirection::IN}) {
+            for (auto &incident_edge : branch_ctx_->ResolveEdges(node.Gid(), direction, storage::View::NEW, {})) {
+              auto cowed_edge = branch_ctx_->CowEdge(incident_edge);
+              if (!cowed_edge) throw QueryRuntimeException(cowed_edge.error().message);
+            }
+          }
+        }
+
+        std::vector<storage::VertexAccessor *> nodes_impl;
+        std::vector<storage::EdgeAccessor *> edges_impl;
+        nodes_impl.reserve(nodes.size());
+        edges_impl.reserve(edges.size());
+        for (auto &vertex_accessor : nodes) nodes_impl.push_back(&vertex_accessor.impl_);
+        for (auto &edge_accessor : edges) edges_impl.push_back(&edge_accessor.impl_);
+
+        auto res = accessor_->DetachDelete(std::move(nodes_impl), std::move(edges_impl), detach);
+        if (!res) return std::unexpected{res.error()};
+
+        const auto &value = res.value();
+        if (!value) return std::optional<ReturnType>{};
+
+        const auto &[val_vertices, val_edges] = *value;
+
+        std::vector<VertexAccessor> deleted_vertices;
+        std::vector<EdgeAccessor> deleted_edges;
+        deleted_vertices.reserve(val_vertices.size());
+        deleted_edges.reserve(val_edges.size());
+
+        for (const auto &deleted_vertex : val_vertices) {
+          branch_ctx_->TombstoneVertex(deleted_vertex.Gid());
+          deleted_vertices.emplace_back(deleted_vertex, branch_ctx_);
+        }
+        for (const auto &deleted_edge : val_edges) {
+          branch_ctx_->TombstoneEdge(deleted_edge.Gid());
+          deleted_edges.emplace_back(deleted_edge, branch_ctx_);
+        }
+
+        return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
       }
 
       for (auto &node : nodes) {

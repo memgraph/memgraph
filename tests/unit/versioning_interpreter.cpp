@@ -719,31 +719,6 @@ TEST_F(VersioningInterpreterTest, BranchLabelScanIsUnionAwareNotJustDiffEngineIn
       << "the still-historical vertex (diff engine's own index does NOT know about it) must not be silently missed";
 }
 
-// Graph Versioning v1, slice E-4: SUPERSEDES the original E-1-era version of this test (which
-// asserted ALL delete on a branch threw NotYetImplemented -- true back when this slice was
-// VERTEX-ONLY and no tombstone concept existed in BranchContext::UnionVerticesIterable). Plain
-// (non-cascading) DELETE is now fully supported (see the Branch*Delete* tests below) -- only
-// DETACH DELETE's automatic incident-edge CASCADE remains deferred: a COW'd fork vertex's
-// diff-engine adjacency is EMPTY (CowVertex copies props+labels only, not adjacency, see its own
-// doc-comment, branch_engine.cpp), so the diff engine's own native cascade
-// (storage.cpp's ClearEdgesOnVertices) would silently miss every fork-resident incident edge --
-// reject cleanly (DbAccessor::DetachDelete/DetachRemoveVertex, db_accessor.hpp) rather than ship
-// that gap.
-TEST_F(VersioningInterpreterTest, BranchDetachDeleteThrowsNotYetImplemented) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE (:A {x:1})-[:R]->(:B)");
-  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'b'");
-
-  ASSERT_THROW(faker.Interpret("MATCH (n:A) DETACH DELETE n"), memgraph::query::NotYetImplemented);
-
-  // Must not have crashed or left the session/transaction unusable -- an ordinary read still works.
-  auto stream = faker.Interpret("MATCH (n:A) RETURN n.x");
-  ASSERT_EQ(stream.GetResults().size(), 1U);
-  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
-}
-
 // Graph Versioning v1, slice E-2a (branch edge create + basic single-hop expansion): covers two
 // things at once --
 //   (1) a branch-native `CREATE (x)-[:R]->(y)` against two EXISTING (not-yet-COW'd historical)
@@ -1113,6 +1088,177 @@ TEST_F(VersioningInterpreterTest, BranchDeleteForkVertexRemovesFromMainOnMerge) 
 
   auto stream = faker.Interpret("MATCH (n:Q) RETURN n");
   EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch's delete of the fork vertex must be applied to main";
+}
+
+// Graph Versioning v1, slice E-4, increment 5 (DETACH DELETE cascade, SUPERSEDES
+// BranchDetachDeleteThrowsNotYetImplemented): a FORK vertex's incident edge is now pre-COW'd before
+// the native diff-engine cascade runs, so the fork-resident edge is no longer invisible to it (the
+// old NotYetImplemented reject is gone). Both the vertex and its fork-resident :R edge must be hidden
+// on the branch immediately, untouched on main until MERGE, and BOTH gone from main afterward.
+// Crucially, the edge's OTHER endpoint (:S) is only the FROM side, not detach-deleted itself, and
+// must survive the merge -- before the pre-COW fix, the cascade had no way to reach a fork edge at
+// all, so this whole scenario would have thrown NotYetImplemented instead of cascading.
+TEST_F(VersioningInterpreterTest, BranchDetachDeleteForkVertexWithForkEdgesCascadesAndMergesRemoved) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:S)-[:R]->(:A)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:A) DETACH DELETE n");
+
+  {
+    auto stream = faker.Interpret("MATCH (n:A) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the detach-deleted vertex must be hidden on the branch immediately";
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[e:R]->() RETURN e");
+    EXPECT_EQ(stream.GetResults().size(), 0U)
+        << "the vertex's fork-resident incident edge must be cascaded-hidden on the branch too";
+  }
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (n:A) RETURN n");
+    ASSERT_EQ(stream.GetResults().size(), 1U) << "main must still have :A -- not yet merged";
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[e:R]->() RETURN e");
+    ASSERT_EQ(stream.GetResults().size(), 1U) << "main must still have its :R edge -- not yet merged";
+  }
+
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  {
+    auto stream = faker.Interpret("MATCH (n:A) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch's cascade must have removed :A from main too";
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[e:R]->() RETURN e");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch's cascade must have removed the :R edge from main too";
+  }
+  {
+    auto stream = faker.Interpret("MATCH (n:S) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 1U)
+        << ":S is only the edge's OTHER endpoint, not itself detach-deleted -- it must survive the cascade";
+  }
+}
+
+// Graph Versioning v1, slice E-4, increment 5 (DETACH DELETE cascade, branch-native variant): both
+// the vertex AND its incident edge are created and detach-deleted ENTIRELY within the branch, never
+// having existed on main at all. Exercises the pure diff-engine-only cascade path (no fork/historical
+// data involved), and confirms MERGE correctly no-ops the create+delete pair rather than leaving a
+// dangling half-applied create or edge on main.
+TEST_F(VersioningInterpreterTest, BranchDetachDeleteBranchNativeVertexWithEdgesCascades) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:S)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (s:S) CREATE (s)-[:R]->(:N {tag:1})");
+  faker.Interpret("MATCH (n:N) DETACH DELETE n");
+
+  {
+    auto stream = faker.Interpret("MATCH (n:N) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch-native detach-deleted vertex must be hidden";
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[e:R]->() RETURN e");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "its branch-native incident edge must be cascaded-hidden too";
+  }
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  {
+    auto stream = faker.Interpret("MATCH (n:N) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the create+delete pair must cancel out -- no :N on main";
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[e:R]->() RETURN e");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the create+delete pair must cancel out -- no :R edge on main";
+  }
+  {
+    auto stream = faker.Interpret("MATCH (n:S) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 1U) << ":S was never touched by the cascade and must survive";
+  }
+}
+
+// Graph Versioning v1, slice E-4, increment 5 (DETACH DELETE cascade, shared-edge variant): BOTH
+// endpoints of the same edge are detach-deleted in a SINGLE statement. The edge must be pre-COW'd and
+// removed exactly once -- if the pre-COW path naively re-processed the edge from each endpoint's own
+// incident-edge walk without idempotency, this would double-delete (an assertion failure / crash in
+// the diff engine) rather than cleanly no-op the second time.
+TEST_F(VersioningInterpreterTest, BranchDetachDeleteSharedEdgeBetweenTwoDeletedNodesDeletesEdgeOnce) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:A)-[:R]->(:B)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (a:A), (b:B) DETACH DELETE a, b");
+
+  {
+    auto stream = faker.Interpret("MATCH (n) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "both detach-deleted endpoints must be hidden on the branch";
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[e]->() RETURN e");
+    EXPECT_EQ(stream.GetResults().size(), 0U)
+        << "the shared edge must be hidden exactly once, not double-deleted (no crash, no leftover)";
+  }
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  {
+    auto stream = faker.Interpret("MATCH (n) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "both vertices must be gone from main after merge";
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[e]->() RETURN e");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the shared edge must be gone from main after merge";
+  }
+}
+
+// Graph Versioning v1, slice E-4, increment 5 (DETACH DELETE cascade, self-loop variant): a
+// vertex with a SELF-loop edge -- the same edge is simultaneously A's OUT-edge and A's IN-edge, so
+// the pre-COW-before-cascade logic will walk it from BOTH sides of A's own adjacency. Exercises the
+// idempotent double-COW path directly (unlike the two-distinct-vertices shared-edge test above, here
+// it's the SAME vertex's own adjacency listing the same edge twice) -- would double-COW / double-
+// delete-assert without idempotency.
+TEST_F(VersioningInterpreterTest, BranchDetachDeleteSelfLoopCascades) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:A)");
+  faker.Interpret("MATCH (a:A) CREATE (a)-[:R]->(a)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:A) DETACH DELETE n");
+
+  {
+    auto stream = faker.Interpret("MATCH (n:A) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the self-looped vertex must be hidden on the branch";
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[e]->() RETURN e");
+    EXPECT_EQ(stream.GetResults().size(), 0U)
+        << "the self-loop edge must be hidden exactly once, not double-deleted (no crash)";
+  }
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  {
+    auto stream = faker.Interpret("MATCH (n:A) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "main must have no :A left after merge";
+  }
+  {
+    auto stream = faker.Interpret("MATCH ()-[e]->() RETURN e");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "main must have no edges left after merge";
+  }
 }
 
 // Graph Versioning v1, slice E-4, increment 4 (Q6, EDGE-side analog of
