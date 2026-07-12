@@ -784,84 +784,111 @@ TEST_F(VersioningInterpreterTest, BranchEdgeCreateAndEndpointShadowingIsUnionAwa
   }
 }
 
-// Graph Versioning v1, slice E-2a HIGH regression (adversarial-review, ROUND 2): `DbAccessor::
-// FindEdge` (both overloads) was UNGUARDED for branch mode -- it called straight into
-// `accessor_->FindEdge`, i.e. the diff engine ONLY, so any pre-fork (historical) edge would silently
-// "not exist" on a branch. Reachable via `MATCH ()-[e]-() WHERE id(e) = <gid>`, which
-// `rewrite/edge_index_lookup.hpp` rewrites to a `ScanAllByEdgeId` operator UNCONDITIONALLY (no index
-// needed, see its own `IdFilters` rewrite) -- so this is a plain, always-on path, not a corner case
-// gated behind an index.
-//
-// ROUND 1 tried a real diff-vs-historical `ResolveEdge` fix here and it was adversarially found
-// WRONG (the historical half doesn't reliably find the edge -- see `BranchContext::ResolveEdge`'s
-// own doc-comment, branch_engine.hpp, for why). Pivoted to fail-loud: `FindEdge` on a branch now
-// unconditionally throws `NotYetImplemented`, mirroring the edge-mutator and edge-index-scan guards
-// elsewhere in this slice -- REAL edge-by-id resolution is deferred to E-2d. This test now checks
-// exactly that: the query throws cleanly (not silently wrong, not a crash), and the session/
-// transaction stays usable afterward (ordinary expansion still works).
-TEST_F(VersioningInterpreterTest, BranchFindEdgeByIdThrowsNotYetImplemented) {
+// Graph Versioning v1, slice E-2d (edge-by-id resolution): supersedes the ROUND-2 fail-loud guard
+// that used to live here (`BranchFindEdgeByIdThrowsNotYetImplemented` -- `DbAccessor::FindEdge` on a
+// branch unconditionally threw `NotYetImplemented`, deferring real resolution to E-2d; see that
+// history for why a real diff-vs-historical `ResolveEdge` fix was adversarially rejected in ROUND 1).
+// `MATCH ()-[e]->() WHERE id(e) = <gid>` still rewrites to a `ScanAllByEdgeId` operator UNCONDITIONALLY
+// (rewrite/edge_index_lookup.hpp's own `IdFilters` rewrite, no index needed), which calls straight
+// into `DbAccessor::FindEdge` -- this now resolves BOTH halves of the union:
+//   (1) a still-historical (pre-fork) edge, via the bare-gid full-scan fallback (the edge is not
+//       resident in the diff engine at all -- `FindDiffEdge` alone would miss it).
+//   (2) a branch-native edge, via the `FindDiffEdge` fast path (looked up directly in the diff
+//       engine, no full scan needed).
+// Also confirms a non-existent gid returns no rows rather than throwing or crashing.
+TEST_F(VersioningInterpreterTest, BranchFindEdgeByIdResolvesForkAndBranchNativeEdges) {
   SatisfyGate();
 
-  // Pre-fork edge on main.
-  faker.Interpret("CREATE (:S {name:'s'})-[:E]->(:A {name:'a2'})");
+  // Pre-fork (fork) edge on main.
+  faker.Interpret("CREATE (:S)-[:E]->(:A)");
 
-  faker.Interpret("CREATE BRANCH 'br' FROM 'main'");
-  faker.Interpret("CHECKOUT BRANCH 'br'");
+  int64_t fork_edge_gid;
+  {
+    auto s = faker.Interpret("MATCH ()-[e:E]->() RETURN id(e)");
+    ASSERT_EQ(s.GetResults().size(), 1U);
+    fork_edge_gid = s.GetResults()[0][0].ValueInt();
+  }
 
-  // Directed pattern (not `()-[e]-()`) and an arbitrary id -- ScanAllByEdgeId's rewrite fires on the
-  // presence of an `id(e) = ...` filter alone, regardless of whether that id actually resolves to
-  // anything, so the guard must fire before `FindEdge` ever gets a chance to look the gid up either
-  // way.
-  ASSERT_THROW(faker.Interpret("MATCH ()-[e]->() WHERE id(e) = 0 RETURN type(e)"), memgraph::query::NotYetImplemented);
-
-  // Must not have crashed or left the session/transaction unusable -- ordinary (non-id) expansion
-  // across the pre-fork edge still works.
-  auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN type(e)");
-  ASSERT_EQ(stream.GetResults().size(), 1U);
-  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "E");
-}
-
-// Graph Versioning v1, slice E-2a MED regression (adversarial-review): `DbAccessor::Edges(...)`
-// (every edge-type/property INDEX scan overload) was unguarded -- dead today only because a fresh
-// branch's diff engine has no edge index of its own, but silently wrong (diff-engine-only contents,
-// missing every still-historical edge) the moment one exists. `CREATE EDGE INDEX` is unguarded and
-// routes to the diff engine only (mirrors `BranchLabelScanIsUnionAwareNotJustDiffEngineIndex`'s own
-// vertex-side comment -- same accepted design, not a new bug: `EdgeTypeIndexReady`/
-// `EdgeTypePropertyIndexReady`/`EdgesCount` are ALL unguarded too, consulting the diff engine's own
-// index/count directly), which is enough to make `*IndexReady` report true and make the planner
-// consider an indexed edge scan.
-//
-// DIAGNOSIS (adversarial-review, ROUND 2): a first attempt at this test used a PLAIN edge-type index
-// (`CREATE EDGE INDEX ON :R`, no property) with no additional filter (`MATCH ()-[e:R]->() RETURN e`)
-// -- the guard did NOT fire, because `VariableStartPlanner`'s cost-based plan selection didn't pick
-// the edge-indexed start on that tiny graph (both endpoints fully anonymous, one edge total -- a
-// plain vertex-scan-then-expand plan was evidently cheaper by its estimate). This is a PLAN-SELECTION
-// artifact of that specific query/graph shape, not evidence the indexed path can never be reached on
-// a branch (nothing in CreateIndex/EdgeTypeIndexReady/EdgesCount blocks it, mirroring the vertex
-// label-index case that IS reachable). Rewritten below to mirror
-// `tests/unit/interpreter.cpp`'s own `EdgePropertyInListIndexedEquivalence` recipe exactly (edge-TYPE
-// -AND-PROPERTY index + an equality filter on the indexed property) -- that is an EXISTING,
-// already-relied-upon case in this codebase where the property-indexed path IS the one under test on
-// an equally small graph, giving much higher confidence the planner actually selects it here too.
-// NOT independently re-verified by a build (none was run for this fix) -- if this still doesn't
-// reach the guard, the correct fallback (per the review) is to assert the query returns the correct
-// result via the (uncontested) Expand fallback instead of asserting a throw.
-TEST_F(VersioningInterpreterTest, BranchEdgeTypePropertyIndexScanThrowsNotYetImplemented) {
-  SatisfyGate();
-
-  faker.Interpret("CREATE (:X {name:'x'})-[:R {prop: 1}]->(:Y {name:'y'})");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
+  // Resolves the FORK edge by id on the branch -- exercises the bare-gid full-scan fallback.
+  {
+    auto s = faker.Interpret("MATCH ()-[e]->() WHERE id(e) = " + std::to_string(fork_edge_gid) + " RETURN type(e)");
+    ASSERT_EQ(s.GetResults().size(), 1U) << "the pre-fork edge must resolve by id via the full-scan fallback";
+    EXPECT_EQ(s.GetResults()[0][0].ValueString(), "E");
+  }
+
+  // Branch-native edge -- exercises the FindDiffEdge fast path instead.
+  faker.Interpret("MATCH (a:A) CREATE (a)-[:F]->(:B)");
+  int64_t native_gid;
+  {
+    auto s = faker.Interpret("MATCH ()-[e:F]->() RETURN id(e)");
+    ASSERT_EQ(s.GetResults().size(), 1U);
+    native_gid = s.GetResults()[0][0].ValueInt();
+  }
+  {
+    auto s = faker.Interpret("MATCH ()-[e]->() WHERE id(e) = " + std::to_string(native_gid) + " RETURN type(e)");
+    ASSERT_EQ(s.GetResults().size(), 1U) << "the branch-native edge must resolve by id via FindDiffEdge";
+    EXPECT_EQ(s.GetResults()[0][0].ValueString(), "F");
+  }
+
+  // Non-existent id: neither the historical nor the diff-engine lookup finds anything -- no rows,
+  // no throw.
+  {
+    auto s = faker.Interpret("MATCH ()-[e]->() WHERE id(e) = 999999 RETURN type(e)");
+    EXPECT_EQ(s.GetResults().size(), 0U) << "a non-existent gid must return no rows, not throw";
+  }
+}
+
+// Graph Versioning v1, slice E-2d (edge-type+property indexed scan): supersedes the ROUND-2
+// fail-loud guard that used to live here (`BranchEdgeTypePropertyIndexScanThrowsNotYetImplemented`
+// -- `DbAccessor::Edges(...)` on a branch unconditionally threw `NotYetImplemented` once an
+// edge-type-and-property index existed; see that test's history for the plan-selection diagnosis
+// that led to using an edge-TYPE-AND-PROPERTY index with an equality filter, mirroring
+// `tests/unit/interpreter.cpp`'s own `EdgePropertyInListIndexedEquivalence` recipe, to reliably get
+// the planner to pick the indexed path on a graph this small).
+//
+// Mirrors `BranchLabelScanIsUnionAwareNotJustDiffEngineIndex`'s own vertex-side headline on the edge
+// axis: `CREATE EDGE INDEX ON :R(prop)` populates the DIFF ENGINE's own index only -- a
+// still-historical (pre-fork) matching edge is NOT, and never will be, reconciled into it.
+// `DbAccessor::Edges` must fall back to the filtered union scan
+// (`MaterializeFilteredBranchEdgeScan`) rather than trust the diff engine's own, structurally
+// incomplete index, or the still-historical fork edge would silently go missing from the result.
+TEST_F(VersioningInterpreterTest, BranchEdgeTypePropertyIndexScanIsUnionAwareNotJustDiffIndex) {
+  SatisfyGate();
+
+  // Pre-fork (fork) edge, prop=1 -- absent from any index the branch later creates.
+  faker.Interpret("CREATE (:X {name:'x'})-[:R {prop:1}]->(:Y {name:'y'})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Populates the DIFF ENGINE's own edge index only -- the fork edge above is not, and never will
+  // be, reconciled into it.
   faker.Interpret("CREATE EDGE INDEX ON :R(prop)");
 
-  ASSERT_THROW(faker.Interpret("MATCH ()-[e:R]->() WHERE e.prop = 1 RETURN e"), memgraph::query::NotYetImplemented);
+  // Branch-native edges: one matching (prop=1), one that must be excluded (prop=2).
+  faker.Interpret("CREATE (:X)-[:R {prop:1}]->(:Y)");
+  faker.Interpret("CREATE (:X)-[:R {prop:2}]->(:Y)");
 
-  // Must not have crashed or left the session/transaction unusable -- an ordinary (non-indexed)
-  // read still works.
-  auto stream = faker.Interpret("MATCH (:X)-[e:R]->(:Y) RETURN type(e)");
-  ASSERT_EQ(stream.GetResults().size(), 1U);
-  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "R");
+  // THE HEADLINE ASSERTION -- the indexed scan must surface the HISTORICAL fork edge (which the
+  // diff-engine index alone would miss) AND the branch-native prop=1 match, but not the prop=2 edge.
+  auto stream = faker.Interpret("MATCH ()-[e:R]->() WHERE e.prop = 1 RETURN e.prop");
+  ASSERT_EQ(stream.GetResults().size(), 2U)
+      << "union-materialize must surface BOTH the historical fork edge (absent from the diff-engine "
+         "index) and the branch-native prop=1 edge -- pre-E-2d this path threw; a diff-index-only "
+         "scan would have returned just the branch-native one";
+  for (auto &row : stream.GetResults()) {
+    EXPECT_EQ(row[0].ValueInt(), 1);
+  }
+
+  // R35: main is untouched -- still exactly the one fork :R edge; the branch's index and
+  // branch-native edges never leaked across.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto s = faker.Interpret("MATCH ()-[e:R]->() RETURN e");
+    EXPECT_EQ(s.GetResults().size(), 1U) << "main must still have exactly the one fork :R edge";
+  }
 }
 
 // Graph Versioning v1, slice E-2c (branch edge-property SET/REMOVE): the edge-side mirror of

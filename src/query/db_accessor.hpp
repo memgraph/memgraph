@@ -394,16 +394,34 @@ class EdgesChunkedIterable {
 };
 
 class EdgesIterable final {
-  std::variant<storage::EdgesIterable, std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
-                                                          utils::Allocator<EdgeAccessor>> *>
+  // Graph Versioning v1 (lazy diff-context, slice E-2d): the 3rd alternative -- a fully-materialized,
+  // already-filtered result set for the branch edge-type/property index-scan workaround (see
+  // DbAccessor::Edges(...) overloads below and MaterializeFilteredBranchEdgeScan) -- mirrors
+  // VerticesIterable's own materialized (4th) alternative byte-for-byte. shared_ptr (not an owned
+  // member) so the materialized vector's lifetime is independent of how many copies of this
+  // EdgesIterable (or of Iterator, which also holds a copy) get made. Unlike VerticesIterable, no
+  // `branch_ctx_` member is needed here: every EdgeAccessor is already fully branch-stamped at
+  // materialization time (MaterializeFilteredBranchEdgeScan stamps `branch_ctx_` into each candidate
+  // before filtering), so there is no lazy union-scan alternative on the edge side that would need a
+  // context pointer to re-stamp yielded values.
+  std::variant<
+      storage::EdgesIterable,
+      std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>, utils::Allocator<EdgeAccessor>> *,
+      std::shared_ptr<std::vector<EdgeAccessor>>>
       iterable_;
 
  public:
   class Iterator final {
     std::variant<storage::EdgesIterable::Iterator,
                  std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
-                                    utils::Allocator<EdgeAccessor>>::iterator>
+                                    utils::Allocator<EdgeAccessor>>::iterator,
+                 std::vector<EdgeAccessor>::iterator>
         it_;
+    // Graph Versioning v1 (lazy diff-context, slice E-2d): keeps the materialized vector (3rd
+    // alternative above) alive independently of the parent EdgesIterable -- mirrors
+    // VerticesIterable::Iterator::materialized_ exactly (cheap atomic refcount bump; removes any
+    // doubt about an Iterator outliving the EdgesIterable it was created from).
+    std::shared_ptr<std::vector<EdgeAccessor>> materialized_;
 
    public:
     explicit Iterator(storage::EdgesIterable::Iterator it) : it_(std::move(it)) {}
@@ -412,8 +430,23 @@ class EdgesIterable final {
                                          utils::Allocator<EdgeAccessor>>::iterator it)
         : it_(it) {}
 
+    Iterator(std::vector<EdgeAccessor>::iterator it, std::shared_ptr<std::vector<EdgeAccessor>> materialized)
+        : it_(it), materialized_(std::move(materialized)) {}
+
+    // The materialized (3rd) alternative already holds fully-stamped EdgeAccessor values
+    // (branch_ctx_ set at materialization time, see DbAccessor::MaterializeFilteredBranchEdgeScan)
+    // so it's just a dereference -- no re-stamping needed, unlike VerticesIterable's lazy branch
+    // alternative.
     EdgeAccessor operator*() const {
-      return std::visit([](auto &it_) { return EdgeAccessor(*it_); }, it_);
+      return std::visit(
+          memgraph::utils::Overloaded{
+              [](const storage::EdgesIterable::Iterator &it) { return EdgeAccessor(*it); },
+              [](const std::unordered_set<EdgeAccessor,
+                                          std::hash<EdgeAccessor>,
+                                          std::equal_to<void>,
+                                          utils::Allocator<EdgeAccessor>>::iterator &it) { return EdgeAccessor(*it); },
+              [](const std::vector<EdgeAccessor>::iterator &it) { return *it; }},
+          it_);
     }
 
     Iterator &operator++() {
@@ -432,6 +465,11 @@ class EdgesIterable final {
                                             utils::Allocator<EdgeAccessor>> *edges)
       : iterable_(edges) {}
 
+  // Graph Versioning v1 (lazy diff-context, slice E-2d): the materialized/filtered branch edge-type/
+  // property scan alternative -- see DbAccessor::MaterializeFilteredBranchEdgeScan.
+  explicit EdgesIterable(std::shared_ptr<std::vector<EdgeAccessor>> materialized)
+      : iterable_(std::move(materialized)) {}
+
   Iterator begin() {
     return std::visit(
         memgraph::utils::Overloaded{
@@ -439,7 +477,10 @@ class EdgesIterable final {
             [](std::unordered_set<EdgeAccessor,
                                   std::hash<EdgeAccessor>,
                                   std::equal_to<void>,
-                                  utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->begin()); }},
+                                  utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->begin()); },
+            [](std::shared_ptr<std::vector<EdgeAccessor>> &materialized) {
+              return Iterator(materialized->begin(), materialized);
+            }},
         iterable_);
   }
 
@@ -450,7 +491,10 @@ class EdgesIterable final {
             [](std::unordered_set<EdgeAccessor,
                                   std::hash<EdgeAccessor>,
                                   std::equal_to<void>,
-                                  utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->end()); }},
+                                  utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->end()); },
+            [](std::shared_ptr<std::vector<EdgeAccessor>> &materialized) {
+              return Iterator(materialized->end(), materialized);
+            }},
         iterable_);
   }
 };
@@ -523,6 +567,30 @@ class DbAccessor final {
     return result;
   }
 
+  // Graph Versioning v1 (lazy diff-context, slice E-2d): edge-side mirror of
+  // MaterializeFilteredBranchScan above -- eagerly filters every edge reachable via the branch's
+  // union vertex scan (branch_ctx_->Vertices) by walking each vertex's OUT adjacency
+  // (branch_ctx_->ResolveEdges) exactly once. OUT-only is deliberate, not an oversight: every edge is
+  // stored on exactly its FROM-vertex's adjacency list, so enumerating every vertex's OUT edges once
+  // visits every (historical ∪ diff, tombstone-aware) edge exactly once -- also enumerating IN edges
+  // would double-count. O(fork-state graph size) full scan regardless of predicate selectivity, the
+  // same "slower but correct" fallback MaterializeFilteredBranchScan already accepted for vertices --
+  // there is no branch-aware edge-type/property index to seek instead (out of scope for this slice).
+  auto MaterializeFilteredBranchEdgeScan(storage::View view, std::function<bool(EdgeAccessor &)> predicate)
+      -> std::shared_ptr<std::vector<EdgeAccessor>> {
+    auto result = std::make_shared<std::vector<EdgeAccessor>>();
+    for (auto raw_v : branch_ctx_->Vertices(view)) {
+      VertexAccessor v(raw_v, branch_ctx_);
+      for (auto &raw_e : branch_ctx_->ResolveEdges(v.Gid(), storage::EdgeDirection::OUT, view, {})) {
+        EdgeAccessor candidate(raw_e, branch_ctx_);
+        if (predicate(candidate)) {
+          result->push_back(candidate);
+        }
+      }
+    }
+    return result;
+  }
+
   // Graph Versioning v1, slice E-4: branch-aware VERTEX_HAS_EDGES guard for a plain (non-cascading)
   // vertex delete (RemoveVertex/DetachDelete-with-detach=false below). `accessor_->DeleteVertex`'s
   // own native check (storage.cpp's TryDeleteVertices) only ever inspects the DIFF ENGINE's own
@@ -581,23 +649,49 @@ class DbAccessor final {
   // `historical_` (a HistoricalAccess accessor) is not the simple diff-engine-mirroring point lookup
   // ResolveVertex gets away with -- it depends on `properties_on_edges`/gid-storage-layout and
   // HistoricalAccess's own scan semantics in ways that don't just work by calling the same
-  // `FindEdge(gid, view)` two of the storage layer already exposes elsewhere. Rather than get that
-  // subtly wrong (silently-wrong is exactly what this fix exists to avoid), REJECT cleanly instead
-  // -- mirrors the edge-property-mutator and edge-index-scan guards elsewhere in this slice
-  // (NotYetImplemented, not a crash or a wrong answer). Real edge-by-id resolution is E-2d.
+  // `FindEdge(gid, view)` two of the storage layer already exposes elsewhere. That round REJECTED
+  // cleanly instead (NotYetImplemented) rather than get it subtly wrong.
+  //
+  // SLICE E-2d IMPLEMENTATION: diff-first via `BranchContext::FindDiffEdge` (reliable, no
+  // `historical_` dependency -- anything already COW'd/created into the diff engine is a direct
+  // O(1) hit), falling back to a full union-vertex scan (`branch_ctx_->Vertices`) + per-vertex OUT-
+  // adjacency walk (`ResolveEdges`) when the diff engine doesn't have it. Every edge lives on
+  // exactly its FROM-vertex's OUT list, so walking every vertex's OUT edges once via the same
+  // already-trusted `ResolveEdges` primitive the delete cascade and VERTEX_HAS_EDGES guard rely on
+  // is guaranteed to surface it if it's visible at all, historical or diff-resident. O(V+E) worst
+  // case for this fallback -- a full scan, same "slower but correct" trade-off
+  // MaterializeFilteredBranchScan already accepted for the vertex-side label/property scans; there
+  // is no branch-aware edge-by-id index to seek instead (out of scope for this slice). The
+  // 3-argument overload below is strictly cheaper when the caller already has the endpoint, so
+  // prefer it there.
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
     if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Finding an edge by id on a versioned branch");
+      if (auto diff_edge = branch_ctx_->FindDiffEdge(gid, view)) {
+        return EdgeAccessor(*diff_edge, branch_ctx_);
+      }
+      for (auto raw_v : branch_ctx_->Vertices(view)) {
+        VertexAccessor v(raw_v, branch_ctx_);
+        for (auto &e : branch_ctx_->ResolveEdges(v.Gid(), storage::EdgeDirection::OUT, view, {})) {
+          if (e.Gid() == gid) return EdgeAccessor(e, branch_ctx_);
+        }
+      }
+      return std::nullopt;
     }
     auto maybe_edge = accessor_->FindEdge(gid, view);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
     return std::nullopt;
   }
 
-  // HIGH FIX (adversarial-review, ROUND 2): same gap and same fix as the overload above.
+  // HIGH FIX (adversarial-review, ROUND 2): same gap as the overload above -- FIXED in slice E-2d.
+  // PREFERRED overload whenever the caller already has the FROM-vertex gid (e.g. an already-resolved
+  // pattern edge): no full scan needed, just that one vertex's OUT adjacency via `ResolveEdges` --
+  // an edge lives on exactly its FROM-vertex's OUT list, so this is a reliable, non-scanning lookup.
   std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view) {
     if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Finding an edge by id on a versioned branch");
+      for (auto &e : branch_ctx_->ResolveEdges(from_vertex_gid, storage::EdgeDirection::OUT, view, {})) {
+        if (e.Gid() == edge_gid) return EdgeAccessor(e, branch_ctx_);
+      }
+      return std::nullopt;
     }
     auto maybe_edge = accessor_->FindEdge(edge_gid, from_vertex_gid, view);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
@@ -749,19 +843,31 @@ class DbAccessor final {
   // incomplete, unreconciled-with-`historical_`) index contents, missing every still-historical
   // edge. Dead/unreachable TODAY only because the diff engine never has an edge-type/property index
   // to begin with (nothing creates one on a branch yet) -- but silently wrong the moment that
-  // changes, so guard now rather than wait for a silent-data-loss bug report. Reject cleanly
-  // (NotYetImplemented, mirroring the edge-mutator-COW guard idiom above) rather than build the real
-  // union fallback here -- that's E-2d, symmetric to `MaterializeFilteredBranchScan` but for edges.
+  // changes, so guard now rather than wait for a silent-data-loss bug report.
+  //
+  // SLICE E-2d IMPLEMENTATION: each overload below builds a predicate over the dimensions it cares
+  // about (edge type / property presence / property value / property range) and hands it to
+  // `MaterializeFilteredBranchEdgeScan` -- the edge-side mirror of `MaterializeFilteredBranchScan`,
+  // union-materialize instead of an index seek, same "eager, full-scan, but correct" trade-off (no
+  // branch-aware edge index to seek instead, out of scope for this slice). A property read that
+  // comes back without a value, or with a Null value, is treated as "does not match" by every
+  // predicate below -- matching main's own index semantics: an edge missing (or nulled-out on) the
+  // property is never a member of a property index.
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Edge-type index scan on a versioned branch");
+      return EdgesIterable(
+          MaterializeFilteredBranchEdgeScan(view, [edge_type](EdgeAccessor &e) { return e.EdgeType() == edge_type; }));
     }
     return EdgesIterable(accessor_->Edges(edge_type, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property) {
     if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Edge-type/property index scan on a versioned branch");
+      return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [edge_type, property, view](EdgeAccessor &e) {
+        if (e.EdgeType() != edge_type) return false;
+        auto prop = e.GetProperty(view, property);
+        return prop.has_value() && !prop->IsNull();
+      }));
     }
     return EdgesIterable(accessor_->Edges(edge_type, property, view));
   }
@@ -769,7 +875,15 @@ class DbAccessor final {
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                       const storage::PropertyValue value) {
     if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Edge-type/property index scan on a versioned branch");
+      // Copy `value` by VALUE into the predicate closure -- same defensive reasoning as the
+      // label/property vertex scan above (see its own doc-comment): the predicate is invoked
+      // eagerly, during THIS call, never stored past it, but the copy is cheap and avoids relying
+      // on the caller's `value` reference outliving this call.
+      return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [edge_type, property, value, view](EdgeAccessor &e) {
+        if (e.EdgeType() != edge_type) return false;
+        auto prop = e.GetProperty(view, property);
+        return prop.has_value() && *prop == value;
+      }));
     }
     return EdgesIterable(accessor_->Edges(edge_type, property, value, view));
   }
@@ -778,21 +892,34 @@ class DbAccessor final {
                       const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                       const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
     if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Edge-type/property index scan on a versioned branch");
+      // Copy lower/upper by VALUE (via PropertyValueRange::Bounded) into the predicate closure --
+      // same defensive reasoning as the label/property vertex scan above.
+      auto range = storage::PropertyValueRange::Bounded(lower, upper);
+      return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [edge_type, property, range, view](EdgeAccessor &e) {
+        if (e.EdgeType() != edge_type) return false;
+        auto prop = e.GetProperty(view, property);
+        return prop.has_value() && !prop->IsNull() && range.IsValueInRange(*prop);
+      }));
     }
     return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property) {
     if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Global edge-property index scan on a versioned branch");
+      return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, view](EdgeAccessor &e) {
+        auto prop = e.GetProperty(view, property);
+        return prop.has_value() && !prop->IsNull();
+      }));
     }
     return EdgesIterable(accessor_->Edges(property, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property, const storage::PropertyValue value) {
     if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Global edge-property index scan on a versioned branch");
+      return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, value, view](EdgeAccessor &e) {
+        auto prop = e.GetProperty(view, property);
+        return prop.has_value() && *prop == value;
+      }));
     }
     return EdgesIterable(accessor_->Edges(property, value, view));
   }
@@ -801,7 +928,11 @@ class DbAccessor final {
                       const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                       const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
     if (branch_ctx_ != nullptr) {
-      throw NotYetImplemented("Global edge-property index scan on a versioned branch");
+      auto range = storage::PropertyValueRange::Bounded(lower, upper);
+      return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, range, view](EdgeAccessor &e) {
+        auto prop = e.GetProperty(view, property);
+        return prop.has_value() && !prop->IsNull() && range.IsValueInRange(*prop);
+      }));
     }
     return EdgesIterable(accessor_->Edges(property, lower, upper, view));
   }
