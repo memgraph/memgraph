@@ -1016,6 +1016,18 @@ class FakeDbAccessor {
 
   int64_t VerticesCount(memgraph::storage::PropertyId /*property*/) const { return 0; }
 
+  int64_t VerticesCount(memgraph::storage::PropertyId /*property*/,
+                        const memgraph::storage::PropertyValue & /*value*/) const {
+    return 0;
+  }
+
+  int64_t VerticesCount(
+      memgraph::storage::PropertyId /*property*/,
+      const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> & /*lower*/,
+      const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> & /*upper*/) const {
+    return 0;
+  }
+
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties) const {
     return memgraph::storage::LabelPropertyIndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
