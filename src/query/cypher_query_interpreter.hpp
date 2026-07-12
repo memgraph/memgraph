@@ -157,7 +157,8 @@ using PlanCacheLRU = utils::Synchronized<PlanCache_t, utils::RWSpinLock>;
 
 auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
                      const std::vector<Identifier *> &predefined_identifiers,
-                     plan::v2::QueryPlannerContext &planner_context) -> std::unique_ptr<LogicalPlan>;
+                     plan::v2::QueryPlannerContext &planner_context,
+                     const std::unordered_map<int, std::string> &output_names = {}) -> std::unique_ptr<LogicalPlan>;
 
 /**
  * Return the parsed *Cypher* query's AST cached logical plan, or create and
