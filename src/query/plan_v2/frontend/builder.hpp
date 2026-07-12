@@ -51,9 +51,8 @@ struct BuildState {
   std::vector<std::string_view> const &named_output_info;
   std::map<std::int32_t, SymbolInfo> const &symbol_store;
   std::vector<FunctionInfo> const &function_info;
-  /// id -> per-key ORDER BY directions, indexed by the OrderBy disambiguator.
-  /// The build reads it to split OrderBy's children into sort keys / value idents
-  /// and rebuild the SortItems.
+  /// id -> per-key ORDER BY directions, indexed by the OrderBy disambiguator; the
+  /// build reads it to split children into sort keys / value syms.
   std::vector<std::vector<Ordering>> const &orderby_info;
   /// The e-graph, so a build body can read an e-class's analysis facts (e.g.
   /// dead Unwind reading its list's statically known length).

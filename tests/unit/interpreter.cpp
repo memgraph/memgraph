@@ -529,7 +529,7 @@ TEST_F(PlannerV2InterpreterTest, WithDistinctOnComputedColumnUnusedDownstream) {
   // z's binder alive (exercises the pre-extraction column-reference marking).
   // [1,2,3] -> x+1 = [2,3,4], all distinct -> 3 rows of "1".
   auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH DISTINCT x + 1 AS z RETURN 1;");
-  EXPECT_EQ(stream.GetResults().size(), 3U) << "rows=" << stream.GetResults().size();
+  EXPECT_EQ(stream.GetResults().size(), 3U);
 }
 
 TEST_F(PlannerV2InterpreterTest, ReturnDistinctOnConstantColumn) {
@@ -541,12 +541,12 @@ TEST_F(PlannerV2InterpreterTest, ReturnDistinctOnConstantColumn) {
 TEST_F(PlannerV2InterpreterTest, WithDistinctBareVarUnusedDownstream) {
   // element feeds only DISTINCT; RETURN ignores it. One row per distinct element.
   auto stream = Interpret("UNWIND [1, 1, 2] AS element WITH DISTINCT element RETURN 1;");
-  EXPECT_EQ(stream.GetResults().size(), 2U) << "rows=" << stream.GetResults().size();
+  EXPECT_EQ(stream.GetResults().size(), 2U);
 }
 
 TEST_F(PlannerV2InterpreterTest, WithDistinctRenameChain) {
   auto stream = Interpret("UNWIND [1, 1, 2] AS x WITH x AS y WITH DISTINCT y RETURN y;");
-  EXPECT_EQ(stream.GetResults().size(), 2U) << "rows=" << stream.GetResults().size();
+  EXPECT_EQ(stream.GetResults().size(), 2U);
 }
 
 TEST_F(PlannerV2InterpreterTest, WithOrderByOnComputedColumnMaterialisesIt) {
@@ -558,13 +558,21 @@ TEST_F(PlannerV2InterpreterTest, WithOrderByOnComputedColumnMaterialisesIt) {
   EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 30);
 }
 
-TEST_F(PlannerV2InterpreterTest, ScopeProbeMultiColumnDistinct) {
-  // Dedup on the (x, x*2) pair: 1,1,2 -> (1,2),(1,2),(2,4) -> 2 distinct rows.
-  auto stream = Interpret("UNWIND [1, 1, 2] AS x RETURN DISTINCT x, x * 2 AS y;");
-  EXPECT_EQ(stream.GetResults().size(), 2U) << "rows=" << stream.GetResults().size();
+TEST_F(PlannerV2InterpreterTest, WithOrderByRememberedColumnUnusedDownstream) {
+  // b is remembered by ORDER BY but neither the sort key (a) nor read downstream:
+  // only the pre-extraction column fold keeps its binder alive (ORDER BY analogue
+  // of WithDistinctOnComputedColumnUnusedDownstream).
+  auto stream = Interpret("UNWIND [3, 1, 2] AS x WITH x AS a, x * 10 AS b ORDER BY a RETURN 1;");
+  EXPECT_EQ(stream.GetResults().size(), 3U);
 }
 
-TEST_F(PlannerV2InterpreterTest, ScopeProbeMultiKeyOrderBy) {
+TEST_F(PlannerV2InterpreterTest, ReturnDistinctMultiColumnDedupsOnTuple) {
+  // Dedup on the (x, x*2) pair: 1,1,2 -> (1,2),(1,2),(2,4) -> 2 distinct rows.
+  auto stream = Interpret("UNWIND [1, 1, 2] AS x RETURN DISTINCT x, x * 2 AS y;");
+  EXPECT_EQ(stream.GetResults().size(), 2U);
+}
+
+TEST_F(PlannerV2InterpreterTest, ReturnOrderByMultiKeyTieBreaks) {
   // ORDER BY x DESC, then y ASC as tie-break. x in {1,2}; group desc by x.
   auto stream = Interpret("UNWIND [1, 2] AS x RETURN x, x * 10 AS y ORDER BY x DESC, y ASC;");
   ASSERT_EQ(stream.GetResults().size(), 2U);
@@ -572,7 +580,7 @@ TEST_F(PlannerV2InterpreterTest, ScopeProbeMultiKeyOrderBy) {
   EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 1);
 }
 
-TEST_F(PlannerV2InterpreterTest, ScopeProbeOrderByExpression) {
+TEST_F(PlannerV2InterpreterTest, ReturnOrderByExpressionSortsRows) {
   auto stream = Interpret("UNWIND [1, 2, 3] AS x RETURN x ORDER BY -x;");
   ASSERT_EQ(stream.GetResults().size(), 3U);
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
@@ -580,7 +588,7 @@ TEST_F(PlannerV2InterpreterTest, ScopeProbeOrderByExpression) {
   EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 1);
 }
 
-TEST_F(PlannerV2InterpreterTest, ScopeProbeOrderByPreProjectionVariable) {
+TEST_F(PlannerV2InterpreterTest, ReturnOrderByPreProjectionVariableSortsRows) {
   // Output column is y = x*10, but the sort key references x (pre-projection).
   auto stream = Interpret("UNWIND [3, 1, 2] AS x RETURN x * 10 AS y ORDER BY x;");
   ASSERT_EQ(stream.GetResults().size(), 3U);
@@ -589,14 +597,14 @@ TEST_F(PlannerV2InterpreterTest, ScopeProbeOrderByPreProjectionVariable) {
   EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 30);
 }
 
-TEST_F(PlannerV2InterpreterTest, ScopeProbeAllFourChained) {
+TEST_F(PlannerV2InterpreterTest, ReturnAllFourTailClausesChained) {
   // DISTINCT -> ORDER BY DESC -> SKIP 1 -> LIMIT 1: {1,2,3} desc [3,2,1], skip1 [2,1], limit1 [2].
   auto stream = Interpret("UNWIND [3, 1, 2, 1, 3] AS x RETURN DISTINCT x ORDER BY x DESC SKIP 1 LIMIT 1;");
   ASSERT_EQ(stream.GetResults().size(), 1U);
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
 }
 
-TEST_F(PlannerV2InterpreterTest, ScopeProbeWithDistinctThenWhere) {
+TEST_F(PlannerV2InterpreterTest, WithDistinctThenWhereFiltersAfterDedup) {
   // v1 order: DISTINCT then WHERE. distinct{1,2,3}, filter >1 -> {2,3}.
   auto stream = Interpret("UNWIND [1, 1, 2, 2, 3] AS x WITH DISTINCT x WHERE x > 1 RETURN x;");
   ASSERT_EQ(stream.GetResults().size(), 2U);

@@ -294,15 +294,10 @@ auto Lower(LoweringCtx &ctx, Expression &expr) -> eclass {
 
 auto LowerSingleQuery(SingleQuery &sq, LoweringCtx &ctx) -> eclass;
 
-// Lower a WITH/RETURN body's tail clauses onto the projected `pipe`, in the
-// order the v1 planner applies them (GenReturnBody): projection -> DISTINCT ->
-// ORDER BY -> SKIP -> LIMIT. For WITH the caller then stacks WHERE above this.
-//
-// DISTINCT dedups on, and ORDER BY remembers, the projected columns, carried as
-// the columns' Symbol e-classes. Cost then demands those symbols be introduced,
-// which forces the projection to materialise them into frame slots (the operator
-// dedups/sorts on slots) rather than letting the inline rewrite push the column
-// values past the operator.
+// Lower a WITH/RETURN body's tail clauses onto `pipe`, in v1's order
+// (GenReturnBody): DISTINCT -> ORDER BY -> SKIP -> LIMIT (WITH stacks WHERE above).
+// DISTINCT/ORDER BY carry their columns as Symbol e-classes; cost demands them,
+// forcing the projection to materialise them (see child_layout).
 auto LowerTailClauses(ReturnBody const &body, eclass pipe, LoweringCtx &ctx) -> eclass {
   if (body.distinct) {
     auto frame = ctx.OpenScratch();
@@ -323,8 +318,7 @@ auto LowerTailClauses(ReturnBody const &body, eclass pipe, LoweringCtx &ctx) -> 
     for (auto *ne : body.named_expressions) value_syms.push_back(SymEclassFor(ctx, *ne));
     pipe = ctx.g.MakeOrderBy(pipe, sort_keys, orderings, value_syms);
   }
-  // SKIP/LIMIT counts are constants evaluated once (no frame references); the
-  // expression lowering throws NotYetImplemented for any unsupported sub-node.
+  // SKIP/LIMIT counts are constants; expression lowering throws for unsupported nodes.
   if (body.skip) pipe = ctx.g.MakeSkip(pipe, Lower(ctx, *body.skip));
   if (body.limit) pipe = ctx.g.MakeLimit(pipe, Lower(ctx, *body.limit));
   return pipe;
@@ -358,9 +352,7 @@ auto LowerWith(query::With &with, eclass pipe, LoweringCtx &ctx) -> eclass {
     pipe = ctx.g.MakeBind(pipe, SymEclassFor(ctx, *ne), expr);
   }
   pipe = LowerTailClauses(with.body_, pipe, ctx);
-  // WHERE filters the projected rows and, per v1 (GenReturnBody), comes after
-  // DISTINCT/ORDER BY/SKIP/LIMIT. The predicate reuses expression lowering
-  // (unsupported sub-nodes throw NotYetImplemented there).
+  // WHERE comes after the tail clauses (v1 GenReturnBody) and filters projected rows.
   if (with.where_) {
     auto predicate = Lower(ctx, *with.where_->expression_);
     pipe = ctx.g.MakeFilter(pipe, predicate);

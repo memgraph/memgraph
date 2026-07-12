@@ -211,14 +211,11 @@ struct symbol_resolve_traits<symbol::Filter> {
   }
 };
 
-// The tail-clause row pipes (DISTINCT / SKIP / LIMIT / ORDER BY) are all
-// "pipe + non-introducing reader children" like Filter: they bind nothing, so
-// the pipe must introduce the chosen alt's full set (⊇ parent demand AND ⊇
-// every reader child's demand, enforced by the cost model) and each reader
-// reads parent.in_scope ∪ that set. The readers after the input are a mix of
-// expressions (SKIP/LIMIT count, ORDER BY sort keys) and value-column Symbol
-// leaves; the Symbols resolve trivially in any scope, so all thread uniformly
-// through ResolvePipeThenReaders.
+// The tail-clause row pipes (DISTINCT / SKIP / LIMIT / ORDER BY) bind nothing,
+// like Filter: the pipe introduces the chosen alt's full set and each reader
+// reads parent.in_scope plus that set. Readers after the input mix expressions
+// (counts, sort keys) and value Symbols; all thread uniformly through
+// ResolvePipeThenReaders.
 template <>
 struct symbol_resolve_traits<symbol::Distinct> {
   static void resolve_children(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key,

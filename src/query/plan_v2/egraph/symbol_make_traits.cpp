@@ -121,8 +121,7 @@ auto symbol_make_traits<Limit>::make(storage_type & /*s*/, planner::core::EClass
 auto symbol_make_traits<OrderBy>::make(storage_type &s, planner::core::EClassId input,
                                        utils::small_vector<planner::core::EClassId> children_after_input,
                                        std::vector<Ordering> orderings) -> seeded_node {
-  // Intern the ordering vector: same directions -> same disambiguator (hash-cons),
-  // different directions -> distinct e-node even with identical sort-key children.
+  // Intern the ordering vector: same directions -> same disambiguator, different -> distinct e-node.
   auto [it, inserted] = s.store.try_emplace(std::move(orderings), s.info.size());
   if (inserted) s.info.push_back(it->first);
 

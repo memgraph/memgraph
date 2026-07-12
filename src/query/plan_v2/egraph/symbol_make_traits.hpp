@@ -205,8 +205,8 @@ struct symbol_make_traits<symbol::Filter> {
   static auto make(storage_type &, planner::core::EClassId input, planner::core::EClassId predicate) -> seeded_node;
 };
 
-/// Distinct: no storage; children are [input, value_ident...]. Mirrors Output's
-/// full-children shape (input prepended by the facade). Introduces no binding.
+/// Distinct: no storage; children [input, value_sym...] via the full-children
+/// facade like Output.
 template <>
 struct symbol_make_traits<symbol::Distinct> {
   struct storage_type {};
@@ -214,8 +214,7 @@ struct symbol_make_traits<symbol::Distinct> {
   static auto make(storage_type &, utils::small_vector<planner::core::EClassId> children) -> seeded_node;
 };
 
-/// Skip / Limit: no storage; children are [input, count_expr]. The count is a
-/// constant (no frame references) evaluated once. Introduces no binding.
+/// Skip / Limit: no storage; children [input, count_expr].
 template <>
 struct symbol_make_traits<symbol::Skip> {
   struct storage_type {};
@@ -230,13 +229,10 @@ struct symbol_make_traits<symbol::Limit> {
   static auto make(storage_type &, planner::core::EClassId input, planner::core::EClassId count) -> seeded_node;
 };
 
-/// OrderBy: interns the per-key ordering vector to a stable id (the
-/// disambiguator), so two OrderBys with identical sort-key children but
-/// different ASC/DESC directions stay distinct e-nodes. `store` (orderings ->
-/// id) is the hash-consing direction; `info` (id -> orderings, indexed by
-/// disambiguator) is the reverse the Builder reads to split the children and
-/// rebuild the SortItems. Children are [input, sort_key..., value_ident...]; the
-/// sort-key count is `orderings.size()`.
+/// OrderBy: interns the ordering vector to a disambiguator, so OrderBys with the
+/// same sort-key children but different ASC/DESC stay distinct e-nodes. `store`
+/// (orderings -> id) hash-conses; `info` (id -> orderings) is the reverse the
+/// builder reads to split the children and rebuild the SortItems.
 template <>
 struct symbol_make_traits<symbol::OrderBy> {
   struct storage_type {
