@@ -313,9 +313,6 @@ struct symbol_build_traits<symbol::Filter> {
   // EXPLAIN label). Build is bottom-up, so the predicate's Identifiers are already
   // in state.symbol_table. pattern_filters is empty (MATCH territory); only the
   // Generic path is reachable today.
-  // NOTE: the EXPLAIN label is empty for now - the converter clones the plan and
-  // Filter::Clone drops all_filters_ (fixed in a stacked commit); runtime is
-  // unaffected (it uses expression_, which is cloned).
   static auto build(BuildState &state, ENodeRef /*node*/, Children children) -> result_type {
     auto const &input = children.get<slots::input>();
     auto *predicate = children.get<slots::predicate>();
