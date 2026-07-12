@@ -777,11 +777,31 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view, order));
   }
 
+  // Graph Versioning v1 (lazy diff-context) DEFENSIVE HARDENING (adversarial-review): every
+  // `ChunkedVertices(...)`/`ChunkedEdges(...)` overload below backs the enterprise `ScanParallel*`
+  // operators (src/query/plan/operator.cpp) and, unlike their serial `Vertices(...)`/`Edges(...)`
+  // counterparts, goes straight to `accessor_` UNCONDITIONALLY -- on a checked-out branch `accessor_`
+  // is the diff engine ONLY (see `branch_ctx_`'s own doc-comment above), so a parallel/chunked scan
+  // would silently return JUST the diff engine's own (structurally incomplete, historical-edges/
+  // vertices-absent) contents. Same gap HIGH-3(b) closed for the serial `Vertices()`/`Edges()` paths
+  // (`MaterializeFilteredBranchScan`/`MaterializeFilteredBranchEdgeScan`) -- but a correct chunked
+  // UNION scan (reconciling `historical_` and the diff engine across parallel chunks) is a
+  // meaningfully larger effort, deferred to its own slice. Reject cleanly (`NotYetImplemented`)
+  // rather than return incomplete results in the meantime. Single-threaded ScanAll/ScanAllByLabel/
+  // edge scans are unaffected and remain correct -- they route through the union-aware `Vertices()`/
+  // `Edges()` above -- so the planner falling back to those on a branch is the right behavior; only
+  // the enterprise `ScanParallel*` path that reaches these `Chunked*` overloads is guarded here.
   VerticesChunkedIterable ChunkedVertices(storage::View view, size_t num_chunks) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
+    }
     return VerticesChunkedIterable{accessor_->ChunkedVertices(view, num_chunks)};
   }
 
   VerticesChunkedIterable ChunkedVertices(storage::View view, storage::LabelId label, size_t num_chunks) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
+    }
     return VerticesChunkedIterable{accessor_->ChunkedVertices(label, view, num_chunks)};
   }
 
@@ -789,16 +809,25 @@ class DbAccessor final {
                                           std::span<storage::PropertyPath const> properties,
                                           std::span<storage::PropertyValueRange const> property_ranges,
                                           size_t num_chunks, storage::IndexOrder order = storage::IndexOrder::ASC) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Parallel (chunked) vertex scans on a versioned branch");
+    }
     return VerticesChunkedIterable{
         accessor_->ChunkedVertices(label, properties, property_ranges, view, num_chunks, order)};
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, size_t num_chunks) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
+    }
     return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, view, num_chunks)};
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                                     size_t num_chunks) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
+    }
     return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, property, view, num_chunks)};
   }
 
@@ -806,16 +835,25 @@ class DbAccessor final {
                                     const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
                                     const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
                                     size_t num_chunks) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
+    }
     return EdgesChunkedIterable{
         accessor_->ChunkedEdges(edge_type, property, lower_bound, upper_bound, view, num_chunks)};
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property, size_t num_chunks) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
+    }
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, view, num_chunks)};
   }
 
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::PropertyId property,
                                     const storage::PropertyValue value, size_t num_chunks) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
+    }
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, value, view, num_chunks)};
   }
 
@@ -823,6 +861,9 @@ class DbAccessor final {
                                     const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
                                     const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
                                     size_t num_chunks) {
+    if (branch_ctx_ != nullptr) {
+      throw NotYetImplemented("Parallel (chunked) edge scans on a versioned branch");
+    }
     return EdgesChunkedIterable{accessor_->ChunkedEdges(property, lower_bound, upper_bound, view, num_chunks)};
   }
 
