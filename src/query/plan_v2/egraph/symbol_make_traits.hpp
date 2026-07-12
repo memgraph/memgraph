@@ -196,6 +196,15 @@ struct symbol_make_traits<symbol::Unwind> {
                    planner::core::EClassId list_expr) -> seeded_node;
 };
 
+/// Filter: no storage; children are [input, predicate_expr]. Introduces no
+/// binding, so unlike Unwind there is no sym child.
+template <>
+struct symbol_make_traits<symbol::Filter> {
+  struct storage_type {};
+
+  static auto make(storage_type &, planner::core::EClassId input, planner::core::EClassId predicate) -> seeded_node;
+};
+
 /// Subquery: no storage; children are [outer_input, inner_root, exposed_syms...].
 /// Variadic to encode the projection set of the inner block as direct e-graph
 /// children, so the cost case and resolver don't have to peek into inner_root's

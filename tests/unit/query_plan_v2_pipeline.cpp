@@ -765,6 +765,14 @@ INSTANTIATE_TEST_SUITE_P(
             .query = "UNWIND [1, 2, 3] AS x RETURN x;",
             .expected_details = {"Produce {x`1:x}", "Unwind {x:literal}", "Once"},
             .expected_rewrites = 0,
+        },
+        // A WHERE lowers to a Filter above the projection; the no-op WITH bind
+        // fuses away, leaving Produce -> Filter -> Unwind -> Once.
+        PipelineTestCase{
+            .name = "WithWhereFiltersRows",
+            .query = "UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 RETURN x;",
+            .expected_details = {"Produce {x`1:x}", "Filter", "Unwind {x:literal}", "Once"},
+            .expected_rewrites = 1,  // the no-op WITH x bind is rewritten away
         }
     ),
     TestCaseName

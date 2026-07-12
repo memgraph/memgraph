@@ -294,15 +294,14 @@ auto Lower(LoweringCtx &ctx, Expression &expr) -> eclass {
 
 auto LowerSingleQuery(SingleQuery &sq, LoweringCtx &ctx) -> eclass;
 
-// ORDER BY / SKIP / LIMIT expressions are lowered for their e-graph
-// presence only; their result e-classes are not chained into the row-pipe
-// in the minimum scope. Hashconsing dedupes shared expressions across
-// clauses; when Sort/Skip/Limit operators land, the resolver will recover
-// these e-classes by hashconsing again.
-void HashConsTailExpressions(ReturnBody const &body, LoweringCtx &ctx) {
-  for (auto const &ob : body.order_by) (void)Lower(ctx, *ob.expression);
-  if (body.skip) (void)Lower(ctx, *body.skip);
-  if (body.limit) (void)Lower(ctx, *body.limit);
+// ORDER BY / SKIP / LIMIT are not yet lowered into operators. Rather than
+// silently drop them (which would return wrong results), refuse a body that
+// carries any of them. When the Sort/Skip/Limit operators land they replace
+// this guard.
+void GuardUnsupportedTailClauses(ReturnBody const &body) {
+  if (!body.order_by.empty() || body.skip != nullptr || body.limit != nullptr) {
+    ThrowNotImplementedYet("ORDER BY / SKIP / LIMIT");
+  }
 }
 
 // exposed_syms come from the inner cypher_query_'s last RETURN clause.
@@ -332,8 +331,14 @@ auto LowerWith(query::With &with, eclass pipe, LoweringCtx &ctx) -> eclass {
     auto expr = Lower(ctx, *ne->expression_);
     pipe = ctx.g.MakeBind(pipe, SymEclassFor(ctx, *ne), expr);
   }
-  HashConsTailExpressions(with.body_, ctx);
-  if (with.where_ != nullptr) ThrowNotImplementedYet(*with.where_);
+  GuardUnsupportedTailClauses(with.body_);
+  // WHERE filters the projected rows, so the Filter sits above the projection
+  // Binds. The predicate reuses expression lowering (unsupported sub-nodes throw
+  // NotYetImplemented there).
+  if (with.where_ != nullptr) {
+    auto predicate = Lower(ctx, *with.where_->expression_);
+    pipe = ctx.g.MakeFilter(pipe, predicate);
+  }
   return pipe;
 }
 
@@ -359,7 +364,7 @@ auto LowerReturn(query::Return &ret, eclass pipe, LoweringCtx &ctx) -> eclass {
     frame.push(ctx.g.MakeNamedOutput(OutputDisplayName(ctx, *ne), SymEclassFor(ctx, *ne), expr));
   }
   auto output = ctx.g.MakeOutput(pipe, frame.as_span());
-  HashConsTailExpressions(ret.body_, ctx);
+  GuardUnsupportedTailClauses(ret.body_);
   return output;
 }
 
