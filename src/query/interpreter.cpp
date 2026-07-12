@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <initializer_list>
 #include <iterator>
@@ -141,6 +142,7 @@
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/branch_reconstruction.hpp"
 #include "versioning/gate.hpp"
 #include "versioning/merge.hpp"
 #include "versioning/name.hpp"
@@ -314,8 +316,18 @@ void memgraph::query::CurrentDB::ClearBranchContext() {
   if (!branch_context_) {
     return;
   }
-  branch_context_version_store_->ReleaseCheckout(branch_context_name_);
+  // HIGH-1 fix (durable-capture adversarial review, 2026-07-12): `branch_context_.reset()` FIRST,
+  // THEN `ReleaseCheckout`. `branch_context_.reset()` runs `~BranchContext`, which Finalize()s this
+  // session's BranchLog -- closing + renaming the still-`_current` WAL file to its final, readable
+  // `_from_..._to_...` form (branch_engine.hpp). The OLD order (ReleaseCheckout first) opened a
+  // window where a CONCURRENT session's `MERGE BRANCH` could pass `BeginMerge` the instant
+  // ReleaseCheckout made the branch look not-checked-out, then `CollectBranchChangelog` would skip
+  // this session's still-unfinalized file (only "_from_" names are considered finalized) -- merging
+  // an INCOMPLETE changelog and then dropping the branch: a silent, unrecoverable data-loss race.
+  // Finalizing before releasing closes that window: by the time ReleaseCheckout makes the checkout
+  // visible as free to a concurrent BeginMerge, this session's file is already renamed and complete.
   branch_context_.reset();
+  branch_context_version_store_->ReleaseCheckout(branch_context_name_);
   branch_context_version_store_ = nullptr;
   branch_context_name_.clear();
 }
@@ -8241,6 +8253,157 @@ std::vector<TypedValue> VersioningDetailRow(std::string_view name, const version
           TypedValue(info.parent)};
 }
 
+// Durable-capture slice (design slices A+B+C): a BRANCH's own root wal directory -- stable across
+// every checkout session for that branch, keyed by `branch_number` (VersionStore::BranchInfo::
+// number, the monotonic NEVER-REUSED branch id -- deliberately NOT the branch's name, which CAN be
+// reused after a drop+recreate, which would otherwise silently mix an old, dropped branch's
+// history in with a same-named new one's). A subdirectory of `<storage_dir>/versioning/` (the
+// directory `versioning::VersionStore` itself uses AS ITS OWN kvstore directory, dbms/database.cpp)
+// -- nested one level under `branches/` so BranchLog's own files (and every checkout session's own
+// UUID subdirectory beneath THIS, see BranchContext::BuildFromFork) never collide with
+// VersionStore's kvstore internals.
+//
+// CheckoutBranchEngine (below) passes this to BuildFromFork, which mints a fresh per-session
+// subdirectory beneath it; PrepareVersioningQuery's MERGE_BRANCH handler passes the SAME path to
+// CollectBranchChangelog to discover every one of those sessions' finalized files again.
+std::filesystem::path BranchWalRootDirectory(storage::InMemoryStorage *mem_storage, uint64_t branch_number) {
+  return mem_storage->config_.durability.storage_directory / "versioning" / "branches" / std::to_string(branch_number);
+}
+
+// Durable-capture slice C: assembles a branch's REAL, full changelog for MERGE BRANCH by
+// enumerating every checkout session's finalized `versioning::BranchLog` file under
+// `branch_wal_root` (one per-session UUID subdirectory each, see
+// `versioning::BranchContext::BuildFromFork`'s own doc-comment) and concatenating their forward
+// WAL-format records, in CHRONOLOGICAL order, into the single vector `versioning::MergeBranch`
+// replays.
+//
+// ORDERING: `storage::durability::MakeWalName()` embeds a fixed-width
+// (YYYYmmddHHMMSSffffff), hence lexicographically-sortable, WALL-CLOCK timestamp as the leading
+// component of a WAL filename, and `RemakeWalName` (what `BranchLog::Finalize()` renames a file
+// to) preserves that same prefix verbatim -- so sorting the discovered files by FILENAME ALONE
+// (never by full path, which would interleave with each session's own UUID-named parent directory
+// and scramble the order) recovers the real order the sessions' commits actually happened in. This
+// is the reason each session gets its own numbering-from-scratch BranchLog (branch_engine.hpp) but
+// the OVERALL branch history is still totally ordered: real wall-clock time, not each session's own
+// restarted-at-0 internal sequence numbers, is what stitches them back together.
+//
+// Only files whose name contains "_from_" (RemakeWalName's own marker of a FINALIZED file) are
+// considered; an unfinalized "_current" file would mean a live (or, out of this slice's scope,
+// crashed-mid-session) BranchLog that `BranchLog::ReadAll` cannot safely decode -- defensive, not
+// load-bearing, since MERGE_BRANCH's own BeginMerge precondition (no session currently has this
+// branch checked out, version_store.cpp) already guarantees every session's BranchContext (hence
+// its BranchLog) has been destroyed -- and therefore Finalize()'d -- by the time this runs.
+//
+// A branch that never captured a single commit (an all-reads-only checkout, or no checkout at all
+// yet) has an absent or empty directory tree here -- returns an empty vector cleanly, so
+// `versioning::MergeBranch`'s existing empty-changelog fast-forward path (exercised by
+// `MergeHappyPathFastForwardsEmptyChangelog`) is reached completely unchanged.
+//
+// MED-5 fix (adversarial review, 2026-07-12): a REAL filesystem error partway through either
+// `directory_iterator` (permission denied, I/O error, a concurrent `remove_all` racing this scan,
+// ...) used to just `break` the affected loop -- silently truncating `finalized_files` to whatever
+// had been discovered so far, so MERGE would proceed and commit a PARTIAL changelog as if it were
+// complete (a silent data-loss failure mode, not merely a missed file). Absent-directory is still
+// NOT an error (a branch that was never checked out, or whose whole tree is legitimately missing,
+// is the ordinary empty-changelog case handled by the `exists()` check above) -- but any error
+// encountered WHILE a directory is known to exist and is being walked now throws loudly instead, so
+// MERGE fails outright rather than silently applying an incomplete change-log.
+std::vector<storage::durability::WalDeltaData> CollectBranchChangelog(const std::filesystem::path &branch_wal_root) {
+  std::vector<std::pair<std::string, std::filesystem::path>> finalized_files;
+
+  std::error_code root_ec;
+  if (!std::filesystem::exists(branch_wal_root, root_ec) || root_ec) {
+    return {};  // never checked out, or checked out but never (yet) finalized a single session
+  }
+
+  std::error_code session_ec;
+  for (auto session_it = std::filesystem::directory_iterator(branch_wal_root, session_ec);
+       session_it != std::filesystem::directory_iterator();
+       session_it.increment(session_ec)) {
+    if (session_ec) {
+      throw QueryRuntimeException("Failed to read branch change-log for merge: {}", session_ec.message());
+    }
+    const auto &session_entry = *session_it;
+    if (!session_entry.is_directory()) continue;  // stray non-directory entry -- ignore, defensive
+
+    std::error_code file_ec;
+    for (auto file_it = std::filesystem::directory_iterator(session_entry.path(), file_ec);
+         file_it != std::filesystem::directory_iterator();
+         file_it.increment(file_ec)) {
+      if (file_ec) {
+        throw QueryRuntimeException("Failed to read branch change-log for merge: {}", file_ec.message());
+      }
+      const auto &file_entry = *file_it;
+      if (!file_entry.is_regular_file()) continue;
+      auto filename = file_entry.path().filename().string();
+      if (filename.find("_from_") == std::string::npos) continue;  // skip an unfinalized "_current" file
+      finalized_files.emplace_back(std::move(filename), file_entry.path());
+    }
+    // Belt-and-suspenders, mirrors the outer loop's own post-loop check below: if the INNER
+    // `directory_iterator`'s own construction fails (e.g. `session_entry.path()` was removed or
+    // became unreadable between being listed and being descended into), it is immediately equal to
+    // the end sentinel and the loop body above never runs even once -- so the `if (file_ec)` check
+    // inside the body would never fire despite `file_ec` being set. Catch that here instead.
+    if (file_ec) {
+      throw QueryRuntimeException("Failed to read branch change-log for merge: {}", file_ec.message());
+    }
+  }
+  // Same reasoning as the inner loop's own post-loop check above, for the OUTER iterator: a failed
+  // construction of `directory_iterator(branch_wal_root, session_ec)` lands immediately on the end
+  // sentinel, so the in-body `if (session_ec)` check is never reached for that case either.
+  if (session_ec) {
+    throw QueryRuntimeException("Failed to read branch change-log for merge: {}", session_ec.message());
+  }
+
+  // LOW-4 fix (adversarial review, 2026-07-12): stable_sort (not sort) plus a secondary tiebreak on
+  // the full path, so two files that happen to share an identical wall-clock-timestamp filename
+  // prefix (same-microsecond finalization across two different session subdirectories -- possible
+  // in principle, however unlikely) still get a fully deterministic relative order across repeated
+  // runs, instead of whatever order the OS's own directory_iterator happened to yield them in. This
+  // does NOT fix the underlying fragility -- two genuinely same-timestamp files from DIFFERENT
+  // sessions have no principled ordering between their OWN commits (their filename prefixes cannot
+  // be told apart) -- only a per-branch monotonic file sequence number would truly close that gap;
+  // deferred, not needed at this slice's scale.
+  std::ranges::stable_sort(finalized_files, [](const auto &lhs, const auto &rhs) {
+    if (lhs.first != rhs.first) return lhs.first < rhs.first;
+    return lhs.second < rhs.second;
+  });
+
+  std::vector<storage::durability::WalDeltaData> changelog;
+  for (const auto &[filename, path] : finalized_files) {
+    auto records = versioning::BranchLog::ReadAll(path);
+    changelog.insert(changelog.end(), std::make_move_iterator(records.begin()), std::make_move_iterator(records.end()));
+  }
+  return changelog;
+}
+
+// MED-3 fix (adversarial review, 2026-07-12): a branch's WAL directory tree
+// (`<storage_dir>/versioning/branches/<number>/`, every session subdir + finalized BranchLog file
+// underneath) was never deleted anywhere -- a MERGE or DROP removed the branch's REGISTRY entry
+// (VersionStore) but left its on-disk WAL tree behind forever, an unbounded disk leak across the
+// lifetime of a server that creates/merges/drops many branches. Called from both the MERGE_BRANCH
+// (after a successful FinishMerge) and DROP_BRANCH (after a successful VersionStore::DropBranch)
+// handlers, once the branch number can no longer be reused (VersionStore's branch numbers are
+// monotonic and never reused, version_store.hpp) -- so removing this exact directory can never
+// race a legitimate NEW branch that reuses the same path.
+//
+// Best-effort BY DESIGN: this runs AFTER the registry mutation (FinishMerge/DropBranch) has already
+// committed the branch's removal -- that is the operation whose success/failure the user's MERGE/
+// DROP query result reflects. A failure to reclaim the now-orphaned WAL directory (permissions,
+// concurrent external deletion, a transient I/O error, ...) is real disk-usage technical debt but
+// NOT a correctness or data-loss problem (the branch is already gone from the registry either way,
+// and cannot be checked out/merged/dropped again), so it is logged and swallowed rather than
+// thrown -- surfacing it as a query failure would misleadingly suggest the MERGE/DROP itself failed
+// when it, in fact, already succeeded.
+void RemoveBranchWalTreeBestEffort(const std::filesystem::path &branch_wal_root) {
+  std::error_code ec;
+  std::filesystem::remove_all(branch_wal_root, ec);
+  if (ec) {
+    spdlog::warn(
+        "Failed to remove branch WAL directory '{}' after merge/drop: {}", branch_wal_root.string(), ec.message());
+  }
+}
+
 // Graph Versioning v1 (lazy diff-context, slice E-1): builds a private BranchContext for `name`
 // and installs it onto `current_db`, acquiring this session's exclusive checkout on `name` via
 // `version_store` along the way. Called from the CHECKOUT_BRANCH query_handler (both the
@@ -8256,26 +8419,53 @@ std::vector<TypedValue> VersioningDetailRow(std::string_view name, const version
 // see branch_engine.hpp's BranchContext::BuildError); in that case the just-acquired checkout is
 // released first so a failed CHECKOUT never leaks an exclusive hold.
 //
-// NOTE (scope of this slice): the diff engine starts EMPTY -- nothing is copied from main at
-// CHECKOUT time (contrast the predecessor BranchEngine, which seeded a full copy here). Ordinary
-// Cypher reads/writes resolve lazily through BranchContext (DbAccessor/query::VertexAccessor, see
-// db_accessor.hpp/vertex_accessor.hpp), vertices only this slice (no edges yet). Also unchanged
-// from the predecessor: replaying the branch's own prior writes (its BranchLog) on re-checkout is
-// a later unit, so a checked-out branch's writes today do NOT survive a checkout-away.
+// NOTE: the diff engine starts EMPTY (nothing is copied from main's fork-state at CHECKOUT time --
+// contrast the predecessor BranchEngine, which seeded a full copy here) but is no longer BLANK:
+// slice D (replay-on-checkout, below) replays the branch's own already-captured history (every
+// PRIOR, finalized checkout session's BranchLog) into it before it is ever exposed to a query, so a
+// re-checkout DOES see the branch's own prior writes (this used to be a documented limitation --
+// see BranchContext::ReplayChangelogIntoDiffEngine's own doc-comment, branch_engine.cpp, for the
+// full contract, including why this is also what fixes the cross-session duplicate-gid hazard that
+// used to crash MERGE). Ordinary Cypher reads/writes resolve lazily through BranchContext
+// (DbAccessor/query::VertexAccessor, see db_accessor.hpp/vertex_accessor.hpp).
 void CheckoutBranchEngine(CurrentDB &current_db, versioning::VersionStore *version_store,
                           memgraph::dbms::DatabaseAccess db_acc, const std::string &name,
                           const versioning::BranchInfo &info) {
-  if (!version_store->TryAcquireCheckout(name)) {
-    throw QueryRuntimeException("Version '{}' is in use by another session.", name);
-  }
-
   // version_store (hence this whole function) is only ever reached for IN_MEMORY_TRANSACTIONAL
   // databases -- the chunk-0 gate in PrepareVersioningQuery already enforced that mode (mirrors
   // MERGE_BRANCH's own identical downcast, this file's own comment there).
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
 
-  auto context = versioning::BranchContext::BuildFromFork(
-      *mem_storage, info.fork_ts, storage::CommitArgs::make_main(dbms::DatabaseProtector{db_acc}.clone()));
+  // Slice D: gather the branch's own already-captured history -- every PRIOR, finalized checkout
+  // session's BranchLog under its root wal directory -- via the SAME enumeration MERGE BRANCH uses
+  // (CollectBranchChangelog). Deliberately done BEFORE TryAcquireCheckout below (checkout-leak
+  // avoidance: CollectBranchChangelog can throw on a real filesystem error, MED-5 fix, and doing
+  // this after a successful TryAcquireCheckout would need its own release-on-throw handling --
+  // reading a branch's own already-FINALIZED, immutable history needs no exclusivity to begin with,
+  // only WRITING to the branch does, and that can't happen before TryAcquireCheckout succeeds
+  // anyway). Also computed BEFORE BuildFromFork ever constructs THIS session's own BranchLog (that
+  // happens as BuildFromFork's LAST step, after replay): the current session's file does not exist
+  // on disk at all yet at this point (not even as an unfinalized "_current" temp file), so
+  // CollectBranchChangelog's "_from_"-only filter cannot possibly pick it up -- only genuinely
+  // prior, already-finalized sessions are ever replayed.
+  auto branch_wal_root = BranchWalRootDirectory(mem_storage, info.number);
+  auto changelog = CollectBranchChangelog(branch_wal_root);
+
+  if (!version_store->TryAcquireCheckout(name)) {
+    throw QueryRuntimeException("Version '{}' is in use by another session.", name);
+  }
+
+  // Two SEPARATE CommitArgs: BuildFromFork now performs TWO internal commits (the gid-watermark
+  // reservation, and slice D's replay commit) against the SAME diff engine, and storage::CommitArgs
+  // is move-only (wraps a DatabaseProtectorPtr) -- one instance cannot be reused across both. Each
+  // is its own independent DatabaseProtector clone, mirroring the single one built here before.
+  auto context =
+      versioning::BranchContext::BuildFromFork(*mem_storage,
+                                               info.fork_ts,
+                                               storage::CommitArgs::make_main(dbms::DatabaseProtector{db_acc}.clone()),
+                                               storage::CommitArgs::make_main(dbms::DatabaseProtector{db_acc}.clone()),
+                                               branch_wal_root,
+                                               changelog);
   if (!context) {
     version_store->ReleaseCheckout(name);
     throw QueryRuntimeException(context.error().message);
@@ -8560,17 +8750,25 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
               // is safe (mirrors Database::Database's own identical downcast).
               auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
 
-              // CHUNK 7a scope note (flagged): real branch writes are not captured into a
-              // per-branch BranchLog yet -- that lifecycle (creating one at CreateBranch time,
-              // feeding it live commits) needs the branch write/dispatch path, which is chunks
-              // 7b/7c, not this one. Every branch is therefore necessarily empty today; merging
-              // one is a legitimate no-op fast-forward (the branch recorded no changes) that still
-              // exercises the FULL merge control-flow below -- gate, fork_ts resolution, a REAL
-              // PrepareForCommitPhase via a real DatabaseProtector, atomic FinishMerge-on-success,
-              // session-pointer clearing, and D3/error surfacing. Swapping this empty vector for a
-              // real captured change-log (versioning::BranchLog::ReadAll(...)) is the only change
-              // 7b/7c should need here.
-              std::vector<storage::durability::WalDeltaData> changelog;
+              // Durable-capture slice C: replace the old CHUNK 7a placeholder (a hardcoded empty
+              // vector -- every branch was necessarily empty before write-capture existed) with
+              // the branch's REAL accumulated changelog, gathered from every checkout session's
+              // finalized BranchLog under this branch's own root wal directory (see
+              // CollectBranchChangelog's own doc-comment for the enumeration/ordering contract).
+              // BeginMerge above already refused a currently-checked-out branch (including THIS
+              // session, if it happens to be the one merging -- see BeginMerge's own contract), so
+              // every one of this branch's BranchLogs is guaranteed already Finalize()'d by the
+              // time we read them here -- but ONLY because `CurrentDB::ClearBranchContext`
+              // (interpreter.cpp) finalizes each session's BranchContext BEFORE calling
+              // `ReleaseCheckout` (HIGH-1 fix, adversarial review 2026-07-12; see
+              // ClearBranchContext's own doc-comment). If that order were ever inverted again, a
+              // concurrent session releasing its checkout could make `name` look mergeable a moment
+              // before its own file finishes finalizing, and this call would silently read an
+              // incomplete changelog.
+              // A branch that recorded no writes still merges as a legitimate no-op fast-forward
+              // (CollectBranchChangelog returns an empty vector cleanly for an absent/empty
+              // directory tree).
+              auto changelog = CollectBranchChangelog(BranchWalRootDirectory(mem_storage, info->number));
 
               storage::NameIdMapper *mapper = nullptr;
               {
@@ -8616,6 +8814,13 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
               // can never equal `name` at this point.)
               version_store->FinishMerge(name);
 
+              // MED-3 fix: reclaim `name`'s now-orphaned WAL directory tree -- the branch is gone
+              // from the registry as of the line above and its number can never be reused, so
+              // deleting it now cannot race a legitimate new branch. Best-effort (see
+              // RemoveBranchWalTreeBestEffort's own doc-comment) -- never allowed to turn an
+              // already-successful merge into a query failure.
+              RemoveBranchWalTreeBestEffort(BranchWalRootDirectory(mem_storage, info->number));
+
               std::vector<std::vector<TypedValue>> rows{{TypedValue(name), TypedValue(parent)}};
               pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
             }
@@ -8641,7 +8846,7 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
           .header = {},
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler =
-              [version_store, &current_db, name = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+              [version_store, &current_db, db_acc, name = *name, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                   AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
               // Lazy diff-context (slice E-1): VersionStore::DropBranch now refuses a branch
@@ -8655,6 +8860,11 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
               if (current_db.CurrentVersion() == name) {
                 current_db.SetCurrentVersion(std::nullopt);
               }
+              // MED-3 fix: fetch the (still-live) BranchInfo -- for its `number`, WAL-cleanup needs
+              // it below -- BEFORE DropBranch removes the registry entry; Get() is gone once
+              // DropBranch succeeds. A nullopt here (branch vanished between the outer pre-check
+              // and here) just means DropBranch is about to fail too -- no cleanup to do either way.
+              auto info = version_store->Get(name);
               if (!version_store->DropBranch(name)) {
                 // TOCTOU: another connection raced a CreateBranch(parent=name) or DropBranch(name)
                 // between the pre-checks above and this call (VersionStore's own lock_ only
@@ -8665,6 +8875,19 @@ PreparedQuery PrepareVersioningQuery(ParsedQuery parsed_query, InterpreterContex
                     "Version '{}' could not be dropped (it no longer exists, gained a child branch "
                     "concurrently, or is checked out by another session). Retry DROP BRANCH.",
                     name);
+              }
+              // MED-3 fix: reclaim `name`'s now-orphaned WAL directory tree (see
+              // RemoveBranchWalTreeBestEffort's own doc-comment) -- its branch number can never be
+              // reused (VersionStore, version_store.hpp), so this can never race a legitimate new
+              // branch. `info` is normally populated here (DropBranch just returned true, so SOME
+              // record existed to drop) -- but NOT provably the exact same one our own `Get` read a
+              // moment earlier under adversarial concurrent CreateBranch/DropBranch racing on this
+              // same name (TOCTOU, see the comment above); guard rather than assume, since this is
+              // purely a best-effort disk reclaim, never worth risking a null-optional dereference
+              // over.
+              if (info) {
+                auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+                RemoveBranchWalTreeBestEffort(BranchWalRootDirectory(mem_storage, info->number));
               }
               pull_plan = std::make_shared<PullPlanVector>(std::vector<std::vector<TypedValue>>{});
             }
@@ -11405,6 +11628,29 @@ void Interpreter::Commit() {
   if (!is_main && !curr_txn->deltas.empty()) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
+
+  // Graph Versioning v1, durable-capture slice: a checked-out branch's write must be captured to its
+  // per-checkout-session BranchLog -- the forward WAL-format change-log MERGE BRANCH later replays
+  // onto main (versioning::CaptureBranchCommit, branch_reconstruction.cpp). This MUST run BEFORE
+  // PrepareForCommitPhase below: the diff engine fast-discards a committed transaction's deltas
+  // during commit, so reading curr_txn->deltas afterward would see an empty list. The deltas are
+  // fully linked at write time (capture only reads them + their prev-owner chains, exactly as main's
+  // own append_deltas does mid-commit), so pre-commit capture is valid. Timestamp comes from a
+  // per-BranchContext monotonic counter (NextBranchCommitTs): the branch WAL is a PRIVATE stream
+  // (spec R21) whose record timestamps only need to be internally monotonic for replay/merge
+  // ordering -- they are never compared against main's. Gated on: on a branch, and the txn actually
+  // produced deltas (skip pure-read autocommits -- avoids a no-op WalTransactionEnd per read query).
+  // Single-writer-per-branch exclusivity makes this race-free. NOTE: if PrepareForCommitPhase below
+  // then fails (not realistically reachable for a private, constraint-free, non-replicated,
+  // durability-disabled diff engine), the BranchLog would hold an extra uncommitted txn's records;
+  // acceptable for v1 given the failure is effectively unreachable here (documented limitation).
+  if (current_db_.branch_context() != nullptr && !curr_txn->deltas.empty()) {
+    versioning::CaptureBranchCommit(current_db_.branch_context()->branch_log(),
+                                    *curr_txn,
+                                    &current_db_.branch_context()->diff_engine(),
+                                    current_db_.branch_context()->NextBranchCommitTs());
+  }
+
   auto maybe_commit_error =
       current_db_.db_transactional_accessor_->PrepareForCommitPhase(make_commit_arg(is_main, *current_db_.db_acc_));
   // Proactively unlock repl_state
@@ -11462,6 +11708,11 @@ void Interpreter::Commit() {
         },
         error);
   }
+
+  // Graph Versioning v1, durable-capture slice: the branch-write capture happens BEFORE
+  // PrepareForCommitPhase (see the CaptureBranchCommit call above the commit) -- NOT here. The diff
+  // engine fast-discards a committed transaction's deltas during PrepareForCommitPhase, so by this
+  // point curr_txn->deltas is already empty; capture must read them while they still exist.
 
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of
   // db_accessor_->Commit(): only one of the transactions can be commiting at the same time, so when the commit is

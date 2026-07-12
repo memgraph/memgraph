@@ -252,6 +252,170 @@ TEST_F(VersioningInterpreterTest, MergeHappyPathFastForwardsEmptyChangelog) {
   ASSERT_THROW(faker.Interpret("MERGE BRANCH 'feature'"), memgraph::query::QueryRuntimeException);
 }
 
+// Durable-capture slice (design slices A+B+C) THE PAYOFF: a branch's committed vertex write is now
+// captured into its own durable, per-checkout-session BranchLog (Interpreter::Commit's capture
+// hook) and, once the checkout is released (Finalize()'d in BranchContext's destructor), MERGE
+// BRANCH discovers and replays that REAL change-log onto main (CollectBranchChangelog +
+// versioning::MergeBranch) -- superseding the old CHUNK 7a placeholder that always merged an empty
+// vector (see MergeHappyPathFastForwardsEmptyChangelog above, still valid for a branch that
+// genuinely recorded no writes).
+TEST_F(VersioningInterpreterTest, BranchMergeAppliesCapturedVertexToMain) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+
+  faker.Interpret("CREATE (:Foo {x:1})");
+
+  // Checking back onto main releases (and Finalize()s) this session's BranchLog -- but the write
+  // has NOT been merged yet, so main must still show nothing.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  {
+    auto stream = faker.Interpret("MATCH (n:Foo) RETURN n.x");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "not yet merged -- main must not see the branch's write";
+  }
+
+  auto merge_stream = faker.Interpret("MERGE BRANCH 'b'");
+  ASSERT_EQ(merge_stream.GetResults().size(), 1U);
+  EXPECT_EQ(merge_stream.GetResults()[0][0].ValueString(), "b");
+  EXPECT_EQ(merge_stream.GetResults()[0][1].ValueString(), "main");
+
+  // Merged -- main now HAS the branch's data.
+  {
+    auto stream = faker.Interpret("MATCH (n:Foo) RETURN n.x");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+}
+
+// Edge-side analogue of BranchMergeAppliesCapturedVertexToMain above: a branch-native CREATE of
+// two vertices AND the edge (with a property) between them must all be captured (CaptureBranchCommit
+// walks EVERY delta the transaction produced, vertex- and edge-owned alike) and replayed by MERGE.
+TEST_F(VersioningInterpreterTest, BranchMergeAppliesCapturedEdgeToMain) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+
+  faker.Interpret("CREATE (:A)-[:R {w:5}]->(:B)");
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (:A)-[r:R]->(:B) RETURN r.w");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "not yet merged -- main must not see the branch's edge";
+  }
+
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  {
+    auto stream = faker.Interpret("MATCH (:A)-[r:R]->(:B) RETURN r.w");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
+  }
+}
+
+// Multi-checkout-cycle regression (adversarial review, 2026-07-12, TEST-2; UPDATED 2026-07-12 for
+// slice D): a branch checked out TWICE (write, checkout away, checkout back, write again) produces
+// TWO separate per-session BranchLog files (BranchContext::BuildFromFork mints a fresh session
+// subdirectory every call -- branch_engine.hpp). MERGE BRANCH must discover and concatenate BOTH
+// via CollectBranchChangelog, not just the most recent one.
+//
+// Originally this test also exercised (and locked in a MergeBranch R11 remap for) a cross-session
+// gid COLLISION: each fresh checkout session used to get its own brand-new diff engine that
+// reserved the SAME kBranchNativeGidWatermark and restarted its own branch-native gid counter from
+// there, so Foo1 (session 1's first branch-native create) and Foo2 (session 2's first branch-native
+// create) ended up with the IDENTICAL numeric gid -- and concatenating both sessions' records into
+// one MergeBranch replay actually CRASHED (storage.cpp's append_deltas hit a NULL_PTR delta on the
+// resulting corrupt/aliased vertex; R11's remap logic never even got a chance to run, because slice
+// D wasn't in place yet to keep the two diff engines' gid spaces disjoint in the first place).
+//
+// Slice D (replay-on-checkout, BranchContext::ReplayChangelogIntoDiffEngine, branch_engine.cpp)
+// fixes this at the SOURCE rather than relying on MERGE-time remap: session 2's CHECKOUT now
+// replays session 1's already-captured Foo1 record into its OWN diff engine BEFORE any new write
+// happens, which -- via CreateVertexEx's own atomic_fetch_max on the explicit gid -- advances
+// session 2's gid counter past Foo1's gid. Foo2 (session 2's first branch-native create) therefore
+// gets a NUMERICALLY DIFFERENT gid than Foo1 from the start, so by the time MERGE concatenates both
+// sessions' files there is no collision left for R11 to even need to resolve. This ALSO fixes the
+// "re-checkout shows fork-state" limitation the original version of this test documented: Foo1 is
+// now visible immediately after the second CHECKOUT (proving replay actually ran), not just after
+// MERGE.
+TEST_F(VersioningInterpreterTest, BranchMergeConcatenatesMultipleCheckoutSessions) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+
+  // Session 1: write Foo1, then leave (Finalize()s session 1's BranchLog).
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+  faker.Interpret("CREATE (:Foo1)");
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+
+  // Session 2: re-checkout the SAME branch -- slice D replays session 1's captured Foo1 into this
+  // FRESH diff engine before any query runs against it, so Foo1 IS visible here now.
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+  {
+    auto stream = faker.Interpret("MATCH (n:Foo1) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 1U) << "slice D: re-checkout must replay the branch's own prior writes";
+  }
+  faker.Interpret("CREATE (:Foo2)");
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+
+  // Not yet merged -- main must see neither.
+  {
+    auto stream = faker.Interpret("MATCH (n) WHERE n:Foo1 OR n:Foo2 RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U);
+  }
+
+  // The real regression check: this must not crash (it used to, pre-slice-D).
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  // Both sessions' writes were captured (two separate BranchLog files) and concatenated by
+  // CollectBranchChangelog into one changelog -- main now has BOTH.
+  {
+    auto stream = faker.Interpret("MATCH (n:Foo1) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 1U) << "session 1's write must have been merged";
+  }
+  {
+    auto stream = faker.Interpret("MATCH (n:Foo2) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 1U) << "session 2's write must have been merged too";
+  }
+  {
+    // Both as genuinely DISTINCT nodes (not one silently overwritten/collided into the other).
+    auto stream = faker.Interpret("MATCH (n) WHERE n:Foo1 OR n:Foo2 RETURN count(n)");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "both must survive as distinct, uncollided nodes";
+  }
+}
+
+// Dedicated, minimal slice-D regression: a SINGLE write, checkout away, checkout back must show
+// the write immediately -- no MERGE involved, isolating replay-on-checkout from the multi-session
+// gid-disjointness scenario above.
+TEST_F(VersioningInterpreterTest, BranchReCheckoutReplaysPriorWrites) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+  faker.Interpret("CREATE (:P {v:1})");
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+  {
+    auto stream = faker.Interpret("MATCH (p:P) RETURN p.v");
+    ASSERT_EQ(stream.GetResults().size(), 1U)
+        << "was fork-state/empty before slice D -- re-checkout must now replay the branch's own prior write";
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+}
+
 TEST_F(VersioningInterpreterTest, MergeNonExistentBranchRejected) {
   SatisfyGate();
   ASSERT_THROW(faker.Interpret("MERGE BRANCH 'nope'"), memgraph::query::QueryRuntimeException);

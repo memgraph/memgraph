@@ -28,6 +28,7 @@
 // VERTEX-ONLY (this slice's own scope): no edge coverage here.
 
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
@@ -56,12 +57,14 @@ class VersioningBranchEngineTest : public testing::Test {
     config.gc = {.type = ms::Config::Gc::Type::NONE};
     storage_ = std::make_unique<ms::InMemoryStorage>(config);
     mem_storage_ = static_cast<ms::InMemoryStorage *>(storage_.get());
+    ClearBranchWalRoot();
   }
 
   void TearDown() override {
     branch_context_.reset();
     if (fork_ts_.has_value()) mem_storage_->ReleaseForkPin(*fork_ts_);
     storage_.reset();
+    ClearBranchWalRoot();
   }
 
   // Registers a fork pin at the CURRENT tip and remembers it for TearDown's release.
@@ -70,10 +73,25 @@ class VersioningBranchEngineTest : public testing::Test {
     return *fork_ts_;
   }
 
+  // Durable-capture slice (design slices A+B+C): BuildFromFork now also opens this checkout
+  // session's own BranchLog under a caller-supplied root directory (a fresh per-call UUID
+  // subdirectory beneath it -- see BranchContext::BuildFromFork's own doc-comment), which means it
+  // genuinely touches disk now, unlike the rest of this file's in-RAM-only diff engine. A real,
+  // throwaway temp directory, mirroring versioning_branch_log.cpp's own convention -- this file
+  // does not otherwise care about (or assert on) the branch log's contents.
+  std::filesystem::path BranchWalRoot() const {
+    return std::filesystem::temp_directory_path() / "MG_test_unit_versioning_branch_engine";
+  }
+
   std::unique_ptr<ms::Storage> storage_;
   ms::InMemoryStorage *mem_storage_{};
   std::optional<uint64_t> fork_ts_;
   std::unique_ptr<mv::BranchContext> branch_context_;
+
+ private:
+  void ClearBranchWalRoot() const {
+    if (std::filesystem::exists(BranchWalRoot())) std::filesystem::remove_all(BranchWalRoot());
+  }
 };
 
 // BuildFromFork must be O(1): the diff engine starts genuinely empty (module the internal
@@ -91,7 +109,12 @@ TEST_F(VersioningBranchEngineTest, BuildFromForkOpensEmptyDiffEngineAndLiveHisto
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
+                                                 fork_ts,
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 BranchWalRoot(),
+                                                 {});
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -134,7 +157,12 @@ TEST_F(VersioningBranchEngineTest, CowVertexCopiesOnlyTheTouchedVertex) {
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
+                                                 fork_ts,
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 BranchWalRoot(),
+                                                 {});
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -181,7 +209,12 @@ TEST_F(VersioningBranchEngineTest, CowVertexIsIdempotent) {
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
+                                                 fork_ts,
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 BranchWalRoot(),
+                                                 {});
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -229,7 +262,12 @@ TEST_F(VersioningBranchEngineTest, ResolveVertexPrefersDiffEngineOverHistorical)
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
+                                                 fork_ts,
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 BranchWalRoot(),
+                                                 {});
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -278,7 +316,12 @@ TEST_F(VersioningBranchEngineTest, VerticesUnionMergesDiffAndHistoricalByGid) {
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
+                                                 fork_ts,
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 BranchWalRoot(),
+                                                 {});
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -330,7 +373,12 @@ TEST_F(VersioningBranchEngineTest, BranchNativeCreateGidIsDisjointFromHistorical
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
+                                                 fork_ts,
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 BranchWalRoot(),
+                                                 {});
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -356,8 +404,12 @@ TEST_F(VersioningBranchEngineTest, PropagatesHistoricalAccessErrorForUnpinnedTs)
 
   // Never pinned via RegisterForkPin -- must be refused rather than approximated.
   constexpr uint64_t kNeverPinnedForkTs = 1;
-  auto result =
-      mv::BranchContext::BuildFromFork(*mem_storage_, kNeverPinnedForkTs, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
+                                                 kNeverPinnedForkTs,
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 BranchWalRoot(),
+                                                 {});
   ASSERT_FALSE(result.has_value());
   EXPECT_FALSE(result.error().message.empty());
 }
@@ -384,7 +436,12 @@ TEST_F(VersioningBranchEngineTest, CowVertexRejectsTopLevelEnumProperty) {
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
+                                                 fork_ts,
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 BranchWalRoot(),
+                                                 {});
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 
@@ -432,7 +489,12 @@ TEST_F(VersioningBranchEngineTest, CowVertexRejectsEnumNestedInList) {
   }
 
   const auto fork_ts = ForkNow();
-  auto result = mv::BranchContext::BuildFromFork(*mem_storage_, fork_ts, memgraph::tests::MakeMainCommitArgs());
+  auto result = mv::BranchContext::BuildFromFork(*mem_storage_,
+                                                 fork_ts,
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 memgraph::tests::MakeMainCommitArgs(),
+                                                 BranchWalRoot(),
+                                                 {});
   ASSERT_TRUE(result.has_value());
   branch_context_ = std::move(*result);
 

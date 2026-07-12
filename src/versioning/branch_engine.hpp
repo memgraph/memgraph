@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -20,6 +21,7 @@
 #include <vector>
 
 #include "storage/v2/commit_args.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
@@ -27,6 +29,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
+#include "versioning/branch_log.hpp"
 
 namespace memgraph::versioning {
 
@@ -104,9 +107,32 @@ class BranchContext {
   // performs (see kBranchNativeGidWatermark's doc-comment) -- mirrors the predecessor's own
   // `seed_commit_args` parameter shape (caller builds it via `storage::CommitArgs::make_main(...)`,
   // keeping this file independent of dbms/).
-  static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(storage::InMemoryStorage &main,
-                                                                                 uint64_t fork_ts,
-                                                                                 storage::CommitArgs commit_args);
+  //
+  // `branch_wal_root_directory`: durable-capture slice (write-capture + MERGE-feed) -- the
+  // BRANCH's own root wal directory, stable across every checkout session for this branch (the
+  // caller keys it by `VersionStore::BranchInfo::number`, the monotonic never-reused branch id --
+  // NOT the branch's name, which can be reused after a drop+recreate; see
+  // PrepareVersioningQuery's CHECKOUT_BRANCH handler, interpreter.cpp). BuildFromFork mints a
+  // FRESH, per-session-unique subdirectory beneath it (a fresh `utils::UUID`) and opens this
+  // session's own `BranchLog` there -- see `branch_log_`'s own doc-comment below for why every
+  // session needs its own subdirectory (collision safety) and MERGE BRANCH's own doc-comment
+  // (interpreter.cpp's `CollectBranchChangelog`) for how a branch's full history is reassembled
+  // from every session's file.
+  //
+  // `changelog`: slice D (replay-on-checkout) -- the branch's ALREADY-captured change-log from
+  // every PRIOR, finalized checkout session (the caller fetches this the SAME way MERGE BRANCH
+  // does, via `CollectBranchChangelog`; see `ReplayChangelogIntoDiffEngine`'s own doc-comment,
+  // branch_engine.cpp, for the full replay contract and why this closes the cross-session
+  // duplicate-gid hazard that used to crash MERGE). Pass an empty vector for a branch's first-ever
+  // checkout (nothing to replay). `replay_commit_args` is this replay's own internal commit --
+  // SEPARATE from `commit_args` above (the watermark reservation's), since `storage::CommitArgs`
+  // is move-only (wraps a `DatabaseProtectorPtr`) and both commits happen inside this ONE
+  // BuildFromFork call -- caller builds it the same way (a second, independent
+  // `dbms::DatabaseProtector{db_acc}.clone()`, see CheckoutBranchEngine, interpreter.cpp).
+  static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(
+      storage::InMemoryStorage &main, uint64_t fork_ts, storage::CommitArgs commit_args,
+      storage::CommitArgs replay_commit_args, std::filesystem::path branch_wal_root_directory,
+      const std::vector<storage::durability::WalDeltaData> &changelog);
 
   BranchContext(const BranchContext &) = delete;
   BranchContext &operator=(const BranchContext &) = delete;
@@ -115,11 +141,30 @@ class BranchContext {
 
   // `diff_engine_` tears itself down normally; `historical_` releases its own HistoricalAccess
   // self-pin on destruction (see HistoricalAccess's own doc-comment, inmemory/storage.hpp).
-  ~BranchContext() = default;
+  //
+  // `branch_log_` is explicitly Finalize()'d here so a subsequent MERGE BRANCH sees a COMPLETE,
+  // readable file. This alone is NOT sufficient, though (HIGH-1 fix, adversarial review
+  // 2026-07-12): the actual "MERGE never observes an unfinalized file" guarantee requires the
+  // CALLER -- `CurrentDB::ClearBranchContext` (interpreter.cpp) -- to destroy this object (running
+  // this destructor, hence Finalize()) BEFORE it calls `VersionStore::ReleaseCheckout`, which is
+  // what makes the branch visible as checkout-able/mergeable to another session. Get that order
+  // backwards (as an earlier version of this code did) and a concurrent MERGE BRANCH can pass
+  // BeginMerge the instant ReleaseCheckout runs, then read this session's still-`_current`
+  // (unfinalized) file as absent -- a silent partial-changelog merge. See ClearBranchContext's own
+  // doc-comment for the enforced ordering. Safe to call this destructor unconditionally, even for a
+  // checkout session that captured zero commits (an all-reads session, or no writes yet): see
+  // `branch_log_`'s own doc-comment for why an empty BranchLog finalizes to nothing observable.
+  ~BranchContext() { branch_log_->Finalize(); }
 
   storage::InMemoryStorage &diff_engine() { return *diff_engine_; }
 
   storage::Storage::Accessor &historical() { return *historical_base_; }
+
+  // Durable-capture slice: this checkout session's own durable, per-branch WAL-format change-log
+  // -- see `branch_log_`'s own doc-comment. `Interpreter::Commit`'s CAPTURE hook (interpreter.cpp)
+  // feeds every successfully-committed branch write through `versioning::CaptureBranchCommit`
+  // against the BranchLog returned here.
+  BranchLog &branch_log() { return *branch_log_; }
 
   // Graph Versioning v1 (lazy diff-context, slice E-1) SINGLE-POINTER COLLAPSE: the per-QUERY
   // write accessor on `diff_engine()` lives here, not duplicated onto every query::VertexAccessor/
@@ -139,6 +184,15 @@ class BranchContext {
   void set_current_diff_txn(storage::Storage::Accessor *txn) { current_diff_txn_ = txn; }
 
   storage::Storage::Accessor *current_diff_txn() const { return current_diff_txn_; }
+
+  // Monotonic timestamp source for this checkout session's captured branch-commit WAL records
+  // (Interpreter::Commit's durable-capture hook). The branch's BranchLog is a PRIVATE WAL stream
+  // (spec R21) whose record timestamps only need to be strictly increasing to delimit/order
+  // transactions for replay + MERGE -- they are never compared against main's clock -- so a simple
+  // per-session counter suffices (each checkout session opens its own BranchLog file; cross-session
+  // ordering comes from the timestamp-prefixed filenames, not these values). Not thread-safe by
+  // design: single-writer-per-branch exclusivity guarantees one query commits at a time.
+  uint64_t NextBranchCommitTs() { return ++branch_commit_ts_; }
 
   // Copy-on-write failure: only ever an Enum property -- unlike labels/properties (which now share
   // ONE id space with main, see diff_engine_'s own doc-comment on why BuildFromFork shares main's
@@ -300,8 +354,10 @@ class BranchContext {
 
  private:
   BranchContext(std::unique_ptr<storage::InMemoryStorage> diff_engine,
-                std::unique_ptr<storage::Storage::Accessor> historical_base)
-      : diff_engine_(std::move(diff_engine)), historical_base_(std::move(historical_base)) {}
+                std::unique_ptr<storage::Storage::Accessor> historical_base, std::unique_ptr<BranchLog> branch_log)
+      : diff_engine_(std::move(diff_engine)),
+        historical_base_(std::move(historical_base)),
+        branch_log_(std::move(branch_log)) {}
 
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
   std::unique_ptr<storage::Storage::Accessor> historical_base_;
@@ -314,6 +370,24 @@ class BranchContext {
   // consult-point to wire the real filter into later rather than threading a new parameter through
   // every caller once E-4 lands.
   std::unordered_set<storage::Gid> tombstoned_edges_;
+
+  // Durable-capture slice (design slices A+B+C): this checkout SESSION's own durable BranchLog --
+  // a fresh WalFile (fresh uuid/epoch, seq 0) living in a per-session-unique subdirectory under
+  // the branch's own root wal directory (BuildFromFork's `branch_wal_root_directory` param). A
+  // fresh, never-reopened BranchLog per session (rather than one long-lived BranchLog per branch,
+  // reopened-appended across sessions) sidesteps two problems at once: (1) BranchLog explicitly
+  // does not support reopen-append (see its own class comment), and (2) two DIFFERENT checkout
+  // sessions of the SAME branch each restart their OWN ts/seq-num counting from scratch (R21-style
+  // independence from main's own WAL numbering, see BranchLog's class comment) -- if they shared
+  // one subdirectory, `storage::durability::MakeWalName()`'s wall-clock-timestamp-derived filename
+  // could collide between two sessions active in the same microsecond. Always non-null once a
+  // BranchContext exists (BuildFromFork is the only constructor path and always builds one before
+  // returning success).
+  std::unique_ptr<BranchLog> branch_log_;
+
+  // Per-session monotonic counter for captured branch-commit WAL timestamps -- see
+  // NextBranchCommitTs()'s own doc-comment. Starts at 0; first captured commit gets ts 1.
+  uint64_t branch_commit_ts_{0};
 };
 
 }  // namespace memgraph::versioning

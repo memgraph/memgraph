@@ -15,13 +15,18 @@
 
 #include <unordered_map>
 
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
+#include "utils/uuid.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::versioning {
 
 namespace {
+
+namespace sd = storage::durability;
 
 // Recursive Enum detector -- see BranchContext::CowError's doc-comment for why an Enum anywhere
 // (top-level or nested inside a List/Map) fails the whole COW rather than being silently dropped
@@ -116,10 +121,136 @@ void ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_engine, storage:
   MG_ASSERT(commit_res.has_value(), "BranchContext::BuildFromFork: gid-watermark reservation commit failed.");
 }
 
+// Graph Versioning v1, slice D (replay-on-checkout): replays `changelog` -- the branch's ALREADY-
+// captured, real change-log from every PRIOR, finalized checkout session (the caller gathers this
+// via `CollectBranchChangelog`, interpreter.cpp -- the exact same enumeration MERGE BRANCH uses;
+// NEVER includes the CURRENT session's own BranchLog, which BuildFromFork only opens AFTER this
+// call returns -- see BuildFromFork's own call-site comment) into a freshly-built, otherwise-empty
+// `diff_engine`. Two things this buys, from the SAME mechanism:
+//   (a) the session sees the branch's own prior writes immediately upon checkout -- read-your-
+//       branch's-own-writes across a checkout cycle, not just within one still-open session;
+//   (b) every replayed explicit-gid create (CreateVertexEx/CreateEdgeEx) advances the diff
+//       engine's OWN vertex_id_/edge_id_ counter past that gid -- an atomic_fetch_max baked into
+//       both primitives themselves (inmemory/storage.cpp, see kBranchNativeGidWatermark's own
+//       doc-comment above) -- so a SUBSEQUENT branch-native auto-gid create in THIS session can
+//       never reuse a gid a PRIOR session already captured. THIS is what actually fixes the
+//       cross-session crash: two independent checkout sessions used to each restart their own
+//       auto-gid counter from the SAME watermark, so their first branch-native creates collided
+//       the instant a MERGE concatenated both sessions' change-logs into one replay (a corrupt/
+//       aliased vertex tripping the NULL_PTR delta MG_ASSERT in storage.cpp's append_deltas).
+//
+// FAITHFUL REPLAY, NOT A MERGE: unlike versioning::MergeBranch, this never remaps a gid and never
+// conflict-checks anything against a live "main" -- `diff_engine` is freshly built and otherwise
+// empty (modulo the reserved-and-freed watermark placeholder objects, see
+// ReserveBranchNativeGidRange, ALWAYS run before this -- see BuildFromFork's own call ordering), so
+// every explicit-gid create is EXPECTED to succeed outright; a collision here would mean the
+// watermark reservation itself is broken, not a legitimate replay conflict -- surfaced as
+// MG_ASSERT, mirroring ReserveBranchNativeGidRange's own style, not a recoverable error path.
+//
+// ORDERING WITHIN THE CHANGELOG (verified, not assumed): a WalEdgeCreate record's own endpoints
+// must already be live, same-transaction VertexAccessors for CreateEdgeEx to accept them
+// (InMemoryAccessor::CreateEdgeEx MG_ASSERTs this). This is always satisfied by a single, in-order
+// forward pass over `changelog` because (i) CollectBranchChangelog concatenates PRIOR sessions'
+// files in real CHRONOLOGICAL (wall-clock finalization) order, and (ii) WITHIN one captured commit,
+// CaptureBranchCommit (branch_reconstruction.cpp) walks that commit's deltas in the order the
+// storage engine itself produced them, which can never place an edge's ADD_OUT_EDGE delta before
+// its endpoint vertices' own creation deltas -- Cypher cannot reference a pattern variable
+// (`CREATE (a)-[:R]->(b)`) before the CREATE clause has bound it, so the endpoint VertexAccessors
+// always exist (and therefore their own creation deltas were already recorded) before the edge
+// between them can be created. No separate vertex-then-edge pass is needed.
+//
+// Scope: only the operations CaptureBranchCommit ever actually produces for this slice (vertex/
+// edge create, label add, property set on either) are handled -- there is no delete/tombstone
+// capture yet (E-4), and WalTransactionStart/WalTransactionEnd are pure delimiters. Everything else
+// (including a delete, should one ever unexpectedly appear) is a silent no-op, mirroring
+// versioning::MergeBranch's own "everything else is out of scope" catch-all (merge.cpp).
+void ReplayChangelogIntoDiffEngine(storage::InMemoryStorage &diff_engine,
+                                   const std::vector<storage::durability::WalDeltaData> &changelog,
+                                   storage::CommitArgs commit_args) {
+  if (changelog.empty()) return;  // fresh branch, first checkout -- nothing to replay
+
+  std::unique_ptr<storage::ReplicationAccessor> replay(
+      static_cast<storage::ReplicationAccessor *>(diff_engine.Access(storage::StorageAccessType::WRITE).release()));
+
+  auto apply = utils::Overloaded{
+      [&](sd::WalVertexCreate const &data) {
+        auto v = replay->CreateVertexEx(data.gid);
+        MG_ASSERT(v.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout found vertex gid {} already occupied in a "
+                  "freshly-built, otherwise-empty diff engine -- should be impossible.",
+                  data.gid.AsUint());
+      },
+      [&](sd::WalVertexAddLabel const &data) {
+        auto v = replay->FindVertex(data.gid, storage::View::NEW);
+        MG_ASSERT(v.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout could not find vertex {} to add a label to -- "
+                  "the branch's own captured change-log should always create a vertex before mutating it.",
+                  data.gid.AsUint());
+        auto ret = v->AddLabel(replay->NameToLabel(data.label));
+        MG_ASSERT(ret.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout failed to add a label to vertex {}.",
+                  data.gid.AsUint());
+      },
+      [&](sd::WalVertexSetProperty const &data) {
+        auto v = replay->FindVertex(data.gid, storage::View::NEW);
+        MG_ASSERT(v.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout could not find vertex {} to set a property on.",
+                  data.gid.AsUint());
+        auto ret = v->SetProperty(replay->NameToProperty(data.property),
+                                  storage::ToPropertyValue(data.value, replay->GetNameIdMapper()));
+        MG_ASSERT(ret.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout failed to set a property on vertex {}.",
+                  data.gid.AsUint());
+      },
+      [&](sd::WalEdgeCreate const &data) {
+        // View::NEW: an endpoint may have been created earlier in THIS SAME replay pass (same
+        // command_id throughout -- AdvanceCommand is never called here).
+        auto from_v = replay->FindVertex(data.from_vertex, storage::View::NEW);
+        auto to_v = replay->FindVertex(data.to_vertex, storage::View::NEW);
+        MG_ASSERT(from_v.has_value() && to_v.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout could not find edge {}'s endpoints -- the "
+                  "branch's own captured change-log should always create both endpoints before the edge (see "
+                  "this function's own ORDERING doc-comment).",
+                  data.gid.AsUint());
+        auto edge_type = replay->NameToEdgeType(data.edge_type);
+        auto e = replay->CreateEdgeEx(&*from_v, &*to_v, edge_type, data.gid);
+        MG_ASSERT(e.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout found edge gid {} already occupied -- should "
+                  "be impossible.",
+                  data.gid.AsUint());
+      },
+      [&](sd::WalEdgeSetProperty const &data) {
+        // Diff-engine-ONLY bare-gid lookup -- mirrors BranchContext::FindDiffEdge exactly (this IS
+        // the diff engine; there is no historical_ fallback to consider during replay, so none of
+        // HistoricalAccess::FindEdge's documented unreliability applies here).
+        auto e = replay->FindEdge(data.gid, storage::View::NEW);
+        MG_ASSERT(e.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout could not find edge {} to set a property on.",
+                  data.gid.AsUint());
+        auto ret = e->SetProperty(replay->NameToProperty(data.property),
+                                  storage::ToPropertyValue(data.value, replay->GetNameIdMapper()));
+        MG_ASSERT(ret.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout failed to set a property on edge {}.",
+                  data.gid.AsUint());
+      },
+      [&](sd::WalTransactionStart const &) {},
+      [&](sd::WalTransactionEnd const &) {},
+      [&](auto const &) {}};
+
+  for (const auto &delta : changelog) {
+    std::visit(apply, delta.data_);
+  }
+
+  auto commit_res = replay->PrepareForCommitPhase(std::move(commit_args));
+  MG_ASSERT(commit_res.has_value(), "BranchContext::BuildFromFork: replay-on-checkout commit failed.");
+}
+
 }  // namespace
 
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
-    storage::InMemoryStorage &main, uint64_t fork_ts, storage::CommitArgs commit_args) {
+    storage::InMemoryStorage &main, uint64_t fork_ts, storage::CommitArgs commit_args,
+    storage::CommitArgs replay_commit_args, std::filesystem::path branch_wal_root_directory,
+    const std::vector<storage::durability::WalDeltaData> &changelog) {
   // -----------------------------------------------------------------------------------------
   // 1. Time-travel main back to fork_ts FIRST -- if this fails, we must not have constructed
   //    (and paid for) a diff engine at all.
@@ -182,9 +313,44 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
   // -----------------------------------------------------------------------------------------
   ReserveBranchNativeGidRange(*diff_engine, std::move(commit_args));
 
+  // -----------------------------------------------------------------------------------------
+  // 3b. Slice D (replay-on-checkout): replay the branch's own already-captured history (every
+  //     PRIOR, finalized checkout session's BranchLog, concatenated by the caller via
+  //     CollectBranchChangelog -- see ReplayChangelogIntoDiffEngine's own doc-comment) into the
+  //     diff engine BEFORE it is ever exposed to a query.
+  //
+  //     ORDERING vs. step 3 (VERIFIED, not just asserted): placed AFTER the watermark reservation,
+  //     but this is not load-bearing for correctness -- CreateVertexEx/CreateEdgeEx's own
+  //     atomic_fetch_max means the counter ends up in the same place regardless of call order
+  //     (whichever of the two runs second just finds the counter already past its own target and
+  //     no-ops the bump), and reservation's OWN explicit-gid target is the EXACT watermark value,
+  //     which no replayed record (branch-native gids are always watermark+1 or higher; COW-mirrored
+  //     gids sit in main's own low range) can ever equal, so there is no collision risk swapping
+  //     the order either way. Kept AFTER purely for a simpler invariant to reason about: every
+  //     MG_ASSERT in ReserveBranchNativeGidRange above talks about "a freshly-created, EMPTY diff
+  //     engine" -- true in the literal sense only if nothing (including replayed history) has
+  //     touched it yet. A no-op for an empty `changelog` (this branch's first-ever checkout).
+  // -----------------------------------------------------------------------------------------
+  ReplayChangelogIntoDiffEngine(*diff_engine, changelog, std::move(replay_commit_args));
+
+  // -----------------------------------------------------------------------------------------
+  // 4. Durable-capture slice: open THIS checkout session's own BranchLog in a fresh,
+  //    per-session-unique subdirectory under `branch_wal_root_directory` -- see `branch_log_`'s
+  //    own doc-comment (branch_engine.hpp) for why every session needs its own subdirectory
+  //    (collision safety) rather than sharing/reopening one long-lived per-branch log. Shares
+  //    `config.salient.items` (built above, main's own properties_on_edges/enable_edges_metadata
+  //    parity) and main's own shared NameIdMapper: the branch log's own WAL encoding must match
+  //    how `CaptureBranchCommit`'s `target_storage` argument (this same diff engine) actually
+  //    lays out edges/ids, or MERGE's later `BranchLog::ReadAll` would silently misdecode it --
+  //    the identical reasoning the diff engine's own construction above already relies on.
+  // -----------------------------------------------------------------------------------------
+  auto branch_log = std::make_unique<BranchLog>(
+      branch_wal_root_directory / utils::GenerateUUID(), config.salient.items, main.GetSharedNameIdMapper().get());
+
   // Private ctor -- constructed via `new` rather than std::make_unique (which needs public ctor
   // access), from inside this static member function which does have that access.
-  return std::unique_ptr<BranchContext>(new BranchContext(std::move(diff_engine), std::move(historical)));
+  return std::unique_ptr<BranchContext>(
+      new BranchContext(std::move(diff_engine), std::move(historical), std::move(branch_log)));
 }
 
 std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::CowVertex(storage::Gid gid) {
