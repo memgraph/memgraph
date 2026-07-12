@@ -394,14 +394,10 @@ TEST_F(PlannerV2InterpreterTest, WithWhereKeepsAliveASymbolUsedOnlyInThePredicat
 }
 
 TEST_F(PlannerV2InterpreterTest, ExplainShowsFilterOperator) {
-  // Filter sits above the Unwind. The predicate text isn't asserted: Filter::Clone
-  // drops all_filters_ so the label renders empty (strengthened in the stacked fix).
+  // The predicate renders as a Generic filter over x. Asserting the text (not just
+  // "Filter") proves all_filters_ was captured and survived the plan clone.
   auto const plan = PlanText(Interpret("EXPLAIN UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 RETURN x;"));
-  auto const filter_pos = plan.find("Filter");
-  auto const unwind_pos = plan.find("Unwind");
-  ASSERT_NE(filter_pos, std::string::npos) << plan;
-  ASSERT_NE(unwind_pos, std::string::npos) << plan;
-  EXPECT_LT(filter_pos, unwind_pos) << plan;  // Filter above Unwind
+  EXPECT_NE(plan.find("Filter Generic {x}"), std::string::npos) << plan;
 }
 
 TEST_F(PlannerV2InterpreterTest, UnsupportedPredicateReportsNotImplemented) {
