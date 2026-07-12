@@ -265,6 +265,21 @@ constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyRange::kType{
     .name = "ScanParallelByEdgePropertyRange",
     .superclass = &query::plan::ScanParallel::kType};
 
+constexpr utils::TypeInfo query::plan::ScanParallelByVertexProperty::kType{
+    .id = utils::TypeId::SCAN_PARALLEL_BY_VERTEX_PROPERTY,
+    .name = "ScanParallelByVertexProperty",
+    .superclass = &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByVertexPropertyValue::kType{
+    .id = utils::TypeId::SCAN_PARALLEL_BY_VERTEX_PROPERTY_VALUE,
+    .name = "ScanParallelByVertexPropertyValue",
+    .superclass = &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByVertexPropertyRange::kType{
+    .id = utils::TypeId::SCAN_PARALLEL_BY_VERTEX_PROPERTY_RANGE,
+    .name = "ScanParallelByVertexPropertyRange",
+    .superclass = &query::plan::ScanParallel::kType};
+
 constexpr utils::TypeInfo query::plan::ParallelMerge::kType{
     .id = utils::TypeId::PARALLEL_MERGE, .name = "ParallelMerge", .superclass = &query::plan::LogicalOperator::kType};
 

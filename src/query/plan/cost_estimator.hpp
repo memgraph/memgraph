@@ -378,6 +378,37 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(ScanParallelByVertexProperty &op) override {
+    cardinality_ *= db_accessor_->VerticesCount(op.property_);
+    IncrementCost(CostParam::kScanAllByVertexProperty);
+    num_threads_ = 1;
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByVertexPropertyValue &op) override {
+    auto intermediate_property_value = ConstPropertyValue(op.expression_);
+    double factor = 1.0;
+    if (intermediate_property_value) {
+      factor =
+          db_accessor_->VerticesCount(op.property_,
+                                      storage::ToPropertyValue(*intermediate_property_value,
+                                                               db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+    } else {
+      factor = db_accessor_->VerticesCount(op.property_) * CardParam::kFilter;
+    }
+    cardinality_ *= factor;
+    IncrementCost(CostParam::kScanAllByVertexPropertyValue);
+    num_threads_ = 1;
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByVertexPropertyRange &op) override {
+    cardinality_ *= EstimateVertexPropertyRangeCardinality(op.property_, op.lower_bound_, op.upper_bound_);
+    IncrementCost(CostParam::kScanAllByVertexPropertyRange);
+    num_threads_ = 1;
+    return true;
+  }
+
   bool PostVisit(ScanParallelByEdge & /* op */) override {
     // ScanParallelByEdge is not yet implemented (throws NotYetImplemented)
     // For cost estimation, we'll use a placeholder cost
