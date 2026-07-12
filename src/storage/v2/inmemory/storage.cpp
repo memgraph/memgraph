@@ -3850,14 +3850,14 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
       case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_property.property);
+          EncodePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_property.property);
         });
         break;
       }
       case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
       case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.vertex_property.property);
+          EncodePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.vertex_property.property);
         });
         break;
       }

@@ -166,8 +166,8 @@ struct EdgeTypePropertyOpInfo {
   std::string property;
 };
 
-struct EdgePropertyOpInfo {
-  friend bool operator==(const EdgePropertyOpInfo &, const EdgePropertyOpInfo &) = default;
+struct PropertyOpInfo {
+  friend bool operator==(const PropertyOpInfo &, const PropertyOpInfo &) = default;
   using ctr_types = std::tuple<std::string>;
   std::string property;
 };
@@ -284,13 +284,13 @@ struct WalEdgeTypePropertyIndexCreate : EdgeTypePropertyOpInfo {};
 
 struct WalEdgeTypePropertyIndexDrop : EdgeTypePropertyOpInfo {};
 
-struct WalEdgePropertyIndexCreate : EdgePropertyOpInfo {};
+struct WalEdgePropertyIndexCreate : PropertyOpInfo {};
 
-struct WalEdgePropertyIndexDrop : EdgePropertyOpInfo {};
+struct WalEdgePropertyIndexDrop : PropertyOpInfo {};
 
-struct WalVertexPropertyIndexCreate : EdgePropertyOpInfo {};
+struct WalVertexPropertyIndexCreate : PropertyOpInfo {};
 
-struct WalVertexPropertyIndexDrop : EdgePropertyOpInfo {};
+struct WalVertexPropertyIndexDrop : PropertyOpInfo {};
 
 struct WalUniqueConstraintCreate : LabelUnorderedPropertiesOpInfo {};
 
@@ -519,7 +519,7 @@ WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type);
 void EncodeEdgeTypePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type,
                                  PropertyId prop);
-void EncodeEdgePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, PropertyId prop);
+void EncodePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, PropertyId prop);
 void EncodeEnumAlterAdd(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val);
 void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val,
                            std::string enum_value_old);

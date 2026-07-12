@@ -437,7 +437,7 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeEdgePropertyIndex(encoder, mapper(), property_paths[0][0]);
+          EncodePropertyIndex(encoder, mapper(), property_paths[0][0]);
         });
         break;
       }
