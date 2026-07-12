@@ -233,9 +233,12 @@ std::optional<BranchReconstruction::ReconstructedEdge> BranchReconstruction::Fin
 }
 
 storage::durability::WalTxnEndPos CaptureBranchCommit(BranchLog &branch_log, const storage::Transaction &transaction,
-                                                      storage::Storage *target_storage, uint64_t commit_timestamp) {
+                                                      storage::Storage *target_storage, uint64_t commit_timestamp,
+                                                      uint64_t *out_record_count) {
   using storage::Delta;
   using storage::PreviousPtr;
+
+  uint64_t record_count = 0;
 
   for (const auto &delta : transaction.deltas) {
     // ADD_IN_EDGE/REMOVE_IN_EDGE are the vertex-side mirror of an edge's ADD_OUT_EDGE/
@@ -254,6 +257,7 @@ storage::durability::WalTxnEndPos CaptureBranchCommit(BranchLog &branch_log, con
 
     if (owner.type == PreviousPtr::Type::VERTEX) {
       branch_log.AppendDelta(delta, owner.vertex, commit_timestamp, target_storage);
+      ++record_count;
     } else if (owner.type == PreviousPtr::Type::EDGE) {
       // Only SET_PROPERTY is WAL-encoded for edges -- edge create/delete is captured entirely
       // through the endpoint vertices' ADD_OUT_EDGE/RECREATE_OBJECT/DELETE_OBJECT deltas instead.
@@ -263,12 +267,23 @@ storage::durability::WalTxnEndPos CaptureBranchCommit(BranchLog &branch_log, con
       // test-only invention.
       auto info = transaction.GetEdgeSetPropertyInfo(edge->gid);
       branch_log.AppendDelta(delta, edge, commit_timestamp, target_storage, info.in_vertex_gid, info.edge_type_id);
+      ++record_count;
     }
     // DELTA/NULL_PTR owners: allocation failed or otherwise unresolved -- nothing to capture,
     // mirrors main's own handling of the same cases.
   }
 
-  return branch_log.AppendTransactionEnd(commit_timestamp);
+  auto const txn_end_pos = branch_log.AppendTransactionEnd(commit_timestamp);
+
+  if (out_record_count != nullptr) {
+    // +1 for the WalTransactionEnd delimiter AppendTransactionEnd just wrote -- ReadAll/
+    // CollectBranchChangelog count it too, so this MUST match `changelog.size()`'s unit (which
+    // seeds BranchContext::changelog_length_ on re-checkout); otherwise the retention cap drifts by
+    // one-per-commit vs. the persisted truth.
+    *out_record_count = record_count + 1;
+  }
+
+  return txn_end_pos;
 }
 
 }  // namespace memgraph::versioning

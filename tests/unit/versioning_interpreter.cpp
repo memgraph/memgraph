@@ -50,6 +50,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
 
 namespace {
@@ -1487,4 +1488,56 @@ TEST_F(VersioningInterpreterTest, BranchExistenceRejectsStorageModeAndDropGraph)
   // not a permanent lockout).
   faker.Interpret("DROP BRANCH 'b'");
   faker.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");  // must NOT throw now that no branch exists
+}
+
+// Graph Versioning v1, chunk 10 (D5/R13): `FLAGS_versioning_max_changelog_length` bounds a branch's
+// cumulative captured change-log record count. `Interpreter::Commit` (interpreter.cpp, the
+// "RETENTION-CAP fix" comment block right above the `FLAGS_versioning_max_changelog_length` check)
+// computes the prospective total (`bctx->ChangelogLength() + records`) BEFORE ever calling
+// `commit_log->Finalize()` / `AddCapturedRecords`, and throws `QueryRuntimeException` if it would
+// exceed the cap -- strictly before `PrepareForCommitPhase`, so the diff-engine transaction is never
+// prepared/committed. That throw propagates out of `Interpreter::Pull`'s autocommit path (the
+// `!in_explicit_transaction_` branch calls `Commit()` inside the same try/catch that runs
+// `AbortCommand` on any `utils::BasicException` before rethrowing -- see interpreter.cpp's
+// `Pull<TStream>` body), so the rejected write must be invisible on the branch afterward and the
+// session must stay usable for further queries. Only live capture is gated here (this test never
+// exercises re-checkout replay).
+TEST_F(VersioningInterpreterTest, BranchChangelogRetentionCapRejectsOversizeCommit) {
+  SatisfyGate();
+
+  // Save/restore the gflag so this test cannot leak its tiny cap into sibling tests, even if an
+  // assertion below fails and returns early out of the test body.
+  const auto saved_max_changelog_length = FLAGS_versioning_max_changelog_length;
+  memgraph::utils::OnScopeExit const restore_flag(
+      [saved_max_changelog_length] { FLAGS_versioning_max_changelog_length = saved_max_changelog_length; });
+
+  faker.Interpret("CREATE (:Seed)");  // on main, pre-fork -- must be completely unaffected by the branch cap.
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Cap of 1: the branch's changelog starts at 0, so even a single-vertex CREATE's captured record
+  // count (a handful of records) already pushes the prospective total over the cap -- rejected on
+  // the very first branch write, regardless of the exact per-commit record count.
+  FLAGS_versioning_max_changelog_length = 1;
+  ASSERT_THROW(faker.Interpret("CREATE (:OnBranch {x:1})"), memgraph::query::QueryRuntimeException);
+
+  // Rolled back cleanly: the rejected vertex must NOT be visible on the branch, and the session
+  // (including main's untouched data) stays usable.
+  {
+    auto s = faker.Interpret("MATCH (n:OnBranch) RETURN n");
+    EXPECT_EQ(s.GetResults().size(), 0U) << "rejected commit must not leave a visible write on the branch";
+  }
+  {
+    auto s = faker.Interpret("MATCH (n:Seed) RETURN n");
+    EXPECT_EQ(s.GetResults().size(), 1U) << "main's pre-fork data must be unaffected by the branch's cap rejection";
+  }
+
+  // Positive control: raise the cap back up and show the identical write now succeeds.
+  FLAGS_versioning_max_changelog_length = saved_max_changelog_length;
+  faker.Interpret("CREATE (:OnBranch {x:1})");  // must NOT throw now.
+  {
+    auto s = faker.Interpret("MATCH (n:OnBranch) RETURN n.x");
+    ASSERT_EQ(s.GetResults().size(), 1U);
+    EXPECT_EQ(s.GetResults()[0][0].ValueInt(), 1);
+  }
 }

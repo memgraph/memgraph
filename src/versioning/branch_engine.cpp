@@ -405,13 +405,18 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
 
   // Private ctor -- constructed via `new` rather than std::make_unique (which needs public ctor
   // access), from inside this static member function which does have that access.
+  // Chunk 10 (D5/R13): seed the cumulative changelog-length counter with the replayed changelog's
+  // own size -- every record captured across all PRIOR sessions of this branch -- so the retention
+  // cap (`FLAGS_versioning_max_changelog_length`) is enforced against the branch's whole life, not
+  // reset back to 0 on every fresh checkout.
   return std::unique_ptr<BranchContext>(new BranchContext(std::move(diff_engine),
                                                           std::move(historical),
                                                           std::move(tombstoned_vertices),
                                                           std::move(tombstoned_edges),
                                                           std::move(branch_log_session_directory),
                                                           config.salient.items,
-                                                          main.GetSharedNameIdMapper().get()));
+                                                          main.GetSharedNameIdMapper().get(),
+                                                          changelog.size()));
 }
 
 std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::CowVertex(storage::Gid gid) {

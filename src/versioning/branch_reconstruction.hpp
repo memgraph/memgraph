@@ -237,7 +237,24 @@ class BranchReconstruction {
 // NOTE: the storage parameter is deliberately NOT named `storage` -- the function body needs
 // `storage::` (the namespace) qualified names (`storage::Delta`, `storage::PreviousPtr`), and a
 // parameter named `storage` would shadow that namespace for the rest of the body.
+//
+// `out_record_count` (chunk 10, D5/R13 -- retention-cap enforcement): defaulted, opt-in out-param.
+// When non-null, receives the TOTAL number of records `BranchLog::ReadAll`/`CollectBranchChangelog`
+// will later see for this commit: the forward WAL delta records this call appended to `branch_log`
+// via `BranchLog::AppendDelta` (NOT the raw `transaction.deltas` count -- ADD_IN_EDGE/REMOVE_IN_EDGE
+// deltas and non-SET_PROPERTY edge-owned deltas are skipped, see the loop below), PLUS ONE for the
+// `WalTransactionEnd` delimiter that `AppendTransactionEnd` unconditionally writes below --
+// `storage::durability::ReadWalInfo`'s `num_deltas` (which drives both `BranchLog::ReadAll`'s loop
+// count and thus `CollectBranchChangelog`'s returned vector size) counts that delimiter as a record
+// too, so this out-param MUST match that unit exactly. The caller (`Interpreter::Commit`) uses this
+// to track `BranchContext`'s cumulative `ChangelogLength()` (itself seeded from
+// `changelog.size()` on re-checkout, see `BuildFromFork`) and enforce
+// `FLAGS_versioning_max_changelog_length` BEFORE the diff-engine transaction reaches
+// `PrepareForCommitPhase` -- see that call site's own comment for why rejecting here is abort-safe.
+// A unit mismatch here would make the live-session counter under- or over-count by one per commit
+// relative to the persisted truth it is periodically re-seeded from.
 storage::durability::WalTxnEndPos CaptureBranchCommit(BranchLog &branch_log, const storage::Transaction &transaction,
-                                                      storage::Storage *target_storage, uint64_t commit_timestamp);
+                                                      storage::Storage *target_storage, uint64_t commit_timestamp,
+                                                      uint64_t *out_record_count = nullptr);
 
 }  // namespace memgraph::versioning

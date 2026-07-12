@@ -468,10 +468,21 @@ TEST_F(VersioningBranchReconstructionCaptureTest, CapturesOwnerResolvedDeltasInt
   const uint64_t commit_timestamp = ms::kTimestampInitialId + 1;
 
   mv::BranchLog branch_log(BranchDir(), items, &txn.Mapper(), /*seq_num=*/0);
-  auto const txn_end_pos = mv::CaptureBranchCommit(branch_log, txn.Raw(), main_storage.get(), commit_timestamp);
+  uint64_t captured = 0;
+  auto const txn_end_pos =
+      mv::CaptureBranchCommit(branch_log, txn.Raw(), main_storage.get(), commit_timestamp, &captured);
   branch_log.Finalize();
 
   auto records = mv::BranchLog::ReadAll(branch_log.Path());
+
+  // Ground-truth invariant: out_record_count MUST equal the number of records ReadAll returns --
+  // this is the unit the retention cap depends on (CollectBranchChangelog/changelog.size() seeds
+  // BranchContext::changelog_length_ straight from ReadAll's record count on re-checkout, and
+  // AddCapturedRecords(captured) increments the very same counter on the live-session path -- if
+  // the two units drift, the cap systematically under- or over-enforces).
+  EXPECT_EQ(captured, records.size())
+      << "out_record_count MUST equal the number of records ReadAll returns -- this is the unit the "
+         "retention cap depends on";
 
   using namespace ms::durability;  // NOLINT(google-build-using-namespace)
 

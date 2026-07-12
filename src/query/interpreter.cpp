@@ -11772,11 +11772,36 @@ void Interpreter::Commit() {
   // `Finalize()` runs immediately, still before `PrepareForCommitPhase` below, so the file is a
   // complete, `_from_`-named, `CollectBranchChangelog`-visible artifact the instant this block
   // returns -- there is no window where a partially-written file could be discovered mid-write.
-  if (current_db_.branch_context() != nullptr && !curr_txn->deltas.empty()) {
-    const auto ts = current_db_.branch_context()->NextBranchCommitTs();
-    auto commit_log = current_db_.branch_context()->CreateCommitLog(ts);
-    versioning::CaptureBranchCommit(*commit_log, *curr_txn, &current_db_.branch_context()->diff_engine(), ts);
+  //
+  // RETENTION-CAP fix (chunk 10, D5/R13): `FLAGS_versioning_max_changelog_length` used to exist but
+  // was never enforced -- a branch's change-log (and therefore the fork-state slice its GC-pin keeps
+  // main from reclaiming) could grow unbounded, an OOM risk. `CaptureBranchCommit` now reports how
+  // many records THIS commit would add (`records`, out-param); we compute the prospective total
+  // (`bctx->ChangelogLength() + records`) and, if it would exceed the cap, THROW before ever calling
+  // `commit_log->Finalize()` -- the just-captured-but-unfinalized commit_log file is simply left on
+  // disk (stranded, never `Finalize()`d so `CollectBranchChangelog`/`ReadAll` will never surface it;
+  // cleaned up at branch drop/merge like any other abandoned session artifact -- the SAME accepted
+  // behavior the pre-existing "PrepareForCommitPhase fails after capture" limitation above already
+  // documents). Throwing here is ABORT-SAFE: this whole block runs strictly BEFORE
+  // `PrepareForCommitPhase` below, so the diff-engine transaction has not been prepared/committed at
+  // all yet -- the exception propagates out through the interpreter's normal abort path exactly like
+  // any other pre-commit query-execution failure, rolling back `curr_txn` cleanly. No data loss: the
+  // rejected commit simply never happened, same as if the query itself had thrown.
+  if (auto *bctx = current_db_.branch_context(); bctx != nullptr && !curr_txn->deltas.empty()) {
+    const auto ts = bctx->NextBranchCommitTs();
+    auto commit_log = bctx->CreateCommitLog(ts);
+    uint64_t records = 0;
+    versioning::CaptureBranchCommit(*commit_log, *curr_txn, &bctx->diff_engine(), ts, &records);
+
+    if (bctx->ChangelogLength() + records > FLAGS_versioning_max_changelog_length) {
+      throw QueryRuntimeException(
+          "Version has reached the maximum change-log length ({} records). Merge or drop it, or raise "
+          "--versioning-max-changelog-length.",
+          FLAGS_versioning_max_changelog_length);
+    }
+
     commit_log->Finalize();
+    bctx->AddCapturedRecords(records);
 
     // Graph Versioning v1 chunk 10 (observability): one captured branch commit successfully
     // written to a finalized BranchLog file.

@@ -202,6 +202,22 @@ class BranchContext {
   // construction (see Interpreter::Commit's capture hook, interpreter.cpp).
   uint64_t NextBranchCommitTs() { return ++branch_commit_ts_; }
 
+  // Chunk 10 (D5/R13 -- retention-cap enforcement): the cumulative count of captured WAL delta
+  // records across this branch's WHOLE life -- every record replayed from prior, already-finalized
+  // checkout sessions (seeded at `changelog.size()` in `BuildFromFork`, below) PLUS every record
+  // `Interpreter::Commit`'s capture hook has captured THIS session (via `AddCapturedRecords`, fed
+  // from `CaptureBranchCommit`'s own `out_record_count`). This is what `FLAGS_
+  // versioning_max_changelog_length` actually bounds: the branch's change-log length, and therefore
+  // the size of the fork-state slice its GC pin keeps main from reclaiming (an unbounded change-log
+  // means an unbounded GC-pin retention window -- the OOM risk this cap exists to close).
+  uint64_t ChangelogLength() const { return changelog_length_; }
+
+  // Called by `Interpreter::Commit`'s capture hook immediately after a commit's records are
+  // successfully appended (and, per the cap-enforcement contract, only once that commit has already
+  // been accepted -- see the call site's own comment) -- advances the running total by the number
+  // of records that one commit just contributed.
+  void AddCapturedRecords(uint64_t n) { changelog_length_ += n; }
+
   // MULTI-COMMIT fix (2026-07-12): a single, long-lived `BranchLog` covering this WHOLE checkout
   // session used to accumulate every commit's deltas into ONE file -- proven broken by an
   // adversarial-review repro (a branch doing CREATE then DELETE as two separate query-commits): the
@@ -418,18 +434,23 @@ class BranchContext {
   // (`branch_log_session_directory`/`branch_log_items`/`branch_log_mapper`) rather than an
   // already-built `BranchLog` -- there is no longer one long-lived log to hand in; `CreateCommitLog`
   // builds a fresh one per commit from these stored ingredients instead (see its own doc-comment).
+  // `initial_changelog_length`: chunk 10 (D5/R13) -- the replayed changelog's own size
+  // (`changelog.size()` in `BuildFromFork`), i.e. every record already captured by prior sessions.
+  // Seeds `changelog_length_` so the retention cap is enforced against the branch's WHOLE life, not
+  // just this session's own captures.
   BranchContext(std::unique_ptr<storage::InMemoryStorage> diff_engine,
                 std::unique_ptr<storage::Storage::Accessor> historical_base,
                 std::unordered_set<storage::Gid> tombstoned_vertices, std::unordered_set<storage::Gid> tombstoned_edges,
                 std::filesystem::path branch_log_session_directory, storage::SalientConfig::Items branch_log_items,
-                storage::NameIdMapper *branch_log_mapper)
+                storage::NameIdMapper *branch_log_mapper, uint64_t initial_changelog_length)
       : diff_engine_(std::move(diff_engine)),
         historical_base_(std::move(historical_base)),
         tombstoned_vertices_(std::move(tombstoned_vertices)),
         tombstoned_edges_(std::move(tombstoned_edges)),
         branch_log_session_directory_(std::move(branch_log_session_directory)),
         branch_log_items_(branch_log_items),
-        branch_log_mapper_(branch_log_mapper) {}
+        branch_log_mapper_(branch_log_mapper),
+        changelog_length_(initial_changelog_length) {}
 
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
   std::unique_ptr<storage::Storage::Accessor> historical_base_;
@@ -484,6 +505,13 @@ class BranchContext {
   // Per-session monotonic counter for captured branch-commit WAL timestamps -- see
   // NextBranchCommitTs()'s own doc-comment. Starts at 0; first captured commit gets ts 1.
   uint64_t branch_commit_ts_{0};
+
+  // Chunk 10 (D5/R13 -- retention-cap enforcement): cumulative count of captured WAL delta records
+  // across this branch's whole life -- replayed prior-session records (seeded from `changelog.
+  // size()` in `BuildFromFork`) plus this session's own captures (`AddCapturedRecords`). Bounds
+  // `FLAGS_versioning_max_changelog_length` -- see `ChangelogLength()`'s own doc-comment above for
+  // why this, not just an in-session counter, is what the cap must be checked against.
+  uint64_t changelog_length_{0};
 };
 
 }  // namespace memgraph::versioning
