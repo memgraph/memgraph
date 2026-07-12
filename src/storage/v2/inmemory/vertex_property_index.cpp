@@ -348,7 +348,7 @@ void InMemoryVertexPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_s
 void InMemoryVertexPropertyIndex::DropGraphClearIndices() {
   index_.WithLock([](std::shared_ptr<IndicesContainer const> &index) { index = std::make_shared<IndicesContainer>(); });
   all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &all_indices) {
-    all_indices = std::make_unique<std::vector<AllIndicesEntry>>();
+    all_indices = std::make_shared<std::vector<AllIndicesEntry>>();
   });
 }
 
