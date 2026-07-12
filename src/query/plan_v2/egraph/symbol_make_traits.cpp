@@ -100,4 +100,38 @@ auto symbol_make_traits<Subquery>::make(storage_type & /*s*/, utils::small_vecto
           .seed = default_analysis_seed<Subquery>()};
 }
 
+auto symbol_make_traits<Distinct>::make(storage_type & /*s*/, utils::small_vector<planner::core::EClassId> children)
+    -> seeded_node {
+  return {.lowered = {.children = std::move(children), .disambiguator = std::nullopt},
+          .seed = default_analysis_seed<Distinct>()};
+}
+
+auto symbol_make_traits<Skip>::make(storage_type & /*s*/, planner::core::EClassId input, planner::core::EClassId count)
+    -> seeded_node {
+  return {.lowered = {.children = utils::small_vector{input, count}, .disambiguator = std::nullopt},
+          .seed = default_analysis_seed<Skip>()};
+}
+
+auto symbol_make_traits<Limit>::make(storage_type & /*s*/, planner::core::EClassId input, planner::core::EClassId count)
+    -> seeded_node {
+  return {.lowered = {.children = utils::small_vector{input, count}, .disambiguator = std::nullopt},
+          .seed = default_analysis_seed<Limit>()};
+}
+
+auto symbol_make_traits<OrderBy>::make(storage_type &s, planner::core::EClassId input,
+                                       utils::small_vector<planner::core::EClassId> children_after_input,
+                                       std::vector<Ordering> orderings) -> seeded_node {
+  // Intern the ordering vector: same directions -> same disambiguator (hash-cons),
+  // different directions -> distinct e-node even with identical sort-key children.
+  auto [it, inserted] = s.store.try_emplace(std::move(orderings), s.info.size());
+  if (inserted) s.info.push_back(it->first);
+
+  auto children = utils::small_vector<planner::core::EClassId>{};
+  children.reserve(1 + children_after_input.size());
+  children.push_back(input);
+  for (auto c : children_after_input) children.push_back(c);
+  return {.lowered = {.children = std::move(children), .disambiguator = it->second},
+          .seed = default_analysis_seed<OrderBy>()};
+}
+
 }  // namespace memgraph::query::plan::v2

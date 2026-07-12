@@ -40,6 +40,30 @@ namespace filter {
 inline constexpr std::size_t input = 0, predicate = 1;
 }
 
+// DISTINCT: [input row pipe, value_ident...]. The value idents are the projected
+// columns to dedup on; the build recovers their symbols. Introduces no binding.
+namespace distinct {
+inline constexpr std::size_t input = 0, first_value = 1;
+}
+
+// SKIP / LIMIT: [input row pipe, count expression]. count is evaluated once.
+namespace skip {
+inline constexpr std::size_t input = 0, count = 1;
+}
+
+namespace limit {
+inline constexpr std::size_t input = 0, count = 1;
+}
+
+// ORDER BY: [input row pipe, sort_key..., value_ident...]. The first `orderings`
+// children after the input are the sort keys; the remainder are the value idents
+// to remember through the sort. The sort-key count is the interned orderings
+// length carried in the disambiguator, so cost/resolve treat all expression
+// children uniformly and only the build splits them. Introduces no binding.
+namespace order_by {
+inline constexpr std::size_t input = 0, first_expr = 1;
+}
+
 namespace identifier {
 inline constexpr std::size_t sym = 0;
 }

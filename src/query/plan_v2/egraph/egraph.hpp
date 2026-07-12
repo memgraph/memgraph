@@ -17,6 +17,7 @@
 #include <span>
 #include <string_view>
 
+#include "query/frontend/ast/ordering.hpp"
 #include "query/plan_v2/egraph/builtin_functions.hpp"
 #include "query/plan_v2/egraph/op_ast_lists.hpp"
 #include "storage/v2/property_value.hpp"
@@ -61,6 +62,21 @@ struct egraph {
 
   auto MakeUnwind(eclass input, eclass sym, eclass list_expr) -> eclass;
   auto MakeFilter(eclass input, eclass predicate) -> eclass;
+
+  /// DISTINCT over the pipe. `value_syms` are the Symbol e-classes of the
+  /// projected columns to dedup on. They are demanded by the cost model, which
+  /// forces the projection to materialise them into frame slots (the operator
+  /// dedups on slots) instead of the inline rewrite pushing the values past it.
+  auto MakeDistinct(eclass input, std::span<eclass const> value_syms) -> eclass;
+  auto MakeSkip(eclass input, eclass count) -> eclass;
+  auto MakeLimit(eclass input, eclass count) -> eclass;
+
+  /// ORDER BY over the pipe. `sort_keys` and `orderings` are parallel (one
+  /// direction per key); `value_syms` are the Symbol e-classes of the projected
+  /// columns to remember through the sort (demanded, same as Distinct).
+  auto MakeOrderBy(eclass input, std::span<eclass const> sort_keys, std::span<Ordering const> orderings,
+                   std::span<eclass const> value_syms) -> eclass;
+
   auto MakeSubquery(eclass outer_input, eclass inner_root, std::span<eclass const> exposed_syms) -> eclass;
 
   auto MakeSubquery(eclass outer_input, eclass inner_root, std::initializer_list<eclass> exposed_syms) -> eclass {
