@@ -58,17 +58,13 @@
   X(Subquery)                                                                          \
   /* WHERE filter: 2 children [input, predicate_expr]; introduces no binding. */       \
   X(Filter)                                                                            \
-  /* DISTINCT: variadic [input, value_ident_1, ...]; the value idents are the */       \
-  /* projected columns to dedup on (Identifiers so the inline rewrite tracks the */    \
-  /* flowing symbol). Introduces no binding. */                                        \
+  /* DISTINCT: variadic [input, value_sym...]; dedup columns. See child_layout. */     \
   X(Distinct)                                                                          \
-  /* SKIP: 2 children [input, count_expr]; count evaluated once. */                    \
+  /* SKIP: 2 children [input, count_expr]. */                                          \
   X(Skip)                                                                              \
-  /* LIMIT: 2 children [input, count_expr]; count evaluated once. */                   \
+  /* LIMIT: 2 children [input, count_expr]. */                                         \
   X(Limit)                                                                             \
-  /* ORDER BY: variadic [input, sort_key_1, ..., value_ident_1, ...]; the sort-key */  \
-  /* count is the interned orderings length (the disambiguator), the rest are the */   \
-  /* value idents to remember through the sort. Introduces no binding. */              \
+  /* ORDER BY: variadic [input, sort_key..., value_sym...]. See child_layout. */       \
   X(OrderBy)
 
 #define EGRAPH_ALL_SYMBOLS(X) \

@@ -45,9 +45,8 @@ class VariableIndex {
     return it->second;
   }
 
-  /// Whether `eclass` was assigned a bit, i.e. it is a Symbol e-class the
-  /// pre-pass registered.  Lets a caller tell a Symbol child (a bound variable)
-  /// apart from an expression child without dereferencing the e-graph.
+  /// Whether `eclass` was assigned a bit (a Symbol e-class the pre-pass
+  /// registered), telling a Symbol child from an expression child.
   [[nodiscard]] auto contains(planner::core::EClassId eclass) const -> bool { return by_eclass_.contains(eclass); }
 
   /// EClassId for `bit`.  Inverse of `bit_of`.
