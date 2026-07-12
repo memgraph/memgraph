@@ -59,6 +59,19 @@ namespace memgraph::versioning {
 // read-side merge below (contrast BranchReconstruction's own UnionVerticesIterable, chunk 5b,
 // which DOES need one).
 //
+// SCOPE OF SLICE E-4 (delete + tombstones, added on top of everything above): a diff-engine DELETE
+// (query::DbAccessor::RemoveVertex/RemoveEdge/DetachDelete, db_accessor.hpp) is a real MVCC delete
+// against `diff_engine_` -- CaptureBranchCommit already turns it into a WalVertexDelete/
+// WalEdgeDelete record with ZERO changes needed on the capture side (a vertex RECREATE_OBJECT delta
+// maps to WalVertexDelete; an edge delete rides its endpoints' REMOVE_OUT_EDGE-undo/ADD_OUT_EDGE-undo
+// deltas exactly like an edge CREATE does, see CaptureBranchCommit's own doc-comment,
+// branch_reconstruction.hpp). The READ path, though, cannot tell "diff-deleted (hide)" apart from
+// "diff-absent (fall through to historical_)" purely from a diff-engine miss -- `ResolveVertex`/
+// `UnionVerticesIterable` would silently RESURRECT a deleted fork vertex/edge by falling through to
+// `historical_`'s still-fork-state copy. `tombstoned_vertices_`/`tombstoned_edges_` close this: a
+// gid recorded there is hidden unconditionally, from EITHER side, regardless of what the diff engine
+// or historical_ would otherwise say.
+//
 // SCOPE OF SLICE E-2a (edges: branch-native create + basic single-hop expansion, added on top of
 // the above): `ResolveEdges` below is the edge-side analogue of `ResolveVertex` -- a per-vertex
 // UNION of historical_'s fork-state incident edges with current_diff_txn()'s own (branch-native
@@ -113,11 +126,12 @@ class BranchContext {
   // caller keys it by `VersionStore::BranchInfo::number`, the monotonic never-reused branch id --
   // NOT the branch's name, which can be reused after a drop+recreate; see
   // PrepareVersioningQuery's CHECKOUT_BRANCH handler, interpreter.cpp). BuildFromFork mints a
-  // FRESH, per-session-unique subdirectory beneath it (a fresh `utils::UUID`) and opens this
-  // session's own `BranchLog` there -- see `branch_log_`'s own doc-comment below for why every
-  // session needs its own subdirectory (collision safety) and MERGE BRANCH's own doc-comment
+  // FRESH, per-session-unique subdirectory beneath it (a fresh `utils::UUID`) -- see
+  // `branch_log_session_directory_`'s own doc-comment below for why every session needs its own
+  // subdirectory (collision safety), `CreateCommitLog()`'s own doc-comment for how each individual
+  // commit gets its own fresh `BranchLog` file within it, and MERGE BRANCH's own doc-comment
   // (interpreter.cpp's `CollectBranchChangelog`) for how a branch's full history is reassembled
-  // from every session's file.
+  // from every session's (now potentially many-files-per-session) captured commits.
   //
   // `changelog`: slice D (replay-on-checkout) -- the branch's ALREADY-captured change-log from
   // every PRIOR, finalized checkout session (the caller fetches this the SAME way MERGE BRANCH
@@ -142,29 +156,18 @@ class BranchContext {
   // `diff_engine_` tears itself down normally; `historical_` releases its own HistoricalAccess
   // self-pin on destruction (see HistoricalAccess's own doc-comment, inmemory/storage.hpp).
   //
-  // `branch_log_` is explicitly Finalize()'d here so a subsequent MERGE BRANCH sees a COMPLETE,
-  // readable file. This alone is NOT sufficient, though (HIGH-1 fix, adversarial review
-  // 2026-07-12): the actual "MERGE never observes an unfinalized file" guarantee requires the
-  // CALLER -- `CurrentDB::ClearBranchContext` (interpreter.cpp) -- to destroy this object (running
-  // this destructor, hence Finalize()) BEFORE it calls `VersionStore::ReleaseCheckout`, which is
-  // what makes the branch visible as checkout-able/mergeable to another session. Get that order
-  // backwards (as an earlier version of this code did) and a concurrent MERGE BRANCH can pass
-  // BeginMerge the instant ReleaseCheckout runs, then read this session's still-`_current`
-  // (unfinalized) file as absent -- a silent partial-changelog merge. See ClearBranchContext's own
-  // doc-comment for the enforced ordering. Safe to call this destructor unconditionally, even for a
-  // checkout session that captured zero commits (an all-reads session, or no writes yet): see
-  // `branch_log_`'s own doc-comment for why an empty BranchLog finalizes to nothing observable.
-  ~BranchContext() { branch_log_->Finalize(); }
+  // MULTI-COMMIT fix (2026-07-12): there is no long-lived `BranchLog` to `Finalize()` here anymore
+  // -- see `CreateCommitLog()`'s own doc-comment for why a single BranchLog can no longer span this
+  // whole checkout session. Each per-commit log is opened AND finalized immediately, inline, by
+  // `Interpreter::Commit`'s capture hook (interpreter.cpp) right after that one commit's own
+  // capture -- so by the time THIS destructor ever runs, every commit this session ever captured is
+  // already a complete, finalized, `_from_`-named file on disk. `= default` is therefore correct and
+  // sufficient.
+  ~BranchContext() = default;
 
   storage::InMemoryStorage &diff_engine() { return *diff_engine_; }
 
   storage::Storage::Accessor &historical() { return *historical_base_; }
-
-  // Durable-capture slice: this checkout session's own durable, per-branch WAL-format change-log
-  // -- see `branch_log_`'s own doc-comment. `Interpreter::Commit`'s CAPTURE hook (interpreter.cpp)
-  // feeds every successfully-committed branch write through `versioning::CaptureBranchCommit`
-  // against the BranchLog returned here.
-  BranchLog &branch_log() { return *branch_log_; }
 
   // Graph Versioning v1 (lazy diff-context, slice E-1) SINGLE-POINTER COLLAPSE: the per-QUERY
   // write accessor on `diff_engine()` lives here, not duplicated onto every query::VertexAccessor/
@@ -189,10 +192,42 @@ class BranchContext {
   // (Interpreter::Commit's durable-capture hook). The branch's BranchLog is a PRIVATE WAL stream
   // (spec R21) whose record timestamps only need to be strictly increasing to delimit/order
   // transactions for replay + MERGE -- they are never compared against main's clock -- so a simple
-  // per-session counter suffices (each checkout session opens its own BranchLog file; cross-session
-  // ordering comes from the timestamp-prefixed filenames, not these values). Not thread-safe by
-  // design: single-writer-per-branch exclusivity guarantees one query commits at a time.
+  // per-session counter suffices. Not thread-safe by design: single-writer-per-branch exclusivity
+  // guarantees one query commits at a time.
+  //
+  // MULTI-COMMIT fix (2026-07-12): this same value is now ALSO threaded through to
+  // `CreateCommitLog()` as that commit's own `BranchLog` sequence number (see its own doc-comment)
+  // -- one call to `NextBranchCommitTs()` per commit feeds BOTH the log's identity/ordering AND the
+  // delta timestamps `CaptureBranchCommit` stamps into it, keeping the two in lockstep by
+  // construction (see Interpreter::Commit's capture hook, interpreter.cpp).
   uint64_t NextBranchCommitTs() { return ++branch_commit_ts_; }
+
+  // MULTI-COMMIT fix (2026-07-12): a single, long-lived `BranchLog` covering this WHOLE checkout
+  // session used to accumulate every commit's deltas into ONE file -- proven broken by an
+  // adversarial-review repro (a branch doing CREATE then DELETE as two separate query-commits): the
+  // underlying `storage::durability::ReadWalInfo` (wal.cpp) scans deltas per-TRANSACTION and stops
+  // counting the instant it sees a SECOND transaction's differing timestamp, so `BranchLog::ReadAll`
+  // silently returned only the FIRST commit's records for a multi-commit file -- the delete was
+  // captured (walked + appended) but never came back out on read. FIX: one BranchLog per CAPTURED
+  // COMMIT, each covering EXACTLY one transaction (the shape every already-passing single-write
+  // test exercises, and the shape `ReadWalInfo`'s scan actually round-trips correctly). This
+  // constructs a FRESH `BranchLog` in THIS session's own directory (`branch_log_session_directory_`,
+  // shared across every call -- multiple per-commit files end up siblings in the SAME directory,
+  // same as before this fix, just now potentially many instead of exactly one) every time it is
+  // called; the caller (Interpreter::Commit) is expected to call this ONCE per commit, capture into
+  // it, then `Finalize()` it immediately -- there is no long-lived log for `~BranchContext` to
+  // finalize anymore (see its own doc-comment).
+  //
+  // `seq_num`: embedded into the underlying WalFile's own metadata (readable back via
+  // `storage::durability::ReadWalInfo`'s `seq_num` field) -- `storage::durability::MakeWalName()`
+  // (paths.hpp) does NOT include the sequence number in the FILENAME at all, only a wall-clock
+  // timestamp, so two per-commit files from the same session landing in the same microsecond would
+  // otherwise be unorderable by filename alone. Passing `NextBranchCommitTs()` here gives
+  // `CollectBranchChangelog` (interpreter.cpp) a genuine, monotonic, collision-immune tie-break to
+  // fall back on for exactly that case -- see its own doc-comment for the full sort contract.
+  std::unique_ptr<BranchLog> CreateCommitLog(uint64_t seq_num) {
+    return std::make_unique<BranchLog>(branch_log_session_directory_, branch_log_items_, branch_log_mapper_, seq_num);
+  }
 
   // Copy-on-write failure: only ever an Enum property -- unlike labels/properties (which now share
   // ONE id space with main, see diff_engine_'s own doc-comment on why BuildFromFork shares main's
@@ -239,7 +274,10 @@ class BranchContext {
   std::expected<storage::EdgeAccessor, CowError> CowEdge(const storage::EdgeAccessor &fork_edge);
 
   // Diff-engine-first point lookup (against `current_diff_txn()`), falling back to `historical_`
-  // on a miss. No tombstone case this slice (no delete op exists yet).
+  // on a miss. Slice E-4: FIRST checks `tombstoned_vertices_` -- a tombstoned gid never resolves,
+  // even via a diff-engine hit (a branch-native vertex is tombstoned+deleted together, so this only
+  // ever actually matters for the historical_ fallback in practice, but checking unconditionally
+  // up-front is the same one-line cost either way and needs no reasoning about which side "wins").
   std::optional<storage::VertexAccessor> ResolveVertex(storage::Gid gid, storage::View view);
 
   // Graph Versioning v1, slice E-2a -- the edge-side analogue of ResolveVertex -- a point lookup by
@@ -256,8 +294,8 @@ class BranchContext {
   // whoever picks up E-2d needs to actually verify (not assume) that `historical_->FindEdge` works
   // the way `ResolveVertex`'s `historical_->FindVertex` does before wiring this back in.
   //
-  // Tombstone hook (inert this slice, see `tombstoned_edges_`'s own doc-comment below): a
-  // tombstoned gid must never resolve, from EITHER side, once E-4 lands.
+  // Tombstone hook (ACTIVE as of slice E-4, see `tombstoned_edges_`'s own doc-comment below): a
+  // tombstoned gid never resolves, from EITHER side -- checked first, before either lookup.
   std::optional<storage::EdgeAccessor> ResolveEdge(storage::Gid edge_gid, storage::View view);
 
   // Graph Versioning v1, slice E-2c: diff-engine-ONLY point lookup by edge gid -- deliberately
@@ -292,8 +330,15 @@ class BranchContext {
       // Default-constructed = the "end" iterator (`done_` defaults to true). A real begin()-side
       // iterator is only ever built by UnionVerticesIterable::begin(), below.
       Iterator() = default;
+      // Graph Versioning v1, slice E-4: `tombstoned_vertices` is a non-owning pointer into the
+      // owning BranchContext's own `tombstoned_vertices_` (mirrors
+      // BranchReconstruction::UnionVerticesIterable::Iterator's own `BranchOverlay *overlay_`
+      // idiom, branch_reconstruction.hpp) -- SeekNext consults it to skip a tombstoned gid on the
+      // historical_ side (see SeekNext's own doc-comment, branch_engine.cpp, for why the diff-engine
+      // side never needs the same check).
       Iterator(storage::VerticesIterable::Iterator hist_it, storage::VerticesIterable::Iterator hist_end,
-               storage::VerticesIterable::Iterator diff_it, storage::VerticesIterable::Iterator diff_end);
+               storage::VerticesIterable::Iterator diff_it, storage::VerticesIterable::Iterator diff_end,
+               const std::unordered_set<storage::Gid> *tombstoned_vertices);
 
       storage::VertexAccessor operator*() const { return *current_; }
 
@@ -314,6 +359,7 @@ class BranchContext {
       std::optional<storage::VerticesIterable::Iterator> diff_it_;
       std::optional<storage::VerticesIterable::Iterator> diff_end_;
       std::optional<storage::VertexAccessor> current_;
+      const std::unordered_set<storage::Gid> *tombstoned_vertices_{nullptr};
       bool done_{true};
     };
 
@@ -324,10 +370,15 @@ class BranchContext {
    private:
     friend class BranchContext;
 
-    UnionVerticesIterable(storage::VerticesIterable hist_vertices, storage::VerticesIterable diff_vertices);
+    UnionVerticesIterable(storage::VerticesIterable hist_vertices, storage::VerticesIterable diff_vertices,
+                          const std::unordered_set<storage::Gid> *tombstoned_vertices);
 
     storage::VerticesIterable hist_vertices_;
     storage::VerticesIterable diff_vertices_;
+    // Non-owning -- see the Iterator ctor's own doc-comment above. Points into the owning
+    // BranchContext's `tombstoned_vertices_`, which outlives every UnionVerticesIterable built from
+    // it (a query-scoped, single-pass range never outlives the BranchContext itself).
+    const std::unordered_set<storage::Gid> *tombstoned_vertices_;
   };
 
   UnionVerticesIterable Vertices(storage::View view);
@@ -345,19 +396,40 @@ class BranchContext {
   // owned vector is simpler and cheap here -- no O(H+D) full-scan concern the vertex-level union
   // has to worry about.
   //
-  // Tombstone hook (inert this slice, see `tombstoned_edges_` below): once edge DELETE exists
-  // (E-4), a gid present in `tombstoned_edges_` must be excluded from the result even if
-  // `historical_` still has it -- the empty set here is a structural no-op until then.
+  // Tombstone hook (ACTIVE as of slice E-4): a gid present in `tombstoned_edges_` is excluded from
+  // the result even if `historical_` still has it -- see `collect`'s own `continue` (branch_engine.cpp).
   std::vector<storage::EdgeAccessor> ResolveEdges(storage::Gid vertex_gid, storage::EdgeDirection direction,
                                                   storage::View view,
                                                   const std::vector<storage::EdgeTypeId> &edge_types);
 
+  // Graph Versioning v1, slice E-4: records that `gid` has been explicitly DELETEd on this branch.
+  // See `tombstoned_vertices_`'s own doc-comment for why a bare "not found in the diff engine" is
+  // not enough to hide a deleted FORK vertex on its own (it would silently fall through to
+  // `historical_` and resurrect). Called by `query::DbAccessor::RemoveVertex`/`DetachDelete`
+  // (db_accessor.hpp) right after the underlying diff-engine delete succeeds -- idempotent
+  // (`std::unordered_set::insert` on an already-present gid is a no-op).
+  void TombstoneVertex(storage::Gid gid) { tombstoned_vertices_.insert(gid); }
+
+  // Symmetric for edges -- see `tombstoned_edges_`'s own doc-comment.
+  void TombstoneEdge(storage::Gid gid) { tombstoned_edges_.insert(gid); }
+
  private:
+  // MULTI-COMMIT fix (2026-07-12): takes the session's BranchLog CONSTRUCTION INGREDIENTS
+  // (`branch_log_session_directory`/`branch_log_items`/`branch_log_mapper`) rather than an
+  // already-built `BranchLog` -- there is no longer one long-lived log to hand in; `CreateCommitLog`
+  // builds a fresh one per commit from these stored ingredients instead (see its own doc-comment).
   BranchContext(std::unique_ptr<storage::InMemoryStorage> diff_engine,
-                std::unique_ptr<storage::Storage::Accessor> historical_base, std::unique_ptr<BranchLog> branch_log)
+                std::unique_ptr<storage::Storage::Accessor> historical_base,
+                std::unordered_set<storage::Gid> tombstoned_vertices, std::unordered_set<storage::Gid> tombstoned_edges,
+                std::filesystem::path branch_log_session_directory, storage::SalientConfig::Items branch_log_items,
+                storage::NameIdMapper *branch_log_mapper)
       : diff_engine_(std::move(diff_engine)),
         historical_base_(std::move(historical_base)),
-        branch_log_(std::move(branch_log)) {}
+        tombstoned_vertices_(std::move(tombstoned_vertices)),
+        tombstoned_edges_(std::move(tombstoned_edges)),
+        branch_log_session_directory_(std::move(branch_log_session_directory)),
+        branch_log_items_(branch_log_items),
+        branch_log_mapper_(branch_log_mapper) {}
 
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
   std::unique_ptr<storage::Storage::Accessor> historical_base_;
@@ -365,25 +437,49 @@ class BranchContext {
   // into CurrentDB::db_transactional_accessor_ for the duration of one query; nullptr otherwise.
   storage::Storage::Accessor *current_diff_txn_{nullptr};
 
-  // Graph Versioning v1, slice E-2a: ALWAYS EMPTY this slice -- there is no edge delete op yet
-  // (E-4), so nothing ever populates it. Exists now, inert, purely so `ResolveEdges` has a single
-  // consult-point to wire the real filter into later rather than threading a new parameter through
-  // every caller once E-4 lands.
+  // Graph Versioning v1, slice E-4: gids the branch has explicitly DELETEd -- must never resolve as
+  // present again, from EITHER side (diff-engine or historical_), even though a bare diff-engine
+  // miss (`FindVertex(gid, NEW)` returning nullopt) cannot, on its own, tell "never touched, fall
+  // through to historical_" apart from "explicitly deleted, hide" for a not-yet-COW'd fork vertex --
+  // both look identical (nullopt) to the diff engine alone. `ResolveVertex`/
+  // `UnionVerticesIterable::Iterator::SeekNext` consult this FIRST, unconditionally, closing that
+  // resurrection hazard. Populated by `TombstoneVertex` (query::DbAccessor::RemoveVertex/
+  // DetachDelete, db_accessor.hpp, after a live delete) and by `ReplayChangelogIntoDiffEngine`'s own
+  // WalVertexDelete handler (branch_engine.cpp, seeded at checkout time from this branch's own
+  // already-captured prior-session history) -- see `BuildFromFork`'s call site for how the latter
+  // reaches this private constructor.
+  std::unordered_set<storage::Gid> tombstoned_vertices_;
+
+  // Graph Versioning v1, slice E-4: symmetric for edges -- see `tombstoned_vertices_`'s own
+  // doc-comment. Was ALWAYS EMPTY through slice E-2a/E-2c/E-3 (no edge delete op existed yet); now
+  // populated by `TombstoneEdge` (query::DbAccessor::RemoveEdge/DetachDelete, after a live delete)
+  // and by `ReplayChangelogIntoDiffEngine`'s own WalEdgeDelete handler.
   std::unordered_set<storage::Gid> tombstoned_edges_;
 
-  // Durable-capture slice (design slices A+B+C): this checkout SESSION's own durable BranchLog --
-  // a fresh WalFile (fresh uuid/epoch, seq 0) living in a per-session-unique subdirectory under
-  // the branch's own root wal directory (BuildFromFork's `branch_wal_root_directory` param). A
-  // fresh, never-reopened BranchLog per session (rather than one long-lived BranchLog per branch,
-  // reopened-appended across sessions) sidesteps two problems at once: (1) BranchLog explicitly
-  // does not support reopen-append (see its own class comment), and (2) two DIFFERENT checkout
-  // sessions of the SAME branch each restart their OWN ts/seq-num counting from scratch (R21-style
-  // independence from main's own WAL numbering, see BranchLog's class comment) -- if they shared
-  // one subdirectory, `storage::durability::MakeWalName()`'s wall-clock-timestamp-derived filename
-  // could collide between two sessions active in the same microsecond. Always non-null once a
-  // BranchContext exists (BuildFromFork is the only constructor path and always builds one before
-  // returning success).
-  std::unique_ptr<BranchLog> branch_log_;
+  // Durable-capture slice (design slices A+B+C), reshaped by the MULTI-COMMIT fix (2026-07-12):
+  // this checkout SESSION's own per-session-unique subdirectory under the branch's root wal
+  // directory (BuildFromFork's `branch_wal_root_directory` param, one fresh `utils::UUID` per
+  // session -- see the original rationale below for why every session needs its own subdirectory,
+  // still true) plus the two other ingredients `CreateCommitLog()` needs to build a fresh `BranchLog`
+  // per commit (`branch_log_items_`, `branch_log_mapper_`, both copied straight from `BuildFromFork`'s
+  // own `main`/`config` -- cheap, POD-ish, no ownership concerns). There is no longer a single
+  // long-lived `BranchLog` object stored here: `CreateCommitLog` is called fresh for every commit
+  // (`Interpreter::Commit`'s capture hook, interpreter.cpp), and that per-commit `BranchLog` is
+  // finalized and destroyed before the next one is ever created -- see `CreateCommitLog()`'s own
+  // doc-comment for the full rationale (one file per transaction is what makes `ReadWalInfo`'s
+  // per-transaction scan round-trip correctly; a single session-spanning log did not).
+  //
+  // Original per-session-subdirectory rationale (still applies, now to the DIRECTORY rather than to
+  // a single file within it): a fresh subdirectory per session (rather than one shared directory
+  // reused across sessions) sidesteps two problems: (1) BranchLog explicitly does not support
+  // reopen-append (see its own class comment), and (2) two DIFFERENT checkout sessions of the SAME
+  // branch each restart their own ts/seq-num counting from scratch (R21-style independence from
+  // main's own WAL numbering, see BranchLog's class comment) -- if they shared one subdirectory,
+  // `storage::durability::MakeWalName()`'s wall-clock-timestamp-derived filename could collide
+  // between two sessions active in the same microsecond.
+  std::filesystem::path branch_log_session_directory_;
+  storage::SalientConfig::Items branch_log_items_;
+  storage::NameIdMapper *branch_log_mapper_;
 
   // Per-session monotonic counter for captured branch-commit WAL timestamps -- see
   // NextBranchCommitTs()'s own doc-comment. Starts at 0; first captured commit gets ts 1.

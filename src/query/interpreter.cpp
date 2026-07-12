@@ -8280,19 +8280,39 @@ std::filesystem::path BranchWalRootDirectory(storage::InMemoryStorage *mem_stora
 // ORDERING: `storage::durability::MakeWalName()` embeds a fixed-width
 // (YYYYmmddHHMMSSffffff), hence lexicographically-sortable, WALL-CLOCK timestamp as the leading
 // component of a WAL filename, and `RemakeWalName` (what `BranchLog::Finalize()` renames a file
-// to) preserves that same prefix verbatim -- so sorting the discovered files by FILENAME ALONE
-// (never by full path, which would interleave with each session's own UUID-named parent directory
-// and scramble the order) recovers the real order the sessions' commits actually happened in. This
-// is the reason each session gets its own numbering-from-scratch BranchLog (branch_engine.hpp) but
-// the OVERALL branch history is still totally ordered: real wall-clock time, not each session's own
-// restarted-at-0 internal sequence numbers, is what stitches them back together.
+// to) preserves that same prefix verbatim -- so the discovered files' PRIMARY sort key is that
+// 20-char prefix alone (never the full path, which would interleave with each session's own
+// UUID-named parent directory and scramble the order), recovering the real order the sessions'
+// commits actually happened in. This is the reason each session gets its own numbering-from-scratch
+// BranchLog (branch_engine.hpp) but the OVERALL branch history is still totally ordered: real
+// wall-clock time, not each session's own restarted-at-0 internal sequence numbers, is what stitches
+// them back together ACROSS sessions.
+//
+// MULTI-COMMIT fix (2026-07-12) SECONDARY key: one BranchLog file per CAPTURED COMMIT (not per
+// session, see `BranchContext::CreateCommitLog`'s own doc-comment, branch_engine.hpp, for why) means
+// a single session directory can now hold MANY files sharing that same session's narrow wall-clock
+// window -- two commits made back-to-back can legitimately land in the SAME microsecond, an
+// ordinary case now rather than the vanishingly-rare cross-session collision the old LOW-4 fix
+// guarded against. The wall-clock prefix alone can no longer disambiguate two commits from the SAME
+// session reliably, so each file's own embedded `seq_num` (`storage::durability::ReadWalInfo`'s
+// `seq_num` field -- `BranchContext::NextBranchCommitTs()`'s value at capture time, strictly
+// increasing WITHIN one session, see `CreateCommitLog()`'s own doc-comment) is read back and used as
+// a genuine, monotonic, collision-immune numeric tie-break: two files from DIFFERENT sessions can
+// share a seq_num (each session's counter restarts at 0), but the primary wall-clock-prefix key
+// already orders those correctly (different sessions are never active in the exact same
+// microsecond in practice, and even if they were, real cross-session commit order has no principled
+// definition anyway -- unchanged from the prior LOW-4 reasoning). Compared as an INTEGER, not as a
+// filename substring -- `seq_num` is not even embedded in the filename at all (only in the WalFile's
+// own metadata, see `MakeWalName`'s doc-comment, paths.hpp), so there is no lexicographic-multi-digit
+// pitfall to worry about here.
 //
 // Only files whose name contains "_from_" (RemakeWalName's own marker of a FINALIZED file) are
 // considered; an unfinalized "_current" file would mean a live (or, out of this slice's scope,
 // crashed-mid-session) BranchLog that `BranchLog::ReadAll` cannot safely decode -- defensive, not
 // load-bearing, since MERGE_BRANCH's own BeginMerge precondition (no session currently has this
 // branch checked out, version_store.cpp) already guarantees every session's BranchContext (hence
-// its BranchLog) has been destroyed -- and therefore Finalize()'d -- by the time this runs.
+// every per-commit BranchLog it ever created) has been destroyed -- and therefore Finalize()'d -- by
+// the time this runs.
 //
 // A branch that never captured a single commit (an all-reads-only checkout, or no checkout at all
 // yet) has an absent or empty directory tree here -- returns an empty vector cleanly, so
@@ -8309,7 +8329,18 @@ std::filesystem::path BranchWalRootDirectory(storage::InMemoryStorage *mem_stora
 // encountered WHILE a directory is known to exist and is being walked now throws loudly instead, so
 // MERGE fails outright rather than silently applying an incomplete change-log.
 std::vector<storage::durability::WalDeltaData> CollectBranchChangelog(const std::filesystem::path &branch_wal_root) {
-  std::vector<std::pair<std::string, std::filesystem::path>> finalized_files;
+  // MULTI-COMMIT fix: the sort key is now a triple -- (20-char wall-clock filename prefix, this
+  // file's own `seq_num` read back via `ReadWalInfo`, full path as a final deterministic
+  // tie-break) -- rather than the old (filename, path) pair. `seq_num` is read here, once per
+  // file, rather than re-derived inside the sort comparator, to avoid re-opening/re-decoding every
+  // candidate file's header O(n log n) times during the sort.
+  struct FinalizedFile {
+    std::string wall_clock_prefix;
+    uint64_t seq_num{0};
+    std::filesystem::path path;
+  };
+
+  std::vector<FinalizedFile> finalized_files;
 
   std::error_code root_ec;
   if (!std::filesystem::exists(branch_wal_root, root_ec) || root_ec) {
@@ -8337,7 +8368,19 @@ std::vector<storage::durability::WalDeltaData> CollectBranchChangelog(const std:
       if (!file_entry.is_regular_file()) continue;
       auto filename = file_entry.path().filename().string();
       if (filename.find("_from_") == std::string::npos) continue;  // skip an unfinalized "_current" file
-      finalized_files.emplace_back(std::move(filename), file_entry.path());
+      // MULTI-COMMIT fix: the wall-clock prefix -- `kTimestampFormat` (paths.hpp) renders as
+      // exactly YYYYmmddHHMMSSffffff (4+2+2+2+2+2+6 = 20 characters; NOT `kTimestampFormat.size()`
+      // itself, which is the length of the fmt FORMAT STRING "{:04d}{:02d}..." rather than its
+      // rendered output) -- is the primary sort key, verbatim-preserved by RemakeWalName ahead of
+      // its own "_from_" marker, see this function's own doc-comment. The file's `seq_num` (the
+      // secondary tie-break) is only recoverable from the file's own metadata, never the filename --
+      // read it back now, once per file, rather than inside the sort comparator.
+      static constexpr size_t kWalTimestampPrefixLen = 20;
+      auto wal_info = storage::durability::ReadWalInfo(file_entry.path());
+      finalized_files.push_back(
+          FinalizedFile{.wall_clock_prefix = filename.substr(0, std::min(kWalTimestampPrefixLen, filename.size())),
+                        .seq_num = wal_info.seq_num,
+                        .path = file_entry.path()});
     }
     // Belt-and-suspenders, mirrors the outer loop's own post-loop check below: if the INNER
     // `directory_iterator`'s own construction fails (e.g. `session_entry.path()` was removed or
@@ -8355,23 +8398,24 @@ std::vector<storage::durability::WalDeltaData> CollectBranchChangelog(const std:
     throw QueryRuntimeException("Failed to read branch change-log for merge: {}", session_ec.message());
   }
 
-  // LOW-4 fix (adversarial review, 2026-07-12): stable_sort (not sort) plus a secondary tiebreak on
-  // the full path, so two files that happen to share an identical wall-clock-timestamp filename
-  // prefix (same-microsecond finalization across two different session subdirectories -- possible
-  // in principle, however unlikely) still get a fully deterministic relative order across repeated
-  // runs, instead of whatever order the OS's own directory_iterator happened to yield them in. This
-  // does NOT fix the underlying fragility -- two genuinely same-timestamp files from DIFFERENT
-  // sessions have no principled ordering between their OWN commits (their filename prefixes cannot
-  // be told apart) -- only a per-branch monotonic file sequence number would truly close that gap;
-  // deferred, not needed at this slice's scale.
+  // LOW-4 fix (adversarial review, 2026-07-12), SUPERSEDED by the MULTI-COMMIT fix's `seq_num`
+  // tie-break below: originally just (filename, full-path) with `stable_sort`, closing only the
+  // "two DIFFERENT sessions finalize in the same microsecond" case (rare, no principled ordering
+  // between such files anyway). The MULTI-COMMIT fix (one BranchLog per commit rather than per
+  // session, see this function's own doc-comment) makes the same-microsecond case routine WITHIN
+  // one session too (several commits made back-to-back), so `seq_num` now closes that gap for real,
+  // ahead of the LOW-4 full-path fallback which remains as the final deterministic tie-break.
+  // Compound key: (1) wall-clock prefix (cross-session order), (2) this file's own `seq_num`
+  // (within-session order), (3) full path (last-resort determinism).
   std::ranges::stable_sort(finalized_files, [](const auto &lhs, const auto &rhs) {
-    if (lhs.first != rhs.first) return lhs.first < rhs.first;
-    return lhs.second < rhs.second;
+    if (lhs.wall_clock_prefix != rhs.wall_clock_prefix) return lhs.wall_clock_prefix < rhs.wall_clock_prefix;
+    if (lhs.seq_num != rhs.seq_num) return lhs.seq_num < rhs.seq_num;
+    return lhs.path < rhs.path;
   });
 
   std::vector<storage::durability::WalDeltaData> changelog;
-  for (const auto &[filename, path] : finalized_files) {
-    auto records = versioning::BranchLog::ReadAll(path);
+  for (const auto &file : finalized_files) {
+    auto records = versioning::BranchLog::ReadAll(file.path);
     changelog.insert(changelog.end(), std::make_move_iterator(records.begin()), std::make_move_iterator(records.end()));
   }
   return changelog;
@@ -11642,13 +11686,27 @@ void Interpreter::Commit() {
   // produced deltas (skip pure-read autocommits -- avoids a no-op WalTransactionEnd per read query).
   // Single-writer-per-branch exclusivity makes this race-free. NOTE: if PrepareForCommitPhase below
   // then fails (not realistically reachable for a private, constraint-free, non-replicated,
-  // durability-disabled diff engine), the BranchLog would hold an extra uncommitted txn's records;
-  // acceptable for v1 given the failure is effectively unreachable here (documented limitation).
+  // durability-disabled diff engine), the just-finalized per-commit BranchLog file would hold an
+  // extra uncommitted txn's records; acceptable for v1 given the failure is effectively unreachable
+  // here (documented limitation).
+  //
+  // MULTI-COMMIT fix (2026-07-12): ONE freshly-created, immediately-finalized `BranchLog` per
+  // captured commit -- not one long-lived log spanning the whole checkout session -- see
+  // `BranchContext::CreateCommitLog()`'s own doc-comment for the full round-trip-bug rationale
+  // (`storage::durability::ReadWalInfo`'s per-transaction scan silently dropped every commit after
+  // the first in a multi-commit file). `ts` is computed ONCE and fed to BOTH `CreateCommitLog` (as
+  // this file's own `seq_num`, so `CollectBranchChangelog` can recover commit order even within one
+  // session, see its own doc-comment) and `CaptureBranchCommit` (as the delta timestamps stamped
+  // into it) -- keeping the file's identity and its content's timestamps in lockstep by
+  // construction, rather than drawing two independent counter values that could drift apart.
+  // `Finalize()` runs immediately, still before `PrepareForCommitPhase` below, so the file is a
+  // complete, `_from_`-named, `CollectBranchChangelog`-visible artifact the instant this block
+  // returns -- there is no window where a partially-written file could be discovered mid-write.
   if (current_db_.branch_context() != nullptr && !curr_txn->deltas.empty()) {
-    versioning::CaptureBranchCommit(current_db_.branch_context()->branch_log(),
-                                    *curr_txn,
-                                    &current_db_.branch_context()->diff_engine(),
-                                    current_db_.branch_context()->NextBranchCommitTs());
+    const auto ts = current_db_.branch_context()->NextBranchCommitTs();
+    auto commit_log = current_db_.branch_context()->CreateCommitLog(ts);
+    versioning::CaptureBranchCommit(*commit_log, *curr_txn, &current_db_.branch_context()->diff_engine(), ts);
+    commit_log->Finalize();
   }
 
   auto maybe_commit_error =

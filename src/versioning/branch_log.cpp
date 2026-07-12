@@ -17,19 +17,12 @@
 
 namespace memgraph::versioning {
 
-namespace {
-// A branch log is always a single, self-contained file for this chunk: it never needs to agree
-// with -- or even be aware of -- main's sequence numbering (R21), so it always starts at 0.
-constexpr uint64_t kBranchLogSeqNum{0};
-}  // namespace
-
 BranchLog::BranchLog(std::filesystem::path branch_log_directory, storage::SalientConfig::Items items,
-                     storage::NameIdMapper *name_id_mapper)
+                     storage::NameIdMapper *name_id_mapper, uint64_t seq_num)
     : uuid_{},
       file_retainer_{},
       epoch_id_{utils::GenerateUUID()},
-      wal_file_(std::move(branch_log_directory), uuid_, epoch_id_, items, name_id_mapper, kBranchLogSeqNum,
-                &file_retainer_) {}
+      wal_file_(std::move(branch_log_directory), uuid_, epoch_id_, items, name_id_mapper, seq_num, &file_retainer_) {}
 
 void BranchLog::AppendDelta(const storage::Delta &delta, storage::Vertex *vertex, uint64_t timestamp,
                             storage::Storage *storage) {

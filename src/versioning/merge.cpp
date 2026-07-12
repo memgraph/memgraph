@@ -219,6 +219,36 @@ std::expected<void, MergeError> CheckVertexUnchangedSinceFork(const VertexForkSn
   return {};
 }
 
+// Graph Versioning v1, slice E-4, Q6 (MERGE fork-object fix): reliable historical fork-EDGE
+// existence probe. A bare `historical->FindEdge(gid, View::OLD)` (a raw storage-level scan, see
+// `InMemoryStorage::FindEdge(Gid)`, inmemory/storage.cpp) is NOT reliable for this: it inspects
+// whichever vertex's CURRENT, live, non-versioned `out_edges`/`in_edges` vector physically still
+// contains the gid -- for a LIGHT edge (properties_on_edges=false, the common default) that vector
+// entry is unconditionally POPPED the moment the edge is deleted (`ClearEdgesOnVertices`/
+// `DetachRemainingEdges`, storage.cpp), regardless of `view`; a light edge has no delta chain of its
+// own (`EdgeAccessor::IsDeleted` always returns false for one) to reconstruct an older state from.
+// So a fork edge main has since deleted would silently read back as "never existed" instead of the
+// correct D3 "main deleted it" conflict, and -- worse for THIS fix's purpose -- a fork edge that is
+// perfectly fine (untouched by main) is fine to find this way, which is exactly what let this bug
+// hide: the classify-time probe below only ever needs the untouched case to work.
+//
+// Walking the FROM endpoint's own `OutEdges(View::OLD)` instead is reliable regardless of edge
+// weight: it goes through the vertex's OWN MVCC delta chain (ADD_OUT_EDGE/REMOVE_OUT_EDGE), the same
+// production-safe primitive `BranchContext::ResolveEdges` already relies on for the identical reason
+// (branch_engine.cpp) and `ResolveEdge`'s own doc-comment already flags this exact unreliability
+// (branch_engine.hpp).
+std::optional<storage::EdgeAccessor> FindHistoricalEdgeByEndpoint(storage::Storage::Accessor &historical,
+                                                                  storage::Gid from_vertex_gid, storage::Gid edge_gid) {
+  auto from_v = historical.FindVertex(from_vertex_gid, storage::View::OLD);
+  if (!from_v.has_value()) return std::nullopt;
+  auto out_res = from_v->OutEdges(storage::View::OLD);
+  if (!out_res.has_value()) return std::nullopt;
+  for (auto &e : out_res->edges) {
+    if (e.Gid() == edge_gid) return e;
+  }
+  return std::nullopt;
+}
+
 // Symmetric D3 check for edges (properties only -- endpoints/type never change post-creation).
 std::expected<void, MergeError> CheckEdgeUnchangedSinceFork(const EdgeForkSnapshot &fork_snapshot,
                                                             storage::ReplicationAccessor &merge, storage::Gid gid) {
@@ -315,38 +345,87 @@ std::expected<MergeResult, MergeError> MergeBranch(storage::InMemoryStorage &mai
     // at fork or branch-created) from "main deleted this fork-existing endpoint after the fork
     // point" (a real D3 conflict) when a later FindVertex(endpoint) comes up empty -- see
     // `missing_vertex_error` in pass 2 below.
-    auto classify =
-        utils::Overloaded{[&](sd::WalVertexCreate const &data) -> std::expected<void, MergeError> {
-                            branch_local_vertices.insert(data.gid);
-                            return {};
-                          },
-                          [&](sd::WalVertexDelete const &data) { return ensure_vertex_snapshot(data.gid); },
-                          [&](sd::WalVertexAddLabel const &data) { return ensure_vertex_snapshot(data.gid); },
-                          [&](sd::WalVertexRemoveLabel const &data) { return ensure_vertex_snapshot(data.gid); },
-                          [&](sd::WalVertexSetProperty const &data) { return ensure_vertex_snapshot(data.gid); },
-                          [&](sd::WalEdgeCreate const &data) -> std::expected<void, MergeError> {
-                            branch_local_edges.insert(data.gid);
-                            if (auto check = ensure_vertex_snapshot(data.from_vertex); !check) return check;
-                            return ensure_vertex_snapshot(data.to_vertex);
-                          },
-                          [&](sd::WalEdgeDelete const &data) -> std::expected<void, MergeError> {
-                            if (auto check = ensure_edge_snapshot(data.gid); !check) return check;
-                            if (auto check = ensure_vertex_snapshot(data.from_vertex); !check) return check;
-                            return ensure_vertex_snapshot(data.to_vertex);
-                          },
-                          [&](sd::WalEdgeSetProperty const &data) -> std::expected<void, MergeError> {
-                            if (auto check = ensure_edge_snapshot(data.gid); !check) return check;
-                            if (data.from_gid.has_value()) {
-                              if (auto check = ensure_vertex_snapshot(*data.from_gid); !check) return check;
-                            }
-                            if (data.to_gid.has_value() && *data.to_gid != storage::kInvalidGid) {
-                              if (auto check = ensure_vertex_snapshot(*data.to_gid); !check) return check;
-                            }
-                            return {};
-                          },
-                          [&](sd::WalTransactionStart const &) -> std::expected<void, MergeError> { return {}; },
-                          [&](sd::WalTransactionEnd const &) -> std::expected<void, MergeError> { return {}; },
-                          [&](auto const &) -> std::expected<void, MergeError> { return {}; }};
+    auto classify = utils::Overloaded{
+        [&](sd::WalVertexCreate const &data) -> std::expected<void, MergeError> {
+          // Graph Versioning v1, slice E-4, Q6 (HEADLINE fix -- fixes a LATENT bug
+          // in the already-shipped chunk 6): `BranchContext::CowVertex`
+          // (branch_engine.cpp) recreates a COW'd FORK vertex at its OWN gid via
+          // `CreateVertexEx` too -- a `WalVertexCreate` record is therefore emitted
+          // for BOTH a genuinely new branch-native vertex AND a COW echo of a
+          // fork-existing one; the record alone cannot tell them apart. Before
+          // this fix, EVERY `WalVertexCreate` was unconditionally classified
+          // branch-local, so pass 2 (below) always re-created a FRESH vertex for
+          // it -- for a COW'd fork vertex this silently DUPLICATED it on main (the
+          // original untouched, plus a bogus new one), and every following
+          // SetProperty/AddLabel/Delete record for this SAME gid was then
+          // misapplied to the WRONG (duplicate) copy, never reaching main's real
+          // vertex at all. See BranchModifyForkVertexPropagatesToMainOnMerge's own
+          // test doc-comment (proves this was reachable). Probe `historical_`
+          // (`FindVertex` by bare gid IS reliable for vertices -- unlike the edge
+          // case just below, see FindHistoricalEdgeByEndpoint's own doc-comment
+          // for why edges need a different probe): fork-existing -> snapshot it
+          // and do NOT mark branch-local, so pass 2's WalVertexCreate no-ops the
+          // create instead (the following records then mutate/delete the REAL
+          // vertex in place, under the existing D3 checks, unchanged). Absent ->
+          // genuine branch-native create (gid sits in the watermark range,
+          // kBranchNativeGidWatermark, branch_engine.cpp) -> branch-local as
+          // before.
+          if (auto fork_v = historical->FindVertex(data.gid, storage::View::OLD)) {
+            if (!vertex_fork_snapshots.contains(data.gid)) {
+              vertex_fork_snapshots.emplace(data.gid, VertexForkSnapshot{LabelSet(*fork_v), PropertyMap(*fork_v)});
+            }
+            return {};
+          }
+          branch_local_vertices.insert(data.gid);
+          return {};
+        },
+        [&](sd::WalVertexDelete const &data) { return ensure_vertex_snapshot(data.gid); },
+        [&](sd::WalVertexAddLabel const &data) { return ensure_vertex_snapshot(data.gid); },
+        [&](sd::WalVertexRemoveLabel const &data) { return ensure_vertex_snapshot(data.gid); },
+        [&](sd::WalVertexSetProperty const &data) { return ensure_vertex_snapshot(data.gid); },
+        [&](sd::WalEdgeCreate const &data) -> std::expected<void, MergeError> {
+          // Graph Versioning v1, slice E-4, Q6 (edge-side, symmetric to the
+          // WalVertexCreate fix above): `BranchContext::CowEdge` recreates a COW'd
+          // FORK edge at its OWN gid via `CreateEdgeEx` too, so a `WalEdgeCreate`
+          // record is likewise emitted for both a genuinely new branch-native edge
+          // and a COW echo of a fork-existing one. Reliable existence probe: walk
+          // the FROM endpoint's own `OutEdges(View::OLD)` -- see
+          // FindHistoricalEdgeByEndpoint's own doc-comment for why NOT a bare
+          // `historical->FindEdge(gid)` scan (adversarially found unreliable,
+          // branch_engine.hpp's ResolveEdge doc-comment: a light edge has no delta
+          // chain of its own, so a since-deleted edge's gid is physically gone from
+          // current adjacency regardless of view).
+          if (auto fork_edge = FindHistoricalEdgeByEndpoint(*historical, data.from_vertex, data.gid);
+              fork_edge.has_value()) {
+            if (auto check = ensure_vertex_snapshot(data.from_vertex); !check) return check;
+            if (auto check = ensure_vertex_snapshot(data.to_vertex); !check) return check;
+            if (!edge_fork_snapshots.contains(data.gid)) {
+              edge_fork_snapshots.emplace(data.gid, EdgeForkSnapshot{PropertyMap(*fork_edge)});
+            }
+            return {};
+          }
+          branch_local_edges.insert(data.gid);
+          if (auto check = ensure_vertex_snapshot(data.from_vertex); !check) return check;
+          return ensure_vertex_snapshot(data.to_vertex);
+        },
+        [&](sd::WalEdgeDelete const &data) -> std::expected<void, MergeError> {
+          if (auto check = ensure_edge_snapshot(data.gid); !check) return check;
+          if (auto check = ensure_vertex_snapshot(data.from_vertex); !check) return check;
+          return ensure_vertex_snapshot(data.to_vertex);
+        },
+        [&](sd::WalEdgeSetProperty const &data) -> std::expected<void, MergeError> {
+          if (auto check = ensure_edge_snapshot(data.gid); !check) return check;
+          if (data.from_gid.has_value()) {
+            if (auto check = ensure_vertex_snapshot(*data.from_gid); !check) return check;
+          }
+          if (data.to_gid.has_value() && *data.to_gid != storage::kInvalidGid) {
+            if (auto check = ensure_vertex_snapshot(*data.to_gid); !check) return check;
+          }
+          return {};
+        },
+        [&](sd::WalTransactionStart const &) -> std::expected<void, MergeError> { return {}; },
+        [&](sd::WalTransactionEnd const &) -> std::expected<void, MergeError> { return {}; },
+        [&](auto const &) -> std::expected<void, MergeError> { return {}; }};
 
     for (const auto &delta : changelog) {
       auto result = std::visit(classify, delta.data_);
@@ -417,6 +496,15 @@ std::expected<MergeResult, MergeError> MergeBranch(storage::InMemoryStorage &mai
 
   auto apply = utils::Overloaded{
       [&](sd::WalVertexCreate const &data) -> std::expected<void, MergeError> {
+        if (!branch_local_vertices.contains(data.gid)) {
+          // Q6 fix (see the classify comment above): fork-existing vertex -- a COW echo, not a
+          // genuine new vertex. It already lives on main; NO-OP the create. The following
+          // SetProperty/AddLabel/Delete records for this SAME gid mutate/delete the REAL vertex in
+          // place, each still going through its own D3 CheckVertexUnchangedSinceFork guard
+          // (unchanged below) -- exactly as if the branch's change-log had never re-recorded a
+          // create for it at all.
+          return {};
+        }
         auto v = merge->CreateVertexEx(data.gid);
         if (!v.has_value()) {
           // R11/R19: gid already occupied in main's live state (main's own post-fork create, or a
@@ -550,6 +638,13 @@ std::expected<MergeResult, MergeError> MergeBranch(storage::InMemoryStorage &mai
         return {};
       },
       [&](sd::WalEdgeCreate const &data) -> std::expected<void, MergeError> {
+        if (!branch_local_edges.contains(data.gid)) {
+          // Q6 fix (see the classify comment above): fork-existing edge -- a COW echo, not a
+          // genuine new edge. It already lives on main; NO-OP the create. A later
+          // WalEdgeSetProperty/WalEdgeDelete for this SAME gid mutates/deletes the REAL edge in
+          // place, D3-checked against main's current state (unchanged below).
+          return {};
+        }
         auto resolved_from = resolve_vertex(data.from_vertex);
         auto resolved_to = resolve_vertex(data.to_vertex);
         // View::NEW -- an endpoint may have been created earlier in THIS SAME merge pass (see the

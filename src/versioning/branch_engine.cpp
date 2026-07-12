@@ -159,14 +159,26 @@ void ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_engine, storage:
 // always exist (and therefore their own creation deltas were already recorded) before the edge
 // between them can be created. No separate vertex-then-edge pass is needed.
 //
-// Scope: only the operations CaptureBranchCommit ever actually produces for this slice (vertex/
-// edge create, label add, property set on either) are handled -- there is no delete/tombstone
-// capture yet (E-4), and WalTransactionStart/WalTransactionEnd are pure delimiters. Everything else
-// (including a delete, should one ever unexpectedly appear) is a silent no-op, mirroring
-// versioning::MergeBranch's own "everything else is out of scope" catch-all (merge.cpp).
+// Scope: the operations CaptureBranchCommit ever actually produces (vertex/edge create, label
+// add, property set on either, and -- as of slice E-4 -- vertex/edge DELETE) are handled;
+// WalTransactionStart/WalTransactionEnd are pure delimiters. Everything else is a silent no-op,
+// mirroring versioning::MergeBranch's own "everything else is out of scope" catch-all (merge.cpp).
+//
+// E-4 ADDITION: `tombstoned_vertices`/`tombstoned_edges` are OUT parameters -- this function runs
+// INSIDE `BuildFromFork`, strictly BEFORE the `BranchContext` object it will end up feeding these
+// into is constructed (its private ctor needs them up front, see BuildFromFork's own call site
+// below), so there is no `BranchContext::TombstoneVertex/TombstoneEdge` to call yet. A prior
+// session's own captured delete is replayed as a REAL delete against the fresh diff engine (plain
+// `DeleteVertex`/`DeleteEdge`, never `DetachDelete` with a cascade -- the ORIGINAL delete already
+// passed the "no incident edges" branch-aware guard when it first ran, query::DbAccessor::
+// RemoveVertex/RemoveEdge/DetachDelete, db_accessor.hpp; replaying it in the SAME relative order
+// re-creates that same edge-free state before the delete is replayed), then the gid is recorded in
+// the OUT set exactly as `TombstoneVertex`/`TombstoneEdge` would.
 void ReplayChangelogIntoDiffEngine(storage::InMemoryStorage &diff_engine,
                                    const std::vector<storage::durability::WalDeltaData> &changelog,
-                                   storage::CommitArgs commit_args) {
+                                   storage::CommitArgs commit_args,
+                                   std::unordered_set<storage::Gid> &tombstoned_vertices,
+                                   std::unordered_set<storage::Gid> &tombstoned_edges) {
   if (changelog.empty()) return;  // fresh branch, first checkout -- nothing to replay
 
   std::unique_ptr<storage::ReplicationAccessor> replay(
@@ -232,6 +244,36 @@ void ReplayChangelogIntoDiffEngine(storage::InMemoryStorage &diff_engine,
         MG_ASSERT(ret.has_value(),
                   "BranchContext::BuildFromFork: replay-on-checkout failed to set a property on edge {}.",
                   data.gid.AsUint());
+      },
+      // Graph Versioning v1, slice E-4: replay a prior session's own captured vertex DELETE. Plain
+      // `DeleteVertex` (NEVER `DetachDelete` with a cascade) -- see this function's own top-of-file
+      // doc-comment for why the vertex is guaranteed edge-free by the time this replays. View::NEW:
+      // the vertex may have been (re-)created earlier in THIS SAME replay pass.
+      [&](sd::WalVertexDelete const &data) {
+        auto v = replay->FindVertex(data.gid, storage::View::NEW);
+        MG_ASSERT(v.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout could not find vertex {} to delete -- the "
+                  "branch's own captured change-log should always create a vertex before deleting it.",
+                  data.gid.AsUint());
+        auto ret = replay->DeleteVertex(&*v);
+        MG_ASSERT(ret.has_value() && ret->has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout failed to delete vertex {}.",
+                  data.gid.AsUint());
+        tombstoned_vertices.insert(data.gid);
+      },
+      // Symmetric for edges -- bare diff-engine-only gid lookup, same reasoning as WalEdgeSetProperty
+      // above (this IS the diff engine, so none of historical_->FindEdge's documented unreliability
+      // for bare-gid edge lookups applies here).
+      [&](sd::WalEdgeDelete const &data) {
+        auto e = replay->FindEdge(data.gid, storage::View::NEW);
+        MG_ASSERT(e.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout could not find edge {} to delete.",
+                  data.gid.AsUint());
+        auto ret = replay->DeleteEdge(&*e);
+        MG_ASSERT(ret.has_value() && ret->has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout failed to delete edge {}.",
+                  data.gid.AsUint());
+        tombstoned_edges.insert(data.gid);
       },
       [&](sd::WalTransactionStart const &) {},
       [&](sd::WalTransactionEnd const &) {},
@@ -331,26 +373,45 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
   //     engine" -- true in the literal sense only if nothing (including replayed history) has
   //     touched it yet. A no-op for an empty `changelog` (this branch's first-ever checkout).
   // -----------------------------------------------------------------------------------------
-  ReplayChangelogIntoDiffEngine(*diff_engine, changelog, std::move(replay_commit_args));
+  // Slice E-4: OUT parameters -- populated by any WalVertexDelete/WalEdgeDelete records replayed
+  // above, fed straight into the BranchContext private ctor below (see ReplayChangelogIntoDiffEngine's
+  // own doc-comment for why this function cannot call TombstoneVertex/TombstoneEdge directly: the
+  // BranchContext object they belong to doesn't exist yet at this point in BuildFromFork).
+  std::unordered_set<storage::Gid> tombstoned_vertices;
+  std::unordered_set<storage::Gid> tombstoned_edges;
+  ReplayChangelogIntoDiffEngine(
+      *diff_engine, changelog, std::move(replay_commit_args), tombstoned_vertices, tombstoned_edges);
 
   // -----------------------------------------------------------------------------------------
-  // 4. Durable-capture slice: open THIS checkout session's own BranchLog in a fresh,
-  //    per-session-unique subdirectory under `branch_wal_root_directory` -- see `branch_log_`'s
-  //    own doc-comment (branch_engine.hpp) for why every session needs its own subdirectory
-  //    (collision safety) rather than sharing/reopening one long-lived per-branch log. Shares
-  //    `config.salient.items` (built above, main's own properties_on_edges/enable_edges_metadata
-  //    parity) and main's own shared NameIdMapper: the branch log's own WAL encoding must match
-  //    how `CaptureBranchCommit`'s `target_storage` argument (this same diff engine) actually
-  //    lays out edges/ids, or MERGE's later `BranchLog::ReadAll` would silently misdecode it --
-  //    the identical reasoning the diff engine's own construction above already relies on.
+  // 4. Durable-capture slice, reshaped by the MULTI-COMMIT fix (2026-07-12): rather than opening
+  //    ONE long-lived BranchLog here that would accumulate every commit this session makes (proven
+  //    broken -- see `CreateCommitLog()`'s own doc-comment, branch_engine.hpp, for the
+  //    `ReadWalInfo` multi-transaction round-trip bug this sidesteps), this just mints THIS
+  //    session's own fresh, per-session-unique subdirectory under `branch_wal_root_directory` and
+  //    stashes the ingredients (`config.salient.items`, main's own shared NameIdMapper)
+  //    `CreateCommitLog()` needs to build a brand-new `BranchLog` for EACH individual commit, on
+  //    demand, later. Every per-commit `BranchLog` still lands in this SAME session subdirectory --
+  //    collision safety across DIFFERENT sessions is what matters (see the member doc-comment this
+  //    used to sit on, now moved to `branch_log_session_directory_`), not across commits within one
+  //    session, since each per-commit BranchLog gets its own fresh wall-clock-named file there.
+  //    Shares `config.salient.items` (built above, main's own properties_on_edges/
+  //    enable_edges_metadata parity) and main's own shared NameIdMapper: the branch log's own WAL
+  //    encoding must match how `CaptureBranchCommit`'s `target_storage` argument (this same diff
+  //    engine) actually lays out edges/ids, or MERGE's later `BranchLog::ReadAll` would silently
+  //    misdecode it -- the identical reasoning the diff engine's own construction above already
+  //    relies on.
   // -----------------------------------------------------------------------------------------
-  auto branch_log = std::make_unique<BranchLog>(
-      branch_wal_root_directory / utils::GenerateUUID(), config.salient.items, main.GetSharedNameIdMapper().get());
+  auto branch_log_session_directory = branch_wal_root_directory / utils::GenerateUUID();
 
   // Private ctor -- constructed via `new` rather than std::make_unique (which needs public ctor
   // access), from inside this static member function which does have that access.
-  return std::unique_ptr<BranchContext>(
-      new BranchContext(std::move(diff_engine), std::move(historical), std::move(branch_log)));
+  return std::unique_ptr<BranchContext>(new BranchContext(std::move(diff_engine),
+                                                          std::move(historical),
+                                                          std::move(tombstoned_vertices),
+                                                          std::move(tombstoned_edges),
+                                                          std::move(branch_log_session_directory),
+                                                          config.salient.items,
+                                                          main.GetSharedNameIdMapper().get()));
 }
 
 std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::CowVertex(storage::Gid gid) {
@@ -526,6 +587,11 @@ std::optional<storage::VertexAccessor> BranchContext::ResolveVertex(storage::Gid
             "BranchContext::ResolveVertex: no current diff transaction set -- "
             "CurrentDB::SetupDatabaseTransaction must call set_current_diff_txn() before any query "
             "runs against a checked-out branch.");
+  // Graph Versioning v1, slice E-4: checked FIRST, unconditionally -- see `tombstoned_vertices_`'s
+  // own doc-comment (branch_engine.hpp) for why a bare diff-engine miss alone cannot tell "never
+  // touched, fall through to historical_" apart from "explicitly deleted, hide" (both look like
+  // nullopt to the diff engine for a not-yet-COW'd fork vertex).
+  if (tombstoned_vertices_.contains(gid)) return std::nullopt;
   if (auto diff_vertex = current_diff_txn_->FindVertex(gid, view)) {
     return diff_vertex;
   }
@@ -584,8 +650,10 @@ std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vert
                                                                    : v.InEdges(collect_view, edge_types, nullptr);
     if (!maybe_result.has_value()) return;
     for (auto &edge : maybe_result->edges) {
-      // Tombstone hook (inert this slice -- tombstoned_edges_ is never populated, see its own
-      // doc-comment): once E-4 lands, a tombstoned gid must never enter `result`, from EITHER side.
+      // Tombstone hook (ACTIVE as of slice E-4 -- tombstoned_edges_ is populated by
+      // query::DbAccessor::RemoveEdge/DetachDelete and by ReplayChangelogIntoDiffEngine's own
+      // WalEdgeDelete handler, see its own doc-comment, branch_engine.hpp): a tombstoned gid must
+      // never enter `result`, from EITHER side.
       if (tombstoned_edges_.contains(edge.Gid())) continue;
 
       auto [it, inserted] = seen.try_emplace(edge.Gid(), result.size());
@@ -613,25 +681,32 @@ BranchContext::UnionVerticesIterable BranchContext::Vertices(storage::View view)
             "BranchContext::Vertices: no current diff transaction set -- "
             "CurrentDB::SetupDatabaseTransaction must call set_current_diff_txn() before any query "
             "runs against a checked-out branch.");
-  return UnionVerticesIterable(historical_base_->Vertices(storage::View::OLD), current_diff_txn_->Vertices(view));
+  return UnionVerticesIterable(
+      historical_base_->Vertices(storage::View::OLD), current_diff_txn_->Vertices(view), &tombstoned_vertices_);
 }
 
 BranchContext::UnionVerticesIterable::UnionVerticesIterable(storage::VerticesIterable hist_vertices,
-                                                            storage::VerticesIterable diff_vertices)
-    : hist_vertices_(std::move(hist_vertices)), diff_vertices_(std::move(diff_vertices)) {}
+                                                            storage::VerticesIterable diff_vertices,
+                                                            const std::unordered_set<storage::Gid> *tombstoned_vertices)
+    : hist_vertices_(std::move(hist_vertices)),
+      diff_vertices_(std::move(diff_vertices)),
+      tombstoned_vertices_(tombstoned_vertices) {}
 
 BranchContext::UnionVerticesIterable::Iterator BranchContext::UnionVerticesIterable::begin() {
-  return Iterator(hist_vertices_.begin(), hist_vertices_.end(), diff_vertices_.begin(), diff_vertices_.end());
+  return Iterator(
+      hist_vertices_.begin(), hist_vertices_.end(), diff_vertices_.begin(), diff_vertices_.end(), tombstoned_vertices_);
 }
 
 BranchContext::UnionVerticesIterable::Iterator::Iterator(storage::VerticesIterable::Iterator hist_it,
                                                          storage::VerticesIterable::Iterator hist_end,
                                                          storage::VerticesIterable::Iterator diff_it,
-                                                         storage::VerticesIterable::Iterator diff_end)
+                                                         storage::VerticesIterable::Iterator diff_end,
+                                                         const std::unordered_set<storage::Gid> *tombstoned_vertices)
     : hist_it_(std::move(hist_it)),
       hist_end_(std::move(hist_end)),
       diff_it_(std::move(diff_it)),
-      diff_end_(std::move(diff_end)) {
+      diff_end_(std::move(diff_end)),
+      tombstoned_vertices_(tombstoned_vertices) {
   SeekNext();
 }
 
@@ -641,50 +716,76 @@ BranchContext::UnionVerticesIterable::Iterator &BranchContext::UnionVerticesIter
 }
 
 // The streaming gid-ordered merge -- see the class comment in branch_engine.hpp for the full
-// O(H + D) argument. No tombstone/skip case this slice (no delete op exists yet), so -- unlike
-// BranchReconstruction::UnionVerticesIterable::Iterator::SeekNext, which needs a `continue` loop to
-// skip tombstoned gids -- every call here returns after advancing exactly one (or, on a gid tie,
-// both) of the two cursors.
+// O(H + D) argument. Graph Versioning v1, slice E-4: a `while (true) { ... continue; }` skip-loop
+// (mirrors BranchReconstruction::UnionVerticesIterable::Iterator::SeekNext exactly,
+// branch_reconstruction.cpp) -- needed now that a gid CAN be tombstoned. Only the historical_-side
+// yield paths ever need the check: a diff-engine-resident gid that has been deleted is ALREADY
+// excluded by the diff engine's own native MVCC visibility (its `Vertices(view)` scan never yields a
+// NEW-deleted object in the first place -- `tombstoned_vertices_` only ever matters for a gid that
+// the diff engine itself has NO knowledge of having been touched at all, i.e. a not-yet-COW'd fork
+// vertex the branch deleted directly). Every branch below still advances at least one cursor per
+// iteration (including the tombstone-skip `continue`s), so the loop terminates.
 void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
-  const bool hist_has = hist_it_.has_value() && !(*hist_it_ == *hist_end_);
-  const bool diff_has = diff_it_.has_value() && !(*diff_it_ == *diff_end_);
+  while (true) {
+    const bool hist_has = hist_it_.has_value() && !(*hist_it_ == *hist_end_);
+    const bool diff_has = diff_it_.has_value() && !(*diff_it_ == *diff_end_);
 
-  if (!hist_has && !diff_has) {
-    current_.reset();
-    done_ = true;
-    return;
-  }
+    if (!hist_has && !diff_has) {
+      current_.reset();
+      done_ = true;
+      return;
+    }
 
-  if (hist_has && diff_has) {
-    const auto hist_gid = (**hist_it_).Gid();
-    const auto diff_gid = (**diff_it_).Gid();
+    if (hist_has && diff_has) {
+      const auto hist_gid = (**hist_it_).Gid();
+      const auto diff_gid = (**diff_it_).Gid();
 
-    if (hist_gid < diff_gid) {
-      current_ = **hist_it_;
-      ++(*hist_it_);
-    } else if (diff_gid < hist_gid) {
-      current_ = **diff_it_;
-      ++(*diff_it_);
-    } else {
+      if (hist_gid < diff_gid) {
+        // historical_-only for this gid (the diff engine hasn't reached it yet) -- skip if
+        // tombstoned, mirroring the hist_has-only case below exactly.
+        const bool tombstoned = tombstoned_vertices_ != nullptr && tombstoned_vertices_->contains(hist_gid);
+        auto vertex_copy = **hist_it_;
+        ++(*hist_it_);
+        if (tombstoned) continue;
+        current_ = vertex_copy;
+        done_ = false;
+        return;
+      }
+      if (diff_gid < hist_gid) {
+        current_ = **diff_it_;
+        ++(*diff_it_);
+        done_ = false;
+        return;
+      }
       // Tie: the diff engine's copy IS the branch's authoritative view of this gid (a COW'd,
       // possibly-modified copy) -- it wins outright; historical_'s fork-state copy is superseded
-      // wholesale, never field-merged. Both cursors advance past this gid.
+      // wholesale, never field-merged. Both cursors advance past this gid. No tombstone check
+      // needed here: a diff-resident gid that was deleted is already excluded by the diff engine's
+      // own scan (see this function's own top-of-file comment).
       current_ = **diff_it_;
       ++(*hist_it_);
       ++(*diff_it_);
+      done_ = false;
+      return;
     }
+
+    if (hist_has) {
+      const auto hist_gid = (**hist_it_).Gid();
+      const bool tombstoned = tombstoned_vertices_ != nullptr && tombstoned_vertices_->contains(hist_gid);
+      auto vertex_copy = **hist_it_;
+      ++(*hist_it_);
+      if (tombstoned) continue;
+      current_ = vertex_copy;
+      done_ = false;
+      return;
+    }
+
+    // diff_has only.
+    current_ = **diff_it_;
+    ++(*diff_it_);
     done_ = false;
     return;
   }
-
-  if (hist_has) {
-    current_ = **hist_it_;
-    ++(*hist_it_);
-  } else {
-    current_ = **diff_it_;
-    ++(*diff_it_);
-  }
-  done_ = false;
 }
 
 }  // namespace memgraph::versioning

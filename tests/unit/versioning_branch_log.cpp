@@ -222,7 +222,7 @@ TEST_F(VersioningBranchLogTest, RoundTripRepresentativeOpsAndMainUntouched) {
   const uint64_t commit_timestamp = storage::kTimestampInitialId + 1;
 
   // The branch log directory is entirely separate from `main_storage`'s (own uuid/seq -- R21).
-  versioning::BranchLog branch_log(BranchDir(), items, &txn.Mapper());
+  versioning::BranchLog branch_log(BranchDir(), items, &txn.Mapper(), /*seq_num=*/0);
   auto const txn_end_pos = txn.CommitInto(branch_log, commit_timestamp);
   branch_log.Finalize();
 

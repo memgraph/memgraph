@@ -719,22 +719,27 @@ TEST_F(VersioningInterpreterTest, BranchLabelScanIsUnionAwareNotJustDiffEngineIn
       << "the still-historical vertex (diff engine's own index does NOT know about it) must not be silently missed";
 }
 
-// Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-4 regression (adversarial-review fix):
-// DELETE has no defined semantics yet on a branch (this slice is VERTEX-ONLY -- no tombstone
-// concept exists in BranchContext::UnionVerticesIterable, see its own doc-comment) -- must be
-// rejected cleanly (NotYetImplemented) rather than crashing or silently misbehaving (e.g. deleting
-// a not-yet-COW'd historical object, or a resurrection once the union scan next runs).
-TEST_F(VersioningInterpreterTest, BranchDeleteThrowsNotYetImplemented) {
+// Graph Versioning v1, slice E-4: SUPERSEDES the original E-1-era version of this test (which
+// asserted ALL delete on a branch threw NotYetImplemented -- true back when this slice was
+// VERTEX-ONLY and no tombstone concept existed in BranchContext::UnionVerticesIterable). Plain
+// (non-cascading) DELETE is now fully supported (see the Branch*Delete* tests below) -- only
+// DETACH DELETE's automatic incident-edge CASCADE remains deferred: a COW'd fork vertex's
+// diff-engine adjacency is EMPTY (CowVertex copies props+labels only, not adjacency, see its own
+// doc-comment, branch_engine.cpp), so the diff engine's own native cascade
+// (storage.cpp's ClearEdgesOnVertices) would silently miss every fork-resident incident edge --
+// reject cleanly (DbAccessor::DetachDelete/DetachRemoveVertex, db_accessor.hpp) rather than ship
+// that gap.
+TEST_F(VersioningInterpreterTest, BranchDetachDeleteThrowsNotYetImplemented) {
   SatisfyGate();
 
-  faker.Interpret("CREATE (:A {x:1})");
+  faker.Interpret("CREATE (:A {x:1})-[:R]->(:B)");
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  ASSERT_THROW(faker.Interpret("MATCH (n) DELETE n"), memgraph::query::NotYetImplemented);
+  ASSERT_THROW(faker.Interpret("MATCH (n:A) DETACH DELETE n"), memgraph::query::NotYetImplemented);
 
   // Must not have crashed or left the session/transaction unusable -- an ordinary read still works.
-  auto stream = faker.Interpret("MATCH (n) RETURN n.x");
+  auto stream = faker.Interpret("MATCH (n:A) RETURN n.x");
   ASSERT_EQ(stream.GetResults().size(), 1U);
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
 }
@@ -952,4 +957,216 @@ TEST_F(VersioningInterpreterTest, BranchEdgePropertyRemoveIsCowedAndIsolated) {
     ASSERT_EQ(stream.GetResults().size(), 1U);
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
   }
+}
+
+// Graph Versioning v1, slice E-4, increment 2: a branch-NATIVE vertex (created and deleted entirely
+// within the SAME checkout session -- no fork counterpart at all) must be hidden from the branch's
+// own read path immediately after its own DELETE, and MERGE must have nothing to apply for it: pass
+// 1's classify already excludes a branch-local gid from D3 entirely, and CowVertex/CreateVertexEx/
+// DeleteVertex all happened purely inside the diff engine -- no fork object was ever touched, so
+// this exercises the "works WITHOUT the Q6 merge fix" case (contrast
+// BranchModifyForkVertexPropagatesToMainOnMerge/BranchDeleteForkVertexRemovesFromMainOnMerge below,
+// which specifically need it).
+TEST_F(VersioningInterpreterTest, BranchDeleteBranchNativeVertexHiddenAndMergesAbsent) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("CREATE (:X {id:1})");
+  faker.Interpret("MATCH (n:X) DELETE n");
+
+  {
+    auto stream = faker.Interpret("MATCH (n:X) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch-native vertex must be hidden after its own DELETE";
+  }
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  auto stream = faker.Interpret("MATCH (n:X) RETURN n");
+  EXPECT_EQ(stream.GetResults().size(), 0U) << "main must never have seen the created-then-deleted vertex";
+}
+
+// MULTI-COMMIT fix regression (2026-07-12): direct proof that a checkout SESSION making SEVERAL
+// separate query-commits (not just the CREATE-then-DELETE pair above) has EVERY one of them
+// captured and replayed onto main in the right order, not just the first. Before the fix, a single
+// BranchLog spanning the whole session accumulated all three commits' deltas into ONE file --
+// `storage::durability::ReadWalInfo`'s per-transaction scan (wal.cpp) stops counting the instant it
+// sees a SECOND transaction's differing timestamp, so `CollectBranchChangelog` would have silently
+// recovered ONLY the first commit (CREATE :M1) -- MERGE would then leave main with just :M1, never
+// :M2, and :M1 would never get its `v:2` property update either. Three separate `faker.Interpret`
+// calls below are three separate autocommitted transactions (three separate per-commit BranchLog
+// files, per `BranchContext::CreateCommitLog`) -- proving all three round-trip and apply in order.
+TEST_F(VersioningInterpreterTest, BranchMultipleCommitsAllCapturedAndMergedInOrder) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Commit 1: create :M1.
+  faker.Interpret("CREATE (:M1 {v:1})");
+  // Commit 2: create :M2 (a second, independent branch-native vertex).
+  faker.Interpret("CREATE (:M2 {v:1})");
+  // Commit 3: modify :M1 -- only correct if commit 1's vertex is visible to this later commit,
+  // proving the diff engine (not just the eventual merged main) sees every earlier commit too.
+  faker.Interpret("MATCH (n:M1) SET n.v = 2");
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  {
+    auto stream = faker.Interpret("MATCH (n:M1) RETURN n.v");
+    ASSERT_EQ(stream.GetResults().size(), 1U) << "commit 1 (create) must have been merged";
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "commit 3 (the SET) must have been merged too";
+  }
+  {
+    auto stream = faker.Interpret("MATCH (n:M2) RETURN n.v");
+    ASSERT_EQ(stream.GetResults().size(), 1U) << "commit 2 (create) must have been merged";
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+}
+
+// Graph Versioning v1, slice E-4, increment 3 (+ increment 4's Q6 edge-side fix, merge.cpp): a
+// FORK edge (pre-existing on main before the branch was even created) that the branch DELETEs must
+// be hidden on the branch immediately, and gone from main after MERGE. WITHOUT the Q6 edge-side
+// classify fix (FindHistoricalEdgeByEndpoint, merge.cpp), this test's final assertion would FAIL:
+// the COW'd fork edge's WalEdgeCreate echo gets misclassified branch-local, so MERGE's WalEdgeCreate
+// apply recreates a DUPLICATE edge on main (since the original gid already exists there, R11 remaps
+// it to a fresh one) instead of no-oping, and the following WalEdgeDelete then deletes THAT
+// duplicate -- net leaving the ORIGINAL fork edge on main completely untouched (silently WRONG).
+TEST_F(VersioningInterpreterTest, BranchDeleteEdgeHiddenAndMerged) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:S)-[:E]->(:A)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (:S)-[e:E]->(:A) DELETE e");
+
+  {
+    auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN e");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the edge must be hidden on the branch immediately after DELETE";
+  }
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN e");
+    ASSERT_EQ(stream.GetResults().size(), 1U) << "main must still have ITS OWN edge -- not yet merged";
+  }
+
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN e");
+  EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch's delete must have removed the fork edge from main too";
+}
+
+// Graph Versioning v1, slice E-4, increment 4 (Q6, HEADLINE fix -- PROVES a LATENT bug in the
+// already-shipped merge, chunk 6): a fork vertex the branch only MODIFIES (never deletes) still
+// gets COW'd (BranchContext::CowVertex recreates it at its OWN gid via CreateVertexEx), which
+// produces a WalVertexCreate record for it too -- indistinguishable from a genuine new-vertex create
+// by the record alone. BEFORE the Q6 classify fix (merge.cpp), that record was unconditionally
+// treated as branch-local, so MERGE silently created a DUPLICATE :P on main and applied the SET to
+// the duplicate, never touching main's REAL :P -- this test's assertions (exactly one :P, showing
+// v=2) would FAIL against the pre-fix code (either 2 rows, or the original untouched at v=1).
+TEST_F(VersioningInterpreterTest, BranchModifyForkVertexPropagatesToMainOnMerge) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:P {v:1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:P) SET n.v = 2");
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  auto stream = faker.Interpret("MATCH (n:P) RETURN n.v");
+  ASSERT_EQ(stream.GetResults().size(), 1U)
+      << "must be exactly ONE :P vertex on main -- the pre-fix classify bug would have created a duplicate";
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2)
+      << "main's REAL :P must show the branch's SET, not v=1 on an untouched original";
+}
+
+// Graph Versioning v1, slice E-4, increment 4: an ISOLATED fork vertex (no incident edges, so the
+// plain non-cascading delete path applies) the branch DELETEs must be gone from main after MERGE --
+// exercises the Q6 classify fix's WalVertexDelete-after-WalVertexCreate-echo interplay: the
+// WalVertexCreate echo is correctly no-op'd (fork-existing, not branch-local), so the following
+// WalVertexDelete actually deletes main's REAL vertex, not a bogus duplicate that would otherwise
+// have been left behind untouched.
+TEST_F(VersioningInterpreterTest, BranchDeleteForkVertexRemovesFromMainOnMerge) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:Q {id:1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:Q) DELETE n");
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (n:Q) RETURN n");
+    ASSERT_EQ(stream.GetResults().size(), 1U) << "main must still have :Q -- not yet merged";
+  }
+
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  auto stream = faker.Interpret("MATCH (n:Q) RETURN n");
+  EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch's delete of the fork vertex must be applied to main";
+}
+
+// Graph Versioning v1, slice E-4, increment 4 (Q6, EDGE-side analog of
+// BranchModifyForkVertexPropagatesToMainOnMerge -- the vertex analog is what caught the real HIGH
+// bug; this locks in the symmetric edge-side fix, merge.cpp's FindHistoricalEdgeByEndpoint). A
+// FORK edge the branch only MODIFIES (never deletes) still gets COW'd (BranchContext::CowEdge
+// recreates it at its OWN gid via CreateEdgeEx), which produces a WalEdgeCreate record for it too --
+// indistinguishable from a genuine new-edge create by the record alone. WITHOUT the Q6 edge-side
+// classify fix (FindHistoricalEdgeByEndpoint walking the FROM endpoint's own OutEdges(View::OLD)
+// instead of a bare, unreliable historical->FindEdge(gid) scan), this record would be misclassified
+// branch-local: pass 2's WalEdgeCreate apply would then either collide (EdgeGidExists true, since
+// main's original edge already occupies that gid) and remap to a FRESH duplicate edge gid, or --
+// worse -- silently duplicate the edge outright if the gid check somehow didn't fire, with the
+// following WalEdgeSetProperty misapplied to the WRONG (duplicate) copy, never reaching main's REAL
+// edge at all. This is the one case in the whole E-4 slice that had NO executed coverage before this
+// test (BranchDeleteEdgeHiddenAndMerged exercises the same classify path but via a DELETE, not a
+// bare property SET-and-merge).
+TEST_F(VersioningInterpreterTest, BranchModifyForkEdgePropertyPropagatesToMainOnMerge) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:S)-[:R {w:1}]->(:A)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (:S)-[e:R]->(:A) SET e.w = 2");
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  auto stream = faker.Interpret("MATCH (:S)-[e:R]->(:A) RETURN e.w");
+  ASSERT_EQ(stream.GetResults().size(), 1U)
+      << "must be exactly ONE :S-[:R]->:A edge on main -- the pre-fix classify bug would have created a duplicate";
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2)
+      << "main's REAL edge must show the branch's SET, not w=1 on an untouched original";
+}
+
+// REMOVE variant of the test above -- same Q6 classify path (a property mutator always COWs the
+// edge first, REMOVE included: EdgeAccessor::RemoveProperty is SetProperty(key, null) internally),
+// cheap to lock in separately in case a future refactor special-cases REMOVE away from SetProperty.
+TEST_F(VersioningInterpreterTest, BranchRemoveForkEdgePropertyPropagatesToMainOnMerge) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:S)-[:R {w:1}]->(:A)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (:S)-[e:R]->(:A) REMOVE e.w");
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  auto stream = faker.Interpret("MATCH (:S)-[e:R]->(:A) RETURN e.w");
+  ASSERT_EQ(stream.GetResults().size(), 1U)
+      << "must be exactly ONE :S-[:R]->:A edge on main -- the pre-fix classify bug would have created a duplicate";
+  EXPECT_EQ(stream.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null)
+      << "main's REAL edge must show the branch's REMOVE, not w=1 on an untouched original";
 }

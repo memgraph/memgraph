@@ -37,11 +37,25 @@ namespace memgraph::versioning {
 class BranchLog {
  public:
   // `branch_log_directory` must be the branch's OWN directory (never main's WAL directory --
-  // R21). Creates a fresh WalFile there with a fresh UUID and epoch, starting at seq_num 0 (a
-  // branch log is always a single, self-contained file for this chunk; it never needs to agree
-  // with -- or even be aware of -- main's sequence numbering).
+  // R21). Creates a fresh WalFile there with a fresh UUID and epoch -- it never needs to agree
+  // with -- or even be aware of -- main's sequence numbering.
+  //
+  // `seq_num`: durable-capture MULTI-COMMIT fix (2026-07-12) -- each `BranchLog` now covers
+  // EXACTLY ONE captured commit (see `versioning::BranchContext::CreateCommitLog`, branch_engine.
+  // hpp, for why: a single BranchLog file holding MULTIPLE transactions does not round-trip --
+  // `storage::durability::ReadWalInfo`'s per-transaction scan (wal.cpp) stops counting deltas the
+  // moment it sees a SECOND transaction's differing timestamp, so `BranchLog::ReadAll` silently
+  // returned only the FIRST commit's records for a multi-commit file). The caller passes its own
+  // monotonic per-session commit counter here (`BranchContext::NextBranchCommitTs()`) -- embedded
+  // in the underlying WalFile's own metadata (readable back via `storage::durability::ReadWalInfo`'s
+  // `seq_num` field) so `CollectBranchChangelog` (interpreter.cpp) can recover the correct COMMIT
+  // ORDER across the (now many) per-commit files in one session directory even if their wall-clock
+  // filename prefixes ever collide (see that function's own doc-comment for the full ordering
+  // contract). Distinct across commits within one session by construction (a strictly-increasing
+  // counter); distinctness across DIFFERENT sessions is not relied upon (each session's counter
+  // restarts from 0 -- ordering across sessions still comes from the wall-clock filename prefix).
   BranchLog(std::filesystem::path branch_log_directory, storage::SalientConfig::Items items,
-            storage::NameIdMapper *name_id_mapper);
+            storage::NameIdMapper *name_id_mapper, uint64_t seq_num);
 
   BranchLog(const BranchLog &) = delete;
   BranchLog &operator=(const BranchLog &) = delete;

@@ -467,7 +467,7 @@ TEST_F(VersioningBranchReconstructionCaptureTest, CapturesOwnerResolvedDeltasInt
 
   const uint64_t commit_timestamp = ms::kTimestampInitialId + 1;
 
-  mv::BranchLog branch_log(BranchDir(), items, &txn.Mapper());
+  mv::BranchLog branch_log(BranchDir(), items, &txn.Mapper(), /*seq_num=*/0);
   auto const txn_end_pos = mv::CaptureBranchCommit(branch_log, txn.Raw(), main_storage.get(), commit_timestamp);
   branch_log.Finalize();
 
