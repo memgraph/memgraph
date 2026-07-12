@@ -122,6 +122,7 @@ auto BuildOperatorTree(auto const &impl, QueryPlannerContext::Impl &ctx) -> Buil
       .named_output_info = impl.graph.template storage<NamedOutput>().names.reverse(),
       .symbol_store = impl.graph.template storage<Symbol>().store,
       .function_info = impl.graph.template storage<Function>().functions.reverse(),
+      .orderby_info = impl.graph.template storage<symbol::OrderBy>().info,
       .egraph = impl.graph.core(),
   };
   auto const resolved_entries = ctx.build.resolved_entries();

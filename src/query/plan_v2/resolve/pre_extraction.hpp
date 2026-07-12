@@ -36,6 +36,13 @@ inline auto BuildPreExtractionData(EGraph const &core) -> PreExtractionData {
   using enum symbol;
   PreExtractionData out;
   boost::container::small_vector<planner::core::EClassId, 32> read_symbols;
+  // DISTINCT / ORDER BY carry their dedup/remember columns as a variadic run of
+  // Symbol children. Those are a demand on the bound variable exactly like an
+  // Identifier reference, since they keep the value materialized, but they sit
+  // among children that are not Symbols: the operator input, and ORDER BY's
+  // sort-key expressions. The run is filtered against the index after the walk,
+  // which is also when every Symbol e-class has been assigned its bit.
+  boost::container::small_vector<planner::core::EClassId, 32> read_columns;
   for (auto eclass_id : core.canonical_eclass_ids()) {
     for (auto enode_id : core.eclass(eclass_id).nodes()) {
       auto const &enode = core.get_enode(enode_id);
@@ -45,14 +52,22 @@ inline auto BuildPreExtractionData(EGraph const &core) -> PreExtractionData {
       }
       auto const reads = DispatchBySymbol(enode.symbol(), [&]<symbol S>() { return reads_symbol_v<S>; });
       if (!reads || enode.children().empty()) continue;
-      // Every reader takes the binding at Identifier's sym index; a reader with
-      // another layout would need that index from its own child_layout entry.
-      // The child is canonical: EGraph::emplace canonicalizes children at insert
+      // Children are canonical: EGraph::emplace canonicalizes them at insert
       // time and rebuild() re-canonicalizes via canonicalize_in_place().
-      read_symbols.push_back(enode.children()[child::identifier::sym]);
+      if (enode.symbol() == Distinct || enode.symbol() == OrderBy) {
+        for (auto child : enode.children().subspan(child::distinct::first_value)) read_columns.push_back(child);
+      } else {
+        // Every other reader takes one binding, at Identifier's sym index.
+        read_symbols.push_back(enode.children()[child::identifier::sym]);
+      }
     }
   }
   out.referenced_syms = out.variable_index.to_variable_set(read_symbols);
+  // Only the Symbol children carry a bit; sort-key and input children are
+  // skipped, so `bit_of`'s registered-only contract holds.
+  for (auto eclass_id : read_columns) {
+    if (out.variable_index.contains(eclass_id)) out.referenced_syms.set(out.variable_index.bit_of(eclass_id));
+  }
   return out;
 }
 
