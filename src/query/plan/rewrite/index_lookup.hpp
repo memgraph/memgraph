@@ -1633,7 +1633,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   struct ScanByIndexResult {
     std::shared_ptr<LogicalOperator> operator_;
     ScanByIndexMetadata metadata_;
-    bool has_in_filter = false;  // true when an IN-list filter was rewritten to Unwind + equality scan
+    bool has_in_filter = false;    // true when an IN-list filter was rewritten to Unwind + equality scan
+    int64_t estimated_count = -1;  // approximate row count, set by some index lookups for comparison
   };
 
   std::optional<ScanByIndexResult> FindBestVertexPropertyScan(Symbol const &node_symbol,
@@ -1671,11 +1672,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     metadata.filters_to_erase.push_back(best->filter);
 
+    auto const count = best->count;
+
     if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
       return ScanByIndexResult{
           std::make_shared<ScanAllByVertexPropertyRange>(
               input, node_symbol, best->property, prop_filter.lower_bound_, prop_filter.upper_bound_, view),
-          std::move(metadata)};
+          std::move(metadata),
+          false,
+          count};
     }
     if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
       Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
@@ -1683,23 +1688,30 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return ScanByIndexResult{
           std::make_shared<ScanAllByVertexPropertyRange>(
               input, node_symbol, best->property, std::make_optional(lower_bound), std::nullopt, view),
-          std::move(metadata)};
+          std::move(metadata),
+          false,
+          count};
     }
     if (prop_filter.type_ == PropertyFilter::Type::IN) {
       auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_);
       return ScanByIndexResult{std::make_shared<ScanAllByVertexPropertyValue>(
                                    std::move(unwound.op), node_symbol, best->property, unwound.element, view),
                                std::move(metadata),
-                               /*has_in_filter=*/true};
+                               true,
+                               count};
     }
     if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
       return ScanByIndexResult{std::make_shared<ScanAllByVertexProperty>(input, node_symbol, best->property, view),
-                               std::move(metadata)};
+                               std::move(metadata),
+                               false,
+                               count};
     }
     MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
     return ScanByIndexResult{
         std::make_shared<ScanAllByVertexPropertyValue>(input, node_symbol, best->property, prop_filter.value_, view),
-        std::move(metadata)};
+        std::move(metadata),
+        false,
+        count};
   }
 
   // Finds the best indexed scan operator for the given ScanAll without applying side effects.
@@ -1791,7 +1803,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             std::move(metadata)};
       }
     }
-    // Try global vertex-property index when no labels are available.
     auto labels = filters_.FilteredLabels(node_symbol);
     auto or_labels = filters_.FilteredOrLabels(node_symbol);
     if (labels.empty() && or_labels.empty()) {
@@ -1884,17 +1895,31 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       op->index_order_ = found_index->order;
       return ScanByIndexResult{std::move(op), std::move(metadata), has_in};
     }
+    // Try global vertex-property index as fallback — may beat label-only scan
+    auto vertex_prop_result = FindBestVertexPropertyScan(node_symbol, bound_symbols, are_bound, input, view, metadata);
+
     if (!labels.empty()) {
       auto maybe_label = FindBestLabelIndex(labels);
       if (maybe_label) {
         const auto &label = *maybe_label;
-        if (!max_vertex_count || db_->VerticesCount(GetLabel(label)) <= *max_vertex_count) {
+        auto const label_count = db_->VerticesCount(GetLabel(label));
+        if (!max_vertex_count || label_count <= *max_vertex_count) {
+          if (!vertex_prop_result) {
+            metadata.labels_to_erase.push_back(label);
+            auto op = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+            return ScanByIndexResult{std::move(op), std::move(metadata)};
+          }
+          // Compare: label-only vs vertex-property index
+          if (vertex_prop_result->estimated_count < label_count) {
+            return std::move(*vertex_prop_result);
+          }
           metadata.labels_to_erase.push_back(label);
           auto op = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
           return ScanByIndexResult{std::move(op), std::move(metadata)};
         }
       }
     }
+    if (vertex_prop_result) return std::move(*vertex_prop_result);
     if (!or_labels.empty()) {
       auto best_group = FindBestIndexGroup(node_symbol, bound_symbols, or_labels);
       // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it and chain
