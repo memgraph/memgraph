@@ -4735,6 +4735,46 @@ TYPED_TEST(TestPlanner, MatchVertexPropertyIndexRange) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByVertexPropertyRange(property_pair), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, MatchVertexPropertyIndexFallbackBeatsLabel) {
+  // MATCH (n:Label) WHERE n.prop = 1 RETURN n
+  // vertex-property index on prop (count=100), label index on :Label (count=1000), no label+property index
+  // vertex-property should win → ScanAllByVertexPropertyValue + Filter (for label)
+  FakeDbAccessor dba;
+  auto label = dba.Label("Label");
+  auto prop = dba.Property("prop");
+  const auto property_pair = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1000);
+  dba.SetVertexPropertyIndexCount(prop, 100);
+
+  const auto lit_1 = LITERAL(1);
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n", "Label"))), WHERE(EQ(PROPERTY_LOOKUP(dba, "n", prop), lit_1)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAllByVertexPropertyValue(property_pair, lit_1),
+            ExpectFilter(),
+            ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, MatchVertexPropertyIndexFallbackLosesToLabel) {
+  // MATCH (n:Label) WHERE n.prop = 1 RETURN n
+  // vertex-property index on prop (count=1000), label index on :Label (count=100), no label+property index
+  // label should win → ScanAllByLabel + Filter (for property)
+  FakeDbAccessor dba;
+  auto label = dba.Label("Label");
+  auto prop = dba.Property("prop");
+  dba.SetIndexCount(label, 100);
+  dba.SetVertexPropertyIndexCount(prop, 1000);
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", "Label"))), WHERE(EQ(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, PatternComprehensionWithNamedPath) {
   // Test MATCH (n) RETURN [path = (n)-->() | length(path)] AS lengths
   // This tests that named path variables in pattern comprehensions generate ConstructNamedPath in the plan.
