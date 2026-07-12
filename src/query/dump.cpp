@@ -358,6 +358,10 @@ void DumpEdgePropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::Pr
   *os << "CREATE GLOBAL EDGE INDEX ON :(" << EscapeName(dba->PropertyToName(property)) << ");";
 }
 
+void DumpVertexPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::PropertyId property) {
+  *os << "CREATE GLOBAL INDEX ON :(" << EscapeName(dba->PropertyToName(property)) << ");";
+}
+
 void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
                               std::span<storage::PropertyPath const> properties,
                               storage::IndexOrder order = storage::IndexOrder::ASC) {
@@ -506,6 +510,8 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc, FineGra
                    CreateVectorIndicesPullChunk(),
                    // Dump all vector edge indices
                    CreateVectorEdgeIndicesPullChunk(),
+                   // Dump all global vertex property indices
+                   CreateVertexPropertyIndicesPullChunk(),
                    // Dump all existence constraints
                    CreateExistenceConstraintsPullChunk(),
                    // Dump all unique constraints
@@ -691,6 +697,31 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePropertyIndicesPullChunk() {
     }
 
     if (global_index == edge_property.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateVertexPropertyIndicesPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &vertex_property = indices_info_->vertex_property;
+
+    size_t local_counter = 0;
+    while (global_index < vertex_property.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      DumpVertexPropertyIndex(&os, dba_, vertex_property[global_index]);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == vertex_property.size()) {
       return local_counter;
     }
 
