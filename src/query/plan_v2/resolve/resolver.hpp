@@ -186,6 +186,25 @@ struct symbol_resolve_traits<symbol::Output> {
   }
 };
 
+template <>
+struct symbol_resolve_traits<symbol::Filter> {
+  // Structurally Output with own_syms = ∅: Filter binds nothing, so the pipe
+  // carries the chosen alt's full introduces (⊇ parent demand AND ⊇
+  // predicate.required, by FilterFlatMap's pruning), and the predicate is an
+  // expression read in parent.in_scope ∪ that set.  Uniform threading would be
+  // wrong here - it would neither force the pipe to introduce the predicate's
+  // symbols nor let the predicate see pipe-introduced bindings.
+  static void resolve_children(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key,
+                               VariableSet const &chosen_introduces, SymbolContext const & /*syms*/,
+                               planner::core::extract::ChildSink<ResolverKey> auto visit) {
+    using namespace child::filter;
+    auto const &children = enode.children();
+    auto pred_in_scope = parent_key.in_scope.set_union(chosen_introduces);
+    visit(ResolverKey{children[input], parent_key.in_scope, chosen_introduces});
+    visit(ResolverKey{children[predicate], std::move(pred_in_scope), {}});
+  }
+};
+
 // Expression ops and structural leaves: uniform threading.
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
 #define MG_UNIFORM_RESOLVE(SYM) \

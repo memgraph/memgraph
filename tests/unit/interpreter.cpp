@@ -355,6 +355,53 @@ TEST_F(PlannerV2InterpreterTest, UserParameterRangeLengthEnablesElision) {
   for (auto const &row : exec.GetResults()) EXPECT_EQ(row[0].ValueInt(), 42);
 }
 
+TEST_F(PlannerV2InterpreterTest, WithWhereFiltersRows) {
+  // The WHERE predicate filters the projected rows: only 2 and 3 satisfy x > 1.
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);
+}
+
+TEST_F(PlannerV2InterpreterTest, WithWhereThatMatchesNothingYieldsEmptyResult) {
+  // A predicate no row satisfies executes to an empty result, not an error.
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x > 100 RETURN x;");
+  EXPECT_EQ(stream.GetResults().size(), 0U);
+}
+
+TEST_F(PlannerV2InterpreterTest, WithWhereThatMatchesEverythingPassesAllRows) {
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x > 0 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 3);
+}
+
+TEST_F(PlannerV2InterpreterTest, WithWhereComposesBooleanPredicates) {
+  // A conjunction is a single boolean predicate expression; only 2 lies in (1, 3).
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 AND x < 3 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+}
+
+TEST_F(PlannerV2InterpreterTest, ExplainShowsFilterOperator) {
+  // The WHERE lowers to a Filter operator above the projection.
+  auto stream = Interpret("EXPLAIN UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 RETURN x;");
+  EXPECT_NE(PlanText(stream).find("Filter"), std::string::npos) << PlanText(stream);
+}
+
+TEST_F(PlannerV2InterpreterTest, UnsupportedPredicateReportsNotImplemented) {
+  // An IN-list predicate is an unsupported expression node; it must surface a
+  // clear query error rather than crash or silently drop rows.
+  EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x IN [1, 2] RETURN x;"), memgraph::query::QueryException);
+}
+
+TEST_F(PlannerV2InterpreterTest, TailClauseOnWithReportsNotImplemented) {
+  // SKIP/LIMIT/ORDER BY are not built into operators yet. Rather than silently
+  // ignore the SKIP (wrong results), the query is refused.
+  EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x WITH x SKIP 1 RETURN x;"), memgraph::query::QueryException);
+}
+
 TYPED_TEST(InterpreterTest, MultiplePulls) {
   {
     auto [stream, qid] = this->Prepare("UNWIND [1,2,3,4,5] as n RETURN n");
