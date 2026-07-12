@@ -635,6 +635,22 @@ versioning, a write with no resolved active version is rejected, or pooled write
 `USING VERSION`. Product picks the exact rail; doing nothing is not acceptable for a "risk-free"
 sandbox.
 
+**v1 DECISION + STATUS (2026-07-12, IMPLEMENTED — chunk 7d).** Product chose the *strict* rail (over
+matching `USE DATABASE`'s session-state model): once a connection has **engaged versioning** (done a
+real `CHECKOUT BRANCH`), a **data-plane write while the session is on `main`** (no resolved branch) is
+rejected with `WriteWithoutResolvedVersionException` — the write fails loud instead of silently
+landing on production. The "engaged" flag is sticky per-connection (set on branch checkout; survives
+`CHECKOUT main` / `MERGE` / `DROP` and Bolt `RESET`; cleared only on a genuine database switch or
+connection reset). To write `main` again, the connection checks out a branch (writes go there) or
+reconnects. Reads, versioning-management queries, and branch writes are unaffected; connections that
+never engaged versioning have zero behavior change. `PROFILE`-wrapped writes are gated too; `EXPLAIN`
+is read-only. **This is deliberately stricter than multi-database's `USE DATABASE`**, which has no
+such rail and relies on the driver re-asserting the target via a per-run `db` field
+(`SessionHL::Configure`). The analogous **complete** fix for the cross-connection/pooling case — a
+per-run `version` selector in the Bolt `extra` map that routing drivers re-send every query, exactly
+like `db` — is **v-next** (a Bolt-protocol + driver change, out of scope for v1); the v1 server-side
+rail is the strict interim guarantee.
+
 ### D11 — Merge should leave an audit trail.
 
 `MERGE` drops the branch and its change-log; after a successful merge nothing records what was
@@ -784,9 +800,12 @@ Appendix D.
 **Guarantees (v1)**
 
 - Reading or writing a branch never mutates the parent's stored data; only `MERGE` turns branch
-  changes into real committed data (§2). `main` stays writable throughout. **Contingent on the D10
-  write-routing rail** for pooled connections (open decision, §0/§4.1) — until that rail ships, a
-  mis-routed pooled write can still reach `main`.
+  changes into real committed data (§2). `main` stays writable throughout. **The D10 write-routing
+  rail is now IMPLEMENTED (v1, strict)**: once a connection has engaged versioning, a data-plane
+  write while on `main` fails loud rather than silently landing on production (see D10). The residual
+  cross-connection/pooling case (a *different* physical connection that never engaged versioning) is
+  addressed by the v-next per-run `version` selector (D10) — the v1 rail covers the engaged-connection
+  case fully.
 - A branch reads its parent as of the fork point: the parent's later writes are invisible to the
   branch until (and unless) the user rebases by re-branching. This holds regardless of the
   database's configured isolation level — the branch-reconstruction accessor is **hard-pinned to
