@@ -10922,6 +10922,20 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // snapshots main's storage (a separate storage object from the branch's diff engine), is a
     // harmless durability op, and rejecting it would break a legitimate "snapshot before merge"
     // workflow.
+    // Graph Versioning v1 chunk 7d (D10): classify the query BEFORE the dispatch ladder std::move's
+    // parsed_query into a Prepare*Query helper (after which parsed_query.query dangles). The
+    // write-routing rail below needs this to exclude management/DDL from the data-write guard.
+    // Widened set (adversarial review follow-up, narrow-bypass fix): PROFILE wraps an inner Cypher
+    // query (see PrepareProfileQuery), and its PreparedQuery's rw_type is taken from that INNER
+    // plan (cypher_query_plan->rw_type()) -- so `PROFILE CREATE (n)` reports write_query == true
+    // even though the OUTER AST node here is a ProfileQuery, not a CypherQuery (they're siblings,
+    // not sub/super-class). Without this, an engaged connection sitting on `main` could slip a
+    // PROFILE'd write past the rail below. EXPLAIN is deliberately NOT included: PrepareExplainQuery
+    // hardcodes `.rw_type = RWType::NONE` for its PreparedQuery regardless of the inner plan, so it
+    // never enters the `write_query` block and the rail is never consulted for it.
+    const bool query_is_data_plane = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr ||
+                                     utils::Downcast<ProfileQuery>(parsed_query.query) != nullptr;
+
     if (current_db_.branch_context() != nullptr) {
       auto *q = parsed_query.query;
       const bool is_schema_or_storage_global_ddl =
@@ -11275,6 +11289,18 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         throw WriteQueryOnMainException();
       }
 #endif
+      // Graph Versioning v1 chunk 7d (D10): an engaged versioning connection sitting on `main`
+      // must never silently write production data (see WriteWithoutResolvedVersionException).
+      // Data-plane writes only (CypherQuery / PROFILE-wrapped CypherQuery) -- versioning management
+      // (CHECKOUT/MERGE/DROP) and admin/DDL are excluded so versioning stays operable and this is
+      // not a general main-write ban.
+      // NOTE: query_is_data_plane was captured pre-dispatch, above -- by this point parsed_query has
+      // already been std::move'd into the chosen Prepare*Query(...) helper and its AST storage is
+      // freed, so parsed_query.query itself must NOT be dereferenced here.
+      if (current_db_.VersioningEngaged() && !current_db_.CurrentVersion().has_value() && query_is_data_plane) {
+        query_execution = nullptr;
+        throw WriteWithoutResolvedVersionException();
+      }
     }
 
     // Set the target db to the current db (some queries have different target from the current db)

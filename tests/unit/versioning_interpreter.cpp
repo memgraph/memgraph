@@ -240,6 +240,106 @@ TEST_F(VersioningInterpreterTest, CheckoutCreateAndSwitchClearsOnDrop) {
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
 }
 
+// Graph Versioning v1, chunk 7d (D10): strict write-routing rail. Once a connection has genuinely
+// engaged versioning (a real branch CHECKOUT -- CurrentDB::SetBranchContext is the only place that
+// flips versioning_engaged_ true, interpreter.hpp), a data-plane write (CypherQuery) executed while
+// the session sits back on 'main' (CurrentVersion() == nullopt) must be rejected loud with
+// WriteWithoutResolvedVersionException (interpreter.cpp's write_query check in Interpreter::Prepare)
+// rather than silently landing on production. The flag is sticky across CHECKOUT BRANCH 'main' (it
+// is NOT cleared there -- only a genuine identity reset un-engages it, see VersioningEngaged()'s own
+// doc-comment) -- reads and versioning management queries stay unaffected, and re-checking out a
+// branch routes writes there again.
+TEST_F(VersioningInterpreterTest, EngagedConnectionCannotSilentlyWriteMain) {
+  SatisfyGate();
+
+  // Pre-engage: a normal write to main works -- the rail is off, this connection never checked out
+  // a branch yet.
+  faker.Interpret("CREATE (:Seed {v:1})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+
+  // Branch write: allowed (the session is genuinely ON a branch).
+  faker.Interpret("CREATE (:OnBranch)");
+
+  // Back to main -- engaged is STICKY across this CHECKOUT.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+
+  // Engaged + on main => a data-plane write to main is rejected loud.
+  ASSERT_THROW(faker.Interpret("CREATE (:SneakyMainWrite)"), memgraph::query::WriteWithoutResolvedVersionException);
+
+  // A READ on main still works, and the rejected write did not land.
+  {
+    auto stream = faker.Interpret("MATCH (n:Seed) RETURN n.v");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+  {
+    auto stream = faker.Interpret("MATCH (n:SneakyMainWrite) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the rejected write must not have committed";
+  }
+
+  // Re-checking out a branch makes writes work again -- they go to the branch, not main.
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("CREATE (:AnotherBranchWrite)");
+  {
+    auto stream = faker.Interpret("MATCH (n:AnotherBranchWrite) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 1U);
+  }
+}
+
+// Adversarial-review follow-up to EngagedConnectionCannotSilentlyWriteMain: PROFILE wraps an inner
+// Cypher query and PrepareProfileQuery takes the PreparedQuery's rw_type from that INNER plan, but
+// the rail's discriminator classifies the OUTER AST node -- a ProfileQuery, not a CypherQuery (they
+// are siblings, not sub/super-class). Before the fix this let a PROFILE'd write slip past the rail
+// even though write_query was still true for it. PROFILE always aborts its transaction so no graph
+// mutation would have persisted, but any external procedure side-effects would have executed
+// unguarded, so the strict guarantee must hold for PROFILE'd writes too.
+TEST_F(VersioningInterpreterTest, EngagedConnectionProfileWriteOnMainRejected) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:Seed)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("CHECKOUT BRANCH 'main'");  // engaged + back on main (sticky)
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+
+  // PROFILE of a write on main must ALSO be rejected (not just bare CREATE).
+  ASSERT_THROW(faker.Interpret("PROFILE CREATE (:SneakyProfiledWrite)"),
+               memgraph::query::WriteWithoutResolvedVersionException);
+
+  // Sanity: PROFILE of a READ on main is fine -- the rail gates writes only.
+  faker.Interpret("PROFILE MATCH (n:Seed) RETURN n");
+}
+
+// Counterpart to EngagedConnectionCannotSilentlyWriteMain: a connection that never genuinely checks
+// out a branch (versioning_engaged_ stays false -- CREATE BRANCH alone never calls SetBranchContext,
+// only CHECKOUT_BRANCH's CheckoutBranchEngine does, interpreter.cpp) must keep writing main exactly
+// as if versioning didn't exist -- the rail must be a strict no-op for such a connection, including
+// right after issuing a (never-checked-out) CREATE BRANCH management query.
+TEST_F(VersioningInterpreterTest, NeverEngagedConnectionWritesMainNormally) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:A {v:1})");
+  faker.Interpret("MATCH (n:A) SET n.v = 2");
+  {
+    auto stream = faker.Interpret("MATCH (n:A) RETURN n.v");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+
+  // CREATE BRANCH is management (VersioningQuery), not a CypherQuery, and never calls
+  // SetBranchContext -- it must not engage the rail for this still-never-checked-out connection.
+  faker.Interpret("CREATE BRANCH 'x' FROM 'main'");
+  faker.Interpret("CREATE (:B)");
+  {
+    auto stream = faker.Interpret("MATCH (n:B) RETURN n");
+    ASSERT_EQ(stream.GetResults().size(), 1U) << "CREATE BRANCH alone must not engage the write-routing rail";
+  }
+}
+
 TEST_F(VersioningInterpreterTest, MergeHappyPathFastForwardsEmptyChangelog) {
   SatisfyGate();
 

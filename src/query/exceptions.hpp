@@ -528,6 +528,21 @@ class WriteQueryOnReplicaException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnReplicaException)
 };
 
+// Graph Versioning v1, chunk 7d (D10): strict write-routing rail -- once a connection has engaged
+// versioning (a real branch CHECKOUT), a data-plane write while the session sits on `main`
+// (CurrentDB::CurrentVersion() == nullopt) is rejected loud rather than silently landing on
+// production. See CurrentDB::VersioningEngaged() (interpreter.hpp) and the rail at the
+// write_query check in Interpreter::Prepare (interpreter.cpp).
+class WriteWithoutResolvedVersionException : public QueryException {
+ public:
+  WriteWithoutResolvedVersionException()
+      : QueryException(
+            "This connection has an active versioning session but is not on a branch. Data writes to 'main' are "
+            "blocked to prevent a mis-routed write from silently landing on production. CHECKOUT BRANCH '<name>' to "
+            "write to a branch, or use a separate connection for 'main'.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(WriteWithoutResolvedVersionException)
+};
+
 class WriteQueryOnMainException : public QueryException {
  public:
   WriteQueryOnMainException()

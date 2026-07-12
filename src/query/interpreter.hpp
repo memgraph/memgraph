@@ -278,6 +278,9 @@ struct CurrentDB {
       // computed against the old db_acc_ above, so the ordering swap is otherwise behavior-neutral.
       ClearBranchContext();
       current_version_.reset();
+      // CHUNK 7d (D10): a genuine db switch is an identity change, not a return-to-main within the
+      // same session -- un-engage the rail here (see VersioningEngaged() doc-comment above).
+      versioning_engaged_ = false;
     }
     db_acc_ = std::move(new_db);
     in_explicit_db_ = in_explicit_db;
@@ -290,6 +293,8 @@ struct CurrentDB {
     // before ClearBranchContext runs (cross-thread UAF).
     ClearBranchContext();
     current_version_.reset();
+    // CHUNK 7d (D10): identity reset -- un-engage the rail (see VersioningEngaged() doc-comment).
+    versioning_engaged_ = false;
     db_acc_.reset();
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
@@ -305,6 +310,15 @@ struct CurrentDB {
   // a session that never touches versioning pays zero cost (R6) beyond one empty
   // std::optional<std::string> per CurrentDB.
   std::optional<std::string> const &CurrentVersion() const { return current_version_; }
+
+  // Graph Versioning v1, CHUNK 7d (D10): true once this connection has ever installed a real
+  // branch context (see SetBranchContext below); sticky across a later CHECKOUT BRANCH 'main' /
+  // MERGE / DROP (i.e. NOT cleared by SetCurrentVersion(nullopt) or ClearBranchContext) -- only a
+  // genuine identity change (SetCurrentDB's !same_db switch, or ResetDB) un-engages it. This is
+  // what lets the write-routing rail in Interpreter::Prepare (interpreter.cpp) guarantee that an
+  // engaged connection never silently writes `main`: see WriteWithoutResolvedVersionException
+  // (exceptions.hpp).
+  bool VersioningEngaged() const { return versioning_engaged_; }
 
   // CHUNK 7b(2): clearing the version (switching back to 'main', or being cleared out from under
   // the session by MERGE/DROP) is exactly when any held branch context/checkout must be released
@@ -331,6 +345,9 @@ struct CurrentDB {
     branch_context_ = std::move(context);
     branch_context_version_store_ = version_store;
     branch_context_name_ = std::move(name);
+    // CHUNK 7d (D10): a real branch context is now installed -- this connection has engaged
+    // versioning; see VersioningEngaged() doc-comment above.
+    versioning_engaged_ = true;
   }
 
   // The session's private branch context, if CurrentVersion() names a checked-out branch; nullptr
@@ -353,6 +370,11 @@ struct CurrentDB {
   std::unique_ptr<versioning::BranchContext> branch_context_;
 
  private:
+  // Graph Versioning v1, CHUNK 7d (D10) -- paired with current_version_ above; see
+  // VersioningEngaged()'s doc-comment for the full set/clear contract. Private: only mutated from
+  // the specific set/clear points enumerated there, never read/written ad hoc.
+  bool versioning_engaged_{false};
+
   // Not owned: the Database (hence its VersionStore) outlives any session's CurrentDB. Only ever
   // non-null while branch_context_ is held, so ReleaseCheckout is always called against the SAME
   // VersionStore that granted the checkout, even if db_acc_ has since been reassigned.
