@@ -337,15 +337,10 @@ auto LowerWith(query::With &with, eclass pipe, LoweringCtx &ctx) -> eclass {
   return pipe;
 }
 
-// The display name for a RETURN column: the alias if present, else the source
-// text recovered from `output_names` (stripping replaced the expression with a
-// placeholder), falling back to the AST name when neither applies (raw parse).
-// This names the EXPLAIN `Produce {...}` column. The result-set header is
-// derived independently in interpreter.cpp from the reconstructed symbol's
-// token_position against the same named_expressions() map; both must apply this
-// same alias-else-source-else-name rule so header and EXPLAIN stay in agreement.
-// Naming the unaliased column by its source text is intentional and stronger
-// than the v1 planner, which shows the stripped placeholder here.
+// Display name for a RETURN column: the alias, else the source text
+// (`output_names` holds it, since stripping replaced the expression with a
+// placeholder), else the AST name. The result-set header applies the same rule
+// in interpreter.cpp, so both must stay in sync.
 auto OutputDisplayName(LoweringCtx &ctx, NamedExpression const &ne) -> std::string {
   if (ne.is_aliased_) return ne.name_;
   if (auto const it = ctx.output_names.find(static_cast<int>(ne.token_position_)); it != ctx.output_names.end()) {
