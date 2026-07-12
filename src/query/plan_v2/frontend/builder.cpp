@@ -309,12 +309,13 @@ struct symbol_build_traits<symbol::Filter> {
     using predicate = ChildSlot<child::filter::predicate, Expression *>;
   };
 
-  // Built exactly as the v1 planner does in GenFilters: populate `all_filters_`
-  // via CollectFilterExpression so EXPLAIN renders the predicate (Filter::ToString
-  // derives its label solely from all_filters_).  Build is bottom-up, so the
-  // predicate's Identifier -> Symbol nodes are already registered in
-  // `state.symbol_table` by the time this runs.  pattern_filters is empty (that
-  // is MATCH pattern-predicate territory, N/A without MATCH).
+  // all_filters_ populated as v1's GenFilters does (source of Filter::ToString's
+  // EXPLAIN label). Build is bottom-up, so the predicate's Identifiers are already
+  // in state.symbol_table. pattern_filters is empty (MATCH territory); only the
+  // Generic path is reachable today.
+  // NOTE: the EXPLAIN label is empty for now - the converter clones the plan and
+  // Filter::Clone drops all_filters_ (fixed in a stacked commit); runtime is
+  // unaffected (it uses expression_, which is cloned).
   static auto build(BuildState &state, ENodeRef /*node*/, Children children) -> result_type {
     auto const &input = children.get<slots::input>();
     auto *predicate = children.get<slots::predicate>();
