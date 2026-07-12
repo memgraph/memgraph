@@ -58,9 +58,7 @@ inline constexpr double kFilterPerRowOverhead = 1.0;
 /// so it will matter once Filter rewrites add alternative plan shapes.
 inline constexpr double kFilterSelectivity = 0.5;
 
-/// Fixed per-operator overhead for the tail-clause row pipes (DISTINCT / ORDER
-/// BY).  Structural placeholders until measured data justifies a value; they
-/// bias nothing here since these queries have a single valid extraction.
+/// Placeholder per-operator overhead for DISTINCT / ORDER BY, 1.0 until measured.
 inline constexpr double kDistinctOverhead = 1.0;
 inline constexpr double kOrderByOverhead = 1.0;
 
@@ -277,12 +275,9 @@ auto FilterFlatMap(CostFrontier const &input, CostFrontier const &predicate, pla
   });
 }
 
-/// Scalar-clause combine: SKIP / LIMIT.  The count is a constant evaluated once
-/// (not per row), so its cost is added once and cardinality passes through
-/// unchanged (SKIP/LIMIT are placeholder-costed: the runtime row count depends
-/// on the count value, which the execution-only model does not estimate).  The
-/// DemandMet guard mirrors the other operators for uniformity; the count carries
-/// no frame references, so it is always met.
+/// SKIP / LIMIT: the count is evaluated once, so add its cost once and pass
+/// cardinality through (the count value isn't modelled). The count has no frame
+/// references, so the uniform DemandMet guard is always met.
 auto ScalarClauseCombine(CostFrontier const &input, CostFrontier const &count, planner::core::ENodeId enode_id)
     -> CostFrontier {
   return CostFrontier::cartesian_product_if(
@@ -301,12 +296,9 @@ auto ScalarClauseCombine(CostFrontier const &input, CostFrontier const &count, p
       });
 }
 
-/// Demand that every symbol in `value_syms` is introduced (materialised) by the
-/// pipe.  DISTINCT / ORDER BY dedup / sort on frame slots, so an input alt that
-/// has not materialised a column - e.g. because the inline rewrite pushed the
-/// column's value downstream - cannot serve it.  Pruning those alts forces the
-/// projection to keep the column's binder alive.  Pass-through otherwise:
-/// cardinality and introduces are the input's; `required` stays empty.
+/// Prune input alts that haven't materialised every `value_syms` column (DISTINCT
+/// / ORDER BY work on frame slots), forcing the projection to keep the binder
+/// alive. Otherwise pass-through.
 auto DemandValueSyms(CostFrontier const &input, VariableSet value_syms, planner::core::ENodeId enode_id)
     -> CostFrontier {
   return CostFrontier::flat_map(
@@ -479,10 +471,10 @@ struct symbol_cost_traits<Filter> {
 
 template <>
 struct symbol_cost_traits<Distinct> {
-  // Row-pipe pass-through.  Children layout is [input, value_sym...]; the value
-  // syms are the dedup-key columns' Symbol e-classes.  They are not evaluated at
-  // runtime, only demanded: the input must have materialised each into a frame
-  // slot for DISTINCT to dedup on.  Introduces exactly what the input introduces.
+  // Demand the value syms (dedup columns); introduces what the input does.
+  // Cardinality passes through: DISTINCT does reduce rows, but like v1 (see
+  // cost_estimator.hpp) we don't model an end-of-query-part modifier that runs the
+  // same for every candidate plan and so can't change plan choice.
   static auto cost(ENodeT const &n, ENodeId id, CostChildren children, CostCtx const &ctx) -> CostFrontier {
     using namespace child::distinct;
     auto value_syms = ctx.syms.variable_index.to_variable_set(n.children().subspan(first_value));
@@ -492,7 +484,7 @@ struct symbol_cost_traits<Distinct> {
 
 template <>
 struct symbol_cost_traits<Skip> {
-  // Row-pipe pass-through; the count is evaluated once.  Children [input, count].
+  // Count evaluated once; cardinality passes through.
   static auto cost(ENodeT const &, ENodeId id, CostChildren children, CostCtx const &) -> CostFrontier {
     using namespace child::skip;
     return ScalarClauseCombine(*children[input], *children[count], id);
@@ -501,7 +493,7 @@ struct symbol_cost_traits<Skip> {
 
 template <>
 struct symbol_cost_traits<Limit> {
-  // Row-pipe pass-through; the count is evaluated once.  Children [input, count].
+  // Count evaluated once; cardinality passes through.
   static auto cost(ENodeT const &, ENodeId id, CostChildren children, CostCtx const &) -> CostFrontier {
     using namespace child::limit;
     return ScalarClauseCombine(*children[input], *children[count], id);
@@ -510,21 +502,23 @@ struct symbol_cost_traits<Limit> {
 
 template <>
 struct symbol_cost_traits<OrderBy> {
-  // Row-pipe pass-through.  Children [input, sort_key..., value_sym...].  A child
-  // after the input is a value-column Symbol e-class (registered in the variable
-  // index) or a sort-key expression: the value syms are demanded (materialised
-  // and remembered through the sort), the sort keys are folded via OutputCombine
-  // (per-row evaluation + their own symbol demand).  Introduces exactly what the
-  // input introduces.
+  // Value-sym children (registered Symbols) are demanded and remembered through
+  // the sort; sort-key children are folded via OutputCombine (per-row eval + their
+  // own demand). Introduces what the input does.
   static auto cost(ENodeT const &n, ENodeId id, CostChildren children, CostCtx const &ctx) -> CostFrontier {
     using namespace child::order_by;
     auto const child_eclasses = n.children();
     auto result = Restamp(*children[input], kOrderByOverhead, id);
     VariableSet value_syms;
+    bool seen_value_sym = false;
     for (std::size_t i = first_expr; i < child_eclasses.size(); ++i) {
       if (ctx.syms.variable_index.contains(child_eclasses[i])) {
         value_syms.set(ctx.syms.variable_index.bit_of(child_eclasses[i]));
+        seen_value_sym = true;
       } else {
+        // Sort keys precede value syms; a non-Symbol after a value Symbol means
+        // this type-split disagrees with the builder's orderings.size() split.
+        DMG_ASSERT(!seen_value_sym, "OrderBy children not partitioned [sort_keys..., value_syms...]");
         result = OutputCombine(result, *children[i], id);
       }
     }

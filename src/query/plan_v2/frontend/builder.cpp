@@ -65,10 +65,9 @@ struct Children {
            std::views::transform([](ChildRef c) -> typename Slot::type { return as<typename Slot::type>(c); });
   }
 
-  // Built child at a runtime index, cast to `T`. For nodes whose child types
-  // vary by position and split at a runtime boundary (OrderBy: sort-key
-  // Expressions then value-column Symbols), where a compile-time slot can't name
-  // the range.
+  // Built child at a runtime index, cast to `T`. For nodes split at a runtime
+  // boundary (OrderBy: sort-key Expressions then value Symbols) that a
+  // compile-time slot can't name.
   template <typename T>
   auto at(std::size_t index) const -> T const & {
     if (refs.size() <= index) ThrowPlannerBug("missing child node");
@@ -346,10 +345,8 @@ struct symbol_build_traits<symbol::Distinct> {
     using values = ChildRestSlot<child::distinct::first_value, Symbol>;
   };
 
-  // DISTINCT dedups on the projected columns' frame slots. The cost model
-  // demanded these Symbols, so the projection materialised them (the value
-  // Symbol children are read straight back here rather than from
-  // input->OutputSymbols(), which an inlined WITH projection would leave empty).
+  // The value Symbols were demanded by cost (materialised), so read them straight
+  // back here rather than from input->OutputSymbols() (empty for an inlined WITH).
   static auto build(BuildState & /*state*/, ENodeRef /*node*/, Children children) -> result_type {
     auto const &input = children.get<slots::input>();
     auto value_symbols = children.get<slots::values>() | ranges::to<std::vector>;
@@ -398,10 +395,8 @@ struct symbol_build_traits<symbol::OrderBy> {
     using input = ChildSlot<child::order_by::input, LogicalOperatorPtr>;
   };
 
-  // Children are [input, sort_key_Expression x num_keys, value_Symbol x rest].
-  // The boundary is the interned orderings count, so the tail is split by index:
-  // the first num_keys are sort-key Expressions, the remainder value Symbols to
-  // remember through the sort (materialised, since the cost model demanded them).
+  // Split the tail by the interned orderings count: first num_keys are sort-key
+  // Expressions, the rest value Symbols to remember through the sort.
   static auto build(BuildState &state, ENodeRef node, Children children) -> result_type {
     using namespace child::order_by;
     auto const &input = children.get<slots::input>();
