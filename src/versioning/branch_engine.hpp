@@ -59,12 +59,18 @@ namespace memgraph::versioning {
 // SCOPE OF SLICE E-2a (edges: branch-native create + basic single-hop expansion, added on top of
 // the above): `ResolveEdges` below is the edge-side analogue of `ResolveVertex` -- a per-vertex
 // UNION of historical_'s fork-state incident edges with current_diff_txn()'s own (branch-native
-// creates, or -- once E-2c lands -- COW'd copies), de-duped by edge gid with the diff engine's copy
-// winning ties. Edge property COW (SET on a branch-resident edge) is E-2c, not this slice --
-// query::EdgeAccessor's mutators reject with NotYetImplemented on a branch rather than risk writing
-// through historical_'s read-only accessor (the exact crash class HIGH-1 fixed for vertices, see
-// CowVertex's own history). Edge DELETE is E-4 and was already rejected before this slice (see
+// creates, or -- as of E-2c below -- COW'd copies), de-duped by edge gid with the diff engine's copy
+// winning ties. Edge DELETE is E-4 and was already rejected before this slice (see
 // query::DbAccessor::RemoveEdge, db_accessor.hpp).
+//
+// SCOPE OF SLICE E-2c (edge-property SET/REMOVE on a branch, added on top of E-2a): `CowEdge`
+// below is the edge-side analogue of `CowVertex` -- COWs BOTH endpoints then recreates the edge at
+// its ORIGINAL gid in the diff engine (so ResolveEdges' de-dupe still works), then copies
+// properties across. `query::EdgeAccessor`'s mutators (edge_accessor.cpp) now route through it
+// instead of rejecting with NotYetImplemented; edge property READS are made self-correcting too,
+// but ONLY via `FindDiffEdge` (diff-engine-only) -- never via ResolveEdge's historical_ fallback,
+// which is documented (ResolveEdge's own comment) as unreliable for edges. Edge-by-gid lookup
+// (DbAccessor::FindEdge) and edge DELETE remain out of scope (E-2d, E-4 respectively).
 //
 // R35 (main is never written): `historical_` is a read-only, self-pinned accessor (its own
 // HistoricalAccess doc-comment, inmemory/storage.hpp) held open for the whole checkout lifetime --
@@ -158,6 +164,26 @@ class BranchContext {
   //     doc-comment.
   std::expected<storage::VertexAccessor, CowError> CowVertex(storage::Gid gid);
 
+  // Graph Versioning v1, slice E-2c (edge-property COW): the edge-side analogue of CowVertex.
+  // Takes the FORK edge's own `storage::EdgeAccessor` directly (not just a bare gid) -- unlike
+  // CowVertex, which re-reads `historical_->FindVertex(gid, ...)` itself, an edge cannot be
+  // re-found that way: `historical_->FindEdge` was adversarially found unreliable for edges (see
+  // ResolveEdge's own doc-comment) -- so the caller (query::EdgeAccessor::CowEdgeIfNeeded, which
+  // already HAS its own `impl_` resolved, whichever side it came from) hands that resolved
+  // accessor straight in, sidestepping the broken historical-by-gid lookup entirely.
+  //   - Idempotent: if `edge_gid` is already resident in the diff engine (a prior COW, or a
+  //     branch-native create -- FindDiffEdge below), returns that copy outright. `fork_edge`'s own
+  //     endpoint/property fields are UNREAD in this case (only `fork_edge.Gid()` is touched before
+  //     this check) -- correct even when `fork_edge` itself IS the diff-resident copy already
+  //     (the common repeat-mutation-in-one-statement case).
+  //   - Else: COWs BOTH endpoints first (`CowVertex(from_gid)`/`CowVertex(to_gid)` -- idempotent,
+  //     reused verbatim, mirrors DbAccessor::InsertEdge's own COW-both-endpoints idiom,
+  //     db_accessor.hpp), then recreates the edge in the diff engine at the SAME gid
+  //     (`CreateEdgeEx`, so ResolveEdges' historical-vs-diff de-dupe still keys on one gid) and
+  //     copies `fork_edge`'s properties onto the new copy directly (ids are shared, see CowVertex's
+  //     own doc-comment) -- rejects (CowError) an Enum property the same way CowVertex does.
+  std::expected<storage::EdgeAccessor, CowError> CowEdge(const storage::EdgeAccessor &fork_edge);
+
   // Diff-engine-first point lookup (against `current_diff_txn()`), falling back to `historical_`
   // on a miss. No tombstone case this slice (no delete op exists yet).
   std::optional<storage::VertexAccessor> ResolveVertex(storage::Gid gid, storage::View view);
@@ -179,6 +205,17 @@ class BranchContext {
   // Tombstone hook (inert this slice, see `tombstoned_edges_`'s own doc-comment below): a
   // tombstoned gid must never resolve, from EITHER side, once E-4 lands.
   std::optional<storage::EdgeAccessor> ResolveEdge(storage::Gid edge_gid, storage::View view);
+
+  // Graph Versioning v1, slice E-2c: diff-engine-ONLY point lookup by edge gid -- deliberately
+  // narrower than ResolveEdge above (no historical_ fallback attempted at all, so none of
+  // ResolveEdge's own documented unreliability applies here). Used for exactly two things, both of
+  // which only ever care "has this edge already been COW'd/branch-natively-created into the diff
+  // engine", never "does it exist in historical_ instead": CowEdge's idempotency check, and
+  // query::EdgeAccessor's self-correcting property reads (GetProperty/Properties/GetPropertySize,
+  // edge_accessor.cpp) -- the edge-side mirror of VertexAccessor's HIGH-2 self-correcting-read fix,
+  // but diff-side only (a not-yet-COW'd historical edge's `impl_` is already correct as-is, per
+  // ResolveEdges having handed it out in the first place -- see edge_accessor.cpp's own comment).
+  std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::View view);
 
   // Gid-ordered streaming UNION of `historical_` (every fork-state vertex, resolved -- so a COW'd
   // gid yields the diff engine's copy, per the tie-break below) with

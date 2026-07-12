@@ -43,38 +43,45 @@ class EdgeAccessor final {
 
   storage::EdgeTypeId EdgeType() const { return impl_.EdgeType(); }
 
-  // Graph Versioning v1 (lazy diff-context, slice E-2a): edge property READS are NOT made
-  // self-correcting the way VertexAccessor's are (HIGH-2 fix, vertex_accessor.hpp) -- this slice has
-  // no edge mutator COW (E-2c, below), so there is no mid-statement stale-copy hazard yet for edges:
-  // every query::EdgeAccessor this slice hands out (InsertEdge, VertexAccessor::In/OutEdges) already
-  // wraps whichever engine's copy is currently authoritative, and nothing can re-COW it out from
-  // under a live copy within the same statement. Revisit when E-2c adds edge mutator COW.
-  auto Properties(storage::View view) const { return impl_.Properties(view); }
+  // Graph Versioning v1 (lazy diff-context, slice E-2c) HIGH-2-equivalent FIX: edge property reads
+  // are now self-correcting, mirroring query::VertexAccessor's own HIGH-2 fix (vertex_accessor.hpp)
+  // -- E-2c adds edge mutator COW below, so the same mid-statement stale-copy hazard vertices had
+  // now exists for edges too (`MATCH ()-[r]->() SET r.x=2 RETURN r.x` would otherwise read the
+  // Frame's own, pre-COW copy of `r`). DIFF-SIDE ONLY, unlike VertexAccessor's ResolveVertex-backed
+  // fix: re-resolving via `BranchContext::FindDiffEdge` (diff engine only, no historical_ fallback)
+  // -- ResolveEdge's own doc-comment (branch_engine.hpp) documents its historical_ half as
+  // unreliable for edges, so this deliberately does NOT route through it. A not-yet-COW'd
+  // historical edge's `impl_` needs no re-resolve: it's already whatever ResolveEdges (or
+  // InsertEdge) handed out, and reading it directly is correct as long as it hasn't been COW'd out
+  // from under it -- exactly what FindDiffEdge's presence/absence check distinguishes. Out-of-line
+  // (edge_accessor.cpp): FindDiffEdge is a member function needing BranchContext's complete type,
+  // only forward-declared here.
+  auto Properties(storage::View view) const -> decltype(impl_.Properties(view));
 
-  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
-    return impl_.GetProperty(key, view);
-  }
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const;
 
-  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
-    return impl_.GetPropertySize(key, view);
-  }
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const;
 
-  // Graph Versioning v1 (lazy diff-context, slice E-2a): edge mutator COW is E-2c, not this slice --
-  // but a query::EdgeAccessor reachable through a checked-out branch CAN already wrap a historical
-  // (read-only) storage::EdgeAccessor this slice (any not-yet-touched fork-state edge reached via
-  // VertexAccessor::In/OutEdges). Writing straight through it would trip transaction.hpp's
-  // `is_historical_` MG_ASSERT -- the exact crash class HIGH-1 fixed for vertices (CowVertex's own
-  // history, branch_engine.cpp). Reject cleanly and loudly instead (mirrors
-  // DbAccessor::RemoveEdge/RemoveVertex's own NotYetImplemented idiom for the analogous DELETE gap,
-  // db_accessor.hpp) rather than leave a crash reachable through the very expansion path this slice
-  // adds. Out-of-line (edge_accessor.cpp): throwing needs query::NotYetImplemented
-  // (query/exceptions.hpp), which this header deliberately does not pull in.
+  // Graph Versioning v1 (lazy diff-context, slice E-2c): edge mutator COW. A query::EdgeAccessor
+  // reachable through a checked-out branch can wrap a historical (read-only) storage::EdgeAccessor
+  // (any not-yet-touched fork-state edge reached via VertexAccessor::In/OutEdges) -- writing
+  // straight through it would trip transaction.hpp's `is_historical_` MG_ASSERT, the exact crash
+  // class HIGH-1 fixed for vertices (CowVertex's own history, branch_engine.cpp). CowEdgeIfNeeded()
+  // (mirrors VertexAccessor::CowIfNeeded exactly) COWs `impl_` into the diff engine first --
+  // idempotent, so calling it unconditionally on every mutator call is safe and cheap (a plain
+  // diff-engine FindEdge, BranchContext::CowEdge's own doc-comment). Out-of-line (edge_accessor.cpp):
+  // CowEdgeIfNeeded needs BranchContext's complete type, only forward-declared here.
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value);
 
   storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
+  // NON-const, unlike storage::EdgeAccessor::UpdateProperties (which is `const` -- it mutates via an
+  // internal delta/version-chain mechanism, not through a non-const `this`): CowEdgeIfNeeded()
+  // reassigns `impl_`, which a `const` member function cannot do. Mirrors
+  // query::VertexAccessor::UpdateProperties's own identical HIGH-1 "dropped const" precedent
+  // (vertex_accessor.hpp) -- every existing call site already passes a non-const pointer/lvalue.
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
-  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const;
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
     return SetProperty(key, storage::PropertyValue());
@@ -104,7 +111,7 @@ class EdgeAccessor final {
   // query::VertexAccessor::operator== exactly (vertex_accessor.hpp's own "IDENTITY HARDENING" doc-
   // comment) -- `impl_ == e.impl_` (storage::EdgeAccessor::operator==) compares the underlying
   // EdgeRef AND Transaction* pointers, both of which differ between a not-yet-COW'd historical edge
-  // and a hypothetical diff-engine copy of it (E-2c). Gated on branch_ctx_ != nullptr so the
+  // and its diff-engine COW'd copy (E-2c, CowEdge below). Gated on branch_ctx_ != nullptr so the
   // non-branch path is byte-identical.
   bool operator==(const EdgeAccessor &e) const noexcept {
     if (branch_ctx_ != nullptr || e.branch_ctx_ != nullptr) {
@@ -114,6 +121,16 @@ class EdgeAccessor final {
   }
 
   bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }
+
+ private:
+  // Graph Versioning v1 (lazy diff-context, slice E-2c): out-of-line (edge_accessor.cpp), mirrors
+  // query::VertexAccessor::CowIfNeeded exactly -- if `impl_` is not yet resident in the branch's
+  // diff engine, COWs it in (`branch_ctx_->CowEdge`) and redirects `impl_` to point at the copy.
+  // Idempotent (CowEdge itself is), so a no-op the second time a given EdgeAccessor value is
+  // mutated. Throws QueryRuntimeException on an unsupported (Enum) property -- see
+  // BranchContext::CowError. Only ever called when branch_ctx_ != nullptr (every mutator call site
+  // already checks).
+  void CowEdgeIfNeeded();
 };
 
 }  // namespace memgraph::query

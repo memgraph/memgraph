@@ -719,3 +719,73 @@ TEST_F(VersioningInterpreterTest, BranchEdgeTypePropertyIndexScanThrowsNotYetImp
   ASSERT_EQ(stream.GetResults().size(), 1U);
   EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "R");
 }
+
+// Graph Versioning v1, slice E-2c (branch edge-property SET/REMOVE): the edge-side mirror of
+// BranchSingleStatementSetThenReturnSeesNewValue (E-1, vertices) and
+// BranchVertexWriteIsLazyDiffAndIsolated's own R35 confirmation -- covers three things at once:
+//   (1) SET on a still-historical (never-touched) edge must COW it into the diff engine rather than
+//       crash writing through historical_'s read-only accessor (BranchContext::CowEdge,
+//       EdgeAccessor::CowEdgeIfNeeded).
+//   (2) single-STATEMENT read-your-write: the trailing RETURN (same statement as the SET) must see
+//       the post-SET value, not a stale pre-COW copy -- EdgeAccessor::GetProperty/Properties' own
+//       diff-side self-correcting-read fix (FindDiffEdge), mirroring HIGH-2's vertex-side fix.
+//   (3) R35: main's own copy of the edge must never be touched by the branch's SET.
+TEST_F(VersioningInterpreterTest, BranchEdgePropertyModifyIsCowedAndIsolated) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:S)-[:E {w:1}]->(:A)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+
+  // (1)+(2): must not crash (HIGH-1-equivalent regression class), and the RETURN in the SAME
+  // statement must already see w=2.
+  {
+    auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) SET e.w = 2 RETURN e.w");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "must see the post-SET value, not the stale historical one";
+  }
+
+  // Persists across a LATER, separate statement within the same branch/session.
+  {
+    auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN e.w");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+
+  // (3) R35: main was never touched by the branch's SET.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN e.w");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1) << "main must be untouched by the branch's SET";
+  }
+}
+
+// Graph Versioning v1, slice E-2c: REMOVE (== SetProperty(key, null) internally, see
+// EdgeAccessor::RemoveProperty) exercises the exact same CowEdgeIfNeeded path as SET above --
+// cheap, separate regression in case a future refactor special-cases REMOVE away from SetProperty.
+TEST_F(VersioningInterpreterTest, BranchEdgePropertyRemoveIsCowedAndIsolated) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:S)-[:E {w:1}]->(:A)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (:S)-[e:E]->(:A) REMOVE e.w");
+
+  {
+    auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN e.w");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null)
+        << "e.w must be removed on the branch";
+  }
+
+  // R35: main still has w=1 -- REMOVE on the branch must not touch it.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (:S)-[e:E]->(:A) RETURN e.w");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+}

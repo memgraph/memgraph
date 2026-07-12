@@ -271,6 +271,86 @@ std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::C
   return *nv;
 }
 
+// Graph Versioning v1, slice E-2c -- see the declaration's own doc-comment (branch_engine.hpp) for
+// what `fork_edge` is expected to be and why it's passed in whole rather than re-found by gid.
+std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::CowEdge(
+    const storage::EdgeAccessor &fork_edge) {
+  MG_ASSERT(current_diff_txn_ != nullptr,
+            "BranchContext::CowEdge: no current diff transaction set -- "
+            "CurrentDB::SetupDatabaseTransaction must call set_current_diff_txn() before any query "
+            "runs against a checked-out branch.");
+
+  const auto edge_gid = fork_edge.Gid();
+
+  // Idempotent: a prior COW (or a branch-native create sharing this gid) already resident in the
+  // diff engine wins outright -- mirrors CowVertex's own idempotency check exactly. View::NEW so
+  // this transaction sees its own prior writes. NOTE: `fork_edge`'s endpoints/properties are NOT
+  // read below this point in this branch -- safe even when `fork_edge` itself already IS this same
+  // diff-resident copy (e.g. a second SET in one statement).
+  if (auto existing = FindDiffEdge(edge_gid, storage::View::NEW)) {
+    return *existing;
+  }
+
+  // Not yet COW'd: `fork_edge` must still be historical_'s own copy. Its endpoints are therefore
+  // historical_ vertices too (or already-COW'd ones, if some earlier statement touched them
+  // directly) -- CowVertex resolves either case idempotently, mirroring
+  // DbAccessor::InsertEdge's own COW-both-endpoints idiom (db_accessor.hpp).
+  const auto from_gid = fork_edge.FromVertex().Gid();
+  const auto to_gid = fork_edge.ToVertex().Gid();
+  const auto edge_type = fork_edge.EdgeType();
+
+  auto props_res = fork_edge.Properties(storage::View::OLD);
+  MG_ASSERT(props_res.has_value(),
+            "BranchContext::CowEdge: failed to read fork-state properties for edge {}.",
+            edge_gid.AsUint());
+
+  // Enum check BEFORE touching the diff engine AT ALL -- including before COW'ing the endpoints
+  // below (E-2c review MED fix): a rejected COW must leave ZERO diff-engine side effects, else the
+  // two endpoint vertex copies would be silently promoted into the diff engine for an edge COW that
+  // never completed. (CowVertex's own enum check genuinely precedes its own CreateVertexEx; this
+  // must match that guarantee for the whole edge COW, endpoints included.)
+  for (const auto &[pid, val] : *props_res) {
+    if (ContainsEnum(val)) {
+      return std::unexpected(CowError{
+          fmt::format("Cannot copy-on-write edge {}: has an enum property, which versioned branches do not yet "
+                      "support.",
+                      edge_gid.AsUint())});
+    }
+  }
+
+  // Endpoints COW'd only after the edge itself passed the enum gate (see above). `fork_edge`'s
+  // endpoints are historical_ vertices (or already-COW'd ones) -- CowVertex resolves either case
+  // idempotently, mirroring DbAccessor::InsertEdge's own COW-both-endpoints idiom (db_accessor.hpp).
+  auto from_diff = CowVertex(from_gid);
+  if (!from_diff) return std::unexpected(from_diff.error());
+  auto to_diff = CowVertex(to_gid);
+  if (!to_diff) return std::unexpected(to_diff.error());
+
+  // Same idiom as CowVertex: `diff_txn`'s actual object is guaranteed to be a ReplicationAccessor
+  // (or an InMemoryAccessor whose layout ReplicationAccessor doesn't extend), reached through
+  // `current_diff_txn_` rather than a parameter (see its own doc-comment).
+  auto *replication_accessor = static_cast<storage::ReplicationAccessor *>(current_diff_txn_);
+  // CreateEdgeEx PRESERVES `edge_gid` (unlike the auto-gid `CreateEdge` InsertEdge uses for a
+  // brand-new branch-native edge) -- essential so ResolveEdges' historical-vs-diff de-dupe (which
+  // keys purely on gid) still recognizes this as the SAME logical edge as historical_'s copy, not a
+  // second, unrelated one.
+  auto nv = replication_accessor->CreateEdgeEx(&*from_diff, &*to_diff, edge_type, edge_gid);
+  MG_ASSERT(nv.has_value(),
+            "BranchContext::CowEdge: gid {} collided while COW'ing into the diff engine -- should be impossible "
+            "(the idempotency check above already ruled out a prior occupant, and the gid-watermark reservation "
+            "keeps branch-native creates out of historical_'s gid range).",
+            edge_gid.AsUint());
+
+  for (const auto &[pid, val] : *props_res) {
+    auto set_res = nv->SetProperty(pid, val);
+    MG_ASSERT(set_res.has_value(),
+              "BranchContext::CowEdge: failed to set a property while COW'ing edge {}.",
+              edge_gid.AsUint());
+  }
+
+  return *nv;
+}
+
 std::optional<storage::VertexAccessor> BranchContext::ResolveVertex(storage::Gid gid, storage::View view) {
   // MED FIX (adversarial-review): MG_ASSERT, not DMG_ASSERT -- see CowVertex's own comment above.
   // ResolveVertex is now on the hot read path too (HIGH-2's self-correcting reads call it from
@@ -301,6 +381,17 @@ std::optional<storage::EdgeAccessor> BranchContext::ResolveEdge(storage::Gid edg
     return diff_edge;
   }
   return historical_base_->FindEdge(edge_gid, storage::View::OLD);
+}
+
+// Graph Versioning v1, slice E-2c -- see the declaration's own doc-comment (branch_engine.hpp) for
+// why this is deliberately narrower than ResolveEdge above (diff engine only, no historical_ half
+// at all -- so none of ResolveEdge's own documented edge-lookup unreliability applies here).
+std::optional<storage::EdgeAccessor> BranchContext::FindDiffEdge(storage::Gid edge_gid, storage::View view) {
+  MG_ASSERT(current_diff_txn_ != nullptr,
+            "BranchContext::FindDiffEdge: no current diff transaction set -- "
+            "CurrentDB::SetupDatabaseTransaction must call set_current_diff_txn() before any query "
+            "runs against a checked-out branch.");
+  return current_diff_txn_->FindEdge(edge_gid, view);
 }
 
 // Graph Versioning v1, slice E-2a -- see the declaration's own doc-comment (branch_engine.hpp) for
