@@ -1397,3 +1397,46 @@ TEST_F(VersioningInterpreterTest, BranchRemoveForkEdgePropertyPropagatesToMainOn
   EXPECT_EQ(stream.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null)
       << "main's REAL edge must show the branch's REMOVE, not w=1 on an untouched original";
 }
+
+// Graph Versioning v1, chunk 9b (R17): locks in the BRANCHES-EXIST guard on STORAGE MODE, RECOVER
+// SNAPSHOT, and DROP GRAPH -- these are DB-global, destructive/wholesale-replacing operations that
+// would strand every branch's fork-point base (the historical_ storage a branch's diff engine reads
+// through) if allowed to run. Chunk 8's guard (BranchSchemaDdlRejected, above) only fires while THIS
+// session is checked out on a branch; R17 is strictly BROADER -- PrepareStorageModeQuery /
+// PrepareDropGraphQuery / PrepareRecoverSnapshotQuery (interpreter.cpp) check
+// `db_acc_->get()->version_store()->Empty()` directly, with no dependence on the calling session's
+// own current_version_. This test deliberately stays on MAIN throughout (CREATE BRANCH does not
+// auto-checkout -- confirmed against CreateShowCheckoutDropHappyPath above, where SHOW BRANCH still
+// reports "main" immediately after CREATE BRANCH and only the later, explicit CHECKOUT BRANCH moves
+// the session) to prove the rejection is driven by branch 'b' merely EXISTING, not by this session
+// being on it.
+//
+// RECOVER SNAPSHOT is deliberately NOT exercised here (needs a real snapshot path/file on disk, same
+// caveat as BranchSchemaDdlRejected's own comment) -- it shares the identical
+// `version_store()->Empty()` guard/exception path as the two ops asserted below, so no separate
+// coverage gap is introduced.
+TEST_F(VersioningInterpreterTest, BranchExistenceRejectsStorageModeAndDropGraph) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:A {x:1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  // Deliberately DO NOT checkout 'b' -- CREATE BRANCH does not auto-checkout (verified above), so
+  // the session is already on main here. The branch merely EXISTS.
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+
+  // R17: rejected because branch 'b' EXISTS, even though this session is on main.
+  ASSERT_THROW(faker.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(faker.Interpret("DROP GRAPH"), memgraph::query::QueryRuntimeException);
+
+  // Session still usable, and main's data untouched, after both rejections.
+  {
+    auto s = faker.Interpret("MATCH (n:A) RETURN n.x");
+    ASSERT_EQ(s.GetResults().size(), 1U);
+    EXPECT_EQ(s.GetResults()[0][0].ValueInt(), 1);
+  }
+
+  // Once the last branch is gone, the guard clears -- same op, now allowed (branches-exist-scoped,
+  // not a permanent lockout).
+  faker.Interpret("DROP BRANCH 'b'");
+  faker.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");  // must NOT throw now that no branch exists
+}

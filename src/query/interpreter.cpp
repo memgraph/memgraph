@@ -6137,6 +6137,14 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
     throw StorageModeModificationInMulticommandTxException();
   }
   MG_ASSERT(current_db.db_acc_, "Storage Mode query expects a current DB");
+  // Graph Versioning v1 chunk 9b (R17): reject while ANY branch exists (broader than chunk 8's
+  // on-branch schema-DDL guard) -- this op would strand every branch's fork-point base.
+  // version_store() is null on non-transactional storage (guard is then a no-op).
+  if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
+    throw QueryRuntimeException(
+        "Cannot switch storage mode while versioning branches exist: it would strand their "
+        "fork-point history. Merge or drop all branches first.");
+  }
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
 
   auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
@@ -6184,6 +6192,14 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 
 PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Drop graph query expects a current DB");
+  // Graph Versioning v1 chunk 9b (R17): reject while ANY branch exists (broader than chunk 8's
+  // on-branch schema-DDL guard) -- this op would strand every branch's fork-point base.
+  // version_store() is null on non-transactional storage (guard is then a no-op).
+  if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
+    throw QueryRuntimeException(
+        "Cannot drop the graph while versioning branches exist: it would strand their fork-point "
+        "base. Merge or drop all branches first.");
+  }
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Drop graph query expects a current DB transaction");
@@ -6297,6 +6313,14 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   }
 
   MG_ASSERT(current_db.db_acc_, "Recover Snapshot query expects a current DB");
+  // Graph Versioning v1 chunk 9b (R17): reject while ANY branch exists (broader than chunk 8's
+  // on-branch schema-DDL guard) -- this op would strand every branch's fork-point base.
+  // version_store() is null on non-transactional storage (guard is then a no-op).
+  if (auto *vs = current_db.db_acc_->get()->version_store(); vs != nullptr && !vs->Empty()) {
+    throw QueryRuntimeException(
+        "Cannot recover a snapshot while versioning branches exist: it would replace the storage "
+        "the branches forked from. Merge or drop all branches first.");
+  }
   storage::Storage *storage = current_db.db_acc_->get()->storage();
 
   if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {

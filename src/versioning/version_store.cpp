@@ -208,6 +208,11 @@ bool VersionStore::Exists(std::string_view name) const {
   return branches_.contains(name);
 }
 
+bool VersionStore::Empty() const {
+  std::lock_guard guard{lock_};
+  return branches_.empty();
+}
+
 bool VersionStore::HasChildren(std::string_view name) const {
   std::lock_guard guard{lock_};
   return HasChildrenLocked(name);

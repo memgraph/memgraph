@@ -103,6 +103,12 @@ class VersionStore {
 
   bool Exists(std::string_view name) const;
 
+  // True iff no branches are currently registered (the un-persisted implicit `main` is never
+  // counted). Used by the R17 mode-guards (interpreter.cpp) to reject storage-global-destructive
+  // ops -- STORAGE MODE / RECOVER SNAPSHOT / DROP GRAPH -- whenever any branch exists, since those
+  // would strand every branch's fork-point base.
+  bool Empty() const;
+
   // Whether `name` currently has any child branch (some other branch's `parent == name`).
   // CHUNK 7 (interpreter dispatch) needs this as a fail-fast pre-check before MERGE: DropBranch
   // already refuses internally when a branch has children, but by the time MERGE would discover
