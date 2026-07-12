@@ -527,7 +527,7 @@ TEST_F(VersioningInterpreterTest, ReApplyingSameDatabaseAccessPreservesCheckout)
 // VERTEX-ONLY (this slice's own scope, superseding the predecessor BranchEngine's full-copy
 // version of this same test): no edges. MATCH (n) here (rather than MATCH (n:A)) purely because
 // this test only ever has one vertex to find either way; see
-// BranchLabelScanIsUnionAwareNotJustDiffEngineIndex below for the dedicated label-indexed-scan
+// BranchLabelScanUnionAwareWithForkEraIndex below for the dedicated label-indexed-scan
 // regression (DbAccessor::Vertices(view, label) is branch-aware too, as of the HIGH-3(b)
 // adversarial-review fix).
 TEST_F(VersioningInterpreterTest, BranchWriteIsIsolatedAndReadYourWrites) {
@@ -566,7 +566,7 @@ TEST_F(VersioningInterpreterTest, BranchWriteIsIsolatedAndReadYourWrites) {
 //
 // VERTEX-ONLY: `WHERE 'A' IN labels(n)` (ScanAll + a labels() filter) stands in for `MATCH (n:A)`
 // here purely to keep this test's focus on selective-COW, independent of whether a label index
-// happens to exist -- see BranchLabelScanIsUnionAwareNotJustDiffEngineIndex below for the
+// happens to exist -- see BranchLabelScanUnionAwareWithForkEraIndex below for the
 // dedicated MATCH (n:A) / label-indexed-scan regression.
 TEST_F(VersioningInterpreterTest, BranchVertexWriteIsLazyDiffAndIsolated) {
   SatisfyGate();
@@ -676,30 +676,38 @@ TEST_F(VersioningInterpreterTest, BranchSingleStatementSetThenReturnSeesNewValue
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2) << "must see the post-SET value, not the stale historical one";
 }
 
-// Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(b) regression (adversarial-review fix):
-// a checked-out branch's OWN label index (created directly against the diff engine -- CREATE INDEX
-// is branch-aware via the same query::DbAccessor/accessor_ redirection as everything else, see
-// db_accessor.hpp's CreateIndex) only knows about vertices PHYSICALLY resident in the diff engine
-// (COW'd, or branch-native) -- it has no reconciliation with historical_'s fork-state vertices.
-// Once that index exists, the planner lowers `MATCH (n:A)` to a real ScanAllByLabel
-// (plan/rewrite/index_lookup.hpp gates on LabelIndexReady, which the diff engine's freshly-created
-// index now satisfies) -- DbAccessor::Vertices(view, label) must fall back to the filtered union
-// scan (MaterializeFilteredBranchScan) rather than trust the diff engine's own, structurally
-// incomplete index, or every still-historical (non-COW'd) A-labeled vertex would silently go
-// missing from the result.
-TEST_F(VersioningInterpreterTest, BranchLabelScanIsUnionAwareNotJustDiffEngineIndex) {
+// Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(b) regression (adversarial-review fix)
+// -- REWORKED for chunk 8 (R14): this test used to create the label index directly against the
+// branch's own diff engine (`CREATE INDEX ON :A` issued AFTER `CHECKOUT BRANCH 'b'`, exploiting the
+// same query::DbAccessor/accessor_ redirection as everything else, see db_accessor.hpp's
+// CreateIndex) to force the planner into a real ScanAllByLabel and exercise
+// DbAccessor::Vertices(view, label)'s union-aware fallback. Chunk 8 now REJECTS schema-plane DDL
+// (including `CREATE INDEX`) while a versioning branch is checked out -- see the `is_schema_ddl`
+// guard in `interpreter.cpp`'s `Prepare` -- so that branch-side `CREATE INDEX` would now throw
+// instead of building the index, invalidating the old recipe outright.
+//
+// The index is created on MAIN instead, BEFORE the fork -- a fork-era index is a legitimate part of
+// the historical base a branch reads through, and chunk 8 does not (and must not) reject schema DDL
+// issued while checked out on main. Because chunk 8 also forbids a SECOND, branch-side index, the
+// branch's own diff engine never acquires a label index of its own, so the planner may now fall back
+// to a plain ScanAll for `MATCH (n:A)` rather than an indexed ScanAllByLabel. That is fine: this test
+// asserts the RESULT (union-aware -- both the COW'd vertex and the still-historical one are
+// returned), which holds regardless of which operator the planner picks.
+// `DbAccessor::Vertices`'s union-materialize path (`MaterializeFilteredBranchScan`) remains the
+// correctness guarantee for the day fork-era-catalog reconciliation (deferred) makes an indexed
+// branch scan planner-reachable again.
+TEST_F(VersioningInterpreterTest, BranchLabelScanUnionAwareWithForkEraIndex) {
   SatisfyGate();
 
   faker.Interpret("CREATE (:A {x:1}), (:A {x:5})");
+  // Index on MAIN, pre-fork -- schema DDL on main is unaffected by the branch guard.
+  faker.Interpret("CREATE INDEX ON :A");
+
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  // Creates the index against the DIFF ENGINE only -- main's (and hence historical_'s) two
-  // A-vertices are not, and never will be, reconciled into it.
-  faker.Interpret("CREATE INDEX ON :A");
-
-  // Touches (COWs) only the x=1 vertex -- the x=5 one stays purely historical, absent from the
-  // diff engine's own index.
+  // Touches (COWs) only the x=1 vertex -- the x=5 one stays purely historical. No branch-side
+  // index exists -- chunk 8 forbids creating one here.
   faker.Interpret("MATCH (n:A) WHERE n.x = 1 SET n.x = 2");
 
   auto stream = faker.Interpret("MATCH (n:A) RETURN n.x");
@@ -714,9 +722,9 @@ TEST_F(VersioningInterpreterTest, BranchLabelScanIsUnionAwareNotJustDiffEngineIn
       found_historical = true;
     }
   }
-  EXPECT_TRUE(found_cowed) << "the COW'd vertex (diff engine's own index DOES know about it) must still be found";
+  EXPECT_TRUE(found_cowed) << "the COW'd vertex must still be found regardless of the scan operator chosen";
   EXPECT_TRUE(found_historical)
-      << "the still-historical vertex (diff engine's own index does NOT know about it) must not be silently missed";
+      << "the still-historical vertex (absent from any branch-side index) must not be silently missed";
 }
 
 // Graph Versioning v1, slice E-2a (branch edge create + basic single-hop expansion): covers two
@@ -841,53 +849,99 @@ TEST_F(VersioningInterpreterTest, BranchFindEdgeByIdResolvesForkAndBranchNativeE
   }
 }
 
-// Graph Versioning v1, slice E-2d (edge-type+property indexed scan): supersedes the ROUND-2
-// fail-loud guard that used to live here (`BranchEdgeTypePropertyIndexScanThrowsNotYetImplemented`
-// -- `DbAccessor::Edges(...)` on a branch unconditionally threw `NotYetImplemented` once an
-// edge-type-and-property index existed; see that test's history for the plan-selection diagnosis
-// that led to using an edge-TYPE-AND-PROPERTY index with an equality filter, mirroring
-// `tests/unit/interpreter.cpp`'s own `EdgePropertyInListIndexedEquivalence` recipe, to reliably get
-// the planner to pick the indexed path on a graph this small).
+// Graph Versioning v1, slice E-2d (edge-type+property indexed scan) -- REWORKED for chunk 8 (R14):
+// this test used to create the edge-type-and-property index ON THE BRANCH itself (mirroring
+// `tests/unit/interpreter.cpp`'s own `EdgePropertyInListIndexedEquivalence` recipe) to reliably force
+// the planner into an indexed scan. Chunk 8 now REJECTS `CREATE EDGE INDEX` (and every other
+// schema-plane DDL) while a versioning branch is checked out -- see the `is_schema_ddl` guard in
+// `interpreter.cpp`'s `Prepare` -- so that branch-side `CREATE EDGE INDEX` would now throw instead of
+// building the index, invalidating the old recipe outright.
 //
-// Mirrors `BranchLabelScanIsUnionAwareNotJustDiffEngineIndex`'s own vertex-side headline on the edge
-// axis: `CREATE EDGE INDEX ON :R(prop)` populates the DIFF ENGINE's own index only -- a
-// still-historical (pre-fork) matching edge is NOT, and never will be, reconciled into it.
-// `DbAccessor::Edges` must fall back to the filtered union scan
-// (`MaterializeFilteredBranchEdgeScan`) rather than trust the diff engine's own, structurally
-// incomplete index, or the still-historical fork edge would silently go missing from the result.
-TEST_F(VersioningInterpreterTest, BranchEdgeTypePropertyIndexScanIsUnionAwareNotJustDiffIndex) {
+// The index is created on MAIN instead, BEFORE the fork -- a fork-era index is a legitimate part of
+// the historical base a branch reads through, and chunk 8 does not (and must not) reject schema DDL
+// issued while checked out on main. Because chunk 8 also forbids a SECOND, branch-side index, the
+// branch's own diff engine never acquires an edge index of its own, so the planner may now fall back
+// to a plain Expand for the branch-native edges rather than an indexed scan. That is fine: this test
+// asserts the RESULT (union-aware -- the historical fork-era edge and the branch-native match are both
+// returned, the non-match excluded), which holds regardless of which operator the planner picks.
+// `DbAccessor::Edges`'s union-materialize path (`MaterializeFilteredBranchEdgeScan`) remains the
+// correctness guarantee for the day fork-era-catalog reconciliation (deferred) makes an indexed branch
+// scan planner-reachable again.
+TEST_F(VersioningInterpreterTest, BranchEdgeScanUnionAwareWithForkEraEdgeIndex) {
   SatisfyGate();
 
-  // Pre-fork (fork) edge, prop=1 -- absent from any index the branch later creates.
+  // Fork edge, prop=1, created on MAIN before the branch even exists.
   faker.Interpret("CREATE (:X {name:'x'})-[:R {prop:1}]->(:Y {name:'y'})");
+  // Index on MAIN, pre-fork -- schema DDL on main is unaffected by the branch guard.
+  faker.Interpret("CREATE EDGE INDEX ON :R(prop)");
+
   faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
   faker.Interpret("CHECKOUT BRANCH 'b'");
 
-  // Populates the DIFF ENGINE's own edge index only -- the fork edge above is not, and never will
-  // be, reconciled into it.
-  faker.Interpret("CREATE EDGE INDEX ON :R(prop)");
-
-  // Branch-native edges: one matching (prop=1), one that must be excluded (prop=2).
+  // Branch-native edges: one matching (prop=1), one that must be excluded (prop=2). No branch-side
+  // index exists -- chunk 8 forbids creating one here.
   faker.Interpret("CREATE (:X)-[:R {prop:1}]->(:Y)");
   faker.Interpret("CREATE (:X)-[:R {prop:2}]->(:Y)");
 
-  // THE HEADLINE ASSERTION -- the indexed scan must surface the HISTORICAL fork edge (which the
-  // diff-engine index alone would miss) AND the branch-native prop=1 match, but not the prop=2 edge.
   auto stream = faker.Interpret("MATCH ()-[e:R]->() WHERE e.prop = 1 RETURN e.prop");
   ASSERT_EQ(stream.GetResults().size(), 2U)
-      << "union-materialize must surface BOTH the historical fork edge (absent from the diff-engine "
-         "index) and the branch-native prop=1 edge -- pre-E-2d this path threw; a diff-index-only "
-         "scan would have returned just the branch-native one";
+      << "branch edge scan must be union-aware: the historical fork edge (prop=1) plus the "
+         "branch-native prop=1 edge, excluding prop=2 -- regardless of whether the planner picks an "
+         "indexed scan or Expand, both are union-aware on a branch";
   for (auto &row : stream.GetResults()) {
     EXPECT_EQ(row[0].ValueInt(), 1);
   }
 
-  // R35: main is untouched -- still exactly the one fork :R edge; the branch's index and
-  // branch-native edges never leaked across.
+  // Isolation: main still has exactly ONE :R edge -- the branch's native edges never leaked across.
   faker.Interpret("CHECKOUT BRANCH 'main'");
+  auto s2 = faker.Interpret("MATCH ()-[e:R]->() RETURN e");
+  ASSERT_EQ(s2.GetResults().size(), 1U) << "branch-native edges must not leak to main";
+}
+
+// Graph Versioning v1, chunk 8 (R14): the schema-plane DDL rejection guard itself. Every
+// index/constraint/ANALYZE-GRAPH-shaped DDL must throw QueryRuntimeException while checked out on a
+// branch (BEFORE it ever reaches storage), a data-plane write and an ordinary read must still work
+// afterward on that SAME session (the throw must not leave the interpreter wedged), and the identical
+// DDL must succeed once checked back out onto main -- the guard is branch-scoped, not global.
+//
+// Widened (adversarial-review follow-up, see the guard's own comment in interpreter.cpp's Prepare):
+// the same rejection also covers storage-global operations -- TTL and STORAGE MODE are asserted here
+// with simple, path-free syntax; RECOVER SNAPSHOT is deliberately NOT exercised in this test (it
+// needs a real snapshot file on disk) but is covered by the identical guard/exception path.
+TEST_F(VersioningInterpreterTest, BranchSchemaDdlRejected) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:L {p:1})-[:R {p:1}]->(:M)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Every schema-plane DDL is rejected on a branch:
+  ASSERT_THROW(faker.Interpret("CREATE INDEX ON :L(p)"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(faker.Interpret("CREATE EDGE INDEX ON :R(p)"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(faker.Interpret("CREATE CONSTRAINT ON (n:L) ASSERT EXISTS (n.p)"),
+               memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(faker.Interpret("ANALYZE GRAPH"), memgraph::query::QueryRuntimeException);
+
+  // Storage-global operations are rejected too (same guard, widened set):
+  ASSERT_THROW(faker.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(faker.Interpret("ENABLE TTL"), memgraph::query::QueryRuntimeException);
+
+  // Session still usable after the rejections -- an ordinary data read works.
   {
-    auto s = faker.Interpret("MATCH ()-[e:R]->() RETURN e");
-    EXPECT_EQ(s.GetResults().size(), 1U) << "main must still have exactly the one fork :R edge";
+    auto s = faker.Interpret("MATCH (n:L) RETURN n.p");
+    ASSERT_EQ(s.GetResults().size(), 1U);
+    EXPECT_EQ(s.GetResults()[0][0].ValueInt(), 1);
+  }
+
+  // Data-plane write still allowed on the branch.
+  faker.Interpret("CREATE (:L {p:2})");
+
+  // The SAME DDL succeeds on main -- the guard is branch-scoped.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("CREATE INDEX ON :L(p)");  // must NOT throw
+  {
+    auto s = faker.Interpret("SHOW INDEX INFO");
+    EXPECT_GE(s.GetResults().size(), 1U);
   }
 }
 

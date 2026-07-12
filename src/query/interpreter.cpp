@@ -10874,6 +10874,52 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       };
     };
 
+    // Graph Versioning v1 chunk 8 (R14) -- schema-plane DDL mutates storage-global state that
+    // doesn't preview/roll-back per-transaction (enum value ids are positional + NOT rolled back
+    // on abort -> mainline enum corruption); on a branch it would also hit the throwaway diff
+    // engine and be silently lost at merge. Reject before planning; data-plane writes remain
+    // allowed; introspection (SHOW ...) remains allowed. Reconciliation/fork-era-catalog (index
+    // SEEKS on a branch) is a separate deferred perf slice.
+    //
+    // Widened set (adversarial review follow-up): TtlQuery (ENABLE/CONFIGURE TTL) mutates the same
+    // storage-global `ttl_` state and enqueues a real index build on main -- it is the same
+    // silent-mutate-main class as the index/constraint/enum DDL above, so it belongs in this guard
+    // for the same reason. StorageModeQuery and RecoverSnapshotQuery are additionally in scope of a
+    // broader R17 rule -- they must be rejected whenever ANY branch exists on the database, not only
+    // when THIS session happens to be checked out on one -- but that `branches-exist` guard is
+    // deferred to chunk 9b (backup completeness + mode guards). What's implemented here is the
+    // strict subset of R17 that is cheap to close now: running RECOVER SNAPSHOT (wholesale-replaces
+    // storage contents from disk) or STORAGE MODE (flips whole-DB storage mode, bypassing MVCC)
+    // while THIS session is actively on a branch is an immediate corruption hazard to the diff
+    // engine referencing the base storage, so it's rejected unconditionally here; the wider
+    // any-branch-exists case is chunk 9b's job. EdgeImportModeQuery only mutates on-disk
+    // edge-import mode, which is unreachable under versioning's in-memory-only rule -- included
+    // anyway as cheap defense-in-depth. CreateSnapshotQuery is deliberately NOT included: it
+    // snapshots main's storage (a separate storage object from the branch's diff engine), is a
+    // harmless durability op, and rejecting it would break a legitimate "snapshot before merge"
+    // workflow.
+    if (current_db_.branch_context() != nullptr) {
+      auto *q = parsed_query.query;
+      const bool is_schema_or_storage_global_ddl =
+          utils::Downcast<IndexQuery>(q) != nullptr || utils::Downcast<EdgeIndexQuery>(q) != nullptr ||
+          utils::Downcast<PointIndexQuery>(q) != nullptr || utils::Downcast<VectorIndexQuery>(q) != nullptr ||
+          utils::Downcast<CreateVectorEdgeIndexQuery>(q) != nullptr || utils::Downcast<TextIndexQuery>(q) != nullptr ||
+          utils::Downcast<CreateTextEdgeIndexQuery>(q) != nullptr ||
+          utils::Downcast<DropAllIndexesQuery>(q) != nullptr ||
+          utils::Downcast<DropAllConstraintsQuery>(q) != nullptr || utils::Downcast<ConstraintQuery>(q) != nullptr ||
+          utils::Downcast<CreateEnumQuery>(q) != nullptr || utils::Downcast<AlterEnumAddValueQuery>(q) != nullptr ||
+          utils::Downcast<AlterEnumUpdateValueQuery>(q) != nullptr ||
+          utils::Downcast<AnalyzeGraphQuery>(q) != nullptr || utils::Downcast<DropGraphQuery>(q) != nullptr ||
+          utils::Downcast<TtlQuery>(q) != nullptr || utils::Downcast<StorageModeQuery>(q) != nullptr ||
+          utils::Downcast<RecoverSnapshotQuery>(q) != nullptr || utils::Downcast<EdgeImportModeQuery>(q) != nullptr;
+      if (is_schema_or_storage_global_ddl) {
+        throw QueryRuntimeException(
+            "Schema-plane and storage-global operations (indexes, constraints, enums, TTL, ANALYZE GRAPH, DROP "
+            "GRAPH, STORAGE MODE, RECOVER SNAPSHOT) are not allowed while a versioning branch is checked out. Run "
+            "CHECKOUT BRANCH 'main' first.");
+      }
+    }
+
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query),
                                           &query_execution->summary,
