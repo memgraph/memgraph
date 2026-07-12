@@ -321,7 +321,9 @@ Each error states the cause and the corrective action.
 | Branch not found | `Version '<x>' does not exist.` |
 | Name already exists | `Version '<x>' already exists.` |
 | Write with no resolved version (D10) | `This connection has no active version resolved. Use CHECKOUT BRANCH or USING VERSION; writes are not applied to 'main' by default while versioning is in use on this connection.` (exact behavior pending D10) |
-| Storage-mode switch with live branches | `Cannot switch storage mode while branches exist: it would strand their history. Merge or drop all branches first.` (guards SetStorageMode / RECOVER SNAPSHOT — R17) |
+| Storage-mode switch with live branches | `Cannot switch storage mode while versioning branches exist: it would strand their fork-point history. Merge or drop all branches first.` (guards STORAGE MODE; the RECOVER SNAPSHOT and DROP GRAPH variants carry the analogous message — R17) |
+| Schema-plane DDL on a branch | `Schema-plane and storage-global operations (indexes, constraints, enums, TTL, ANALYZE GRAPH, DROP GRAPH, STORAGE MODE, RECOVER SNAPSHOT) are not allowed while a versioning branch is checked out. Run CHECKOUT BRANCH 'main' first.` (R14) |
+| Parallel (chunked) scan on a branch | `Parallel (chunked) vertex/edge scans on a versioned branch` (NotYetImplemented — the planner's single-threaded, union-aware scans are used instead) |
 
 ### 4.5 Config flags
 
@@ -754,9 +756,26 @@ field (a fleet trending toward the cap, or holding old fork points while `main` 
 where the incremental-overlay / smarter-retention investment would pay off).
 
 Operator-facing visibility is via the query surface itself: `SHOW BRANCHES` (what versions
-exist), `SHOW BRANCH` (where am I), and `SHOW BRANCH DIFF` (what changed). Prometheus /
-`SHOW METRICS INFO` counters equivalent to the telemetry above are a candidate for v1 and are
-noted as a KPI/observability item in Appendix D.
+exist), `SHOW BRANCH` (where am I), and `SHOW BRANCH DIFF` (what changed).
+
+**Prometheus / `SHOW METRICS INFO` metrics (IMPLEMENTED, v1).** Six GLOBAL metrics under group
+`Versioning`, exposed automatically on the OpenMetrics `/metrics` scrape and in `SHOW METRICS INFO`
++ the JSON metrics endpoint:
+
+| Prometheus name | `SHOW METRICS INFO` row | Type | Meaning |
+| :--- | :--- | :--- | :--- |
+| `memgraph_versioning_branches_created_total` | `VersioningBranchesCreated` | Counter | branches created (lifetime) |
+| `memgraph_versioning_branches_dropped_total` | `VersioningBranchesDropped` | Counter | branches dropped (lifetime) |
+| `memgraph_versioning_branches_merged_total` | `VersioningBranchesMerged` | Counter | branches merged into `main` (lifetime) |
+| `memgraph_versioning_branch_commits_captured_total` | `VersioningBranchCommitsCaptured` | Counter | branch commits captured to a change-log (lifetime) |
+| `memgraph_versioning_active_branches` | `VersioningActiveBranches` | Gauge | branches currently existing |
+| `memgraph_versioning_active_checkouts` | `VersioningActiveCheckouts` | Gauge | branches currently checked out |
+
+`active_branches` doubles as an early-warning signal for the R13 retention ceiling (branches held
+open while `main` churns). Not yet exposed (candidate follow-ups): change-log length / oldest-live-
+fork-point retention-depth gauge, merge-conflict-rejection and retention-cap-rejection counters,
+`USING VERSION` query counter, and a merge-latency histogram — noted as KPI/observability items in
+Appendix D.
 
 ---
 
@@ -774,7 +793,10 @@ noted as a KPI/observability item in Appendix D.
   snapshot semantics at the fork timestamp** internally, so a database running under
   READ_COMMITTED/READ_UNCOMMITTED does not leak newer parent writes into a branch view (Skeptic
   A#7; the pin is part of the new historical-timestamp accessor, R16).
-- A branch's changes are durable and survive restart (D6).
+- A branch's registry record and change-logs are durable and survive restart (D6). **v1 status:
+  branches survive restart AS RECORDS but cannot be checked out/merged until the fork-point base is
+  re-materialized on startup — that recovery extension is deferred to v1.1 (fail-stop, not
+  corrupting; see §10 "Restart / process durability" and D9).**
 - Versioning state is per-database: a branch in database A is invisible from database B.
 - Versioning is only ever active in in-memory transactional mode; it never silently runs in a
   mode where it could corrupt or lose data (D8).
@@ -797,7 +819,14 @@ noted as a KPI/observability item in Appendix D.
 - **Analytical or on-disk storage modes** — both unsupported; in-memory transactional only (D8).
 - **Unbounded long-living branches** — a branch's size/age is capped to bound retention (D5).
 - **Schema-plane branch changes** (creating indexes/constraints/enums on a branch) — v1 scopes
-  branch changes to the data plane (Appendix B, R14).
+  branch changes to the data plane (Appendix B, R14). Enforced: schema-plane and storage-global DDL
+  (indexes, constraints, enums, `TTL`, `ANALYZE GRAPH`, `DROP GRAPH`, `STORAGE MODE`,
+  `RECOVER SNAPSHOT`) is **rejected while a branch is checked out**; the storage-destructive subset
+  (`STORAGE MODE`, `RECOVER SNAPSHOT`, `DROP GRAPH`) is additionally **rejected while any branch
+  exists** (R17), since it would strand every branch's fork-point base.
+- **Parallel (chunked) scans on a branch** — the enterprise `ScanParallel*` operators are **rejected
+  on a branch** (fail-loud). A branch's reads route through the union-aware single-threaded scans
+  instead; a correct chunked union scan is out of scope for v1.
 
 ---
 
