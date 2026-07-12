@@ -294,13 +294,11 @@ auto Lower(LoweringCtx &ctx, Expression &expr) -> eclass {
 
 auto LowerSingleQuery(SingleQuery &sq, LoweringCtx &ctx) -> eclass;
 
-// ORDER BY / SKIP / LIMIT are not yet lowered into operators. Rather than
-// silently drop them (which would return wrong results), refuse a body that
-// carries any of them. When the Sort/Skip/Limit operators land they replace
-// this guard.
+// ORDER BY / SKIP / LIMIT / DISTINCT aren't lowered yet; refuse them rather than
+// silently drop them (wrong results). Replaced when those operators land.
 void GuardUnsupportedTailClauses(ReturnBody const &body) {
-  if (!body.order_by.empty() || body.skip != nullptr || body.limit != nullptr) {
-    ThrowNotImplementedYet("ORDER BY / SKIP / LIMIT");
+  if (!body.order_by.empty() || body.skip != nullptr || body.limit != nullptr || body.distinct) {
+    ThrowNotImplementedYet("ORDER BY / SKIP / LIMIT / DISTINCT");
   }
 }
 
@@ -332,9 +330,7 @@ auto LowerWith(query::With &with, eclass pipe, LoweringCtx &ctx) -> eclass {
     pipe = ctx.g.MakeBind(pipe, SymEclassFor(ctx, *ne), expr);
   }
   GuardUnsupportedTailClauses(with.body_);
-  // WHERE filters the projected rows, so the Filter sits above the projection
-  // Binds. The predicate reuses expression lowering (unsupported sub-nodes throw
-  // NotYetImplemented there).
+  // WHERE filters the projected rows, so Filter sits above the projection Binds.
   if (with.where_ != nullptr) {
     auto predicate = Lower(ctx, *with.where_->expression_);
     pipe = ctx.g.MakeFilter(pipe, predicate);

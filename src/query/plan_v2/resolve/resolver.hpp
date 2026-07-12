@@ -188,12 +188,10 @@ struct symbol_resolve_traits<symbol::Output> {
 
 template <>
 struct symbol_resolve_traits<symbol::Filter> {
-  // Structurally Output with own_syms = ∅: Filter binds nothing, so the pipe
-  // carries the chosen alt's full introduces (⊇ parent demand AND ⊇
-  // predicate.required, by FilterFlatMap's pruning), and the predicate is an
-  // expression read in parent.in_scope ∪ that set.  Uniform threading would be
-  // wrong here - it would neither force the pipe to introduce the predicate's
-  // symbols nor let the predicate see pipe-introduced bindings.
+  // Output with own_syms = ∅: the pipe must introduce the chosen alt's full set
+  // (which ⊇ predicate.required via FilterFlatMap's pruning), and the predicate
+  // reads in parent.in_scope ∪ that set. Uniform threading wouldn't force the
+  // pipe to provide the predicate's symbols nor let the predicate see them.
   static void resolve_children(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key,
                                VariableSet const &chosen_introduces, SymbolContext const & /*syms*/,
                                planner::core::extract::ChildSink<ResolverKey> auto visit) {

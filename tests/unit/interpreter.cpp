@@ -384,22 +384,46 @@ TEST_F(PlannerV2InterpreterTest, WithWhereComposesBooleanPredicates) {
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
 }
 
+TEST_F(PlannerV2InterpreterTest, WithWhereKeepsAliveASymbolUsedOnlyInThePredicate) {
+  // y is referenced only in the WHERE, never in the RETURN, so the resolver's
+  // demand threading must keep y's Bind alive. Only x*2 > 2 (x in {2, 3}) survives.
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH x, x * 2 AS y WHERE y > 2 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);
+}
+
 TEST_F(PlannerV2InterpreterTest, ExplainShowsFilterOperator) {
-  // The WHERE lowers to a Filter operator above the projection.
-  auto stream = Interpret("EXPLAIN UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 RETURN x;");
-  EXPECT_NE(PlanText(stream).find("Filter"), std::string::npos) << PlanText(stream);
+  // Filter sits above the Unwind. The predicate text isn't asserted: Filter::Clone
+  // drops all_filters_ so the label renders empty (strengthened in the stacked fix).
+  auto const plan = PlanText(Interpret("EXPLAIN UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 RETURN x;"));
+  auto const filter_pos = plan.find("Filter");
+  auto const unwind_pos = plan.find("Unwind");
+  ASSERT_NE(filter_pos, std::string::npos) << plan;
+  ASSERT_NE(unwind_pos, std::string::npos) << plan;
+  EXPECT_LT(filter_pos, unwind_pos) << plan;  // Filter above Unwind
 }
 
 TEST_F(PlannerV2InterpreterTest, UnsupportedPredicateReportsNotImplemented) {
-  // An IN-list predicate is an unsupported expression node; it must surface a
-  // clear query error rather than crash or silently drop rows.
+  // IN-list is an unsupported expression node; it must error, not silently drop rows.
   EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x IN [1, 2] RETURN x;"), memgraph::query::QueryException);
 }
 
 TEST_F(PlannerV2InterpreterTest, TailClauseOnWithReportsNotImplemented) {
-  // SKIP/LIMIT/ORDER BY are not built into operators yet. Rather than silently
-  // ignore the SKIP (wrong results), the query is refused.
+  // ORDER BY / SKIP / LIMIT aren't built yet; refused rather than silently dropped.
   EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x WITH x SKIP 1 RETURN x;"), memgraph::query::QueryException);
+}
+
+TEST_F(PlannerV2InterpreterTest, TailClauseOnReturnReportsNotImplemented) {
+  // Same guard on the final RETURN body.
+  EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x RETURN x LIMIT 2;"), memgraph::query::QueryException);
+  EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x;"), memgraph::query::QueryException);
+}
+
+TEST_F(PlannerV2InterpreterTest, DistinctReportsNotImplemented) {
+  // DISTINCT isn't lowered yet; dropping it would silently return duplicates.
+  EXPECT_THROW(Interpret("UNWIND [1, 1, 2] AS x RETURN DISTINCT x;"), memgraph::query::QueryException);
+  EXPECT_THROW(Interpret("UNWIND [1, 1, 2] AS x WITH DISTINCT x RETURN x;"), memgraph::query::QueryException);
 }
 
 TYPED_TEST(InterpreterTest, MultiplePulls) {

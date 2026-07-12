@@ -53,9 +53,9 @@ inline constexpr double kUnwindPerRowOverhead = 1.0;
 /// Structural placeholder until measured data justifies a value.
 inline constexpr double kFilterPerRowOverhead = 1.0;
 
-/// Fraction of input rows a filter is assumed to pass.  A coarse placeholder
-/// (execution-only; real selectivity estimation is a later optimisation).  It
-/// biases nothing here since a filtered query has a single valid extraction.
+/// Fraction of input rows a filter is assumed to pass. Coarse placeholder. Doesn't
+/// affect plan choice today (one extraction per query) but flows into ancestor cost,
+/// so it will matter once Filter rewrites add alternative plan shapes.
 inline constexpr double kFilterSelectivity = 0.5;
 
 // Per-alternative leaf costs.  Structural placeholders, 1.0 until measured
@@ -252,13 +252,10 @@ auto UnwindFlatMap(CostFrontier const &input, CostFrontier const &list, planner:
   });
 }
 
-/// Filter flat-map: row-reducing pass-through.  For each input alt and each
-/// predicate alt the input can satisfy, emit one alt whose cardinality is scaled
-/// by the placeholder selectivity, whose predicate is evaluated once per input
-/// row, and which introduces exactly what the input introduces (Filter binds
-/// nothing).  (input, predicate) pairs whose predicate demand isn't met by the
-/// input are skipped (see BindFlatMap header for rationale): the alive-Bind
-/// variant of the row pipe supplies the satisfiable pairing.
+/// Filter flat-map: row-reducing pass-through. Per input alt, emit one alt per
+/// satisfiable predicate alt: cardinality scaled by selectivity, predicate cost
+/// paid per input row, introduces = input's (Filter binds nothing). Pairs whose
+/// predicate demand the input can't meet are skipped (see BindFlatMap).
 auto FilterFlatMap(CostFrontier const &input, CostFrontier const &predicate, planner::core::ENodeId enode_id)
     -> CostFrontier {
   return CostFrontier::flat_map(input, [&predicate, enode_id](Alternative const &input_alt, auto emit) {
@@ -423,11 +420,7 @@ struct symbol_cost_traits<Unwind> {
 
 template <>
 struct symbol_cost_traits<Filter> {
-  // Row-reducing pass-through.  Children layout is [input, predicate].  The
-  // predicate is evaluated once per input row; cardinality is scaled by a
-  // placeholder selectivity.  Filter introduces nothing, so the emitted alt
-  // carries the input's introduces (the resolver's downward demand then forces
-  // the input to actually provide the predicate's symbols).
+  // Children [input, predicate]; see FilterFlatMap.
   static auto cost(ENodeT const &, ENodeId id, CostChildren children, CostCtx const &) -> CostFrontier {
     using namespace child::filter;
     return FilterFlatMap(*children[input], *children[predicate], id);

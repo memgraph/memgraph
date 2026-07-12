@@ -196,8 +196,7 @@ struct symbol_make_traits<symbol::Unwind> {
                    planner::core::EClassId list_expr) -> seeded_node;
 };
 
-/// Filter: no storage; children are [input, predicate_expr]. Introduces no
-/// binding, so unlike Unwind there is no sym child.
+/// Filter: no storage; children [input, predicate_expr]. Binds nothing (no sym child).
 template <>
 struct symbol_make_traits<symbol::Filter> {
   struct storage_type {};
