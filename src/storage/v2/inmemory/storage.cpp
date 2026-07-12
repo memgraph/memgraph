@@ -2957,6 +2957,12 @@ void InMemoryStorage::AddForkPinAt(uint64_t fork_ts) {
   version_fork_pins_.insert(fork_ts);
 }
 
+std::optional<uint64_t> InMemoryStorage::OldestForkPin() const {
+  auto guard = std::lock_guard{version_fork_pin_lock_};
+  if (version_fork_pins_.empty()) return std::nullopt;
+  return *version_fork_pins_.begin();
+}
+
 Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
   // Mirrors CreateTransaction (above) except `start_timestamp` is the caller-supplied `fork_ts` (a
   // PAST boundary) rather than a fresh `timestamp_++` tick, and `timestamp_` itself is never

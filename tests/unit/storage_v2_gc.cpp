@@ -2106,3 +2106,41 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_MultisetSemanticsOldestPinWins) {
   }
   EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
 }
+
+// OldestForkPin() is the accessor WAL retention (EnsureNecessaryWalFilesExist, branch durability
+// S1) uses to clamp deletion to the oldest live branch fork -- it must track the same "min of
+// version_fork_pins_" the GC horizon clamp uses, and flip back to nullopt once fully unpinned.
+TEST_F(StorageV2GcMetricsTest, ForkPin_OldestForkPinTracksMinimumAndClearsWhenUnpinned) {
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
+
+  EXPECT_FALSE(mem_storage->OldestForkPin().has_value())
+      << "no branch has registered a pin yet, so there is no fork horizon";
+
+  const uint64_t fork_ts_older = mem_storage->RegisterForkPin();
+  ASSERT_TRUE(mem_storage->OldestForkPin().has_value());
+  EXPECT_EQ(fork_ts_older, *mem_storage->OldestForkPin());
+
+  // A commit between the two RegisterForkPin calls so the two pins are numerically distinct.
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const uint64_t fork_ts_newer = mem_storage->RegisterForkPin();
+  ASSERT_LT(fork_ts_older, fork_ts_newer);
+
+  // Multiset semantics: with both pins live, the oldest (smallest) one wins, regardless of
+  // registration order.
+  ASSERT_TRUE(mem_storage->OldestForkPin().has_value());
+  EXPECT_EQ(fork_ts_older, *mem_storage->OldestForkPin());
+
+  // Releasing the newer pin must not move the horizon: the older pin is still live.
+  mem_storage->ReleaseForkPin(fork_ts_newer);
+  ASSERT_TRUE(mem_storage->OldestForkPin().has_value());
+  EXPECT_EQ(fork_ts_older, *mem_storage->OldestForkPin());
+
+  // Releasing the last live pin clears the horizon back to nullopt.
+  mem_storage->ReleaseForkPin(fork_ts_older);
+  EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
+}

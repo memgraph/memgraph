@@ -12909,7 +12909,7 @@ using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>
 
 void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
                                   OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
-                                  utils::FileRetainer *file_retainer) {
+                                  utils::FileRetainer *file_retainer, std::optional<uint64_t> oldest_fork_ts) {
   struct LoadWalInfo {
     uint64_t seq_num;
     uint64_t from_timestamp;
@@ -12955,18 +12955,30 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
     return *transaction->last_durable_ts_;
   });
 
+  // Version branches pin main's history back to their fork_ts (see InMemoryStorage::OldestForkPin,
+  // which mirrors the same clamp CollectGarbage applies to the GC horizon). WAL retention must not
+  // delete files a live branch's historical reconstruction will need after a restart, so we retain
+  // back to min(oldest snapshot, oldest live fork) rather than just the oldest snapshot. Lowering
+  // the threshold makes the `find_if` below match an earlier (or the same) WAL file, so strictly
+  // fewer files are deleted -- never more -- keeping the no-branch behavior unchanged
+  // (oldest_fork_ts == nullopt => keep_from_ts == old_durable_ts, identical to before this change).
+  auto const keep_from_ts = oldest_fork_ts ? std::min(old_durable_ts, *oldest_fork_ts) : old_durable_ts;
+
   auto const it = std::ranges::find_if(
-      wal_files, [old_durable_ts](auto const &wal_info) { return wal_info.from_timestamp > old_durable_ts; });
+      wal_files, [keep_from_ts](auto const &wal_info) { return wal_info.from_timestamp > keep_from_ts; });
 
   // We need to leave at least one WAL file that contains deltas that were
-  // created before the oldest snapshot. Because we always leave at least
-  // one WAL file that contains deltas before the snapshot, this correctly
+  // created before the oldest snapshot (or the oldest live branch fork, if older). Because we
+  // always leave at least one WAL file that contains deltas before that point, this correctly
   // handles the edge case when that one file is the current WAL file that
   if (it != wal_files.begin()) {
     auto const num_to_delete = static_cast<size_t>(std::distance(wal_files.begin(), std::prev(it)));
-    spdlog::info("snapshot retention: deleting {} pre-snapshot WAL file(s) (oldest retained snapshot ts={})",
-                 num_to_delete,
-                 old_durable_ts);
+    spdlog::info(
+        "snapshot retention: deleting {} pre-snapshot WAL file(s) (oldest retained snapshot ts={}, oldest live "
+        "branch fork ts={})",
+        num_to_delete,
+        old_durable_ts,
+        oldest_fork_ts ? std::to_string(*oldest_fork_ts) : std::string("none"));
     std::for_each(wal_files.begin(), std::prev(it), [file_retainer](auto const &wal_info) {
       file_retainer->DeleteFile(wal_info.path);
     });
@@ -14189,7 +14201,13 @@ std::optional<std::filesystem::path> CreateSnapshot(
   // -1 needed because we skip the current snapshot
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
       utils::DirExists(wal_directory)) {
-    EnsureNecessaryWalFilesExist(wal_directory, uuid_str, old_snapshot_files, transaction, file_retainer);
+    // CreateSnapshot is only ever invoked on an InMemoryStorage (both call sites pass `this` from
+    // InMemoryStorage methods); the on-disk snapshot feature has no other Storage implementation.
+    // Cast to reach the branch fork-pin state so WAL retention can clamp to the oldest live fork,
+    // not just the oldest snapshot (branch durability S1; see EnsureNecessaryWalFilesExist).
+    auto *mem_storage = static_cast<InMemoryStorage *>(storage);
+    EnsureNecessaryWalFilesExist(
+        wal_directory, uuid_str, old_snapshot_files, transaction, file_retainer, mem_storage->OldestForkPin());
   }
 
   // We are not updating ldt here; we are only updating it when recovering from snapshot (because there is no other

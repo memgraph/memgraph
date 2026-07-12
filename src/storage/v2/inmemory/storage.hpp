@@ -826,6 +826,13 @@ class InMemoryStorage final : public Storage {
   // HistoricalAccess inlines the one-line insert itself instead.
   void AddForkPinAt(uint64_t fork_ts);
 
+  // Oldest live branch fork timestamp (min of version_fork_pins_), or nullopt if no branch
+  // currently pins history. Used by WAL retention (EnsureNecessaryWalFilesExist) and mirrors the
+  // GC horizon clamp (CollectGarbage, see the "Version-branch fork points pin main's history"
+  // section in storage.cpp) so main WAL is kept back to the oldest fork, not just the oldest
+  // snapshot (branch durability S1).
+  std::optional<uint64_t> OldestForkPin() const;
+
   enum class HistoricalAccessError : uint8_t {
     // `fork_ts` is not a live entry in version_fork_pins_ -- either it was never registered via
     // RegisterForkPin, or its pin has already been released (ReleaseForkPin, at DROP BRANCH). Main's
