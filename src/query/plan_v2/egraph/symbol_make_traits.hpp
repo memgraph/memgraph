@@ -21,6 +21,7 @@
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_node_map.hpp>
 
+#include "query/frontend/ast/ordering.hpp"
 #include "query/plan_v2/egraph/builtin_functions.hpp"
 #include "query/plan_v2/egraph/symbol.hpp"
 #include "query/plan_v2/resolve/analysis.hpp"
@@ -202,6 +203,50 @@ struct symbol_make_traits<symbol::Filter> {
   struct storage_type {};
 
   static auto make(storage_type &, planner::core::EClassId input, planner::core::EClassId predicate) -> seeded_node;
+};
+
+/// Distinct: no storage; children are [input, value_ident...]. Mirrors Output's
+/// full-children shape (input prepended by the facade). Introduces no binding.
+template <>
+struct symbol_make_traits<symbol::Distinct> {
+  struct storage_type {};
+
+  static auto make(storage_type &, utils::small_vector<planner::core::EClassId> children) -> seeded_node;
+};
+
+/// Skip / Limit: no storage; children are [input, count_expr]. The count is a
+/// constant (no frame references) evaluated once. Introduces no binding.
+template <>
+struct symbol_make_traits<symbol::Skip> {
+  struct storage_type {};
+
+  static auto make(storage_type &, planner::core::EClassId input, planner::core::EClassId count) -> seeded_node;
+};
+
+template <>
+struct symbol_make_traits<symbol::Limit> {
+  struct storage_type {};
+
+  static auto make(storage_type &, planner::core::EClassId input, planner::core::EClassId count) -> seeded_node;
+};
+
+/// OrderBy: interns the per-key ordering vector to a stable id (the
+/// disambiguator), so two OrderBys with identical sort-key children but
+/// different ASC/DESC directions stay distinct e-nodes. `store` (orderings ->
+/// id) is the hash-consing direction; `info` (id -> orderings, indexed by
+/// disambiguator) is the reverse the Builder reads to split the children and
+/// rebuild the SortItems. Children are [input, sort_key..., value_ident...]; the
+/// sort-key count is `orderings.size()`.
+template <>
+struct symbol_make_traits<symbol::OrderBy> {
+  struct storage_type {
+    std::map<std::vector<Ordering>, uint64_t> store;
+    std::vector<std::vector<Ordering>> info;
+  };
+
+  static auto make(storage_type &s, planner::core::EClassId input,
+                   utils::small_vector<planner::core::EClassId> children_after_input, std::vector<Ordering> orderings)
+      -> seeded_node;
 };
 
 /// Subquery: no storage; children are [outer_input, inner_root, exposed_syms...].

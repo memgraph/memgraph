@@ -294,12 +294,40 @@ auto Lower(LoweringCtx &ctx, Expression &expr) -> eclass {
 
 auto LowerSingleQuery(SingleQuery &sq, LoweringCtx &ctx) -> eclass;
 
-// ORDER BY / SKIP / LIMIT / DISTINCT aren't lowered yet; refuse them rather than
-// silently drop them (wrong results). Replaced when those operators land.
-void GuardUnsupportedTailClauses(ReturnBody const &body) {
-  if (!body.order_by.empty() || body.skip || body.limit || body.distinct) {
-    ThrowNotImplementedYet("ORDER BY / SKIP / LIMIT / DISTINCT");
+// Lower a WITH/RETURN body's tail clauses onto the projected `pipe`, in the
+// order the v1 planner applies them (GenReturnBody): projection -> DISTINCT ->
+// ORDER BY -> SKIP -> LIMIT. For WITH the caller then stacks WHERE above this.
+//
+// DISTINCT dedups on, and ORDER BY remembers, the projected columns, carried as
+// the columns' Symbol e-classes. Cost then demands those symbols be introduced,
+// which forces the projection to materialise them into frame slots (the operator
+// dedups/sorts on slots) rather than letting the inline rewrite push the column
+// values past the operator.
+auto LowerTailClauses(ReturnBody const &body, eclass pipe, LoweringCtx &ctx) -> eclass {
+  if (body.distinct) {
+    auto frame = ctx.OpenScratch();
+    for (auto *ne : body.named_expressions) frame.push(SymEclassFor(ctx, *ne));
+    pipe = ctx.g.MakeDistinct(pipe, frame.as_span());
   }
+  if (!body.order_by.empty()) {
+    std::vector<eclass> sort_keys;
+    std::vector<Ordering> orderings;
+    sort_keys.reserve(body.order_by.size());
+    orderings.reserve(body.order_by.size());
+    for (auto const &item : body.order_by) {
+      sort_keys.push_back(Lower(ctx, *item.expression));
+      orderings.push_back(item.ordering);
+    }
+    std::vector<eclass> value_syms;
+    value_syms.reserve(body.named_expressions.size());
+    for (auto *ne : body.named_expressions) value_syms.push_back(SymEclassFor(ctx, *ne));
+    pipe = ctx.g.MakeOrderBy(pipe, sort_keys, orderings, value_syms);
+  }
+  // SKIP/LIMIT counts are constants evaluated once (no frame references); the
+  // expression lowering throws NotYetImplemented for any unsupported sub-node.
+  if (body.skip) pipe = ctx.g.MakeSkip(pipe, Lower(ctx, *body.skip));
+  if (body.limit) pipe = ctx.g.MakeLimit(pipe, Lower(ctx, *body.limit));
+  return pipe;
 }
 
 // exposed_syms come from the inner cypher_query_'s last RETURN clause.
@@ -329,8 +357,10 @@ auto LowerWith(query::With &with, eclass pipe, LoweringCtx &ctx) -> eclass {
     auto expr = Lower(ctx, *ne->expression_);
     pipe = ctx.g.MakeBind(pipe, SymEclassFor(ctx, *ne), expr);
   }
-  GuardUnsupportedTailClauses(with.body_);
-  // WHERE filters the projected rows, so Filter sits above the projection Binds.
+  pipe = LowerTailClauses(with.body_, pipe, ctx);
+  // WHERE filters the projected rows and, per v1 (GenReturnBody), comes after
+  // DISTINCT/ORDER BY/SKIP/LIMIT. The predicate reuses expression lowering
+  // (unsupported sub-nodes throw NotYetImplemented there).
   if (with.where_) {
     auto predicate = Lower(ctx, *with.where_->expression_);
     pipe = ctx.g.MakeFilter(pipe, predicate);
@@ -360,8 +390,7 @@ auto LowerReturn(query::Return &ret, eclass pipe, LoweringCtx &ctx) -> eclass {
     frame.push(ctx.g.MakeNamedOutput(OutputDisplayName(ctx, *ne), SymEclassFor(ctx, *ne), expr));
   }
   auto output = ctx.g.MakeOutput(pipe, frame.as_span());
-  GuardUnsupportedTailClauses(ret.body_);
-  return output;
+  return LowerTailClauses(ret.body_, output, ctx);
 }
 
 auto LowerUnwind(query::Unwind &unwind, eclass pipe, LoweringCtx &ctx) -> eclass {
