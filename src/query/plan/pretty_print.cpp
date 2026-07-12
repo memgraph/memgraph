@@ -295,6 +295,9 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgePropertyValue & /*unused*/) override;
   bool PreVisit(ScanAllByEdgePropertyRange & /*unused*/) override;
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override;
+  bool PreVisit(ScanAllByVertexProperty & /*unused*/) override;
+  bool PreVisit(ScanAllByVertexPropertyValue & /*unused*/) override;
+  bool PreVisit(ScanAllByVertexPropertyRange & /*unused*/) override;
   bool PreVisit(ScanChunk & /*unused*/) override;
   bool PreVisit(ScanChunkByEdge & /*unused*/) override;
   bool PreVisit(ScanParallel & /*unused*/) override;
@@ -391,6 +394,9 @@ PRE_VISIT_DBA_TS(ScanAllByEdgeProperty);
 PRE_VISIT_DBA_TS(ScanAllByEdgePropertyValue);
 PRE_VISIT_DBA_TS(ScanAllByEdgePropertyRange);
 PRE_VISIT_DBA_TS(ScanAllByEdgeId);
+PRE_VISIT_DBA_TS(ScanAllByVertexProperty);
+PRE_VISIT_DBA_TS(ScanAllByVertexPropertyValue);
+PRE_VISIT_DBA_TS(ScanAllByVertexPropertyRange);
 PRE_VISIT_DBA_TS(ScanAllByPointDistance);
 PRE_VISIT_DBA_TS(ScanAllByPointWithinbbox);
 
@@ -799,6 +805,42 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeId &op) {
   self["name"] = "ScanAllByEdgeId";
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
   self["expects_string_id"] = op.expects_string_id_;
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByVertexProperty &op) {
+  json self;
+  self["name"] = "ScanAllByVertexProperty";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["output_symbol"] = ToJson(op.output_symbol_);
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByVertexPropertyValue &op) {
+  json self;
+  self["name"] = "ScanAllByVertexPropertyValue";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["expression"] = ToJson(op.expression_, *dba_);
+  self["output_symbol"] = ToJson(op.output_symbol_);
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByVertexPropertyRange &op) {
+  json self;
+  self["name"] = "ScanAllByVertexPropertyRange";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
+  self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
+  self["output_symbol"] = ToJson(op.output_symbol_);
   op.input_->Accept(*this);
   self["input"] = PopOutput();
   output_ = std::move(self);

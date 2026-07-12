@@ -123,6 +123,9 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByEdgePropertyValue);
   PRE_VISIT(ScanAllByEdgePropertyRange);
   PRE_VISIT(ScanAllByEdgeId);
+  PRE_VISIT(ScanAllByVertexProperty);
+  PRE_VISIT(ScanAllByVertexPropertyValue);
+  PRE_VISIT(ScanAllByVertexPropertyRange);
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
@@ -1008,6 +1011,10 @@ class FakeDbAccessor {
   bool EdgePropertyIndexReady(memgraph::storage::PropertyId property) const {
     return edge_property_index_.find(property) != edge_property_index_.end();
   }
+
+  bool VertexPropertyIndexReady(memgraph::storage::PropertyId /*property*/) const { return false; }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId /*property*/) const { return 0; }
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties) const {

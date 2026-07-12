@@ -1556,6 +1556,131 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgePropertyRange::Clone(AstStorage *s
   return object;
 }
 
+ScanAllByVertexProperty::ScanAllByVertexProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                                 storage::PropertyId property, storage::View view)
+    : ScanAll(input, output_symbol, view), property_(property) {}
+
+ACCEPT_WITH_INPUT(ScanAllByVertexProperty)
+
+UniqueCursorPtr ScanAllByVertexProperty::MakeCursor(utils::MemoryResource *mem,
+                                                    metrics::DatabaseMetricHandles &metric_handles) const {
+  auto const get_vertices = [this](Frame &, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return std::make_optional(db->Vertices(view_, property_));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(get_vertices)>>(mem,
+                                                                    *this,
+                                                                    output_symbol_,
+                                                                    input_->MakeCursor(mem, metric_handles),
+                                                                    view_,
+                                                                    std::move(get_vertices),
+                                                                    "ScanAllByVertexProperty");
+}
+
+std::string ScanAllByVertexProperty::ToString() const {
+  return fmt::format("ScanAllByVertexProperty ({} {{{}}})", output_symbol_.name(), dba_->PropertyToName(property_));
+}
+
+std::unique_ptr<LogicalOperator> ScanAllByVertexProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanAllByVertexProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->output_symbol_ = output_symbol_;
+  object->view_ = view_;
+  object->property_ = property_;
+  return object;
+}
+
+ScanAllByVertexPropertyValue::ScanAllByVertexPropertyValue(const std::shared_ptr<LogicalOperator> &input,
+                                                           Symbol output_symbol, storage::PropertyId property,
+                                                           Expression *expression, storage::View view)
+    : ScanAll(input, output_symbol, view), property_(property), expression_(expression) {}
+
+ACCEPT_WITH_INPUT(ScanAllByVertexPropertyValue)
+
+UniqueCursorPtr ScanAllByVertexPropertyValue::MakeCursor(utils::MemoryResource *mem,
+                                                         metrics::DatabaseMetricHandles &metric_handles) const {
+  auto const get_vertices = [this](Frame &frame, ExecutionContext &context)
+      -> std::optional<decltype(context.db_accessor->Vertices(view_, property_, storage::PropertyValue{}))> {
+    auto *db = context.db_accessor;
+    auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
+    if (!maybe_prop_value) return std::nullopt;
+    return std::make_optional(db->Vertices(view_, property_, *maybe_prop_value));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(get_vertices)>>(mem,
+                                                                    *this,
+                                                                    output_symbol_,
+                                                                    input_->MakeCursor(mem, metric_handles),
+                                                                    view_,
+                                                                    std::move(get_vertices),
+                                                                    "ScanAllByVertexPropertyValue");
+}
+
+std::string ScanAllByVertexPropertyValue::ToString() const {
+  return fmt::format(
+      "ScanAllByVertexPropertyValue ({} {{{}}})", output_symbol_.name(), dba_->PropertyToName(property_));
+}
+
+std::unique_ptr<LogicalOperator> ScanAllByVertexPropertyValue::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanAllByVertexPropertyValue>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->output_symbol_ = output_symbol_;
+  object->view_ = view_;
+  object->property_ = property_;
+  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  return object;
+}
+
+ScanAllByVertexPropertyRange::ScanAllByVertexPropertyRange(const std::shared_ptr<LogicalOperator> &input,
+                                                           Symbol output_symbol, storage::PropertyId property,
+                                                           std::optional<Bound> lower_bound,
+                                                           std::optional<Bound> upper_bound, storage::View view)
+    : ScanAll(input, output_symbol, view), property_(property), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
+
+ACCEPT_WITH_INPUT(ScanAllByVertexPropertyRange)
+
+UniqueCursorPtr ScanAllByVertexPropertyRange::MakeCursor(utils::MemoryResource *mem,
+                                                         metrics::DatabaseMetricHandles &metric_handles) const {
+  auto const get_vertices = [this](Frame &frame, ExecutionContext &context)
+      -> std::optional<decltype(context.db_accessor->Vertices(view_, property_, std::nullopt, std::nullopt))> {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
+
+    auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
+    if (!maybe_lower && !maybe_upper) return std::nullopt;
+
+    return std::make_optional(db->Vertices(view_, property_, maybe_lower, maybe_upper));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(get_vertices)>>(mem,
+                                                                    *this,
+                                                                    output_symbol_,
+                                                                    input_->MakeCursor(mem, metric_handles),
+                                                                    view_,
+                                                                    std::move(get_vertices),
+                                                                    "ScanAllByVertexPropertyRange");
+}
+
+std::string ScanAllByVertexPropertyRange::ToString() const {
+  return fmt::format(
+      "ScanAllByVertexPropertyRange ({} {{{}}})", output_symbol_.name(), dba_->PropertyToName(property_));
+}
+
+std::unique_ptr<LogicalOperator> ScanAllByVertexPropertyRange::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanAllByVertexPropertyRange>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->output_symbol_ = output_symbol_;
+  object->view_ = view_;
+  object->property_ = property_;
+  if (lower_bound_) {
+    object->lower_bound_.emplace(
+        utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
+  }
+  if (upper_bound_) {
+    object->upper_bound_.emplace(
+        utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
+  }
+  return object;
+}
+
 ScanAllByLabelProperties::ScanAllByLabelProperties(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                                    storage::LabelId label,
                                                    std::vector<storage::PropertyPath> properties,

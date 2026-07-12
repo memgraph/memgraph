@@ -145,6 +145,18 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByEdgePropertyRange & /*unused*/) override { return true; }
 
+  bool PreVisit(ScanAllByVertexProperty & /*unused*/) override { return true; }
+
+  bool PostVisit(ScanAllByVertexProperty & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanAllByVertexPropertyValue & /*unused*/) override { return true; }
+
+  bool PostVisit(ScanAllByVertexPropertyValue & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanAllByVertexPropertyRange & /*unused*/) override { return true; }
+
+  bool PostVisit(ScanAllByVertexPropertyRange & /*unused*/) override { return true; }
+
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override { return true; }
 
   bool PostVisit(ScanAllByEdgeId & /*unused*/) override { return true; }
