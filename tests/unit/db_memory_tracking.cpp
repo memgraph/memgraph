@@ -1327,8 +1327,10 @@ TEST_F(DbMemoryTrackingTest, DirtyDecayDecrementsTracker) {
     je_sdallocx(ptrs[i], kChunkSize, flags);
   }
 
-  // Tracker must still be elevated as pages are dirty-cached, but not yet
-  // purged.
+  // Tracker must still be elevated: with dirty_decay_ms=-1 jemalloc retains
+  // freed extents as dirty pages. Assumption: jemalloc 5.2.1 retains 1 MiB
+  // extents as dirty when decay is disabled. If a jemalloc upgrade changes
+  // this, the assertion is a useful signal.
   const int64_t after_free = tracker.Amount();
   ASSERT_GT(after_free, baseline + static_cast<int64_t>(kChunkSize * kChunks / 2))
       << "After free, pages should be dirty-cached (not dalloc'd); tracker must remain elevated. "
