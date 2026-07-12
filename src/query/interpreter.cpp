@@ -11777,6 +11777,10 @@ void Interpreter::Commit() {
     auto commit_log = current_db_.branch_context()->CreateCommitLog(ts);
     versioning::CaptureBranchCommit(*commit_log, *curr_txn, &current_db_.branch_context()->diff_engine(), ts);
     commit_log->Finalize();
+
+    // Graph Versioning v1 chunk 10 (observability): one captured branch commit successfully
+    // written to a finalized BranchLog file.
+    memgraph::metrics::Metrics().global.versioning_branch_commits_captured->Increment();
   }
 
   auto maybe_commit_error =

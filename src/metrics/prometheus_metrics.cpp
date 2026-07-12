@@ -554,6 +554,31 @@ PrometheusMetrics::PrometheusMetrics()
                                           .Name("memgraph_database_resume_latency_seconds")
                                           .Help("Latency of a successful database RESUME in seconds")
                                           .Register(registry_)},
+      // Graph Versioning v1 (global)
+      versioning_branches_created_family_{prometheus::BuildCounter()
+                                              .Name("memgraph_versioning_branches_created_total")
+                                              .Help("Number of versioning branches created")
+                                              .Register(registry_)},
+      versioning_branches_dropped_family_{prometheus::BuildCounter()
+                                              .Name("memgraph_versioning_branches_dropped_total")
+                                              .Help("Number of versioning branches dropped")
+                                              .Register(registry_)},
+      versioning_branches_merged_family_{prometheus::BuildCounter()
+                                             .Name("memgraph_versioning_branches_merged_total")
+                                             .Help("Number of versioning branches merged into main")
+                                             .Register(registry_)},
+      versioning_branch_commits_captured_family_{prometheus::BuildCounter()
+                                                     .Name("memgraph_versioning_branch_commits_captured_total")
+                                                     .Help("Number of branch commits captured to a branch change-log")
+                                                     .Register(registry_)},
+      versioning_active_branches_family_{prometheus::BuildGauge()
+                                             .Name("memgraph_versioning_active_branches")
+                                             .Help("Current number of existing versioning branches")
+                                             .Register(registry_)},
+      versioning_active_checkouts_family_{prometheus::BuildGauge()
+                                              .Name("memgraph_versioning_active_checkouts")
+                                              .Help("Current number of checked-out versioning branches")
+                                              .Register(registry_)},
       // HighAvailability counters
       successful_failovers_family_{prometheus::BuildCounter()
                                        .Name("memgraph_successful_failovers_total")
@@ -844,6 +869,13 @@ PrometheusMetrics::PrometheusMetrics()
   global.cold_databases = &cold_databases_family_.Add(no_labels);
   global.database_suspend_latency_seconds = &database_suspend_latency_family_.Add(no_labels, kLatencyBuckets);
   global.database_resume_latency_seconds = &database_resume_latency_family_.Add(no_labels, kLatencyBuckets);
+
+  global.versioning_branches_created = &versioning_branches_created_family_.Add(no_labels);
+  global.versioning_branches_dropped = &versioning_branches_dropped_family_.Add(no_labels);
+  global.versioning_branches_merged = &versioning_branches_merged_family_.Add(no_labels);
+  global.versioning_branch_commits_captured = &versioning_branch_commits_captured_family_.Add(no_labels);
+  global.versioning_active_branches = &versioning_active_branches_family_.Add(no_labels);
+  global.versioning_active_checkouts = &versioning_active_checkouts_family_.Add(no_labels);
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
@@ -2031,6 +2063,32 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   out.push_back({"ColdDatabases", "HotCold", "Gauge", static_cast<int64_t>(global.cold_databases->Value())});
   AppendHistogramPercentiles(out, "DatabaseSuspendLatency", "HotCold", *global.database_suspend_latency_seconds);
   AppendHistogramPercentiles(out, "DatabaseResumeLatency", "HotCold", *global.database_resume_latency_seconds);
+
+  // Graph Versioning v1 (global only)
+  out.push_back({"VersioningBranchesCreated",
+                 "Versioning",
+                 "Counter",
+                 static_cast<int64_t>(global.versioning_branches_created->Value())});
+  out.push_back({"VersioningBranchesDropped",
+                 "Versioning",
+                 "Counter",
+                 static_cast<int64_t>(global.versioning_branches_dropped->Value())});
+  out.push_back({"VersioningBranchesMerged",
+                 "Versioning",
+                 "Counter",
+                 static_cast<int64_t>(global.versioning_branches_merged->Value())});
+  out.push_back({"VersioningBranchCommitsCaptured",
+                 "Versioning",
+                 "Counter",
+                 static_cast<int64_t>(global.versioning_branch_commits_captured->Value())});
+  out.push_back({"VersioningActiveBranches",
+                 "Versioning",
+                 "Gauge",
+                 static_cast<int64_t>(global.versioning_active_branches->Value())});
+  out.push_back({"VersioningActiveCheckouts",
+                 "Versioning",
+                 "Gauge",
+                 static_cast<int64_t>(global.versioning_active_checkouts->Value())});
 
   // Session
   out.push_back({"ActiveSessions", "Session", "Gauge", static_cast<int64_t>(global.active_sessions->Value())});

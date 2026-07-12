@@ -40,6 +40,7 @@
 #include "flags/general.hpp"
 #include "interpreter_faker.hpp"
 #include "license/license.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
@@ -432,6 +433,53 @@ TEST_F(VersioningInterpreterTest, MergeAndDropRejectedWhenBranchHasChildren) {
   // Children first, then the parent -- both should now succeed.
   faker.Interpret("MERGE BRANCH 'child'");
   faker.Interpret("DROP BRANCH 'parent'");
+}
+
+// Observability: the six global versioning Prometheus metrics (metrics/prometheus_metrics.hpp)
+// must move as the branch lifecycle progresses -- create, checkout, a captured branch commit,
+// merge (which also drops the merged branch, per spec §4.2), and a plain drop.
+//   - The four counters are process-global monotonic singletons shared across every test in this
+//     binary, so assert DELTAS captured at the start of this test, never absolute values (mirrors
+//     tests/unit/hot_cold_resume.cpp's own SuspendResumeMoveObservabilityMetrics precedent).
+//   - versioning_active_branches/versioning_active_checkouts are gauges that other tests in this
+//     binary may have left residue on too; assert with EXPECT_GE against their post-op floor rather
+//     than an exact value.
+TEST_F(VersioningInterpreterTest, VersioningMetricsIncrementOnLifecycle) {
+  SatisfyGate();
+  auto &g = memgraph::metrics::Metrics().global;
+  const double created0 = g.versioning_branches_created->Value();
+  const double merged0 = g.versioning_branches_merged->Value();
+  const double dropped0 = g.versioning_branches_dropped->Value();
+  const double captured0 = g.versioning_branch_commits_captured->Value();
+
+  faker.Interpret("CREATE (:A {x:1})");
+  faker.Interpret("CREATE BRANCH 'b1' FROM 'main'");
+  faker.Interpret("CREATE BRANCH 'b2' FROM 'main'");
+  EXPECT_DOUBLE_EQ(g.versioning_branches_created->Value() - created0, 2.0)
+      << "two CREATE BRANCH statements must increment the created counter by exactly 2";
+  // main + b1 + b2 now exist.
+  EXPECT_GE(g.versioning_active_branches->Value(), 2.0);
+
+  // Checkout b1, write (-> a captured branch commit on release), then back to main.
+  faker.Interpret("CHECKOUT BRANCH 'b1'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b1");
+  EXPECT_GE(g.versioning_active_checkouts->Value(), 1.0);
+  faker.Interpret("CREATE (:OnBranch {y:1})");
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_GE(g.versioning_branch_commits_captured->Value() - captured0, 1.0)
+      << "releasing the checkout must capture at least one branch commit";
+
+  // Merge b1 into main -- MERGE also drops the merged branch (spec §4.2), so this alone must NOT
+  // move the dropped counter.
+  faker.Interpret("MERGE BRANCH 'b1'");
+  EXPECT_DOUBLE_EQ(g.versioning_branches_merged->Value() - merged0, 1.0)
+      << "a successful MERGE BRANCH increments the merged counter by exactly 1";
+
+  // Drop b2 directly (never checked out, never merged).
+  faker.Interpret("DROP BRANCH 'b2'");
+  EXPECT_DOUBLE_EQ(g.versioning_branches_dropped->Value() - dropped0, 1.0)
+      << "a plain DROP BRANCH increments the dropped counter by exactly 1 (independent of MERGE's "
+         "own internal drop of 'b1', which must not double-count here)";
 }
 
 TEST_F(VersioningInterpreterTest, ShowBranchDiffValidatesThenFlagsNotYetImplemented) {

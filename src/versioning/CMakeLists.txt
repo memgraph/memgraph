@@ -25,4 +25,4 @@ target_sources(mg-versioning
         version_store.cpp
 )
 
-target_link_libraries(mg-versioning PUBLIC mg-kvstore mg-utils mg-storage-v2)
+target_link_libraries(mg-versioning PUBLIC mg-kvstore mg-utils mg-storage-v2 mg-metrics)

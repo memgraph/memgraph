@@ -18,6 +18,8 @@
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
+#include "metrics/prometheus_metrics.hpp"
+
 namespace memgraph::versioning {
 
 namespace {
@@ -151,6 +153,10 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
 
   next_number_ = new_next_number;
   branches_.emplace(std::move(name), info);
+
+  // Graph Versioning v1 chunk 10 (observability): branch created + refresh the active-branches gauge.
+  memgraph::metrics::Metrics().global.versioning_branches_created->Increment();
+  memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
   return info;
 }
 
@@ -180,6 +186,10 @@ bool VersionStore::DropBranch(std::string_view name) {
   release_pin_(it->second.fork_ts);
   storage_.Delete(name);
   branches_.erase(it);
+
+  // Graph Versioning v1 chunk 10 (observability): branch dropped + refresh the active-branches gauge.
+  memgraph::metrics::Metrics().global.versioning_branches_dropped->Increment();
+  memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
   return true;
 }
 
@@ -261,6 +271,10 @@ void VersionStore::FinishMerge(std::string_view name) {
     release_pin_(it->second.fork_ts);
     storage_.Delete(name);
     branches_.erase(it);
+
+    // Graph Versioning v1 chunk 10 (observability): branch merged + refresh the active-branches gauge.
+    memgraph::metrics::Metrics().global.versioning_branches_merged->Increment();
+    memgraph::metrics::Metrics().global.versioning_active_branches->Set(static_cast<double>(branches_.size()));
   }
   merging_.erase(std::string{name});
 }
@@ -279,12 +293,18 @@ bool VersionStore::TryAcquireCheckout(std::string_view name) {
     return false;
   }
   checked_out_.emplace(name);
+
+  // Graph Versioning v1 chunk 10 (observability): refresh the active-checkouts gauge.
+  memgraph::metrics::Metrics().global.versioning_active_checkouts->Set(static_cast<double>(checked_out_.size()));
   return true;
 }
 
 void VersionStore::ReleaseCheckout(std::string_view name) {
   std::lock_guard guard{lock_};
   checked_out_.erase(std::string{name});
+
+  // Graph Versioning v1 chunk 10 (observability): refresh the active-checkouts gauge.
+  memgraph::metrics::Metrics().global.versioning_active_checkouts->Set(static_cast<double>(checked_out_.size()));
 }
 
 }  // namespace memgraph::versioning
