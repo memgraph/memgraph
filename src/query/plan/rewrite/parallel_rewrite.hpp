@@ -131,6 +131,9 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(ScanParallelByEdgeProperty)
   DEFAULT_VISITS(ScanParallelByEdgePropertyValue)
   DEFAULT_VISITS(ScanParallelByEdgePropertyRange)
+  DEFAULT_VISITS(ScanParallelByVertexProperty)
+  DEFAULT_VISITS(ScanParallelByVertexPropertyValue)
+  DEFAULT_VISITS(ScanParallelByVertexPropertyRange)
   DEFAULT_VISITS(ParallelMerge)
   DEFAULT_VISITS(AggregateParallel)
 
@@ -561,6 +564,21 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (scan_type == ScanAllByEdgePropertyRange::kType) {
       auto *scan = dynamic_cast<ScanAllByEdgePropertyRange *>(scan_op);
       return std::make_shared<ScanParallelByEdgePropertyRange>(
+          input, scan->view_, num_threads_, state_symbol, scan->property_, scan->lower_bound_, scan->upper_bound_);
+    }
+    if (scan_type == ScanAllByVertexProperty::kType) {
+      auto *scan = dynamic_cast<ScanAllByVertexProperty *>(scan_op);
+      return std::make_shared<ScanParallelByVertexProperty>(
+          input, scan->view_, num_threads_, state_symbol, scan->property_);
+    }
+    if (scan_type == ScanAllByVertexPropertyValue::kType) {
+      auto *scan = dynamic_cast<ScanAllByVertexPropertyValue *>(scan_op);
+      return std::make_shared<ScanParallelByVertexPropertyValue>(
+          input, scan->view_, num_threads_, state_symbol, scan->property_, scan->expression_);
+    }
+    if (scan_type == ScanAllByVertexPropertyRange::kType) {
+      auto *scan = dynamic_cast<ScanAllByVertexPropertyRange *>(scan_op);
+      return std::make_shared<ScanParallelByVertexPropertyRange>(
           input, scan->view_, num_threads_, state_symbol, scan->property_, scan->lower_bound_, scan->upper_bound_);
     }
 

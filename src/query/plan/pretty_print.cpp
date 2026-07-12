@@ -311,6 +311,9 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanParallelByEdgeProperty & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgePropertyValue & /*unused*/) override;
   bool PreVisit(ScanParallelByEdgePropertyRange & /*unused*/) override;
+  bool PreVisit(ScanParallelByVertexProperty & /*unused*/) override;
+  bool PreVisit(ScanParallelByVertexPropertyValue & /*unused*/) override;
+  bool PreVisit(ScanParallelByVertexPropertyRange & /*unused*/) override;
   bool PreVisit(ParallelMerge & /*unused*/) override;
 
   bool PreVisit(EmptyResult & /*unused*/) override;
@@ -438,6 +441,9 @@ PRE_VISIT_IGNORE(ScanParallelByEdgeTypePropertyRange);
 PRE_VISIT_IGNORE(ScanParallelByEdgeProperty);
 PRE_VISIT_IGNORE(ScanParallelByEdgePropertyValue);
 PRE_VISIT_IGNORE(ScanParallelByEdgePropertyRange);
+PRE_VISIT_IGNORE(ScanParallelByVertexProperty);
+PRE_VISIT_IGNORE(ScanParallelByVertexPropertyValue);
+PRE_VISIT_IGNORE(ScanParallelByVertexPropertyRange);
 
 bool PlanPrinter::PreVisit(AggregateParallel & /*unused*/) {
   // Hiding in the plan, since it is an implementation detail
@@ -1025,6 +1031,51 @@ bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgePropertyValue &op) {
 bool PlanToJsonVisitor::PreVisit(ScanParallelByEdgePropertyRange &op) {
   json self;
   self["name"] = "ScanParallelByEdgePropertyRange";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
+  self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByVertexProperty &op) {
+  json self;
+  self["name"] = "ScanParallelByVertexProperty";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByVertexPropertyValue &op) {
+  json self;
+  self["name"] = "ScanParallelByVertexPropertyValue";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["expression"] = ToJson(op.expression_, *dba_);
+  self["num_threads"] = op.num_threads_;
+  self["state_symbol"] = ToJson(op.state_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanParallelByVertexPropertyRange &op) {
+  json self;
+  self["name"] = "ScanParallelByVertexPropertyRange";
   self["property"] = ToJson(op.property_, *dba_);
   self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();

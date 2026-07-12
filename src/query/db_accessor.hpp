@@ -477,6 +477,22 @@ class DbAccessor final {
         accessor_->ChunkedVertices(label, properties, property_ranges, view, num_chunks, order)};
   }
 
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property, size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(property, view, num_chunks)};
+  }
+
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property,
+                                          const storage::PropertyValue &value, size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(property, value, view, num_chunks)};
+  }
+
+  VerticesChunkedIterable ChunkedVertices(storage::View view, storage::PropertyId property,
+                                          const std::optional<utils::Bound<storage::PropertyValue>> &lower_bound,
+                                          const std::optional<utils::Bound<storage::PropertyValue>> &upper_bound,
+                                          size_t num_chunks) {
+    return VerticesChunkedIterable{accessor_->ChunkedVertices(property, lower_bound, upper_bound, view, num_chunks)};
+  }
+
   EdgesChunkedIterable ChunkedEdges(storage::View view, storage::EdgeTypeId edge_type, size_t num_chunks) {
     return EdgesChunkedIterable{accessor_->ChunkedEdges(edge_type, view, num_chunks)};
   }

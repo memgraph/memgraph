@@ -2716,6 +2716,41 @@ VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
       label, properties, property_ranges, std::move(vertices_acc), view, storage_, &transaction_, num_chunks, order);
 }
 
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(PropertyId property, View view,
+                                                                           size_t num_chunks) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesChunkedIterable(active_indices->ChunkedVertices(
+      property, std::move(vertex_acc), std::nullopt, std::nullopt, view, storage_, &transaction_, num_chunks));
+}
+
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(PropertyId property,
+                                                                           const PropertyValue &value, View view,
+                                                                           size_t num_chunks) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesChunkedIterable(active_indices->ChunkedVertices(property,
+                                                                 std::move(vertex_acc),
+                                                                 utils::MakeBoundInclusive(value),
+                                                                 utils::MakeBoundInclusive(value),
+                                                                 view,
+                                                                 storage_,
+                                                                 &transaction_,
+                                                                 num_chunks));
+}
+
+VerticesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedVertices(
+    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, size_t num_chunks) {
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
+  auto *active_indices =
+      static_cast<InMemoryVertexPropertyIndex::ActiveIndices *>(transaction_.active_indices_->vertex_property_.get());
+  return VerticesChunkedIterable(active_indices->ChunkedVertices(
+      property, std::move(vertex_acc), lower_bound, upper_bound, view, storage_, &transaction_, num_chunks));
+}
+
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(PropertyId property, View view) {
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage_)->vertices_.access();
   auto *active_indices =

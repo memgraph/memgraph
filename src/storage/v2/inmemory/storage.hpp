@@ -246,6 +246,16 @@ class InMemoryStorage final : public Storage {
                                             std::span<storage::PropertyValueRange const> property_ranges, View view,
                                             size_t num_chunks, IndexOrder order) override;
 
+    VerticesChunkedIterable ChunkedVertices(PropertyId property, View view, size_t num_chunks) override;
+
+    VerticesChunkedIterable ChunkedVertices(PropertyId property, const PropertyValue &value, View view,
+                                            size_t num_chunks) override;
+
+    VerticesChunkedIterable ChunkedVertices(PropertyId property,
+                                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
+                                            size_t num_chunks) override;
+
     VerticesIterable Vertices(PropertyId property, View view) override;
 
     VerticesIterable Vertices(PropertyId property, PropertyValue const &value, View view) override;

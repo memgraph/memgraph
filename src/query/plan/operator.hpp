@@ -190,6 +190,9 @@ class ScanParallelByEdgeTypePropertyRange;
 class ScanParallelByEdgeProperty;
 class ScanParallelByEdgePropertyValue;
 class ScanParallelByEdgePropertyRange;
+class ScanParallelByVertexProperty;
+class ScanParallelByVertexPropertyValue;
+class ScanParallelByVertexPropertyRange;
 class ScanChunk;
 class ScanChunkByEdge;
 
@@ -205,7 +208,8 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel, OrderByParallel, ScanParallel,
     ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty,
     ScanParallelByEdge, ScanParallelByEdgeTypePropertyValue, ScanParallelByEdgeTypePropertyRange,
-    ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue, ScanParallelByEdgePropertyRange, ScanChunk,
+    ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue, ScanParallelByEdgePropertyRange,
+    ScanParallelByVertexProperty, ScanParallelByVertexPropertyValue, ScanParallelByVertexPropertyRange, ScanChunk,
     ScanChunkByEdge, ParallelMerge>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
@@ -2281,6 +2285,69 @@ class ScanParallelByEdgePropertyRange : public memgraph::query::plan::ScanParall
   ScanParallelByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
                                   Symbol state_symbol, storage::PropertyId property, std::optional<Bound> lower_bound,
                                   std::optional<Bound> upper_bound);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::PropertyId property_;
+  std::optional<Bound> lower_bound_;
+  std::optional<Bound> upper_bound_;
+};
+
+/// Parallel scan variant for vertices with global property index (IS NOT NULL).
+class ScanParallelByVertexProperty : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByVertexProperty() = default;
+  ScanParallelByVertexProperty(const std::shared_ptr<LogicalOperator> &input, storage::View view, size_t num_threads,
+                               Symbol state_symbol, storage::PropertyId property);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::PropertyId property_;
+};
+
+/// Parallel scan variant for vertices with global property index and value.
+class ScanParallelByVertexPropertyValue : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanParallelByVertexPropertyValue() = default;
+  ScanParallelByVertexPropertyValue(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                    size_t num_threads, Symbol state_symbol, storage::PropertyId property,
+                                    Expression *expression);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
+
+  std::string ToString() const override;
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  storage::PropertyId property_;
+  Expression *expression_;
+};
+
+/// Parallel scan variant for vertices with global property index and range.
+class ScanParallelByVertexPropertyRange : public memgraph::query::plan::ScanParallel {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  using Bound = utils::Bound<Expression *>;
+  ScanParallelByVertexPropertyRange() = default;
+  ScanParallelByVertexPropertyRange(const std::shared_ptr<LogicalOperator> &input, storage::View view,
+                                    size_t num_threads, Symbol state_symbol, storage::PropertyId property,
+                                    std::optional<Bound> lower_bound, std::optional<Bound> upper_bound);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
