@@ -225,7 +225,7 @@ void InitDbArenaHooks(DbArenaHooks &h, utils::MemoryTracker *tracker, extent_hoo
       .destroy = &db_arena_destroy,
       .commit = &db_arena_commit,
       .decommit = &db_arena_decommit,
-      .purge_lazy = base_hooks->purge_lazy,  // pass-through; no tracking needed
+      .purge_lazy = nullptr,  // disabled; forces dirty decay to use purge_forced (tracked)
       .purge_forced = &db_arena_purge_forced,
       .split = base_hooks->split,
       .merge = base_hooks->merge,

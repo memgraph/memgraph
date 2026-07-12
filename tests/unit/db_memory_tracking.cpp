@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <unistd.h>
+#include <array>
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
@@ -1285,6 +1286,66 @@ TEST_F(DbMemoryTrackingTest, ArenaPool_PerDbArenaIndicesAboveEveryPossibleCpuId)
   const unsigned idx = memgraph::memory::GlobalArenaPool::Instance().Acquire();
   EXPECT_GT(idx, max_cpu_id) << "per-DB arenas must be unreachable by percpu binding";
   memgraph::memory::GlobalArenaPool::Instance().Release(idx);
+}
+
+// ---------------------------------------------------------------------------
+// Dirty decay tracking: after freeing memory and triggering dirty decay,
+// the tracker must decrement. purge_lazy is disabled (nullptr) so decay
+// falls through to purge_forced, which is tracked.
+// ---------------------------------------------------------------------------
+TEST_F(DbMemoryTrackingTest, DirtyDecayDecrementsTracker) {
+  memgraph::memory::GlobalArenaPool::Instance().Drain();
+
+  memgraph::utils::MemoryTracker tracker;
+  memgraph::memory::ArenaPool pool{&tracker};
+  const unsigned arena = pool.idx();
+  ASSERT_NE(arena, 0U);
+
+  // Disable both decays initially so pages stay dirty until we explicitly trigger.
+  ssize_t neg = -1;
+  ASSERT_EQ(je_mallctl(fmt::format("arena.{}.dirty_decay_ms", arena).c_str(), nullptr, nullptr, &neg, sizeof(neg)), 0);
+  ASSERT_EQ(je_mallctl(fmt::format("arena.{}.muzzy_decay_ms", arena).c_str(), nullptr, nullptr, &neg, sizeof(neg)), 0);
+
+  const int64_t baseline = tracker.Amount();
+
+  // Allocate ~8 MiB in large chunks to force extent-level hooks.
+  static constexpr std::size_t kChunkSize = 1024 * 1024;
+  static constexpr int kChunks = 8;
+  const int flags = MALLOCX_ARENA(arena) | MALLOCX_TCACHE_NONE;
+  std::array<void *, kChunks> ptrs{};
+  for (int i = 0; i < kChunks; ++i) {
+    ptrs[i] = je_mallocx(kChunkSize, flags);
+    ASSERT_NE(ptrs[i], nullptr);
+  }
+
+  const int64_t after_alloc = tracker.Amount();
+  ASSERT_GT(after_alloc, baseline + static_cast<int64_t>(kChunkSize * kChunks / 2))
+      << "Tracker must reflect arena allocations";
+
+  // Free all chunks: jemalloc marks pages dirty (but retains them for re-use.)
+  for (int i = 0; i < kChunks; ++i) {
+    je_sdallocx(ptrs[i], kChunkSize, flags);
+  }
+
+  // Tracker must still be elevated as pages are dirty-cached, but not yet
+  // purged.
+  const int64_t after_free = tracker.Amount();
+  ASSERT_GT(after_free, baseline + static_cast<int64_t>(kChunkSize * kChunks / 2))
+      << "After free, pages should be dirty-cached (not dalloc'd); tracker must remain elevated. "
+      << "baseline=" << baseline << " after_free=" << after_free;
+
+  // Set dirty_decay_ms=0 to mark all dirty pages as expired, then nudge decay.
+  // With purge_lazy=nullptr, decay falls through to purge_forced (tracked).
+  ssize_t zero = 0;
+  ASSERT_EQ(je_mallctl(fmt::format("arena.{}.dirty_decay_ms", arena).c_str(), nullptr, nullptr, &zero, sizeof(zero)),
+            0);
+  je_mallctl(fmt::format("arena.{}.decay", arena).c_str(), nullptr, nullptr, nullptr, 0);
+
+  const int64_t after_decay = tracker.Amount();
+  const int64_t reclaimed = after_alloc - after_decay;
+  EXPECT_GT(reclaimed, static_cast<int64_t>(kChunkSize * kChunks / 2))
+      << "Dirty decay must decrement the tracker via purge_forced. "
+      << "after_alloc=" << after_alloc << " after_decay=" << after_decay;
 }
 
 #endif  // USE_JEMALLOC
