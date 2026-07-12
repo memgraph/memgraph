@@ -2368,7 +2368,7 @@ void EncodeEdgeTypePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_map
   encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
 }
 
-void EncodeEdgePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, PropertyId prop) {
+void EncodePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, PropertyId prop) {
   encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
 }
 
