@@ -1641,3 +1641,199 @@ TEST_F(VersioningInterpreterTest, BranchChangelogRetentionCapRejectsOversizeComm
     EXPECT_EQ(s.GetResults()[0][0].ValueInt(), 1);
   }
 }
+
+// Graph Versioning v1 (USING VERSION per-query override, Step 1): `USING VERSION 'main'` is a
+// per-query prefix directive (interpreter.cpp's Prepare, force_main_this_query /
+// force_main_override plumbed into CurrentDB::SetupDatabaseTransaction) that routes THAT ONE query
+// to main even while the session is genuinely checked out on a branch -- and leaves the session's
+// own checkout (current_version_/branch_context_) completely untouched afterward.
+//
+// The branch was forked from main AFTER main's MainOnly write, so a plain (session-routed) read on
+// the branch sees the union of both: MainOnly (inherited from the fork-era historical base) plus
+// BranchOnly (branch-native). `USING VERSION 'main'` must instead resolve straight against main's
+// own real storage -- seeing MainOnly only, NOT the branch-native BranchOnly -- and must not move
+// the session off the branch for the query that follows.
+TEST_F(VersioningInterpreterTest, UsingVersionMainReadsMainWhileOnBranch) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:MainOnly {v:1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("CREATE (:BranchOnly {v:2})");  // branch-native
+
+  // Plain read: session-routed to branch 'b' -- sees the union (MainOnly inherited + BranchOnly).
+  {
+    auto stream = faker.Interpret("MATCH (n) RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+
+  // USING VERSION 'main': routes THIS query to main's own real storage -- MainOnly only, the
+  // branch-native BranchOnly must not be visible.
+  {
+    auto stream = faker.Interpret("USING VERSION 'main' MATCH (n) RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+
+  // The override was per-query only -- the session is still checked out on 'b', and an unqualified
+  // read goes right back to seeing both.
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+  {
+    auto stream = faker.Interpret("MATCH (n) RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+}
+
+// Write-side counterpart: `USING VERSION 'main' CREATE ...` while checked out on a branch commits
+// straight to main's real storage, not the branch's diff engine -- R35-style isolation, just
+// deliberately aimed at main by an explicit per-query directive instead of a plain session-routed
+// write.
+TEST_F(VersioningInterpreterTest, UsingVersionMainWriteWhileOnBranchGoesToMain) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+
+  faker.Interpret("USING VERSION 'main' CREATE (:WroteToMain {v:9})");
+
+  // Not visible on the branch (session-routed read stays on 'b').
+  {
+    auto stream = faker.Interpret("MATCH (n:WroteToMain) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "a USING VERSION 'main' write must not land on the branch";
+  }
+
+  // Visible on main.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (n:WroteToMain) RETURN n.v");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 9);
+  }
+}
+
+// Graph Versioning v1, chunk 7d (D10) interaction: `USING VERSION 'main'` is the explicit escape
+// hatch out of the strict write-routing rail for a connection that is engaged (has genuinely
+// checked out a branch at some point) but currently sits back on main with no resolved version.
+// A plain write is rejected loud by the rail (WriteWithoutResolvedVersionException, as in
+// EngagedConnectionCannotSilentlyWriteMain above); naming the target explicitly via USING VERSION
+// bypasses that rail (interpreter.cpp's `!has_explicit_version` exemption on the rail check) and
+// commits straight to main.
+TEST_F(VersioningInterpreterTest, UsingVersionMainIsEscapeHatchOnEngagedMain) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("CHECKOUT BRANCH 'main'");  // engaged (sticky) + back on main, unresolved
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+
+  // Plain write: rejected by the D10 rail.
+  ASSERT_THROW(faker.Interpret("CREATE (:Blocked)"), memgraph::query::WriteWithoutResolvedVersionException);
+
+  // USING VERSION 'main': the explicit escape hatch -- allowed, commits to main.
+  faker.Interpret("USING VERSION 'main' CREATE (:Allowed {v:7})");
+  {
+    auto stream = faker.Interpret("MATCH (n:Allowed) RETURN n.v");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 7);
+  }
+
+  // The rejected write from above still never landed.
+  {
+    auto stream = faker.Interpret("MATCH (n:Blocked) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the rail-rejected write must not have committed";
+  }
+}
+
+// `USING VERSION '<the session's own currently-checked-out branch>'` is a no-op: it names exactly
+// where ordinary session routing already sends the query, so the write lands on the branch (not
+// main) and stays isolated from main exactly as an unqualified branch write would.
+TEST_F(VersioningInterpreterTest, UsingVersionSessionBranchIsNoOp) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("USING VERSION 'b' CREATE (:OnB {v:5})");
+  {
+    auto stream = faker.Interpret("MATCH (n:OnB) RETURN n.v");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
+  }
+
+  // Isolation: not on main.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (n:OnB) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "USING VERSION naming the session's own branch must not leak to main";
+  }
+}
+
+// Step 2 boundary: naming any branch OTHER than 'main' or the session's own currently-checked-out
+// branch is not yet supported and must throw utils::NotYetImplemented (interpreter.cpp's Prepare,
+// the `else` arm of the USING VERSION resolution -- same exception type as the pre-existing
+// ShowBranchDiffValidatesThenFlagsNotYetImplemented precedent above, not query::NotYetImplemented).
+// The throwing query must not disturb the session, which stays perfectly usable on its own branch
+// afterward.
+TEST_F(VersioningInterpreterTest, UsingVersionOtherBranchNotYetImplemented) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CREATE BRANCH 'c' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  ASSERT_THROW(faker.Interpret("USING VERSION 'c' MATCH (n) RETURN n"), memgraph::utils::NotYetImplemented);
+
+  // Session still usable on 'b' afterward.
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+  faker.Interpret("MATCH (n) RETURN n");
+}
+
+// Regression lock for the force-main spurious-branch-capture bug: `Interpreter::Commit`'s
+// branch-capture block used to guard only on `current_db_.branch_context() != nullptr`, which is
+// SESSION state -- still non-null while checked out on 'b' even for a `USING VERSION 'main'` query
+// that routes THIS transaction at main's own storage (force_main_override). That made the block
+// fire for a force-main write too, capturing MAIN's own deltas into branch 'b's BranchLog; replaying
+// that log on MERGE BRANCH would then duplicate the force-main write onto main a second time. The
+// fix keys the guard off `bctx->current_diff_txn() != nullptr` instead -- set only when this
+// transaction's own SetupDatabaseTransaction actually ran against the branch's diff engine, which a
+// force-main query never does. This test creates the fork vertex :M via `USING VERSION 'main'`
+// while checked out on 'b', makes a REAL branch write (:BranchNode) in the same session, then merges
+// 'b' into main and asserts :M is still exactly one vertex (not duplicated by a spurious replay) and
+// :BranchNode was correctly captured/merged exactly once.
+TEST_F(VersioningInterpreterTest, UsingVersionMainWriteWhileOnBranchIsNotCapturedIntoBranchLog) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("USING VERSION 'main' CREATE (:M {v:1})");  // force-main write while on branch b
+  faker.Interpret("CREATE (:BranchNode {v:2})");              // a REAL branch write (goes to b)
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (n:M) RETURN n.v");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+  {
+    auto stream = faker.Interpret("MATCH (n:BranchNode) RETURN n");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "the branch write must not be visible on main before MERGE";
+  }
+
+  faker.Interpret("MERGE BRANCH 'b'");
+
+  {
+    auto stream = faker.Interpret("MATCH (n:M) RETURN n.v");
+    ASSERT_EQ(stream.GetResults().size(), 1U)
+        << "force-main write must not be duplicated by a spurious branch-log capture+replay";
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+  {
+    auto stream = faker.Interpret("MATCH (n:BranchNode) RETURN n.v");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+}

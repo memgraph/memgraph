@@ -219,7 +219,7 @@ TypedValue EvaluateConfigMapToTypedValue(std::unordered_map<Expression *, Expres
 // access
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-    storage::StorageAccessType acc_type) {
+    storage::StorageAccessType acc_type, bool force_main_override) {
   if (!db_acc_) {
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
@@ -241,7 +241,13 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   // (BranchContext::CowVertex) -- both wired through DbAccessor below, not through target_storage.
   // When current_version_ is unset (the overwhelmingly common case) or no context is held,
   // `target_storage` is `db_acc->storage()` and this is BYTE-FOR-BYTE the pre-versioning behavior.
-  const bool on_branch = current_version_.has_value() && branch_context_ != nullptr;
+  //
+  // Graph Versioning v1 (USING VERSION per-query override, Step 1): force_main_override lets a
+  // single query escape the session's branch checkout and run against main -- e.g.
+  // `USING VERSION 'main'` while the session sits on a branch, or the D10 escape hatch
+  // (`USING VERSION 'main'` while engaged-and-unresolved on main). It routes THIS transaction only;
+  // current_version_/branch_context_ (the session's checkout) are left completely untouched.
+  const bool on_branch = current_version_.has_value() && branch_context_ != nullptr && !force_main_override;
   storage::Storage *target_storage = on_branch ? &branch_context_->diff_engine() : db_acc->storage();
 
   switch (acc_type) {
@@ -287,7 +293,15 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   // gid space (RunTriggersAfterCommit -> TriggerContext::AdaptForAccessor), which -- because the
   // branch engine's post-fork gid counter diverges from main's -- would silently misattribute or
   // drop branch-only changes against unrelated main objects. Branch triggers are deferred.
-  if (db_acc->trigger_store()->HasTriggers() && could_commit && !current_version_) {
+  //
+  // FORCE-MAIN fix (USING VERSION 'main' routing): gate on `on_branch` (computed above, already
+  // folds in `force_main_override`), not the raw session flag `current_version_`. `current_version_`
+  // stays set for the whole checkout even during a `USING VERSION 'main'` query that routes THIS
+  // transaction at main's own storage (target_storage above); keying off it alone skipped
+  // main-trigger collection for a write that actually lands on main. `on_branch` reflects the
+  // effective per-query routing decision instead, so a force-main write correctly collects main's
+  // triggers while a real branch write is still deferred as before.
+  if (db_acc->trigger_store()->HasTriggers() && could_commit && !on_branch) {
     trigger_context_collector_.emplace(db_acc->trigger_store()->GetEventTypes());
   }
 }
@@ -10792,6 +10806,48 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     parallel_execution = profile->cypher_query_->pre_query_directives_.parallel_execution_;
   }
 
+  // Graph Versioning v1 (USING VERSION per-query override, Step 1): resolve the clause here, while
+  // parsed_query.query/cypher_query are still valid -- parsed_query is std::move'd into a
+  // Prepare*Query(...) helper further down the dispatch ladder (see the chunk 7d comment above the
+  // D10 rail), after which its AST storage is freed. `has_explicit_version` is captured in this
+  // Prepare-local so it survives, unread from parsed_query, all the way to that rail.
+  //
+  // Step 1 scope is intentionally narrow: PreQueryDirectives::version_target_ only exists on a
+  // CypherQuery's own AST node (grammar attaches USING VERSION only to cypherQuery), not on the
+  // sibling ProfileQuery node -- so `PROFILE ... USING VERSION 'x' ...` is silently ignored here
+  // (has_explicit_version stays false). That's safe, not a routing hole: with the directive
+  // unrecognized, the query falls through to ordinary session routing, and an engaged connection
+  // sitting on main with no resolved version still fails loud via the D10 rail below rather than
+  // silently mis-routing. Lifting PROFILE support is Step 2+ scope.
+  std::optional<std::string> using_version;
+  if (cypher_query != nullptr && cypher_query->pre_query_directives_.version_target_ != nullptr) {
+    EvaluationContext version_eval_ctx;
+    version_eval_ctx.timestamp = QueryTimestamp();
+    version_eval_ctx.parameters = parsed_query.parameters;
+    auto version_evaluator = PrimitiveLiteralExpressionEvaluator{version_eval_ctx};
+    using_version = GetOptionalStringValue(cypher_query->pre_query_directives_.version_target_, version_evaluator);
+  }
+  const bool has_explicit_version = using_version.has_value();
+  bool force_main_this_query = false;
+  if (has_explicit_version) {
+    // A per-query override cannot re-route inside an already-open explicit-tx accessor:
+    // SetupDatabaseTransaction only runs once, at BEGIN (see the !in_explicit_transaction_ guard
+    // below), so there is no per-query routing hook left to honor USING VERSION against.
+    if (in_explicit_transaction_) {
+      throw utils::NotYetImplemented("USING VERSION inside an explicit (BEGIN) transaction is not yet supported");
+    }
+    if (*using_version == "main") {
+      // Route THIS query to main even if the session is checked out on a branch (or engaged and
+      // unresolved on main -- the D10 escape hatch); session/branch state is left untouched.
+      force_main_this_query = true;
+    } else if (current_db_.CurrentVersion().has_value() && *using_version == *current_db_.CurrentVersion()) {
+      // Same as the session's current checkout -- ordinary session routing already gets this right.
+    } else {
+      throw utils::NotYetImplemented(
+          "USING VERSION for a branch other than 'main' or the currently checked-out branch is not yet supported");
+    }
+  }
+
   if (parallel_execution) {
 #ifdef MG_ENTERPRISE
     if (!license::global_license_checker.IsEnterpriseValidFast())
@@ -10869,7 +10925,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         if (transaction_requirements.isolation_level_override_) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
         }
-        SetupDatabaseTransaction(transaction_requirements.could_commit_, *transaction_requirements.accessor_type_);
+        SetupDatabaseTransaction(
+            transaction_requirements.could_commit_, *transaction_requirements.accessor_type_, force_main_this_query);
       }
     }
 
@@ -11297,7 +11354,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // NOTE: query_is_data_plane was captured pre-dispatch, above -- by this point parsed_query has
       // already been std::move'd into the chosen Prepare*Query(...) helper and its AST storage is
       // freed, so parsed_query.query itself must NOT be dereferenced here.
-      if (current_db_.VersioningEngaged() && !current_db_.CurrentVersion().has_value() && query_is_data_plane) {
+      //
+      // Graph Versioning v1 (USING VERSION per-query override, Step 1): `!has_explicit_version`
+      // exempts a query that named its target version explicitly -- an explicit target (currently
+      // only 'main' or the session's own branch, enforced pre-dispatch above) is never a silent
+      // write, and `USING VERSION 'main'` is precisely the escape hatch that lets an
+      // engaged-and-unresolved-on-main connection write main on purpose. has_explicit_version is a
+      // Prepare-local captured pre-dispatch alongside query_is_data_plane, so it's still valid here.
+      if (current_db_.VersioningEngaged() && !current_db_.CurrentVersion().has_value() && query_is_data_plane &&
+          !has_explicit_version) {
         query_execution = nullptr;
         throw WriteWithoutResolvedVersionException();
       }
@@ -11359,8 +11424,9 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
   }
 }
 
-void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type) {
-  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, acc_type);
+void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type,
+                                           bool force_main_override) {
+  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, acc_type, force_main_override);
 }
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
@@ -11813,7 +11879,22 @@ void Interpreter::Commit() {
   // all yet -- the exception propagates out through the interpreter's normal abort path exactly like
   // any other pre-commit query-execution failure, rolling back `curr_txn` cleanly. No data loss: the
   // rejected commit simply never happened, same as if the query itself had thrown.
-  if (auto *bctx = current_db_.branch_context(); bctx != nullptr && !curr_txn->deltas.empty()) {
+  //
+  // FORCE-MAIN fix (USING VERSION 'main' routing): `branch_context()` alone is SESSION state -- it
+  // stays non-null for the whole checkout, including a `USING VERSION 'main'` query that
+  // deliberately escapes the branch for this one transaction (force_main_override,
+  // CurrentDB::SetupDatabaseTransaction). Guarding on it alone made this block fire even when THIS
+  // txn ran against main, not the branch diff engine, capturing main's own deltas into the branch's
+  // BranchLog -- corruption surfacing later as a duplicate/gid-collision replay on MERGE BRANCH.
+  // `current_diff_txn() != nullptr` is the per-query signal instead: it is set ONLY when
+  // `on_branch` was true for this transaction's own SetupDatabaseTransaction call (interpreter.cpp,
+  // `if (on_branch) branch_context_->set_current_diff_txn(...)`) and cleared every query in
+  // CleanupDBTransaction, so it reflects what THIS commit actually ran against, not what the session
+  // is checked out to. A normal branch query has `curr_txn == db_transactional_accessor_` (the diff
+  // engine's own accessor), so `current_diff_txn()` is non-null and capture still fires unchanged; a
+  // force-main query never sets it, so it is correctly excluded here.
+  if (auto *bctx = current_db_.branch_context();
+      bctx != nullptr && bctx->current_diff_txn() != nullptr && !curr_txn->deltas.empty()) {
     const auto ts = bctx->NextBranchCommitTs();
     auto commit_log = bctx->CreateCommitLog(ts);
     uint64_t records = 0;

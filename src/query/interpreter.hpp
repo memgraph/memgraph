@@ -248,8 +248,12 @@ struct CurrentDB {
   // existed; CurrentDB is constructed exactly once, in Interpreter's ctor, and never moved/copied.)
   ~CurrentDB() { ClearBranchContext(); }
 
+  // force_main_override: Graph Versioning v1 (USING VERSION per-query override, Step 1) -- when
+  // true, routes THIS transaction at main even though the session is checked out on a branch
+  // (current_version_/branch_context_ untouched); see the on_branch computation in the .cpp.
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
+                                bool force_main_override = false);
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
@@ -755,8 +759,10 @@ class Interpreter final {
 
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
+  // force_main_override: see CurrentDB::SetupDatabaseTransaction's doc-comment above.
   void SetupDatabaseTransaction(bool couldCommit,
-                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE,
+                                bool force_main_override = false);
 };
 
 template <typename TStream>
