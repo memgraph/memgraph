@@ -759,7 +759,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     auto lower = BoundToPropertyValue(lower_bound);
     auto upper = BoundToPropertyValue(upper_bound);
 
-    double factor = 1;
+    double factor = 1.0;
     if (upper || lower) {
       factor = db_accessor_->VerticesCount(property, lower, upper);
     } else {
