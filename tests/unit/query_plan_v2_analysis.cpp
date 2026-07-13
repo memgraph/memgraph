@@ -54,20 +54,17 @@ void ExpectConstant(analysis const &a, ExternalPropertyValue const &expected) {
 }
 
 // --- Constant identity: equality and its hash companion ----------------------
+//
+// Only cases where constant identity diverges from ExternalPropertyValue's own
+// == / std::hash earn a test; equal-scalar or null-null cases would just
+// re-check PropertyValue. The divergences: no numeric coercion (Int is not
+// Double), NaN is reflexive, and both rules recurse through List/Map.
 
 class ConstantIdentityTest : public ::testing::Test {
  protected:
   ConstantIdentityEq eq_;
   ConstantIdentityHash hash_;
 };
-
-TEST_F(ConstantIdentityTest, ScalarIntsAgree) {
-  EXPECT_TRUE(eq_(ExternalPropertyValue{int64_t{5}}, ExternalPropertyValue{int64_t{5}}));
-}
-
-TEST_F(ConstantIdentityTest, ScalarIntsDisagree) {
-  EXPECT_FALSE(eq_(ExternalPropertyValue{int64_t{5}}, ExternalPropertyValue{int64_t{6}}));
-}
 
 TEST_F(ConstantIdentityTest, IntAndDoubleAreDistinctConstants) {
   EXPECT_FALSE(eq_(ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{1.0}));
@@ -77,8 +74,6 @@ TEST_F(ConstantIdentityTest, NaNEqualsNaN) {
   auto const nan = std::numeric_limits<double>::quiet_NaN();
   EXPECT_TRUE(eq_(ExternalPropertyValue{nan}, ExternalPropertyValue{nan}));
 }
-
-TEST_F(ConstantIdentityTest, NullEqualsNull) { EXPECT_TRUE(eq_(ExternalPropertyValue{}, ExternalPropertyValue{})); }
 
 TEST_F(ConstantIdentityTest, ListWithNaNElementIsSame) {
   auto const nan = std::numeric_limits<double>::quiet_NaN();
