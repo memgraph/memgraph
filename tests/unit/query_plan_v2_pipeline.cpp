@@ -773,6 +773,26 @@ INSTANTIATE_TEST_SUITE_P(
             .query = "UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 RETURN x;",
             .expected_details = {"Produce {x`1:x}", "Filter", "Unwind {x:literal}", "Once"},
             .expected_rewrites = 1,  // the no-op WITH x bind is rewritten away
+        },
+        // Two WITH ... WHERE clauses stack into two Filters; each no-op WITH x
+        // bind fuses away. Proves the resolver threads scope through a Filter
+        // whose input is itself a Filter.
+        PipelineTestCase{
+            .name = "ChainedWithWhereStacksTwoFilters",
+            .query = "UNWIND [1, 2, 3, 4, 5] AS x WITH x WHERE x > 1 WITH x WHERE x < 5 RETURN x;",
+            .expected_details = {"Produce {x`1:x}", "Filter", "Filter", "Unwind {x:literal}", "Once"},
+            .expected_rewrites = 2,  // both no-op WITH x binds are rewritten away
+        },
+        // x is used only in the predicate (RETURN is the constant 42), so without
+        // the WHERE the provable-length range elides to CardinalityScale. The
+        // predicate's demand for x forces the pipe to introduce it, blocking the
+        // elision: a real Unwind + Filter survive. Contrast the elision that fires
+        // in interpreter.cpp's UnwindOverProvableLengthRangeElidesUnusedBinding.
+        PipelineTestCase{
+            .name = "PredicateDemandKeepsUnwindBinding",
+            .query = "UNWIND range(1, 100) AS x WITH x WHERE x > 50 RETURN 42 AS r;",
+            .expected_details = {"Produce {r`1:42}", "Filter", "Unwind {x:RANGE(1, 100)}", "Once"},
+            .expected_rewrites = 1,  // the no-op WITH x bind is rewritten away
         }
     ),
     TestCaseName

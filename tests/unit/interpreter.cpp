@@ -384,13 +384,46 @@ TEST_F(PlannerV2InterpreterTest, WithWhereComposesBooleanPredicates) {
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
 }
 
-TEST_F(PlannerV2InterpreterTest, WithWhereKeepsAliveASymbolUsedOnlyInThePredicate) {
-  // y is referenced only in the WHERE, never in the RETURN, so the resolver's
-  // demand threading must keep y's Bind alive. Only x*2 > 2 (x in {2, 3}) survives.
+TEST_F(PlannerV2InterpreterTest, WithWherePredicateOverAliasInlinesTheAliasAndDropsItsBind) {
+  // y is referenced only in the WHERE, never in the RETURN. The inline rewrite
+  // merges Identifier(y) with its definition (x * 2), so the predicate is
+  // extracted as x * 2 > 2: the filter reads {x}, and y's Bind is eliminated
+  // rather than kept. (Demand threading that keeps a predicate-only symbol alive
+  // is exercised instead by a non-inlinable Unwind symbol; see the pipeline
+  // suite's PredicateDemandKeepsUnwindBinding.) Only x in {2, 3} survives.
+  auto const plan = PlanText(Interpret("EXPLAIN UNWIND [1, 2, 3] AS x WITH x, x * 2 AS y WHERE y > 2 RETURN x;"));
+  EXPECT_NE(plan.find("Filter Generic {x}"), std::string::npos) << plan;
   auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH x, x * 2 AS y WHERE y > 2 RETURN x;");
   ASSERT_EQ(stream.GetResults().size(), 2U);
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
   EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);
+}
+
+TEST_F(PlannerV2InterpreterTest, WithWhereDisjunctionFiltersRows) {
+  // A single OR predicate: x < 2 (x = 1) OR x = 4 keeps the endpoints, drops 2 and 3.
+  auto stream = Interpret("UNWIND [1, 2, 3, 4] AS x WITH x WHERE x < 2 OR x = 4 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 4);
+}
+
+TEST_F(PlannerV2InterpreterTest, WithWhereNegationFiltersRows) {
+  // NOT over an equality: everything except 3 survives.
+  auto stream = Interpret("UNWIND [1, 2, 3, 4] AS x WITH x WHERE NOT x = 3 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 4);
+}
+
+TEST_F(PlannerV2InterpreterTest, ChainedWithWhereAppliesEveryFilter) {
+  // Two WITH ... WHERE clauses stack into two Filters; the resolver threads scope
+  // through the lower Filter into the upper one. x > 1 then x < 5 leaves {2, 3, 4}.
+  auto stream = Interpret("UNWIND [1, 2, 3, 4, 5] AS x WITH x WHERE x > 1 WITH x WHERE x < 5 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);
+  EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 4);
 }
 
 TEST_F(PlannerV2InterpreterTest, ExplainShowsFilterOperator) {
