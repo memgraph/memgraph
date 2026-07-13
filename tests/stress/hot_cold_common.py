@@ -155,15 +155,13 @@ def resume_tenant_blocking(endpoint: str, username: str, password: str, name: st
     deadline = time.monotonic() + timeout
     drv = make_driver(endpoint, username, password)
     try:
-        with drv.session() as sess:
-            try:
-                run_query(sess, f"RESUME DATABASE {name}")
-            except Exception as exc:
-                msg = str(exc).lower()
-                if "does not exist or is not suspended" not in msg and "does not exist" not in msg:
-                    pass  # some other error; ignore, we will detect below
-
         while time.monotonic() < deadline:
+            try:
+                with drv.session() as sess:
+                    run_query(sess, f"RESUME DATABASE {name}")
+            except Exception:
+                pass  # already HOT, or transient failure — detect below
+
             try:
                 with drv.session() as sess:
                     run_query(sess, f"USE DATABASE {name}")
