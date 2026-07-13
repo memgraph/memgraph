@@ -19,6 +19,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/disable_writing_on_main_after_restart.py"]
 
+  - name: "Global read-only"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/global_read_only.py"]
+
   - name: "Distributed coordinators"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/distributed_coords.py"]
@@ -26,6 +30,14 @@ workloads:
   - name: "HA durability"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/durability.py"]
+
+  - name: "Broken replica self-heal"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/broken_replica_self_heal.py"]
+
+  - name: "HA broken cure flows"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/broken_cure_flows.py"]
 
   - name: "Strict sync mode"
     binary: "tests/e2e/pytest_runner.sh"
@@ -54,7 +66,7 @@ workloads:
   - name: "HA instance metrics"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/instance_metrics.py"]
-    
+
   - name: "HA TLS cluster"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/tls_cluster.py"]

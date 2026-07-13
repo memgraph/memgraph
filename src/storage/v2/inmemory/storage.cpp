@@ -438,7 +438,12 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   }
 
   if (config_.durability.recover_on_startup) {
-    // Disable ttl until after recovery and role switch / write enabled
+    // Disable TTL until after recovery and the role switch / write-enabled check.
+    // LOAD-BEARING for hot/cold RESUME: a resumed tenant is rebuilt through this ctor
+    // (recover_on_startup=true), so this deny-default (false) is what prevents TTL from
+    // running under the permissive struct-default in the window between the TTL scheduler
+    // starting (inside RecoverData) and on_resume_ rewiring the MAIN-only user check.
+    // Do not move or remove this call.
     ttl_.SetUserCheck([]() -> bool { return false; });
     // Recover data
     utils::Timer const recovery_timer;
@@ -454,7 +459,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Destroy is noexcept; deleted_edges_/graveyard are empty at recovery time
     // because the WAL edge-delete replay arm calls LightEdgePool::Destroy
     // directly without queuing).
-    auto info = std::invoke([&] {
+    auto info = std::invoke([&] -> std::optional<durability::RecoveryInfo> {
       try {
         return recovery_.RecoverData(
             uuid(),
@@ -476,19 +481,31 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
             &ttl_,
             &description_store_);
       } catch (...) {
-        // Free any pool-allocated light Edge* already wired into vertex
-        // adjacency before the exception propagates out of the constructor.
-        // Heavy mode: no-op (edges_ SkipList dtor handles cleanup).
-        // No double-free with the per-loader cleanup: on a pre-Commit failure the
-        // snapshot loader's RAII (LightEdgeLoader::FreeAll / v14 light_cleanup) has
-        // already freed the pool edges AND RecoveryRollbackGuard has cleared
-        // vertices_, so this walk sees empty adjacency. On a post-Commit failure
-        // (e.g. RecoverDerivedState) those guards are no-ops, so this is the sole
-        // owner that frees the still-live light edges — exactly once.
-        if (config_.salient.items.storage_light_edge) {
-          ClearLightEdges();
+        // --storage-allow-recovery-failure: instead of crashing the process, bring this
+        // database up empty and broken. RecoverData only reads durability files, so the
+        // on-disk snapshot/WAL are left untouched for the operator to RECOVER SNAPSHOT
+        // or restore the whole data directory from a backup. Any exception is treated as
+        // a broken boot when the flag is on: data-driven corruption does not always
+        // surface as RecoveryFailure (e.g. a flipped count byte yields std::length_error
+        // or OutOfMemoryException from a reserve/loop bound). When the flag is off, every
+        // exception propagates unchanged after freeing any pool-allocated light edges.
+        if (!config_.durability.allow_recovery_failure) {
+          if (config_.salient.items.storage_light_edge) {
+            ClearLightEdges();
+          }
+          throw;
         }
-        throw;
+        spdlog::warn("Database '{}' failed to recover; bringing it up in the broken state.", name());
+        // Clear() harvests and frees the live light edges itself (gated on storage_light_edge),
+        // so it is the single owner on this path; do not pre-free here or it double-frees.
+        Clear();
+        name_id_mapper_->Clear();
+        description_store_.Clear();
+        // Snapshot recovery may have already armed the storage-ttl background thread; stop it so a
+        // broken database doesn't keep firing TTL jobs against cleared storage.
+        ttl_.Disable();
+        SetBroken(true);
+        return std::nullopt;
       }
     });
     metric_handles_.snapshot_recovery_latency_seconds.Observe(
@@ -516,6 +533,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         }
       }
     }
+
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {
     bool files_moved = false;
@@ -633,7 +651,8 @@ InMemoryStorage::~InMemoryStorage() {
   }
 
   snapshot_runner_.Stop();
-  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
+  // A broken database must not write an exit snapshot over its untouched corrupt files.
+  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler && !IsBroken()) {
     create_snapshot_handler("exit");
   }
   // Leak fix: a deleted light edge whose delta chain was never GC-unlinked
@@ -1208,12 +1227,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
           FinalizeCommitPhase(durability_commit_timestamp);
 
           auto failures = replicating_txn.CollectAllFailures();
-          auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
-            return CommitTsInfo{.ldt_ = durability_commit_timestamp,
-                                .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
-          };
-          // update replicas' cached commit info
-          replicating_txn.UpdateCommitTsInfo(update_func);
+          // update replicas' cached commit info to this txn's absolute committed-txn count
+          replicating_txn.UpdateCommitTsInfo();
 
           if (!failures.empty()) {
             return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
@@ -1238,13 +1253,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
             repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
 
         auto failures = replicating_txn.CollectAllFailures();
-        auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
-          return CommitTsInfo{.ldt_ = durability_commit_timestamp,
-                              .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
-        };
         // update replicas' cached commit info only if the txn was actually committed
         if (repl_prepare_phase_ok) {
-          replicating_txn.UpdateCommitTsInfo(update_func);
+          replicating_txn.UpdateCommitTsInfo();
         }
 
         if (!failures.empty()) {
@@ -1875,8 +1886,21 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-    mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
 
+    // Hand this transaction's deltas over to GC BEFORE marking the commit
+    // timestamp finished. MarkFinished advances commit_log_->OldestActive(),
+    // and another committing transaction's fast-discard precondition
+    // (CheckForFastDiscardOfDeltas: `no_older_transactions`) treats an advanced
+    // OldestActive as "I am the only transaction left, so every delta except my
+    // own is already registered in committed_transactions_/waiting_gc_deltas_
+    // and safe to free". If we marked finished first, there would be a window in
+    // which this transaction is no longer active yet its deltas are still linked
+    // in the version chains and not yet registered, so that fast-discard could
+    // free a delta our still-linked deltas reference via `prev`, leaving a
+    // dangling pointer for a later GC to dereference (use-after-free). The
+    // registration lock release is sequenced-before MarkFinished, so any thread
+    // that observes this txn as finished (through the commit_log SpinLock) also
+    // observes the registration (through the committed_transactions_ SpinLock).
     if (!transaction_.deltas.empty()) {
       if (transaction_.has_non_sequential_deltas) {
         mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
@@ -1890,6 +1914,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
         });
       }
     }
+
+    mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
     commit_timestamp_.reset();
   }
 }
@@ -2806,7 +2832,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   // `timestamp`) below.
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
-  uint64_t last_durable_ts = 0;
+  CommitTsInfo commit_ts_info;
   std::optional<PointIndexContext> point_index_context;
   ActiveIndicesPtr active_indices;
   ActiveConstraintsPtr active_constraints;
@@ -2816,8 +2842,10 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     start_timestamp = timestamp_++;
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
-    // Needed by snapshot to sync the durable and logical ts
-    last_durable_ts = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+    // Needed by snapshot to sync the durable and logical ts. Load ldt and num_committed_txns from the same atomic
+    // so a snapshot taken from this txn writes a mutually consistent pair (a concurrent commit can't inflate the
+    // count relative to the durable ts and produce a negative replication lag on recovering replicas).
+    commit_ts_info = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
     active_indices = GetActiveIndices();
     active_constraints = GetActiveConstraints();
   }
@@ -2834,7 +2862,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           std::move(active_indices),
           std::move(active_constraints),
           std::move(async_index_helper),
-          last_durable_ts,
+          commit_ts_info.ldt_,
+          commit_ts_info.num_committed_txns_,
           metric_handles_.unreleased_delta_objects};
 }
 
@@ -4177,6 +4206,12 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
 std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
     bool force, std::string_view trigger) {
+  // A broken storage (failed recovery) is empty and must never overwrite the
+  // operator's untouched corrupt durability files with an empty snapshot.
+  if (IsBroken()) {
+    return std::unexpected{CreateSnapshotError::AbortSnapshot};
+  }
+
   auto abort_reset = utils::OnScopeExit([this]() mutable {
     // Abort is a one shot, reset it to false every time
     abort_snapshot_.store(false, std::memory_order_release);
@@ -4384,9 +4419,10 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
     loaded_snapshot_uuid = recovered_snapshot.snapshot_info.uuid;
 
-    auto const update_func =
-        [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp](CommitTsInfo const &old_info) -> CommitTsInfo {
-      return CommitTsInfo{.ldt_ = new_ldt, .num_committed_txns_ = old_info.num_committed_txns_};
+    auto const update_func = [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp,
+                              new_num_committed_txns = recovered_snapshot.snapshot_info.num_committed_txns](
+                                 CommitTsInfo const & /*old_info*/) -> CommitTsInfo {
+      return CommitTsInfo{.ldt_ = new_ldt, .num_committed_txns_ = new_num_committed_txns};
     };
     atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_, update_func);
 
@@ -4410,6 +4446,12 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     // Destroying current wal file
     wal_file_.reset();
 
+    // The tenant is now functionally healthy: the snapshot data is fully in memory and derived
+    // state is rebuilt. Clear broken here rather than after the .old backup housekeeping below,
+    // so a cosmetic filesystem failure (unable to archive superseded files, or overwrite the
+    // UUID) does not leave a tenant that holds valid data query-locked with durability suppressed.
+    SetBroken(false);
+
     auto const use_old_dir = FLAGS_storage_backup_dir_enabled;
     constexpr std::string_view old_dir = ".old";
 
@@ -4428,6 +4470,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
         spdlog::warn(
             "Failed to create backup snapshot directory; snapshots directory should be cleaned manually. Err: {}",
             ec.message());
+        handler_error();
         return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
       }
       auto const wal_old_dir = recovery_.wal_directory_ / old_dir;
@@ -4440,6 +4483,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
       if (ec) {
         spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually. Err: {}",
                      ec.message());
+        handler_error();
         return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
       }
     }
@@ -4467,6 +4511,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
               "Failed to copy snapshot file to backup directory; snapshots directory should be cleaned "
               "manually. Err: {}",
               ec.message());
+          handler_error();
           return std::unexpected{InMemoryStorage::RecoverSnapshotError::BackupFailure};
         }
       }
@@ -4490,6 +4535,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     if (uuid() != loaded_snapshot_uuid) {
       // Rewrite the UUID in the snapshot file
       if (!durability::OverwriteSnapshotUUID(local_path, uuid())) {
+        handler_error();
         return std::unexpected{InMemoryStorage::RecoverSnapshotError::FailedOverwritingUUID};
       }
     }
@@ -4655,7 +4701,10 @@ void InMemoryStorage::CreateSnapshotHandler(
   snapshot_runner_.SetInterval(config_.durability.snapshot_interval);
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
     const memory::DbArenaScope db_arena_scope{db_arena_};
-    if (!token.stop_requested()) {
+    // Skip broken databases: they are empty and writing a snapshot would overwrite
+    // the operator's untouched corrupt durability files. Skipped silently to avoid
+    // per-tick log spam (CreateSnapshot also guards defensively).
+    if (!token.stop_requested() && !IsBroken()) {
       this->create_snapshot_handler("periodic");
     }
   });

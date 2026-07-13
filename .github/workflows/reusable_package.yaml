@@ -35,6 +35,10 @@ on:
         type: string
         description: "Target dir path in S3 bucket."
         default: ''
+      print_output_url:
+        type: boolean
+        description: "Print the S3 URLs of all uploaded artifacts (package, debuginfo sidecar, prod/debug docker images) at the end of the workflow."
+        default: false
       ref:
         type: string
         description: "Git ref to checkout. Default value is the current ref."
@@ -94,6 +98,16 @@ jobs:
         with:
           fetch-depth: 0 # Required because of release/get_version.py
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: "Checkout infra repository"
+        # SBOM generation uses the scripts from the memgraph/infra repo.
+        if: ${{ inputs.generate_sbom }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: memgraph/infra
+          path: infra
+          ref: master
+          token: ${{ secrets.REPO_PAT }}
 
       - name: Clean up Docker
         if: always()
@@ -324,6 +338,21 @@ jobs:
             build-gssapi \
             --dest-dir release/docker/wheels
 
+      - name: "Generate Memgraph build SBOM"
+        # Stage 1 of the SBOM: fetch the conan + MGCXX component SBOMs from the
+        # still-running build container onto the host and merge them into the
+        # binary build SBOM. Must run before the build container is stopped. The
+        # image SBOM (stage 2) is produced later from the prod Docker image.
+        if: ${{ env.GENERATE_SBOM == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          generate-memgraph-build-sbom \
+          --conan-remote $CONAN_REMOTE \
+          --sbom-scripts-dir "${GITHUB_WORKSPACE}/infra/infosec/sbom/memgraph"
+
       - name: "Stop mgbuild container"
         if: always()
         run: |
@@ -353,7 +382,6 @@ jobs:
           package-docker \
           --src-dir $PACKAGE_ARTIFACT_DIR \
           --dest-dir $DOCKER_PROD_ARTIFACT_DIR \
-          --generate-sbom $GENERATE_SBOM \
           --malloc $malloc \
           --custom-mirror $USE_CUSTOM_MIRROR \
           --package-flavour prod \
@@ -369,6 +397,24 @@ jobs:
           image_tag="${image_tag%-docker.tar.gz}"
           echo "PROD_IMAGE_TAG=$image_tag" >> $GITHUB_ENV
           echo "Resolved PROD_IMAGE_TAG=$image_tag"
+
+      - name: "Generate Memgraph image SBOM"
+        # Stage 2 of the SBOM: scan the prod Docker image and merge it with the
+        # binary build SBOM from stage 1. Runs after the build container is
+        # stopped and the prod image is built.
+        if: ${{ env.GENERATE_SBOM == 'true' && (inputs.build_docker_image == 'prod' || inputs.build_docker_image == 'both') }}
+        run: |
+          image="memgraph/memgraph:${PROD_IMAGE_TAG}"
+          # --keep-image-loaded is only true when run_smoke_tests is set, so
+          # load from the tarball when needed.
+          if ! docker image inspect "$image" >/dev/null 2>&1; then
+            image_archive="$(ls -1t "$DOCKER_PROD_ARTIFACT_DIR"/memgraph*-docker.tar.gz 2>/dev/null | head -n 1)"
+            docker load -i "$image_archive"
+          fi
+          "${GITHUB_WORKSPACE}/infra/infosec/sbom/memgraph/memgraph-docker-sbom.sh" \
+            --tag "$PROD_IMAGE_TAG" \
+            --out-dir "${GITHUB_WORKSPACE}/sbom" \
+            --work-dir "${GITHUB_WORKSPACE}/sbom/work-docker"
 
       - name: "Create docker image (debug)"
         if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}
@@ -390,7 +436,6 @@ jobs:
           package-docker \
           --src-dir $PACKAGE_ARTIFACT_DIR \
           --dest-dir $DOCKER_DEBUG_ARTIFACT_DIR \
-          --generate-sbom $GENERATE_SBOM \
           --malloc $malloc \
           --custom-mirror $USE_CUSTOM_MIRROR \
           --package-flavour debug \
@@ -434,11 +479,6 @@ jobs:
           # The image is already loaded by the bolt smoke test step above.
           # Fail if shutdown blocks > 20s on an unreachable telemetry server.
           ./tools/ci/smoke_test_shutdown.sh "memgraph/memgraph:${PROD_IMAGE_TAG}" 20
-
-      - name: "Generate Build SBOM"
-        if: ${{ env.GENERATE_SBOM == 'true'  && env.BUILD_DOCKER_IMAGE == 'none' }}
-        run: |
-          ./tools/ci/sbom/build-sbom.sh
 
       - name: "Upload SBOM Files"
         if: ${{ env.GENERATE_SBOM == 'true' }}
@@ -630,6 +670,30 @@ jobs:
           AWS_REGION: ${{ env.S3_REGION }}
           SOURCE_DIR: ${{ env.DOCKER_DEBUG_ARTIFACT_DIR }}
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.DOCKER_DEBUG_ARTIFACT_NAME }}/"
+
+      - name: "Print artifact S3 URLs"
+        if: ${{ inputs.print_output_url && inputs.push_to_s3 == 'true' }}
+        run: |
+          base="https://s3.${S3_REGION}.amazonaws.com/${S3_BUCKET}/${S3_DEST_DIR}"
+          shopt -s nullglob
+          print_dir() {
+            local dir="$1" subdir="$2"
+            [[ -d "$dir" ]] || return 0
+            for f in "$dir"/*; do
+              [[ -f "$f" ]] || continue
+              enc=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$(basename "$f")")
+              echo "::notice::Artifact URL: ${base}/${subdir}/${enc}"
+            done
+          }
+          # The package dir (deb/rpm + debuginfo sidecar) is always uploaded when
+          # push_to_s3 is set; the image dirs only when the matching image built.
+          print_dir "$PACKAGE_ARTIFACT_DIR" "$PKG_ARTIFACT_NAME"
+          if [[ "$BUILD_DOCKER_IMAGE" == "prod" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            print_dir "$DOCKER_PROD_ARTIFACT_DIR" "$DOCKER_PROD_ARTIFACT_NAME"
+          fi
+          if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
+            print_dir "$DOCKER_DEBUG_ARTIFACT_DIR" "$DOCKER_DEBUG_ARTIFACT_NAME"
+          fi
 
       - name: Clean up heaptrack
         if: ${{ inputs.build_docker_image == 'debug' || inputs.build_docker_image == 'both' }}

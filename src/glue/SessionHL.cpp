@@ -19,6 +19,7 @@
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
 #include "dbms/constants.hpp"
+#include "dbms/global.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "frontend/ast/ast.hpp"
@@ -258,19 +259,27 @@ utils::Priority SessionHL::ApproximateQueryPriority() const {
 }
 
 void SessionHL::TryDefaultDB() {
+  try {
 #ifdef MG_ENTERPRISE
-  const auto default_db = GetDefaultDB();
-  if (default_db) {
-    // Start off with the default database
-    interpreter_.SetCurrentDB(*default_db, false);
-  } else {
-    // Failed to get default db, connect without db
-    interpreter_.ResetDB();
-  }
+    const auto default_db = GetDefaultDB();
+    if (default_db) {
+      // Start off with the default database
+      interpreter_.SetCurrentDB(*default_db, false);
+    } else {
+      // Failed to get default db, connect without db
+      interpreter_.ResetDB();
+    }
 #else
-  // Community has to connect to the default database
-  interpreter_.SetCurrentDB();
+    // Community has to connect to the default database
+    interpreter_.SetCurrentDB();
 #endif
+  } catch (const memgraph::dbms::SuspendedDatabaseException &e) {
+    // The default database is known but currently suspended (cold). This is a
+    // permanent client-visible condition — retrying will not help — so surface
+    // it as a ClientError rather than letting it propagate as a bare
+    // BasicException (which the Bolt handler would mis-classify as transient).
+    throw memgraph::communication::bolt::ClientError(e.what());
+  }
 }
 
 // This is called on connection establishment
@@ -343,6 +352,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
 }
 
 void SessionHL::LogOff() {
+  Abort();
 #ifdef MG_ENTERPRISE
   interpreter_.ResetDB();
 #endif
@@ -350,7 +360,10 @@ void SessionHL::LogOff() {
   session_user_or_role_.reset();
 }
 
-void SessionHL::Abort() { interpreter_.Abort(); }
+void SessionHL::Abort() {
+  interpreter_.ResetCachedFga();
+  interpreter_.Abort();
+}
 
 bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
   try {
@@ -375,20 +388,7 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
-
-    std::unique_ptr<memgraph::query::FineGrainedAuthChecker> auth_checker;  // NOLINT(misc-const-correctness)
-#ifdef MG_ENTERPRISE
-    if (storage && interpreter_context_->auth_checker && interpreter_.user_or_role_ && *interpreter_.user_or_role_ &&
-        interpreter_.current_db_.execution_db_accessor_) {
-      auto *dba = &*interpreter_.current_db_.execution_db_accessor_;
-      auth_checker = interpreter_context_->auth_checker->GetFineGrainedAuthChecker(*interpreter_.user_or_role_, dba);
-      DMG_ASSERT(auth_checker, "Auth checker should not be null");
-      if (!auth_checker->NeedsFineGrainedAuthChecker()) {
-        auth_checker = nullptr;
-      }
-    }
-#endif
-    TypedValueResultStream<TEncoder> stream(&encoder_, storage, auth_checker.get());
+    TypedValueResultStream<TEncoder> stream(&encoder_, storage, interpreter_.GetCachedFga());
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
@@ -451,6 +451,7 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
     auto result =
         interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
     interpreter_.CheckAuthorized(result.privileges, result.db);
+
     return {std::move(result.headers), result.qid};
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
@@ -618,6 +619,8 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // Runtime config is sent at the beginning of the transaction, but is missing during the transaction
   if (in_explicit_tx || (previous_run_time_info_ && run_time_info == *previous_run_time_info_)) return;
 
+  session_->interpreter_.ResetCachedFga();
+
   db_explicit_ = false;
   user_explicit_ = false;
 
@@ -677,7 +680,14 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // Handle database configuration (check access with current user)
   if (defined_db) {  // Db connection
     MultiDatabaseAuth(session_->interpreter_.user_or_role_.get(), *defined_db);
-    session_->interpreter_.SetCurrentDB(*defined_db, db_explicit_);
+    try {
+      session_->interpreter_.SetCurrentDB(*defined_db, db_explicit_);
+    } catch (const memgraph::dbms::SuspendedDatabaseException &e) {
+      // The explicitly-requested database is known but currently suspended
+      // (cold). Retrying will not help — surface as ClientError so the driver
+      // does not treat this as a transient failure.
+      throw memgraph::communication::bolt::ClientError(e.what());
+    }
   } else {  // Non-db connection
     session_->interpreter_.ResetDB();
   }

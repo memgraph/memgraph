@@ -331,15 +331,14 @@ inline int64_t ParseInt(const std::string_view s) {
   return t;
 }
 
-inline uint64_t ParseStringToUint64(const std::string_view s) {
-  if (uint64_t value = 0; std::from_chars(s.data(), s.data() + s.size(), value).ec == std::errc{}) {
-    return value;
-  }
-  throw utils::ParseException(s);
-}
-
-inline uint32_t ParseStringToUint32(const std::string_view s) {
-  if (uint32_t value = 0; std::from_chars(s.data(), s.data() + s.size(), value).ec == std::errc{}) {
+template <typename TNum>
+  requires std::is_same_v<TNum, uint32_t> || std::is_same_v<TNum, uint64_t>
+inline TNum ParseStringToUint(const std::string_view s) {
+  // from_chars only parses a prefix; require the whole string be consumed so trailing garbage (e.g. "10-0")
+  // is rejected rather than silently returning the parsed prefix.
+  TNum value = 0;
+  auto const [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
+  if (ec == std::errc{} && ptr == s.data() + s.size()) {
     return value;
   }
   throw utils::ParseException(s);

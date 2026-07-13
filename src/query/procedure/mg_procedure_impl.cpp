@@ -2890,7 +2890,7 @@ namespace {
 void NextPermittedEdge(mgp_edges_iterator::RealCursor &c, const mgp_vertex &source_vertex) {
   const auto *ctx = source_vertex.graph->ctx;
   if (!ctx || !ctx->auth_checker) return;
-  const auto *auth_checker = ctx->auth_checker.get();
+  const auto *auth_checker = ctx->auth_checker;
   const auto view = source_vertex.graph->view;
   while (c.it != c.edges.end()) {
     auto edgeAcc = *c.it;
@@ -4096,7 +4096,7 @@ bool VertexHasReadPermission(const memgraph::query::VertexAccessor &v, const mgp
 bool EdgeHasReadPermission(const memgraph::query::EdgeAccessor &e, const mgp_graph &graph) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return true;
-  const auto *auth_checker = ctx->auth_checker.get();
+  const auto *auth_checker = ctx->auth_checker;
   if (!auth_checker->Has(e, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
   const auto view = graph.view;
   if (!auth_checker->Has(e.From(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
@@ -4108,7 +4108,7 @@ bool EdgeHasReadPermission(const memgraph::query::EdgeAccessor &e, const mgp_gra
 void PrecheckVertexTextSearchAccess(const mgp_graph &graph, std::string_view index_name) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return;
-  const auto *auth_checker = ctx->auth_checker.get();
+  const auto *auth_checker = ctx->auth_checker;
   const auto indices = graph.getImpl()->ListAllIndices();
   const auto it = std::ranges::find_if(indices.text_indices, [&](const memgraph::storage::TextIndexSpec &spec) {
     return spec.index_name == index_name;
@@ -4138,7 +4138,7 @@ void PrecheckVertexTextSearchAccess(const mgp_graph &graph, std::string_view ind
 void PrecheckEdgeTextSearchAccess(const mgp_graph &graph, std::string_view index_name) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return;
-  const auto *auth_checker = ctx->auth_checker.get();
+  const auto *auth_checker = ctx->auth_checker;
   const auto indices = graph.getImpl()->ListAllIndices();
   const auto it = std::ranges::find_if(
       indices.text_edge_indices,
@@ -4167,7 +4167,7 @@ void PrecheckEdgeTextSearchAccess(const mgp_graph &graph, std::string_view index
 void PrecheckVertexVectorSearchAccess(const mgp_graph &graph, std::string_view index_name) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return;
-  const auto *auth_checker = ctx->auth_checker.get();
+  const auto *auth_checker = ctx->auth_checker;
   const auto indices = graph.getImpl()->ListAllIndices();
   const auto it = std::ranges::find_if(
       indices.vector_indices_spec,
@@ -4219,7 +4219,7 @@ void PrecheckVertexVectorSearchAccess(const mgp_graph &graph, std::string_view i
 void PrecheckEdgeVectorSearchAccess(const mgp_graph &graph, std::string_view index_name) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return;
-  const auto *auth_checker = ctx->auth_checker.get();
+  const auto *auth_checker = ctx->auth_checker;
   const auto indices = graph.getImpl()->ListAllIndices();
   const auto it = std::ranges::find_if(
       indices.vector_edge_indices_spec,
@@ -4262,7 +4262,7 @@ void PrecheckEdgeVectorSearchAccess(const mgp_graph &graph, std::string_view ind
 void PrecheckVertexTextAggregateAccess(const mgp_graph &graph, std::string_view index_name) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return;
-  const auto *auth_checker = ctx->auth_checker.get();
+  const auto *auth_checker = ctx->auth_checker;
   const auto indices = graph.getImpl()->ListAllIndices();
   const auto it = std::ranges::find_if(indices.text_indices, [&](const memgraph::storage::TextIndexSpec &spec) {
     return spec.index_name == index_name;
@@ -4289,7 +4289,7 @@ void PrecheckVertexTextAggregateAccess(const mgp_graph &graph, std::string_view 
 void PrecheckEdgeTextAggregateAccess(const mgp_graph &graph, std::string_view index_name) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return;
-  const auto *auth_checker = ctx->auth_checker.get();
+  const auto *auth_checker = ctx->auth_checker;
   const auto indices = graph.getImpl()->ListAllIndices();
   const auto it = std::ranges::find_if(
       indices.text_edge_indices,

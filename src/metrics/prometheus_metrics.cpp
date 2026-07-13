@@ -533,6 +533,27 @@ PrometheusMetrics::PrometheusMetrics()
                                   .Name("memgraph_peak_memory_res_bytes")
                                   .Help("Peak resident memory usage in bytes")
                                   .Register(registry_)},
+      // Hot/cold databases (global)
+      database_suspends_family_{prometheus::BuildCounter()
+                                    .Name("memgraph_database_suspends_total")
+                                    .Help("Number of successful database SUSPEND operations")
+                                    .Register(registry_)},
+      database_resumes_family_{prometheus::BuildCounter()
+                                   .Name("memgraph_database_resumes_total")
+                                   .Help("Number of successful database RESUME operations")
+                                   .Register(registry_)},
+      cold_databases_family_{prometheus::BuildGauge()
+                                 .Name("memgraph_cold_databases")
+                                 .Help("Current number of suspended (cold) databases")
+                                 .Register(registry_)},
+      database_suspend_latency_family_{prometheus::BuildHistogram()
+                                           .Name("memgraph_database_suspend_latency_seconds")
+                                           .Help("Latency of a successful database SUSPEND in seconds")
+                                           .Register(registry_)},
+      database_resume_latency_family_{prometheus::BuildHistogram()
+                                          .Name("memgraph_database_resume_latency_seconds")
+                                          .Help("Latency of a successful database RESUME in seconds")
+                                          .Register(registry_)},
       // HighAvailability counters
       successful_failovers_family_{prometheus::BuildCounter()
                                        .Name("memgraph_successful_failovers_total")
@@ -817,6 +838,12 @@ PrometheusMetrics::PrometheusMetrics()
 
   global.memory_res_bytes = &memory_res_family_.Add(no_labels);
   global.peak_memory_res_bytes = &peak_memory_res_family_.Add(no_labels);
+
+  global.database_suspends = &database_suspends_family_.Add(no_labels);
+  global.database_resumes = &database_resumes_family_.Add(no_labels);
+  global.cold_databases = &cold_databases_family_.Add(no_labels);
+  global.database_suspend_latency_seconds = &database_suspend_latency_family_.Add(no_labels, kLatencyBuckets);
+  global.database_resume_latency_seconds = &database_resume_latency_family_.Add(no_labels, kLatencyBuckets);
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
@@ -1997,6 +2024,13 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   // Memory (global only)
   out.push_back({"MemoryRes", "Memory", "Gauge", static_cast<int64_t>(global.memory_res_bytes->Value())});
   out.push_back({"PeakMemoryRes", "Memory", "Gauge", static_cast<int64_t>(global.peak_memory_res_bytes->Value())});
+
+  // Hot/cold databases (global only)
+  out.push_back({"DatabaseSuspends", "HotCold", "Counter", static_cast<int64_t>(global.database_suspends->Value())});
+  out.push_back({"DatabaseResumes", "HotCold", "Counter", static_cast<int64_t>(global.database_resumes->Value())});
+  out.push_back({"ColdDatabases", "HotCold", "Gauge", static_cast<int64_t>(global.cold_databases->Value())});
+  AppendHistogramPercentiles(out, "DatabaseSuspendLatency", "HotCold", *global.database_suspend_latency_seconds);
+  AppendHistogramPercentiles(out, "DatabaseResumeLatency", "HotCold", *global.database_resume_latency_seconds);
 
   // Session
   out.push_back({"ActiveSessions", "Session", "Gauge", static_cast<int64_t>(global.active_sessions->Value())});

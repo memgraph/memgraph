@@ -255,14 +255,14 @@ inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction,
   transaction->EnsureCommitInfoExists();
 
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
-  uint64_t ts_id = utils::ParseStringToUint64(ts);
+  uint64_t ts_id = utils::ParseStringToUint<uint64_t>(ts);
   return &transaction->deltas.emplace(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
 }
 
 inline Delta *CreateDeleteDeserializedObjectDelta(delta_container *deltas, std::optional<std::string_view> old_disk_key,
                                                   std::string &&ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
-  uint64_t ts_id = utils::ParseStringToUint64(ts);
+  uint64_t ts_id = utils::ParseStringToUint<uint64_t>(ts);
   return &deltas->emplace(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
 }
 
@@ -277,7 +277,7 @@ inline Delta *CreateDeleteDeserializedIndexObjectDelta(delta_container &deltas,
                                                        std::optional<std::string_view> old_disk_key,
                                                        const std::string &ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
-  uint64_t ts_id = utils::ParseStringToUint64(ts);
+  uint64_t ts_id = utils::ParseStringToUint<uint64_t>(ts);
   return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, ts_id);
 }
 

@@ -91,3 +91,83 @@ customWorkloads:
           - "MATCH (a:Node), (b:Node) WHERE a.category = b.category AND a.id < b.id AND rand() < 0.001 CREATE (a)-[:SIMILAR]->(b)"
       script: standalone/native/workloads/parallel_execution/workload.py
       timeout_min: 30
+    # Hot/cold databases. Each carries its own memgraph_args
+    # (flag + per-workload memory ceiling); the runner restarts memgraph per custom workload so they take
+    # effect. Mirrors workloads/hot_cold*/workload.yaml — kept in sync with those standalone configs.
+    # Copied from workloads/hot_cold/workload.yaml
+    - name: hot-cold-concurrency-stress
+      memgraph_args:
+        - "--storage-wal-enabled=true"
+        - "--storage-snapshot-interval-sec=300"
+        - "--data-recovery-on-startup=true"
+        - "--memory-limit=512"
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/hot_cold/workload.py
+      script_args:
+        ["--endpoint", "127.0.0.1:7687", "--parallelism", "8", "--num-tenants", "6", "--duration-sec", "120", "--nodes-per-tx", "5"]
+      timeout_min: 15
+    # Copied from workloads/hot_cold_indexes/workload.yaml
+    - name: hot-cold-indexes-stress
+      memgraph_args:
+        - "--storage-wal-enabled=true"
+        - "--storage-snapshot-interval-sec=300"
+        - "--data-recovery-on-startup=true"
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/hot_cold_indexes/workload.py
+      script_args:
+        ["--endpoint", "127.0.0.1:7687", "--parallelism", "4", "--num-tenants", "3", "--duration-sec", "90"]
+      timeout_min: 12
+    # Copied from workloads/hot_cold_oom/workload.yaml
+    - name: hot-cold-oom-stress
+      memgraph_args:
+        - "--storage-wal-enabled=true"
+        - "--storage-snapshot-interval-sec=300"
+        - "--data-recovery-on-startup=true"
+        - "--memory-limit=1024"
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/hot_cold_oom/workload.py
+      script_args:
+        ["--endpoint", "127.0.0.1:7687", "--parallelism", "6", "--num-tenants", "4", "--duration-sec", "120", "--payload-bytes", "16384"]
+      timeout_min: 15
+    # Copied from workloads/hot_cold_triggers/workload.yaml
+    - name: hot-cold-triggers-stress
+      memgraph_args:
+        - "--storage-wal-enabled=true"
+        - "--storage-snapshot-interval-sec=300"
+        - "--data-recovery-on-startup=true"
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/hot_cold_triggers/workload.py
+      script_args:
+        ["--endpoint", "127.0.0.1:7687", "--parallelism", "4", "--num-tenants", "3", "--duration-sec", "90"]
+      timeout_min: 12
+    # Copied from workloads/hot_cold_ttl/workload.yaml
+    - name: hot-cold-ttl-stress
+      memgraph_args:
+        - "--storage-wal-enabled=true"
+        - "--storage-snapshot-interval-sec=300"
+        - "--data-recovery-on-startup=true"
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/hot_cold_ttl/workload.py
+      script_args:
+        ["--endpoint", "127.0.0.1:7687", "--parallelism", "4", "--num-tenants", "3", "--duration-sec", "90"]
+      timeout_min: 12

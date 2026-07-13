@@ -862,6 +862,21 @@ kubectl delete pod memgraph-data-1-0
 wait_memgraph_pods_ready 90s
 echo "Upgrade of pod memgraph-data-1-0 passed successfully"
 
+echo "Waiting for old MAIN to sync auth to upgraded replica..."
+kubectl cp verify_fga_post_upgrade.sh memgraph-data-1-0:/var/lib/memgraph/verify_fga_post_upgrade.sh
+for i in $(seq 1 30); do
+  if kubectl exec memgraph-data-1-0 -- bash /var/lib/memgraph/verify_fga_post_upgrade.sh --username=system_admin_user --password=admin_password 2>&1; then
+    echo "FGA synced to replica after ${i} attempt(s)"
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "FAIL: FGA did not sync to replica after 30 attempts"
+    exit 1
+  fi
+  echo "Auth not yet synced (attempt $i/30), retrying in 2s..."
+  sleep 2
+done
+
 echo "Deleting pod memgraph-data-0-0 which serves as main"
 kubectl scale statefulset memgraph-data-0 --replicas=0
 sleep 5
@@ -942,16 +957,25 @@ run_coordinator_query_with_retry 'SHOW INSTANCES;'
 # --- Post-upgrade verification ---
 POST_UPGRADE_TARGET_POD="$(resolve_main_data_pod)"
 echo -e "${GREEN}Running post-upgrade tests on main data pod: ${POST_UPGRADE_TARGET_POD}${NC}"
-kubectl cp post_upgrade_mg.cypherl  "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_mg.cypherl"
-kubectl cp post_upgrade_db1.cypherl "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_db1.cypherl"
+kubectl cp post_upgrade_mg.cypherl       "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_mg.cypherl"
+kubectl cp post_upgrade_hot_cold.cypherl "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_hot_cold.cypherl"
+kubectl cp post_upgrade_db1.cypherl      "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/post_upgrade_db1.cypherl"
 echo "Running post-upgrade tests on database 'memgraph'"
 kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_mg.cypherl  --username=system_admin_user --password=admin_password"
+# Hot/cold: SUSPEND -> RESUME the migrated tenant db1 BEFORE the db1 data check below,
+# so that check verifies the tenant survived the cold round trip on the upgraded binary.
+echo "Running post-upgrade hot/cold suspend/resume on database 'db1'"
+kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_hot_cold.cypherl --username=system_admin_user --password=admin_password"
 echo "Running post-upgrade tests on database 'db1'"
 kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_db1.cypherl --username=tenant1_admin_user --password=t1_admin_pass"
 
 echo "Running auth post-upgrade tests"
 kubectl cp auth_post_upgrade.cypherl "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/auth_post_upgrade.cypherl"
 kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash -c "mgconsole < /var/lib/memgraph/auth_post_upgrade.cypherl --username=system_admin_user --password=admin_password"
+
+echo "Verifying FGA grants survived rolling upgrade"
+kubectl cp verify_fga_post_upgrade.sh "${POST_UPGRADE_TARGET_POD}:/var/lib/memgraph/verify_fga_post_upgrade.sh"
+kubectl exec "${POST_UPGRADE_TARGET_POD}" -- bash /var/lib/memgraph/verify_fga_post_upgrade.sh --username=system_admin_user --password=admin_password
 
 # --- Optional routing tests ---
 if [[ "$TEST_ROUTING" == "true" ]]; then

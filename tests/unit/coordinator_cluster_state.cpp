@@ -201,6 +201,7 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
   ASSERT_EQ(cluster_state.GetDeltasBatchProgressSize(), 100'000);
   ASSERT_EQ(cluster_state.GetInstanceDownTimeoutSec(), 5);
   ASSERT_EQ(cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{1});
+  ASSERT_FALSE(cluster_state.GetGlobalReadOnly());
 
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
@@ -212,7 +213,8 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
                                                  .max_replica_read_lag_ = 10,
                                                  .deltas_batch_progress_size_ = 50'000,
                                                  .instance_down_timeout_sec_ = 10,
-                                                 .instance_health_check_frequency_sec_ = 3};
+                                                 .instance_health_check_frequency_sec_ = 3,
+                                                 .global_read_only_ = true};
   cluster_state.DoAction(delta_state);
 
   ptr<buffer> data;
@@ -227,6 +229,49 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
   ASSERT_EQ(cluster_state.GetDeltasBatchProgressSize(), 50'000);
   ASSERT_EQ(cluster_state.GetInstanceDownTimeoutSec(), 10);
   ASSERT_EQ(cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{3});
+  ASSERT_TRUE(cluster_state.GetGlobalReadOnly());
+  ASSERT_TRUE(deserialized_cluster_state.GetGlobalReadOnly());
+}
+
+TEST_F(CoordinatorClusterStateTest, GlobalReadOnlyDoActionAndBackwardCompat) {
+  CoordinatorClusterState cluster_state{};
+
+  // Default is false.
+  ASSERT_FALSE(cluster_state.GetGlobalReadOnly());
+
+  // DoAction applies the delta.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const enable_delta{.global_read_only_ = true};
+  cluster_state.DoAction(enable_delta);
+  ASSERT_TRUE(cluster_state.GetGlobalReadOnly());
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const disable_delta{.global_read_only_ = false};
+  cluster_state.DoAction(disable_delta);
+  ASSERT_FALSE(cluster_state.GetGlobalReadOnly());
+
+  // A delta that doesn't touch global_read_only leaves it unchanged.
+  cluster_state.DoAction(enable_delta);
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const unrelated_delta{.enabled_reads_on_main_ = true};
+  cluster_state.DoAction(unrelated_delta);
+  ASSERT_TRUE(cluster_state.GetGlobalReadOnly());
+
+  // from_json defaults global_read_only to false when the key is absent (backward compatibility).
+  auto const uuid = UUID{};
+  auto json =
+      nlohmann::json{{memgraph::coordination::kDataInstances.data(), std::vector<DataInstanceContext>{}},
+                     {memgraph::coordination::kMainUUID.data(), uuid},
+                     {memgraph::coordination::kCoordinatorInstances.data(), std::vector<CoordinatorInstanceContext>{}}};
+  CoordinatorClusterState legacy_state;
+  nlohmann::from_json(json, legacy_state);
+  ASSERT_FALSE(legacy_state.GetGlobalReadOnly());
+
+  // When present, from_json reads the stored value.
+  json[memgraph::coordination::kGlobalReadOnly.data()] = true;
+  CoordinatorClusterState feature_state;
+  nlohmann::from_json(json, feature_state);
+  ASSERT_TRUE(feature_state.GetGlobalReadOnly());
 }
 
 TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {

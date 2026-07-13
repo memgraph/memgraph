@@ -16,6 +16,12 @@ copy_e2e_python_files(durability multitenancy.py)
 copy_e2e_python_files(durability indices_not_persisted_analytical.py)
 copy_e2e_python_files(durability parameters_durability.py)
 copy_e2e_python_files(durability tenant_profile_durability.py)
+copy_e2e_python_files(durability recovery_failure_broken.py)
+copy_e2e_python_files(durability recovery_failure_status.py)
+copy_e2e_python_files(durability recovery_failure_recover_snapshot.py)
+copy_e2e_python_files(durability drop_broken_database.py)
+
+
 
 copy_e2e_python_files_from_parent_folder(durability ".." memgraph.py)
 copy_e2e_python_files_from_parent_folder(durability ".." interactive_mg_runner.py)

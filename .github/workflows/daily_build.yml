@@ -131,6 +131,7 @@ jobs:
       daily_build: true
       push_to_github: 'false'
       push_to_s3: 'true'
+      print_output_url: true
       s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
       additional_build_args: ${{ matrix.additional_build_args }}
       generate_sbom: ${{ (matrix.os == 'ubuntu-24.04' && matrix.arch == 'amd' && matrix.additional_build_args == '' && matrix.build_docker_image == 'both') && true || false }}
@@ -183,6 +184,7 @@ jobs:
     outputs:
       memgraph_version: ${{ steps.version.outputs.memgraph_version }}
       memgraph_version_url: ${{ steps.version.outputs.memgraph_version_url }}
+      memgraph_version_rpm: ${{ steps.version.outputs.memgraph_version_rpm }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -196,10 +198,13 @@ jobs:
           # for download links; memgraph_version stays raw for any filename matching.
           version="$(tools/ci/get_master_package_version.sh)"
           version_url="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$version")"
+          version_rpm="$(tools/ci/get_master_package_version.sh rpm)"
           echo "Resolved memgraph version: $version"
           echo "URL-safe version: $version_url"
+          echo "RPM version: $version_rpm"
           echo "memgraph_version=$version" >> $GITHUB_OUTPUT
           echo "memgraph_version_url=$version_url" >> $GITHUB_OUTPUT
+          echo "memgraph_version_rpm=$version_rpm" >> $GITHUB_OUTPUT
 
   BuildAndTestMAGE:
     if: ${{ (github.event_name == 'schedule' && always()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
@@ -215,38 +220,63 @@ jobs:
             malloc: false
             cuda: false
             cugraph: false
+            os: "ubuntu-24.04"
           - build_arch: "arm"
             build_docker_image: "both"
             malloc: false
             cuda: false
             cugraph: false
+            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "both"
             malloc: true
             cuda: false
             cugraph: false
+            os: "ubuntu-24.04"
           - build_arch: "arm"
             build_docker_image: "debug"
             malloc: true
             cuda: false
             cugraph: false
+            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "debug"
             cuda: true
             malloc: false
             cugraph: false
+            os: "ubuntu-24.04"
           - build_arch: "amd"
             build_docker_image: "debug"
             cuda: false
             malloc: false
             cugraph: true
+            os: "ubuntu-24.04"
+          - build_arch: "amd"
+            build_docker_image: "none"
+            cuda: false
+            malloc: false
+            cugraph: false
+            os: "centos-9"
+          - build_arch: "amd"
+            build_docker_image: "none"
+            cuda: false
+            malloc: false
+            cugraph: false
+            os: "centos-10"
     with:
       arch: ${{ matrix.build_arch }}
       build_type: RelWithDebInfo
       build_docker_image: ${{ matrix.build_docker_image }}
       daily_build: true
+      os: ${{ matrix.os }}
       memgraph_download_link: >-
-        ${{ format(
+        ${{ startsWith(matrix.os, 'centos') && format(
+          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}/memgraph-{3}-1.x86_64.rpm',
+          inputs.mock && '_mock' || '',
+          needs.CurrentDateJob.outputs.current_date,
+          matrix.os,
+          needs.MemgraphVersionSetup.outputs.memgraph_version_rpm
+        ) || format(
           'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/ubuntu-24.04{2}{3}/memgraph_{4}-1_{5}.deb',
           inputs.mock && '_mock' || '',
           needs.CurrentDateJob.outputs.current_date,
@@ -272,12 +302,13 @@ jobs:
       cuda: ${{ matrix.cuda }}
       cugraph: ${{ matrix.cugraph }}
       push_to_s3: true
+      print_output_url: true
       malloc: ${{ matrix.malloc }}
       run_smoke_tests: ${{ !matrix.cugraph && !inputs.skip_smoke_tests }}
       run_tests: true
-      package_deb: "default"
+      package_mage: "default"
       upload_debug_symbols: true
-      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph && !startsWith(matrix.os, 'centos') }}
     secrets: inherit
 
   AggregateMAGEBuildTests:

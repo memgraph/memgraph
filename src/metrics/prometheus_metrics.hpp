@@ -85,19 +85,19 @@ using InstanceStatusResolver = std::function<std::vector<coordination::InstanceS
 struct GaugeHandle {
   prometheus::Gauge *gauge{nullptr};
 
-  void Increment(double v = 1.0) const {
+  void Increment(double v = 1.0) const noexcept {
     if (gauge) gauge->Increment(v);
   }
 
-  void Decrement(double v = 1.0) const {
+  void Decrement(double v = 1.0) const noexcept {
     if (gauge) gauge->Decrement(v);
   }
 
-  void Set(double v) const {
+  void Set(double v) const noexcept {
     if (gauge) gauge->Set(v);
   }
 
-  double Value() const { return gauge ? gauge->Value() : 0.0; }
+  double Value() const noexcept { return gauge ? gauge->Value() : 0.0; }
 
   prometheus::Gauge *get() const {
     DMG_ASSERT(gauge);
@@ -108,11 +108,11 @@ struct GaugeHandle {
 struct CounterHandle {
   prometheus::Counter *counter{nullptr};
 
-  void Increment(double v = 1.0) const {
+  void Increment(double v = 1.0) const noexcept {
     if (counter) counter->Increment(v);
   }
 
-  double Value() const { return counter ? counter->Value() : 0.0; }
+  double Value() const noexcept { return counter ? counter->Value() : 0.0; }
 
   prometheus::Counter *get() const {
     DMG_ASSERT(counter);
@@ -278,6 +278,17 @@ struct GlobalMetricHandles {
   // Memory
   prometheus::Gauge *memory_res_bytes;
   prometheus::Gauge *peak_memory_res_bytes;
+
+  // Hot/cold tenants (global — the cold set is process-wide, not per-database since a COLD tenant has no
+  // live storage to attribute a per-db series to). suspends/resumes count user-driven operations; the
+  // gauge tracks the current COLD set size.
+  prometheus::Counter *database_suspends;
+  prometheus::Counter *database_resumes;
+  prometheus::Gauge *cold_databases;
+  // Wall-clock latency of a successful SUSPEND / RESUME (observed once per successful operation, on the
+  // same path as the counters above). Global for the same reason: a COLD tenant has no live storage.
+  prometheus::Histogram *database_suspend_latency_seconds;
+  prometheus::Histogram *database_resume_latency_seconds;
 
   // Transaction (global) — incremented when no per-db context is available
   prometheus::Counter *transient_errors;
@@ -554,6 +565,13 @@ class PrometheusMetrics {
   // Global metric families — memory
   prometheus::Family<prometheus::Gauge> &memory_res_family_;
   prometheus::Family<prometheus::Gauge> &peak_memory_res_family_;
+
+  // Global metric families — hot/cold databases
+  prometheus::Family<prometheus::Counter> &database_suspends_family_;
+  prometheus::Family<prometheus::Counter> &database_resumes_family_;
+  prometheus::Family<prometheus::Gauge> &cold_databases_family_;
+  prometheus::Family<prometheus::Histogram> &database_suspend_latency_family_;
+  prometheus::Family<prometheus::Histogram> &database_resume_latency_family_;
 
   // No separate global families needed — global no-db counters reuse the per-db families with no label
 

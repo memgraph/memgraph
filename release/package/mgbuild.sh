@@ -94,6 +94,7 @@ print_help () {
   echo -e "  package-docker [OPTIONS]           Create memgraph docker image and pack it as .tar.gz"
   echo -e "  package-smoke-image [OPTIONS]      Build a Docker image with the .deb/.rpm package installed (for smoke tests)"
   echo -e "  package-mage-deb [OPTIONS]         Create MAGE DEB package"
+  echo -e "  package-mage-rpm [OPTIONS]         Create MAGE RPM package"
   echo -e "  package-mage-docker [OPTIONS]      Create MAGE docker image"
   echo -e "  package-mage-offline-installer [OPTIONS]  Build a self-contained .run installer for Memgraph + MAGE on Ubuntu 24.04"
   echo -e "  pull                               Pull mgbuild image from dockerhub"
@@ -176,6 +177,12 @@ print_help () {
   echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
   echo -e "  --package-flavour string        Docker package flavour: 'prod' or 'debug' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling."
 
+  echo -e "\npackage-mage-deb / package-mage-rpm options:"
+  echo -e "  --version string              Memgraph version embedded in the package (required)"
+  echo -e "  --malloc                      Variant flag — affects the output filename only"
+  echo -e "  --cuda                        CUDA variant (uses requirements-gpu.txt; implied by global --cugraph)"
+  echo -e "                                Arch and build-type come from the global --arch / --build-type flags."
+
   echo -e "\npackage-mage-docker options:"
   echo -e "  --docker-repository-name str  Docker repository name (default \"memgraph/memgraph-mage\")"
   echo -e "  --image-tag string            Image tag (required)"
@@ -205,8 +212,13 @@ print_help () {
   echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
 
+  echo -e "\ngenerate-memgraph-build-sbom options:"
+  echo -e "  --conan-remote string         Specify conan remote (optional)"
+  echo -e "  --sbom-scripts-dir string     Path to the infra SBOM scripts (required)"
+
   echo -e "\ngenerate-mage-image-sbom options:"
-  echo -e "  --image-name string           Specify the image name (required)"
+  echo -e "  --image-tag string            Specify the MAGE image tag (required)"
+  echo -e "  --sbom-scripts-dir string     Path to the infra SBOM scripts (required)"
 
   echo -e "\npackage-mage-offline-installer options:"
   echo -e "  --memgraph-deb PATH           Path to the memgraph .deb (required)"
@@ -733,6 +745,18 @@ build_memgraph () {
     additional_options="$additional_options -DMG_SPLIT_DEBUG=ON"
   fi
 
+  # MAGE's query-module python deps (torch/PyG/DGL) ship only as cp312 wheels,
+  # but CentOS Stream 9's default python3 is 3.9. Build memgraph against python
+  # 3.12 so the interpreter it embeds matches the deps installed at package time
+  # (see environment/os/centos-9.sh and install_python_requirements.sh).
+  # find_package(Python3 3.12 EXACT) needs the 3.12 dev package; install it here
+  # in case the prebuilt mgbuild image predates the centos-9.sh change.
+  # TODO(matt): Remove in Toolchain v8
+  if [[ "$os" == centos-9* ]]; then
+    docker exec -u root "$build_container" bash -c "rpm -q python3.12-devel >/dev/null 2>&1 || dnf install -y python3.12 python3.12-devel python3.12-pip"
+    additional_options="$additional_options -DMG_PYTHON_VERSION=3.12"
+  fi
+
   if [[ -n "$additional_options" ]]; then
     echo "Adding additional CMake options: $additional_options"
   fi
@@ -878,7 +902,6 @@ package_docker() {
   fi
   local package_dir="$PROJECT_ROOT/build/output/$os"
   local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
-  local generate_sbom=false
   local malloc=false
   local custom_mirror=false
   local keep_image_loaded=false
@@ -891,10 +914,6 @@ package_docker() {
       ;;
       --src-dir)
         package_dir="$PROJECT_ROOT/$2"
-        shift 2
-      ;;
-      --generate-sbom)
-        generate_sbom=$2
         shift 2
       ;;
       --malloc)
@@ -948,10 +967,10 @@ package_docker() {
 
   if [[ "$package_flavour" == "prod" ]]; then
     echo "Package prod flavour"
-    ./package_docker --latest --package-flavour prod --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
+    ./package_docker --latest --package-flavour prod --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
   else
     echo "Package debug flavour"
-    ./package_docker --package-flavour debug --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --generate-sbom $generate_sbom --malloc $malloc --keep-image-loaded $keep_image_loaded
+    ./package_docker --package-flavour debug --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
@@ -1007,8 +1026,7 @@ package_smoke_image() {
   # numpy 1.26.4 / scipy 1.13.0 have no prebuilt wheels for Python 3.13, and
   # the source builds fail inside the smoke image (no compiler/headers).
   # Distros that ship Python 3.13 as the default (debian-13, fedora-41+) need
-  # numpy 2.1.0 / scipy 1.15.0. networkx 3.4 requires Python 3.10+, so
-  # centos-9 (Python 3.9) needs to stay on 3.2.1.
+  # numpy 2.1.0 / scipy 1.15.0.
   local numpy_version="1.26.4"
   local scipy_version="1.13.0"
   local networkx_version="3.4.2"
@@ -1017,7 +1035,7 @@ package_smoke_image() {
     ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb"; libpython_pkg="libpython3.10" ;;
     debian-12*)    base_image="debian:12";    pkg_format="deb"; libpython_pkg="libpython3.11" ;;
     debian-13*)    base_image="debian:13";    pkg_format="deb"; libpython_pkg="libpython3.13"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
-    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm"; networkx_version="3.2.1" ;;
+    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm" ;;
     centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
     rocky-10*)     base_image="rockylinux/rockylinux:10";  pkg_format="rpm" ;;
     fedora-42*)    base_image="fedora:42"; pkg_format="rpm"; numpy_version="2.1.0"; scipy_version="1.15.0" ;;
@@ -1083,9 +1101,22 @@ gssapi==1.11.1 numpy==${numpy_version} scipy==${scipy_version} networkx==${netwo
     # /etc/dnf/dnf.conf, which strips memgraph's license files in
     # /usr/share/doc/memgraph/. Override on the dnf install line so the
     # smoke license check passes.
+    #
+    # By default the deps go to the distro python3 via pip3. CentOS Stream 9 is
+    # the exception: memgraph there embeds python 3.12 (built with
+    # MG_PYTHON_VERSION=3.12), not the distro-default 3.9, so its bundled query
+    # modules import from python3.12's site-packages — install the deps with
+    # python3.12's pip, not pip3 (which would be 3.9 and thus invisible to
+    # memgraph).
+    local rpm_python_pkgs="python3-libs python3-pip"
+    local pip_cmd="pip3"
+    if [[ "$os" == centos-9* ]]; then
+      rpm_python_pkgs="python3.12 python3.12-pip"
+      pip_cmd="python3.12 -m pip"
+    fi
     install_cmd="export PIP_BREAK_SYSTEM_PACKAGES=1 && \
-      dnf install -y --setopt=tsflags='' xmlsec1 libseccomp libatomic python3-libs python3-pip krb5-libs /pkg/$package_name && \
-      pip3 install --no-cache-dir ${pip_find_links} ${pip_packages} && \
+      dnf install -y --setopt=tsflags='' xmlsec1 libseccomp libatomic ${rpm_python_pkgs} krb5-libs /pkg/$package_name && \
+      ${pip_cmd} install --no-cache-dir ${pip_find_links} ${pip_packages} && \
       dnf clean all"
   fi
 
@@ -1845,7 +1876,18 @@ build_mage() {
     build_args+=("--split-debug")
   fi
 
-  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
+  # Pin the C/C++ compiler to the toolchain's gcc/g++. The toolchain's
+  # `activate` only prepends its bin dir to PATH and adds -isystem flags; it
+  # does not set CC/CXX, and it ships gcc/g++ (no `c++` symlink). So CMake's
+  # default compiler search falls through to the system /usr/bin/c++ — fine on
+  # Ubuntu (GCC 13, has <format>) but broken on RPM distros like centos-9 (GCC
+  # 11, no <format>, so mgp.hpp's #include <format> fails). MAGE's C++ flags
+  # (e.g. -fvect-cost-model) are GCC-specific, so we use the toolchain gcc, not
+  # its clang. CC/CXX propagate into build.sh's `python3 setup` → cmake, which
+  # honours them on a fresh configure (CI containers start clean).
+  local toolchain_root="/opt/toolchain-${toolchain_version}"
+  local export_mage_compiler="export CC=${toolchain_root}/bin/gcc CXX=${toolchain_root}/bin/g++"
+  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && $export_mage_compiler && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
   if [[ "$config_only" = true ]]; then
     echo -e "${GREEN_BOLD}Configuration done successfully${RESET}"
     exit 0
@@ -1902,6 +1944,62 @@ package_mage_deb() {
 
   mkdir -pv output
   for path in $(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb"); do
+    docker cp $build_container:$path output/
+    echo "Package: $path"
+  done
+}
+
+package_mage_rpm() {
+
+  local version=""
+  local malloc=false
+  local cuda=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version)
+        version=$2
+        shift 2
+      ;;
+      --malloc)
+        malloc=true
+        shift 1
+      ;;
+      --cuda)
+        cuda=true
+        shift 1
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ "$cugraph" = true ]]; then
+    cuda=true
+  fi
+
+  # RPM uses different arch spellings than dpkg. rpm_arch is the package
+  # BuildArch (x86_64/aarch64); pkg_arch (amd64/arm64) is what the postinst
+  # forwards to install_python_requirements.sh, matching the DEB path.
+  local rpm_arch pkg_arch
+  case "$arch" in
+    amd) rpm_arch="x86_64";  pkg_arch="amd64" ;;
+    arm) rpm_arch="aarch64"; pkg_arch="arm64" ;;
+    *)
+      echo -e "${RED_BOLD}Error: package_mage_rpm: unsupported arch '$arch' (expected amd or arm)${RESET}" >&2
+      exit 1
+    ;;
+  esac
+
+  echo -e "${GREEN_BOLD}Packaging MAGE RPM package${RESET}"
+  docker exec -i -u root $build_container bash -c "command -v rpmbuild >/dev/null 2>&1 || (dnf install -y rpm-build || yum install -y rpm-build)"
+
+  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-rpm.sh '${rpm_arch}' '${pkg_arch}' $build_type $version $malloc $cuda $cugraph '${os}'"
+
+  mkdir -pv output
+  for path in $(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.rpm"); do
     docker cp $build_container:$path output/
     echo "Package: $path"
   done
@@ -2178,10 +2276,19 @@ test_mage() {
       fi
       docker cp mage/python/$requirements_file $build_container:/tmp/$requirements_file
       docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
+      # MAGE's deps are cp312 and memgraph embeds python 3.12, so the python
+      # test phase must run under 3.12. CentOS Stream 9 defaults python3 to 3.9,
+      # so install and use python3.12 there; other distros already ship 3.12 as
+      # python3. install_python_requirements.sh honours PYTHON=<interpreter>.
+      local pybin="python3"
+      if [[ "$os" == centos-9* ]]; then
+        pybin="python3.12"
+        docker exec -i -u root $build_container bash -c "rpm -q python3.12-pip >/dev/null 2>&1 || dnf install -y python3.12 python3.12-pip python3.12-devel"
+      fi
       docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/ && \
-        ./install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
-        pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
-      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && python3 -m pytest ."
+        PYTHON=$pybin ./install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
+        $pybin -m pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
+      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && $pybin -m pytest ."
     ;;
     e2e)
       shift 1
@@ -2425,10 +2532,15 @@ build_gssapi() {
 
 generate_memgraph_build_sbom() {
   local conan_remote=""
+  local sbom_scripts_dir=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --conan-remote)
         conan_remote=$2
+        shift 2
+      ;;
+      --sbom-scripts-dir)
+        sbom_scripts_dir=$2
         shift 2
       ;;
       *)
@@ -2438,48 +2550,82 @@ generate_memgraph_build_sbom() {
     esac
   done
 
+  if [[ -z "$sbom_scripts_dir" ]]; then
+    echo -e "${RED_BOLD}Error: --sbom-scripts-dir not provided (path to the infra SBOM scripts)${RESET}" >&2
+    exit 1
+  fi
+  if [[ ! -x "$sbom_scripts_dir/build-sbom.sh" ]]; then
+    echo -e "${RED_BOLD}Error: build-sbom.sh not found or not executable under --sbom-scripts-dir ($sbom_scripts_dir)${RESET}" >&2
+    exit 1
+  fi
+
   if [[ -z "$conan_remote" ]]; then
-    echo -e "${YELLOW_BOLD}Warning: --conan-remote not provided; build-sbom.sh will fail if no local build is present${RESET}"
+    echo -e "${YELLOW_BOLD}Warning: --conan-remote not provided; SBOM generation will fail if no build is present in the container${RESET}"
   fi
 
-  if [[ -d sbom ]]; then
-    echo -e "${YELLOW_BOLD}SBOM directory already exists${RESET}"
-  else
-    mkdir -p sbom
-  fi
+  mkdir -p "$PROJECT_ROOT/sbom"
 
-  # generate the Memgraph SBOM
-  echo -e "${GREEN_BOLD}Generating Memgraph SBOM within container${RESET}"
-  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph && export CONAN_REMOTE=$conan_remote && ./tools/ci/sbom/build-sbom.sh"
-  docker cp $build_container:/home/mg/memgraph/sbom/memgraph-build-sbom.json sbom/
-  echo -e "${GREEN_BOLD}Memgraph SBOM: ${RED_BOLD}sbom/memgraph-build-sbom.json${RESET}"
+  # Stage 1: drive the (still-running) build container from the host to fetch
+  # the conan + MGCXX component SBOMs and merge them into the binary build SBOM.
+  # The final image SBOM (stage 2) is produced later from the prod Docker image,
+  # after this build container has been stopped.
+  echo -e "${GREEN_BOLD}Generating Memgraph build SBOM via ${build_container}${RESET}"
+  CONAN_REMOTE="$conan_remote" SBOM_CONTAINER_USER=mg \
+    "$sbom_scripts_dir/build-sbom.sh" \
+    --build-container "$build_container" \
+    --memgraph-path "$MGBUILD_ROOT_DIR" \
+    --out-dir "$PROJECT_ROOT/sbom" \
+    --work-dir "$PROJECT_ROOT/sbom/work"
+  echo -e "${GREEN_BOLD}Memgraph build SBOM: ${RED_BOLD}sbom/memgraph-build-sbom.json${RESET}"
 }
 
 generate_mage_image_sbom() {
-  local image_name=""
+  local image_tag=""
+  local sbom_scripts_dir=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --image-name)
-        image_name=$2
+      --image-tag)
+        image_tag=$2
         shift 2
+      ;;
+      --sbom-scripts-dir)
+        sbom_scripts_dir=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1' for generate-mage-image-sbom" >&2
+        exit 1
       ;;
     esac
   done
 
-  if [[ -z "$image_name" ]]; then
-    echo -e "${RED_BOLD}Image name not provided${RESET}"
+  if [[ -z "$image_tag" ]]; then
+    echo -e "${RED_BOLD}Error: --image-tag not provided${RESET}" >&2
+    exit 1
+  fi
+  if [[ -z "$sbom_scripts_dir" ]]; then
+    echo -e "${RED_BOLD}Error: --sbom-scripts-dir not provided (path to the infra SBOM scripts)${RESET}" >&2
+    exit 1
+  fi
+  if [[ ! -x "$sbom_scripts_dir/mage-docker-sbom.sh" ]]; then
+    echo -e "${RED_BOLD}Error: mage-docker-sbom.sh not found or not executable under --sbom-scripts-dir ($sbom_scripts_dir)${RESET}" >&2
+    exit 1
+  fi
+  if [[ ! -f "$PROJECT_ROOT/sbom/memgraph-build-sbom.json" ]]; then
+    echo -e "${RED_BOLD}Memgraph build SBOM not found, please generate it first${RESET}" >&2
     exit 1
   fi
 
-  if [[ ! -f sbom/memgraph-build-sbom.json ]]; then
-    echo -e "${RED_BOLD}Memgraph SBOM not found, please generate it first${RESET}"
-    exit 1
-  fi
-
-  # generate the MAGE image SBOM
+  # Generate the MAGE image SBOM on the host: analyse the Rust MAGE sources (in
+  # the workspace) and merge them with the memgraph build SBOM (stage 1) and a
+  # syft scan of the built MAGE prod image. No build container needed.
   echo -e "${GREEN_BOLD}Generating MAGE image SBOM${RESET}"
-  ./tools/ci/sbom/mage-sbom.sh "${image_name}"
-  echo -e "${GREEN_BOLD}MAGE image SBOM: ${RED_BOLD}sbom/mage-image-sbom.json${RESET}"
+  "$sbom_scripts_dir/mage-docker-sbom.sh" \
+    --tag "$image_tag" \
+    --memgraph-path "$PROJECT_ROOT" \
+    --out-dir "$PROJECT_ROOT/sbom" \
+    --work-dir "$PROJECT_ROOT/sbom/work-mage"
+  echo -e "${GREEN_BOLD}MAGE image SBOM: ${RED_BOLD}sbom/mage-sbom.json${RESET}"
 }
 
 build_ssl() {
@@ -3073,6 +3219,9 @@ case $command in
     ;;
     package-mage-deb)
       package_mage_deb $@
+    ;;
+    package-mage-rpm)
+      package_mage_rpm $@
     ;;
     package-mage-docker)
       package_mage_docker $@

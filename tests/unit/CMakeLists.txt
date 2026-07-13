@@ -414,6 +414,24 @@ add_unit_test(utils_algorithm
     LINK_TARGETS mg-utils
 )
 
+# Hot/cold tenants: gatekeeper 4-state lifecycle machine
+add_unit_test(hot_cold_gatekeeper
+    SOURCES hot_cold_gatekeeper.cpp
+    LINK_TARGETS mg-utils
+)
+
+# Hot/cold tenants: node-local suspend engine (HOT -> COLD teardown)
+add_unit_test(hot_cold_suspend
+    SOURCES hot_cold_suspend.cpp
+    LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+)
+
+# Hot/cold tenants: node-local resume engine (COLD -> HOT, single-flight)
+add_unit_test(hot_cold_resume
+    SOURCES hot_cold_resume.cpp
+    LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
+)
+
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
@@ -964,6 +982,12 @@ add_unit_test(rpc_in_progress
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
 )
 
+# Test rpc file framing (receive-buffer duplicate-file bug)
+add_unit_test(rpc_file_framing
+    SOURCES rpc_file_framing.cpp
+    LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+)
+
 # Test replication-rpc-progress
 add_unit_test(replication_rpc_progress
     SOURCES replication_rpc_progress.cpp
@@ -984,6 +1008,11 @@ add_unit_test(snapshot_progress
 add_unit_test(rpc_versioning
     SOURCES rpc_versioning.cpp
     LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc rpc_messages
+)
+
+add_unit_test(replication_state_writing
+    SOURCES replication_state_writing.cpp
+    LINK_TARGETS mg-replication mg-repl_coord_glue
 )
 
 # Test websocket
@@ -1109,6 +1138,16 @@ if (MG_ENTERPRISE)
 
 endif ()
 
+# Test coordinator global_read_only SET/SHOW setting path
+if (MG_ENTERPRISE)
+    add_unit_test(coordinator_global_read_only_setting
+        SOURCES coordinator_global_read_only_setting.cpp
+        LINK_TARGETS gflags mg-coordination mg-repl_coord_glue
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+    )
+
+endif ()
+
 # Test coordinator env flag handler
 if (MG_ENTERPRISE)
     add_unit_test(coordinator_env_flag_handler
@@ -1159,6 +1198,7 @@ if (MG_ENTERPRISE)
         memgraph__unit__coordinator_state_manager
         memgraph__unit__coordinator_log_store
         memgraph__unit__coordinator_raft_state
+        memgraph__unit__coordinator_global_read_only_setting
         memgraph__unit__coordinator_env_flag_handler
         memgraph__unit__coordinator_instance_context
         memgraph__unit__coordinator_instance_aux

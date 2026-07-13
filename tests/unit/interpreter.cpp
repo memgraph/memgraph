@@ -316,6 +316,68 @@ TYPED_TEST(InterpreterTest, PropertyInListIndexedEquivalence) {
   EXPECT_ANY_THROW(this->Interpret("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", EPV(int64_t{1})}}));
 }
 
+// With an edge-type+property index, e.prop IN <list> unwinds the list into
+// per-element index lookups. Like the vertex path, this must stay
+// result-identical to the membership Filter: an edge matched by a duplicated
+// element is emitted once, a parameter list drives the same lookup, null and
+// empty yield no rows, and a non-list scalar throws.
+TYPED_TEST(InterpreterTest, EdgePropertyInListIndexedEquivalence) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  // Edge-type indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("CREATE EDGE INDEX ON :R(prop)");
+  this->Interpret("CREATE ()-[:R {prop: 1}]->(), ()-[:R {prop: 2}]->(), ()-[:R {prop: 3}]->()");
+
+  auto count = [&](const std::string &query, EPV::map_t params = {}) {
+    auto stream = this->Interpret(query, params);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+  auto list = [](std::vector<EPV> xs) { return EPV(std::move(xs)); };
+
+  // Duplicate list elements must not emit a matched edge more than once.
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN [1, 1] RETURN e"), 1);
+  // Whole-number doubles collapse onto their int, and the index matches both.
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN [1, 1.0] RETURN e"), 1);
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN [1, 2] RETURN e"), 2);
+
+  // A parameter list drives the same indexed lookup.
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN $v RETURN e", {{"v", list({EPV(int64_t{1}), EPV(int64_t{2})})}}),
+            2);
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN $v RETURN e", {{"v", list({EPV(int64_t{1}), EPV(int64_t{1})})}}),
+            1);
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN $v RETURN e", {{"v", EPV{}}}), 0);     // null -> 0 rows
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN $v RETURN e", {{"v", list({})}}), 0);  // empty -> 0 rows
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN $v RETURN e", {{"v", list({EPV(int64_t{9})})}}), 0);  // no match
+
+  // A non-list scalar parameter throws, matching the membership Filter.
+  EXPECT_ANY_THROW(this->Interpret("MATCH ()-[e:R]->() WHERE e.prop IN $v RETURN e", {{"v", EPV(int64_t{1})}}));
+}
+
+// The Unwind feeding an edge property-index scan emits edges in per-element
+// order, so an ORDER BY on the indexed property must still sort rather than
+// being elided as already-ordered.
+TYPED_TEST(InterpreterTest, EdgePropertyInListOrderByNotElided) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  // Edge-type indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("CREATE EDGE INDEX ON :R(prop)");
+  this->Interpret("CREATE ()-[:R {prop: 1}]->(), ()-[:R {prop: 2}]->(), ()-[:R {prop: 3}]->()");
+
+  // Drive the scan with the values out of order; ORDER BY must re-sort.
+  auto stream = this->Interpret("MATCH ()-[e:R]->() WHERE e.prop IN [3, 1, 2] RETURN e.prop AS prop ORDER BY e.prop");
+  std::vector<int64_t> out;
+  for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
+  EXPECT_THAT(out, testing::ElementsAre(1, 2, 3));
+}
+
 // `id(n) IN <list>` is lowered to Unwind(toSet(coalesce(value, []))) feeding a
 // per-element ScanAllById. The optimised plan must be result-identical to the
 // ScanAll + membership Filter it replaces for every input shape.
@@ -382,6 +444,108 @@ TYPED_TEST(InterpreterTest, IdInListOrderByNotElided) {
   EXPECT_THAT(out, testing::ElementsAreArray(ids));
 }
 
+// A user UNWIND driving a label+property equality lookup feeds the value scan
+// per element, so its output follows list order, not property order. An ORDER
+// BY on the property must still sort rather than being elided as
+// already-ordered.
+TYPED_TEST(InterpreterTest, PropertyEqualityFromUnwindOrderByNotElided) {
+  this->Interpret("CREATE INDEX ON :L(prop)");
+  this->Interpret("CREATE (:L {prop: 1}), (:L {prop: 2}), (:L {prop: 3})");
+
+  auto stream =
+      this->Interpret("UNWIND [3, 1, 2] AS x MATCH (n:L) WHERE n.prop = x RETURN n.prop AS prop ORDER BY n.prop");
+  std::vector<int64_t> out;
+  for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
+  EXPECT_THAT(out, testing::ElementsAre(1, 2, 3));
+}
+
+// A nested property predicate `e.a.b = x` filters on the path [a, b], which no
+// single-property edge index covers. With an edge index on the outer key `a`,
+// the rewriter must not reinterpret it as `e.a = x` (which would compare the
+// whole map to a scalar and drop the real predicate); it must keep the filter.
+TYPED_TEST(InterpreterTest, EdgeNestedPropertyFilterNotIndexMisread) {
+  // Edge-type indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("CREATE EDGE INDEX ON :T(a)");
+  this->Interpret("CREATE ()-[:T {a: {b: 5}}]->(), ()-[:T {a: {b: 99}}]->()");
+
+  auto count = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+
+  EXPECT_EQ(count("MATCH ()-[e:T]->() WHERE e.a.b = 5 RETURN e"), 1);
+  EXPECT_EQ(count("MATCH ()-[e:T]->() WHERE e.a.b = 99 RETURN e"), 1);
+  EXPECT_EQ(count("MATCH ()-[e:T]->() WHERE e.a.b = 7 RETURN e"), 0);
+}
+
+// A composite index stores a missing property as NULL and sorts NULL first,
+// but Cypher ORDER BY places NULL last. When an ORDER BY targets an unconstrained
+// suffix column of the index (only the prefix is pinned), the scan's index order
+// disagrees with ORDER BY on NULL placement, so the sort must not be eliminated.
+// A constrained suffix column (its own filter excludes NULL) is safe to eliminate.
+TYPED_TEST(InterpreterTest, CompositeIndexNullableSuffixOrderByNotElided) {
+  // Composite indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("CREATE INDEX ON :L(a, b)");
+  // One row leaves b missing (stored as NULL in the index).
+  this->Interpret("CREATE (:L {a: 5, b: 3}), (:L {a: 5, b: 1}), (:L {a: 5}), (:L {a: 5, b: 2})");
+
+  // Records each row's b as an int, or -1 for NULL, preserving result order.
+  auto values = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    std::vector<int64_t> out;
+    for (const auto &row : stream.GetResults()) {
+      out.push_back(row[0].type() == memgraph::communication::bolt::Value::Type::Null ? -1 : row[0].ValueInt());
+    }
+    return out;
+  };
+
+  // Unconstrained suffix: NULL must sort last, not first.
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b"), testing::ElementsAre(1, 2, 3, -1));
+  // With LIMIT the misordering would return the wrong rows entirely.
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b LIMIT 2"), testing::ElementsAre(1, 2));
+  // A constrained suffix stays correct (and remains eligible for elimination).
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 AND n.b > 0 RETURN n.b AS b ORDER BY n.b"),
+              testing::ElementsAre(1, 2, 3));
+}
+
+// The DESC counterpart: a DESC composite index sorts NULL last (a full reversal
+// of ASC's NULL-first), but ORDER BY ... DESC places NULL first, so the mismatch
+// is symmetric and the sort must be kept for DESC too. Eliminating it (e.g. by
+// gating the guard on ASC only) would return NULLs last here.
+TYPED_TEST(InterpreterTest, CompositeIndexNullableSuffixDescOrderByNotElided) {
+  // Composite indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret(R"(CREATE INDEX ON :L(a, b) WITH CONFIG {"order": "DESC"})");
+  // One row leaves b missing (stored as NULL in the index).
+  this->Interpret("CREATE (:L {a: 5, b: 3}), (:L {a: 5, b: 1}), (:L {a: 5}), (:L {a: 5, b: 2})");
+
+  auto values = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    std::vector<int64_t> out;
+    for (const auto &row : stream.GetResults()) {
+      out.push_back(row[0].type() == memgraph::communication::bolt::Value::Type::Null ? -1 : row[0].ValueInt());
+    }
+    return out;
+  };
+
+  // Unconstrained suffix, DESC: NULL must sort first, not last.
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b DESC"), testing::ElementsAre(-1, 3, 2, 1));
+  // With LIMIT the misordering would return the wrong rows entirely.
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b DESC LIMIT 2"),
+              testing::ElementsAre(-1, 3));
+}
+
 // `MATCH (n:L) WHERE id(n) IN $ids` selects the id scan and keeps the label as a
 // residual filter, so only labelled vertices come back.
 TYPED_TEST(InterpreterTest, IdInListLabelResidual) {
@@ -402,6 +566,63 @@ TYPED_TEST(InterpreterTest, IdInListLabelResidual) {
   std::vector<int64_t> out;
   for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
   EXPECT_THAT(out, testing::ElementsAreArray(labelled));
+}
+
+// `id(e) IN <list>` over an edge is lowered to Unwind(toSet(coalesce(value,
+// []))) feeding a per-element ScanAllByEdgeId, mirroring the vertex id scan. On
+// in-memory storage the optimised plan must be result-identical to the ScanAll
+// + membership Filter it replaces for every input shape. On-disk storage does
+// not implement edge id lookup, so IN stays consistent with `id(e) = x` there
+// and surfaces the same unsupported-operation error rather than silently
+// returning nothing.
+TYPED_TEST(InterpreterTest, EdgeIdInListEquivalence) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  // Three edges; capture their ids in creation order.
+  std::vector<int64_t> ids;
+  {
+    auto stream = this->Interpret("UNWIND range(1, 3) AS i CREATE ()-[r:R]->() RETURN id(r) AS id");
+    for (const auto &row : stream.GetResults()) ids.push_back(row[0].ValueInt());
+  }
+  ASSERT_EQ(ids.size(), 3U);
+  std::sort(ids.begin(), ids.end());
+  const int64_t present = ids.front();
+  const int64_t missing = ids.back() + 1000;
+  auto list = [](std::vector<EPV> xs) { return EPV(std::move(xs)); };
+
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    EXPECT_ANY_THROW(
+        this->Interpret("MATCH ()-[e]->() WHERE id(e) IN $ids RETURN id(e)", {{"ids", list({EPV(present)})}}));
+    return;
+  }
+
+  auto matched_ids = [&](EPV ids_param) {
+    auto stream =
+        this->Interpret("MATCH ()-[e]->() WHERE id(e) IN $ids RETURN id(e) AS id", {{"ids", std::move(ids_param)}});
+    std::vector<int64_t> out;
+    for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
+    std::sort(out.begin(), out.end());
+    return out;
+  };
+  const auto present_dbl = static_cast<double>(present);
+
+  EXPECT_THAT(matched_ids(list({EPV(ids[0]), EPV(ids[1]), EPV(ids[2])})),  // all present -> all matched
+              testing::ElementsAreArray(ids));
+  EXPECT_THAT(matched_ids(EPV{}), testing::IsEmpty());          // null parameter -> 0 rows
+  EXPECT_THAT(matched_ids(list({})), testing::IsEmpty());       // empty list -> 0 rows
+  EXPECT_THAT(matched_ids(list({EPV(present), EPV(present)})),  // duplicates -> once
+              testing::ElementsAre(present));
+  EXPECT_THAT(matched_ids(list({EPV(present), EPV(present_dbl)})),  // int/double dup -> once
+              testing::ElementsAre(present));
+  EXPECT_THAT(matched_ids(list({EPV(present), EPV{}})),  // null element dropped
+              testing::ElementsAre(present));
+  EXPECT_THAT(matched_ids(list({EPV(1.5), EPV(std::string("x"))})),  // no coercible id -> none
+              testing::IsEmpty());
+  EXPECT_THAT(matched_ids(list({EPV(present_dbl)})), testing::ElementsAre(present));  // exact-int double matches
+  EXPECT_THAT(matched_ids(list({EPV(missing)})), testing::IsEmpty());                 // missing id -> 0 rows
+
+  // A non-list scalar throws, matching the membership Filter's "IN expected a list".
+  EXPECT_ANY_THROW(this->Interpret("MATCH ()-[e]->() WHERE id(e) IN $ids RETURN e", {{"ids", EPV(int64_t{5})}}));
 }
 
 // Run CREATE/MATCH/MERGE queries with property map

@@ -129,7 +129,7 @@ struct ExecutionContext {
   int64_t number_of_hops{0};
   HopsLimit hops_limit;
   std::optional<uint64_t> periodic_commit_frequency;
-  std::shared_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
+  FineGrainedAuthChecker const *auth_checker{nullptr};
   std::shared_ptr<storage::DatabaseProtector> protector;
   bool is_main{true};
   std::optional<size_t> parallel_execution{std::nullopt};  // if set, number of threads to use for parallel execution

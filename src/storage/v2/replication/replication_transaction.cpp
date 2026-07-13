@@ -76,8 +76,8 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
       // RPC stream gets destroyed => RPC lock released.
       if (!should_run_2pc) {
         // NOLINTNEXTLINE
-        auto const res =
-            client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
+        auto const res = client->FinalizeTransactionReplication(
+            db_acc, std::move(replica_stream), durability_commit_timestamp, commit_num_committed_txns_);
         // Even if fails, we don't care, it's ASYNC
         if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
           return {};
@@ -132,7 +132,8 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       if (decision) {
         // NOLINTNEXTLINE(bugprone-unused-return-value)
-        client->FinalizeTransactionReplication(protector, std::move(replica_stream), durability_commit_timestamp);
+        client->FinalizeTransactionReplication(
+            protector, std::move(replica_stream), durability_commit_timestamp, commit_num_committed_txns_);
       } else if (replica_stream) {
         // Reconnect needed because we optimistically prepared PrepareCommitReq message already.
         // We should only do this if we own the RPC lock.
@@ -159,20 +160,30 @@ auto TransactionReplication::CollectAllFailures() -> std::vector<ReplicaFailure>
   return replication_failures_;
 }
 
-void TransactionReplication::UpdateCommitTsInfo(std::function<CommitTsInfo(CommitTsInfo const &)> const &cb) {
+void TransactionReplication::UpdateCommitTsInfo() {
+  CommitTsInfo const observed{.ldt_ = durability_commit_timestamp_, .num_committed_txns_ = commit_num_committed_txns_};
   for (auto const &client : *locked_clients) {
     if (failed_replicas_.contains(client->Name())) continue;
     // ASYNC replicas update their own commit_ts_info_ inside the async task
     // upon confirmed success — updating here would be optimistic and could
     // overcount if the async replication later fails.
     if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) continue;
-    atomic_struct_update<CommitTsInfo>(client->commit_ts_info_, cb);
+    // Advance-only merge to this txn's absolute value rather than a blind +1, so a heartbeat that already folded in
+    // the replica's self-reported count for this txn can't be double-counted.
+    atomic_struct_update<CommitTsInfo>(client->commit_ts_info_,
+                                       [observed](CommitTsInfo const &cur) { return Max(cur, observed); });
   }
 }
 
 TransactionReplication::TransactionReplication(uint64_t const durability_commit_timestamp, Storage *storage,
                                                CommitArgs const &commit_args, ReplicationStorageClientList &clients)
-    : locked_clients{clients.ReadLock()} {
+    : locked_clients{clients.ReadLock()},
+      durability_commit_timestamp_{durability_commit_timestamp},
+      // This transaction is the next one main commits, so its absolute committed-txn count is main's current count
+      // + 1. Captured here (under engine_lock_, before FinalizeCommitPhase bumps main) so every up-to-date replica
+      // converges to the same value; see UpdateCommitTsInfo and FinalizeTransactionReplication.
+      commit_num_committed_txns_{
+          storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_ + 1} {
   if (!locked_clients->empty()) {
     streams.reserve(locked_clients->size());
     auto const &db_acc = commit_args.database_protector();

@@ -62,7 +62,7 @@ on:
         type: boolean
         description: "Run tests"
         default: false
-      package_deb:
+      package_mage:
         type: string
         description: "Build deb package (true|false|default)"
         # default is build only for Release/RelWithDebInfo + amd64/arm64 (other combinations are not actually different)
@@ -91,11 +91,15 @@ on:
         type: boolean
         description: "Selects the daily/master PR-style version (<tag>+pr<pr>~<commit>) instead of using release/get_version.py."
         default: false
+      os:
+        type: string
+        description: Target distro
+        default: ubuntu-24.04
 
 run-name: "Build and test MAGE"
 
 env:
-  OS: "${{ inputs.arch == 'arm' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}"
+  OS: "${{ inputs.os }}${{ inputs.arch == 'arm' && '-arm' || '' }}"
   ARCH: "${{ inputs.arch }}"
   DOCKER_REPOSITORY_NAME: memgraph/memgraph-mage
   BUILD_TYPE: "${{ inputs.build_type }}"
@@ -153,6 +157,16 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: "Checkout infra repository"
+        # SBOM generation uses the scripts from the memgraph/infra repo.
+        if: ${{ inputs.generate_sbom }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: memgraph/infra
+          path: infra
+          ref: master
+          token: ${{ secrets.REPO_PAT }}
+
       - name: Clean up Docker
         if: always()
         continue-on-error: true
@@ -170,27 +184,27 @@ jobs:
         run: |
           ./tools/ci/pull-e2e-docker-images.sh &
 
-      - name: Check package deb build
+      - name: Check package DEB/RPM build
         env:
-          INPUT_PACKAGE_DEB: "${{ inputs.package_deb }}"
+          INPUT_PACKAGE_MAGE: "${{ inputs.package_mage }}"
         run: |
-          if [[ "$INPUT_PACKAGE_DEB" == "true" ]]; then
-            package_deb=true
-          elif [[ "$INPUT_PACKAGE_DEB" == "false" ]]; then
-            package_deb=false
+          if [[ "$INPUT_PACKAGE_MAGE" == "true" ]]; then
+            package_mage=true
+          elif [[ "$INPUT_PACKAGE_MAGE" == "false" ]]; then
+            package_mage=false
           else
             if [[ "$MALLOC" == true ]]; then
-              package_deb=false
+              package_mage=false
             else
-              package_deb=true
+              package_mage=true
             fi
           fi
-          if [[ "$package_deb" == true ]]; then
-            echo "Building deb package"
+          if [[ "$package_mage" == true ]]; then
+            echo "Building DEB/RPM package"
           else
-            echo "Not building deb package"
+            echo "Not building DEB/RPM package"
           fi
-          echo "PACKAGE_DEB=${package_deb}" >> $GITHUB_ENV
+          echo "PACKAGE_MAGE=${package_mage}" >> $GITHUB_ENV
 
       - name: Check mgdeps-cache availability
         run: |
@@ -199,6 +213,11 @@ jobs:
             echo "Using wheels build for CUDA"
             WHEEL_PATH="cuda-13.0/${WHEEL_PATH}"
           fi
+          # Wheels live under a dated prefix wheels/<date>/<arch>/ (portable
+          # manylinux builds). Keep WHEELS_DATE in sync with the one in
+          # mage/install_python_requirements.sh.
+          WHEELS_DATE="2026-06-25"
+          WHEEL_PATH="${WHEELS_DATE}/${WHEEL_PATH}"
           echo "using wheel path: WHEEL_PATH=${WHEEL_PATH}"
           echo "MAGE_WHEEL_PATH=${WHEEL_PATH}" >> $GITHUB_ENV
           if curl --silent --fail "http://mgdeps-cache:8000/wheels/$WHEEL_PATH/" -o /dev/null; then
@@ -259,7 +278,14 @@ jobs:
       - name: Download Memgraph package
         if: ${{ inputs.memgraph_download_link != '' }}
         run: |
-          wget -O mage/memgraph.deb "$MEMGRAPH_DOWNLOAD_LINK"
+          # rpm distros need the base package staged as mage/memgraph.rpm for the
+          # centos-9 smoke image; deb distros keep mage/memgraph.deb for the
+          # docker build / offline installer.
+          if [[ "$OS" == ubuntu-* || "$OS" == debian-* ]]; then
+            wget -O mage/memgraph.deb "$MEMGRAPH_DOWNLOAD_LINK"
+          else
+            wget -O mage/memgraph.rpm "$MEMGRAPH_DOWNLOAD_LINK"
+          fi
           echo "Memgraph package downloaded"
           if [[ -n "$MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK" ]]; then
             wget -O mage/memgraph-debuginfo.deb "$MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK"
@@ -348,19 +374,30 @@ jobs:
           --package \
           --dest-dir $MG_PACKAGE_ARTIFACT_DIR
 
-          mv -v "$MG_PACKAGE_ARTIFACT_DIR"/memgraph_*.deb mage/memgraph.deb
-          # Debug-flavoured docker images install memgraph-debuginfo on top
-          # of the prod deb. Stage the companion sidecar deb when either
-          # docker variant needs it; the relwithdebinfo Dockerfile target
-          # consumes it from mage/memgraph-debuginfo.deb.
-          if [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
-            debuginfo_deb=$(ls -1 "$MG_PACKAGE_ARTIFACT_DIR"/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)
-            if [[ -z "$debuginfo_deb" ]]; then
-              echo "Error: building the relwithdebinfo MAGE docker image requires a memgraph-debuginfo deb in $MG_PACKAGE_ARTIFACT_DIR" >&2
-              echo "       (memgraph must build with --split-debug — should always be true under RelWithDebInfo)" >&2
-              exit 1
+          # Stage the base memgraph package as mage/memgraph.deb for the
+          # downstream MAGE docker build and the offline installer.
+          if [[ "$OS" == ubuntu-* || "$OS" == debian-* ]]; then
+            mv -v "$MG_PACKAGE_ARTIFACT_DIR"/memgraph_*.deb mage/memgraph.deb
+            # Debug-flavoured docker images install memgraph-debuginfo on top
+            # of the prod deb. Stage the companion sidecar deb when either
+            # docker variant needs it; the relwithdebinfo Dockerfile target
+            # consumes it from mage/memgraph-debuginfo.deb.
+            if [[ ("$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both") && "$OS" == ubuntu-24.04* ]]; then
+              debuginfo_deb=$(ls -1 "$MG_PACKAGE_ARTIFACT_DIR"/memgraph-debuginfo_*.deb 2>/dev/null | head -n 1)
+              if [[ -z "$debuginfo_deb" ]]; then
+                echo "Error: building the relwithdebinfo MAGE docker image requires a memgraph-debuginfo deb in $MG_PACKAGE_ARTIFACT_DIR" >&2
+                echo "       (memgraph must build with --split-debug — should always be true under RelWithDebInfo)" >&2
+                exit 1
+              fi
+              mv -v "$debuginfo_deb" mage/memgraph-debuginfo.deb
             fi
-            mv -v "$debuginfo_deb" mage/memgraph-debuginfo.deb
+          else
+            # rpm distros: stage the base memgraph rpm as mage/memgraph.rpm for
+            # the rpm smoke image (Dockerfile.rpm).
+            base_rpm=$(ls -1 "$MG_PACKAGE_ARTIFACT_DIR"/memgraph-[0-9]*.rpm 2>/dev/null | head -n 1)
+            if [[ -n "$base_rpm" ]]; then
+              cp -v "$base_rpm" mage/memgraph.rpm
+            fi
           fi
 
       - name: "Copy SBOM"
@@ -373,6 +410,20 @@ jobs:
           --cugraph $CUGRAPH \
           copy \
           --sbom
+
+      - name: Build Query Modules in MGBUILD container
+        run: |
+          SPLIT_DEBUG_ARG=""
+          if [[ "$SPLIT_DEBUG" == "true" ]]; then
+            SPLIT_DEBUG_ARG="--split-debug"
+          fi
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --cugraph $CUGRAPH \
+          build-mage $SPLIT_DEBUG_ARG
 
       - name: "Build heaptrack"
         if: ${{ inputs.build_type == 'RelWithDebInfo' && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
@@ -397,6 +448,7 @@ jobs:
           --dest-dir "$(pwd)/mage"
 
       - name: "Build OpenSSL"
+        if: ${{ inputs.build_docker_image != 'none' }}
         run: |
           # This step is necessary so that we can build custom packages of OpenSSL and libssl3 for
           # the Docker images. These packages will be installed by apt, and as long as the remote
@@ -430,20 +482,6 @@ jobs:
             --build-type $BUILD_TYPE \
             --cugraph $CUGRAPH \
             build-gssapi
-
-      - name: Build Query Modules in MGBUILD container
-        run: |
-          SPLIT_DEBUG_ARG=""
-          if [[ "$SPLIT_DEBUG" == "true" ]]; then
-            SPLIT_DEBUG_ARG="--split-debug"
-          fi
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os "$OS" \
-          --arch $ARCH \
-          --build-type $BUILD_TYPE \
-          --cugraph $CUGRAPH \
-          build-mage $SPLIT_DEBUG_ARG
 
       - name: Upload debug symbols
         if: ${{ inputs.upload_debug_symbols && env.SPLIT_DEBUG == 'true' }}
@@ -484,7 +522,7 @@ jobs:
           rm -rf "$DBG_DIR"
 
       - name: Build DEB package in MGBUILD container
-        if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.PACKAGE_DEB == 'true' }}
+        if: ${{ env.PACKAGE_MAGE == 'true' && (startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-')) }}
         run: |
           PACKAGE_ARGS="${{ inputs.malloc && '--malloc' || '' }}${{ inputs.cuda && ' --cuda' || '' }}"
           ./release/package/mgbuild.sh \
@@ -502,8 +540,29 @@ jobs:
           DEB_DEBUGINFO_PACKAGE="$(ls output/memgraph-mage-debuginfo_*.deb 2>/dev/null | head -n 1 || true)"
           echo "DEB_DEBUGINFO_PACKAGE=${DEB_DEBUGINFO_PACKAGE}" >> $GITHUB_ENV
 
+      - name: Build RPM package in MGBUILD container
+        if: ${{ env.PACKAGE_MAGE == 'true' && (startsWith(inputs.os, 'fedora-') || startsWith(inputs.os, 'centos-') || startsWith(inputs.os, 'rocky-')) }}
+        run: |
+          PACKAGE_ARGS="${{ inputs.malloc && '--malloc' || '' }}${{ inputs.cuda && ' --cuda' || '' }}"
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os "$OS" \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            --cugraph $CUGRAPH \
+            package-mage-rpm \
+            --version $MEMGRAPH_VERSION \
+            $PACKAGE_ARGS
+
+          # memgraph-mage-[0-9]* matches the main package; excludes the
+          # memgraph-mage-debuginfo-*.rpm sidecar package.
+          RPM_PACKAGE="$(ls output/memgraph-mage-[0-9]*.rpm | head -n 1)"
+          echo "RPM_PACKAGE=${RPM_PACKAGE}" >> $GITHUB_ENV
+          RPM_DEBUGINFO_PACKAGE="$(ls output/memgraph-mage-debuginfo-*.rpm 2>/dev/null | head -n 1 || true)"
+          echo "RPM_DEBUGINFO_PACKAGE=${RPM_DEBUGINFO_PACKAGE}" >> $GITHUB_ENV
+
       - name: Build offline installer (.run) for Ubuntu 24.04
-        if: ${{ inputs.build_offline_installer && env.PACKAGE_DEB == 'true' }}
+        if: ${{ inputs.build_offline_installer && env.PACKAGE_MAGE == 'true' && inputs.os == 'ubuntu-24.04' && inputs.arch == 'amd' }}
         run: |
           SUFFIX=""
           [[ "$MALLOC" == "true" ]]               && SUFFIX="${SUFFIX}-malloc"
@@ -569,8 +628,31 @@ jobs:
             --ci \
             $TEST_ARGS
 
-      - name: Generate SBOM
+      - name: "Reuse memgraph build SBOM"
+        # The memgraph package job already produced memgraph-build-sbom.json
+        # (conan + MGCXX) and uploaded it as the `memgraph-sbom` artifact. When
+        # this MAGE build runs in the same workflow run, reuse it instead of
+        # regenerating it in-container. A standalone MAGE run has no such
+        # artifact, so the download fails and the next step regenerates it.
+        id: reuse_memgraph_sbom
         if: ${{ inputs.generate_sbom == true }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: memgraph-sbom
+          path: memgraph-sbom-artifact
+
+      - name: "Stage reused memgraph build SBOM"
+        if: ${{ inputs.generate_sbom == true && steps.reuse_memgraph_sbom.outcome == 'success' }}
+        run: |
+          mkdir -p sbom
+          cp -v memgraph-sbom-artifact/memgraph-build-sbom.json sbom/
+          echo "Reusing memgraph build SBOM from the memgraph package job"
+
+      - name: Generate SBOM
+        # Regenerate the memgraph build SBOM in-container only when it could not
+        # be reused from the memgraph package job (e.g. a standalone MAGE run).
+        if: ${{ inputs.generate_sbom == true && steps.reuse_memgraph_sbom.outcome != 'success' }}
         env:
           CONAN_REMOTE: "${{ secrets.CONAN_REMOTE }}"
         run: |
@@ -580,7 +662,8 @@ jobs:
             --arch $ARCH \
             --cugraph $CUGRAPH \
             generate-memgraph-build-sbom \
-            --conan-remote $CONAN_REMOTE
+            --conan-remote $CONAN_REMOTE \
+            --sbom-scripts-dir "${GITHUB_WORKSPACE}/infra/infosec/sbom/memgraph"
 
       - name: "Stop mgbuild container"
         if: always()
@@ -593,7 +676,7 @@ jobs:
           stop --remove
 
       - name: "Build image (prod)"
-        if: ${{ env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both' }}
+        if: ${{ (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') && inputs.os == 'ubuntu-24.04' }}
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -611,7 +694,7 @@ jobs:
             --package-flavour prod
 
       - name: "Build image (debug)"
-        if: ${{ env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both' }}
+        if: ${{ (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') && inputs.os == 'ubuntu-24.04' }}
         run: |
           ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
@@ -627,6 +710,37 @@ jobs:
             --custom-mirror true \
             --cuda $CUDA \
             --package-flavour debug
+
+      - name: "Build rpm smoke image"
+        # rpm distros publish no MAGE docker image; build a throwaway local image
+        # from the rpms (base memgraph + memgraph-mage) so the Docker smoke-test
+        # framework can exercise the rpm install path. Never pushed. The base
+        # memgraph rpm was staged to mage/memgraph.rpm by the Copy/Download step;
+        # the memgraph-mage rpm comes from the Build RPM package step.
+        if: ${{ inputs.run_smoke_tests && startsWith(inputs.os, 'centos') && !inputs.cugraph && !inputs.cuda }}
+        run: |
+          set -euo pipefail
+          # Map the distro to its base image and the python version the modules
+          # need. PY_VERSION empty => distro-default python3; centos-9 ships 3.9
+          # but memgraph there embeds 3.12, so it needs an explicit 3.12.
+          case "$OS" in
+            centos-9)  base_image="quay.io/centos/centos:stream9";  py_version="3.12" ;;
+            centos-10) base_image="quay.io/centos/centos:stream10"; py_version="" ;;
+            *) echo "Error: no rpm smoke base-image mapping for OS '$OS'" >&2; exit 1 ;;
+          esac
+          if [[ ! -f mage/memgraph.rpm ]]; then
+            echo "Error: mage/memgraph.rpm not staged — cannot build rpm smoke image" >&2
+            exit 1
+          fi
+          mage_rpm="$(ls -t output/memgraph-mage-[0-9]*.rpm | head -n 1)"
+          cp -v "$mage_rpm" mage/memgraph-mage.rpm
+          # BuildKit required: Dockerfile.rpm uses RUN --mount=type=bind.
+          DOCKER_BUILDKIT=1 docker build \
+            -f mage/Dockerfile.rpm \
+            --build-arg BASE_IMAGE="$base_image" \
+            --build-arg PY_VERSION="$py_version" \
+            -t "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}-${OS}" \
+            mage
 
       - name: "Bolt smoke test (prod)"
         if: ${{ !inputs.cugraph && !inputs.cuda && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
@@ -646,7 +760,8 @@ jobs:
             --os "$OS" \
             --arch $ARCH \
             generate-mage-image-sbom \
-            --image-name "${DOCKER_REPOSITORY_NAME}:$IMAGE_TAG"
+            --image-tag "$IMAGE_TAG" \
+            --sbom-scripts-dir "${GITHUB_WORKSPACE}/infra/infosec/sbom/memgraph"
 
       - name: Upload SBOM to GitHub
         if: ${{ inputs.generate_sbom == true }}
@@ -936,6 +1051,21 @@ jobs:
             --next-image "${DOCKER_REPOSITORY_NAME}:${DEBUG_IMAGE_TAG}" \
             --last-image "${DOCKER_REPOSITORY_NAME}:${LAST_DEBUG_VERSION}"
 
+      - name: "Run Docker smoke tests (rpm)"
+        # Smoke the freshly-built rpm image (next) against the usual published
+        # prod image (last) — there is no prior rpm image to diff against, so the
+        # standard prod image stands in as the baseline.
+        if: ${{ inputs.run_smoke_tests && startsWith(inputs.os, 'centos') && !inputs.cugraph && !inputs.cuda }}
+        run: |
+          docker pull "${DOCKER_REPOSITORY_NAME}:${LAST_PROD_VERSION}"
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            test-mage smoke \
+            --next-image "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}-${OS}" \
+            --last-image "${DOCKER_REPOSITORY_NAME}:${LAST_PROD_VERSION}"
+
       - name: Push query module archive to GitHub
         if: ${{ inputs.push_to_github }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
@@ -944,11 +1074,18 @@ jobs:
           path: "mage/mage.tar.gz"
 
       - name: Push DEB package to GitHub
-        if: ${{ inputs.push_to_github && env.PACKAGE_DEB == 'true' }}
+        if: ${{ inputs.push_to_github && env.PACKAGE_MAGE == 'true' && (startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-')) }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: "${{ env.ARTIFACT_NAME }}-deb"
           path: "output/memgraph-mage*.deb"
+
+      - name: Push RPM package to GitHub
+        if: ${{ inputs.push_to_github && env.PACKAGE_MAGE == 'true' && startsWith(inputs.os, 'fedora-') || startsWith(inputs.os, 'centos-') || startsWith(inputs.os, 'rocky-') }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: "${{ env.ARTIFACT_NAME }}-rpm"
+          path: "output/memgraph-mage*.rpm"
 
       - name: Push docker image to GitHub
         if: ${{ inputs.push_to_github && env.BUILD_DOCKER_IMAGE != 'none' }}
@@ -1002,16 +1139,23 @@ jobs:
 
       - name: Print Output URL
         if: ${{ inputs.print_output_url && inputs.push_to_s3 }}
+        env:
+          DEST_DIR: "${{ inputs.s3_dest_dir }}"
         run: |
-          # ::notice:: lines surface in the GA UI summary. Print each
-          # variant that actually exists so callers and humans can grab
-          # the link without re-deriving it from the matrix dims.
-          if [[ -n "${{ steps.output-url.outputs.s3_url_prod }}" ]]; then
-            echo "::notice::Prod image URL: ${{ steps.output-url.outputs.s3_url_prod }}"
+          base="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/${DEST_DIR}"
+          shopt -s nullglob
+          artifacts=(output/*)
+          if [[ ${#artifacts[@]} -eq 0 ]]; then
+            echo "No artifacts in output/ to report."
+            exit 0
           fi
-          if [[ -n "${{ steps.output-url.outputs.s3_url_debug }}" ]]; then
-            echo "::notice::Debug image URL: ${{ steps.output-url.outputs.s3_url_debug }}"
-          fi
+          for f in "${artifacts[@]}"; do
+            [[ -f "$f" ]] || continue
+            # URL-encode the filename so unsafe chars (+, ~, etc. in daily-build
+            # versions like 3.12.0+5~<commit>) resolve correctly over HTTP.
+            enc=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$(basename "$f")")
+            echo "::notice::Artifact URL: ${base}/${enc}"
+          done
 
       - name: Memgraph Docker Cleanup
         if: always()

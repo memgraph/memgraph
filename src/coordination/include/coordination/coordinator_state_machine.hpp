@@ -124,6 +124,7 @@ class CoordinatorStateMachine final : public state_machine {
   auto GetDeltasBatchProgressSize() const -> uint64_t;
   auto GetInstanceDownTimeoutSec() const -> uint32_t;
   auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
+  auto GetGlobalReadOnly() const -> bool;
 
  private:
   bool HandleMigration(LogStoreVersion stored_version);

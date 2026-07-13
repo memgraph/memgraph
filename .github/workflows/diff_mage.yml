@@ -131,6 +131,7 @@ jobs:
     with:
       arch: amd
       build_type: RelWithDebInfo
+      build_docker_image: debug
       push_to_github: false
       push_to_s3: false
       run_tests: true

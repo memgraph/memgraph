@@ -19,7 +19,6 @@ package_path=""
 arch=""
 src_path=""
 custom_mirror=false
-generate_sbom=false
 malloc=false
 keep_image_loaded=false
 package_flavour="prod"
@@ -56,10 +55,6 @@ while [[ $# -gt 0 ]]; do
         else
           custom_mirror=false
         fi
-        shift 2
-    ;;
-    --generate-sbom)
-        generate_sbom=$2
         shift 2
     ;;
     --malloc)
@@ -207,11 +202,8 @@ if [[ -n "$src_path" ]]; then
   rm -rf "${working_dir}/src"
 fi
 
-if [[ "$generate_sbom" == true ]]; then
-  echo "Generating SBOM for Docker image"
-  cd ../../
-  ./tools/ci/sbom/docker-sbom.sh "${tag}"
-fi
+# NOTE: the image SBOM is generated as an explicit step in the CI workflow
+# (stage 2), from the memgraph/infra scripts, after this image is built.
 if [[ "$keep_image_loaded" != "true" ]]; then
   docker image rm $image_name || true
 fi

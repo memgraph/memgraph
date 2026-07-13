@@ -1010,6 +1010,9 @@ MGP_ENUM_CLASS text_search_mode{
     SPECIFIED_PROPERTIES,
     REGEX,
     ALL_PROPERTIES,
+    // Fuzzy phrase search (ordered, adjacent terms; last term a prefix) over a single
+    // `data.<property>`. Appended last to keep the existing values' numbering stable.
+    FUZZY_PHRASE,
 };
 
 /// Search the named text index for the given query. The result is a map with the "search_results" and "error_msg" keys.

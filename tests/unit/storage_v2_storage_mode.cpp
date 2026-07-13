@@ -11,10 +11,12 @@
 
 #include <gtest/gtest.h>
 #include <chrono>
+#include <nlohmann/json.hpp>
 #include <stop_token>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 
 #include "interpreter_faker.hpp"
 #include "query/exceptions.hpp"
@@ -178,4 +180,46 @@ TEST_F(StorageModeMultiTxTest, ErrorChangeIsolationLevel) {
 
   ASSERT_THROW(running_interpreter.Interpret("SET GLOBAL TRANSACTION ISOLATION LEVEL READ COMMITTED;"),
                memgraph::query::IsolationLevelModificationInAnalyticsException);
+}
+
+// nlohmann ADL hooks for StorageMode (storage_mode.hpp): integer wire encoding + range-checked read.
+// These back the durable hot/cold cold_stats JSON and SalientConfig, which both rely on plain
+// integer encoding — switching to a string form would break read-back of existing entries.
+TEST(StorageModeJson, EncodesAsUnderlyingInteger) {
+  using memgraph::storage::StorageMode;
+  // to_json must emit the underlying integer, not a string (the on-disk format contract).
+  for (auto mode :
+       {StorageMode::IN_MEMORY_ANALYTICAL, StorageMode::IN_MEMORY_TRANSACTIONAL, StorageMode::ON_DISK_TRANSACTIONAL}) {
+    nlohmann::json j = mode;
+    ASSERT_TRUE(j.is_number_integer()) << "StorageMode must serialize as an integer";
+    EXPECT_EQ(j.get<int>(), std::to_underlying(mode));
+  }
+}
+
+TEST(StorageModeJson, RoundTrips) {
+  using memgraph::storage::StorageMode;
+  for (auto mode :
+       {StorageMode::IN_MEMORY_ANALYTICAL, StorageMode::IN_MEMORY_TRANSACTIONAL, StorageMode::ON_DISK_TRANSACTIONAL}) {
+    nlohmann::json j = mode;
+    EXPECT_EQ(j.get<StorageMode>(), mode);
+  }
+}
+
+TEST(StorageModeJson, ReadsRawIntegerFromOlderEntries) {
+  using memgraph::storage::StorageMode;
+  // A pre-hook durable entry / SalientConfig stores the bare integer (nlohmann's default enum form).
+  // The hook must read it back identically — proving the format is unchanged.
+  EXPECT_EQ(nlohmann::json(0).get<StorageMode>(), StorageMode::IN_MEMORY_ANALYTICAL);
+  EXPECT_EQ(nlohmann::json(1).get<StorageMode>(), StorageMode::IN_MEMORY_TRANSACTIONAL);
+  EXPECT_EQ(nlohmann::json(2).get<StorageMode>(), StorageMode::ON_DISK_TRANSACTIONAL);
+}
+
+TEST(StorageModeJson, OutOfRangeFallsBackWithoutThrowing) {
+  using memgraph::storage::StorageMode;
+  // A corrupt/out-of-range value must NOT blind-cast to a garbage enum (the latent gap in the
+  // built-in from_json) — from_json range-checks via NumToEnum and falls back to a safe default.
+  StorageMode out{};
+  nlohmann::json corrupt = 99;
+  ASSERT_NO_THROW(out = corrupt.get<StorageMode>());
+  EXPECT_EQ(out, StorageMode::IN_MEMORY_TRANSACTIONAL);
 }

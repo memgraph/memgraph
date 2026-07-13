@@ -51,7 +51,6 @@
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
-#include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/isolation_level.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -65,6 +64,7 @@
 #include "memory/query_memory_control.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
+#include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/common.hpp"
 #include "query/config.hpp"
@@ -139,10 +139,6 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
-
-#ifdef MG_ENTERPRISE
-#include "flags/experimental.hpp"
-#endif
 
 import memgraph.utils.aws;
 
@@ -306,6 +302,12 @@ namespace {
 constexpr std::string_view kSocketErrorExplanation =
     "The socket address must be a string defining the address and port, delimited by a "
     "single colon. The address must be valid and the port must be an integer.";
+
+constexpr std::string_view kBrokenDatabaseError =
+    "Database is in the broken state because the recovery process failed. Please recover your database "
+    "using the RECOVER SNAPSHOT query. If you have a "
+    "backup of the whole data directory, please replace the current data directory with the backup one and "
+    "restart the process.";
 
 #ifdef MG_ENTERPRISE
 void EnsureMainInstance(InterpreterContext *interpreter_context, const std::string &operation_name) {
@@ -3141,6 +3143,7 @@ struct PullPlan {
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                     storage::DatabaseProtectorPtr protector, metrics::DatabaseMetricHandles &metric_handles,
+                    FineGrainedAuthChecker const *auth_checker = nullptr,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
                     std::optional<int64_t> hops_limit = {}, utils::PriorityThreadPool *worker_pool = nullptr,
@@ -3184,9 +3187,10 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                    storage::DatabaseProtectorPtr protector, metrics::DatabaseMetricHandles &metric_handles,
-                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
-                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   utils::PriorityThreadPool *worker_pool, memory::ArenaPool *db_arena_pool
+                   FineGrainedAuthChecker const *auth_checker, TriggerContextCollector *trigger_context_collector,
+                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
+                   const std::optional<int64_t> hops_limit, utils::PriorityThreadPool *worker_pool,
+                   memory::ArenaPool *db_arena_pool
 #ifdef MG_ENTERPRISE
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
@@ -3228,14 +3232,11 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.edgetypes = NamesToEdgeTypes(plan->ast_storage().edge_types_, dba);
   ctx_.user_or_role = user_or_role;  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
-  if (license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role && dba) {
-    // Create only if an explicit user is defined
-    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
-    DMG_ASSERT(auth_checker, "Auth checker should not be null");
-    if (auth_checker->NeedsFineGrainedAuthChecker()) {
-      ctx_.auth_checker = std::move(auth_checker);
-    }
-  }
+  ctx_.auth_checker = auth_checker;
+#else
+  (void)auth_checker;  // [[maybe_unused]] would be better for this community-only
+                       // warning, but the PullPlan constructor argument list
+                       // is already too dense to read clearly.
 #endif
   ctx_.stopping_context = std::move(stopping_context);
   ctx_.is_profile_query = is_profile_query;
@@ -3374,15 +3375,25 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
 
 }  // namespace
 
-Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
+Interpreter::Interpreter(InterpreterContext *interpreter_context)
+    : cached_fga_(std::make_unique<CachedFineGrainedAuth>()), interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
-    : current_db_{std::move(db)}, interpreter_context_(interpreter_context) {
+    : cached_fga_(std::make_unique<CachedFineGrainedAuth>()),
+      current_db_{std::move(db)},
+      interpreter_context_(interpreter_context) {
   MG_ASSERT(current_db_.db_acc_, "Database accessor needs to be valid");
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
+
+Interpreter::~Interpreter() { Abort(); }
+
+// NOLINTNEXTLINE(readability-make-member-function-const)
+void Interpreter::ResetCachedFga() { cached_fga_->Reset(); }
+
+FineGrainedAuthChecker const *Interpreter::GetCachedFga() const { return cached_fga_->get(); }
 
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
   using double_seconds = std::chrono::duration<double>;
@@ -3428,6 +3439,12 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         expect_rollback_ = false;
         if (!current_db_.db_acc_)
           throw DatabaseContextRequiredException("No current database for transaction defined.");
+        // Fail-closed on a broken database: an explicit transaction opens a data accessor and its queries
+        // bypass the per-query broken gate (which only runs outside explicit transactions), so reject the
+        // BEGIN itself. The tenant must first be recovered via RECOVER SNAPSHOT.
+        if ((*current_db_.db_acc_)->storage()->IsBroken()) {
+          throw QueryException(kBrokenDatabaseError);
+        }
         SetupDatabaseTransaction(true,
                                  extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE);
       };
@@ -3653,6 +3670,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               std::move(stopping_context),
                                               dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
                                               *(*current_db.db_acc_)->metric_handles(),
+                                              interpreter.GetCachedFga(),
                                               trigger_context_collector,
                                               memory_limit,
                                               frame_change_collector->AnyCaches() ? frame_change_collector : nullptr,
@@ -3862,7 +3880,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                          stopping_context = std::move(stopping_context),
                                          db_acc = *current_db.db_acc_,
                                          hops_limit,
-                                         db_arena_pool = &current_db.db_acc_->get()->Arena()
+                                         db_arena_pool = &current_db.db_acc_->get()->Arena(),
+                                         cached_auth_checker = interpreter.GetCachedFga()
 #ifdef MG_ENTERPRISE
                                              ,
                                          parallel_execution,
@@ -3882,6 +3901,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                         std::move(stopping_context),
                                         dbms::DatabaseProtector{db_acc}.clone(),
                                         *db_acc->metric_handles(),
+                                        cached_auth_checker,
                                         nullptr,
                                         memory_limit,
                                         frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
@@ -6268,7 +6288,8 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
             }
             case BackupFailure: {
               throw utils::BasicException(
-                  "Failed to clear local wal and snapshots directories. Please clean them manually.");
+                  "The snapshot was recovered, but the old wal and snapshots directories could not be archived. "
+                  "Please clean them manually, or re-run RECOVER SNAPSHOT ... FORCE.");
             }
             case DownloadFailure: {
               throw utils::BasicException("Failed to download snapshot file from {}", path);
@@ -6286,7 +6307,9 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
               throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_SECRET_KEY));
             }
             case FailedOverwritingUUID: {
-              throw utils::BasicException("Failed to overwrite snapshot with a new storage UUID");
+              throw utils::BasicException(
+                  "The snapshot was recovered, but overwriting it with the new storage UUID failed; the on-disk "
+                  "snapshot may not be picked up on restart. Re-run RECOVER SNAPSHOT ... FORCE.");
             }
             default: {
               std::unreachable();
@@ -7301,6 +7324,53 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       }
 #endif
       auto *dbms_handler = interpreter_context->dbms_handler;
+#ifdef MG_ENTERPRISE
+      // SHOW STORAGE INFO ON <cold> serves the durable as-of-suspend snapshot instead of tripping
+      // the Get_ cold seam (which would otherwise error). The numbers are MAIN's as-of-suspend snapshot;
+      // physical fields (memory/disk) are MAIN-relative and labelled COLD.
+      if (info_query->database_) {
+        if (auto cold = dbms_handler->GetColdShowInfo(*info_query->database_)) {
+          const auto &db_name = *info_query->database_;
+          if (!license::global_license_checker.IsEnterpriseValidFast() && db_name != dbms::kDefaultDB) {
+            throw QueryRuntimeException(license::LicenseCheckErrorToString(
+                license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
+          }
+          handler = [db_name,
+                     cold = std::move(*cold)]() -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
+            const auto &s = cold.stats;
+            // The field set is identical to the HOT path so a client sees the same schema regardless of
+            // state. Fields the as-of-suspend snapshot carries (data-shape stats + resident/peak memory)
+            // are served from it; live-process-only fields with no snapshot value (query/vector/tenant
+            // memory usage and the live tenant limit) default to 0/unlimited, since a COLD tenant runs
+            // no queries and holds no live memory.
+            const auto zero_bytes = utils::GetReadableSize(0.0);
+            const std::vector<std::vector<TypedValue>> results{
+                {TypedValue("name"), TypedValue(db_name)},
+                {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(cold.uuid))},
+                {TypedValue("state"), TypedValue(cold.state)},
+                {TypedValue("storage_mode"), TypedValue(StorageModeToString(s.storage_mode))},
+                {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(s.vertex_count))},
+                {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(s.edge_count))},
+                {TypedValue("average_degree"), TypedValue(s.average_degree)},
+                {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(s.unreleased_delta_objects))},
+                {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(s.disk_usage)))},
+                {TypedValue("graph_memory_tracked"),
+                 TypedValue(utils::GetReadableSize(static_cast<double>(s.memory_res)))},
+                {TypedValue("query_memory_tracked"), TypedValue(zero_bytes)},
+                {TypedValue("vector_index_memory_tracked"), TypedValue(zero_bytes)},
+                {TypedValue("tenant_memory_tracked"), TypedValue(zero_bytes)},
+                {TypedValue("tenant_peak_memory_tracked"),
+                 TypedValue(utils::GetReadableSize(static_cast<double>(s.peak_memory_res)))},
+                {TypedValue("tenant_memory_limit"), TypedValue(std::string("unlimited"))},
+                {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(s.isolation_level))},
+            };
+            return std::pair{results, QueryHandlerResult::NOTHING};
+          };
+          header = {"storage info", "value"};
+          break;
+        }
+      }
+#endif
       auto resolve_database = [&]() -> std::optional<dbms::DatabaseAccess> {
         if (info_query->database_) {
           const auto &db_name = *info_query->database_;
@@ -7346,6 +7416,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           const std::vector<std::vector<TypedValue>> results{
               {TypedValue("name"), TypedValue(storage->name())},
               {TypedValue("database_uuid"), TypedValue(static_cast<std::string>(storage->uuid()))},
+              {TypedValue("state"), TypedValue(std::string("HOT"))},
               {TypedValue("storage_mode"), TypedValue(StorageModeToString(storage->GetStorageMode()))},
               {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
               {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
@@ -7361,6 +7432,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                TypedValue(tenant_limit > 0 ? utils::GetReadableSize(static_cast<double>(tenant_limit))
                                            : std::string("unlimited"))},
               {TypedValue("storage_isolation_level"), TypedValue(IsolationLevelToString(storage->GetIsolationLevel()))},
+              {TypedValue("health"), TypedValue(storage->IsBroken() ? "broken" : "ready")},
           };
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
@@ -7837,7 +7909,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   break;
                 case dbms::NewError::DEFUNCT:
                   throw QueryRuntimeException(
-                      "{} is defunct and in an unknown state. Try to delete it again or clean up storage and restart "
+                      "{} is broken and in an unknown state. Try to delete it again or clean up storage and restart "
                       "Memgraph.");
                 case dbms::NewError::GENERIC:
                   throw QueryRuntimeException("Failed while creating {}", db_name);
@@ -7980,6 +8052,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                     throw QueryRuntimeException("Failed while renaming {}", old_name);
                   case dbms::RenameError::SAME_NAME:
                     throw QueryRuntimeException("New name cannot be the same as the old name.");
+                  case dbms::RenameError::SUSPENDED:
+                    throw QueryRuntimeException("Cannot rename database {}: it is suspended (cold). RESUME it first.",
+                                                old_name);
                 }
               }
             } catch (const utils::BasicException &e) {
@@ -7993,6 +8068,97 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             }
             return std::nullopt;
           },
+          .rw_type = RWType::W,
+          .db = query->db_name_};
+    }
+    case MultiDatabaseQuery::Action::SUSPEND: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+            auto result = db_handler->Suspend(db_name, &*interpreter->system_transaction_);
+            if (!result) {
+              switch (result.error()) {
+                case dbms::DbmsHandler::SuspendError::DEFAULT_DB:
+                  throw QueryRuntimeException("Cannot suspend the default database.");
+                case dbms::DbmsHandler::SuspendError::NON_EXISTENT:
+                  throw QueryRuntimeException("Database {} does not exist or is already cold.", db_name);
+                case dbms::DbmsHandler::SuspendError::NOT_IN_MEMORY:
+                  throw QueryRuntimeException(
+                      "Database {} is not in-memory mode; only in-memory databases can be suspended.", db_name);
+                case dbms::DbmsHandler::SuspendError::DURABILITY_INCOMPLETE:
+                  throw QueryRuntimeException(
+                      "Database {} does not have periodic snapshot+WAL durability enabled; cannot suspend safely.",
+                      db_name);
+                case dbms::DbmsHandler::SuspendError::ACTIVE_CONNECTIONS:
+                  throw QueryRuntimeException("Database {} has active connections; cannot suspend while in use.",
+                                              db_name);
+              }
+            }
+            std::vector<std::vector<TypedValue>> status;
+            status.emplace_back(
+                std::vector<TypedValue>{TypedValue("Successfully suspended database " + std::string(db_name))});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          // W (like CREATE/DROP/RENAME DATABASE): SUSPEND mutates+replicates DB lifecycle state, so it
+          // must respect the HA IsMainWriteable() gate (rejected on a coordinator-write-disabled MAIN).
+          .rw_type = RWType::W,
+          .db = query->db_name_};
+    }
+    case MultiDatabaseQuery::Action::RESUME: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+            auto result = db_handler->Resume(db_name, &*interpreter->system_transaction_);
+            if (!result) {
+              switch (result.error()) {
+                case dbms::DbmsHandler::ResumeError::NON_EXISTENT:
+                  throw QueryRuntimeException("Database {} does not exist or is not suspended.", db_name);
+                case dbms::DbmsHandler::ResumeError::RECOVERY_FAILED:
+                  throw QueryRuntimeException(
+                      "Database {} failed to recover while resuming; it remains suspended (cold) and the resume can "
+                      "be retried.",
+                      db_name);
+              }
+            }
+            std::string res;
+            if (result->already_hot) {
+              // Idempotent no-op (#18): keep the operation successful, but surface a distinguishable
+              // STATUS message instead of a plain "Successfully resumed" so the client can tell this
+              // apart from an actual COLD -> HOT rebuild.
+              res = "Database " + std::string(db_name) + " is already resumed (HOT).";
+            } else {
+              res = "Successfully resumed database " + std::string(db_name);
+            }
+            std::vector<std::vector<TypedValue>> status;
+            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          // W (like CREATE/DROP/RENAME DATABASE): RESUME mutates+replicates DB lifecycle state, so it
+          // must respect the HA IsMainWriteable() gate (rejected on a coordinator-write-disabled MAIN).
           .rw_type = RWType::W,
           .db = query->db_name_};
     }
@@ -8110,16 +8276,48 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  callback.header = {"Name"};
+  // SHOW DATABASES carries a "state" column (HOT/COLD) and a "health" column (ready/broken), and lists
+  // COLD tenants (which are excluded from All() as no-value shells, so they would otherwise vanish).
+  callback.header = std::vector<std::string>{"Name", "State", "Health"};
   callback.fn =
       [auth, db_handler, user_or_role = std::move(user_or_role)]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
+
+    // One atomic, de-duplicated read of the HOT ∪ COLD set. The name list (unrestricted paths) and the
+    // name->status map (tagging any path, incl. the auth allowed-list) both derive from this single
+    // snapshot — no per-row locks, and no duplicate row for a tenant caught mid-suspend
+    // (AllWithHotColdStatus de-dups: suspended_ wins).
+    std::vector<std::string> all_names;
+    std::unordered_map<std::string, std::string> status_of;  // name -> "HOT" | "COLD"
+    for (auto &[name, st] : db_handler->AllWithHotColdStatus()) {
+      all_names.push_back(name);
+      status_of.emplace(std::move(name), std::move(st));
+    }
+
+    // A database that failed durability recovery comes up broken (see
+    // --storage-allow-recovery-failure); report that so operators can spot it.
+    auto health_of = [db_handler](std::string_view name) -> std::string {
+      try {
+        return db_handler->Get(name)->storage()->IsBroken() ? "broken" : "ready";
+      } catch (const memgraph::dbms::UnknownDatabaseException &) {
+        // The database was dropped between listing and querying; treat it as ready (it is gone).
+        return "ready";
+      }
+    };
+
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
       Sort(all);
 
       status.reserve(all.size());
       for (const auto &name : all) {
-        status.push_back({TypedValue(name)});
+        // `name` is a std::string (all_names) or a TypedValue (auth allowed-list); normalize.
+        const std::string ns{TypedValue(name).ValueString()};
+        // status_of carries the HOT/COLD string. A granted name not in the
+        // snapshot (e.g. a stale grant) defaults to HOT, matching the pre-cold-aware listing.
+        auto it = status_of.find(ns);
+        status.push_back({TypedValue(ns),
+                          TypedValue(it != status_of.end() ? it->second : std::string{"HOT"}),
+                          TypedValue(health_of(ns))});
       }
 
       std::erase_if(status, [&](auto const &row) {
@@ -8129,7 +8327,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 
     if (!user_or_role || !*user_or_role) {
       // No user, return all
-      gen_status(db_handler->All(), std::vector<TypedValue>{});
+      gen_status(std::move(all_names), std::vector<TypedValue>{});
     } else {
       // User has a subset of accessible dbs; this is synched with the SessionContextHandler
       const auto &db_priv = auth->GetDatabasePrivileges(user_or_role->username().value(), user_or_role->rolenames());
@@ -8137,7 +8335,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       const auto &denied = db_priv[0][1].ValueList();
       if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
         // All databases are allowed
-        gen_status(db_handler->All(), denied);
+        gen_status(std::move(all_names), denied);
       } else {
         gen_status(allowed.ValueList(), denied);
       }
@@ -9749,6 +9947,54 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto transaction_requirements = QueryTransactionRequirements{
           parse_info.parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
       parsed_query.query->Accept(transaction_requirements);
+
+      // Fail-closed gate for broken databases (those that failed durability recovery and
+      // came up empty under --storage-allow-recovery-failure). Any query that operates on
+      // the current database's data is rejected until it is recovered via RECOVER SNAPSHOT.
+      // Meta queries (USE/SHOW DATABASES, SHOW STORAGE INFO, auth,
+      // replication, ...) do not touch the tenant graph and are allowed through.
+      if (current_db_.db_acc_ && (*current_db_.db_acc_)->storage()->IsBroken()) {
+        auto *q = parsed_query.query;
+        // Allowlist: in the broken state only the cure query (RECOVER SNAPSHOT)
+        // and meta/admin queries that never touch the tenant graph are permitted. Everything else
+        // (Cypher, DDL, CREATE SNAPSHOT, SHOW INDEX/CONSTRAINT/NODE LABELS/EDGE TYPES/METRICS INFO, ...)
+        // is rejected until the database is recovered: those SHOW ... INFO variants read tenant-graph
+        // metadata from the empty post-recovery-failure storage and would otherwise return a misleading
+        // clean 0-row result instead of surfacing the broken health. Auth, replication, profile and
+        // other instance-level queries operate on system state rather than the tenant graph, so they
+        // remain available for remediation while a tenant is broken.
+        auto const is_allowed =
+            [q]<typename... Ts>() {
+              return (... || (utils::Downcast<Ts>(q) != nullptr));
+            }.template operator()<RecoverSnapshotQuery,
+                                  SystemInfoQuery,
+                                  ReplicationInfoQuery,
+                                  ShowConfigQuery,
+                                  ShowQueryCallableMappingsQuery,
+                                  SettingQuery,
+                                  VersionQuery,
+                                  UseDatabaseQuery,
+                                  MultiDatabaseQuery,
+                                  ShowDatabaseQuery,
+                                  ShowDatabasesQuery,
+                                  ShowMemoryInfoQuery,
+                                  SessionTraceQuery,
+                                  SessionSettingQuery,
+                                  AuthQuery,
+                                  ReplicationQuery,
+                                  UserProfileQuery,
+                                  TenantProfileQuery,
+                                  ParameterQuery,
+                                  TransactionQueueQuery,
+                                  LockPathQuery,
+                                  FreeMemoryQuery,
+                                  CoordinatorQuery,
+                                  ReloadSSLQuery>();
+        if (!is_allowed) {
+          throw QueryException(kBrokenDatabaseError);
+        }
+      }
+
       if (transaction_requirements.accessor_type_) {
         if (transaction_requirements.isolation_level_override_) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
@@ -9781,6 +10027,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           .exception_occurred = parallel_execution ? std::make_shared<std::atomic<uint8_t>>(false) : nullptr,
       };
     };
+
+#ifdef MG_ENTERPRISE
+    if (current_db_.execution_db_accessor_ && interpreter_context_->auth_checker && user_or_role_ && *user_or_role_) {
+      auto *dba = &*current_db_.execution_db_accessor_;
+      cached_fga_->Refresh(*interpreter_context_->auth_checker, *user_or_role_, dba, dba->DatabaseName());
+    } else {
+      cached_fga_->Reset();
+    }
+#endif
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query),
@@ -10694,6 +10949,7 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
 #ifdef MG_ENTERPRISE
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
                           std::shared_ptr<utils::UserResources> user_resource) {
+  ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});
@@ -10712,6 +10968,7 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
 }
 #else
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
+  ResetCachedFga();
   user_or_role_ = std::move(user_or_role);
   session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
                                                                         : std::string{});
