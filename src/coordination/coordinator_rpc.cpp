@@ -94,18 +94,6 @@ void UnregisterReplicaRes::Load(UnregisterReplicaRes *self, memgraph::slk::Reade
   memgraph::slk::Load(self, reader);
 }
 
-void EnableWritingOnMainRes::Save(EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-
-void EnableWritingOnMainRes::Load(EnableWritingOnMainRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-
-void EnableWritingOnMainReq::Save(EnableWritingOnMainReq const & /*self*/, memgraph::slk::Builder * /*builder*/) {}
-
-void EnableWritingOnMainReq::Load(EnableWritingOnMainReq * /*self*/, memgraph::slk::Reader * /*reader*/) {}
-
 // ShowInstances
 void ShowInstancesReq::Save(const ShowInstancesReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -332,14 +320,6 @@ void Save(memgraph::coordination::UnregisterReplicaRes const &self, memgraph::sl
 }
 
 void Load(memgraph::coordination::UnregisterReplicaRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->arg_, reader);
-}
-
-void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.arg_, builder);
-}
-
-void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->arg_, reader);
 }
 

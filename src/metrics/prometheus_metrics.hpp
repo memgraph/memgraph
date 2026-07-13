@@ -318,8 +318,6 @@ struct GlobalMetricHandles {
   prometheus::Counter *state_check_rpc_fail;
   prometheus::Counter *unregister_replica_rpc_success;
   prometheus::Counter *unregister_replica_rpc_fail;
-  prometheus::Counter *enable_writing_on_main_rpc_success;
-  prometheus::Counter *enable_writing_on_main_rpc_fail;
   prometheus::Counter *promote_to_main_rpc_success;
   prometheus::Counter *promote_to_main_rpc_fail;
   prometheus::Counter *demote_main_to_replica_rpc_success;
@@ -346,7 +344,6 @@ struct GlobalMetricHandles {
   prometheus::Histogram *demote_main_to_replica_rpc_seconds;
   prometheus::Histogram *register_replica_on_main_rpc_seconds;
   prometheus::Histogram *unregister_replica_rpc_seconds;
-  prometheus::Histogram *enable_writing_on_main_rpc_seconds;
   prometheus::Histogram *state_check_rpc_seconds;
   prometheus::Histogram *get_database_histories_rpc_seconds;
   prometheus::Histogram *heartbeat_rpc_seconds;
@@ -593,8 +590,6 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &state_check_rpc_fail_family_;
   prometheus::Family<prometheus::Counter> &unregister_replica_rpc_success_family_;
   prometheus::Family<prometheus::Counter> &unregister_replica_rpc_fail_family_;
-  prometheus::Family<prometheus::Counter> &enable_writing_on_main_rpc_success_family_;
-  prometheus::Family<prometheus::Counter> &enable_writing_on_main_rpc_fail_family_;
   prometheus::Family<prometheus::Counter> &promote_to_main_rpc_success_family_;
   prometheus::Family<prometheus::Counter> &promote_to_main_rpc_fail_family_;
   prometheus::Family<prometheus::Counter> &demote_main_to_replica_rpc_success_family_;
@@ -626,7 +621,6 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Histogram> &demote_main_to_replica_rpc_histogram_family_;
   prometheus::Family<prometheus::Histogram> &register_replica_on_main_rpc_histogram_family_;
   prometheus::Family<prometheus::Histogram> &unregister_replica_rpc_histogram_family_;
-  prometheus::Family<prometheus::Histogram> &enable_writing_on_main_rpc_histogram_family_;
   prometheus::Family<prometheus::Histogram> &state_check_rpc_histogram_family_;
   prometheus::Family<prometheus::Histogram> &get_database_histories_rpc_histogram_family_;
   prometheus::Family<prometheus::Histogram> &heartbeat_rpc_family_;

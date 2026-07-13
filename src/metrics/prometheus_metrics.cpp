@@ -40,7 +40,7 @@ namespace memgraph::metrics {
 namespace {
 
 bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
-  static constexpr std::array<std::string_view, 28> kLegacyCoordinatorDeltaMetrics{
+  static constexpr std::array<std::string_view, 26> kLegacyCoordinatorDeltaMetrics{
       "SuccessfulFailovers",
       "RaftFailedFailovers",
       "NoAliveInstanceFailedFailovers",
@@ -55,8 +55,6 @@ bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
       "StateCheckRpcSuccess",
       "UnregisterReplicaRpcFail",
       "UnregisterReplicaRpcSuccess",
-      "EnableWritingOnMainRpcFail",
-      "EnableWritingOnMainRpcSuccess",
       "PromoteToMainRpcFail",
       "PromoteToMainRpcSuccess",
       "DemoteMainToReplicaRpcFail",
@@ -623,14 +621,6 @@ PrometheusMetrics::PrometheusMetrics()
                                               .Name("memgraph_unregister_replica_rpc_fail_total")
                                               .Help("Number of failed UnregisterReplicaRpc calls")
                                               .Register(registry_)},
-      enable_writing_on_main_rpc_success_family_{prometheus::BuildCounter()
-                                                     .Name("memgraph_enable_writing_on_main_rpc_success_total")
-                                                     .Help("Number of successful EnableWritingOnMainRpc calls")
-                                                     .Register(registry_)},
-      enable_writing_on_main_rpc_fail_family_{prometheus::BuildCounter()
-                                                  .Name("memgraph_enable_writing_on_main_rpc_fail_total")
-                                                  .Help("Number of failed EnableWritingOnMainRpc calls")
-                                                  .Register(registry_)},
       promote_to_main_rpc_success_family_{prometheus::BuildCounter()
                                               .Name("memgraph_promote_to_main_rpc_success_total")
                                               .Help("Number of successful PromoteToMainRpc calls")
@@ -741,10 +731,6 @@ PrometheusMetrics::PrometheusMetrics()
                                                    .Name("memgraph_unregister_replica_rpc_seconds")
                                                    .Help("Latency of UnregisterReplicaRpc in seconds")
                                                    .Register(registry_)},
-      enable_writing_on_main_rpc_histogram_family_{prometheus::BuildHistogram()
-                                                       .Name("memgraph_enable_writing_on_main_rpc_seconds")
-                                                       .Help("Latency of EnableWritingOnMainRpc in seconds")
-                                                       .Register(registry_)},
       state_check_rpc_histogram_family_{prometheus::BuildHistogram()
                                             .Name("memgraph_state_check_rpc_seconds")
                                             .Help("Latency of StateCheckRpc in seconds")
@@ -872,8 +858,6 @@ PrometheusMetrics::PrometheusMetrics()
   global.state_check_rpc_fail = &state_check_rpc_fail_family_.Add(no_labels);
   global.unregister_replica_rpc_success = &unregister_replica_rpc_success_family_.Add(no_labels);
   global.unregister_replica_rpc_fail = &unregister_replica_rpc_fail_family_.Add(no_labels);
-  global.enable_writing_on_main_rpc_success = &enable_writing_on_main_rpc_success_family_.Add(no_labels);
-  global.enable_writing_on_main_rpc_fail = &enable_writing_on_main_rpc_fail_family_.Add(no_labels);
   global.promote_to_main_rpc_success = &promote_to_main_rpc_success_family_.Add(no_labels);
   global.promote_to_main_rpc_fail = &promote_to_main_rpc_fail_family_.Add(no_labels);
   global.demote_main_to_replica_rpc_success = &demote_main_to_replica_rpc_success_family_.Add(no_labels);
@@ -902,8 +886,6 @@ PrometheusMetrics::PrometheusMetrics()
   global.register_replica_on_main_rpc_seconds =
       &register_replica_on_main_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.unregister_replica_rpc_seconds = &unregister_replica_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
-  global.enable_writing_on_main_rpc_seconds =
-      &enable_writing_on_main_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.state_check_rpc_seconds = &state_check_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.get_database_histories_rpc_seconds =
       &get_database_histories_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
@@ -2100,14 +2082,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
                  "HighAvailability",
                  "Counter",
                  static_cast<int64_t>(global.unregister_replica_rpc_fail->Value())});
-  out.push_back({"EnableWritingOnMainRpcSuccess",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(global.enable_writing_on_main_rpc_success->Value())});
-  out.push_back({"EnableWritingOnMainRpcFail",
-                 "HighAvailability",
-                 "Counter",
-                 static_cast<int64_t>(global.enable_writing_on_main_rpc_fail->Value())});
   out.push_back({"PromoteToMainRpcSuccess",
                  "HighAvailability",
                  "Counter",
@@ -2174,8 +2148,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(
       out, "RegisterReplicaOnMainRpc", "HighAvailability", *global.register_replica_on_main_rpc_seconds);
   AppendHistogramPercentiles(out, "UnregisterReplicaRpc", "HighAvailability", *global.unregister_replica_rpc_seconds);
-  AppendHistogramPercentiles(
-      out, "EnableWritingOnMainRpc", "HighAvailability", *global.enable_writing_on_main_rpc_seconds);
   AppendHistogramPercentiles(out, "StateCheckRpc", "HighAvailability", *global.state_check_rpc_seconds);
   AppendHistogramPercentiles(
       out, "GetDatabaseHistoriesRpc", "HighAvailability", *global.get_database_histories_rpc_seconds);
@@ -2511,8 +2483,6 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
     {"StateCheckRpcFail", static_cast<int64_t>(global.state_check_rpc_fail->Value())},
     {"UnregisterReplicaRpcSuccess", static_cast<int64_t>(global.unregister_replica_rpc_success->Value())},
     {"UnregisterReplicaRpcFail", static_cast<int64_t>(global.unregister_replica_rpc_fail->Value())},
-    {"EnableWritingOnMainRpcSuccess", static_cast<int64_t>(global.enable_writing_on_main_rpc_success->Value())},
-    {"EnableWritingOnMainRpcFail", static_cast<int64_t>(global.enable_writing_on_main_rpc_fail->Value())},
     {"PromoteToMainRpcSuccess", static_cast<int64_t>(global.promote_to_main_rpc_success->Value())},
     {"PromoteToMainRpcFail", static_cast<int64_t>(global.promote_to_main_rpc_fail->Value())},
     {"DemoteMainToReplicaRpcSuccess", static_cast<int64_t>(global.demote_main_to_replica_rpc_success->Value())},

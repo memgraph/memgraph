@@ -285,36 +285,6 @@ struct UnregisterReplicaRes {
 
 using UnregisterReplicaRpc = rpc::RequestResponse<UnregisterReplicaReq, UnregisterReplicaRes>;
 
-struct EnableWritingOnMainReq {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_REQ,
-                                         .name = "EnableWritingOnMainReq"};
-  static constexpr uint64_t kVersion{1};
-
-  static void Load(EnableWritingOnMainReq *self, memgraph::slk::Reader *reader);
-  static void Save(EnableWritingOnMainReq const &self, memgraph::slk::Builder *builder);
-
-  EnableWritingOnMainReq() = default;
-};
-
-struct EnableWritingOnMainRes {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_RES,
-                                         .name = "EnableWritingOnMainRes"};
-  static constexpr uint64_t kVersion{1};
-
-  static void Load(EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
-  static void Save(EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
-
-  explicit EnableWritingOnMainRes(bool const success) : arg_(success) {}
-
-  EnableWritingOnMainRes() = default;
-
-  bool arg_;
-};
-
-// This exists now solely for backwards compatibility and to support ISSU, coordinators aren't sending
-// this RPC anymore
-using EnableWritingOnMainRpc = rpc::RequestResponse<EnableWritingOnMainReq, EnableWritingOnMainRes>;
-
 struct GetDatabaseHistoriesReqV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_INSTANCE_DATABASES_REQ,
                                          .name = "GetDatabaseHistoriesReq"};
@@ -671,10 +641,6 @@ void Save(memgraph::coordination::UnregisterReplicaRes const &self, memgraph::sl
 void Load(memgraph::coordination::UnregisterReplicaRes *self, memgraph::slk::Reader *reader);
 void Save(memgraph::coordination::UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
-
-// EnableWritingOnMainRpc
-void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
 
 // GetDatabaseHistoriesRpc
 void Save(const memgraph::coordination::GetDatabaseHistoriesResV1 &self, memgraph::slk::Builder *builder);
