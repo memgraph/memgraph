@@ -555,6 +555,13 @@ void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
+/// @param last_applied_delta_timestamp optional FLOOR: deltas with commit_ts <= this are skipped (already applied).
+/// @param stop_at_timestamp optional CEILING: deltas with commit_ts > this are skipped (not yet in scope for this
+///        pass). Used by graph-versioning base-at-F recovery to materialize main's state only up to the oldest
+///        fork timestamp F, leaving (F, now] for later window-replay. Because all deltas of a single transaction
+///        share one commit timestamp (single-txn-per-WAL-file durability_commit_timestamp), F is always a
+///        transaction boundary — this can never truncate mid-transaction. Defaults to nullopt (no ceiling),
+///        which is byte-identical to today's behavior for all existing callers.
 /// @throw RecoveryFailure
 std::optional<RecoveryInfo> LoadWal(
     std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
@@ -562,7 +569,8 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store);
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
+    std::optional<uint64_t> stop_at_timestamp = std::nullopt);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {

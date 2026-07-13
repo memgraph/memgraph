@@ -2715,6 +2715,152 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
   }
 }
 
+// Graph Versioning v1 durability S3c-i: LoadWal's new optional CEILING
+// (`stop_at_timestamp`) parameter lets a "base-at-F" recovery pass materialize
+// main's state only up to a chosen fork timestamp F, leaving (F, now] for a
+// later window-replay pass (S3d). This test builds a WAL with three committed
+// transactions at strictly increasing commit timestamps, loads it directly via
+// `LoadWal` with `stop_at_timestamp` pinned to the *middle* transaction's
+// commit timestamp, and verifies: (a) only the txns with commit_ts <= F were
+// applied -- including *both* deltas of the boundary txn (create + set
+// property), proving the ceiling cannot split a transaction mid-flight -- and
+// (b) txns with commit_ts > F were skipped entirely, and (c) next_timestamp
+// lands exactly on F + 1.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, LoadWalStopAtTimestampCeiling) {
+  // NOLINTNEXTLINE(readability-isolate-declaration)
+  memgraph::storage::Gid gid1, gid2, gid3;
+
+  // Create a WAL with three committed transactions, each creating one vertex
+  // with a distinguishing "seq" property, committed in ascending order so that
+  // each transaction gets a strictly increasing commit timestamp.
+  {
+    memgraph::storage::Config config{
+        .durability =
+            {
+                .storage_directory = storage_directory,
+                .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                .wal_file_size_kibibytes = 100'000,
+                .wal_file_flush_every_n_tx = kFlushWalEvery,
+            },
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = true,
+                              .storage_light_edge = GetParam().light_edge}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+    auto commit_vertex_txn = [&](memgraph::storage::Gid &gid_out, int64_t seq) {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      auto vertex = acc->CreateVertex();
+      gid_out = vertex.Gid();
+      ASSERT_TRUE(
+          vertex.SetProperty(db.storage()->NameToProperty("seq"), memgraph::storage::PropertyValue(seq)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    };
+
+    commit_vertex_txn(gid1, 1);
+    commit_vertex_txn(gid2, 2);
+    commit_vertex_txn(gid3, 3);
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 1);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  auto path = GetWalsList().front();
+
+  // Discover the real commit timestamp of the second (middle) transaction --
+  // that becomes our ceiling F -- by decoding the WAL deltas directly, mirroring
+  // WalTransactionOrdering above.
+  uint64_t ceiling_f{0};
+  {
+    using namespace memgraph::storage::durability;
+    auto info = ReadWalInfo(path);
+    Decoder wal;
+    wal.Initialize(path, kWalMagic);
+    wal.SetPosition(info.offset_deltas);
+    std::vector<uint64_t> distinct_timestamps;
+    for (uint64_t i = 0; i < info.num_deltas; ++i) {
+      auto timestamp = ReadWalDeltaHeader(&wal);
+      // The decoder advances past the delta payload as a side effect; the parsed value itself
+      // isn't needed here, we only need the per-delta timestamps.
+      static_cast<void>(ReadWalDeltaData(&wal));
+      if (distinct_timestamps.empty() || distinct_timestamps.back() != timestamp) {
+        distinct_timestamps.push_back(timestamp);
+      }
+    }
+    ASSERT_EQ(distinct_timestamps.size(), 3);
+    ASSERT_LT(distinct_timestamps[0], distinct_timestamps[1]);
+    ASSERT_LT(distinct_timestamps[1], distinct_timestamps[2]);
+    ceiling_f = distinct_timestamps[1];
+  }
+
+  // Load the WAL directly with stop_at_timestamp = F: only txn1 and txn2
+  // (commit_ts <= F) should be applied; txn3 (commit_ts > F) must be skipped.
+  memgraph::storage::durability::RecoveredIndicesAndConstraints indices_constraints;
+  memgraph::utils::SkipListDb<memgraph::storage::Vertex> vertices;
+  memgraph::utils::SkipListDb<memgraph::storage::Edge> edges;
+  const memgraph::utils::OnScopeExit free_light_edges{[&] {
+    if (!GetParam().light_edge) return;
+    auto vertex_acc = vertices.access();
+    for (auto &vertex : vertex_acc) {
+      for (auto const &[edge_type, to_vertex, edge_ref] : vertex.out_edges) {
+        memgraph::storage::InMemoryStorage::LightEdgePool::Destroy(edge_ref.ptr);
+      }
+    }
+  }};
+  std::unique_ptr<memgraph::storage::NameIdMapper> name_id_mapper = std::make_unique<memgraph::storage::NameIdMapper>();
+  std::atomic<uint64_t> edge_count{0};
+  memgraph::storage::SalientConfig::Items items{
+      .properties_on_edges = GetParam(), .enable_schema_info = true, .storage_light_edge = GetParam().light_edge};
+  memgraph::storage::EnumStore enum_store;
+  memgraph::storage::ttl::TTL ttl{nullptr, {}, {}};
+  std::function<std::optional<std::tuple<memgraph::storage::EdgeRef,
+                                         memgraph::storage::EdgeTypeId,
+                                         memgraph::storage::Vertex *,
+                                         memgraph::storage::Vertex *>>(memgraph::storage::Gid)>
+      find_edge = [](memgraph::storage::Gid /*gid*/) { return std::nullopt; };
+
+  const auto recovery_info = memgraph::storage::durability::LoadWal(path,
+                                                                    &indices_constraints,
+                                                                    /*last_applied_delta_timestamp=*/std::nullopt,
+                                                                    &vertices,
+                                                                    &edges,
+                                                                    name_id_mapper.get(),
+                                                                    &edge_count,
+                                                                    items,
+                                                                    &enum_store,
+                                                                    /*schema_info=*/nullptr,
+                                                                    find_edge,
+                                                                    &ttl,
+                                                                    /*description_store=*/nullptr,
+                                                                    /*stop_at_timestamp=*/ceiling_f);
+
+  ASSERT_TRUE(recovery_info.has_value());
+  // next_timestamp must reflect the last APPLIED delta (<= F), i.e. F + 1 --
+  // not txn3's (unapplied, beyond-ceiling) timestamp.
+  EXPECT_EQ(recovery_info->next_timestamp, ceiling_f + 1);
+
+  auto vertex_acc = vertices.access();
+  EXPECT_NE(vertex_acc.find(gid1), vertex_acc.end()) << "txn1 (commit_ts <= F) must be applied";
+  auto vertex2_it = vertex_acc.find(gid2);
+  EXPECT_NE(vertex2_it, vertex_acc.end()) << "txn2 (commit_ts == F, the boundary) must be applied";
+  EXPECT_EQ(vertex_acc.find(gid3), vertex_acc.end()) << "txn3 (commit_ts > F) must NOT be applied";
+  EXPECT_EQ(std::distance(vertex_acc.begin(), vertex_acc.end()), 2)
+      << "only txn1 and txn2's vertices should have been materialized";
+
+  // Both deltas of the boundary transaction (create + set property) must have
+  // applied together -- the ceiling is transaction-granular, never mid-transaction.
+  if (vertex2_it != vertex_acc.end()) {
+    auto seq_property_id = memgraph::storage::PropertyId::FromUint(name_id_mapper->NameToId("seq"));
+    EXPECT_EQ(vertex2_it->properties.GetProperty(seq_property_id),
+              memgraph::storage::PropertyValue(static_cast<int64_t>(2)));
+  }
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
   // Create WALs.
