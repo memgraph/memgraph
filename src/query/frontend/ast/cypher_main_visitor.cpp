@@ -2781,7 +2781,6 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->STORAGE_MODE()) return AuthQuery::Privilege::STORAGE_MODE;
   if (ctx->MULTI_DATABASE_EDIT()) return AuthQuery::Privilege::MULTI_DATABASE_EDIT;
   if (ctx->MULTI_DATABASE_USE()) return AuthQuery::Privilege::MULTI_DATABASE_USE;
-  if (ctx->COORDINATOR()) return AuthQuery::Privilege::COORDINATOR;
   if (ctx->IMPERSONATE_USER()) return AuthQuery::Privilege::IMPERSONATE_USER;
   if (ctx->PROFILE_RESTRICTION()) return AuthQuery::Privilege::PROFILE_RESTRICTION;
   if (ctx->PARALLEL_EXECUTION()) return AuthQuery::Privilege::PARALLEL_EXECUTION;
