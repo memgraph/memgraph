@@ -1672,7 +1672,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     metadata.filters_to_erase.push_back(best->filter);
 
-    auto const count = best->count;
+    auto const total_count = best->count;
+    auto const estimated_count = prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL
+                                     ? total_count
+                                     : static_cast<int64_t>(total_count * CardParam::kFilter);
 
     if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
       return ScanByIndexResult{
@@ -1680,7 +1683,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
               input, node_symbol, best->property, prop_filter.lower_bound_, prop_filter.upper_bound_, view),
           std::move(metadata),
           false,
-          count};
+          estimated_count};
     }
     if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
       Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
@@ -1690,7 +1693,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
               input, node_symbol, best->property, std::make_optional(lower_bound), std::nullopt, view),
           std::move(metadata),
           false,
-          count};
+          estimated_count};
     }
     if (prop_filter.type_ == PropertyFilter::Type::IN) {
       auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_);
@@ -1698,20 +1701,20 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                    std::move(unwound.op), node_symbol, best->property, unwound.element, view),
                                std::move(metadata),
                                true,
-                               count};
+                               estimated_count};
     }
     if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
       return ScanByIndexResult{std::make_shared<ScanAllByVertexProperty>(input, node_symbol, best->property, view),
                                std::move(metadata),
                                false,
-                               count};
+                               estimated_count};
     }
     MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
     return ScanByIndexResult{
         std::make_shared<ScanAllByVertexPropertyValue>(input, node_symbol, best->property, prop_filter.value_, view),
         std::move(metadata),
         false,
-        count};
+        estimated_count};
   }
 
   // Finds the best indexed scan operator for the given ScanAll without applying side effects.
@@ -1904,13 +1907,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         const auto &label = *maybe_label;
         auto const label_count = db_->VerticesCount(GetLabel(label));
         if (!max_vertex_count || label_count <= *max_vertex_count) {
-          if (!vertex_prop_result) {
-            metadata.labels_to_erase.push_back(label);
-            auto op = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
-            return ScanByIndexResult{std::move(op), std::move(metadata)};
-          }
-          // Compare: label-only vs vertex-property index
-          if (vertex_prop_result->estimated_count < label_count) {
+          if (vertex_prop_result && vertex_prop_result->estimated_count < label_count) {
             return std::move(*vertex_prop_result);
           }
           metadata.labels_to_erase.push_back(label);
