@@ -55,7 +55,6 @@ class Client {
       {"PromoteToMainReq"sv, 10'000},          // coordinator sending to replica
       {"RegisterReplicaOnMainReq"sv, 10'000},  // coordinator sending to main
       {"UnregisterReplicaReq"sv, 10'000},      // coordinator sending to main
-      {"EnableWritingOnMainReq"sv, 10'000},    // coordinator to main
       {"ReplicationLagReq"sv, 5000},           // coordinator to main
       {"GetDatabaseHistoriesReq"sv, 10'000},   // coordinator to data instances
       {"StateCheckReq"sv, 5000},               // coordinator to data instances

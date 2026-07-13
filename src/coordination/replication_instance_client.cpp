@@ -37,7 +37,6 @@ RpcInfoSpecialize(PromoteToMainRpc,            promote_to_main_rpc_success,     
 RpcInfoSpecialize(DemoteMainToReplicaRpc,      demote_main_to_replica_rpc_success,        demote_main_to_replica_rpc_fail,        demote_main_to_replica_rpc_seconds)
 RpcInfoSpecialize(RegisterReplicaOnMainRpc,    register_replica_on_main_rpc_success,      register_replica_on_main_rpc_fail,      register_replica_on_main_rpc_seconds)
 RpcInfoSpecialize(UnregisterReplicaRpc,        unregister_replica_rpc_success,            unregister_replica_rpc_fail,            unregister_replica_rpc_seconds)
-RpcInfoSpecialize(EnableWritingOnMainRpc,      enable_writing_on_main_rpc_success,        enable_writing_on_main_rpc_fail,        enable_writing_on_main_rpc_seconds)
 RpcInfoSpecialize(UpdateDataInstanceConfigRpc, update_data_instance_config_rpc_success,   update_data_instance_config_rpc_fail,   update_data_instance_config_rpc_seconds)
     // clang-format on
 

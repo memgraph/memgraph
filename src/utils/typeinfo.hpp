@@ -162,8 +162,10 @@ enum class TypeId : uint64_t {
   COORD_SWAP_UUID_RES,
   COORD_UNREGISTER_REPLICA_REQ,
   COORD_UNREGISTER_REPLICA_RES,
-  COORD_ENABLE_WRITING_ON_MAIN_REQ,
-  COORD_ENABLE_WRITING_ON_MAIN_RES,
+  // Reserved: was COORD_ENABLE_WRITING_ON_MAIN_REQ/RES for EnableWritingOnMainRpc, removed because no version ever
+  // sent it. Left as gaps (not reused) to keep every id below stable across a rolling upgrade.
+  COORD_RESERVED_ENABLE_WRITING_ON_MAIN_REQ,
+  COORD_RESERVED_ENABLE_WRITING_ON_MAIN_RES,
 
   COORD_GET_UUID_REQ,
   COORD_GET_UUID_RES,
