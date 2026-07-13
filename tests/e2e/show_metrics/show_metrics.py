@@ -151,6 +151,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ActiveTextIndices", "type": "Index", "metric type": "Gauge"},
         {"name": "ActiveVectorEdgeIndices", "type": "Index", "metric type": "Gauge"},
         {"name": "ActiveVectorIndices", "type": "Index", "metric type": "Gauge"},
+        {"name": "ActiveVertexPropertyIndices", "type": "Index", "metric type": "Gauge"},
         # Memory (sorted by type, metric_type, name)
         {"name": "DbEmbeddingMemoryTracked", "type": "Memory", "metric type": "Gauge"},
         {"name": "DbMemoryTracked", "type": "Memory", "metric type": "Gauge"},
@@ -213,6 +214,9 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ScanAllByLabelPropertiesOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByPointDistanceOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByPointWithinbboxOperator", "type": "Operator", "metric type": "Counter"},
+        {"name": "ScanAllByVertexPropertyOperator", "type": "Operator", "metric type": "Counter"},
+        {"name": "ScanAllByVertexPropertyRangeOperator", "type": "Operator", "metric type": "Counter"},
+        {"name": "ScanAllByVertexPropertyValueOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "SetLabelsOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "SetNestedPropertyOperator", "type": "Operator", "metric type": "Counter"},
