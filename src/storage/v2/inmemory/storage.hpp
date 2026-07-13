@@ -51,6 +51,12 @@
 
 import memgraph.utils.aws;
 
+// Test-only: forward-declare the gtest-generated test class so the qualified `friend class ::...`
+// inside InMemoryStorage resolves in production TUs (which include this header but not the test).
+// Mirrors gtest_prod.h's FRIEND_TEST, done manually because the fixture lives in the global
+// namespace while InMemoryStorage is in memgraph::storage. See the friend declaration below.
+class DurabilityTest_RecoveryReplayHistoricalStartTsDoesNotCorruptCommitLog_Test;
+
 namespace memgraph::dbms {
 class InMemoryReplicationHandlers;
 }  // namespace memgraph::dbms
@@ -124,6 +130,23 @@ class InMemoryStorage final : public Storage {
   friend class InMemoryEdgeTypeIndex;
   friend class InMemoryEdgeTypePropertyIndex;
   friend class InMemoryEdgePropertyIndex;
+
+  // Test-only: TEST_F(DurabilityTest, RecoveryReplayHistoricalStartTsDoesNotCorruptCommitLog)
+  // (tests/unit/storage_v2_durability_inmemory.cpp) needs direct access to the private `commit_log_`
+  // to manufacture a `head_start_ > 0` gap via `MarkFinishedInRange` (cheap synthetic seeding -- a
+  // real block-boundary crossing needs ~2^19 sequential commits) and to read `OldestActive()` /
+  // `IsFinished()` as regression oracles for the recovery-replay historical-start_ts corruption
+  // hazard (see Transaction::is_recovery_replay_'s doc-comment, transaction.hpp). No production code
+  // path is affected by this declaration.
+  //
+  // NOT `friend class DurabilityTest` (the TEST_F fixture): gtest's TEST_F(DurabilityTest, Name)
+  // generates a SEPARATE, derived class `DurabilityTest_Name_Test` and the test body runs as ITS
+  // member function -- friendship is not inherited, so friending the base fixture would not actually
+  // grant access. Friend the exact generated class instead (mirrors gtest_prod.h's FRIEND_TEST macro,
+  // written out manually here because that macro assumes the test fixture and the friended class
+  // share a namespace, which doesn't hold: DurabilityTest is declared at global scope in the test
+  // file, while InMemoryStorage lives in memgraph::storage -- hence the explicit `::` qualification).
+  friend class ::DurabilityTest_RecoveryReplayHistoricalStartTsDoesNotCorruptCommitLog_Test;
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
@@ -213,6 +236,15 @@ class InMemoryStorage final : public Storage {
     // isolation_level+storage_mode).
     explicit InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
                               std::function<Transaction()> build_transaction,
+                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+    // Graph Versioning v1 durability (S3a, FIX B): write-capable analogue of the HistoricalAccess
+    // ctor immediately above -- same deferred `build_transaction()` construction (see
+    // InMemoryStorage::CreateRecoveryReplayTransaction / CreateRecoveryReplayAccessor), but backed
+    // by RecoveryReplayAccess's WRITE-type lock guard (base Accessor ctor in storage.hpp/storage.cpp)
+    // instead of HistoricalAccess's hardcoded READ-type one, since this accessor creates real deltas.
+    explicit InMemoryAccessor(RecoveryReplayAccess tag, InMemoryStorage *storage,
+                              std::function<Transaction()> build_transaction,
+                              StorageAccessType rw_type = StorageAccessType::WRITE,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
@@ -877,6 +909,23 @@ class InMemoryStorage final : public Storage {
   // member of version_fork_pins_ at the moment we also insert our own pin.
   std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(uint64_t fork_ts);
 
+  // Graph Versioning v1 durability (S3a, FIX B): opens a WRITE-capable accessor over a Transaction
+  // whose `start_timestamp` is the caller-supplied `start_ts` (recovery replay's `Ci - 1`) instead
+  // of a fresh `timestamp_++` tick -- see CreateRecoveryReplayTransaction's doc-comment for the full
+  // rationale. Unlike HistoricalAccess:
+  //  - the returned Transaction is NOT `is_historical_`, so it can create real deltas via the
+  //    normal write path (CreateVertex/SetProperty/etc.), and its finalize path takes the ordinary
+  //    `commit_log_->MarkFinished(start_timestamp)` branch, not the fork-pin release branch.
+  //  - the accessor takes a WRITE-type main_lock_ guard (not READ), matching an ordinary writer.
+  //  - there is no fork-pin bookkeeping here at all (no self-pin, no ForkTimestampNotPinned check)
+  //    -- pin seeding around the recovery window is a LATER slice's (S3d) concern, not this
+  //    primitive's. Callers are expected to already hold whatever external synchronization recovery
+  //    needs (single-threaded ctor-time replay).
+  // Committing this accessor with an ordinary CommitArgs (make_main/make_replica_*) would write a
+  // brand-new WAL entry despite replaying already-durable data; recovery must pair this accessor
+  // with CommitArgs::make_recovery_replay(Ci) (S3a, FIX C) to suppress that.
+  std::unique_ptr<Storage::Accessor> CreateRecoveryReplayAccessor(uint64_t start_ts);
+
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
@@ -934,6 +983,39 @@ class InMemoryStorage final : public Storage {
   // concurrent main_lock_-UNIQUE operations (SetStorageMode/Clear/RecoverSnapshot) the same way it
   // is for every other accessor's CreateTransaction call.
   Transaction CreateHistoricalTransaction(uint64_t fork_ts);
+
+  // Graph Versioning v1 durability (S3a, FIX B): builds a Transaction pinned at an explicit,
+  // caller-supplied `start_timestamp` (recovery replay's `Ci - 1`, the original commit ts of the
+  // PRECEDING replayed txn) instead of issuing a fresh tick from `timestamp_` -- mirrors
+  // CreateHistoricalTransaction immediately above, with two deliberate differences:
+  //  - `is_historical_` is left at its default `false` (NOT set true): this transaction WRITES real
+  //    deltas (CreateVertex/SetProperty/etc.), and every write funnels through
+  //    Transaction::EnsureCommitInfoExists()'s `MG_ASSERT(!is_historical_, ...)` -- setting it true
+  //    (as CreateHistoricalTransaction does) would abort on the very first delta.
+  //  - HOWEVER `start_timestamp` here is still a HISTORICAL value, exactly like a historical
+  //    accessor's fork_ts -- so `CreateRecoveryReplayTransaction` separately sets the sibling flag
+  //    `Transaction::is_recovery_replay_ = true`. That flag (NOT is_historical_) is what makes the
+  //    three MarkFinished-guarded finalize sites (the empty-delta commit fast path,
+  //    FinalizeCommitPhase, and Abort) skip `commit_log_->MarkFinished(start_timestamp)` for this
+  //    transaction -- calling it would alias onto commit_log_'s current head block and corrupt the
+  //    GC/MVCC horizon (see is_recovery_replay_'s doc-comment, transaction.hpp, for the full
+  //    rationale). Unlike is_historical_'s guard, this transaction owns no fork pin, so those sites
+  //    skip straight past the fork-pin-release branch too -- all OTHER finalize bookkeeping (GC delta
+  //    registration, is_transaction_active_, schema/index updates) still runs normally.
+  //  - `timestamp_` itself is left completely untouched here, exactly like CreateHistoricalTransaction
+  //    -- only `transaction_id_` is ticked. The eventual COMMIT timestamp (Ci) is driven separately
+  //    by the caller assigning `timestamp_ := Ci` immediately before PrepareForCommitPhase runs (see
+  //    CommitArgs::make_recovery_replay's doc-comment, commit_args.hpp) so the ordinary
+  //    `GetCommitTimestamp()` (`timestamp_++`) naturally yields Ci with no separate forcing path.
+  // SNAPSHOT_ISOLATION (unconditional, like CreateHistoricalTransaction) so replay deterministically
+  // sees exactly base@F plus every prior window commit (ts <= start_ts), never anything newer.
+  //
+  // MEDIUM: called ONLY via the `build_transaction` callback from inside
+  // Accessor(RecoveryReplayAccess, ...)'s own `transaction_` initializer (InMemoryStorage::
+  // CreateRecoveryReplayAccessor passes `[this, start_ts] { return CreateRecoveryReplayTransaction(start_ts); }`),
+  // i.e. after storage_guard_ (the shared main_lock_ WRITE-type guard) is already held -- same
+  // generation-vs-lock ordering guarantee CreateHistoricalTransaction gets from HistoricalAccess.
+  Transaction CreateRecoveryReplayTransaction(uint64_t start_ts);
 
  public:
   const durability::Recovery &GetRecovery() const noexcept { return recovery_; }

@@ -522,6 +522,15 @@ class Accessor {
   static constexpr struct HistoricalAccess {
   } historical_access;
 
+  // Graph Versioning v1 durability (S3a, FIX B): tag for opening a WRITE-capable accessor from an
+  // already-built, explicit Transaction whose `start_timestamp` is a caller-supplied value (recovery
+  // replay's `Ci - 1`) instead of a fresh `timestamp_++` tick -- mirrors HistoricalAccess's deferred
+  // `build_transaction()` construction, but (unlike HistoricalAccess) the resulting Transaction is
+  // NOT `is_historical_`, so it can create real deltas via the normal write path. See
+  // InMemoryStorage::CreateRecoveryReplayTransaction / CreateRecoveryReplayAccessor.
+  static constexpr struct RecoveryReplayAccess {
+  } recovery_replay_access;
+
   Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
            StorageAccessType rw_type = StorageAccessType::WRITE,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
@@ -551,6 +560,15 @@ class Accessor {
   // (InMemoryStorage::HistoricalAccess) that can't call the ordinary virtual CreateTransaction
   // (it needs an explicit past start_timestamp).
   Accessor(HistoricalAccess /* tag */, Storage *storage, std::function<Transaction()> build_transaction,
+           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+  // Graph Versioning v1 durability (S3a, FIX B). Unlike HistoricalAccess's hardcoded READ-type
+  // guard (that accessor is read-only by construction), a recovery-replay accessor WRITES real
+  // deltas, so it needs the SAME lock semantics as an ordinary writer -- `rw_type` (defaulting to
+  // WRITE) is threaded through to CreateSharedGuard/original_access_type_ exactly like the
+  // SharedAccess ctor above, just with a caller-supplied `build_transaction` in place of the fixed
+  // `storage->CreateTransaction(...)` call.
+  Accessor(RecoveryReplayAccess /* tag */, Storage *storage, std::function<Transaction()> build_transaction,
+           StorageAccessType rw_type = StorageAccessType::WRITE,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;

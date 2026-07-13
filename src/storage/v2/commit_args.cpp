@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,10 @@ bool CommitArgs::two_phase_commit(TransactionReplication &replicating_txn) const
   auto const f = utils::Overloaded{
       [&](Main const &) -> bool { return replicating_txn.ShouldRunTwoPC(); },
       [](ReplicaWrite const &replica) -> bool { return replica.two_phase_commit_; },
-      [](ReplicaRead const &) -> bool { throw std::runtime_error("no durability should happen for ReplicaRead"); }};
+      [](ReplicaRead const &) -> bool { throw std::runtime_error("no durability should happen for ReplicaRead"); },
+      // Unreachable in practice: PrepareForCommitPhase's WAL-suppress early-return (S3a, FIX C)
+      // returns before any replication/2PC machinery is ever consulted for this variant.
+      [](RecoveryReplay const &) -> bool { throw std::runtime_error("no two-phase commit for recovery-replay"); }};
   return std::visit(f, data);
 }
 }  // namespace memgraph::storage

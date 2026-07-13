@@ -5252,3 +5252,206 @@ TEST_F(DurabilityTest, EdgeMetadataConsistentAfterSnapshotThenWalDelete) {
   }
   db.storage()->FreeMemory();
 }
+
+// Graph Versioning v1 durability (S3a): exercises the two foundational, reusable primitives in
+// isolation -- (1) InMemoryStorage::CreateRecoveryReplayAccessor (FIX B: a WRITE-capable accessor
+// whose Transaction's start_timestamp is a caller-supplied value, not a fresh timestamp_++ tick),
+// and (2) CommitArgs::make_recovery_replay (FIX C: suppresses WAL append while still stamping the
+// delta chain with the caller-driven ORIGINAL commit timestamp Ci). Wiring these into the actual
+// recovery loop / pin seeding / ctor sequencing is a LATER slice (S3c/S3d) -- this test only proves
+// the primitives themselves are correct in isolation, as a normal (non-fixture-generated) commit.
+TEST_F(DurabilityTest, RecoveryReplayCommitPrimitives) {
+  memgraph::storage::Config config{};
+  config.durability.storage_directory = storage_directory;
+  config.durability.snapshot_wal_mode =
+      memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+
+  std::unique_ptr<memgraph::storage::Storage> storage(std::make_unique<memgraph::storage::InMemoryStorage>(config));
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
+
+  // Baseline commit: (a) produces at least one WAL file to prove a LATER assertion that the replay
+  // commit adds none, and (b) moves timestamp_ off kTimestampInitialId so this test isn't
+  // accidentally relying on any initial-value special-casing.
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  auto const wal_count_before = GetWalsList().size();
+  ASSERT_GE(wal_count_before, 1U);
+
+  auto const initial_ts = mem_storage->timestamp_;
+  // Ci: the ORIGINAL commit timestamp this replay must land on exactly -- chosen strictly greater
+  // than initial_ts to prove the accessor's start_timestamp is NOT drawn from timestamp_++ (opening
+  // it must not consume/advance the counter at all, per FIX B).
+  const uint64_t Ci = initial_ts + 50;
+  const uint64_t start_ts = Ci - 1;
+
+  memgraph::storage::Gid replay_gid;
+  auto const property_id = storage->NameToProperty("replayed");
+  {
+    auto replay_acc = mem_storage->CreateRecoveryReplayAccessor(start_ts);
+    // Opening the accessor must not touch timestamp_ at all (FIX B).
+    ASSERT_EQ(mem_storage->timestamp_, initial_ts);
+
+    auto v1 = replay_acc->CreateVertex();
+    replay_gid = v1.Gid();
+    ASSERT_TRUE(v1.SetProperty(property_id, memgraph::storage::PropertyValue(42)).has_value());
+
+    // FIX C simplification (S3a): the CALLER drives timestamp_ := Ci immediately before
+    // committing, so the UNMODIFIED GetCommitTimestamp() (timestamp_++) naturally yields Ci.
+    mem_storage->timestamp_ = Ci;
+
+    auto const commit_result =
+        replay_acc->PrepareForCommitPhase(memgraph::storage::CommitArgs::make_recovery_replay(Ci));
+    ASSERT_TRUE(commit_result.has_value());
+
+    // (c) storage timestamp_ advanced past Ci: GetCommitTimestamp() ticked it from Ci to Ci + 1.
+    // MUST be asserted here, before any other accessor is opened -- opening a READ accessor below
+    // ticks timestamp_ again for its own start_timestamp (reads consume a tick), which would bump
+    // timestamp_ to Ci + 2 and make this assertion observe stale/wrong state.
+    ASSERT_EQ(mem_storage->timestamp_, Ci + 1);
+  }
+
+  // (a) the vertex's delta chain exists with commit_info->timestamp == Ci exactly (deltas rebuilt
+  // in the ORIGINAL clock frame), and (d) a normal read sees the vertex + property.
+  {
+    auto acc = storage->Access(memgraph::storage::READ);
+    auto v = acc->FindVertex(replay_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    auto *delta = v->vertex_->delta();
+    ASSERT_NE(delta, nullptr);
+    ASSERT_NE(delta->commit_info, nullptr);
+    ASSERT_EQ(delta->commit_info->timestamp.load(std::memory_order_acquire), Ci);
+
+    auto prop = v->GetProperty(property_id, memgraph::storage::View::OLD);
+    ASSERT_TRUE(prop.has_value());
+    ASSERT_EQ(*prop, memgraph::storage::PropertyValue(42));
+  }
+
+  // (b) NO new WAL file was written for the replay commit -- the WAL-suppress early-return in
+  // PrepareForCommitPhase skipped InitializeWalFile/append entirely (the txn is already durable in
+  // the retained WAL per S1; re-writing it would duplicate durability). Full end-to-end "no
+  // duplicate WAL across a real restart" coverage lands with the S3d restart e2e.
+  ASSERT_EQ(GetWalsList().size(), wal_count_before);
+}
+
+// Graph Versioning v1 durability (S3a, adversarial-review follow-up -- HIGH latent bug): the test
+// above cannot reach this bug, because a FRESH storage's commit_log_ starts with `head_start_ == 0`
+// -- every id (including a "historical" replay start_ts) is still `>= head_start_`, so
+// CommitLog::FindOrCreateBlock's forward-only block walk (commit_log.cpp) never takes the buggy
+// "id below the current head block" path. That path only opens up once head_start_ has advanced past
+// 0, which happens once a full block's worth of ids (CommitLog::kIdsInBlock == kBlockSize(8192) *
+// kIdsInField(64) == 524288, commit_log.hpp) has been finished -- e.g. after windowed recovery's own
+// blanket MarkFinishedInRange seed (S3c/S3d) advances past the window, or just from a long-running
+// database. Reproducing that with real, individual commits would need on the order of 2^19 of them,
+// so this test manufactures the SAME end state directly: it seeds commit_log_ (reached via a
+// FRIEND_TEST-style friend declaration scoped to exactly this test's generated fixture class, see
+// inmemory/storage.hpp, test-only) with one bulk `MarkFinishedInRange` call, exactly mirroring what a
+// real blanket-seed does, just compressed into a single call.
+//
+// It then opens a recovery-replay accessor at a LOW start_ts (100) -- well below the now-advanced
+// head_start_ -- writes through it, and commits via CommitArgs::make_recovery_replay. Before the
+// fix, PrepareForCommitPhase/FinalizeCommitPhase would call
+// `commit_log_->MarkFinished(transaction_.start_timestamp)` (== MarkFinished(100)) despite
+// `is_historical_ == false`; per CommitLog::FindOrCreateBlock's forward-only walk, an id below
+// head_start_ silently resolves to the CURRENT head block and flips bit
+// `head_start_ + (100 % kIdsInBlock)` -- an unrelated, brand-new id that nothing actually finished.
+// The primary oracle below (`IsFinished` on that exact aliased id) catches precisely that
+// corruption; `OldestActive()` and a subsequent normal commit+read are checked too as
+// defense-in-depth, per the review's ask.
+TEST_F(DurabilityTest, RecoveryReplayHistoricalStartTsDoesNotCorruptCommitLog) {
+  memgraph::storage::Config config{};
+  config.durability.storage_directory = storage_directory;
+  config.durability.snapshot_wal_mode =
+      memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+
+  std::unique_ptr<memgraph::storage::Storage> storage(std::make_unique<memgraph::storage::InMemoryStorage>(config));
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
+
+  // Mirrors CommitLog's own private constants (commit_log.hpp: kBlockSize = 8192, kIdsInField = 64)
+  // -- needed here only to pick a seed range that spans EXACTLY whole blocks, so the fresh block
+  // this test's corrupted bit would land in is left completely untouched (all-zero) by the seed
+  // itself, making the corruption directly observable via IsFinished(). If CommitLog's internal
+  // block size ever changes, this constant must be updated to match.
+  constexpr uint64_t kAssumedIdsInBlock = 8192ULL * 64ULL;
+  // Seed exactly 2 full blocks worth [0, 2*kAssumedIdsInBlock - 1] as finished in one bulk call --
+  // the cheap equivalent of a real windowed-recovery blanket-seed (S3c/S3d) or ~2^20 individual
+  // commits. Because the range ends EXACTLY on a block boundary, both seeded blocks are entirely
+  // freed by CommitLog::UpdateOldestActive, leaving head_ == nullptr and head_start_ parked exactly
+  // at the boundary -- the NEXT block (whichever id touches it first) will be freshly allocated and
+  // all-zero.
+  mem_storage->commit_log_->MarkFinishedInRange(0, 2 * kAssumedIdsInBlock - 1);
+  auto const oldest_active_before = mem_storage->commit_log_->OldestActive();
+  // Sanity: the seed actually created the head_start_ > 0 gap this test needs. If this ever fails,
+  // the corruption check below would pass VACUOUSLY (not exercising the bug at all).
+  ASSERT_EQ(oldest_active_before, 2 * kAssumedIdsInBlock);
+
+  // A LOW historical start_ts, far below head_start_/oldest_active_before -- exactly the "past WAL
+  // commit ts already outside the live commit_log window" condition CreateRecoveryReplayTransaction
+  // produces once a windowed recovery's blanket-seed has advanced head_start_ (per the bug report).
+  uint64_t const start_ts = 100;
+  // The id CommitLog::FindOrCreateBlock's forward-only walk WRONGLY resolves `MarkFinished(start_ts)`
+  // to, once head_ == nullptr and the next block gets allocated starting at head_start_ ==
+  // oldest_active_before: FindOrCreateBlock(start_ts) allocates that fresh block (since
+  // start_ts < oldest_active_before, the forward-walk loop condition is false on the first check) and
+  // MarkFinished flips the bit at local offset `start_ts % kIdsInBlock == start_ts`, i.e. global id
+  // `oldest_active_before + start_ts`.
+  uint64_t const wrongly_aliased_id = oldest_active_before + start_ts;
+  // Baseline: nothing has touched commit_log_ since the seed (head_ is null), so this is unfinished.
+  ASSERT_FALSE(mem_storage->commit_log_->IsFinished(wrongly_aliased_id));
+
+  // The caller-driven ORIGINAL commit timestamp this replay must land on -- arbitrary but comfortably
+  // above the seeded range (this test is decoupled from real per-id commit_log bookkeeping: `Ci` only
+  // has to be reachable by advancing `timestamp_`, not related to commit_log's own id space).
+  uint64_t const Ci = oldest_active_before + 5000;
+  mem_storage->timestamp_ = Ci - 1;
+
+  memgraph::storage::Gid replay_gid;
+  auto const property_id = storage->NameToProperty("replayed_gap");
+  {
+    auto replay_acc = mem_storage->CreateRecoveryReplayAccessor(start_ts);
+    auto v1 = replay_acc->CreateVertex();
+    replay_gid = v1.Gid();
+    ASSERT_TRUE(v1.SetProperty(property_id, memgraph::storage::PropertyValue(7)).has_value());
+
+    // FIX C: the caller drives timestamp_ := Ci immediately before committing (see
+    // RecoveryReplayCommitPrimitives above for the full rationale).
+    mem_storage->timestamp_ = Ci;
+
+    auto const commit_result =
+        replay_acc->PrepareForCommitPhase(memgraph::storage::CommitArgs::make_recovery_replay(Ci));
+    ASSERT_TRUE(commit_result.has_value());
+  }
+
+  // THE PRIMARY ASSERTION: committing a transaction whose start_timestamp (100) is far BELOW
+  // head_start_ must not mark any id finished at all -- in particular NOT the unrelated,
+  // brand-new id the buggy forward-only block walk would alias it onto. Before the fix this would
+  // be TRUE (silently, wrongly marked finished); the fix (Transaction::is_recovery_replay_ skipping
+  // commit_log_->MarkFinished for this transaction) keeps it FALSE.
+  ASSERT_FALSE(mem_storage->commit_log_->IsFinished(wrongly_aliased_id));
+  // Defense-in-depth: the commit log's cached horizon is untouched by the replay commit.
+  ASSERT_EQ(mem_storage->commit_log_->OldestActive(), oldest_active_before);
+
+  // Storage remains fully usable after the replay commit: the replayed vertex is visible...
+  {
+    auto acc = storage->Access(memgraph::storage::READ);
+    auto v = acc->FindVertex(replay_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    auto prop = v->GetProperty(property_id, memgraph::storage::View::OLD);
+    ASSERT_TRUE(prop.has_value());
+    ASSERT_EQ(*prop, memgraph::storage::PropertyValue(7));
+  }
+  // ...and a subsequent NORMAL transaction still commits and is immediately readable -- proving the
+  // commit log's live/active-transaction tracking wasn't corrupted by the replay commit.
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto v = acc->CreateVertex();
+    auto const normal_gid = v.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+
+    auto read_acc = storage->Access(memgraph::storage::READ);
+    auto found = read_acc->FindVertex(normal_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(found.has_value());
+  }
+}

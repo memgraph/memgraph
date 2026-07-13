@@ -208,6 +208,25 @@ Storage::Accessor::Accessor(HistoricalAccess /* tag */, Storage *storage,
       original_access_type_(StorageAccessType::READ),
       creation_storage_mode_(transaction_.storage_mode) {}
 
+Storage::Accessor::Accessor(RecoveryReplayAccess /* tag */, Storage *storage,
+                            std::function<Transaction()> build_transaction, StorageAccessType rw_type,
+                            const std::optional<std::chrono::milliseconds> timeout)
+    : storage_(storage),
+      // Unlike HistoricalAccess (hardcoded READ -- that accessor is read-only by construction), a
+      // recovery-replay accessor WRITES real deltas, so it takes the same lock mode an ordinary
+      // writer would (`rw_type`, defaulting to WRITE) -- see SharedAccess's ctor above for the
+      // full rationale on why the lock TYPE (not just isolation level) must track the caller's
+      // actual read/write intent.
+      storage_guard_(CreateSharedGuard(storage, rw_type, timeout)),
+      unique_guard_(storage_->main_lock_, std::defer_lock),
+      // Same MEDIUM-fix ordering guarantee as HistoricalAccess above: build_transaction() (recovery's
+      // InMemoryStorage::CreateRecoveryReplayTransaction(start_ts) call) runs here, strictly after
+      // storage_guard_ (member declaration order) already holds its guard.
+      transaction_(build_transaction()),
+      is_transaction_active_(true),
+      original_access_type_(rw_type),
+      creation_storage_mode_(transaction_.storage_mode) {}
+
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       storage_guard_(std::move(other.storage_guard_)),

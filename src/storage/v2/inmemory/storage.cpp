@@ -688,6 +688,12 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(HistoricalAccess tag, InMemo
                                                     std::optional<std::chrono::milliseconds> timeout)
     : Accessor(tag, storage, std::move(build_transaction), timeout), config_(storage->config_.salient.items) {}
 
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(RecoveryReplayAccess tag, InMemoryStorage *storage,
+                                                    std::function<Transaction()> build_transaction,
+                                                    StorageAccessType rw_type,
+                                                    std::optional<std::chrono::milliseconds> timeout)
+    : Accessor(tag, storage, std::move(build_transaction), rw_type, timeout), config_(storage->config_.salient.items) {}
+
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -1154,7 +1160,18 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     // Transaction::is_historical_ in transaction.hpp) -- never finalize it here. In practice a
     // historical accessor is read-only and always takes this empty-delta branch if Commit() is
     // ever called on it, so this guard is the one that actually matters for it.
-    if (!transaction_.is_historical_) {
+    //
+    // Graph Versioning v1 (S3a): a recovery-replay transaction's start_timestamp is likewise a
+    // HISTORICAL value (see Transaction::is_recovery_replay_, transaction.hpp) -- MarkFinished on it
+    // would alias onto commit_log_'s current head block and corrupt the GC/MVCC horizon. Unlike the
+    // is_historical_ branch below, a replay transaction owns no fork pin to release, so it simply
+    // skips the call (recovery reseeds the commit_log en-masse post-replay, S3c/S3d).
+    if (transaction_.is_recovery_replay_) {
+      // No MarkFinished, no ReleaseForkPin -- just terminate the transaction here, mirroring the
+      // is_historical_ branch's `is_transaction_active_ = false` below (nothing else in this branch
+      // sets it, and this fast path is this transaction's only finalize path).
+      is_transaction_active_ = false;
+    } else if (!transaction_.is_historical_) {
       mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
     } else {
       // HIGH-1: release this reader's OWN self-pin (InMemoryStorage::HistoricalAccess /
@@ -1219,6 +1236,28 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // Replica can log only the write transaction received from main
   // so the wal files are consistent
   auto const durability_commit_timestamp = commit_args.durable_timestamp(*commit_timestamp_);
+
+  // Graph Versioning v1 durability (S3a, FIX C): recovery-replay commits are already durable in the
+  // retained WAL (S1) at their ORIGINAL commit timestamp -- re-writing them into a NEW wal_file_
+  // here would duplicate durability (and, since replay runs during ctor recovery, would also try to
+  // touch replication/2PC machinery that must never run for a replay commit). Skip straight to
+  // FinalizeCommitPhase (delta-visibility stamping via `commit_info->timestamp`, commit_log_
+  // MarkFinished, and GC bookkeeping) exactly as the EXISTING !InitializeWalFile early-return
+  // immediately below does for its own (unrelated) reason. Placed BEFORE that check and before any
+  // replication/StartPrepareCommitPhase/2PC machinery -- this must run REGARDLESS of whether a WAL
+  // file happens to be open.
+  if (commit_args.suppress_wal()) [[unlikely]] {
+    // Defense-in-depth (see CommitArgs::make_recovery_replay's doc-comment, commit_args.hpp): the
+    // caller is responsible for driving `timestamp_ := Ci` immediately before this call so that
+    // `GetCommitTimestamp()` (already evaluated above, into `commit_timestamp_`) naturally landed on
+    // the exact original commit timestamp. Catch a caller bug here rather than silently rebuilding
+    // the MVCC chain in the wrong clock frame.
+    DMG_ASSERT(commit_args.recovery_replay_desired_timestamp() == *commit_timestamp_,
+               "recovery-replay commit landed at the wrong timestamp -- caller must set timestamp_ = Ci "
+               "before calling PrepareForCommitPhase");
+    FinalizeCommitPhase(durability_commit_timestamp);
+    return {};
+  }
 
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
   if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
@@ -1412,7 +1451,15 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // fork_ts here. Unreachable in practice -- a historical accessor is read-only and never
   // accumulates deltas/md_deltas, so it cannot reach this non-empty-delta commit path -- guarded
   // for defense-in-depth (see Transaction::is_historical_ in transaction.hpp).
-  if (!transaction_.is_historical_) {
+  //
+  // Graph Versioning v1 (S3a): a recovery-replay transaction DOES reach this non-empty-delta path
+  // (it writes real deltas), but its start_timestamp is still a HISTORICAL value -- see
+  // Transaction::is_recovery_replay_'s doc-comment (transaction.hpp) for why MarkFinished on it would
+  // corrupt commit_log_'s current head block. Skip ONLY the MarkFinished call; every other finalize
+  // step below (schema updates, CheckForFastDiscardOfDeltas's GC path, text-index apply,
+  // is_transaction_active_) still runs unconditionally for a replay transaction, same as a normal
+  // commit -- the replayed deltas must remain visible and GC-tracked.
+  if (!transaction_.is_historical_ && !transaction_.is_recovery_replay_) {
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   }
 
@@ -1935,7 +1982,16 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   // (and thus GC, once no other pin/txn covers it) advance past a boundary the pin is supposed to
   // protect -- and would double-mark the id once whichever real transaction the tick is eventually
   // (legitimately) dispensed to also finishes.
-  if (!transaction_.is_historical_) {
+  //
+  // Graph Versioning v1 (S3a): a recovery-replay transaction can also reach Abort() (e.g. a failed
+  // constraint check during replay, or the destructor path if it's never explicitly committed). Its
+  // start_timestamp is likewise a HISTORICAL value (see Transaction::is_recovery_replay_'s
+  // doc-comment, transaction.hpp) -- MarkFinished on it would alias onto commit_log_'s current head
+  // block. Unlike is_historical_, it owns no fork pin, so it skips straight past both branches below.
+  if (transaction_.is_recovery_replay_) {
+    // Neither MarkFinished nor ReleaseForkPin -- recovery reseeds the commit_log en-masse
+    // post-replay (S3c/S3d); `is_transaction_active_ = false` below still runs unconditionally.
+  } else if (!transaction_.is_historical_) {
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
     // HIGH-1: release this reader's OWN self-pin (InMemoryStorage::HistoricalAccess /
@@ -3013,6 +3069,73 @@ Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
   // Transaction::is_historical_'s doc-comment (transaction.hpp) for the full rationale.
   transaction.is_historical_ = true;
   return transaction;
+}
+
+Transaction InMemoryStorage::CreateRecoveryReplayTransaction(uint64_t start_ts) {
+  // Mirrors CreateHistoricalTransaction (above) except:
+  //  - `start_timestamp` is the caller-supplied `start_ts` (recovery replay's `Ci - 1`) rather than
+  //    the fork_ts parameter, and `timestamp_` is likewise never touched (only `transaction_id_++`).
+  //  - the returned Transaction is left `is_historical_ = false` (the default) -- see this method's
+  //    doc-comment in storage.hpp for why that's load-bearing (this transaction WRITES real deltas).
+  //
+  // MEDIUM: same as CreateHistoricalTransaction -- runs from inside
+  // Accessor(RecoveryReplayAccess, ...)'s own `transaction_` initializer (via the `build_transaction`
+  // callback), i.e. AFTER storage_guard_ (shared main_lock_, WRITE-type for this accessor) is
+  // already held -- coherent with respect to a concurrent main_lock_-UNIQUE op, exactly like every
+  // other accessor's CreateTransaction call.
+  uint64_t transaction_id = 0;
+  uint64_t last_durable_ts = 0;
+  std::optional<PointIndexContext> point_index_context;
+  ActiveIndicesPtr active_indices;
+  ActiveConstraintsPtr active_constraints;
+  {
+    auto guard = std::lock_guard{engine_lock_};
+    transaction_id = transaction_id_++;
+    point_index_context = indices_.point_index_.CreatePointIndexContext();
+    last_durable_ts = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+    active_indices = GetActiveIndices();
+    active_constraints = GetActiveConstraints();
+  }
+
+  auto async_index_helper = AsyncIndexHelper{config_, *active_indices, start_ts};
+
+  DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
+  // Unconditionally SNAPSHOT_ISOLATION, like CreateHistoricalTransaction: replay must
+  // deterministically see exactly base@F plus every prior window commit (ts <= start_ts), never
+  // anything newer, regardless of the database's configured ambient isolation level.
+  Transaction transaction{transaction_id,
+                          start_ts,
+                          IsolationLevel::SNAPSHOT_ISOLATION,
+                          storage_mode_,
+                          false,
+                          *std::move(point_index_context),
+                          std::move(active_indices),
+                          std::move(active_constraints),
+                          std::move(async_index_helper),
+                          last_durable_ts,
+                          metric_handles_.unreleased_delta_objects};
+  // Deliberately NOT setting transaction.is_historical_ = true here -- see the doc-comment on this
+  // method's declaration (storage.hpp) and on Transaction::is_historical_ (transaction.hpp).
+  //
+  // BUT `start_timestamp` above is still a HISTORICAL value (a past WAL commit ts, `Ci - 1`), so this
+  // transaction's finalize path must NOT call `commit_log_->MarkFinished(start_timestamp)` any more
+  // than a historical reader may -- doing so for an id below commit_log_'s current `head_start_`
+  // silently corrupts an unrelated live block (see Transaction::is_recovery_replay_'s doc-comment,
+  // transaction.hpp, for the exact hazard). Flag it so every MarkFinished-guarded finalize site skips
+  // that call for this transaction (recovery reseeds the commit_log en-masse post-replay instead).
+  transaction.is_recovery_replay_ = true;
+  return transaction;
+}
+
+std::unique_ptr<Storage::Accessor> InMemoryStorage::CreateRecoveryReplayAccessor(uint64_t start_ts) {
+  // No fork-pin bookkeeping here (unlike HistoricalAccess) -- pin seeding around the recovery
+  // window is S3d's concern, not this primitive's. See this method's doc-comment in storage.hpp.
+  return std::unique_ptr<Storage::Accessor>(
+      new InMemoryAccessor{Storage::Accessor::recovery_replay_access,
+                           this,
+                           [this, start_ts] { return CreateRecoveryReplayTransaction(start_ts); },
+                           StorageAccessType::WRITE,
+                           std::nullopt});
 }
 
 std::expected<std::unique_ptr<Storage::Accessor>, InMemoryStorage::HistoricalAccessError>
