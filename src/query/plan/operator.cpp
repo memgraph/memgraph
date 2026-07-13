@@ -7002,7 +7002,7 @@ class AggregateCursor : public Cursor {
         if (value == "hidden") {
           hidden.push_back(id);
         } else if (value == "origin") {
-          if (overlay.find(id) != overlay.end()) {
+          if (overlay.contains(id)) {
             throw QueryRuntimeException("derive() property '{}' is both overlaid and bound to origin.", name);
           }
         } else if (value == "overlay") {
@@ -9156,7 +9156,7 @@ class BindGraphViewCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP("BindGraphView");
 
     AbortCheck(context);

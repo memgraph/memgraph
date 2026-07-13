@@ -3593,8 +3593,8 @@ ProjectionSchema BuildProjectionSchema(int64_t ref, const MapLiteral &options,
   }
 
   // A key can be named by both the policy and an override; the client wants each once.
-  std::sort(schema.overlay.begin(), schema.overlay.end());
-  schema.overlay.erase(std::unique(schema.overlay.begin(), schema.overlay.end()), schema.overlay.end());
+  std::ranges::sort(schema.overlay);
+  schema.overlay.erase(std::ranges::unique(schema.overlay).begin(), schema.overlay.end());
 
   return schema;
 }
@@ -9921,7 +9921,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create(db_query_tracker));
     query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
-    return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}, {}};
+    return {.headers = query_execution->prepared_query->header,
+            .privileges = query_execution->prepared_query->privileges,
+            .qid = qid,
+            .db = {},
+            .projection_schemas = {}};
   }
 
   MG_ASSERT(std::holds_alternative<ParseInfo>(parse_res), "Unkown ParseRes type");

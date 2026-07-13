@@ -470,7 +470,9 @@ memgraph::communication::bolt::PreparedRunMetadata SessionHL::InterpretPrepare()
     auto result =
         interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
     interpreter_.CheckAuthorized(result.privileges, result.db);
-    return {std::move(result.headers), result.qid, ToBoltProjectionSchema(result.projection_schemas)};
+    return {.fields = std::move(result.headers),
+            .qid = result.qid,
+            .projection_schema = ToBoltProjectionSchema(result.projection_schemas)};
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {

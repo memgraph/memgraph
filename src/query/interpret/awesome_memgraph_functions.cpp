@@ -955,6 +955,8 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
       ctx.auth_checker,
       [&](size_t n) { keys.reserve(n); },
       [&](storage::PropertyId id, const storage::PropertyValue &, bool allowed) {
+        // TypedValue is allocator-aware, so emplace_back(args) can't supply ctx.memory; keep the temporary.
+        // NOLINTNEXTLINE(modernize-use-emplace)
         if (allowed) keys.emplace_back(TypedValue(dba->PropertyToName(id), ctx.memory));
       });
   return TypedValue(std::move(keys));
@@ -979,6 +981,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
       ctx.auth_checker,
       [&](size_t n) { values.reserve(n); },
       [&](storage::PropertyId, const storage::PropertyValue &pv, bool allowed) {
+        // TypedValue is allocator-aware, so emplace_back(args) can't supply ctx.memory; keep the temporary.
+        // NOLINTNEXTLINE(modernize-use-emplace)
         if (allowed) values.emplace_back(TypedValue(pv, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
       });
   return TypedValue(std::move(values));
@@ -2180,7 +2184,7 @@ TypedValue VirtualGraphCtor(const TypedValue *args, int64_t nargs, const Functio
   }
 
   auto graph = AssembleVirtualGraph(nodes, edges, policy, VirtualGraph::allocator_type{ctx.memory});
-  return TypedValue(std::move(graph), ctx.memory);
+  return {std::move(graph), ctx.memory};
 }
 
 auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
