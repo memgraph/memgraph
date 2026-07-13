@@ -609,6 +609,23 @@ struct UpdateDataInstanceConfigRes {
 
 using UpdateDataInstanceConfigRpc = rpc::RequestResponse<UpdateDataInstanceConfigReq, UpdateDataInstanceConfigRes>;
 
+// Coordinator->coordinator role management RPCs. A role query run on a follower is forwarded to the leader through
+// these. Writes (Create/Drop) return the leader's status code wrapped in an optional; a missing value means the RPC
+// itself failed (e.g. a not-yet-upgraded leader has no handler) rather than a specific role error. GetRoles is a strong
+// read returning the leader's committed role list, again optional so a failed RPC is distinguishable from an empty set.
+using CreateRoleReq = SingleArgMsg<utils::TypeId::COORD_CREATE_ROLE_REQ, "CreateRoleReq", 1, std::string>;
+using CreateRoleRes = SingleArgMsg<utils::TypeId::COORD_CREATE_ROLE_RES, "CreateRoleRes", 1, std::optional<uint8_t>>;
+using CreateRoleRpc = rpc::RequestResponse<CreateRoleReq, CreateRoleRes>;
+
+using DropRoleReq = SingleArgMsg<utils::TypeId::COORD_DROP_ROLE_REQ, "DropRoleReq", 1, std::string>;
+using DropRoleRes = SingleArgMsg<utils::TypeId::COORD_DROP_ROLE_RES, "DropRoleRes", 1, std::optional<uint8_t>>;
+using DropRoleRpc = rpc::RequestResponse<DropRoleReq, DropRoleRes>;
+
+using GetRolesReq = EmptyReq<utils::TypeId::COORD_GET_ROLES_REQ, "GetRolesReq", 1>;
+using GetRolesRes =
+    SingleArgMsg<utils::TypeId::COORD_GET_ROLES_RES, "GetRolesRes", 1, std::optional<std::vector<std::string>>>;
+using GetRolesRpc = rpc::RequestResponse<GetRolesReq, GetRolesRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -677,6 +694,9 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::DemoteInstanceRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::ForceResetRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::UpdateConfigRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::CoordReplicationLagRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::CreateRoleRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::DropRoleRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::GetRolesRpc)
 
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReq)

@@ -685,7 +685,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         spdlog::warn("Role '{}' already exists.", role_name);
         break;
       case coordination::CreateRoleStatus::NOT_LEADER:
-        throw QueryRuntimeException(GetNotLeaderRoleMessage());
+      case coordination::CreateRoleStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetNoLeaderRoleMessage());
+      case coordination::CreateRoleStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedRoleMessage());
       case coordination::CreateRoleStatus::RAFT_LOG_ERROR:
         throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
     }
@@ -698,7 +701,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case coordination::DropRoleStatus::NO_SUCH_ROLE:
         throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
       case coordination::DropRoleStatus::NOT_LEADER:
-        throw QueryRuntimeException(GetNotLeaderRoleMessage());
+      case coordination::DropRoleStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetNoLeaderRoleMessage());
+      case coordination::DropRoleStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedRoleMessage());
       case coordination::DropRoleStatus::RAFT_LOG_ERROR:
         throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
     }
@@ -710,7 +716,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case coordination::GetRolesStatus::SUCCESS:
         return roles;
       case coordination::GetRolesStatus::NOT_LEADER:
-        throw QueryRuntimeException(GetNotLeaderRoleMessage());
+      case coordination::GetRolesStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetNoLeaderRoleMessage());
+      case coordination::GetRolesStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedRoleMessage());
     }
     return roles;
   }
@@ -1013,20 +1022,18 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
  private:
-  // Builds a not-leader error message pointing at the current leader when known. Role queries are served by the leader;
-  // follower forwarding is a later slice.
-  std::string GetNotLeaderRoleMessage() const {
-    constexpr std::string_view common_message = "Role queries can only be run on the leader coordinator!";
-    if (auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData()) {
-      return fmt::format("{} Current leader is coordinator with id {} with bolt socket address {}",
-                         common_message,
-                         maybe_leader_coordinator->id,
-                         maybe_leader_coordinator->bolt_server);
-    }
-    return fmt::format(
-        "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
-        "are down.",
-        common_message);
+  // A role query on a follower is forwarded to the leader; this message is used when no leader could be reached to
+  // forward to (leader election in progress or coordinators down).
+  static std::string GetNoLeaderRoleMessage() {
+    return "Couldn't find a leader coordinator to run the role query on. Try again as there might be leader election "
+           "happening or other coordinators are down.";
+  }
+
+  // Used when a leader was found but the forwarded role RPC failed. During a rolling upgrade the leader may not yet
+  // understand the role RPC; the operation fails with this error rather than crashing the coordinator.
+  static std::string GetLeaderFailedRoleMessage() {
+    return "Forwarding the role query to the leader coordinator failed. The leader might be running an older version "
+           "that does not support role queries, or it became unavailable. Please retry the operation.";
   }
 
   dbms::CoordinatorHandler coordinator_handler_;

@@ -1149,10 +1149,22 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
   return SetCoordinatorSettingStatus::SUCCESS;
 }
 
+auto CoordinatorInstance::IsLeaderReady() const -> bool {
+  return raft_state_->GetLeaderId() == raft_state_->GetMyCoordinatorId() &&
+         status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY;
+}
+
 auto CoordinatorInstance::CreateRole(std::string_view const role_name) const -> CreateRoleStatus {
-  // Follower forwarding is a later slice; for now the operation must run on the ready leader.
-  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
-    return CreateRoleStatus::NOT_LEADER;
+  // Any coordinator accepts the query: a follower forwards it to the leader, which is the sole writer of the role list.
+  if (!IsLeaderReady()) {
+    auto *leader = FindClientConnector(raft_state_->GetLeaderId());
+    if (leader == nullptr) {
+      return CreateRoleStatus::LEADER_NOT_FOUND;
+    }
+    // A missing handler / failed RPC (e.g. a not-yet-upgraded leader during a rolling upgrade) is swallowed by SendRpc
+    // and surfaces as a nullopt, which we map to LEADER_FAILED rather than crashing the coordinator.
+    auto const maybe_status = leader->SendRpc<CreateRoleRpc>(std::string{role_name});
+    return maybe_status.has_value() ? static_cast<CreateRoleStatus>(*maybe_status) : CreateRoleStatus::LEADER_FAILED;
   }
 
   auto roles = raft_state_->GetRoles();
@@ -1172,9 +1184,14 @@ auto CoordinatorInstance::CreateRole(std::string_view const role_name) const -> 
 }
 
 auto CoordinatorInstance::DropRole(std::string_view const role_name) const -> DropRoleStatus {
-  // Follower forwarding is a later slice; for now the operation must run on the ready leader.
-  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
-    return DropRoleStatus::NOT_LEADER;
+  // Any coordinator accepts the query: a follower forwards it to the leader, which is the sole writer of the role list.
+  if (!IsLeaderReady()) {
+    auto *leader = FindClientConnector(raft_state_->GetLeaderId());
+    if (leader == nullptr) {
+      return DropRoleStatus::LEADER_NOT_FOUND;
+    }
+    auto const maybe_status = leader->SendRpc<DropRoleRpc>(std::string{role_name});
+    return maybe_status.has_value() ? static_cast<DropRoleStatus>(*maybe_status) : DropRoleStatus::LEADER_FAILED;
   }
 
   auto roles = raft_state_->GetRoles();
@@ -1194,9 +1211,18 @@ auto CoordinatorInstance::DropRole(std::string_view const role_name) const -> Dr
 }
 
 auto CoordinatorInstance::GetRoles(std::vector<std::string> &roles) const -> GetRolesStatus {
-  // SHOW ROLES is a strong read served by the leader; follower forwarding is a later slice.
-  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
-    return GetRolesStatus::NOT_LEADER;
+  // SHOW ROLES is a strong read served by the leader; a follower forwards it and returns the leader's committed list.
+  if (!IsLeaderReady()) {
+    auto *leader = FindClientConnector(raft_state_->GetLeaderId());
+    if (leader == nullptr) {
+      return GetRolesStatus::LEADER_NOT_FOUND;
+    }
+    auto maybe_roles = leader->SendRpc<GetRolesRpc>();
+    if (!maybe_roles.has_value()) {
+      return GetRolesStatus::LEADER_FAILED;
+    }
+    roles = std::move(*maybe_roles);
+    return GetRolesStatus::SUCCESS;
   }
   roles = raft_state_->GetRoles();
   return GetRolesStatus::SUCCESS;

@@ -157,6 +157,10 @@ class CoordinatorInstance {
 
   auto FindClientConnector(int32_t leader_id) const -> CoordinatorInstanceConnector *;
 
+  // True iff this coordinator is the leader and has finished reconciling cluster state (ready to serve queries).
+  // Role queries run on a non-ready-leader coordinator are forwarded to the leader.
+  auto IsLeaderReady() const -> bool;
+
   // nullopt if I am the leader, otherwise StatusMessage
   template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
   auto ForwardToLeader(Args &&...args) const -> std::optional<StatusEnum> {

@@ -176,6 +176,52 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
             req_reader,
             res_builder);
       });
+
+  // Role RPCs: a follower forwards a role query here and the leader applies it. The status code is returned wrapped in
+  // an optional (always engaged on the leader) so the forwarding follower can distinguish a real role error from an RPC
+  // failure. CreateRole/DropRole run on the leader through the same code path as a directly-connected client.
+  server.Register<CreateRoleRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                     uint64_t const request_version,
+                                     slk::Reader *req_reader,
+                                     slk::Builder *res_builder) -> void {
+    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<CreateRoleRpc>(
+        [&coordinator_instance](std::string_view const role_name) -> std::optional<uint8_t> {
+          return static_cast<uint8_t>(coordinator_instance.CreateRole(role_name));
+        },
+        request_version,
+        req_reader,
+        res_builder);
+  });
+
+  server.Register<DropRoleRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                   uint64_t const request_version,
+                                   slk::Reader *req_reader,
+                                   slk::Builder *res_builder) -> void {
+    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<DropRoleRpc>(
+        [&coordinator_instance](std::string_view const role_name) -> std::optional<uint8_t> {
+          return static_cast<uint8_t>(coordinator_instance.DropRole(role_name));
+        },
+        request_version,
+        req_reader,
+        res_builder);
+  });
+
+  server.Register<GetRolesRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                   uint64_t const request_version,
+                                   slk::Reader *req_reader,
+                                   slk::Builder *res_builder) -> void {
+    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<GetRolesRpc>(
+        [&coordinator_instance]() -> std::optional<std::vector<std::string>> {
+          std::vector<std::string> roles;
+          if (coordinator_instance.GetRoles(roles) != GetRolesStatus::SUCCESS) {
+            return std::nullopt;
+          }
+          return roles;
+        },
+        request_version,
+        req_reader,
+        res_builder);
+  });
 }
 
 }  // namespace memgraph::coordination

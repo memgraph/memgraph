@@ -20,9 +20,13 @@ namespace memgraph::coordination {
 enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
 enum class SetCoordinatorSettingStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR, UNKNOWN_SETTING, INVALID_ARGUMENT };
 
-enum class CreateRoleStatus : uint8_t { SUCCESS = 0, ROLE_ALREADY_EXISTS, NOT_LEADER, RAFT_LOG_ERROR };
-enum class DropRoleStatus : uint8_t { SUCCESS = 0, NO_SUCH_ROLE, NOT_LEADER, RAFT_LOG_ERROR };
-enum class GetRolesStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
+// LEADER_FAILED / LEADER_NOT_FOUND cover follower forwarding: a role query on a follower is forwarded to the leader and
+// these report a failed/absent leader RPC (e.g. a not-yet-upgraded leader without the handler during a rolling upgrade).
+// Only SUCCESS/ROLE_ALREADY_EXISTS/RAFT_LOG_ERROR ever travel over the wire (produced by the leader); the forwarding
+// statuses are set locally on the follower, so appending them keeps the leader-produced values stable across versions.
+enum class CreateRoleStatus : uint8_t { SUCCESS = 0, ROLE_ALREADY_EXISTS, NOT_LEADER, RAFT_LOG_ERROR, LEADER_FAILED, LEADER_NOT_FOUND };
+enum class DropRoleStatus : uint8_t { SUCCESS = 0, NO_SUCH_ROLE, NOT_LEADER, RAFT_LOG_ERROR, LEADER_FAILED, LEADER_NOT_FOUND };
+enum class GetRolesStatus : uint8_t { SUCCESS = 0, NOT_LEADER, LEADER_FAILED, LEADER_NOT_FOUND };
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS = 0,

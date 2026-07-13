@@ -553,9 +553,10 @@ def test_ha_mt_auth_scenario(test_name):
 # ---------------------------------------------------------------------------
 # Coordinator role store: 3 coordinators, no data instances.
 #
-# Covers the foundational roles slice: basic-auth passthrough, rejection of
-# non-role auth queries, on-leader role CRUD and full-cluster-restart
-# persistence. Follower forwarding and SSO are exercised by later slices.
+# Covers basic-auth passthrough, rejection of non-role auth queries, role CRUD
+# on the leader and forwarded from a follower, and persistence across
+# full-cluster restart, lagging-follower catch-up and leader failover. SSO is
+# exercised by later slices.
 # ---------------------------------------------------------------------------
 
 COORD_PORTS = [7690, 7691, 7692]
@@ -613,6 +614,9 @@ def get_coords_only_description(test_name: str):
     }
 
 
+COORD_NAME_BY_PORT = {7690: "coordinator_1", 7691: "coordinator_2", 7692: "coordinator_3"}
+
+
 def try_find_leader_port():
     """Return the bolt port of the up leader coordinator, or None if none is currently reachable."""
     for port in COORD_PORTS:
@@ -625,6 +629,48 @@ def try_find_leader_port():
         except Exception:
             continue
     return None
+
+
+def try_find_follower_port():
+    """Return the bolt port of an up follower coordinator, or None if none is currently reachable."""
+    for port in COORD_PORTS:
+        try:
+            cursor = connect(host="localhost", port=port).cursor()
+            for row in show_instances(cursor):
+                # row = (name, bolt_server, coordinator_server, management_server, status, role)
+                if row[-1] == "follower" and row[-2] == "up":
+                    return int(row[1].split(":")[1])
+        except Exception:
+            continue
+    return None
+
+
+def wait_for_follower_port():
+    """Return a follower coordinator's bolt port once one is reachable."""
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        port = try_find_follower_port()
+        if port is not None:
+            return port
+        time.sleep(0.5)
+    assert False, "No follower coordinator became reachable"
+
+
+def wait_for_all_coords_up():
+    """Block until all three coordinators report as up in SHOW INSTANCES (the cluster has fully re-formed)."""
+
+    def all_up():
+        port = try_find_leader_port()
+        if port is None:
+            return False
+        try:
+            rows = show_instances(connect(host="localhost", port=port).cursor())
+        except Exception:
+            return False
+        coords = [row for row in rows if row[-1] in ("leader", "follower")]
+        return len(coords) == len(COORD_PORTS) and all(row[-2] == "up" for row in coords)
+
+    mg_sleep_and_assert(True, all_up)
 
 
 def wait_for_ready_leader_port():
@@ -772,6 +818,133 @@ def test_roles_survive_full_cluster_restart(test_name):
             return None
 
     mg_sleep_and_assert(["admin", "readonly", "readwrite"], get_roles_from_leader)
+
+
+# ---------------------------------------------------------------------------
+# Follower forwarding, lagging-follower catch-up and leader failover.
+# ---------------------------------------------------------------------------
+
+
+def test_role_crud_on_follower_forwarded(test_name):
+    # A role query run on a follower is transparently forwarded to the leader and produces the same result as if run on
+    # the leader; reads reflect the committed state regardless of which coordinator serves them.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    follower_port = wait_for_follower_port()
+    assert follower_port != leader_port
+
+    follower_cursor = connect(host="localhost", port=follower_port).cursor()
+
+    # CREATE forwarded from the follower is committed on the leader.
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE admin")
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE readonly")
+
+    # SHOW ROLES on the follower is forwarded and returns the leader's committed list...
+    assert show_roles(follower_cursor) == ["admin", "readonly"]
+    # ...and matches what the leader itself returns.
+    leader_cursor = connect(host="localhost", port=leader_port).cursor()
+    assert show_roles(leader_cursor) == ["admin", "readonly"]
+
+    # Duplicate CREATE forwarded from the follower errors, same as on the leader.
+    try:
+        execute_and_fetch_all(follower_cursor, "CREATE ROLE admin")
+        assert False, "Duplicate CREATE ROLE on a follower should error"
+    except Exception as e:
+        assert "already exists" in str(e)
+
+    # IF NOT EXISTS is a no-op even when forwarded.
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE IF NOT EXISTS admin")
+    assert show_roles(follower_cursor) == ["admin", "readonly"]
+
+    # DROP forwarded from the follower removes the role.
+    execute_and_fetch_all(follower_cursor, "DROP ROLE admin")
+    assert show_roles(follower_cursor) == ["readonly"]
+    assert show_roles(leader_cursor) == ["readonly"]
+
+    # DROP of a missing role forwarded from the follower errors.
+    try:
+        execute_and_fetch_all(follower_cursor, "DROP ROLE admin")
+        assert False, "DROP of a missing role on a follower should error"
+    except Exception as e:
+        assert "doesn't exist" in str(e)
+
+
+def test_lagging_follower_catches_up(test_name):
+    # A coordinator that was down while roles changed reconstructs the committed role set on rejoin (log/snapshot
+    # replication + apply). We prove the caught-up state is durable by killing the original leader afterwards: the
+    # surviving coordinators (one of which was the lagging follower) must still agree on the role set.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    follower_port = wait_for_follower_port()
+    follower_name = COORD_NAME_BY_PORT[follower_port]
+
+    # Kill a follower, then mutate roles on the leader so the follower misses the changes while it is down.
+    inner_instances_description[follower_name]["setup_queries"] = []
+    interactive_mg_runner.kill(inner_instances_description, follower_name)
+
+    leader_cursor = connect(host="localhost", port=leader_port).cursor()
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE a")
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE b")
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE c")
+    assert show_roles(leader_cursor) == ["a", "b", "c"]
+
+    # Bring the follower back; it must catch up to the exact committed role set.
+    interactive_mg_runner.start(inner_instances_description, follower_name)
+
+    # Wait until the previously-down follower has fully rejoined before forcing a failover onto the survivors.
+    wait_for_all_coords_up()
+
+    def roles_from_any_leader():
+        port = try_find_leader_port()
+        if port is None:
+            return None
+        try:
+            return show_roles(connect(host="localhost", port=port).cursor())
+        except Exception:
+            return None
+
+    mg_sleep_and_assert(["a", "b", "c"], roles_from_any_leader)
+
+    # Kill the original leader. The surviving quorum (the previously-lagging follower plus the third coordinator) must
+    # elect a new leader that still returns the full role set, which is only possible if the follower caught up.
+    leader_name = COORD_NAME_BY_PORT[leader_port]
+    inner_instances_description[leader_name]["setup_queries"] = []
+    interactive_mg_runner.kill(inner_instances_description, leader_name)
+
+    mg_sleep_and_assert(["a", "b", "c"], roles_from_any_leader)
+
+
+def test_roles_survive_leader_failover(test_name):
+    # The committed role list survives a leader failover: after the leader is killed and a new leader is elected, the
+    # role set is preserved.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    leader_cursor = connect(host="localhost", port=leader_port).cursor()
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE x")
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE y")
+    assert show_roles(leader_cursor) == ["x", "y"]
+
+    # Kill the current leader and let a new one be elected among the remaining coordinators.
+    leader_name = COORD_NAME_BY_PORT[leader_port]
+    inner_instances_description[leader_name]["setup_queries"] = []
+    interactive_mg_runner.kill(inner_instances_description, leader_name)
+
+    def roles_from_new_leader():
+        port = try_find_leader_port()
+        if port is None or port == leader_port:
+            return None
+        try:
+            return show_roles(connect(host="localhost", port=port).cursor())
+        except Exception:
+            return None
+
+    mg_sleep_and_assert(["x", "y"], roles_from_new_leader)
 
 
 if __name__ == "__main__":
