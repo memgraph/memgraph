@@ -1564,6 +1564,7 @@ ACCEPT_WITH_INPUT(ScanAllByVertexProperty)
 
 UniqueCursorPtr ScanAllByVertexProperty::MakeCursor(utils::MemoryResource *mem,
                                                     metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.scan_all_by_vertex_property_operator.Increment();
   auto const get_vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, property_));
@@ -1599,6 +1600,7 @@ ACCEPT_WITH_INPUT(ScanAllByVertexPropertyValue)
 
 UniqueCursorPtr ScanAllByVertexPropertyValue::MakeCursor(utils::MemoryResource *mem,
                                                          metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.scan_all_by_vertex_property_value_operator.Increment();
   auto const get_vertices = [this](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(view_, property_, storage::PropertyValue{}))> {
     auto *db = context.db_accessor;
@@ -1640,6 +1642,7 @@ ACCEPT_WITH_INPUT(ScanAllByVertexPropertyRange)
 
 UniqueCursorPtr ScanAllByVertexPropertyRange::MakeCursor(utils::MemoryResource *mem,
                                                          metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.scan_all_by_vertex_property_range_operator.Increment();
   auto const get_vertices = [this](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(view_, property_, std::nullopt, std::nullopt))> {
     auto *db = context.db_accessor;
@@ -10318,6 +10321,7 @@ ACCEPT_WITH_INPUT(ScanParallelByVertexProperty)
 
 UniqueCursorPtr ScanParallelByVertexProperty::MakeCursor(utils::MemoryResource *mem,
                                                          metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.scan_all_by_vertex_property_operator.Increment();
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame & /*frame*/, ExecutionContext &context) {
     auto *db = context.db_accessor;
@@ -10356,6 +10360,7 @@ ACCEPT_WITH_INPUT(ScanParallelByVertexPropertyValue)
 
 UniqueCursorPtr ScanParallelByVertexPropertyValue::MakeCursor(utils::MemoryResource *mem,
                                                               metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.scan_all_by_vertex_property_value_operator.Increment();
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
@@ -10400,6 +10405,7 @@ ACCEPT_WITH_INPUT(ScanParallelByVertexPropertyRange)
 
 UniqueCursorPtr ScanParallelByVertexPropertyRange::MakeCursor(utils::MemoryResource *mem,
                                                               metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.scan_all_by_vertex_property_range_operator.Increment();
 #ifdef MG_ENTERPRISE
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;

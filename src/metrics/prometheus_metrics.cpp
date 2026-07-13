@@ -236,6 +236,21 @@ PrometheusMetrics::PrometheusMetrics()
                                                .Name("memgraph_scan_all_by_edge_id_operator_total")
                                                .Help("Number of times ScanAllByEdgeId operator was used")
                                                .Register(registry_)},
+      scan_all_by_vertex_property_operator_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_scan_all_by_vertex_property_operator_total")
+              .Help("Number of times ScanAllByVertexProperty operator was used")
+              .Register(registry_)},
+      scan_all_by_vertex_property_value_operator_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_scan_all_by_vertex_property_value_operator_total")
+              .Help("Number of times ScanAllByVertexPropertyValue operator was used")
+              .Register(registry_)},
+      scan_all_by_vertex_property_range_operator_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_scan_all_by_vertex_property_range_operator_total")
+              .Help("Number of times ScanAllByVertexPropertyRange operator was used")
+              .Register(registry_)},
       scan_all_by_point_distance_operator_family_{prometheus::BuildCounter()
                                                       .Name("memgraph_scan_all_by_point_distance_operator_total")
                                                       .Help("Number of times ScanAllByPointDistance operator was used")
@@ -980,6 +995,11 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .scan_all_by_edge_property_range_operator = {&scan_all_by_edge_property_range_operator_family_.Add(
                       labels)},
                   .scan_all_by_edge_id_operator = {&scan_all_by_edge_id_operator_family_.Add(labels)},
+                  .scan_all_by_vertex_property_operator = {&scan_all_by_vertex_property_operator_family_.Add(labels)},
+                  .scan_all_by_vertex_property_value_operator =
+                      {&scan_all_by_vertex_property_value_operator_family_.Add(labels)},
+                  .scan_all_by_vertex_property_range_operator =
+                      {&scan_all_by_vertex_property_range_operator_family_.Add(labels)},
                   .scan_all_by_point_distance_operator = {&scan_all_by_point_distance_operator_family_.Add(labels)},
                   .scan_all_by_point_withinbbox_operator = {&scan_all_by_point_withinbbox_operator_family_.Add(labels)},
                   .expand_operator = {&expand_operator_family_.Add(labels)},
@@ -1093,6 +1113,9 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   scan_all_by_edge_property_value_operator_family_.Remove(h.scan_all_by_edge_property_value_operator.get());
   scan_all_by_edge_property_range_operator_family_.Remove(h.scan_all_by_edge_property_range_operator.get());
   scan_all_by_edge_id_operator_family_.Remove(h.scan_all_by_edge_id_operator.get());
+  scan_all_by_vertex_property_operator_family_.Remove(h.scan_all_by_vertex_property_operator.get());
+  scan_all_by_vertex_property_value_operator_family_.Remove(h.scan_all_by_vertex_property_value_operator.get());
+  scan_all_by_vertex_property_range_operator_family_.Remove(h.scan_all_by_vertex_property_range_operator.get());
   scan_all_by_point_distance_operator_family_.Remove(h.scan_all_by_point_distance_operator.get());
   scan_all_by_point_withinbbox_operator_family_.Remove(h.scan_all_by_point_withinbbox_operator.get());
   expand_operator_family_.Remove(h.expand_operator.get());
@@ -1473,6 +1496,18 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
                  static_cast<int64_t>(h.scan_all_by_edge_property_range_operator.Value())});
   out.push_back(
       {"ScanAllByEdgeIdOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_edge_id_operator.Value())});
+  out.push_back({"ScanAllByVertexPropertyOperator",
+                 "Operator",
+                 "Counter",
+                 static_cast<int64_t>(h.scan_all_by_vertex_property_operator.Value())});
+  out.push_back({"ScanAllByVertexPropertyValueOperator",
+                 "Operator",
+                 "Counter",
+                 static_cast<int64_t>(h.scan_all_by_vertex_property_value_operator.Value())});
+  out.push_back({"ScanAllByVertexPropertyRangeOperator",
+                 "Operator",
+                 "Counter",
+                 static_cast<int64_t>(h.scan_all_by_vertex_property_range_operator.Value())});
   out.push_back({"ScanAllByPointDistanceOperator",
                  "Operator",
                  "Counter",
