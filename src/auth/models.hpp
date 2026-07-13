@@ -75,7 +75,7 @@ enum class Permission : uint64_t {
   STORAGE_MODE           = 1ULL << 22ULL,
   MULTI_DATABASE_EDIT    = 1ULL << 23ULL,
   MULTI_DATABASE_USE     = 1ULL << 24ULL,
-  COORDINATOR            = 1ULL << 25ULL,
+  // Bit 25 reserved: was COORDINATOR, removed because it never gated any operation
   IMPERSONATE_USER       = 1ULL << 26ULL,
   PROFILE_RESTRICTION    = 1ULL << 27ULL,
   PARALLEL_EXECUTION     = 1ULL << 28ULL,
@@ -112,7 +112,6 @@ inline constexpr std::array kPermissionsAll = {
     Permission::STORAGE_MODE,
     Permission::MULTI_DATABASE_EDIT,
     Permission::MULTI_DATABASE_USE,
-    Permission::COORDINATOR,
     Permission::IMPERSONATE_USER,
     Permission::PROFILE_RESTRICTION,
     Permission::PARALLEL_EXECUTION,

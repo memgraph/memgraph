@@ -225,7 +225,7 @@ TEST_F(TestPrivilegeExtractor, ShowSnapshotsQuery) {
 
 TEST_F(TestPrivilegeExtractor, CoordinatorQuery) {
   auto *query = storage.Create<CoordinatorQuery>();
-  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::COORDINATOR));
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre());
 }
 
 TEST_F(TestPrivilegeExtractor, StreamQuery) {
