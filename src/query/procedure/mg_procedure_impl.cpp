@@ -3508,6 +3508,86 @@ mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memo
   });
 }
 
+mgp_error mgp_create_vertex_property_index(mgp_graph *graph, const char *property, int *result) {
+  return WrapExceptions(
+      [graph, property]() {
+        const auto property_id =
+            std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+        const auto index_res = std::visit(
+            memgraph::utils::Overloaded{
+                [property_id](memgraph::query::DbAccessor *impl) { return impl->CreateGlobalVertexIndex(property_id); },
+                [property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                  return impl->GetAccessor()->CreateGlobalVertexIndex(property_id);
+                },
+                [](memgraph::query::VirtualGraphDbAccessor *)
+                    -> std::expected<void, memgraph::storage::StorageIndexDefinitionError> {
+                  throw ImmutableObjectException{
+                      "mgp_create_vertex_property_index is not supported on a virtual graph"};
+                }},
+            graph->impl);
+        return index_res.has_value() ? 1 : 0;
+      },
+      result);
+}
+
+mgp_error mgp_drop_vertex_property_index(mgp_graph *graph, const char *property, int *result) {
+  return WrapExceptions(
+      [graph, property]() {
+        const auto property_id =
+            std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+        const auto index_res = std::visit(
+            memgraph::utils::Overloaded{
+                [property_id](memgraph::query::DbAccessor *impl) { return impl->DropGlobalVertexIndex(property_id); },
+                [property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                  return impl->GetAccessor()->DropGlobalVertexIndex(property_id);
+                },
+                [](memgraph::query::VirtualGraphDbAccessor *)
+                    -> std::expected<void, memgraph::storage::StorageIndexDefinitionError> {
+                  throw ImmutableObjectException{"mgp_drop_vertex_property_index is not supported on a virtual graph"};
+                }},
+            graph->impl);
+        return index_res.has_value() ? 1 : 0;
+      },
+      result);
+}
+
+mgp_error mgp_list_all_vertex_property_indices(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
+  return WrapExceptions([graph, memory, result]() {
+    const auto index_res =
+        std::visit(memgraph::utils::Overloaded{
+                       [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().vertex_property; },
+                       [](memgraph::query::SubgraphDbAccessor *impl) {
+                         return impl->GetAccessor()->ListAllIndices().vertex_property;
+                       },
+                       [](memgraph::query::VirtualGraphDbAccessor *)
+                           -> decltype(memgraph::storage::IndicesInfo{}.vertex_property) {
+                         throw ImmutableObjectException{
+                             "mgp_list_all_vertex_property_indices is not supported on a virtual graph"};
+                       }},
+                   graph->impl);
+
+    if (const auto err = mgp_list_make_empty(index_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Listing all vertex-property indices failed due to failure of creating list");
+    }
+
+    for (const auto &property : index_res) {
+      const auto property_str =
+          std::visit([property](const auto *impl) { return impl->PropertyToName(property); }, graph->impl);
+
+      mgp_value *property_value = nullptr;
+      if (const auto err_str = mgp_value_make_string(property_str.c_str(), memory, &property_value);
+          err_str != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all vertex-property indices failed due to failure of creating property value");
+      }
+      if (const auto err_list = mgp_list_append_extend(*result, property_value);
+          err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all vertex-property indices failed due to failure of appending property value");
+      }
+      mgp_value_destroy(property_value);
+    }
+  });
+}
+
 mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, const char *property, int *result) {
   return WrapExceptions(
       [graph, label, property]() {
