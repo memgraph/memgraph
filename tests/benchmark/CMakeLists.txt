@@ -80,6 +80,9 @@ target_link_libraries(${test_prefix}storage_v2_enum_store_bench mg::storage)
 add_benchmark(storage_v2_edge_index_scan.cpp)
 target_link_libraries(${test_prefix}storage_v2_edge_index_scan mg::storage)
 
+add_benchmark(versioning/branch_resolve.cpp)
+target_link_libraries(${test_prefix}branch_resolve mg::versioning mg::storage)
+
 add_benchmark(thread_safe_memory.cpp)
 target_link_libraries(${test_prefix}thread_safe_memory mg-utils)
 
