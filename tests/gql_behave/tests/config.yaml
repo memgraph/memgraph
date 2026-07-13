@@ -37,3 +37,25 @@
   test_suite: unstable
   storage_mode: ON_DISK_TRANSACTIONAL
   must_pass: false
+
+# Graph Versioning v1 curated arm, selected ONLY by `continuous_integration
+# --versioned-branch` (and skipped by every other arm -- see the
+# `feature_allowlist` filter in continuous_integration's suite loop).
+# Points at the existing memgraph_V1 suite/graphs directory but restricts
+# execution to a hand-picked, branch-safe subset of its feature files:
+# read/write scenarios with no index/constraint/DDL/STORAGE MODE queries in
+# their scenario bodies (those fail-loud-reject on a BRANCH checkout -- see
+# src/versioning/gate.cpp and the versioned_branch gate in
+# tests/gql_behave/steps/database.py). Grow this list as more feature files
+# are verified branch-safe.
+- name: memgraph_V1_versioned
+  test_suite: memgraph_V1
+  storage_mode: IN_MEMORY_TRANSACTIONAL
+  must_pass: false
+  feature_allowlist:
+    - match.feature
+    - create.feature
+    - expressions.feature
+    - functions.feature
+    - aggregations.feature
+    - list_operations.feature
