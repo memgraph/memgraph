@@ -299,6 +299,18 @@ class TestParallelIndices:
         """Test edge property index for all values."""
         verify_parallel_matches_serial(indexed_db, "MATCH ()-[e:KNOWS]->() WHERE e.since IS NOT NULL RETURN e")
 
+    def test_global_edge_property_index_null_value(self, memgraph):
+        """Parallel scan with null value on global edge property index returns no results."""
+        memgraph.execute_query("UNWIND range(1, 100) AS i CREATE (:A)-[:REL {val: i}]->(:B)")
+        memgraph.execute_query("CREATE GLOBAL EDGE INDEX ON :(val);")
+        try:
+            verify_parallel_matches_serial(
+                memgraph,
+                "MATCH ()-[e]->() WHERE e.val = head([]) RETURN count(e)",
+            )
+        finally:
+            memgraph.execute_query("DROP GLOBAL EDGE INDEX ON :(val);")
+
     @pytest.fixture
     def desc_indexed_db(self, memgraph):
         """Database with a DESC-ordered label+property index only."""

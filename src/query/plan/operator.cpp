@@ -10104,7 +10104,8 @@ UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResourc
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
     auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
-    return db->ChunkedEdges(view_, property_, maybe_prop_value.value_or(storage::PropertyValue()), num_threads_);
+    if (!maybe_prop_value) return db->ChunkedEdges(view_, property_, storage::PropertyValue(), 0);
+    return db->ChunkedEdges(view_, property_, *maybe_prop_value, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
