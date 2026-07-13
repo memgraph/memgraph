@@ -317,6 +317,19 @@ class TestParallelIndices:
         """Parallel range scan with null bounds returns no results."""
         verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age > head([]) RETURN count(n)")
 
+    def test_global_edge_property_index_null_value(self, memgraph):
+        """Parallel scan with null value on global edge property index returns no results."""
+        memgraph.execute_query("UNWIND range(1, 100) AS i CREATE (:A)-[:REL {val: i}]->(:B)")
+        memgraph.execute_query("CREATE GLOBAL EDGE INDEX ON :(val);")
+        try:
+            verify_parallel_matches_serial(
+                memgraph,
+                "MATCH ()-[e]->() WHERE e.val = head([]) RETURN count(e)",
+            )
+        finally:
+            memgraph.execute_query("DROP GLOBAL EDGE INDEX ON :(val);")
+
+
     @pytest.fixture
     def desc_indexed_db(self, memgraph):
         """Database with a DESC-ordered label+property index only."""
