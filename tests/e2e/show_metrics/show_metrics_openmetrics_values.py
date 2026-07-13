@@ -43,6 +43,9 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "scan_all_by_edge_property_operator_total",
     "scan_all_by_edge_property_value_operator_total",
     "scan_all_by_edge_property_range_operator_total",
+    "scan_all_by_vertex_property_operator_total",
+    "scan_all_by_vertex_property_value_operator_total",
+    "scan_all_by_vertex_property_range_operator_total",
     "scan_all_by_edge_id_operator_total",
     "scan_all_by_point_distance_operator_total",
     "scan_all_by_point_withinbbox_operator_total",
@@ -92,6 +95,7 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "active_text_edge_indices",
     "active_vector_indices",
     "active_vector_edge_indices",
+    "active_vertex_property_indices",
     # Constraint
     "active_existence_constraints",
     "active_unique_constraints",
