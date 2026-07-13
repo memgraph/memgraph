@@ -300,7 +300,8 @@ class TestParallelIndices:
         verify_parallel_matches_serial(indexed_db, "MATCH ()-[e:KNOWS]->() WHERE e.since IS NOT NULL RETURN e")
 
     def test_global_edge_property_index_null_value(self, memgraph):
-        """Parallel scan with null value on global edge property index returns no results."""
+        """Parallel scan with null value on global edge property index returns no results.
+        Uses head([]) instead of literal null so the planner selects the index scan."""
         memgraph.execute_query("UNWIND range(1, 100) AS i CREATE (:A)-[:REL {val: i}]->(:B)")
         memgraph.execute_query("CREATE GLOBAL EDGE INDEX ON :(val);")
         try:
