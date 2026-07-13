@@ -25,7 +25,11 @@ namespace memgraph::query::plan::v2 {
 /// not a scalar constant, or evaluation would raise a runtime error (e.g.
 /// division by zero). Declining on error leaves it for runtime, so folding
 /// never changes observable error behaviour.
-auto FoldConstant(symbol op, std::span<storage::ExternalPropertyValue const> operands)
+///
+/// Operands are passed by pointer so the caller need not copy the constants out
+/// of the e-classes' analysis; each must stay live for the call. A large
+/// String/List/Map constant is borrowed, not duplicated.
+auto FoldConstant(symbol op, std::span<storage::ExternalPropertyValue const *const> operands)
     -> std::optional<storage::ExternalPropertyValue>;
 
 }  // namespace memgraph::query::plan::v2

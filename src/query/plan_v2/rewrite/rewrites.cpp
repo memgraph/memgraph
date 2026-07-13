@@ -81,12 +81,15 @@ void TryFold(FoldCtx &ctx, symbol op, EClassId root, std::span<EClassId const> o
       root_expr != nullptr && root_expr->known_constant_value) {
     return;
   }
-  std::array<storage::ExternalPropertyValue, 2> operands;
+  // Borrow the operands' constants by pointer: they live in the operand
+  // e-classes' analysis and stay put across the read, so a large String/List/Map
+  // constant is not copied out just to be folded.
+  std::array<storage::ExternalPropertyValue const *, 2> operands{};
   std::size_t n = 0;
   for (auto cls : operand_classes) {
     auto const *expr = ctx.analysis(cls).expression();
     if (expr == nullptr || !expr->known_constant_value) return;
-    operands[n++] = *expr->known_constant_value;
+    operands[n++] = &*expr->known_constant_value;
   }
   auto const result = FoldConstant(op, std::span{operands.data(), n});
   if (!result) return;

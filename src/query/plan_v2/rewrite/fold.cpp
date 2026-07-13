@@ -76,13 +76,14 @@ auto EvalUnary(symbol op, TypedValue const &operand) -> std::optional<TypedValue
 
 }  // namespace
 
-auto FoldConstant(symbol op, std::span<ExternalPropertyValue const> operands) -> std::optional<ExternalPropertyValue> {
+auto FoldConstant(symbol op, std::span<ExternalPropertyValue const *const> operands)
+    -> std::optional<ExternalPropertyValue> {
   try {
     std::optional<TypedValue> result;
     if (operands.size() == 2) {
-      result = EvalBinary(op, TypedValue{operands[0]}, TypedValue{operands[1]});
+      result = EvalBinary(op, TypedValue{*operands[0]}, TypedValue{*operands[1]});
     } else if (operands.size() == 1) {
-      result = EvalUnary(op, TypedValue{operands[0]});
+      result = EvalUnary(op, TypedValue{*operands[0]});
     }
     if (!result) return std::nullopt;
     return ToConstant(*result);

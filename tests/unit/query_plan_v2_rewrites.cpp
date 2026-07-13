@@ -22,7 +22,9 @@
 #include <utility>
 
 #include <cmath>
+#include <initializer_list>
 #include <optional>
+#include <vector>
 
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
@@ -39,46 +41,50 @@ using storage::ExternalPropertyValue;
 // Pure constant-fold evaluator
 // ==========================================================================
 
+// FoldConstant borrows its operands by pointer; adapt an inline value list to
+// that interface so each test reads as a single expression.
+auto Fold(symbol op, std::initializer_list<ExternalPropertyValue> operands) -> std::optional<ExternalPropertyValue> {
+  std::vector<ExternalPropertyValue const *> ptrs;
+  ptrs.reserve(operands.size());
+  for (auto const &v : operands) ptrs.push_back(&v);
+  return FoldConstant(op, ptrs);
+}
+
 TEST(FoldConstant, AddsTwoInts) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{1}}};
-  auto const result = FoldConstant(symbol::Add, operands);
+  auto const result = Fold(symbol::Add, {ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{1}}});
   ASSERT_TRUE(result.has_value());
   ASSERT_TRUE(result->IsInt());
   EXPECT_EQ(result->ValueInt(), 2);
 }
 
 TEST(FoldConstant, ComparisonYieldsBool) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{2}}};
-  auto const result = FoldConstant(symbol::Lt, operands);
+  auto const result = Fold(symbol::Lt, {ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{2}}});
   ASSERT_TRUE(result.has_value());
   ASSERT_TRUE(result->IsBool());
   EXPECT_TRUE(result->ValueBool());
 }
 
 TEST(FoldConstant, UnaryMinusNegates) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{int64_t{5}}};
-  auto const result = FoldConstant(symbol::UnaryMinus, operands);
+  auto const result = Fold(symbol::UnaryMinus, {ExternalPropertyValue{int64_t{5}}});
   ASSERT_TRUE(result.has_value());
   ASSERT_TRUE(result->IsInt());
   EXPECT_EQ(result->ValueInt(), -5);
 }
 
 TEST(FoldConstant, DivisionByZeroDeclines) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{0}}};
-  EXPECT_FALSE(FoldConstant(symbol::Div, operands).has_value());
+  EXPECT_FALSE(Fold(symbol::Div, {ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{0}}}).has_value());
 }
 
 TEST(FoldConstant, NonNumericArithmeticDeclines) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{std::string_view{"a"}},
-                                            ExternalPropertyValue{std::string_view{"b"}}};
-  EXPECT_FALSE(FoldConstant(symbol::Mul, operands).has_value());
+  EXPECT_FALSE(
+      Fold(symbol::Mul, {ExternalPropertyValue{std::string_view{"a"}}, ExternalPropertyValue{std::string_view{"b"}}})
+          .has_value());
 }
 
 // Mixed-type arithmetic keeps Cypher's result type: int + double is double.
 // The result is a different constant from Int{3} under constant identity.
 TEST(FoldConstant, MixedIntDoubleAddYieldsDouble) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{1.0}, ExternalPropertyValue{int64_t{2}}};
-  auto const result = FoldConstant(symbol::Add, operands);
+  auto const result = Fold(symbol::Add, {ExternalPropertyValue{1.0}, ExternalPropertyValue{int64_t{2}}});
   ASSERT_TRUE(result.has_value());
   ASSERT_TRUE(result->IsDouble());
   EXPECT_EQ(result->ValueDouble(), 3.0);
@@ -87,24 +93,21 @@ TEST(FoldConstant, MixedIntDoubleAddYieldsDouble) {
 // Cypher's three-valued logic: a determining operand wins over null, an
 // undetermined combination stays null.
 TEST(FoldConstant, AndOfFalseAndNullIsFalse) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{false}, ExternalPropertyValue{}};
-  auto const result = FoldConstant(symbol::And, operands);
+  auto const result = Fold(symbol::And, {ExternalPropertyValue{false}, ExternalPropertyValue{}});
   ASSERT_TRUE(result.has_value());
   ASSERT_TRUE(result->IsBool());
   EXPECT_FALSE(result->ValueBool());
 }
 
 TEST(FoldConstant, OrOfTrueAndNullIsTrue) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{true}, ExternalPropertyValue{}};
-  auto const result = FoldConstant(symbol::Or, operands);
+  auto const result = Fold(symbol::Or, {ExternalPropertyValue{true}, ExternalPropertyValue{}});
   ASSERT_TRUE(result.has_value());
   ASSERT_TRUE(result->IsBool());
   EXPECT_TRUE(result->ValueBool());
 }
 
 TEST(FoldConstant, AndOfTrueAndNullIsNull) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{true}, ExternalPropertyValue{}};
-  auto const result = FoldConstant(symbol::And, operands);
+  auto const result = Fold(symbol::And, {ExternalPropertyValue{true}, ExternalPropertyValue{}});
   ASSERT_TRUE(result.has_value());
   EXPECT_TRUE(result->IsNull());
 }
@@ -112,8 +115,7 @@ TEST(FoldConstant, AndOfTrueAndNullIsNull) {
 // Or is asymmetric with And: a false operand can't determine the result, so
 // `false OR null` stays null (mirror of AndOfTrueAndNullIsNull).
 TEST(FoldConstant, OrOfFalseAndNullIsNull) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{false}, ExternalPropertyValue{}};
-  auto const result = FoldConstant(symbol::Or, operands);
+  auto const result = Fold(symbol::Or, {ExternalPropertyValue{false}, ExternalPropertyValue{}});
   ASSERT_TRUE(result.has_value());
   EXPECT_TRUE(result->IsNull());
 }
@@ -121,8 +123,7 @@ TEST(FoldConstant, OrOfFalseAndNullIsNull) {
 // Xor never short-circuits (unlike And/Or, no operand can determine it alone),
 // so any null operand yields null.
 TEST(FoldConstant, XorWithNullIsNull) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{true}, ExternalPropertyValue{}};
-  auto const result = FoldConstant(symbol::Xor, operands);
+  auto const result = Fold(symbol::Xor, {ExternalPropertyValue{true}, ExternalPropertyValue{}});
   ASSERT_TRUE(result.has_value());
   EXPECT_TRUE(result->IsNull());
 }
@@ -131,37 +132,32 @@ TEST(FoldConstant, XorWithNullIsNull) {
 // (a List), so ToConstant declines and the fold leaves the expression alone.
 TEST(FoldConstant, ListResultDeclines) {
   auto const list = ExternalPropertyValue{ExternalPropertyValue::list_t{ExternalPropertyValue{int64_t{1}}}};
-  ExternalPropertyValue const operands[] = {list, list};
-  EXPECT_FALSE(FoldConstant(symbol::Add, operands).has_value());
+  EXPECT_FALSE(Fold(symbol::Add, {list, list}).has_value());
 }
 
 // Null propagates through arithmetic and unary operators as a folded null
 // constant, not as a declined fold.
 TEST(FoldConstant, AddOfNullIsNull) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{int64_t{5}}, ExternalPropertyValue{}};
-  auto const result = FoldConstant(symbol::Add, operands);
+  auto const result = Fold(symbol::Add, {ExternalPropertyValue{int64_t{5}}, ExternalPropertyValue{}});
   ASSERT_TRUE(result.has_value());
   EXPECT_TRUE(result->IsNull());
 }
 
 TEST(FoldConstant, UnaryMinusOfNullIsNull) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{}};
-  auto const result = FoldConstant(symbol::UnaryMinus, operands);
+  auto const result = Fold(symbol::UnaryMinus, {ExternalPropertyValue{}});
   ASSERT_TRUE(result.has_value());
   EXPECT_TRUE(result->IsNull());
 }
 
 TEST(FoldConstant, NotOfNullIsNull) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{}};
-  auto const result = FoldConstant(symbol::Not, operands);
+  auto const result = Fold(symbol::Not, {ExternalPropertyValue{}});
   ASSERT_TRUE(result.has_value());
   EXPECT_TRUE(result->IsNull());
 }
 
 // Double division never throws: 0.0/0.0 folds to a NaN constant per IEEE.
 TEST(FoldConstant, ZeroOverZeroFoldsToNaN) {
-  ExternalPropertyValue const operands[] = {ExternalPropertyValue{0.0}, ExternalPropertyValue{0.0}};
-  auto const result = FoldConstant(symbol::Div, operands);
+  auto const result = Fold(symbol::Div, {ExternalPropertyValue{0.0}, ExternalPropertyValue{0.0}});
   ASSERT_TRUE(result.has_value());
   ASSERT_TRUE(result->IsDouble());
   EXPECT_TRUE(std::isnan(result->ValueDouble()));
