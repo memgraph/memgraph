@@ -385,12 +385,9 @@ TEST_F(PlannerV2InterpreterTest, WithWhereComposesBooleanPredicates) {
 }
 
 TEST_F(PlannerV2InterpreterTest, WithWherePredicateOverAliasInlinesTheAliasAndDropsItsBind) {
-  // y is referenced only in the WHERE, never in the RETURN. The inline rewrite
-  // merges Identifier(y) with its definition (x * 2), so the predicate is
-  // extracted as x * 2 > 2: the filter reads {x}, and y's Bind is eliminated
-  // rather than kept. (Demand threading that keeps a predicate-only symbol alive
-  // is exercised instead by a non-inlinable Unwind symbol; see the pipeline
-  // suite's PredicateDemandKeepsUnwindBinding.) Only x in {2, 3} survives.
+  // y is used only in the WHERE. The inline rewrite merges Identifier(y) with its
+  // definition, so the predicate extracts as x * 2 > 2 (filter reads {x}) and y's Bind
+  // is dropped, not kept. Demand-based keep-alive: see PredicateDemandKeepsUnwindBinding.
   auto const plan = PlanText(Interpret("EXPLAIN UNWIND [1, 2, 3] AS x WITH x, x * 2 AS y WHERE y > 2 RETURN x;"));
   EXPECT_NE(plan.find("Filter Generic {x}"), std::string::npos) << plan;
   auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH x, x * 2 AS y WHERE y > 2 RETURN x;");

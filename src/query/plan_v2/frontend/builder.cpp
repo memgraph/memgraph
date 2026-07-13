@@ -309,13 +309,10 @@ struct symbol_build_traits<symbol::Filter> {
     using predicate = ChildSlot<child::filter::predicate, Expression *>;
   };
 
-  // all_filters_ is the source of Filter::ToString's EXPLAIN label; runtime
-  // filtering uses expression_. We reuse v1's CollectFilterExpression on purpose:
-  // its classification matches v1 and is what the index rewrites plan_v2 will grow
-  // (Property/Id/Point/Label) consume. Build is bottom-up, so the predicate's
-  // Identifiers are already in state.symbol_table. Today it yields Generic and Id
-  // filters; Property/Point/Label/EdgeType need AST nodes still refused at lowering.
-  // pattern_filters stays empty (MATCH territory).
+  // all_filters_ feeds the EXPLAIN label (Filter::ToString); runtime filtering uses
+  // expression_. CollectFilterExpression classifies exactly as v1 does (today only
+  // Generic/Id). Build is bottom-up, so the predicate's Identifiers are already in
+  // state.symbol_table.
   static auto build(BuildState &state, ENodeRef /*node*/, Children children) -> result_type {
     auto const &input = children.get<slots::input>();
     auto *predicate = children.get<slots::predicate>();

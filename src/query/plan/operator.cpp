@@ -4392,9 +4392,8 @@ std::unique_ptr<LogicalOperator> Filter::Clone(AstStorage *storage) const {
     object->pattern_filters_[i1] = pattern_filters_[i1] ? pattern_filters_[i1]->Clone(storage) : nullptr;
   }
   object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-  // Carry all_filters_ (EXPLAIN label) and re-clone the top-level expression.
-  // TODO: nested property/id/point value exprs stay aliased to the source storage; cosmetic-only, re-home if a
-  // cross-storage clone is added.
+  // Carry all_filters_ (EXPLAIN label); re-clone each top-level expression.
+  // TODO: nested property/id/point exprs stay aliased to source storage (cosmetic today).
   object->all_filters_ = all_filters_;
   for (auto &filter : object->all_filters_) {
     if (filter.expression != nullptr) filter.expression = filter.expression->Clone(storage);
