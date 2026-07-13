@@ -10,7 +10,9 @@ Build script for Memgraph using Conan 2 and CMake.
 
 OPTIONS:
     --build-type TYPE       Build type: Release, RelWithDebInfo, or Debug (default: Release)
-    --target TARGET         Specific CMake target to build (default: all targets)
+    --target TARGET...      CMake target(s) to build (default: all targets). Accepts
+                            multiple targets in one sequence, e.g.
+                            --target memgraph memgraph__unit
     --reserve-cores N       Reserve N cores for other tasks (default: 0, uses all cores)
     --skip-os-deps          Skip OS dependency checks
     --keep-build            Keep existing build directory for incremental builds
@@ -47,6 +49,9 @@ EXAMPLES:
     # Build specific target
     ./build.sh --target memgraph
 
+    # Build multiple targets at once
+    ./build.sh --target memgraph memgraph__unit
+
     # Configure only, don't build
     ./build.sh --config-only
 
@@ -59,7 +64,7 @@ EOF
 
 # Default values
 BUILD_TYPE="Release"
-TARGET=""
+TARGETS=()
 CMAKE_ARGS=""
 config_only=false
 keep_build=false
@@ -79,8 +84,12 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --target)
-            TARGET="$2"
-            shift 2
+            shift
+            # Consume all following args until the next flag as target names.
+            while [[ $# -gt 0 && "$1" != -* ]]; do
+                TARGETS+=("$1")
+                shift
+            done
             ;;
         --config-only)
             config_only=true
@@ -314,8 +323,13 @@ if [[ $BUILD_JOBS -lt 1 ]]; then
     BUILD_JOBS=1
 fi
 
+TARGET_ARGS=()
+if [[ ${#TARGETS[@]} -gt 0 ]]; then
+    TARGET_ARGS=(--target "${TARGETS[@]}")
+fi
+
 cmake \
   --build build \
   --preset $PRESET \
-  ${TARGET:+--target $TARGET} \
+  "${TARGET_ARGS[@]}" \
   -j "$BUILD_JOBS"
