@@ -59,3 +59,20 @@
     - functions.feature
     - aggregations.feature
     - list_operations.feature
+    - cartesian.feature
+    - case.feature
+    - foreach.feature
+    - list_comprehension.feature
+    - map.feature
+    - map_operations.feature
+    - merge.feature
+    - pattern_comprehensions.feature
+    - patterns.feature
+    - string_operators.feature
+    - subqueries.feature
+    - union.feature
+    - with.feature
+    - memgraph_exists.feature
+    - memgraph_wshortest.feature
+    - memgraph_allshortest.feature
+    - memgraph_bfs.feature

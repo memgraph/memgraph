@@ -796,6 +796,10 @@ jobs:
           path: |
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
+            tests/gql_behave/gql_behave_status_parallel.csv
+            tests/gql_behave/gql_behave_status_parallel.html
+            tests/gql_behave/gql_behave_status_versioned.csv
+            tests/gql_behave/gql_behave_status_versioned.html
 
       - name: Run unit tests
         run: |
