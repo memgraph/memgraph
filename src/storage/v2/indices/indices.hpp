@@ -40,7 +40,8 @@ struct Indices {
           metrics::GaugeHandle active_label_indices = {}, metrics::GaugeHandle active_label_property_indices = {},
           metrics::GaugeHandle active_edge_type_indices = {},
           metrics::GaugeHandle active_edge_type_property_indices = {},
-          metrics::GaugeHandle active_edge_property_indices = {});
+          metrics::GaugeHandle active_edge_property_indices = {},
+          metrics::GaugeHandle active_vertex_property_indices = {});
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;

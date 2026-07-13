@@ -215,6 +215,7 @@ struct DatabaseMetricHandles {
   GaugeHandle active_edge_type_indices;
   GaugeHandle active_edge_type_property_indices;
   GaugeHandle active_edge_property_indices;
+  GaugeHandle active_vertex_property_indices;
   GaugeHandle active_point_indices;
   GaugeHandle active_text_indices;
   GaugeHandle active_text_edge_indices;
@@ -523,6 +524,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &active_edge_type_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_edge_type_property_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_edge_property_indices_family_;
+  prometheus::Family<prometheus::Gauge> &active_vertex_property_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_point_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_text_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_text_edge_indices_family_;

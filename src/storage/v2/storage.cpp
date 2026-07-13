@@ -105,7 +105,8 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       metric_handles_{metric_handles},
       indices_(config, storage_mode, db_embedding_memory_tracker, metric_handles_.active_label_indices,
                metric_handles_.active_label_property_indices, metric_handles_.active_edge_type_indices,
-               metric_handles_.active_edge_type_property_indices, metric_handles_.active_edge_property_indices),
+               metric_handles_.active_edge_type_property_indices, metric_handles_.active_edge_property_indices,
+               metric_handles_.active_vertex_property_indices),
       constraints_(config, storage_mode, metric_handles_),
       invalidator_{std::move(invalidator)},
       database_protector_factory_{database_protector_factory ? std::move(database_protector_factory)

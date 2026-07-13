@@ -421,6 +421,10 @@ PrometheusMetrics::PrometheusMetrics()
                                                .Name("memgraph_active_edge_property_indices")
                                                .Help("Number of active edge property indices")
                                                .Register(registry_)},
+      active_vertex_property_indices_family_{prometheus::BuildGauge()
+                                                 .Name("memgraph_active_vertex_property_indices")
+                                                 .Help("Number of active vertex property indices")
+                                                 .Register(registry_)},
       active_point_indices_family_{prometheus::BuildGauge()
                                        .Name("memgraph_active_point_indices")
                                        .Help("Number of active point indices")
@@ -1042,6 +1046,7 @@ DatabaseMetricHandles PrometheusMetrics::AddDatabase(utils::UUID const &uuid, st
                   .active_edge_type_indices = {&active_edge_type_indices_family_.Add(labels)},
                   .active_edge_type_property_indices = {&active_edge_type_property_indices_family_.Add(labels)},
                   .active_edge_property_indices = {&active_edge_property_indices_family_.Add(labels)},
+                  .active_vertex_property_indices = {&active_vertex_property_indices_family_.Add(labels)},
                   .active_point_indices = {&active_point_indices_family_.Add(labels)},
                   .active_text_indices = {&active_text_indices_family_.Add(labels)},
                   .active_text_edge_indices = {&active_text_edge_indices_family_.Add(labels)},
@@ -1158,6 +1163,7 @@ void PrometheusMetrics::RemoveDatabase(utils::UUID const &uuid) {
   active_edge_type_indices_family_.Remove(h.active_edge_type_indices.get());
   active_edge_type_property_indices_family_.Remove(h.active_edge_type_property_indices.get());
   active_edge_property_indices_family_.Remove(h.active_edge_property_indices.get());
+  active_vertex_property_indices_family_.Remove(h.active_vertex_property_indices.get());
   active_point_indices_family_.Remove(h.active_point_indices.get());
   active_text_indices_family_.Remove(h.active_text_indices.get());
   active_text_edge_indices_family_.Remove(h.active_text_edge_indices.get());
@@ -1585,6 +1591,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
                  static_cast<int64_t>(h.active_edge_type_property_indices.Value())});
   out.push_back(
       {"ActiveEdgePropertyIndices", "Index", "Gauge", static_cast<int64_t>(h.active_edge_property_indices.Value())});
+  out.push_back({"ActiveVertexPropertyIndices",
+                 "Index",
+                 "Gauge",
+                 static_cast<int64_t>(h.active_vertex_property_indices.Value())});
   out.push_back({"ActivePointIndices", "Index", "Gauge", static_cast<int64_t>(h.active_point_indices.Value())});
   out.push_back({"ActiveTextIndices", "Index", "Gauge", static_cast<int64_t>(h.active_text_indices.Value())});
   out.push_back({"ActiveTextEdgeIndices", "Index", "Gauge", static_cast<int64_t>(h.active_text_edge_indices.Value())});
