@@ -4396,7 +4396,7 @@ std::unique_ptr<LogicalOperator> Filter::Clone(AstStorage *storage) const {
   // TODO: nested property/id/point exprs stay aliased to source storage (cosmetic today).
   object->all_filters_ = all_filters_;
   for (auto &filter : object->all_filters_) {
-    if (filter.expression != nullptr) filter.expression = filter.expression->Clone(storage);
+    if (filter.expression) filter.expression = filter.expression->Clone(storage);
   }
   return object;
 }
