@@ -937,29 +937,12 @@ inline std::optional<std::variant<int, double>> GetNumericValueAt(
   }
 }
 
-/// Helper function to get size of any list type
-template <typename Alloc, typename KeyType, typename VectorIndexIdType>
-inline size_t GetListSize(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list) {
-  switch (list.type()) {
-    case PropertyValueType::List:
-      return list.ValueList().size();
-    case PropertyValueType::IntList:
-      return list.ValueIntList().size();
-    case PropertyValueType::DoubleList:
-      return list.ValueDoubleList().size();
-    case PropertyValueType::NumericList:
-      return list.ValueNumericList().size();
-    default:
-      throw PropertyValueException("Invalid list type");
-  }
-}
-
 /// Helper function to compare two lists of different types
 template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
 inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
                                        const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) {
-  const size_t size1 = GetListSize(first);
-  const size_t size2 = GetListSize(second);
+  const size_t size1 = first.ListSize();
+  const size_t size2 = second.ListSize();
 
   if (size1 != size2) {
     return size1 <=> size2;

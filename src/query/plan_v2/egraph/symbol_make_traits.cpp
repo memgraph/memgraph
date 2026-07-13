@@ -32,7 +32,7 @@ auto symbol_make_traits<Literal>::make(storage_type &s, storage::ExternalPropert
   return {.lowered = {.children = {}, .disambiguator = it->second},
           .seed = analysis{ExpressionAnalysis{
               .known_constant_value = value,
-              .known_list_length = value.IsAnyList() ? std::optional{GetListSize(value)} : std::nullopt}}};
+              .known_list_length = value.IsAnyList() ? std::optional{value.ListSize()} : std::nullopt}}};
 }
 
 auto symbol_make_traits<ParamLookup>::make(storage_type & /*s*/, int32_t pos) -> seeded_node {
