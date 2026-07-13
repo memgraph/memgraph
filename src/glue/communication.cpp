@@ -142,28 +142,6 @@ communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage
                                    .to_element_id = std::move(to_element_id)};
 }
 
-communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db) {
-  // An overlay node serializes at its origin's identity, so a click, expand, or edit in a client
-  // maps back to the real node. A synthetic node (no origin) keeps its synthetic id.
-  const auto gid = node.HasOrigin() ? node.Origin()->Gid() : node.Gid();
-  auto id = communication::bolt::Id::FromUint(gid.AsUint());
-  std::vector<std::string> labels;
-  labels.reserve(node.Labels().size());
-  for (const auto &label : node.Labels()) labels.emplace_back(label);
-  bolt_map_t properties;
-  for (const auto &[prop_id, prop_value] : node.Properties()) {
-    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
-  }
-  // An overlay node from a projection with a known schema carries a reserved Int property pointing
-  // at its projection-schema entry. The value is sent unwrapped so generic clients read it as an
-  // ordinary property and ignore it.
-  if (node.HasProjectionRef()) {
-    properties[std::string{kMgOverlayRef}] = Value{node.ProjectionRef()};
-  }
-  auto element_id = std::to_string(id.AsInt());
-  return communication::bolt::Vertex{
-      .id = id, .labels = std::move(labels), .properties = std::move(properties), .element_id = std::move(element_id)};
-}
 }  // namespace
 
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view,
@@ -244,8 +222,9 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     }
     case query::TypedValue::Type::VirtualGraph: {
       check_db();
-      auto maybe_vg = ToBoltVirtualGraph(value.ValueVirtualGraph(), *db);
-      return storage::Result<Value>{std::in_place, std::move(maybe_vg)};
+      auto maybe_vg = ToBoltVirtualGraph(value.ValueVirtualGraph(), *db, view, auth_checker);
+      if (!maybe_vg) return std::unexpected{maybe_vg.error()};
+      return storage::Result<Value>{std::in_place, std::move(*maybe_vg)};
     }
     case query::TypedValue::Type::Enum: {
       check_db();
@@ -272,7 +251,9 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
 
     case query::TypedValue::Type::VirtualNode: {
       check_db();
-      return storage::Result<Value>{std::in_place, ToBoltVertex(value.ValueVirtualNode(), *db)};
+      auto maybe_vertex = ToBoltVertex(value.ValueVirtualNode(), *db, view, auth_checker);
+      if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
+      return storage::Result<Value>{std::in_place, std::move(*maybe_vertex)};
     }
 
     // Unsupported conversions
@@ -304,6 +285,47 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)
+  auto element_id = std::to_string(id.AsInt());
+  return communication::bolt::Vertex{
+      .id = id, .labels = std::move(labels), .properties = std::move(properties), .element_id = std::move(element_id)};
+}
+
+storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db,
+                                                          storage::View view,
+                                                          query::FineGrainedAuthChecker const *auth_checker) {
+  // An overlay node serializes at its origin's identity so a client maps it back to the real node; a
+  // synthetic node keeps its synthetic id.
+  const auto gid = node.HasOrigin() ? node.Origin()->Gid() : node.Gid();
+  auto id = communication::bolt::Id::FromUint(gid.AsUint());
+  std::vector<std::string> labels;
+  labels.reserve(node.Labels().size());
+  for (const auto &label : node.Labels()) labels.emplace_back(label);
+
+  // Origin-read-through properties are gated by the origin's per-property READ permission (over the
+  // origin's real labels), matching a real vertex. Overlay-bound overrides are the author's own
+  // computed values, and a synthetic node (no origin) mints no real-graph data - both are always
+  // included.
+  std::optional<std::vector<storage::LabelId>> origin_labels;
+  if (auth_checker && node.HasOrigin()) {
+    auto maybe_labels = node.Origin()->Labels(view);
+    if (!maybe_labels) return std::unexpected{maybe_labels.error()};
+    origin_labels.emplace(maybe_labels->begin(), maybe_labels->end());
+  }
+  auto maybe_props = node.Properties(view);
+  if (!maybe_props) return std::unexpected{maybe_props.error()};
+  bolt_map_t properties;
+  for (const auto &[prop_id, prop_value] : *maybe_props) {
+    if (origin_labels && !node.IsOverlayBound(prop_id) &&
+        !auth_checker->HasPropertyPermission(*origin_labels, prop_id, query::AuthQuery::PropertyPermissionType::READ)) {
+      continue;
+    }
+    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  // An overlay node from a projection with a known schema carries a reserved Int property pointing at
+  // its projection-schema entry, sent unwrapped so generic clients read it as an ordinary property.
+  if (node.HasProjectionRef()) {
+    properties[std::string{kMgOverlayRef}] = Value{node.ProjectionRef()};
+  }
   auto element_id = std::to_string(id.AsInt());
   return communication::bolt::Vertex{
       .id = id, .labels = std::move(labels), .properties = std::move(properties), .element_id = std::move(element_id)};
@@ -378,12 +400,15 @@ storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage
   return std::move(map);
 }
 
-bolt_map_t ToBoltVirtualGraph(const query::VirtualGraph &vg, const storage::Storage &db) {
+storage::Result<bolt_map_t> ToBoltVirtualGraph(const query::VirtualGraph &vg, const storage::Storage &db,
+                                               storage::View view, query::FineGrainedAuthChecker const *auth_checker) {
   bolt_map_t map;
   std::vector<Value> nodes;
   nodes.reserve(vg.nodes().size());
   for (const auto &[gid, vn] : vg.nodes()) {
-    nodes.emplace_back(ToBoltVertex(*vn, db));
+    auto maybe_vertex = ToBoltVertex(*vn, db, view, auth_checker);
+    if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
+    nodes.emplace_back(std::move(*maybe_vertex));
   }
   map.emplace("nodes", Value(std::move(nodes)));
 
@@ -394,7 +419,7 @@ bolt_map_t ToBoltVirtualGraph(const query::VirtualGraph &vg, const storage::Stor
   }
   map.emplace("edges", Value(std::move(edges)));
 
-  return map;
+  return storage::Result<bolt_map_t>{std::in_place, std::move(map)};
 }
 
 storage::ExternalPropertyValue ToExternalPropertyValue(communication::bolt::Value const &value,

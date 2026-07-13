@@ -145,6 +145,88 @@ def test_derive_strips_denied_property():
     assert result[0][2] is None
 
 
+def test_derive_overlay_bound_override_is_visible():
+    # An overlay-bound override is the author's own computed value, not the origin's protected data,
+    # so it is visible even though its key name is denied on the origin's label.
+    result = common.execute_and_fetch_all(
+        user_cursor(),
+        """
+        MATCH p = (:Person {name: 'Start'})-[:KNOWS]->(:Employee)
+        WITH derive(p, {virtualEdgeType: 'V', targetNodeProperties: {ssn: 'masked'}}) AS g
+        UNWIND g.nodes AS n
+        WITH n WHERE 'Employee' IN labels(n)
+        RETURN n.ssn AS ssn, 'ssn' IN keys(n) AS has_ssn
+        """,
+    )
+    assert len(result) == 1
+    assert result[0][0] == "masked"
+    assert result[0][1] is True
+
+
+def test_derive_relabel_does_not_bypass_origin_deny():
+    # Relabelling the overlay must not evade the origin's per-property deny; the check keys off the
+    # origin's real labels, not the presented labels.
+    result = common.execute_and_fetch_all(
+        user_cursor(),
+        """
+        MATCH p = (:Person {name: 'Start'})-[:KNOWS]->(:Employee)
+        WITH derive(p, {virtualEdgeType: 'V', sourceNodeLabels: ['Colleague']}) AS g
+        UNWIND g.nodes AS n
+        WITH n WHERE 'Colleague' IN labels(n)
+        RETURN n.ssn AS ssn, 'ssn' IN keys(n) AS has_ssn
+        """,
+    )
+    assert len(result) == 1
+    assert result[0][0] is None
+    assert result[0][1] is False
+
+
+def test_derive_return_node_omits_denied_property():
+    # RETURN n over an overlay serializes the node over Bolt; the denied origin property is omitted.
+    result = common.execute_and_fetch_all(
+        user_cursor(),
+        """
+        MATCH p = (:Person {name: 'Start'})-[:KNOWS]->(:Employee)
+        WITH derive(p, {virtualEdgeType: 'V'}) AS g
+        UNWIND g.nodes AS n
+        WITH n WHERE 'Employee' IN labels(n)
+        RETURN n
+        """,
+    )
+    assert len(result) == 1
+    node = result[0][0]
+    assert node.properties["name"] == "Alice"
+    assert "ssn" not in node.properties
+
+
+def test_synthetic_node_property_is_visible():
+    # A synthetic node (no origin) mints no real-graph data, so property FGA does not apply to it.
+    result = common.execute_and_fetch_all(
+        user_cursor(),
+        "RETURN virtualNode(1, ['Employee'], {ssn: 'synthetic'}).ssn AS ssn;",
+    )
+    assert len(result) == 1
+    assert result[0][0] == "synthetic"
+
+
+def test_derive_returned_whole_graph_redacts_denied_property():
+    # Returning the whole projection value (RETURN g) serializes it via ToBoltVirtualGraph; a denied
+    # origin property on an overlay member must be redacted there too, matching RETURN n.
+    result = common.execute_and_fetch_all(
+        user_cursor(),
+        """
+        MATCH p = (:Person {name: 'Start'})-[:KNOWS]->(:Employee)
+        WITH derive(p, {virtualEdgeType: 'V'}) AS g
+        RETURN g;
+        """,
+    )
+    assert len(result) == 1
+    g = result[0][0]
+    employee = next(n for n in g["nodes"] if "Employee" in n.labels)
+    assert employee.properties["name"] == "Alice"
+    assert "ssn" not in employee.properties
+
+
 def test_show_schema_info_omits_denied_properties():
     schema = json.loads(common.execute_and_fetch_all(user_cursor(), "SHOW SCHEMA INFO;")[0][0])
     employee = next(n for n in schema["nodes"] if "Employee" in n["labels"])

@@ -1113,12 +1113,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const;
   bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const;
 
-  // A projected element mints no real-graph privileges of its own: a synthetic node/edge has no
-  // origin, and an overlay node's real-graph visibility is already enforced at the scan (label-level,
-  // issue 30). A read through a projected element is therefore allowed. Per-property READ permission
-  // over an overlay's origin is a tracked follow-up (see rebase auth-glue notes).
-  bool IsPropertyAllowed(VirtualNode const &, storage::PropertyId) const { return true; }
+  // An overlay node reads through to a real origin vertex, so reading an origin-backed property is
+  // subject to that origin's per-property READ permission (the same check a real vertex gets, over
+  // the origin's labels). A synthetic node has no origin and mints no real-graph data, so it is
+  // allowed.
+  bool IsPropertyAllowed(VirtualNode const &node, storage::PropertyId prop) const;
 
+  // A virtual edge is always synthetic (no real origin edge), so it carries no real-graph privileges.
   bool IsPropertyAllowed(VirtualEdge const &, storage::PropertyId) const { return true; }
 #else
   template <typename T>

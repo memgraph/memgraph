@@ -284,6 +284,24 @@ class TestVirtualEdgeConstructor:
 
 
 class TestVirtualGraphConstructor:
+    def test_return_graph_value_serializes_as_nodes_and_edges(self, connection):
+        """RETURN of a whole projection value decodes client-side as a map of node and edge lists
+        (the ToBoltVirtualGraph path, distinct from consuming the value via USE or a procedure)."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 10}), virtualNode(2, 'N', {x: 20})] AS ns, [virtualEdge('R', 1, 2)] AS es
+            RETURN virtualGraph(ns, es) AS g;
+            """,
+        )
+        assert len(results) == 1
+        g = results[0][0]
+        assert set(g.keys()) == {"nodes", "edges"}
+        assert {n.properties["x"] for n in g["nodes"]} == {10, 20}
+        assert len(g["edges"]) == 1
+        assert g["edges"][0].type == "R"
+
     def test_assembles_graph_consumable_by_procedure(self, connection):
         """virtualGraph(nodes, edges) imports a graph from lists; an edge given by
         handles binds to the listed nodes, and a procedure can read it."""

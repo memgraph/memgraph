@@ -510,9 +510,24 @@ void ForEachElementProperty(const TypedValue &value, storage::View view, std::st
       return checker->HasPropertyPermission(edge.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
     });
   } else if (value.IsVirtualNode()) {
-    auto maybe_props = value.ValueVirtualNode().Properties(view);
+    auto const &vnode = value.ValueVirtualNode();
+    auto maybe_props = vnode.Properties(view);
     if (!maybe_props) throw QueryRuntimeException("Reading {} of a projected node's origin failed.", fn);
-    emit(*maybe_props, allow_all_properties);
+    auto const &origin = vnode.Origin();
+    if (!checker || !origin) {
+      // A synthetic node (no origin) mints no real-graph data; without a checker nothing is filtered.
+      emit(*maybe_props, allow_all_properties);
+    } else {
+      // An overlay node reads through to its origin, so origin-backed properties get the origin's
+      // per-property READ permission (over the origin's labels), matching a real vertex. An
+      // overlay-bound override is the author's own value and is exempt.
+      auto maybe_labels = origin->Labels(view);
+      if (!maybe_labels) ThrowVertexLabelsReadFailure(maybe_labels.error());
+      emit(*maybe_props, [&](storage::PropertyId prop) {
+        return vnode.IsOverlayBound(prop) ||
+               checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+      });
+    }
   } else {
     emit(value.ValueVirtualEdge().Properties(), allow_all_properties);
   }
@@ -529,12 +544,15 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   TypedValue::TMap properties(ctx.memory);
   // Denied properties appear as keys with null values (see the NOTE above); keys()/values() omit them.
   ForEachElementProperty(
-      value, ctx.view, "properties", ctx.auth_checker, [](size_t) {},
+      value,
+      ctx.view,
+      "properties",
+      ctx.auth_checker,
+      [](size_t) {},
       [&](storage::PropertyId id, const storage::PropertyValue &pv, bool allowed) {
         auto key = TypedValue::TString(dba->PropertyToName(id), ctx.memory);
         if (allowed) {
-          properties.emplace(std::move(key),
-                             TypedValue(pv, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
+          properties.emplace(std::move(key), TypedValue(pv, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
         } else {
           properties.emplace(std::move(key), TypedValue(ctx.memory));
         }
@@ -931,7 +949,11 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
     return TypedValue(std::move(keys));
   }
   ForEachElementProperty(
-      value, ctx.view, "keys", ctx.auth_checker, [&](size_t n) { keys.reserve(n); },
+      value,
+      ctx.view,
+      "keys",
+      ctx.auth_checker,
+      [&](size_t n) { keys.reserve(n); },
       [&](storage::PropertyId id, const storage::PropertyValue &, bool allowed) {
         if (allowed) keys.emplace_back(TypedValue(dba->PropertyToName(id), ctx.memory));
       });
@@ -951,7 +973,11 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     return TypedValue(std::move(values));
   }
   ForEachElementProperty(
-      value, ctx.view, "values", ctx.auth_checker, [&](size_t n) { values.reserve(n); },
+      value,
+      ctx.view,
+      "values",
+      ctx.auth_checker,
+      [&](size_t n) { values.reserve(n); },
       [&](storage::PropertyId, const storage::PropertyValue &pv, bool allowed) {
         if (allowed) values.emplace_back(TypedValue(pv, dba->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
       });

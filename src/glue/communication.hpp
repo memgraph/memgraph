@@ -19,6 +19,7 @@
 
 namespace memgraph::query {
 class FineGrainedAuthChecker;
+class VirtualNode;
 }  // namespace memgraph::query
 
 namespace memgraph::storage {
@@ -37,6 +38,16 @@ namespace memgraph::glue {
 /// @throw std::bad_alloc
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexAccessor &vertex,
                                                           const storage::Storage &db, storage::View view,
+                                                          query::FineGrainedAuthChecker const *auth_checker);
+
+/// Overlay/synthetic node -> bolt::Vertex. An overlay node serializes at its origin's identity;
+/// origin-read-through properties are subject to the origin's per-property READ permission (over the
+/// origin's labels), while overlay-bound overrides and synthetic nodes (no origin) are always
+/// included - matching how a real vertex serializes.
+///
+/// @throw std::bad_alloc
+storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db,
+                                                          storage::View view,
                                                           query::FineGrainedAuthChecker const *auth_checker);
 
 /// @param storage::EdgeAccessor for converting to communication::bolt::Edge.
@@ -66,7 +77,9 @@ storage::Result<communication::bolt::map_t> ToBoltGraph(const query::Graph &grap
                                                         storage::View view,
                                                         query::FineGrainedAuthChecker const *auth_checker);
 
-communication::bolt::map_t ToBoltVirtualGraph(const query::VirtualGraph &vg, const storage::Storage &db);
+storage::Result<communication::bolt::map_t> ToBoltVirtualGraph(const query::VirtualGraph &vg,
+                                                               const storage::Storage &db, storage::View view,
+                                                               query::FineGrainedAuthChecker const *auth_checker);
 
 /// @param query::TypedValue for converting to communication::bolt::Value.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
