@@ -430,6 +430,15 @@ TEST_F(PlannerV2InterpreterTest, ExplainShowsFilterOperator) {
   EXPECT_NE(plan.find("Filter Generic {x}"), std::string::npos) << plan;
 }
 
+TEST_F(PlannerV2InterpreterTest, WhereFilterIsAlwaysGenericNeverIndexClassified) {
+  // plan_v2 records every predicate as one Generic filter and never runs v1's index
+  // classification. id(x) classifies as an Id filter in v1 (labelled "id(x)"); here
+  // it must stay Generic - index selection is deferred to a future e-graph rewrite.
+  auto const plan = PlanText(Interpret("EXPLAIN UNWIND [1, 2, 3] AS x WITH x WHERE id(x) = 5 RETURN x;"));
+  EXPECT_NE(plan.find("Filter Generic {x}"), std::string::npos) << plan;
+  EXPECT_EQ(plan.find("id(x)"), std::string::npos) << plan;
+}
+
 TEST_F(PlannerV2InterpreterTest, UnsupportedPredicateReportsNotImplemented) {
   // IN-list is an unsupported expression node; it must error, not silently drop rows.
   EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x IN [1, 2] RETURN x;"), memgraph::query::QueryException);
