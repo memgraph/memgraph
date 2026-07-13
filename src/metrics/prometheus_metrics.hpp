@@ -168,6 +168,9 @@ struct DatabaseMetricHandles {
   CounterHandle scan_all_by_edge_property_value_operator;
   CounterHandle scan_all_by_edge_property_range_operator;
   CounterHandle scan_all_by_edge_id_operator;
+  CounterHandle scan_all_by_vertex_property_operator;
+  CounterHandle scan_all_by_vertex_property_value_operator;
+  CounterHandle scan_all_by_vertex_property_range_operator;
   CounterHandle scan_all_by_point_distance_operator;
   CounterHandle scan_all_by_point_withinbbox_operator;
   CounterHandle expand_operator;
@@ -473,6 +476,9 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_property_value_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_property_range_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_id_operator_family_;
+  prometheus::Family<prometheus::Counter> &scan_all_by_vertex_property_operator_family_;
+  prometheus::Family<prometheus::Counter> &scan_all_by_vertex_property_value_operator_family_;
+  prometheus::Family<prometheus::Counter> &scan_all_by_vertex_property_range_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_point_distance_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_point_withinbbox_operator_family_;
   prometheus::Family<prometheus::Counter> &expand_operator_family_;
