@@ -15,6 +15,8 @@
 #include <cmath>
 #include <optional>
 
+#include <boost/numeric/conversion/converter.hpp>
+
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 
 namespace memgraph::query::plan::v2 {
@@ -37,10 +39,11 @@ auto TryReadIntLiteral(EGraph const &eg, planner::core::EClassId eclass_id) -> s
   // reject non-integral doubles - not what range expects anyway.
   if (val.IsDouble()) {
     auto const d = val.ValueDouble();
-    // Guard the cast: out-of-int64-range doubles are UB. Bound with 2^63
-    // (exactly representable, unlike int64_max), half-open at the top.
-    static constexpr double kTwoPow63 = 9223372036854775808.0;  // 2^63
-    if (std::isfinite(d) && std::trunc(d) == d && d >= -kTwoPow63 && d < kTwoPow63) {
+    // Guard the cast: out-of-int64-range doubles are UB. The converter owns the
+    // range boundary (including int64_max rounding up to 2^63); we only gate on
+    // integral, since the converter would otherwise truncate a fractional double.
+    using ToInt64 = boost::numeric::converter<int64_t, double>;
+    if (std::trunc(d) == d && ToInt64::out_of_range(d) == boost::numeric::cInRange) {
       return static_cast<int64_t>(d);
     }
   }
