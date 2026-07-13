@@ -11346,11 +11346,19 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         throw WriteQueryOnMainException();
       }
 #endif
-      // Graph Versioning v1 chunk 7d (D10): an engaged versioning connection sitting on `main`
-      // must never silently write production data (see WriteWithoutResolvedVersionException).
-      // Data-plane writes only (CypherQuery / PROFILE-wrapped CypherQuery) -- versioning management
-      // (CHECKOUT/MERGE/DROP) and admin/DDL are excluded so versioning stays operable and this is
-      // not a general main-write ban.
+      // Graph Versioning v1 chunk 7d (D10): an engaged-but-unresolved connection (VersioningEngaged()
+      // true with CurrentVersion() nullopt) must never silently write production data (see
+      // WriteWithoutResolvedVersionException). Data-plane writes only (CypherQuery / PROFILE-wrapped
+      // CypherQuery) -- versioning management (CHECKOUT/MERGE/DROP) and admin/DDL are excluded so
+      // versioning stays operable and this is not a general main-write ban.
+      //
+      // The session target is simply current_version_ -- the last CHECKOUT wins, exactly like USE
+      // DATABASE -- so CHECKOUT BRANCH 'main' un-engages the rail (SetCurrentVersion(std::nullopt),
+      // interpreter.hpp) instead of leaving it stuck on. In steady state VersioningEngaged() is true
+      // iff CurrentVersion() names a branch, so the condition below (engaged AND unresolved) should
+      // be unreachable in normal operation post-fix. The check is kept anyway as a cheap
+      // defense-in-depth invariant guard against a future regression that leaves `engaged` set while
+      // the session is actually on main -- not a routine "engaged-on-main" block anymore.
       // NOTE: query_is_data_plane was captured pre-dispatch, above -- by this point parsed_query has
       // already been std::move'd into the chosen Prepare*Query(...) helper and its AST storage is
       // freed, so parsed_query.query itself must NOT be dereferenced here.
