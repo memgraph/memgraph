@@ -184,6 +184,12 @@ struct VertexForkSnapshot {
 
 struct EdgeForkSnapshot {
   std::map<storage::PropertyId, storage::PropertyValue> properties;
+  // S8 fix: the FROM endpoint's gid at fork time, needed so D3's edge check can re-probe main's
+  // CURRENT state via `FindHistoricalEdgeByEndpoint` (an endpoint-relative OutEdges walk) instead of
+  // a bare `FindEdge(gid)` scan -- see FindHistoricalEdgeByEndpoint's doc-comment just below for why
+  // the latter is unreliable for light (properties_on_edges=false) edges. Edge endpoints never change
+  // post-creation, so the fork-time FROM vertex is also main's current FROM vertex.
+  storage::Gid from_vertex_gid;
 };
 
 // D3, pass 2: has main changed fork-existing vertex `gid` (modified OR deleted) since the fork
@@ -252,7 +258,10 @@ std::optional<storage::EdgeAccessor> FindHistoricalEdgeByEndpoint(storage::Stora
 // Symmetric D3 check for edges (properties only -- endpoints/type never change post-creation).
 std::expected<void, MergeError> CheckEdgeUnchangedSinceFork(const EdgeForkSnapshot &fork_snapshot,
                                                             storage::ReplicationAccessor &merge, storage::Gid gid) {
-  auto now_e = merge.FindEdge(gid, storage::View::OLD);
+  // S8 fix: NOT `merge.FindEdge(gid, View::OLD)` -- that's a raw, unreliable adjacency scan for light
+  // edges (see FindHistoricalEdgeByEndpoint's doc-comment above). Walk from the fork-time FROM
+  // endpoint instead, exactly as pass 1's own COW-echo probe does.
+  auto now_e = FindHistoricalEdgeByEndpoint(merge, fork_snapshot.from_vertex_gid, gid);
   if (!now_e.has_value()) {
     return std::unexpected(MergeError{
         .kind = MergeErrorKind::kModifyConflict,
@@ -325,7 +334,30 @@ std::expected<MergeResult, MergeError> MergeBranch(storage::InMemoryStorage &mai
       vertex_fork_snapshots.emplace(gid, VertexForkSnapshot{LabelSet(*fork_v), PropertyMap(*fork_v)});
       return {};
     };
-    auto ensure_edge_snapshot = [&](storage::Gid gid) -> std::expected<void, MergeError> {
+    // S8 (continued): the endpoint-relative probe, not a bare `historical->FindEdge(gid)` scan --
+    // see FindHistoricalEdgeByEndpoint's own doc-comment above. `from_vertex_gid` is the edge's FROM
+    // endpoint (edge endpoints never change post-creation, so any caller who knows the edge's gid
+    // from a WAL edge-op record also has its from-vertex hint available).
+    auto ensure_edge_snapshot = [&](storage::Gid gid, storage::Gid from_vertex_gid) -> std::expected<void, MergeError> {
+      if (branch_local_edges.contains(gid) || edge_fork_snapshots.contains(gid)) return {};
+      auto fork_e = FindHistoricalEdgeByEndpoint(*historical, from_vertex_gid, gid);
+      if (!fork_e.has_value()) {
+        return make_corrupt(
+            fmt::format("Branch change-log modifies edge {} which is not present in the fork-state base -- "
+                        "corrupt change-log or wrong fork_ts.",
+                        gid.AsUint()),
+            gid);
+      }
+      edge_fork_snapshots.emplace(gid, EdgeForkSnapshot{PropertyMap(*fork_e), fork_e->FromVertex().Gid()});
+      return {};
+    };
+    // S8 legacy fallback: only reachable from a pre-kEdgeSetDeltaWithVertexInfo WalEdgeSetProperty
+    // record, which carries no from-vertex hint and therefore cannot use the reliable endpoint-walk
+    // probe above. Freshly-written branch change-logs always carry the hint; this bare scan is exactly
+    // as unreliable for light edges as before this fix, but strictly narrower in scope (legacy format
+    // only, and only for the "modifies an edge" case -- never for a delete, which always has the hint
+    // via EdgeOpInfo::from_vertex).
+    auto ensure_edge_snapshot_legacy_no_hint = [&](storage::Gid gid) -> std::expected<void, MergeError> {
       if (branch_local_edges.contains(gid) || edge_fork_snapshots.contains(gid)) return {};
       auto fork_e = historical->FindEdge(gid, storage::View::OLD);
       if (!fork_e.has_value()) {
@@ -335,7 +367,7 @@ std::expected<MergeResult, MergeError> MergeBranch(storage::InMemoryStorage &mai
                         gid.AsUint()),
             gid);
       }
-      edge_fork_snapshots.emplace(gid, EdgeForkSnapshot{PropertyMap(*fork_e)});
+      edge_fork_snapshots.emplace(gid, EdgeForkSnapshot{PropertyMap(*fork_e), fork_e->FromVertex().Gid()});
       return {};
     };
 
@@ -400,7 +432,8 @@ std::expected<MergeResult, MergeError> MergeBranch(storage::InMemoryStorage &mai
             if (auto check = ensure_vertex_snapshot(data.from_vertex); !check) return check;
             if (auto check = ensure_vertex_snapshot(data.to_vertex); !check) return check;
             if (!edge_fork_snapshots.contains(data.gid)) {
-              edge_fork_snapshots.emplace(data.gid, EdgeForkSnapshot{PropertyMap(*fork_edge)});
+              edge_fork_snapshots.emplace(data.gid,
+                                          EdgeForkSnapshot{PropertyMap(*fork_edge), fork_edge->FromVertex().Gid()});
             }
             return {};
           }
@@ -409,12 +442,18 @@ std::expected<MergeResult, MergeError> MergeBranch(storage::InMemoryStorage &mai
           return ensure_vertex_snapshot(data.to_vertex);
         },
         [&](sd::WalEdgeDelete const &data) -> std::expected<void, MergeError> {
-          if (auto check = ensure_edge_snapshot(data.gid); !check) return check;
+          if (auto check = ensure_edge_snapshot(data.gid, data.from_vertex); !check) return check;
           if (auto check = ensure_vertex_snapshot(data.from_vertex); !check) return check;
           return ensure_vertex_snapshot(data.to_vertex);
         },
         [&](sd::WalEdgeSetProperty const &data) -> std::expected<void, MergeError> {
-          if (auto check = ensure_edge_snapshot(data.gid); !check) return check;
+          if (data.from_gid.has_value()) {
+            if (auto check = ensure_edge_snapshot(data.gid, *data.from_gid); !check) return check;
+          } else {
+            // Pre-kEdgeSetDeltaWithVertexInfo WAL format: no from-vertex hint on the record, so the
+            // reliable endpoint-walk probe above isn't available -- fall back to the legacy bare scan.
+            if (auto check = ensure_edge_snapshot_legacy_no_hint(data.gid); !check) return check;
+          }
           if (data.from_gid.has_value()) {
             if (auto check = ensure_vertex_snapshot(*data.from_gid); !check) return check;
           }

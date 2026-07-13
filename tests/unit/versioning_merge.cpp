@@ -431,4 +431,58 @@ TEST_F(VersioningMergeTest, DeleteConflictsWhenMainAttachedAnEdgeSinceFork) {
   EXPECT_TRUE(acc->FindVertex(v_target_gid, ms::View::OLD).has_value());
 }
 
+// S8 regression fixture: identical to VersioningMergeTest except `properties_on_edges = false`
+// (light edges) -- a light edge has no delta chain of its own, which is exactly what made D3's old
+// edge check (a bare `FindEdge(gid, View::OLD)` scan) unreliable. See merge.cpp's
+// FindHistoricalEdgeByEndpoint doc-comment for the full mechanism.
+class VersioningMergeLightEdgeTest : public VersioningMergeTest {
+ protected:
+  void SetUp() override {
+    ms::Config config;
+    config.gc = {.type = ms::Config::Gc::Type::NONE};
+    config.salient.items.properties_on_edges = false;
+    storage_ = std::make_unique<ms::InMemoryStorage>(config);
+    mem_storage_ = static_cast<ms::InMemoryStorage *>(storage_.get());
+  }
+};
+
+// S8 (HIGH, data-integrity): in light-edge mode, a branch that deletes a fork-existing edge main
+// never touched must merge cleanly -- before the fix, `CheckEdgeUnchangedSinceFork`'s
+// `FindEdge(gid, View::OLD)` probe came back empty for a perfectly-present light edge (its
+// adjacency-vector entry has no delta chain to fall back on), producing a FALSE "main deleted edge"
+// conflict and silently discarding the branch's deletion.
+TEST_F(VersioningMergeLightEdgeTest, LightEdgeDeleteMergesCleanlyNoFalseConflict) {
+  ms::Gid v1_gid, v2_gid, e_gid;
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    auto v1 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    auto v2 = acc->CreateVertex();
+    v2_gid = v2.Gid();
+    auto e = acc->CreateEdge(&v1, &v2, acc->NameToEdgeType("R"));
+    ASSERT_TRUE(e.has_value());
+    e_gid = e->Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const auto fork_ts = ForkNow();
+  auto *mapper = Mapper();
+
+  // Main changes NOTHING after the fork point. The branch's own change-log deletes the edge.
+  std::vector<WalDeltaData> changelog{WalDeltaData{ms::durability::WalEdgeDelete{e_gid, "R", v1_gid, v2_gid}}};
+
+  auto result = mv::MergeBranch(*mem_storage_, fork_ts, changelog, mapper, memgraph::tests::MakeMainCommitArgs());
+  ASSERT_TRUE(result.has_value()) << (result.has_value() ? std::string{} : result.error().message);
+  EXPECT_EQ(result->objects_deleted, 1u);
+
+  auto acc = storage_->Access(ms::READ);
+  EXPECT_FALSE(acc->FindEdge(e_gid, ms::View::OLD).has_value())
+      << "the branch's edge deletion must actually land on main, not be silently lost to a false D3 conflict";
+  auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+  ASSERT_TRUE(v1.has_value());
+  auto out_edges = v1->OutEdges(ms::View::OLD);
+  ASSERT_TRUE(out_edges.has_value());
+  EXPECT_TRUE(out_edges->edges.empty()) << "v1's adjacency list must no longer contain the deleted edge";
+}
+
 }  // namespace
