@@ -13,59 +13,46 @@
 
 import re
 
-from neo4j import GraphDatabase, basic_auth
-
 # --- Graph Versioning v1 --versioned-branch arm -----------------------------
 #
 # `CHECKOUT BRANCH` is per-Bolt-connection state on the server. The default
 # path below opens a fresh session (and thus, in practice, a fresh physical
 # connection) for every single query, so a checkout would never survive past
 # the query that issued it. Under --versioned-branch we instead hold one
-# session open for the whole scenario on `context.vbranch_session`, so a
-# CHECKOUT done during scenario setup is still in effect for the scenario's
-# test query. See environment.py before_scenario/after_scenario for the
-# per-scenario lifecycle and maybe_fork_to_branch() below for the fork point.
+# session open for the whole scenario on `context.vbranch_session` (backed by
+# the shared `context.driver`), so a CHECKOUT done during scenario setup is
+# still in effect for the scenario's test query. See environment.py
+# before_scenario/after_scenario for the per-scenario lifecycle and
+# maybe_fork_to_branch() below for the fork point.
 #
-# IMPORTANT (found via live verification, not assumed): the session must ride
-# on a DEDICATED per-scenario Driver, not merely a fresh Session pulled from
-# the long-lived `context.driver` used by every other query. Once a physical
-# Bolt connection has ever run CHECKOUT BRANCH, Memgraph permanently flags it
-# as "has an active versioning session"; checking back out to `main` on that
-# SAME connection still leaves subsequent writes to main rejected with
-# "This connection has an active versioning session but is not on a branch."
-# Because behave runs single-threaded with one long-lived driver/pool,
-# `context.driver.session()` after a scenario's cleanup silently hands back
-# that SAME tainted physical connection (pool reuse, not a new TCP
-# connection) -- so scenario 2's setup writes to main would fail. Opening
-# (and fully closing) a scenario-scoped Driver of its own sidesteps this: a
-# new Driver always negotiates a brand-new physical connection, so every
-# scenario starts with an untainted, main-writable connection.
+# close_vbranch_session() checks out back to `main` before dropping the
+# branch and closing the session: `CHECKOUT BRANCH main` un-engages the
+# connection's versioning state (fixed in ddf60d59f), so once the session
+# closes and its connection is returned to the shared pool, the next
+# scenario that reuses it starts on main, un-engaged and main-writable.
 
 
 def get_vbranch_session(context):
     """
     Return the persistent Bolt session used by the --versioned-branch arm,
     opening it lazily on first use (so a scenario that errors out before
-    executing any query never pays for a connection). Backed by its own
-    scenario-scoped Driver -- see the module docstring above for why a
-    Session from the shared `context.driver` is not safe to reuse here.
+    executing any query never pays for a connection). Backed by the shared
+    `context.driver` -- see the module docstring above for why a session
+    held open for the whole scenario is still needed.
     """
     if getattr(context, "vbranch_session", None) is None:
-        uri = "bolt://{}:{}".format(context.config.db_host, context.config.db_port)
-        auth_token = basic_auth(context.config.db_user, context.config.db_pass)
-        context.vbranch_driver = GraphDatabase.driver(uri, auth=auth_token, encrypted=False)
-        context.vbranch_session = context.vbranch_driver.session()
+        context.vbranch_session = context.driver.session()
     return context.vbranch_session
 
 
 def close_vbranch_session(context):
     """
     Best-effort teardown of the persistent versioned-branch session: if the
-    scenario forked onto a branch, checkout back to main and drop it (both
+    scenario forked onto a branch, checkout back to main (un-engaging the
+    connection's versioning state, see ddf60d59f) and drop the branch (both
     swallowed on error -- this is cleanup, not the scenario under test), then
-    close the session AND its dedicated driver (so the tainted connection is
-    torn down, not pooled/reused for the next scenario). Safe to call even if
-    no session was ever opened.
+    close the session so its connection goes back to the shared pool clean
+    for the next scenario. Safe to call even if no session was ever opened.
     """
     session = getattr(context, "vbranch_session", None)
     if session is None:
@@ -81,18 +68,9 @@ def close_vbranch_session(context):
         except Exception:
             pass
 
-    driver = context.vbranch_driver
-    try:
-        session.close()
-    finally:
-        # Always tear down the driver too, even if session.close() itself
-        # raised -- otherwise we'd leak the dedicated connection/thread pool
-        # for the rest of the run.
-        context.vbranch_session = None
-        context.vbranch_driver = None
-        context.vbranch_forked = False
-        if driver is not None:
-            driver.close()
+    session.close()
+    context.vbranch_session = None
+    context.vbranch_forked = False
 
 
 def maybe_fork_to_branch(context):

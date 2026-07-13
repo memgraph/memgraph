@@ -68,17 +68,16 @@ def before_scenario(context, scenario):
     context.exception = None
 
     if getattr(context.config, "versioned_branch", False):
-        # Persistent Bolt session for this scenario only, backed by its OWN
-        # dedicated Driver (see steps/database.py get_vbranch_session/
-        # close_vbranch_session): opened lazily on first query, closed in
-        # after_scenario below. CHECKOUT BRANCH state lives on the physical
-        # connection, so a fresh session per scenario keeps state from
-        # leaking between scenarios; a fresh DRIVER per scenario (rather than
-        # a Session pulled from the long-lived `context.driver`) is required
-        # because Memgraph permanently flags a connection once it has
-        # touched branching -- see the detailed note in database.py.
+        # Persistent Bolt session for this scenario only, backed by the
+        # shared `context.driver` (see steps/database.py
+        # get_vbranch_session/close_vbranch_session): opened lazily on first
+        # query, closed in after_scenario below. CHECKOUT BRANCH state lives
+        # on the physical connection, so holding one session open for the
+        # whole scenario keeps a setup-time checkout in effect for the
+        # scenario's test query; close_vbranch_session() checks out back to
+        # main before closing so the connection is clean when it returns to
+        # the pool for the next scenario.
         context.vbranch_session = None
-        context.vbranch_driver = None
         context.vbranch_forked = False
         context.vbranch_counter += 1
         context.vbranch_name = f"_gqlb_{context.vbranch_counter}"
