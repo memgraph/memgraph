@@ -909,14 +909,18 @@ class InMemoryStorage final : public Storage {
   // member of version_fork_pins_ at the moment we also insert our own pin.
   std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(uint64_t fork_ts);
 
-  // Graph Versioning v1 durability (S3a, FIX B): opens a WRITE-capable accessor over a Transaction
+  // Graph Versioning v1 durability (S3a, FIX B): opens a write-capable accessor over a Transaction
   // whose `start_timestamp` is the caller-supplied `start_ts` (recovery replay's `Ci - 1`) instead
   // of a fresh `timestamp_++` tick -- see CreateRecoveryReplayTransaction's doc-comment for the full
   // rationale. Unlike HistoricalAccess:
   //  - the returned Transaction is NOT `is_historical_`, so it can create real deltas via the
   //    normal write path (CreateVertex/SetProperty/etc.), and its finalize path takes the ordinary
   //    `commit_log_->MarkFinished(start_timestamp)` branch, not the fork-pin release branch.
-  //  - the accessor takes a WRITE-type main_lock_ guard (not READ), matching an ordinary writer.
+  //  - the accessor takes an `rw_type`-typed main_lock_ guard (defaulting to WRITE, matching an
+  //    ordinary writer) -- BUG-1 fix: callers replaying a DDL/schema WAL transaction (index,
+  //    constraint, enum, TTL, description-store) must pass StorageAccessType::UNIQUE here so the
+  //    accessor's type() satisfies those methods' own `MG_ASSERT(type() == UNIQUE || ...)` gates;
+  //    ordinary data-plane replay keeps the WRITE default.
   //  - there is no fork-pin bookkeeping here at all (no self-pin, no ForkTimestampNotPinned check)
   //    -- pin seeding around the recovery window is a LATER slice's (S3d) concern, not this
   //    primitive's. Callers are expected to already hold whatever external synchronization recovery
@@ -924,7 +928,8 @@ class InMemoryStorage final : public Storage {
   // Committing this accessor with an ordinary CommitArgs (make_main/make_replica_*) would write a
   // brand-new WAL entry despite replaying already-durable data; recovery must pair this accessor
   // with CommitArgs::make_recovery_replay(Ci) (S3a, FIX C) to suppress that.
-  std::unique_ptr<Storage::Accessor> CreateRecoveryReplayAccessor(uint64_t start_ts);
+  std::unique_ptr<Storage::Accessor> CreateRecoveryReplayAccessor(uint64_t start_ts,
+                                                                  StorageAccessType rw_type = StorageAccessType::WRITE);
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();

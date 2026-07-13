@@ -20,6 +20,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal_delta_apply.hpp"
+#include "storage/v2/durability/wal_schema_delta_apply.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -1223,7 +1224,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
     // NOLINTNEXTLINE (google-build-using-namespace)
     using namespace storage::durability;
-    auto *mapper = storage->name_id_mapper_.get();
     auto delta_apply = utils::Overloaded{
         // The eight pure DATA-plane arms (vertex/edge create/delete/set-property/add-remove-label)
         // are extracted into storage::ApplyWalDataDelta (storage/v2/durability/wal_delta_apply.{hpp,
@@ -1359,478 +1359,150 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             num_committed_txns++;
           }
         },
-        [&](WalLabelIndexCreate const &data) {
-          spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
-          // Need to send the timestamp
+        // The 34 remaining (schema-plane) arms -- every index/stats/constraint/enum/point/vector/
+        // text-index/TTL/description-store WalDeltaData alternative -- are extracted into
+        // storage::ApplyWalSchemaDelta (storage/v2/durability/wal_schema_delta_apply.{hpp,cpp}),
+        // the companion to S3b's storage::ApplyWalDataDelta above. Each arm below still resolves
+        // its own accessor with the SAME StorageAccessType hint it always used (most need
+        // kUniqueAccess; the four IndexStats Set/Clear pairs use the default WRITE hint) -- that
+        // resolution is access-type-sensitive replica framing and stays here unchanged -- then
+        // hands the whole delta off to the shared core, which re-dispatches on the concrete
+        // alternative internally. Byte-identical behavior, same as the data-plane forwarders.
+        [&](WalLabelIndexCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->CreateIndex(storage->NameToLabel(data.label)))
-            throw utils::BasicException("Failed to create label index on :{}.", data.label);
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalLabelIndexDrop const &data) {
-          spdlog::trace("   Delta {}. Drop label index on :{}", current_delta_idx, data.label);
+        [&](WalLabelIndexDrop const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->DropIndex(storage->NameToLabel(data.label)))
-            throw utils::BasicException("Failed to drop label index on :{}.", data.label);
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalLabelIndexStatsSet const &data) {
-          spdlog::trace("   Delta {}. Set label index statistics on :{}", current_delta_idx, data.label);
-          // Need to send the timestamp
+        [&](WalLabelIndexStatsSet const &) {
           auto *transaction = get_replication_accessor(delta_timestamp);
-          const auto label = storage->NameToLabel(data.label);
-          LabelIndexStats stats{};
-          if (!FromJson(data.json_stats, stats)) {
-            throw utils::BasicException("Failed to read statistics!");
-          }
-          transaction->SetIndexStats(label, stats);
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalLabelIndexStatsClear const &data) {
-          spdlog::trace("   Delta {}. Clear label index statistics on :{}", current_delta_idx, data.label);
-          // Need to send the timestamp
+        [&](WalLabelIndexStatsClear const &) {
           auto *transaction = get_replication_accessor(delta_timestamp);
-          if (!transaction->DeleteLabelIndexStats(storage->NameToLabel(data.label))) {
-            throw utils::BasicException("Failed to clear label index statistics on :{}.", data.label);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalLabelPropertyIndexCreate const &data) {
-          spdlog::trace("   Delta {}. Create label+property index on :{} ({})",
-                        current_delta_idx,
-                        data.label,
-                        data.composite_property_paths);
+        [&](WalLabelPropertyIndexCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto property_paths = data.composite_property_paths.convert(mapper);
-          if (!transaction->CreateIndex(storage->NameToLabel(data.label), std::move(property_paths)))
-            throw utils::BasicException(
-                "Failed to create label+property index on :{} ({}).", data.label, data.composite_property_paths);
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalLabelPropertyIndexDrop const &data) {
-          spdlog::trace("   Delta {}. Drop label+property index on :{} ({})",
-                        current_delta_idx,
-                        data.label,
-                        data.composite_property_paths);
+        [&](WalLabelPropertyIndexDrop const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto property_paths = data.composite_property_paths.convert(mapper);
-
-          if (!transaction->DropIndex(storage->NameToLabel(data.label), std::move(property_paths))) {
-            throw utils::BasicException(
-                "Failed to drop label+property index on :{} ({}).", data.label, data.composite_property_paths);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalLabelPropertyIndexStatsSet const &data) {
-          spdlog::trace("   Delta {}. Set label-property index statistics on :{}", current_delta_idx, data.label);
-          // Need to send the timestamp
+        [&](WalLabelPropertyIndexStatsSet const &) {
           auto *transaction = get_replication_accessor(delta_timestamp);
-          const auto label = storage->NameToLabel(data.label);
-          auto property_paths = data.composite_property_paths.convert(mapper);
-          LabelPropertyIndexStats stats{};
-          if (!FromJson(data.json_stats, stats)) {
-            throw utils::BasicException("Failed to read statistics!");
-          }
-          transaction->SetIndexStats(label, std::move(property_paths), stats);
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalLabelPropertyIndexStatsClear const &data) {
-          spdlog::trace("   Delta {}. Clear label-property index statistics on :{}", current_delta_idx, data.label);
-          // Need to send the timestamp
+        [&](WalLabelPropertyIndexStatsClear const &) {
           auto *transaction = get_replication_accessor(delta_timestamp);
-          transaction->DeleteLabelPropertyIndexStats(storage->NameToLabel(data.label));
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalEdgeTypeIndexCreate const &data) {
-          spdlog::trace("   Delta {}. Create edge index on :{}", current_delta_idx, data.edge_type);
+        [&](WalEdgeTypeIndexCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->CreateIndex(storage->NameToEdgeType(data.edge_type))) {
-            throw utils::BasicException("Failed to create edge index on :{}.", data.edge_type);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalEdgeTypeIndexDrop const &data) {
-          spdlog::trace("   Delta {}. Drop edge index on :{}", current_delta_idx, data.edge_type);
+        [&](WalEdgeTypeIndexDrop const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->DropIndex(storage->NameToEdgeType(data.edge_type))) {
-            throw utils::BasicException("Failed to drop edge index on :{}.", data.edge_type);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalEdgeTypePropertyIndexCreate const &data) {
-          spdlog::trace("   Delta {}. Create edge index on :{}({})", current_delta_idx, data.edge_type, data.property);
+        [&](WalEdgeTypePropertyIndexCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->CreateIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
-                   .has_value()) {
-            throw utils::BasicException(
-                "Failed to create edge property index on :{}({}).", data.edge_type, data.property);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalEdgeTypePropertyIndexDrop const &data) {
-          spdlog::trace("   Delta {}. Drop edge index on :{}({})", current_delta_idx, data.edge_type, data.property);
+        [&](WalEdgeTypePropertyIndexDrop const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->DropIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
-                   .has_value()) {
-            throw utils::BasicException(
-                "Failed to drop edge property index on :{}({}).", data.edge_type, data.property);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalEdgePropertyIndexCreate const &data) {
-          spdlog::trace("       Create global edge index on ({})", data.property);
+        [&](WalEdgePropertyIndexCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property))) {
-            throw utils::BasicException("Failed to create global edge property index on ({}).", data.property);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalEdgePropertyIndexDrop const &data) {
-          spdlog::trace("       Drop global edge index on ({})", data.property);
+        [&](WalEdgePropertyIndexDrop const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->DropGlobalEdgeIndex(storage->NameToProperty(data.property))) {
-            throw utils::BasicException("Failed to drop global edge property index on ({}).", data.property);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalTextIndexCreate const &data) {
+        [&](WalTextIndexCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto label_id = storage->NameToLabel(data.label);
-          const auto properties_str = std::invoke([&]() -> std::string {
-            if (data.properties && !data.properties->empty()) {
-              return fmt::format(" ({})", rv::join(*data.properties, ", ") | r::to<std::string>);
-            }
-            return {};
-          });
-          spdlog::trace("   Delta {}. Create text search index {} on :{}{}",
-                        current_delta_idx,
-                        data.index_name,
-                        data.label,
-                        properties_str);
-          auto prop_ids = std::invoke([&]() -> std::vector<PropertyId> {
-            if (!data.properties) {
-              return {};
-            }
-            return *data.properties |
-                   rv::transform([&](const auto &prop_name) { return storage->NameToProperty(prop_name); }) |
-                   r::to_vector;
-          });
-          auto ret = transaction->CreateTextIndex(storage::TextIndexSpec{data.index_name, label_id, prop_ids});
-          if (!ret) {
-            throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name, data.label);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalTextEdgeIndexCreate const &data) {
+        [&](WalTextEdgeIndexCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          const auto edge_type = storage->NameToEdgeType(data.edge_type);
-          const auto properties_str = std::invoke([&]() -> std::string {
-            if (!data.properties.empty()) {
-              return fmt::format(" ({})", rv::join(data.properties, ", ") | r::to<std::string>);
-            }
-            return {};
-          });
-          spdlog::trace("   Delta {}. Create text search index {} on :{}{}",
-                        current_delta_idx,
-                        data.index_name,
-                        data.edge_type,
-                        properties_str);
-          auto prop_ids = data.properties |
-                          rv::transform([&](const auto &prop_name) { return storage->NameToProperty(prop_name); }) |
-                          r::to_vector;
-          const auto ret =
-              transaction->CreateTextEdgeIndex(storage::TextEdgeIndexSpec{data.index_name, edge_type, prop_ids});
-          if (!ret) {
-            throw utils::BasicException(
-                "Failed to create text search index {} on {}.", data.index_name, data.edge_type);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalTextIndexDrop const &data) {
-          spdlog::trace("   Delta {}. Drop text search index {}.", current_delta_idx, data.index_name);
+        [&](WalTextIndexDrop const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction->DropTextIndex(data.index_name)) {
-            throw utils::BasicException("Failed to drop text search index {}.", data.index_name);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalExistenceConstraintCreate const &data) {
-          spdlog::trace(
-              "   Delta {}. Create existence constraint on :{} ({})", current_delta_idx, data.label, data.property);
+        [&](WalExistenceConstraintCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto ret = transaction->CreateExistenceConstraint(storage->NameToLabel(data.label),
-                                                            storage->NameToProperty(data.property));
-          if (!ret) {
-            throw utils::BasicException(
-                "Failed to create existence constraint on :{} ({}).", data.label, data.property);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalExistenceConstraintDrop const &data) {
-          spdlog::trace(
-              "   Delta {}. Drop existence constraint on :{} ({})", current_delta_idx, data.label, data.property);
+        [&](WalExistenceConstraintDrop const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (!transaction
-                   ->DropExistenceConstraint(storage->NameToLabel(data.label), storage->NameToProperty(data.property))
-                   .has_value()) {
-            throw utils::BasicException("Failed to drop existence constraint on :{} ({}).", data.label, data.property);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalUniqueConstraintCreate const &data) {
-          std::stringstream ss;
-          utils::PrintIterable(ss, data.properties);
-          spdlog::trace("   Delta {}. Create unique constraint on :{} ({})", current_delta_idx, data.label, ss.str());
-          std::set<PropertyId> properties;
-          for (const auto &prop : data.properties) {
-            properties.emplace(storage->NameToProperty(prop));
-          }
+        [&](WalUniqueConstraintCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto ret = transaction->CreateUniqueConstraint(storage->NameToLabel(data.label), properties);
-          if (!ret || ret.value() != UniqueConstraints::CreationStatus::SUCCESS) {
-            throw utils::BasicException("Failed to create unique constraint on :{} ({}).", data.label, ss.str());
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalUniqueConstraintDrop const &data) {
-          std::stringstream ss;
-          utils::PrintIterable(ss, data.properties);
-          spdlog::trace("   Delta {}. Drop unique constraint on :{} ({})", current_delta_idx, data.label, ss.str());
-          std::set<PropertyId> properties;
-          for (const auto &prop : data.properties) {
-            properties.emplace(storage->NameToProperty(prop));
-          }
+        [&](WalUniqueConstraintDrop const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto ret = transaction->DropUniqueConstraint(storage->NameToLabel(data.label), properties);
-          if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
-            throw utils::BasicException("Failed to create unique constraint on :{} ({}).", data.label, ss.str());
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalTypeConstraintCreate const &data) {
-          spdlog::trace("   Delta {}. Create IS TYPED {} constraint on :{} ({})",
-                        current_delta_idx,
-                        storage::TypeConstraintKindToString(data.kind),
-                        data.label,
-                        data.property);
-
+        [&](WalTypeConstraintCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto ret = transaction->CreateTypeConstraint(
-              storage->NameToLabel(data.label), storage->NameToProperty(data.property), data.kind);
-          if (!ret) {
-            throw utils::BasicException("Failed to create IS TYPED {} constraint on :{} ({}).",
-                                        TypeConstraintKindToString(data.kind),
-                                        data.label,
-                                        data.property);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalTypeConstraintDrop const &data) {
-          spdlog::trace("   Delta {}. Drop IS TYPED {} constraint on :{} ({})",
-                        current_delta_idx,
-                        TypeConstraintKindToString(data.kind),
-                        data.label,
-                        data.property);
-
+        [&](WalTypeConstraintDrop const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto ret = transaction->DropTypeConstraint(
-              storage->NameToLabel(data.label), storage->NameToProperty(data.property), data.kind);
-          if (!ret) {
-            throw utils::BasicException("Failed to drop IS TYPED {} constraint on :{} ({}).",
-                                        TypeConstraintKindToString(data.kind),
-                                        data.label,
-                                        data.property);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalEnumCreate const &data) {
-          std::stringstream ss;
-          utils::PrintIterable(ss, data.evalues);
-          spdlog::trace("   Delta {}. Create enum {} with values {}", current_delta_idx, data.etype, ss.str());
+        [&](WalEnumCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto res = transaction->CreateEnum(data.etype, data.evalues);
-          if (!res) {
-            throw utils::BasicException("Failed to create enum {} with values {}.", data.etype, ss.str());
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalEnumAlterAdd const &data) {
-          spdlog::trace("   Delta {}. Alter enum {} add value {}", current_delta_idx, data.etype, data.evalue);
+        [&](WalEnumAlterAdd const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto res = transaction->EnumAlterAdd(data.etype, data.evalue);
-          if (!res) {
-            throw utils::BasicException("Failed to alter enum {} add value {}.", data.etype, data.evalue);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalEnumAlterUpdate const &data) {
-          spdlog::trace("   Delta {}. Alter enum {} update {} to {}",
-                        current_delta_idx,
-                        data.etype,
-                        data.evalue_old,
-                        data.evalue_new);
+        [&](WalEnumAlterUpdate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto res = transaction->EnumAlterUpdate(data.etype, data.evalue_old, data.evalue_new);
-          if (!res) {
-            throw utils::BasicException(
-                "Failed to alter enum {} update {} to {}.", data.etype, data.evalue_old, data.evalue_new);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalPointIndexCreate const &data) {
-          spdlog::trace("   Delta {}. Create point index on :{}({})", current_delta_idx, data.label, data.property);
+        [&](WalPointIndexCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto labelId = storage->NameToLabel(data.label);
-          auto propId = storage->NameToProperty(data.property);
-          auto res = transaction->CreatePointIndex(labelId, propId);
-          if (!res) {
-            throw utils::BasicException("Failed to create point index on :{}({})", data.label, data.property);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalPointIndexDrop const &data) {
-          spdlog::trace("   Delta {}. Drop point index on :{}({})", current_delta_idx, data.label, data.property);
+        [&](WalPointIndexDrop const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto labelId = storage->NameToLabel(data.label);
-          auto propId = storage->NameToProperty(data.property);
-          auto res = transaction->DropPointIndex(labelId, propId);
-          if (!res) {
-            throw utils::BasicException("Failed to drop point index on :{}({})", data.label, data.property);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalVectorIndexCreate const &data) {
-          spdlog::trace(
-              "   Delta {}. Create vector index {} on property {}", current_delta_idx, data.index_name, data.property);
+        [&](WalVectorIndexCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto propId = storage->NameToProperty(data.property);
-          auto metric_kind = storage::MetricFromName(data.metric_kind);
-          auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
-                                              : unum::usearch::scalar_kind_t::f32_k;
-
-          std::vector<storage::LabelId> label_ids;
-          label_ids.reserve(data.label_filter.ids.size());
-          for (const auto &name : data.label_filter.ids) label_ids.push_back(storage->NameToLabel(name));
-
-          auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
-              .index_name = data.index_name,
-              .label_filter =
-                  storage::VectorLabelFilter{.mode = static_cast<storage::VectorMatchMode>(data.label_filter.mode),
-                                             .ids = std::move(label_ids)},
-              .property = propId,
-              .metric_kind = metric_kind,
-              .dimension = data.dimension,
-              .resize_coefficient = data.resize_coefficient,
-              .capacity = data.capacity,
-              .scalar_kind = scalar_kind,
-          });
-          if (!res) {
-            throw utils::BasicException(
-                "Failed to create vector index {} on property {}", data.index_name, data.property);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalVectorEdgeIndexCreate const &data) {
-          spdlog::trace("   Delta {}. Create vector edge index {} on property {}",
-                        current_delta_idx,
-                        data.index_name,
-                        data.property);
+        [&](WalVectorEdgeIndexCreate const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto propId = storage->NameToProperty(data.property);
-          auto metric_kind = storage::MetricFromName(data.metric_kind);
-
-          std::vector<storage::EdgeTypeId> edge_type_ids;
-          edge_type_ids.reserve(data.edge_type_filter.ids.size());
-          for (const auto &name : data.edge_type_filter.ids) edge_type_ids.push_back(storage->NameToEdgeType(name));
-
-          auto res = transaction->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
-              .index_name = data.index_name,
-              .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = static_cast<storage::VectorMatchMode>(
-                                                                    data.edge_type_filter.mode),
-                                                                .ids = std::move(edge_type_ids)},
-              .property = propId,
-              .metric_kind = metric_kind,
-              .dimension = data.dimension,
-              .resize_coefficient = data.resize_coefficient,
-              .capacity = data.capacity,
-              .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind),
-          });
-          if (!res) {
-            throw utils::BasicException(
-                "Failed to create vector edge index {} on property {}", data.index_name, data.property);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalVectorIndexDrop const &data) {
-          spdlog::trace("   Delta {}. Drop vector index {} ", current_delta_idx, data.index_name);
+        [&](WalVectorIndexDrop const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto res = transaction->DropVectorIndex(data.index_name);
-          if (!res) {
-            throw utils::BasicException("Failed to drop vector index {}", data.index_name);
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&]([[maybe_unused]] WalTtlOperation const &data) {
-#ifdef MG_ENTERPRISE
-          spdlog::trace("   Delta {}. TTL operation type {}", current_delta_idx, static_cast<int>(data.operation_type));
+        [&](WalTtlOperation const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          switch (data.operation_type) {
-            case storage::durability::TtlOperationType::ENABLE:
-              transaction->StartTtl({.is_main = false});
-              break;
-            case storage::durability::TtlOperationType::DISABLE:
-              transaction->DisableTtl({.is_main = false});
-              break;
-            case storage::durability::TtlOperationType::CONFIGURE:
-              transaction->ConfigureTtl(storage::ttl::TtlInfo{data.period, data.start_time, data.should_run_edge_ttl},
-                                        {.is_main = false});
-              // Configuration will leave it paused; replicas should not run ttl
-              break;
-            case storage::durability::TtlOperationType::STOP:
-              transaction->StopTtl();
-              break;
-            default:
-              throw utils::BasicException("Invalid TTL operation type: {}", static_cast<int>(data.operation_type));
-          }
-#else
-          spdlog::trace("TTL operation is not supported in community edition");
-#endif
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalDescriptionSet const &data) {
-          spdlog::trace("   Delta {}. Set description (kind={})", current_delta_idx, static_cast<int>(data.kind));
+        [&](WalDescriptionSet const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          switch (data.kind) {
-            case DescriptionTargetKind::DATABASE:
-              transaction->SetDatabaseDescription(data.description);
-              break;
-            case DescriptionTargetKind::LABEL:
-              transaction->SetLabelDescription(data.labels, data.description);
-              break;
-            case DescriptionTargetKind::EDGE_TYPE:
-              transaction->SetEdgeTypeDescription(data.edge_type, data.description);
-              break;
-            case DescriptionTargetKind::LABEL_PROPERTY:
-              transaction->SetLabelPropertyDescription(data.labels, data.property, data.description);
-              break;
-            case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
-              transaction->SetEdgeTypePropertyDescription(data.edge_type, data.property, data.description);
-              break;
-            case DescriptionTargetKind::PROPERTY:
-              transaction->SetPropertyDescription(data.property, data.description);
-              break;
-            case DescriptionTargetKind::EDGE_TYPE_PATTERN:
-              transaction->SetEdgeTypePatternDescription(
-                  data.from_labels, data.edge_type, data.to_labels, data.description);
-              break;
-            case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
-              transaction->SetEdgeTypePatternPropertyDescription(
-                  data.from_labels, data.edge_type, data.to_labels, data.property, data.description);
-              break;
-            default:
-              break;
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
-        [&](WalDescriptionDelete const &data) {
-          spdlog::trace("   Delta {}. Delete description (kind={})", current_delta_idx, static_cast<int>(data.kind));
+        [&](WalDescriptionDelete const &) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          switch (data.kind) {
-            case DescriptionTargetKind::DATABASE:
-              transaction->DeleteDatabaseDescription();
-              break;
-            case DescriptionTargetKind::LABEL:
-              transaction->DeleteLabelDescription(data.labels);
-              break;
-            case DescriptionTargetKind::EDGE_TYPE:
-              transaction->DeleteEdgeTypeDescription(data.edge_type);
-              break;
-            case DescriptionTargetKind::LABEL_PROPERTY:
-              transaction->DeleteLabelPropertyDescription(data.labels, data.property);
-              break;
-            case DescriptionTargetKind::EDGE_TYPE_PROPERTY:
-              transaction->DeleteEdgeTypePropertyDescription(data.edge_type, data.property);
-              break;
-            case DescriptionTargetKind::PROPERTY:
-              transaction->DeletePropertyDescription(data.property);
-              break;
-            case DescriptionTargetKind::EDGE_TYPE_PATTERN:
-              transaction->DeleteEdgeTypePatternDescription(data.from_labels, data.edge_type, data.to_labels);
-              break;
-            case DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY:
-              transaction->DeleteEdgeTypePatternPropertyDescription(
-                  data.from_labels, data.edge_type, data.to_labels, data.property);
-              break;
-            default:
-              break;
-          }
+          storage::ApplyWalSchemaDelta(transaction, storage, delta, current_delta_idx);
         },
     };
     // If I received PrepareCommitRpc, deltas should be applied (loading_wal will be false)

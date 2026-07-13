@@ -1266,7 +1266,7 @@ std::optional<RecoveryInfo> LoadWal(
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
     memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
-    const std::optional<uint64_t> stop_at_timestamp) {
+    const std::optional<uint64_t> stop_at_timestamp, const bool stop_is_exclusive) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -1285,10 +1285,15 @@ std::optional<RecoveryInfo> LoadWal(
   }
 
   // Check timestamp (ceiling). Symmetric to the floor skip above: if the whole file starts beyond the
-  // requested stop timestamp, none of its deltas are in scope for this pass.
-  if (stop_at_timestamp && info.from_timestamp > *stop_at_timestamp) {
-    spdlog::info("Skip loading WAL file because it is beyond the requested ceiling. {} > {}",
+  // requested stop timestamp, none of its deltas are in scope for this pass. In exclusive mode the
+  // ceiling itself (F) is out of scope too, so a file whose first delta is exactly F has nothing to
+  // contribute (correctness is enforced either way by the per-delta gate below; this is purely the
+  // same whole-file-skip optimization, kept consistent with the mode).
+  if (stop_at_timestamp &&
+      (stop_is_exclusive ? info.from_timestamp >= *stop_at_timestamp : info.from_timestamp > *stop_at_timestamp)) {
+    spdlog::info("Skip loading WAL file because it is beyond the requested ceiling. {} {} {}",
                  info.from_timestamp,
+                 stop_is_exclusive ? ">=" : ">",
                  *stop_at_timestamp);
     return std::nullopt;
   }
@@ -2077,8 +2082,9 @@ std::optional<RecoveryInfo> LoadWal(
     // Read WAL delta header to find out the delta timestamp.
     if (auto delta_ts = ReadWalDeltaHeader(&wal);
         (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp) &&
-        (!stop_at_timestamp || delta_ts <= *stop_at_timestamp)) {
-      // This delta is above the floor and at/below the ceiling -> should be loaded.
+        (!stop_at_timestamp || (stop_is_exclusive ? delta_ts < *stop_at_timestamp : delta_ts <= *stop_at_timestamp))) {
+      // This delta is above the floor and at/below (or, in exclusive mode, strictly below) the ceiling
+      // -> should be loaded.
       // NOTE: all deltas of a single transaction share one commit timestamp (single-txn-per-WAL-file
       // durability_commit_timestamp), so this per-delta ceiling check is automatically transaction-granular:
       // it can only ever stop cleanly at a transaction boundary, never mid-transaction.

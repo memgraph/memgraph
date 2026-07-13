@@ -85,6 +85,29 @@ auto CreateUniqueGuard(Storage *storage, const std::optional<std::chrono::millis
   TryLock(unique_lock, timeout);
   return unique_lock;
 }
+
+// Graph Versioning v1 durability (BUG-1 fix): RecoveryReplayAccess must now support UNIQUE (DDL
+// replay), not just the data-plane rw_types (WRITE/READ/READ_ONLY) it originally shipped with.
+// CreateSharedGuard LOG_FATALs on UNIQUE, so -- exactly like the UniqueAccess ctor below does --
+// route UNIQUE through a deferred (unlocked) SharedResourceLockGuard placeholder plus a real
+// CreateUniqueGuard lock, and every other rw_type through the ordinary CreateSharedGuard path plus
+// a deferred (unlocked) unique_guard_ placeholder. Two small helpers (rather than an inline ternary
+// in the member-init-list) keep both call sites' branches symmetrical and independently readable.
+auto CreateRecoveryReplaySharedGuard(Storage *storage, StorageAccessType rw_type,
+                                     const std::optional<std::chrono::milliseconds> timeout) {
+  if (rw_type == StorageAccessType::UNIQUE) {
+    return utils::SharedResourceLockGuard(storage->main_lock_, {/* unused */}, std::defer_lock);
+  }
+  return CreateSharedGuard(storage, rw_type, timeout);
+}
+
+auto CreateRecoveryReplayUniqueGuard(Storage *storage, StorageAccessType rw_type,
+                                     const std::optional<std::chrono::milliseconds> timeout) {
+  if (rw_type == StorageAccessType::UNIQUE) {
+    return CreateUniqueGuard(storage, timeout);
+  }
+  return std::unique_lock<utils::ResourceLock>(storage->main_lock_, std::defer_lock);
+}
 }  // namespace
 
 Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
@@ -217,8 +240,17 @@ Storage::Accessor::Accessor(RecoveryReplayAccess /* tag */, Storage *storage,
       // writer would (`rw_type`, defaulting to WRITE) -- see SharedAccess's ctor above for the
       // full rationale on why the lock TYPE (not just isolation level) must track the caller's
       // actual read/write intent.
-      storage_guard_(CreateSharedGuard(storage, rw_type, timeout)),
-      unique_guard_(storage_->main_lock_, std::defer_lock),
+      //
+      // BUG-1 fix: `rw_type` can now also be UNIQUE -- a window-replay transaction whose original
+      // WAL op was DDL (index/constraint/enum/TTL/description) needs a UNIQUE-typed accessor so
+      // `type() == UNIQUE` satisfies the DDL methods' own `MG_ASSERT(type() == UNIQUE || ...)`
+      // gates (e.g. CreateIndex). CreateSharedGuard LOG_FATALs on UNIQUE, so branch through the
+      // same deferred-shared/real-unique split the UniqueAccess ctor uses, via the two helpers
+      // above -- during single-threaded recovery replay this UNIQUE guard is a structural
+      // requirement (avoids the LOG_FATAL, makes type() report UNIQUE), not a concurrency one (no
+      // concurrent accessor/GC exists yet).
+      storage_guard_(CreateRecoveryReplaySharedGuard(storage, rw_type, timeout)),
+      unique_guard_(CreateRecoveryReplayUniqueGuard(storage, rw_type, timeout)),
       // Same MEDIUM-fix ordering guarantee as HistoricalAccess above: build_transaction() (recovery's
       // InMemoryStorage::CreateRecoveryReplayTransaction(start_ts) call) runs here, strictly after
       // storage_guard_ (member declaration order) already holds its guard.

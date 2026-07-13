@@ -35,6 +35,8 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/durability/wal_delta_apply.hpp"
+#include "storage/v2/durability/wal_window_replay.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
@@ -591,6 +593,72 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     commit_log_.emplace();
   } else {
     commit_log_.emplace(timestamp_);
+  }
+
+  // Graph Versioning v1 branch durability (S3d, design doc opencode-work/versioning-v1/
+  // 2026-07-13--durability-S2S3-design-v4.html §4). `config_.durability.recover_oldest_fork_ts` (F)
+  // is set by Database's ctor (database.cpp) IFF at least one branch was persisted -- it pre-reads
+  // the versioning/ KVStore directory before storage construction. When unset (the overwhelmingly
+  // common case: no branches), NONE of the following runs -- byte-identical to today.
+  //
+  // Placement is deliberate: AFTER commit_log_ has just been (re)created above (so
+  // MarkFinishedInRange below has something to seed) and BEFORE gc_runner_ starts (so no GC pass
+  // can ever observe a partially-replayed window or a commit_log_ with unmarked gaps in it).
+  // Recovery is single-threaded here -- no concurrent accessor exists yet.
+  //
+  // Guarded on `recover_on_startup` too, not just `recover_oldest_fork_ts`: this whole mechanism
+  // is only meaningful as a CONTINUATION of the base-to-F pass RecoverData just performed above
+  // (inside the `if (config_.durability.recover_on_startup)` block higher up in this ctor). If
+  // recovery was skipped (recover_on_startup == false) -- e.g. a fresh/no-recovery startup pointed
+  // at a storage directory that happens to already have persisted branch records -- there is no
+  // base state to build on top of at all; replaying the window in that scenario would apply deltas
+  // against an empty/wrong base and must never be attempted.
+  if (config_.durability.recover_on_startup && config_.durability.recover_oldest_fork_ts) {
+    uint64_t const floor_ts = *config_.durability.recover_oldest_fork_ts;
+
+    // (a) Seed every live branch's fork pin BEFORE any window commit runs. Mirrors
+    // HistoricalAccess's own pin-before-read ordering (storage.cpp) and v3's confirmed
+    // "pin-before-window" finding (design doc §0): a pin defeats CheckForFastDiscardOfDeltas's
+    // fast-discard path (storage.cpp) for anything at/after its fork_ts, so the freshly-replayed
+    // deltas below can never be discarded out from under the window loop that is still building
+    // them. AddForkPinAt is safe to call from the ctor (no accessor/transaction needed).
+    for (uint64_t const fork_ts : config_.durability.recover_fork_timestamps) {
+      AddForkPinAt(fork_ts);
+    }
+
+    // (b) Window-replay (F, now]: rebuilds the MVCC delta chain for every committed transaction in
+    // the retained WAL (S1) above the floor, in the ORIGINAL commit-timestamp frame, driving
+    // timestamp_ forward as it goes (storage::durability::ReplayWalWindow's own contract).
+    //
+    // find_edge_fallback resolves WalEdgeSetProperty's two legacy-WAL-format cases, which need
+    // FindEdge's PRIVATE overloads below -- this lambda is built HERE (inside a genuine
+    // InMemoryStorage member function) precisely because ReplayWalWindow/ApplyWalDataDelta are free
+    // functions that cannot reach those private overloads themselves (see FindEdgeFallback's
+    // doc-comment, wal_delta_apply.hpp, and this method's own doc-comment, storage.hpp).
+    FindEdgeFallback const find_edge_fallback =
+        [this](Gid edge_gid, std::optional<Gid> from_vertex_gid) -> FindEdgeResult {
+      return from_vertex_gid.has_value() ? FindEdge(edge_gid, *from_vertex_gid) : FindEdge(edge_gid);
+    };
+
+    auto const window_result =
+        durability::ReplayWalWindow(this, recovery_.wal_directory_, std::string{uuid()}, floor_ts, find_edge_fallback);
+
+    spdlog::info(
+        "Graph Versioning v1: branch-durability WAL window replay done ({} transaction(s) replayed, floor={}, "
+        "last replayed original commit_ts={}).",
+        window_result.transactions_replayed,
+        floor_ts,
+        window_result.last_replayed_commit_ts);
+
+    // (c) FIX A (design doc §1): blanket-seed the ENTIRE recovered range -- including every
+    // inter-original gap (read/abort ticks that never appear in the WAL) -- as finished, exactly
+    // mirroring RecoverSnapshot's own "we are the only active transaction" blanket mark below. Each
+    // replay commit's own (skipped, see Transaction::is_recovery_replay_) MarkFinished would
+    // otherwise leave those gaps permanently unmarked, freezing CommitLog::OldestActive() and, with
+    // it, the GC horizon, forever after this restart.
+    if (timestamp_ > 0) {
+      commit_log_->MarkFinishedInRange(0, timestamp_ - 1);
+    }
   }
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
@@ -3127,14 +3195,20 @@ Transaction InMemoryStorage::CreateRecoveryReplayTransaction(uint64_t start_ts) 
   return transaction;
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::CreateRecoveryReplayAccessor(uint64_t start_ts) {
+std::unique_ptr<Storage::Accessor> InMemoryStorage::CreateRecoveryReplayAccessor(uint64_t start_ts,
+                                                                                 StorageAccessType rw_type) {
   // No fork-pin bookkeeping here (unlike HistoricalAccess) -- pin seeding around the recovery
   // window is S3d's concern, not this primitive's. See this method's doc-comment in storage.hpp.
+  //
+  // BUG-1 fix: `rw_type` is now threaded through from the caller instead of being hardcoded to
+  // WRITE -- window-replay (wal_window_replay.cpp) resolves the original WAL transaction's real
+  // access type (UNIQUE for DDL/schema replay, WRITE/READ/READ_ONLY for data-plane replay) and
+  // passes it here so the accessor's type() matches what the transaction actually needs.
   return std::unique_ptr<Storage::Accessor>(
       new InMemoryAccessor{Storage::Accessor::recovery_replay_access,
                            this,
                            [this, start_ts] { return CreateRecoveryReplayTransaction(start_ts); },
-                           StorageAccessType::WRITE,
+                           rw_type,
                            std::nullopt});
 }
 

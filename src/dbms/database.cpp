@@ -12,11 +12,15 @@
 #include "dbms/database.hpp"
 
 #include <memory>
+#include <set>
+
+#include <nlohmann/json.hpp>
 
 #include "dbms/database_info.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
+#include "kvstore/kvstore.hpp"
 #include "memory/db_arena.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
@@ -26,6 +30,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
+#include "utils/file.hpp"
 #include "versioning/version_store.hpp"
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
@@ -132,6 +137,57 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   // to the concrete InMemoryStorage instance).
   const auto versioning_directory = config.durability.storage_directory / "versioning";
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
+
+  // Graph Versioning v1 branch durability (S3d, design doc opencode-work/versioning-v1/
+  // 2026-07-13--durability-S2S3-design-v4.html §2). Pre-read any persisted branches' fork_ts values
+  // BEFORE storage construction below, so InMemoryStorage's recovery ctor sequence knows how far
+  // back it must reconstruct main's history (see storage::Config::Durability::
+  // recover_oldest_fork_ts's doc-comment, config.hpp). This uses a SEPARATE, throwaway KVStore
+  // handle over the SAME versioning/ directory the real versioning::VersionStore (below) will open
+  // -- it must be fully closed (out of scope) before that happens, because kvstore's backing
+  // RocksDB instance takes an exclusive, process-wide directory lock; two concurrently-live
+  // KVStore handles over the same path is undefined behavior (see kvstore::KVStore's own ctor
+  // doc-comment). Scoped in the block below so the throwaway handle's destructor runs before
+  // `storage_` (and later `version_store_`) are ever touched.
+  //
+  // If the directory doesn't exist yet, no branch has ever been created against this database --
+  // leave both new Config fields at their default (nullopt / empty set), which keeps every
+  // downstream recovery code path byte-identical to today (see recover_oldest_fork_ts's
+  // doc-comment: "no branches" is the fast path, unconditionally).
+  if (utils::DirExists(versioning_directory)) {
+    std::set<uint64_t> fork_timestamps;
+    {
+      kvstore::KVStore throwaway_kv{versioning_directory};
+      for (auto const &[name, data] : throwaway_kv) {
+        // Reserved, never-a-branch-name key for the monotonic branch-number counter (mirrors
+        // versioning::VersionStore's private kNextNumberKey, version_store.cpp) -- must be skipped
+        // here exactly like VersionStore's own ctor skips it.
+        if (name == ".next_number") continue;
+
+        auto json_data = nlohmann::json::parse(data, /*cb=*/nullptr, /*allow_exceptions=*/false);
+        if (json_data.is_discarded() || !json_data.is_object() || !json_data.contains("fork_ts") ||
+            !json_data["fork_ts"].is_number_unsigned()) {
+          // Mirrors VersionStore's own tolerant "warn and skip" handling of a corrupt/legacy record
+          // (see its ctor, version_store.cpp) -- a single bad record must not abort the whole
+          // database's startup. This branch's history simply won't be reconstructed by the
+          // windowed-replay pass below; VersionStore's own load (later) will independently hit the
+          // same corrupt record and warn again.
+          spdlog::warn(
+              "Graph Versioning v1: failed to pre-read branch '{}' for durability recovery (corrupt or "
+              "missing fork_ts) -- this branch's history may not be reconstructable after this restart.",
+              name);
+          continue;
+        }
+        fork_timestamps.insert(json_data["fork_ts"].get<uint64_t>());
+      }
+      // `throwaway_kv` goes out of scope here, releasing the RocksDB directory lock before
+      // `storage_`/`version_store_` are constructed below.
+    }
+    if (!fork_timestamps.empty()) {
+      config.durability.recover_oldest_fork_ts = *fork_timestamps.begin();  // std::set is ordered ascending
+      config.durability.recover_fork_timestamps = std::move(fork_timestamps);
+    }
+  }
 
   // Bound the per-DB cap by the global --memory-limit; SetHardLimit(0) falls back to it.
   if (auto global_max = utils::total_memory_tracker.MaximumHardLimit(); global_max > 0) {

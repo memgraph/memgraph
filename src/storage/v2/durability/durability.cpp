@@ -700,6 +700,37 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                   std::string{uuid},
                   repl_storage_state.epoch_.id());
   }
+  // Graph Versioning v1 branch durability (S3c/S3d, design doc opencode-work/versioning-v1/
+  // 2026-07-13--durability-S2S3-design-v4.html §3/§5). `config.durability.recover_oldest_fork_ts`
+  // (F), when set, means at least one branch is persisted and its historical base must be
+  // reconstructible after this restart -- this pass ("base-to-F") must materialize main only up to
+  // F, leaving (F, now] for the caller's later windowed WAL replay (InMemoryStorage's ctor, S3d).
+  //
+  // GUARD, scoped to ONLY the branch-recovery path (F set): if the newest snapshot's own durable
+  // timestamp is NEWER than F, this snapshot already encodes state strictly past the branch's fork
+  // point -- loading it as-is would make "base-to-F" wrong (too new), not just incomplete, because
+  // LoadSnapshot has no ceiling of its own. The full fix (select an older snapshot with
+  // durable_ts <= F, or fall back to pure-WAL-from-start when none exists -- design doc §5b) is
+  // DEFERRED for v1: this is a loud, explicit, fail-fast rejection rather than a silent
+  // skip/best-effort. The ordinary (F unset) recovery path below is completely untouched by this
+  // check -- zero risk to non-versioned databases.
+  // BUG-2 fix: the fork boundary is now EXCLUSIVE on the base side (base must materialize only
+  // ts < F, see the base-to-F LoadWal call below), so a snapshot whose own durable_timestamp is
+  // exactly AT F is equally unsafe as one strictly newer -- it already bakes the ts == F
+  // transaction in flat (non-MVCC) state, which the fork's strict `ts < start_timestamp`
+  // visibility (mvcc.hpp) must instead hide. Hence `<=`, not `<`.
+  if (config.durability.recover_oldest_fork_ts && snapshot_durable_timestamp &&
+      *config.durability.recover_oldest_fork_ts <= *snapshot_durable_timestamp) {
+    LOG_FATAL(
+        "Graph Versioning v1: a branch was forked at timestamp {} but the newest recoverable snapshot is already "
+        "at timestamp {} (at or newer than the fork point). Reconstructing that branch's historical base from an "
+        "older snapshot or from WAL-from-scratch is NOT YET SUPPORTED in this version (v1 known limitation, "
+        "design doc §5b) -- the branch's history cannot be recovered after this restart. Consider disabling "
+        "snapshot creation, increasing snapshot retention, or dropping the branch before restarting.",
+        *config.durability.recover_oldest_fork_ts,
+        *snapshot_durable_timestamp);
+  }
+
   auto const maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
   MG_ASSERT(maybe_wal_files.has_value(), "Couldn't recover data because of the failure to read wal files");
 
@@ -753,7 +784,19 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                             schema_info,
                             find_edge,
                             ttl,
-                            description_store);
+                            description_store,
+                            // Graph Versioning v1 (S3c-i/S3d): base-to-F ceiling. nullopt (no
+                            // branches) is byte-identical to today -- LoadWal applies the whole
+                            // file, same as before this parameter existed.
+                            config.durability.recover_oldest_fork_ts,
+                            // BUG-2 fix: EXCLUSIVE ceiling on this base-to-F pass -- base must
+                            // materialize only ts < F. A transaction committing at EXACTLY ts == F
+                            // is left for ReplayWalWindow (wal_window_replay.cpp) to apply as a
+                            // real MVCC delta, matching CreateHistoricalTransaction's strict
+                            // `ts < start_timestamp` visibility (mvcc.hpp) -- see this function's
+                            // header comment. Every other LoadWal call site keeps the default
+                            // (inclusive, false).
+                            /*stop_is_exclusive=*/true);
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};

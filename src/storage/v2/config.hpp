@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <set>
 #include <string>
 
 #include "flags/coord_flag_env_handler.hpp"
@@ -102,6 +103,26 @@ struct Config {
 
     bool allow_parallel_snapshot_creation{false};  // PER DATABASE
     bool allow_parallel_schema_creation{false};    // PER DATABASE
+
+    // Graph Versioning v1 branch durability (S3d, design doc opencode-work/versioning-v1/
+    // 2026-07-13--durability-S2S3-design-v4.html §4). Set by Database's ctor (database.cpp) BEFORE
+    // storage construction, by pre-reading the versioning/ KVStore directory for any persisted
+    // branch records -- purely a recovery-time input, never written to by storage itself.
+    //
+    // `recover_oldest_fork_ts` (F) is the minimum `fork_ts` across every persisted branch, or
+    // nullopt if no branch exists. When set, InMemoryStorage's recovery ctor sequence performs a
+    // "base-to-F" pass (materializing main only up to F) followed by a windowed (F, now] WAL
+    // replay that rebuilds the MVCC delta chain in the ORIGINAL commit-timestamp frame, so
+    // HistoricalAccess(fork_ts) works again post-restart for every persisted branch. When nullopt
+    // (the overwhelmingly common case -- no branches), recovery is byte-identical to today: no new
+    // code path is exercised.
+    std::optional<uint64_t> recover_oldest_fork_ts{};
+    // The full set of persisted branches' fork_ts values (a superset containing
+    // `recover_oldest_fork_ts` as its minimum, when non-empty) -- used to re-seed
+    // InMemoryStorage::AddForkPinAt for EVERY live branch, not just the oldest, once the ctor has
+    // reconstructed history back to the oldest one.
+    std::set<uint64_t> recover_fork_timestamps{};
+
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 
