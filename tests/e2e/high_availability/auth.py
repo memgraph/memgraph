@@ -11,10 +11,12 @@
 
 import os
 import sys
+import time
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
+from mg_utils import mg_sleep_and_assert
 from neo4j import GraphDatabase
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -546,6 +548,230 @@ def test_ha_mt_auth_scenario(test_name):
         result = session.run("MATCH (n) RETURN count(n) as cnt").single()
         assert result["cnt"] == 1  # Only AdminNode
     admin_driver.close()
+
+
+# ---------------------------------------------------------------------------
+# Coordinator role store: 3 coordinators, no data instances.
+#
+# Covers the foundational roles slice: basic-auth passthrough, rejection of
+# non-role auth queries, on-leader role CRUD and full-cluster-restart
+# persistence. Follower forwarding and SSO are exercised by later slices.
+# ---------------------------------------------------------------------------
+
+COORD_PORTS = [7690, 7691, 7692]
+
+
+def get_coords_only_description(test_name: str):
+    """Three coordinators, no data instances. The role list is the only cluster state we care about here."""
+    return {
+        "coordinator_1": {
+            "args": [
+                "--bolt-port=7690",
+                "--log-level=TRACE",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
+                "--management-port=10121",
+                "--coordinator-hostname",
+                "localhost",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator_1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator_1",
+            "setup_queries": [],
+        },
+        "coordinator_2": {
+            "args": [
+                "--bolt-port=7691",
+                "--log-level=TRACE",
+                "--coordinator-id=2",
+                "--coordinator-port=10112",
+                "--management-port=10122",
+                "--coordinator-hostname",
+                "localhost",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator_2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator_2",
+            "setup_queries": [],
+        },
+        "coordinator_3": {
+            "args": [
+                "--bolt-port=7692",
+                "--log-level=TRACE",
+                "--coordinator-id=3",
+                "--coordinator-port=10113",
+                "--management-port=10123",
+                "--coordinator-hostname",
+                "localhost",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator_3.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator_3",
+            "setup_queries": [
+                "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+                "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+                "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+            ],
+        },
+    }
+
+
+def try_find_leader_port():
+    """Return the bolt port of the up leader coordinator, or None if none is currently reachable."""
+    for port in COORD_PORTS:
+        try:
+            cursor = connect(host="localhost", port=port).cursor()
+            for row in show_instances(cursor):
+                # row = (name, bolt_server, coordinator_server, management_server, status, role)
+                if row[-1] == "leader" and row[-2] == "up":
+                    return int(row[1].split(":")[1])
+        except Exception:
+            continue
+    return None
+
+
+def wait_for_ready_leader_port():
+    """Return the leader coordinator's bolt port once it is ready to serve role queries.
+
+    A coordinator can report itself as leader in SHOW INSTANCES a moment before it reaches the ready state in which
+    role queries are served, so we poll SHOW ROLES until it stops returning the not-leader error.
+    """
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        port = try_find_leader_port()
+        if port is not None:
+            try:
+                cursor = connect(host="localhost", port=port).cursor()
+                execute_and_fetch_all(cursor, "SHOW ROLES")
+                return port
+            except Exception:
+                pass
+        time.sleep(0.5)
+    assert False, "Leader coordinator not ready to serve role queries"
+
+
+def get_leader_cursor():
+    return connect(host="localhost", port=wait_for_ready_leader_port()).cursor()
+
+
+def show_roles(cursor):
+    return sorted(name for (name,) in execute_and_fetch_all(cursor, "SHOW ROLES"))
+
+
+def test_basic_auth_passthrough(test_name):
+    # Coordinators with no users accept any connection; credentials are ignored (basic-auth passthrough).
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+
+    # Connect without credentials and run a coordinator query.
+    no_auth_cursor = connect(host="localhost", port=leader_port).cursor()
+    assert show_roles(no_auth_cursor) == []
+
+    # Connect with arbitrary username/password: the credentials are ignored and the session works the same.
+    basic_auth_cursor = connect(
+        host="localhost", port=leader_port, username="whoever", password="whatever"
+    ).cursor()
+    assert show_roles(basic_auth_cursor) == []
+    # A basic-auth session can run role management.
+    execute_and_fetch_all(basic_auth_cursor, "CREATE ROLE passthrough_role")
+    assert show_roles(basic_auth_cursor) == ["passthrough_role"]
+
+
+def test_disallowed_auth_queries_rejected(test_name):
+    # Every auth query other than CREATE/DROP/SHOW ROLE is rejected on a coordinator.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+
+    disallowed_queries = [
+        "CREATE USER foo IDENTIFIED BY 'bar'",
+        "DROP USER foo",
+        "SHOW USERS",
+        "SET PASSWORD FOR foo TO 'bar'",
+        "GRANT ALL PRIVILEGES TO foo",
+        "DENY MATCH TO foo",
+        "REVOKE MATCH FROM foo",
+        "SHOW PRIVILEGES FOR foo",
+        "SET ROLE FOR foo TO bar",
+        "CLEAR ROLE FOR foo",
+    ]
+    for query in disallowed_queries:
+        try:
+            execute_and_fetch_all(cursor, query)
+            assert False, f"Query should have been rejected on a coordinator: {query}"
+        except Exception as e:
+            assert "Coordinator can run only coordinator queries!" in str(e), f"Unexpected error for {query}: {e}"
+
+
+def test_role_crud_on_leader(test_name):
+    # On the leader, CREATE/DROP/SHOW ROLE behave like on data instances.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+
+    assert show_roles(cursor) == []
+
+    # CREATE adds the role and it shows up.
+    execute_and_fetch_all(cursor, "CREATE ROLE admin")
+    assert show_roles(cursor) == ["admin"]
+
+    execute_and_fetch_all(cursor, "CREATE ROLE readonly")
+    assert show_roles(cursor) == ["admin", "readonly"]
+
+    # Duplicate CREATE errors.
+    try:
+        execute_and_fetch_all(cursor, "CREATE ROLE admin")
+        assert False, "Duplicate CREATE ROLE should error"
+    except Exception as e:
+        assert "already exists" in str(e)
+
+    # IF NOT EXISTS is a no-op on an existing role.
+    execute_and_fetch_all(cursor, "CREATE ROLE IF NOT EXISTS admin")
+    assert show_roles(cursor) == ["admin", "readonly"]
+
+    # DROP removes the role.
+    execute_and_fetch_all(cursor, "DROP ROLE admin")
+    assert show_roles(cursor) == ["readonly"]
+
+    # DROP of a missing role errors.
+    try:
+        execute_and_fetch_all(cursor, "DROP ROLE admin")
+        assert False, "DROP of a missing role should error"
+    except Exception as e:
+        assert "doesn't exist" in str(e)
+
+
+def test_roles_survive_full_cluster_restart(test_name):
+    # The role list is Raft-persisted, so it survives a full-cluster restart.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+    execute_and_fetch_all(cursor, "CREATE ROLE admin")
+    execute_and_fetch_all(cursor, "CREATE ROLE readonly")
+    execute_and_fetch_all(cursor, "CREATE ROLE readwrite")
+    assert show_roles(cursor) == ["admin", "readonly", "readwrite"]
+
+    # Restart every coordinator, preserving data directories. Clear the bootstrap setup_queries first so restart does
+    # not re-issue ADD COORDINATOR against an already-formed cluster; the state comes back from the durable log.
+    for name in ["coordinator_1", "coordinator_2", "coordinator_3"]:
+        inner_instances_description[name]["setup_queries"] = []
+        interactive_mg_runner.kill(inner_instances_description, name)
+    for name in ["coordinator_1", "coordinator_2", "coordinator_3"]:
+        interactive_mg_runner.start(inner_instances_description, name)
+
+    # After the cluster re-forms, the role list must be reconstructed from the log/snapshot.
+    def get_roles_from_leader():
+        port = try_find_leader_port()
+        if port is None:
+            return None
+        try:
+            return show_roles(connect(host="localhost", port=port).cursor())
+        except Exception:
+            return None
+
+    mg_sleep_and_assert(["admin", "readonly", "readwrite"], get_roles_from_leader)
 
 
 if __name__ == "__main__":

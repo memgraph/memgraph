@@ -62,6 +62,12 @@ class CoordinatorState {
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;
 
+  auto CreateRole(std::string_view role_name) const -> CreateRoleStatus;
+
+  auto DropRole(std::string_view role_name) const -> DropRoleStatus;
+
+  auto GetRoles(std::vector<std::string> &roles) const -> GetRolesStatus;
+
   auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
 
   auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;

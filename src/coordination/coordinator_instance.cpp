@@ -1149,6 +1149,59 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
   return SetCoordinatorSettingStatus::SUCCESS;
 }
 
+auto CoordinatorInstance::CreateRole(std::string_view const role_name) const -> CreateRoleStatus {
+  // Follower forwarding is a later slice; for now the operation must run on the ready leader.
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return CreateRoleStatus::NOT_LEADER;
+  }
+
+  auto roles = raft_state_->GetRoles();
+  if (std::ranges::contains(roles, role_name)) {
+    return CreateRoleStatus::ROLE_ALREADY_EXISTS;
+  }
+  roles.emplace_back(role_name);
+
+  CoordinatorClusterStateDelta delta_state;
+  delta_state.roles_ = std::move(roles);
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
+    spdlog::error("Aborting creation of role {}. Writing to Raft failed.", role_name);
+    return CreateRoleStatus::RAFT_LOG_ERROR;
+  }
+
+  return CreateRoleStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::DropRole(std::string_view const role_name) const -> DropRoleStatus {
+  // Follower forwarding is a later slice; for now the operation must run on the ready leader.
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return DropRoleStatus::NOT_LEADER;
+  }
+
+  auto roles = raft_state_->GetRoles();
+  auto const removed = std::erase(roles, role_name);
+  if (removed == 0) {
+    return DropRoleStatus::NO_SUCH_ROLE;
+  }
+
+  CoordinatorClusterStateDelta delta_state;
+  delta_state.roles_ = std::move(roles);
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
+    spdlog::error("Aborting removal of role {}. Writing to Raft failed.", role_name);
+    return DropRoleStatus::RAFT_LOG_ERROR;
+  }
+
+  return DropRoleStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::GetRoles(std::vector<std::string> &roles) const -> GetRolesStatus {
+  // SHOW ROLES is a strong read served by the leader; follower forwarding is a later slice.
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return GetRolesStatus::NOT_LEADER;
+  }
+  roles = raft_state_->GetRoles();
+  return GetRolesStatus::SUCCESS;
+}
+
 void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name, InstanceState const &instance_state) {
   metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.instance_succ_callback_seconds};
 

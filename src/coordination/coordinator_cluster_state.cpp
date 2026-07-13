@@ -42,6 +42,7 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &
   instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
   instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
   global_read_only_ = other.global_read_only_;
+  roles_ = other.roles_;
   // NOLINTEND
 }
 
@@ -62,6 +63,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
   instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
   global_read_only_ = other.global_read_only_;
+  roles_ = other.roles_;
   return *this;
 }
 
@@ -76,7 +78,8 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other
       deltas_batch_progress_size_(other.deltas_batch_progress_size_),
       instance_down_timeout_sec_(other.instance_down_timeout_sec_),
       instance_health_check_frequency_sec_(other.instance_health_check_frequency_sec_),
-      global_read_only_(other.global_read_only_) {}
+      global_read_only_(other.global_read_only_),
+      roles_(std::move(other.roles_)) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
@@ -96,6 +99,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
   instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
   global_read_only_ = other.global_read_only_;
+  roles_ = std::move(other.roles_);
   return *this;
 }
 
@@ -163,6 +167,10 @@ auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state)
 
   if (delta_state.global_read_only_.has_value()) {
     global_read_only_ = *delta_state.global_read_only_;
+  }
+
+  if (delta_state.roles_.has_value()) {
+    roles_ = std::move(*delta_state.roles_);
   }
 }
 
@@ -249,6 +257,11 @@ auto CoordinatorClusterState::GetGlobalReadOnly() const -> bool {
   return global_read_only_;
 }
 
+auto CoordinatorClusterState::GetRoles() const -> std::vector<std::string> {
+  auto lock = std::shared_lock{app_lock_};
+  return roles_;
+}
+
 void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
   auto lock = std::lock_guard{app_lock_};
   coordinator_instances_ = std::move(coordinator_instances);
@@ -304,6 +317,11 @@ void CoordinatorClusterState::SetGlobalReadOnly(bool const global_read_only) {
   global_read_only_ = global_read_only;
 }
 
+void CoordinatorClusterState::SetRoles(std::vector<std::string> roles) {
+  auto lock = std::lock_guard{app_lock_};
+  roles_ = std::move(roles);
+}
+
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
   j = nlohmann::json{{kDataInstances.data(), state.GetDataInstancesContext()},
                      {kMainUUID.data(), state.GetCurrentMainUUID()},
@@ -318,7 +336,9 @@ void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
                      // Added in 3.10.0 version
                      {kInstanceDownTimeoutSec.data(), state.GetInstanceDownTimeoutSec()},
                      {kInstanceHealthCheckFreqSec.data(), state.GetInstanceHealthCheckFrequencySec().count()},
-                     {kGlobalReadOnly.data(), state.GetGlobalReadOnly()}};
+                     {kGlobalReadOnly.data(), state.GetGlobalReadOnly()},
+                     // Coordinator role list, added for SSO on coordinators
+                     {kRoles.data(), state.GetRoles()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
@@ -366,6 +386,10 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
   // global_read_only defaults to false for clusters serialized before this feature
   bool const global_read_only = j.value(kGlobalReadOnly.data(), false);
   instance_state.SetGlobalReadOnly(global_read_only);
+
+  // roles defaults to an empty list for clusters serialized before coordinator SSO. An older coordinator ignores the
+  // unknown key; a newer coordinator reading an older snapshot sees an empty role set.
+  instance_state.SetRoles(j.value(kRoles.data(), std::vector<std::string>{}));
 }
 
 }  // namespace memgraph::coordination

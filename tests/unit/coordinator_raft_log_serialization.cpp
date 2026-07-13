@@ -130,3 +130,33 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterStateAllSettings) {
   auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
   ASSERT_EQ(delta_state, decoded_log_state);
 }
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithRoles) {
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.roles_ = std::vector<std::string>{"admin", "readonly"}};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+  ASSERT_EQ(decoded_log_state.roles_, (std::vector<std::string>{"admin", "readonly"}));
+}
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithEmptyRoles) {
+  // An empty (but set) roles vector must roundtrip as an empty vector, not as an unset optional.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.roles_ = std::vector<std::string>{}};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+  ASSERT_TRUE(decoded_log_state.roles_.has_value());
+  ASSERT_TRUE(decoded_log_state.roles_->empty());
+}
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithoutRoles) {
+  // A delta that doesn't set roles (older log) must decode with roles_ left unset, so DoAction leaves roles untouched.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.enabled_reads_on_main_ = true};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+  ASSERT_FALSE(decoded_log_state.roles_.has_value());
+}

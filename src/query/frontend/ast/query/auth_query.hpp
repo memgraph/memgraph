@@ -223,6 +223,13 @@ class AuthQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+/// Coordinators expose only role management out of the whole auth surface: CREATE ROLE, DROP ROLE and SHOW ROLES.
+/// Every other auth query (users, passwords, privileges, grants) is rejected on a coordinator.
+inline bool IsCoordinatorPermittedAuthQuery(AuthQuery::Action action) {
+  return action == AuthQuery::Action::CREATE_ROLE || action == AuthQuery::Action::DROP_ROLE ||
+         action == AuthQuery::Action::SHOW_ROLES;
+}
+
 /// Constant that holds all available privileges.
 const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::CREATE,

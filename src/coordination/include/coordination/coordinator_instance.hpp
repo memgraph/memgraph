@@ -91,6 +91,12 @@ class CoordinatorInstance {
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;
 
+  auto CreateRole(std::string_view role_name) const -> CreateRoleStatus;
+
+  auto DropRole(std::string_view role_name) const -> DropRoleStatus;
+
+  auto GetRoles(std::vector<std::string> &roles) const -> GetRolesStatus;
+
   auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
   auto GetRoutingTableAsLeader(std::string_view db_name) const -> RoutingTable;
   auto GetRoutingTableAsFollower(auto leader_id, std::string_view db_name) const -> RoutingTable;
