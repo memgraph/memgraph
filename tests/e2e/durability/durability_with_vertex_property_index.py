@@ -50,9 +50,6 @@ def test_index_survives_wal_recovery(test_name):
             "args": [
                 "--log-level=TRACE",
                 "--data-recovery-on-startup=true",
-                "--storage-wal-enabled=true",
-                "--storage-snapshot-on-exit=false",
-                "--storage-snapshot-interval-sec=0",
             ],
             "log_file": "wal_recovery.log",
             "data_directory": data_directory,
@@ -90,10 +87,8 @@ def test_index_survives_snapshot_recovery(test_name):
             "args": [
                 "--log-level=TRACE",
                 "--data-recovery-on-startup=true",
-                "--storage-wal-enabled=true",
-                "--storage-snapshot-on-exit=true",
-                "--storage-snapshot-interval-sec=0",
             ],
+            "storage_snapshot_on_exit": True,
             "log_file": "snapshot_recovery.log",
             "data_directory": data_directory,
         },
@@ -127,9 +122,6 @@ def test_drop_index_survives_wal_recovery(test_name):
             "args": [
                 "--log-level=TRACE",
                 "--data-recovery-on-startup=true",
-                "--storage-wal-enabled=true",
-                "--storage-snapshot-on-exit=false",
-                "--storage-snapshot-interval-sec=0",
             ],
             "log_file": "drop_wal_recovery.log",
             "data_directory": data_directory,
@@ -159,9 +151,6 @@ def test_index_with_data_added_after_snapshot(test_name):
             "args": [
                 "--log-level=TRACE",
                 "--data-recovery-on-startup=true",
-                "--storage-wal-enabled=true",
-                "--storage-snapshot-on-exit=false",
-                "--storage-snapshot-interval-sec=0",
             ],
             "log_file": "data_after_snapshot.log",
             "data_directory": data_directory,
