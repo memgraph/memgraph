@@ -148,8 +148,8 @@ class SimplePlanChecker : public plan::HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(plan::Filter &) override {
-    operator_details.push_back("Filter");
+  bool PreVisit(plan::Filter &op) override {
+    operator_details.push_back("Filter " + DescribeExpression(op.expression_));
     return true;
   }
 
@@ -771,7 +771,7 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "WithWhereFiltersRows",
             .query = "UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 RETURN x;",
-            .expected_details = {"Produce {x`1:x}", "Filter", "Unwind {x:literal}", "Once"},
+            .expected_details = {"Produce {x`1:x}", "Filter (x > 1)", "Unwind {x:literal}", "Once"},
             .expected_rewrites = 1,  // the no-op WITH x bind is rewritten away
         },
         // Two WITH ... WHERE clauses stack into two Filters (each no-op WITH x bind
@@ -779,7 +779,7 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "ChainedWithWhereStacksTwoFilters",
             .query = "UNWIND [1, 2, 3, 4, 5] AS x WITH x WHERE x > 1 WITH x WHERE x < 5 RETURN x;",
-            .expected_details = {"Produce {x`1:x}", "Filter", "Filter", "Unwind {x:literal}", "Once"},
+            .expected_details = {"Produce {x`1:x}", "Filter (x < 5)", "Filter (x > 1)", "Unwind {x:literal}", "Once"},
             .expected_rewrites = 2,  // both no-op WITH x binds are rewritten away
         },
         // x is used only in the predicate, so its demand forces the pipe to introduce
@@ -788,7 +788,7 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "PredicateDemandKeepsUnwindBinding",
             .query = "UNWIND range(1, 100) AS x WITH x WHERE x > 50 RETURN 42 AS r;",
-            .expected_details = {"Produce {r`1:42}", "Filter", "Unwind {x:RANGE(1, 100)}", "Once"},
+            .expected_details = {"Produce {r`1:42}", "Filter (x > 50)", "Unwind {x:RANGE(1, 100)}", "Once"},
             .expected_rewrites = 1,  // the no-op WITH x bind is rewritten away
         }
     ),
