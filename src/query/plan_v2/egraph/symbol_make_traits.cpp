@@ -29,11 +29,10 @@ auto symbol_make_traits<Literal>::make(storage_type &s, storage::ExternalPropert
   auto [it, inserted] = s.store.try_emplace(value, s.info.size());
   if (inserted) s.info.push_back(&it->first);
 
-  auto const is_list = value.IsList() || value.IsIntList() || value.IsDoubleList() || value.IsNumericList();
   return {.lowered = {.children = {}, .disambiguator = it->second},
-          .seed = analysis{
-              ExpressionAnalysis{.known_constant_value = value,
-                                 .known_list_length = is_list ? std::optional{GetListSize(value)} : std::nullopt}}};
+          .seed = analysis{ExpressionAnalysis{
+              .known_constant_value = value,
+              .known_list_length = value.IsAnyList() ? std::optional{GetListSize(value)} : std::nullopt}}};
 }
 
 auto symbol_make_traits<ParamLookup>::make(storage_type & /*s*/, int32_t pos) -> seeded_node {
