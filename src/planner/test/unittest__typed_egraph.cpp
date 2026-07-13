@@ -134,34 +134,19 @@ static_assert(SymbolMakeTraits<toy_traits<ToyOp::Symbol>, ToyAnalysis, std::stri
               "a well-formed interning trait satisfies the protocol");
 static_assert(!SymbolMakeTraits<BadTraits, ToyAnalysis>, "make() not returning a MakeResult is rejected");
 
-// === RewritableGraph: one concept covers both adapters; Make<S> follows interning ===
+// === RewritableGraph: only the interning wrapper is rewritable ===
 
-// A bare EGraph is its own core, and a TypedEGraph returns the EGraph it wraps;
-// both therefore model the single concept the rewrite engine drives.
-static_assert(rewrite::RewritableGraph<EGraph<test::Op, test::NoAnalysis>>);
+// The rewrite engine drives a TypedEGraph: it exposes symbol/analysis types and
+// a core() the engine mutates. A bare EGraph is not directly rewritable - it has
+// no core() - so new nodes are always minted through the typed Make<S>, which
+// seeds analysis.
 static_assert(rewrite::RewritableGraph<test::TypedTestEGraph>);
+static_assert(!rewrite::RewritableGraph<EGraph<test::Op, test::NoAnalysis>>);
 
 template <typename Ctx>
 concept CtxCanMakeVar = requires(Ctx ctx) { ctx.template Make<test::Op::Var>(); };
 
-// Make<S> is offered over a graph that interns (TypedEGraph) and removed from
-// overload resolution over a bare EGraph, which has no Make.
-static_assert(!CtxCanMakeVar<rewrite::RuleContext<EGraph<test::Op, test::NoAnalysis>>>);
+// A rule's context over a TypedEGraph offers Make<S> to intern new nodes.
 static_assert(CtxCanMakeVar<rewrite::RuleContext<test::TypedTestEGraph>>);
-
-// A stand-in stateful analysis: emplace is seed-less, so it must be absent here.
-struct StatefulAnalysis {
-  int fact;
-
-  void merge(StatefulAnalysis const &) {}
-};
-
-template <typename Ctx>
-concept CtxCanEmplaceVar = requires(Ctx ctx) { ctx.emplace(test::Op::Var, 0U); };
-
-// Seed-less emplace is offered over an analysis-free graph and removed once the
-// graph carries a stateful analysis, which must be seeded through Make<S>.
-static_assert(CtxCanEmplaceVar<rewrite::RuleContext<EGraph<test::Op, test::NoAnalysis>>>);
-static_assert(!CtxCanEmplaceVar<rewrite::RuleContext<EGraph<test::Op, StatefulAnalysis>>>);
 
 }  // namespace memgraph::planner::core

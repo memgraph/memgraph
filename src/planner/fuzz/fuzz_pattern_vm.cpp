@@ -76,6 +76,7 @@ using namespace rewrite;      // Rewrite types (RewriteRule, RuleContext, etc.)
 using fuzz::dump_egraph;
 using fuzz::FuzzAnalysis;
 using fuzz::FuzzSymbol;
+using fuzz::FuzzTypedEGraph;
 using fuzz::MultiPatternGenerator;
 using fuzz::pattern_to_egglog;
 using fuzz::pattern_to_memgraph;
@@ -497,27 +498,27 @@ class FuzzerState {
         patterns.push_back(pattern_to_memgraph(ast));
       }
 
-      auto vm_rule_builder = RewriteRule<EGraph<FuzzSymbol, FuzzAnalysis>>::Builder("fuzz_vm");
+      auto vm_rule_builder = RewriteRule<FuzzTypedEGraph>::Builder("fuzz_vm");
       for (auto &p : patterns) {
         vm_rule_builder = std::move(vm_rule_builder).pattern(std::move(p));
       }
       try {
-        auto vm_rule = std::move(vm_rule_builder)
-                           .apply([this, &vm_raw, &vm_unique, &var_ids](RuleContext<EGraph<FuzzSymbol, FuzzAnalysis>> &,
-                                                                        Match const &m) {
-                             ++vm_raw;
-                             BindingTuple tuple;
-                             tuple.reserve(var_ids.size());
-                             for (auto id : var_ids) {
-                               auto eclass_id = m[PatternVar{id}];
-                               tuple.push_back(egraph_.find(eclass_id));
-                             }
-                             vm_unique.insert(std::move(tuple));
-                           });
+        auto vm_rule =
+            std::move(vm_rule_builder)
+                .apply([this, &vm_raw, &vm_unique, &var_ids](RuleContext<FuzzTypedEGraph> &, Match const &m) {
+                  ++vm_raw;
+                  BindingTuple tuple;
+                  tuple.reserve(var_ids.size());
+                  for (auto id : var_ids) {
+                    auto eclass_id = m[PatternVar{id}];
+                    tuple.push_back(egraph_.find(eclass_id));
+                  }
+                  vm_unique.insert(std::move(tuple));
+                });
 
         vm_compilation_succeeded = true;
         compiled_matcher_copy = vm_rule.compiled();  // Copy for diagnostics
-        RuleContext rule_ctx(egraph_, new_eclasses);
+        RuleContext rule_ctx(typed_egraph_, new_eclasses);
         vm_rule.match(matcher, vm_executor, matcher_ctx);
         vm_rule.apply(rule_ctx, matcher_ctx);
       } catch (std::overflow_error const &) {
@@ -697,19 +698,18 @@ class FuzzerState {
       MatcherContext matcher_ctx;
       std::vector<EClassId> new_eclasses;
 
-      auto rule_builder = RewriteRule<EGraph<FuzzSymbol, FuzzAnalysis>>::Builder("fuzz_rewrite");
+      auto rule_builder = RewriteRule<FuzzTypedEGraph>::Builder("fuzz_rewrite");
       for (auto &p : patterns) {
         rule_builder = std::move(rule_builder).pattern(std::move(p));
       }
       try {
-        auto rule = std::move(rule_builder)
-                        .apply([&match_roots](RuleContext<EGraph<FuzzSymbol, FuzzAnalysis>> &, Match const &m) {
-                          // Limit to 8 rewrites to keep the e-graph from blowing up
-                          if (match_roots.size() < 8) {
-                            match_roots.push_back(m[PatternVar{0}]);
-                          }
-                        });
-        RuleContext<EGraph<FuzzSymbol, FuzzAnalysis>> rule_ctx(egraph_, new_eclasses);
+        auto rule = std::move(rule_builder).apply([&match_roots](RuleContext<FuzzTypedEGraph> &, Match const &m) {
+          // Limit to 8 rewrites to keep the e-graph from blowing up
+          if (match_roots.size() < 8) {
+            match_roots.push_back(m[PatternVar{0}]);
+          }
+        });
+        RuleContext<FuzzTypedEGraph> rule_ctx(typed_egraph_, new_eclasses);
         rule.match(matcher, vm_executor, matcher_ctx);
         rule.apply(rule_ctx, matcher_ctx);
       } catch (std::overflow_error const &) {
@@ -852,12 +852,10 @@ class FuzzerState {
       std::vector<EClassId> new_eclasses;
 
       try {
-        auto rule = RewriteRule<EGraph<FuzzSymbol, FuzzAnalysis>>::Builder("fuzz_absent")
+        auto rule = RewriteRule<FuzzTypedEGraph>::Builder("fuzz_absent")
                         .pattern(std::move(pattern))
-                        .apply([&match_count](RuleContext<EGraph<FuzzSymbol, FuzzAnalysis>> &, Match const &) {
-                          ++match_count;
-                        });
-        RuleContext<EGraph<FuzzSymbol, FuzzAnalysis>> rule_ctx(egraph_, new_eclasses);
+                        .apply([&match_count](RuleContext<FuzzTypedEGraph> &, Match const &) { ++match_count; });
+        RuleContext<FuzzTypedEGraph> rule_ctx(typed_egraph_, new_eclasses);
         rule.match(matcher, vm_executor, matcher_ctx);
         rule.apply(rule_ctx, matcher_ctx);
       } catch (std::overflow_error const &) {
@@ -904,7 +902,10 @@ class FuzzerState {
     return static_cast<size_t>(raw % created_ids_.size());
   }
 
-  EGraph<FuzzSymbol, FuzzAnalysis> egraph_;
+  // The rewrite engine drives the typed wrapper; `egraph_` aliases the core it
+  // owns so the building operations below act on the same graph.
+  FuzzTypedEGraph typed_egraph_;
+  EGraph<FuzzSymbol, FuzzAnalysis> &egraph_ = typed_egraph_.core();
   ProcessingContext<FuzzSymbol> ctx_;
   std::vector<EClassId> created_ids_;
   size_t operation_count_ = 0;

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 #include "test_support/symbols.hpp"
@@ -19,10 +20,12 @@
 import memgraph.planner.core.egraph;
 import memgraph.planner.core.typed_egraph;
 
-/// Trait specialisations for the test/benchmark `Op` symbol set. All Ops
-/// lower as "just children, no storage, no disambiguator"; the toy
-/// planner has no interning or scope semantics. Different arities are
-/// modelled by the number of `EClassId` parameters in `make()`.
+/// Trait specialisations for the test/benchmark `Op` symbol set. Ops carry no
+/// storage; the toy planner has no interning or scope semantics. Different
+/// arities are modelled by the number of `EClassId` parameters in `make()`.
+/// Leaves also accept an explicit disambiguator so a rule can mint fresh
+/// distinct leaves (`Make<Op::Var>(id)`), the way growth tests exercise the
+/// rewriter's new-e-class bookkeeping.
 namespace memgraph::planner::core::test {
 
 template <Op S>
@@ -37,6 +40,10 @@ struct op_make_traits<S> {
 
   static auto make(storage_type & /*s*/) -> MakeResult<NoAnalysis> {
     return {.lowered = {.children = {}, .disambiguator = std::nullopt}};
+  }
+
+  static auto make(storage_type & /*s*/, std::uint64_t disambiguator) -> MakeResult<NoAnalysis> {
+    return {.lowered = {.children = {}, .disambiguator = disambiguator}};
   }
 };
 

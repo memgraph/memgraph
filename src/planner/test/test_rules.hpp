@@ -12,6 +12,7 @@
 #pragma once
 
 #include "planner/rewrite/rewriter.hpp"
+#include "test_support/op_make_traits.hpp"
 #include "test_support/patterns.hpp"
 
 namespace memgraph::planner::core::test {
@@ -22,8 +23,8 @@ using pattern::Match;
 // Rewriter Test Types
 // ============================================================================
 
-using TestRewriteRule = rewrite::RewriteRule<EGraph<Op, NoAnalysis>>;
-using TestRuleContext = rewrite::RuleContext<EGraph<Op, NoAnalysis>>;
+using TestRewriteRule = rewrite::RewriteRule<TypedTestEGraph>;
+using TestRuleContext = rewrite::RuleContext<TypedTestEGraph>;
 
 // ============================================================================
 // Reusable Test Rules

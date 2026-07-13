@@ -57,9 +57,9 @@ auto make_apply_fn(F &&fn) {
 
 /// A rewrite rule: patterns + apply function. Use Builder to construct.
 ///
-/// `Graph` is the graph the rule's apply runs over: a bare `EGraph` for rules
-/// that only merge/emplace, or a `TypedEGraph` for rules whose apply mints
-/// interned nodes via `ctx.Make<S>`. `Symbol` and `Analysis` are derived from it.
+/// `Graph` is the `TypedEGraph` the rule's apply runs over: its apply merges
+/// e-classes and mints interned nodes via `ctx.Make<S>`. `Symbol` and
+/// `Analysis` are derived from it.
 template <RewritableGraph Graph>
 class RewriteRule {
   using Symbol = typename Graph::symbol_type;

@@ -239,12 +239,6 @@ struct EGraph : private detail::EGraphBase {
   using symbol_type = Symbol;
   using analysis_type = Analysis;
 
-  /// The underlying core e-graph. A bare e-graph is its own core; a wrapping
-  /// TypedEGraph returns the EGraph it owns. One concept covers both.
-  auto core() -> EGraph & { return *this; }
-
-  auto core() const -> EGraph const & { return *this; }
-
   /**
    * @brief Emplace an e-node directly with canonical children
    * @return EmplaceResult - (eclass_id, enode_id, did_insert)

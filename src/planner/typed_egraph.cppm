@@ -107,6 +107,7 @@ class TypedEGraph {
   /// rewrite engine drives.
   using symbol_type = Symbol;
   using analysis_type = Analysis;
+  using egraph_type = EGraph<Symbol, Analysis>;
 
   TypedEGraph() = default;
   TypedEGraph(TypedEGraph &&) noexcept = default;
@@ -139,12 +140,12 @@ class TypedEGraph {
   /// extraction all consume `EGraph<Symbol, Analysis>` directly. Prefer
   /// `Make<S>` to seed new e-classes: it derives the seed's kind from `S` at
   /// compile time, which a caller-built seed passed to raw `emplace` does not.
-  auto core() -> EGraph<Symbol, Analysis> & { return core_; }
+  auto core() -> egraph_type & { return core_; }
 
-  auto core() const -> EGraph<Symbol, Analysis> const & { return core_; }
+  auto core() const -> egraph_type const & { return core_; }
 
  private:
-  EGraph<Symbol, Analysis> core_;
+  egraph_type core_;
   SymbolStorageFor<SymbolSeq, Traits> storage_;
 };
 

@@ -132,16 +132,16 @@ class RewriteContext {
  *
  * Example usage:
  * @code
- *   EGraph<Op, NoAnalysis> egraph;
- *   // ... populate egraph ...
+ *   MyTypedEGraph graph;
+ *   // ... populate graph ...
  *
- *   auto ruleset = RuleSet<EGraph<Op, NoAnalysis>>::Builder{}
+ *   auto ruleset = RuleSet<MyTypedEGraph>::Builder{}
  *       .add_rule(double_negation_rule)
  *       .add_rule(commutativity_rule)
  *       .build();
  *
  *   // RuleSet copy is cheap (shared_ptr increment); the graph type is deduced
- *   Rewriter rewriter(egraph, ruleset);
+ *   Rewriter rewriter(graph, ruleset);
  *
  *   auto result = rewriter.saturate(RewriteConfig::Default());
  *   if (result.saturated()) {
@@ -155,6 +155,7 @@ template <RewritableGraph Graph>
 class Rewriter {
   using Symbol = typename Graph::symbol_type;
   using Analysis = typename Graph::analysis_type;
+  using EGraph = typename Graph::egraph_type;
 
  public:
   /**
@@ -162,7 +163,7 @@ class Rewriter {
    *
    * Use set_rules() to configure rules before calling saturate().
    *
-   * @param graph The graph to rewrite (a bare EGraph or a TypedEGraph); must remain valid
+   * @param graph The graph to rewrite; must remain valid
    */
   explicit Rewriter(Graph &graph)
       : egraph_(&graph.core()), matcher_(graph.core()), vm_executor_(graph.core()), ctx_(graph) {}
@@ -173,7 +174,7 @@ class Rewriter {
    * The RuleSet is copied (cheap - just shared_ptr increment), allowing
    * multiple rewriters to share the same rules efficiently.
    *
-   * @param graph The graph to rewrite (a bare EGraph or a TypedEGraph); must remain valid
+   * @param graph The TypedEGraph to rewrite; must remain valid
    * @param rules Shared rule set to use
    */
   Rewriter(Graph &graph, RuleSet<Graph> rules)
@@ -318,7 +319,7 @@ class Rewriter {
   void rebuild_index(std::span<EClassId const> updated_eclasses) { matcher_.rebuild_index(updated_eclasses); }
 
  private:
-  EGraph<Symbol, Analysis> *egraph_;
+  EGraph *egraph_;
   RuleSet<Graph> rules_;  ///< Shared rules (cheap to copy)
   MatcherIndex<Symbol, Analysis> matcher_;
   pattern::vm::VMExecutor<Symbol, Analysis> vm_executor_;  ///< VM pattern matcher

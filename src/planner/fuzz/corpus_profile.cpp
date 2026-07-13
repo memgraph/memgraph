@@ -43,6 +43,7 @@ namespace memgraph::planner::core {
 // Import fuzz types into this namespace
 using fuzz::FuzzAnalysis;
 using fuzz::FuzzSymbol;
+using fuzz::FuzzTypedEGraph;
 using fuzz::MultiPatternGenerator;
 using fuzz::pattern_to_memgraph;
 using fuzz::pattern_to_string;
@@ -91,14 +92,12 @@ class ProfileRunner {
       patterns_copy.push_back(pattern_to_memgraph(ast));
     }
 
-    auto rule_builder = RewriteRule<EGraph<FuzzSymbol, FuzzAnalysis>>::Builder("profile_vm");
+    auto rule_builder = RewriteRule<FuzzTypedEGraph>::Builder("profile_vm");
     for (auto &p : patterns_copy) {
       rule_builder = std::move(rule_builder).pattern(std::move(p));
     }
-    vm_rule_ = std::make_unique<RewriteRule<EGraph<FuzzSymbol, FuzzAnalysis>>>(
-        std::move(rule_builder).apply([this](RuleContext<EGraph<FuzzSymbol, FuzzAnalysis>> &, Match const &) {
-          ++match_count_;
-        }));
+    vm_rule_ = std::make_unique<RewriteRule<FuzzTypedEGraph>>(
+        std::move(rule_builder).apply([this](RuleContext<FuzzTypedEGraph> &, Match const &) { ++match_count_; }));
 
     // Print info
     std::cerr << "E-graph: " << egraph_.num_classes() << " classes, " << egraph_.num_nodes() << " nodes\n";
@@ -115,7 +114,7 @@ class ProfileRunner {
     pattern::vm::VMExecutor vm_executor(egraph_);
     MatcherContext matcher_ctx;  // NOLINT(misc-const-correctness) - mutated by match()
     std::vector<EClassId> new_eclasses;
-    RuleContext rule_ctx(egraph_, new_eclasses);
+    RuleContext rule_ctx(typed_egraph_, new_eclasses);
 
     for (int i = 0; i < iterations; ++i) {
       match_count_ = 0;
@@ -194,13 +193,16 @@ class ProfileRunner {
     current_patterns_ast_ = std::move(result.patterns);
   }
 
-  EGraph<FuzzSymbol, FuzzAnalysis> egraph_;
+  // The rewrite engine drives the typed wrapper; `egraph_` aliases the core it
+  // owns so the building operations act on the same graph.
+  FuzzTypedEGraph typed_egraph_;
+  EGraph<FuzzSymbol, FuzzAnalysis> &egraph_ = typed_egraph_.core();
   ProcessingContext<FuzzSymbol> ctx_;
   std::vector<EClassId> created_ids_;
   MultiPatternGenerator pattern_gen_;
   std::vector<PatternASTPtr> current_patterns_ast_;
   std::vector<Pattern<FuzzSymbol>> patterns_;
-  std::unique_ptr<RewriteRule<EGraph<FuzzSymbol, FuzzAnalysis>>> vm_rule_;
+  std::unique_ptr<RewriteRule<FuzzTypedEGraph>> vm_rule_;
   std::size_t match_count_ = 0;
 };
 
