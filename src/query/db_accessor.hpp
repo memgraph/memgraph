@@ -1051,6 +1051,14 @@ class DbAccessor final {
   // incident edge is diff-resident, the native cascade's adjacency read is complete and correct.
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
     if (branch_ctx_ != nullptr) {
+      // Bug fix (double-delete-on-a-branch crash): a target already tombstoned on this branch is
+      // already deleted -- deleting it again must be a no-op (matches `main`'s own double-delete
+      // semantics), NOT a re-COW. Re-COWing an already-tombstoned edge is exactly what used to crash
+      // (CowEdge's own idempotency check only sees a diff-engine miss at View::NEW, indistinguishable
+      // from "never COW'd", so it fell through to CreateEdgeEx at a gid the diff engine's skiplist
+      // still physically occupies -- MG_ASSERT in storage.cpp). Must be checked BEFORE CowEdge.
+      if (branch_ctx_->IsEdgeTombstoned(edge->Gid())) return std::optional<EdgeAccessor>{};
+
       auto cowed = branch_ctx_->CowEdge(edge->impl_);
       if (!cowed) throw QueryRuntimeException(cowed.error().message);
       edge->impl_ = *cowed;
@@ -1089,6 +1097,12 @@ class DbAccessor final {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
     if (branch_ctx_ != nullptr) {
+      // Bug fix (double-delete-on-a-branch crash): see RemoveEdge's own comment above for the full
+      // rationale -- an already-tombstoned vertex is already deleted; deleting it again is a no-op,
+      // not a re-COW (CowVertex's own idempotency check cannot tell "already deleted" apart from
+      // "never COW'd", and would otherwise crash the same way CowEdge does).
+      if (branch_ctx_->IsVertexTombstoned(vertex_accessor->Gid())) return std::optional<ReturnType>{};
+
       auto cowed = branch_ctx_->CowVertex(vertex_accessor->Gid());
       if (!cowed) throw QueryRuntimeException(cowed.error().message);
       vertex_accessor->impl_ = *cowed;
@@ -1147,6 +1161,9 @@ class DbAccessor final {
   // accessor_->DeleteVertex's native check, which is blind to fork-resident edges on a COW'd vertex.
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
     if (branch_ctx_ != nullptr) {
+      // Bug fix (double-delete-on-a-branch crash): see RemoveEdge's own comment above.
+      if (branch_ctx_->IsVertexTombstoned(vertex_accessor->Gid())) return std::optional<VertexAccessor>{};
+
       auto cowed = branch_ctx_->CowVertex(vertex_accessor->Gid());
       if (!cowed) throw QueryRuntimeException(cowed.error().message);
       vertex_accessor->impl_ = *cowed;
@@ -1197,6 +1214,20 @@ class DbAccessor final {
     using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
     if (branch_ctx_ != nullptr) {
+      // Bug fix (double-delete-on-a-branch crash): filter out any target already tombstoned on this
+      // branch BEFORE any COW or native delete touches it -- see RemoveEdge's own comment above for
+      // the full rationale. This is what makes `MATCH (:A)-[r:R]->(:B) DETACH DELETE r DELETE r` (two
+      // separate Delete operators, each calling DetachDelete once) a no-op on its second call instead
+      // of a crash: the first call tombstones r; the second call's `edges` vector still holds r's
+      // (now stale, fork/historical-pointing) EdgeAccessor, which this strips out here so neither the
+      // COW loop below nor the native `accessor_->DetachDelete` ever sees it again -- matching main's
+      // own "deleting an already-deleted target is a no-op" semantics (the actually-deleted set
+      // reported back to the caller is derived from what the native delete returns, so a skipped
+      // target is correctly absent from it, not double-counted). The vertex analogue
+      // (`DETACH DELETE n DELETE n`) is covered by the `nodes` filter for the identical reason.
+      std::erase_if(edges, [this](const EdgeAccessor &edge) { return branch_ctx_->IsEdgeTombstoned(edge.Gid()); });
+      std::erase_if(nodes, [this](const VertexAccessor &node) { return branch_ctx_->IsVertexTombstoned(node.Gid()); });
+
       if (detach) {
         for (auto &edge : edges) {
           auto cowed = branch_ctx_->CowEdge(edge.impl_);

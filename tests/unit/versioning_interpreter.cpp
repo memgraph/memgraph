@@ -1923,3 +1923,54 @@ TEST_F(VersioningInterpreterTest, UsingVersionMainWriteWhileOnBranchIsNotCapture
     EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
   }
 }
+
+// Bug fix (double-delete-on-a-branch crash): on a checked-out branch, `MATCH (:A)-[r:R]->(:B) DETACH
+// DELETE r DELETE r` used to ABORT the process (MG_ASSERT "The edge must be inserted here!",
+// storage.cpp) -- two separate Delete operators each call query::DbAccessor::DetachDelete once; the
+// first tombstones r, but the second's `r` EdgeAccessor still points at the same gid, and
+// BranchContext::CowEdge's idempotency check (a diff-engine miss at View::NEW) cannot tell "already
+// deleted" apart from "never COW'd", so it fell through to CreateEdgeEx at a gid the diff engine's
+// skiplist still physically occupied. On `main`, re-deleting an already-deleted edge in the same
+// query is a no-op (single delete's worth of side effects) -- the branch must match, not crash.
+TEST_F(VersioningInterpreterTest, BranchDoubleDeleteAlreadyTombstonedEdgeIsNoOpNotCrash) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:A)-[:R]->(:B)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Two DELETE clauses targeting the SAME named edge `r` -- must not crash, and must behave as a
+  // single delete (the edge is gone, endpoints survive). No RETURN clause, so the interesting
+  // assertion is simply that this call returns at all (does not abort the process) -- state is
+  // checked via the follow-up MATCH queries below, mirroring every other delete test in this file.
+  faker.Interpret("MATCH (:A)-[r:R]->(:B) DETACH DELETE r DELETE r");
+
+  {
+    auto edges = faker.Interpret("MATCH ()-[e:R]->() RETURN e");
+    EXPECT_EQ(edges.GetResults().size(), 0U) << "the double-deleted edge must be gone, exactly as a single delete";
+  }
+  {
+    auto vertices = faker.Interpret("MATCH (n) RETURN n");
+    EXPECT_EQ(vertices.GetResults().size(), 2U) << "both endpoints (:A and :B) must survive -- edge-only delete";
+  }
+}
+
+// Bug fix (double-delete-on-a-branch crash), vertex analogue: `CowVertex` has the identical latent
+// idempotency-check gap as `CowEdge` (FindVertex miss at View::NEW cannot distinguish "already
+// tombstoned" from "never COW'd") -- `MATCH (n) DETACH DELETE n DELETE n` on a branch used to hit the
+// same MG_ASSERT("gid collided") crash via CreateVertexEx. Must be a no-op on the second DELETE, same
+// as on `main`.
+TEST_F(VersioningInterpreterTest, BranchDoubleDeleteAlreadyTombstonedVertexIsNoOpNotCrash) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:Iso {tag:1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // No RETURN clause -- the interesting assertion is simply that this call returns at all (does not
+  // abort the process); state is checked via the follow-up MATCH query below.
+  faker.Interpret("MATCH (n:Iso) DETACH DELETE n DELETE n");
+
+  auto vertices = faker.Interpret("MATCH (n:Iso) RETURN n");
+  EXPECT_EQ(vertices.GetResults().size(), 0U) << "the double-deleted vertex must be gone, exactly as a single delete";
+}

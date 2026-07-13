@@ -429,6 +429,22 @@ class BranchContext {
   // Symmetric for edges -- see `tombstoned_edges_`'s own doc-comment.
   void TombstoneEdge(storage::Gid gid) { tombstoned_edges_.insert(gid); }
 
+  // Bug fix (double-delete-on-a-branch crash): thin, read-only predicates over the tombstone sets
+  // -- deliberately NOT exposing `tombstoned_vertices_`/`tombstoned_edges_` themselves (callers only
+  // ever need "has this gid already been deleted on this branch", never iteration/mutation access).
+  // `query::DbAccessor::RemoveVertex`/`RemoveEdge`/`DetachRemoveVertex`/`DetachDelete`
+  // (db_accessor.hpp) call these FIRST, before `CowVertex`/`CowEdge`, to skip a target that is
+  // already tombstoned: re-COW'ing an already-deleted gid is exactly what used to crash (`CowEdge`'s
+  // own idempotency check only looks at `FindDiffEdge(gid, View::NEW)`, which is nullopt for a
+  // DELETED diff-engine object same as for a never-touched one -- it cannot tell "already deleted,
+  // skip" apart from "not yet COW'd, proceed", so it fell through to `CreateEdgeEx`/`CreateVertexEx`
+  // at a gid the diff-engine skiplist still physically occupies, tripping the insert-must-succeed
+  // MG_ASSERT in storage.cpp). A target that is already tombstoned is already deleted on this branch
+  // -- deleting it again must be a no-op, matching `main`'s own double-delete semantics.
+  bool IsVertexTombstoned(storage::Gid gid) const { return tombstoned_vertices_.contains(gid); }
+
+  bool IsEdgeTombstoned(storage::Gid gid) const { return tombstoned_edges_.contains(gid); }
+
  private:
   // MULTI-COMMIT fix (2026-07-12): takes the session's BranchLog CONSTRUCTION INGREDIENTS
   // (`branch_log_session_directory`/`branch_log_items`/`branch_log_mapper`) rather than an

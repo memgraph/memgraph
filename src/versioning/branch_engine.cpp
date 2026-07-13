@@ -430,6 +430,19 @@ std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::C
             "runs against a checked-out branch.");
   storage::Storage::Accessor *diff_txn = current_diff_txn_;
 
+  // Bug fix (double-delete-on-a-branch crash), defense-in-depth: a tombstoned gid must never be
+  // re-COW'd. The primary fix is at the CALL SITE (query::DbAccessor::RemoveVertex/DetachDelete,
+  // db_accessor.hpp, skip a tombstoned target before ever reaching here) -- this guard exists so
+  // that any OTHER future caller reaching CowVertex for an already-deleted gid gets a clean,
+  // catchable CowError instead of falling through to the idempotency check below (which only sees
+  // "not present at View::NEW" -- indistinguishable from "never touched" -- and would proceed to
+  // CreateVertexEx at a gid the diff engine's skiplist still physically occupies, tripping the
+  // insert-must-succeed MG_ASSERT below).
+  if (tombstoned_vertices_.contains(gid)) {
+    return std::unexpected(
+        CowError{fmt::format("Cannot copy-on-write vertex {}: already deleted on this branch.", gid.AsUint())});
+  }
+
   // Idempotent: a prior COW (or a branch-native create sharing this gid -- impossible per the
   // gid-watermark reservation, but FindVertex is the correct check regardless) already resident in
   // the diff engine wins outright. View::NEW so this transaction sees its own prior writes.
@@ -513,6 +526,15 @@ std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::Cow
             "runs against a checked-out branch.");
 
   const auto edge_gid = fork_edge.Gid();
+
+  // Bug fix (double-delete-on-a-branch crash), defense-in-depth: mirrors CowVertex's own tombstone
+  // guard above -- see its comment for the full rationale. Checked before the idempotency check
+  // below (which cannot itself distinguish "already deleted" from "never COW'd" -- both look like a
+  // FindDiffEdge miss).
+  if (tombstoned_edges_.contains(edge_gid)) {
+    return std::unexpected(
+        CowError{fmt::format("Cannot copy-on-write edge {}: already deleted on this branch.", edge_gid.AsUint())});
+  }
 
   // Idempotent: a prior COW (or a branch-native create sharing this gid) already resident in the
   // diff engine wins outright -- mirrors CowVertex's own idempotency check exactly. View::NEW so
