@@ -68,8 +68,6 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::MULTI_DATABASE_EDIT;
     case query::AuthQuery::Privilege::MULTI_DATABASE_USE:
       return auth::Permission::MULTI_DATABASE_USE;
-    case query::AuthQuery::Privilege::COORDINATOR:
-      return auth::Permission::COORDINATOR;
     case query::AuthQuery::Privilege::IMPERSONATE_USER:
       return auth::Permission::IMPERSONATE_USER;
     case query::AuthQuery::Privilege::PROFILE_RESTRICTION:

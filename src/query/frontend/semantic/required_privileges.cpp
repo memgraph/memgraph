@@ -183,7 +183,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); /* OR EDIT */
   }
 
-  void Visit(CoordinatorQuery & /*coordinator_query*/) override { AddPrivilege(AuthQuery::Privilege::COORDINATOR); }
+  void Visit(CoordinatorQuery & /*coordinator_query*/) override { /* no privilege gates coordinator queries */ }
 
   void Visit(CreateEnumQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
 

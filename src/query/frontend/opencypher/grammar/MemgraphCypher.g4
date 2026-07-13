@@ -591,7 +591,6 @@ privilege : CREATE
           | STORAGE_MODE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
-          | COORDINATOR
           | IMPERSONATE_USER
           | PROFILE_RESTRICTION
           | PARALLEL_EXECUTION
