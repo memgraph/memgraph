@@ -34,6 +34,7 @@
 
 #include "frontend/ast/ast.hpp"
 #include "frontend/ast/ast_storage.hpp"
+#include "query/plan/cost_constants.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/balanced_union.hpp"
