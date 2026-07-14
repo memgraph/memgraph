@@ -47,12 +47,12 @@ always at least as selective, never less.
 ### Creating and dropping
 
 ```cypher
-CREATE GLOBAL INDEX ON ':'(prop);
-DROP GLOBAL INDEX ON ':'(prop);
+CREATE GLOBAL INDEX ON :(prop);
+DROP GLOBAL INDEX ON :(prop);
 ```
 
 This mirrors the existing global edge property index syntax
-(`CREATE GLOBAL EDGE INDEX ON ':'(prop)`), without the `EDGE` keyword.
+(`CREATE GLOBAL EDGE INDEX ON :(prop)`), without the `EDGE` keyword.
 
 - `prop` is required.
 - Creating an index that already exists returns an informational notice (not an
