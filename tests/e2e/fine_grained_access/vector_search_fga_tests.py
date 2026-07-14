@@ -160,5 +160,18 @@ def test_wildcard_vector_search_blocked_when_indexed_property_has_per_label_deny
         )
 
 
+# Hybrid is :Public:Document and lives in doc_vec (:Document). user_prop_deny_indexed DENY {embedding}
+# :Public makes Hybrid's embedding unreadable (deny wins over the global grant) even though the index is
+# keyed on :Document — the per-row filter must drop it, matching normal iteration (n.embedding is NULL).
+def test_vector_search_drops_multilabel_node_with_denied_indexed_property():
+    res = common.execute_and_fetch_all(
+        user_prop_deny_indexed_cursor(),
+        "CALL vector_search.search('doc_vec', 10, [1.0, 0.0]) YIELD node RETURN node.title AS title;",
+    )
+    titles = {row[0] for row in res}
+    assert "Hybrid" not in titles
+    assert "Secret" in titles
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

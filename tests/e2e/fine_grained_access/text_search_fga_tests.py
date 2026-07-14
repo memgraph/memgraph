@@ -38,6 +38,10 @@ def user_grant_only_cursor():
     return common.connect(username="user_grant_only", password="test").cursor()
 
 
+def user_prop_deny_cross_cursor():
+    return common.connect(username="user_prop_deny_cross", password="test").cursor()
+
+
 # text_search on vertices -----------------------------------------------------
 
 
@@ -136,6 +140,25 @@ def test_text_search_edges_blocked_on_property_denied():
             user_prop_cursor(),
             "CALL text_search.search_edges('doc_etext', 'data.label:Confidential') YIELD edge RETURN edge;",
         )
+
+
+# per-row property drop on a specified text index (doc_title_text = :Document(title)):
+# Hybrid is :Public:Document; user_prop_deny_cross DENY {title} :Public denies its title (deny wins),
+# so it must be dropped, while a pure :Document title stays readable.
+def test_text_search_drops_multilabel_node_with_denied_property():
+    res = common.execute_and_fetch_all(
+        user_prop_deny_cross_cursor(),
+        "CALL text_search.search('doc_title_text', 'data.title:Hybrid') YIELD node RETURN node.title AS title;",
+    )
+    assert res == []
+
+
+def test_text_search_returns_readable_title_on_specified_index():
+    res = common.execute_and_fetch_all(
+        user_prop_deny_cross_cursor(),
+        "CALL text_search.search('doc_title_text', 'data.title:Secret') YIELD node RETURN node.title AS title;",
+    )
+    assert [row[0] for row in res] == ["Secret"]
 
 
 # aggregate procs -----------------------------------------------------------

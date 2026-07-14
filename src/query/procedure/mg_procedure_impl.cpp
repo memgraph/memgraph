@@ -29,6 +29,7 @@
 #include "license/license.hpp"
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/auth_checker.hpp"
 #include "query/graph.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
@@ -4085,22 +4086,73 @@ mgp_edge *GetEdgeByGid(mgp_graph *graph, memgraph::storage::Gid edge_gid, memgra
 
 #ifdef MG_ENTERPRISE
 namespace {
-bool VertexHasReadPermission(const memgraph::query::VertexAccessor &v, const mgp_graph &graph) {
+// A search hit is visible iff the node is label-readable AND every property that could have produced
+// the match is READ-permitted on the node's real labels — the same Filter/expression-mask semantics
+// the query engine applies (a match on an unreadable property must not surface). `searched` is the
+// index's property set.
+bool VertexSearchHitReadable(const memgraph::query::VertexAccessor &v, const mgp_graph &graph,
+                             std::span<const memgraph::storage::PropertyId> searched) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return true;
-  return ctx->auth_checker->Has(v, graph.view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+  const auto *auth_checker = ctx->auth_checker;
+  if (!auth_checker->Has(v, graph.view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
+  return std::ranges::all_of(searched, [&](const memgraph::storage::PropertyId property) {
+    return memgraph::query::PropertyReadAllowed(auth_checker, v, graph.view, property);
+  });
 }
 
-// checks both endpoints (unlike NextPermittedEdge, which trusts the known source vertex) —
-// search returns raw matches with no known source, so a partial check would leak.
-bool EdgeHasReadPermission(const memgraph::query::EdgeAccessor &e, const mgp_graph &graph) {
+// checks both endpoints (unlike NextPermittedEdge, which trusts the known source vertex) — search
+// returns raw matches with no known source, so a partial check would leak.
+bool EdgeSearchHitReadable(const memgraph::query::EdgeAccessor &e, const mgp_graph &graph,
+                           std::span<const memgraph::storage::PropertyId> searched) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return true;
   const auto *auth_checker = ctx->auth_checker;
   if (!auth_checker->Has(e, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
   const auto view = graph.view;
   if (!auth_checker->Has(e.From(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
-  return auth_checker->Has(e.To(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+  if (!auth_checker->Has(e.To(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
+  return std::ranges::all_of(searched, [&](const memgraph::storage::PropertyId property) {
+    return memgraph::query::PropertyReadAllowed(auth_checker, e, property);
+  });
+}
+
+// the index's indexed properties — the set a hit could have matched on (empty ⇒ property-less text index)
+std::vector<memgraph::storage::PropertyId> TextIndexSearchedProperties(const mgp_graph &graph,
+                                                                       std::string_view index_name) {
+  const auto indices = graph.getImpl()->ListAllIndices();
+  const auto it = std::ranges::find_if(
+      indices.text_indices, [&](const memgraph::storage::TextIndexSpec &s) { return s.index_name == index_name; });
+  return it == indices.text_indices.end() ? std::vector<memgraph::storage::PropertyId>{} : it->properties;
+}
+
+std::vector<memgraph::storage::PropertyId> TextEdgeIndexSearchedProperties(const mgp_graph &graph,
+                                                                           std::string_view index_name) {
+  const auto indices = graph.getImpl()->ListAllIndices();
+  const auto it = std::ranges::find_if(indices.text_edge_indices, [&](const memgraph::storage::TextEdgeIndexSpec &s) {
+    return s.index_name == index_name;
+  });
+  return it == indices.text_edge_indices.end() ? std::vector<memgraph::storage::PropertyId>{} : it->properties;
+}
+
+std::vector<memgraph::storage::PropertyId> VectorIndexSearchedProperty(const mgp_graph &graph,
+                                                                       std::string_view index_name) {
+  const auto indices = graph.getImpl()->ListAllIndices();
+  const auto it = std::ranges::find_if(indices.vector_indices_spec, [&](const memgraph::storage::VectorIndexSpec &s) {
+    return s.index_name == index_name;
+  });
+  if (it == indices.vector_indices_spec.end()) return {};
+  return {it->property};
+}
+
+std::vector<memgraph::storage::PropertyId> VectorEdgeIndexSearchedProperty(const mgp_graph &graph,
+                                                                           std::string_view index_name) {
+  const auto indices = graph.getImpl()->ListAllIndices();
+  const auto it =
+      std::ranges::find_if(indices.vector_edge_indices_spec,
+                           [&](const memgraph::storage::VectorEdgeIndexSpec &s) { return s.index_name == index_name; });
+  if (it == indices.vector_edge_indices_spec.end()) return {};
+  return {it->property};
 }
 
 [[noreturn]] void ThrowSearchAuthError(std::string_view message) { throw AuthorizationException{std::string{message}}; }
@@ -4609,6 +4661,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
 
 void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
                     const std::vector<memgraph::storage::TextSearchResult> &text_search_results,
+                    std::span<const memgraph::storage::PropertyId> searched,
                     const std::optional<std::string> &error_msg = std::nullopt) {
   if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving text search results failed during creation of a mgp_map");
@@ -4634,7 +4687,7 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
     auto *vertex_ptr = GetVertexByGid(graph, result.vertex_gid, memory);
     if (!vertex_ptr) continue;
 #ifdef MG_ENTERPRISE
-    if (!VertexHasReadPermission(vertex_ptr->getImpl(), *graph)) continue;
+    if (!VertexSearchHitReadable(vertex_ptr->getImpl(), *graph, searched)) continue;
 #endif
     vertices_with_scores.emplace_back(vertex_ptr, result.score);
   }
@@ -4721,6 +4774,7 @@ void WrapTextIndexAggregation(mgp_memory *memory, mgp_map **result, const std::s
 
 void WrapTextEdgeSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
                                const std::vector<memgraph::storage::TextEdgeSearchResult> &text_edge_search_results,
+                               std::span<const memgraph::storage::PropertyId> searched,
                                const std::optional<std::string> &error_msg = std::nullopt) {
   if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving edge text search results failed during creation of a mgp_map");
@@ -4746,7 +4800,7 @@ void WrapTextEdgeSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **r
     auto *edge_ptr = GetEdgeByGid(graph, edge_gid, from_vertex_gid, memory);
     if (!edge_ptr) continue;
 #ifdef MG_ENTERPRISE
-    if (!EdgeHasReadPermission(std::get<memgraph::query::EdgeAccessor>(edge_ptr->impl), *graph)) continue;
+    if (!EdgeSearchHitReadable(std::get<memgraph::query::EdgeAccessor>(edge_ptr->impl), *graph, searched)) continue;
 #endif
     edges_with_scores.emplace_back(edge_ptr, score);
   }
@@ -4823,9 +4877,11 @@ mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, 
                                                      .fuzzy_distance = fuzzy_distance,
                                                      .fuzzy_prefix = fuzzy_prefix != 0,
                                                      .fuzzy_transpositions = fuzzy_transpositions != 0};
+    std::vector<memgraph::storage::PropertyId> searched;
     try {
 #ifdef MG_ENTERPRISE
       PrecheckVertexTextSearchAccess(*graph, index_name);
+      searched = TextIndexSearchedProperties(*graph, index_name);
 #endif
       text_search_results = graph->getImpl()->TextIndexSearch(index_name, search_query, search_mode, config);
     } catch (const AuthorizationException &e) {
@@ -4833,7 +4889,7 @@ mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, 
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
-    WrapTextSearch(graph, memory, result, text_search_results, error_msg);
+    WrapTextSearch(graph, memory, result, text_search_results, searched, error_msg);
   });
 }
 
@@ -4896,9 +4952,11 @@ mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *
                                                      .fuzzy_distance = fuzzy_distance,
                                                      .fuzzy_prefix = fuzzy_prefix != 0,
                                                      .fuzzy_transpositions = fuzzy_transpositions != 0};
+    std::vector<memgraph::storage::PropertyId> searched;
     try {
 #ifdef MG_ENTERPRISE
       PrecheckEdgeTextSearchAccess(*graph, index_name);
+      searched = TextEdgeIndexSearchedProperties(*graph, index_name);
 #endif
       text_edge_search_results = graph->getImpl()->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
     } catch (const AuthorizationException &e) {
@@ -4906,7 +4964,7 @@ mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
-    WrapTextEdgeSearchResults(graph, memory, result, text_edge_search_results, error_msg);
+    WrapTextEdgeSearchResults(graph, memory, result, text_edge_search_results, searched, error_msg);
   });
 }
 
@@ -4945,8 +5003,9 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
       found_vertices = graph->getImpl()->VectorIndexSearchOnNodes(index_name, result_size, search_query_vector);
 #ifdef MG_ENTERPRISE
       if (graph->ctx && graph->ctx->auth_checker) {
+        const auto searched = VectorIndexSearchedProperty(*graph, index_name);
         std::erase_if(found_vertices, [&](const auto &t) {
-          return !VertexHasReadPermission(memgraph::query::VertexAccessor(std::get<0>(t)), *graph);
+          return !VertexSearchHitReadable(memgraph::query::VertexAccessor(std::get<0>(t)), *graph, searched);
         });
       }
 #endif
@@ -4994,8 +5053,9 @@ mgp_error mgp_graph_search_vector_index_on_edges(mgp_graph *graph, const char *i
       found_edges = graph->getImpl()->VectorIndexSearchOnEdges(index_name, result_size, search_query_vector);
 #ifdef MG_ENTERPRISE
       if (graph->ctx && graph->ctx->auth_checker) {
+        const auto searched = VectorEdgeIndexSearchedProperty(*graph, index_name);
         std::erase_if(found_edges, [&](const auto &t) {
-          return !EdgeHasReadPermission(memgraph::query::EdgeAccessor(std::get<0>(t)), *graph);
+          return !EdgeSearchHitReadable(memgraph::query::EdgeAccessor(std::get<0>(t)), *graph, searched);
         });
       }
 #endif
