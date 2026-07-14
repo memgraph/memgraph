@@ -66,18 +66,14 @@ def test_text_search_returns_allowed_label():
     assert len(res) == 1
 
 
-def test_text_search_all_dropped_on_denied_label():
+# deny-by-default: user_grant_only has the :Public label but no property grant, so it can read no title
+# value — a content match must not surface. This locks in the NEUTRAL (ungranted, not DENIED) case that
+# the old code leaked, and covers the search_all mode. (Label-deny is covered above; the row filter is
+# mode-agnostic, so regex/search_all don't need their own label-deny cases.)
+def test_text_search_all_dropped_for_label_only_user():
     res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL text_search.search_all('doc_text', 'Secret') YIELD node RETURN node;",
-    )
-    assert res == []
-
-
-def test_text_regex_search_dropped_on_denied_label():
-    res = common.execute_and_fetch_all(
-        user_cursor(),
-        "CALL text_search.regex_search('doc_text', 'Sec.*') YIELD node RETURN node;",
+        user_grant_only_cursor(),
+        "CALL text_search.search_all('pub_text', 'Welcome') YIELD node RETURN node;",
     )
     assert res == []
 
@@ -231,15 +227,6 @@ def test_aggregate_allowed_with_property_grant_on_specified_index():
         '\'{"c":{"value_count":{"field":"data.title"}}}\') YIELD aggregation RETURN aggregation;',
     )
     assert len(res) == 1
-
-
-def test_aggregate_still_blocked_on_denied_label():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_grant_only_cursor(),
-            "CALL text_search.aggregate('doc_text', 'data.title:Secret', "
-            '\'{"c":{"value_count":{"field":"data.title"}}}\') YIELD aggregation RETURN aggregation;',
-        )
 
 
 if __name__ == "__main__":

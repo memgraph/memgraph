@@ -40,6 +40,10 @@ def user_prop_deny_indexed_cursor():
     return common.connect(username="user_prop_deny_indexed", password="test").cursor()
 
 
+def user_grant_only_cursor():
+    return common.connect(username="user_grant_only", password="test").cursor()
+
+
 # vector_search on vertices --------------------------------------------------
 
 
@@ -48,6 +52,17 @@ def test_vector_search_dropped_on_denied_label():
     res = common.execute_and_fetch_all(
         user_cursor(),
         "CALL vector_search.search('doc_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
+    )
+    assert res == []
+
+
+# deny-by-default: user_grant_only has the :Public label but no {embedding} grant, so the embedding is
+# unreadable — the similarity match/score must not surface. Locks in the NEUTRAL (ungranted) case that
+# the old code leaked, distinct from an explicit DENY.
+def test_vector_search_dropped_for_label_only_user():
+    res = common.execute_and_fetch_all(
+        user_grant_only_cursor(),
+        "CALL vector_search.search('pub_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
     )
     assert res == []
 
@@ -84,6 +99,16 @@ def test_vector_search_edges_dropped_on_denied_type():
     res = common.execute_and_fetch_all(
         user_cursor(),
         "CALL vector_search.search_edges('doc_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
+    )
+    assert res == []
+
+
+# NEUTRAL on edges: user_grant_only reads :LINKS_PUB edges but has no {embedding} grant, so the edge
+# embedding is unreadable and the hit is dropped (the edge-vector NEUTRAL case behind F1).
+def test_vector_search_edges_dropped_for_label_only_user():
+    res = common.execute_and_fetch_all(
+        user_grant_only_cursor(),
+        "CALL vector_search.search_edges('pub_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
     )
     assert res == []
 
