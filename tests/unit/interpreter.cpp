@@ -766,6 +766,159 @@ TYPED_TEST(InterpreterTest, CallUseScopeExpandsTypeFiltered) {
   EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "R");
 }
 
+// Variable-length expansion over a projection walks the overlay's edge index for
+// each hop; *1..2 from node 1 reaches nodes 2 and 3 along the R chain.
+TYPED_TEST(InterpreterTest, CallUseScopeExpandsVariableLength) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3})] AS nodes, "
+      "[virtualEdge('R', 1, 2), virtualEdge('R', 2, 3)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a {x: 1})-[r:R*1..2]->(b) RETURN b.x AS bx } "
+      "RETURN bx ORDER BY bx");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);
+}
+
+// The upper bound is honoured: *1..1 stops after a single hop.
+TYPED_TEST(InterpreterTest, CallUseScopeExpandsVariableLengthBounded) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3})] AS nodes, "
+      "[virtualEdge('R', 1, 2), virtualEdge('R', 2, 3)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a {x: 1})-[r:R*1..1]->(b) RETURN b.x AS bx } "
+      "RETURN bx ORDER BY bx");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+}
+
+// The natural (a)-[*BFS]->(b) form plans as a single-source BFS; over a projection it
+// reaches every node at its shortest depth. From node 1: node 2 at depth 1, node 3 at depth 2.
+TYPED_TEST(InterpreterTest, CallUseScopeBreadthFirst) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3})] AS nodes, "
+      "[virtualEdge('R', 1, 2), virtualEdge('R', 2, 3)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a {x: 1})-[e *BFS]->(b) RETURN b.x AS bx, size(e) AS len } "
+      "RETURN bx, len ORDER BY bx");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 2);
+}
+
+// A depth-bounded BFS over a projection stops at the upper bound.
+TYPED_TEST(InterpreterTest, CallUseScopeBreadthFirstBounded) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3})] AS nodes, "
+      "[virtualEdge('R', 1, 2), virtualEdge('R', 2, 3)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a {x: 1})-[e *BFS 1..1]->(b) RETURN b.x AS bx } "
+      "RETURN bx ORDER BY bx");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+}
+
+// Weighted shortest path over a projection: the weight lambda reads a VirtualNode property through
+// the unified GetProperty. Node 4 is reached by 1->2->4 (weight 1+1=2), not the costly 1->3->4
+// (100+1); node 3 sits at weight 100. Proves Dijkstra picks the cheaper multi-hop path over a
+// projection and binds the running total.
+TYPED_TEST(InterpreterTest, CallUseScopeWeightedShortestPath) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 0}), virtualNode(2, 'N', {x: 1}), virtualNode(3, 'N', {x: 100}), "
+      "virtualNode(4, 'N', {x: 1})] AS nodes, "
+      "[virtualEdge('R', 1, 2), virtualEdge('R', 2, 4), virtualEdge('R', 1, 3), virtualEdge('R', 3, 4)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a {x: 0})-[e *wShortest 10 (edge, n | n.x) w]->(b) "
+      "RETURN w AS weight, size(e) AS len } "
+      "RETURN weight, len ORDER BY weight");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);  // node 2, one hop
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 2);  // node 4, cheaper two-hop route
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 100);  // node 3, one hop
+  EXPECT_EQ(stream.GetResults()[2][1].ValueInt(), 1);
+}
+
+// Weighted shortest path to a pre-bound sink over a projection exercises the existing_node early-out:
+// only the cheapest path to node 4 (x: 2), weight 1+2=3 via 1->2->4, is returned.
+TYPED_TEST(InterpreterTest, CallUseScopeWeightedShortestPathToBoundSink) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 0}), virtualNode(2, 'N', {x: 1}), virtualNode(3, 'N', {x: 100}), "
+      "virtualNode(4, 'N', {x: 2})] AS nodes, "
+      "[virtualEdge('R', 1, 2), virtualEdge('R', 2, 4), virtualEdge('R', 1, 3), virtualEdge('R', 3, 4)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a {x: 0}), (b {x: 2}) WITH a, b MATCH (a)-[e *wShortest 10 (edge, n | n.x) w]->(b) "
+      "RETURN w AS weight, size(e) AS len } "
+      "RETURN weight, len");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+}
+
+// All-shortest paths over a projection enumerates every equal-cost path. In the diamond with unit
+// weights, node 4 is reached by two shortest paths (via 2 and via 3), so it appears twice.
+TYPED_TEST(InterpreterTest, CallUseScopeAllShortestPaths) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3}), "
+      "virtualNode(4, 'N', {x: 4})] AS nodes, "
+      "[virtualEdge('R', 1, 2), virtualEdge('R', 1, 3), virtualEdge('R', 2, 4), virtualEdge('R', 3, 4)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a {x: 1})-[e *allShortest 10 (edge, n | 1) w]->(b) RETURN b.x AS bx, size(e) AS len } "
+      "RETURN bx, len ORDER BY bx, len");
+  ASSERT_EQ(stream.GetResults().size(), 4U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);  // one path, one hop
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);  // one path, one hop
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 4);  // two equal shortest paths to node 4, both 2 hops
+  EXPECT_EQ(stream.GetResults()[2][1].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[3][0].ValueInt(), 4);
+  EXPECT_EQ(stream.GetResults()[3][1].ValueInt(), 2);
+}
+
+// K-shortest paths over a projection enumerates the loopless paths between two bound nodes in
+// increasing length. In the diamond, both 1->2->4 and 1->3->4 (length 2) are returned.
+TYPED_TEST(InterpreterTest, CallUseScopeKShortestPaths) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3}), "
+      "virtualNode(4, 'N', {x: 4})] AS nodes, "
+      "[virtualEdge('R', 1, 2), virtualEdge('R', 2, 4), virtualEdge('R', 1, 3), virtualEdge('R', 3, 4)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a {x: 1}), (b {x: 4}) WITH a, b MATCH (a)-[r *kshortest..10]->(b) RETURN size(r) AS len } "
+      "RETURN len ORDER BY len");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
+}
+
+// s-t shortest path over a projection: both endpoints pre-bound makes the *BFS an
+// STShortestPath, which walks the overlay bidirectionally and reconstructs the path.
+TYPED_TEST(InterpreterTest, CallUseScopeShortestPathBetweenBoundNodes) {
+  // The WITH barrier binds both endpoints before the expand, so the *BFS plans as an STShortestPath.
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3})] AS nodes, "
+      "[virtualEdge('R', 1, 2), virtualEdge('R', 2, 3)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a {x: 1}), (b {x: 3}) WITH a, b MATCH (a)-[e *BFS]->(b) RETURN size(e) AS len } "
+      "RETURN len");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+}
+
+// A directed s-t shortest path finds no path against the edge direction.
+TYPED_TEST(InterpreterTest, CallUseScopeShortestPathRespectsDirection) {
+  auto stream = this->Interpret(
+      "WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3})] AS nodes, "
+      "[virtualEdge('R', 1, 2), virtualEdge('R', 2, 3)] AS edges "
+      "WITH virtualGraph(nodes, edges) AS g "
+      "CALL { USE g MATCH (a {x: 3}), (b {x: 1}) WITH a, b MATCH (a)-[e *BFS]->(b) RETURN size(e) AS len } "
+      "RETURN len");
+  EXPECT_EQ(stream.GetResults().size(), 0U);
+}
+
 // A self-loop is reachable expanding either direction; its two endpoints are the
 // same projection node.
 TYPED_TEST(InterpreterTest, CallUseScopeExpandsSelfLoop) {

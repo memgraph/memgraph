@@ -1066,6 +1066,121 @@ class TestUseScope:
         )
         assert results == [(20,), (30,)]
 
+    def test_use_scope_variable_length(self, connection):
+        """A depth-first variable-length pattern inside the scope walks the projection's
+        edge index: *1..2 from node 1 along the R chain reaches nodes 2 and 3."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3})] AS nodes,
+                 [virtualEdge('R', 1, 2), virtualEdge('R', 2, 3)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a {x: 1})-[r:R*1..2]->(b) RETURN b.x AS bx }
+            RETURN bx ORDER BY bx;
+            """,
+        )
+        assert results == [(2,), (3,)]
+
+    def test_use_scope_variable_length_bounded(self, connection):
+        """The upper bound is honoured: *1..1 stops after a single hop."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3})] AS nodes,
+                 [virtualEdge('R', 1, 2), virtualEdge('R', 2, 3)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a {x: 1})-[r:R*1..1]->(b) RETURN b.x AS bx }
+            RETURN bx ORDER BY bx;
+            """,
+        )
+        assert results == [(2,)]
+
+    def test_use_scope_breadth_first(self, connection):
+        """The natural (a)-[*BFS]->(b) form is a single-source BFS over the projection,
+        reaching each node at its shortest depth: node 2 at depth 1, node 3 at depth 2."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3})] AS nodes,
+                 [virtualEdge('R', 1, 2), virtualEdge('R', 2, 3)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a {x: 1})-[e *BFS 1..10]->(b) RETURN b.x AS bx, size(e) AS len }
+            RETURN bx, len ORDER BY bx;
+            """,
+        )
+        assert results == [(2, 1), (3, 2)]
+
+    def test_use_scope_shortest_path_between_bound_nodes(self, connection):
+        """Both endpoints pre-bound (WITH barrier) makes the *BFS an s-t shortest path,
+        which walks the projection bidirectionally and reconstructs the path."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3})] AS nodes,
+                 [virtualEdge('R', 1, 2), virtualEdge('R', 2, 3)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a {x: 1}), (b {x: 3}) WITH a, b MATCH (a)-[e *BFS]->(b) RETURN size(e) AS len }
+            RETURN len;
+            """,
+        )
+        assert results == [(2,)]
+
+    def test_use_scope_weighted_shortest_path(self, connection):
+        """Weighted shortest path over the projection: the weight lambda reads a virtual
+        node property. Node 4 is reached by the cheaper 1->2->4 (weight 2), not 1->3->4
+        (weight 101); node 3 sits at weight 100."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 0}), virtualNode(2, 'N', {x: 1}), virtualNode(3, 'N', {x: 100}),
+                  virtualNode(4, 'N', {x: 1})] AS nodes,
+                 [virtualEdge('R', 1, 2), virtualEdge('R', 2, 4), virtualEdge('R', 1, 3), virtualEdge('R', 3, 4)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a {x: 0})-[e *wShortest 10 (edge, n | n.x) w]->(b) RETURN w AS weight, size(e) AS len }
+            RETURN weight, len ORDER BY weight;
+            """,
+        )
+        assert results == [(1, 1), (2, 2), (100, 1)]
+
+    def test_use_scope_all_shortest_paths(self, connection):
+        """All-shortest paths enumerates every equal-cost path: in the unit-weight diamond,
+        node 4 is reached by two shortest paths (via 2 and via 3), so it appears twice."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3}),
+                  virtualNode(4, 'N', {x: 4})] AS nodes,
+                 [virtualEdge('R', 1, 2), virtualEdge('R', 1, 3), virtualEdge('R', 2, 4), virtualEdge('R', 3, 4)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a {x: 1})-[e *allShortest 10 (edge, n | 1) w]->(b) RETURN b.x AS bx, size(e) AS len }
+            RETURN bx, len ORDER BY bx, len;
+            """,
+        )
+        assert results == [(2, 1), (3, 1), (4, 2), (4, 2)]
+
+    def test_use_scope_k_shortest_paths(self, connection):
+        """K-shortest paths enumerates the loopless paths between two bound nodes: the
+        diamond's two length-2 paths 1->2->4 and 1->3->4 are both returned."""
+        cursor = connection.cursor()
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            WITH [virtualNode(1, 'N', {x: 1}), virtualNode(2, 'N', {x: 2}), virtualNode(3, 'N', {x: 3}),
+                  virtualNode(4, 'N', {x: 4})] AS nodes,
+                 [virtualEdge('R', 1, 2), virtualEdge('R', 2, 4), virtualEdge('R', 1, 3), virtualEdge('R', 3, 4)] AS edges
+            WITH virtualGraph(nodes, edges) AS g
+            CALL { USE g MATCH (a {x: 1}), (b {x: 4}) WITH a, b MATCH (a)-[r *kshortest..10]->(b) RETURN size(r) AS len }
+            RETURN len ORDER BY len;
+            """,
+        )
+        assert results == [(2,), (2,)]
+
 
 class TestUseScopeOverDerive:
     """A USE scope over a derive() overlay projection: reads inside the scope go
