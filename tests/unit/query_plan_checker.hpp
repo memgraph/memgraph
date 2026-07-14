@@ -1061,7 +1061,7 @@ class FakeDbAccessor {
   }
 
   bool VertexPropertyIndexReady(memgraph::storage::PropertyId property) const {
-    return vertex_property_index_.find(property) != vertex_property_index_.end();
+    return vertex_property_index_.contains(property);
   }
 
   int64_t VerticesCount(memgraph::storage::PropertyId property) const {
