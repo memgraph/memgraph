@@ -336,9 +336,12 @@ void ReplayChangelogIntoDiffEngine(storage::InMemoryStorage &diff_engine,
 // entirely unmirrored; a later slice may extend this the same way.
 void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_engine,
                                               const storage::IndicesInfo &main_indices) {
-  if (main_indices.label.empty() && main_indices.label_properties.empty() && main_indices.edge_type.empty()) {
-    return;  // main had no (label / label-property / edge-type) indexes at fork_ts -- nothing to mirror
-  }
+  // NB: deliberately NO up-front "all index vectors empty -> early return" guard. Each mirror loop
+  // below already no-ops on an empty vector (opening zero accessors), so the guard bought nothing --
+  // and enumerating every mirrored index kind in one emptiness check was an active foot-gun: it was
+  // twice forgotten when new kinds were added (edge-type, then edge-type+property), causing a main
+  // that held ONLY that new index kind to bail before its loop and silently fall the branch back to
+  // full scans. Let the loops be the single source of truth for "is there anything to mirror".
 
   // ONE ReadOnlyAccess + commit PER index: CreateIndex internally calls DowngradeToReadIfValid()
   // (inmemory/storage.cpp), which drops the access type from READ_ONLY to READ after the first
@@ -403,6 +406,21 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
                 "BranchContext::BuildFromFork: mirroring main's edge-type index (edge type {}) onto a "
                 "freshly-built, otherwise-empty diff engine failed -- should be impossible.",
                 edge_type.AsUint());
+      commit_one(*mirror);
+    }
+    // SLICE-3b: edge-type+property indexes (same properties_on_edges gate -- CreateIndex(EdgeTypeId,
+    // PropertyId) itself refuses under light-edge storage, inmemory/storage.cpp). Ordering-sensitive:
+    // the branch read path (db_accessor.hpp Edges(view, edge_type, property[, value/range])) does an
+    // ASC-ordered merge, since the planner elides the Sort for edge-property index scans just like it
+    // does for label-property -- so mirroring MUST land together with that ordered read path.
+    for (const auto &[edge_type, property] : main_indices.edge_type_property) {
+      auto mirror = diff_engine.ReadOnlyAccess();
+      auto created = mirror->CreateIndex(edge_type, property);
+      MG_ASSERT(created.has_value(),
+                "BranchContext::BuildFromFork: mirroring main's edge-type+property index (edge type {}, "
+                "property {}) onto a freshly-built, otherwise-empty diff engine failed -- should be impossible.",
+                edge_type.AsUint(),
+                property.AsUint());
       commit_one(*mirror);
     }
   }

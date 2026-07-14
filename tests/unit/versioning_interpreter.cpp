@@ -2306,3 +2306,73 @@ TEST_F(VersioningInterpreterTest, BranchEdgeTypeIndexSelectedInPlanOnBranch) {
       << "branch plan did not select the mirrored edge-type index; full plan:\n"
       << plan;
 }
+
+TEST_F(VersioningInterpreterTest, BranchEdgeTypePropertyIndexScanOrderedReflectsBranchMutations) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE EDGE INDEX ON :KNOWS(w)");
+
+  faker.Interpret("CREATE (:N {n:'a'}),(:N {n:'b'}),(:N {n:'c'}),(:N {n:'e'})");
+  // Creation order deliberately does NOT match w order, so a gid-ordered (unsorted) result would be
+  // trivially distinguishable from a property-ordered one.
+  faker.Interpret("MATCH (a:N {n:'a'}),(b:N {n:'b'}) CREATE (a)-[:KNOWS {w: 50}]->(b)");
+  faker.Interpret("MATCH (b:N {n:'b'}),(c:N {n:'c'}) CREATE (b)-[:KNOWS {w: 20}]->(c)");
+  faker.Interpret("MATCH (a:N {n:'a'}),(c:N {n:'c'}) CREATE (a)-[:KNOWS {w: 40}]->(c)");
+  faker.Interpret("MATCH (c:N {n:'c'}),(e:N {n:'e'}) CREATE (c)-[:KNOWS {w: 10}]->(e)");
+  faker.Interpret("MATCH (a:N {n:'a'}),(e:N {n:'e'}) CREATE (a)-[:LIKES {w: 99}]->(e)");  // distractor type
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Branch mutations: COW b->c's property, delete a->c, add a branch-native e->a edge.
+  faker.Interpret("MATCH (:N {n:'b'})-[r:KNOWS]->(:N {n:'c'}) SET r.w = 99");
+  faker.Interpret("MATCH (:N {n:'a'})-[r:KNOWS]->(:N {n:'c'}) DELETE r");
+  faker.Interpret("MATCH (a:N {n:'e'}),(b:N {n:'a'}) CREATE (a)-[:KNOWS {w: 25}]->(b)");
+
+  auto stream = faker.Interpret("MATCH ()-[r:KNOWS]->() WHERE r.w > 0 RETURN r.w AS w ORDER BY r.w");
+  const auto &rows = stream.GetResults();
+  std::vector<int64_t> ws;
+  ws.reserve(rows.size());
+  for (const auto &row : rows) {
+    ws.push_back(row[0].ValueInt());
+  }
+
+  EXPECT_EQ(ws, (std::vector<int64_t>{10, 25, 50, 99}))
+      << "expected the union of main@fork's historical KNOWS(w) index (a->b=50, b->c=20, a->c=40, "
+         "c->e=10) with the branch's own diff-engine mutations (b->c COW'd 20->99, a->c tombstoned "
+         "away, e->a created branch-native at 25), correctly ASC-ordered by w -- fork survivors "
+         "{50, 10} plus branch survivors {99, 25} sorted is {10, 25, 50, 99}; a gid/creation-ordered "
+         "or unsorted result would indicate the branch edge-type+property merge (sort / tombstone "
+         "skip / COW dedup) is wrong, and the LIKES distractor edge (w=99) must never appear. Note "
+         "the planner elides the explicit ORDER BY (Sort) when it selects the property index, so "
+         "order correctness here rides entirely on the merge itself.";
+}
+
+TEST_F(VersioningInterpreterTest, BranchEdgeTypePropertyIndexSelectedInPlanOnBranch) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE EDGE INDEX ON :KNOWS(w)");
+  faker.Interpret("CREATE (:N {n:'a'})-[:KNOWS {w: 1}]->(:N {n:'b'})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto stream = faker.Interpret("EXPLAIN MATCH ()-[r:KNOWS]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w");
+  std::string plan;
+  for (const auto &row : stream.GetResults()) {
+    plan += row[0].ValueString();
+    plan += '\n';
+  }
+
+  // Locks that the edge-type+property index is mirrored via its own diff-engine registration (a
+  // per-index loop over main's index definitions), NOT a fragile up-front emptiness guard -- a prior
+  // guard bug made a main holding ONLY an edge-property index bail out before mirroring anything,
+  // leaving the branch to full-scan instead of selecting the mirrored index.
+  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByEdgeTypePropertyRange"))
+      << "branch plan did not select the mirrored edge-type+property index; full plan:\n"
+      << plan;
+  EXPECT_THAT(plan, ::testing::Not(::testing::HasSubstr("OrderBy")))
+      << "branch plan should elide the explicit Sort once the property index scan already produces "
+         "ASC order; full plan:\n"
+      << plan;
+}
