@@ -71,6 +71,14 @@ auto EdgeAccessor::Properties(storage::View view) const -> decltype(impl_.Proper
     if (auto diff_edge = branch_ctx_->FindDiffEdge(impl_.Gid(), view)) {
       return diff_edge->Properties(view);
     }
+    // S2 FIX (view-gated tombstone guard, edge-side analogue of VertexAccessor::Labels()'s own --
+    // see vertex_accessor.cpp for the full rationale): a FindDiffEdge miss on a tombstoned gid is
+    // ambiguous by itself; View::NEW is the query's current-command state where a tombstoned edge
+    // IS deleted (matches main's read-after-delete-in-command error), while View::OLD falls through
+    // to `impl_` unchanged (still the alive, pre-delete value).
+    if (view == storage::View::NEW && branch_ctx_->IsEdgeTombstoned(impl_.Gid())) {
+      return std::unexpected{storage::Error::DELETED_OBJECT};
+    }
   }
   return impl_.Properties(view);
 }
@@ -80,6 +88,10 @@ storage::Result<storage::PropertyValue> EdgeAccessor::GetProperty(storage::View 
     if (auto diff_edge = branch_ctx_->FindDiffEdge(impl_.Gid(), view)) {
       return diff_edge->GetProperty(key, view);
     }
+    // S2 FIX (view-gated tombstone guard) -- see Properties() above for the full rationale.
+    if (view == storage::View::NEW && branch_ctx_->IsEdgeTombstoned(impl_.Gid())) {
+      return std::unexpected{storage::Error::DELETED_OBJECT};
+    }
   }
   return impl_.GetProperty(key, view);
 }
@@ -88,6 +100,10 @@ storage::Result<uint64_t> EdgeAccessor::GetPropertySize(storage::PropertyId key,
   if (branch_ctx_ != nullptr) {
     if (auto diff_edge = branch_ctx_->FindDiffEdge(impl_.Gid(), view)) {
       return diff_edge->GetPropertySize(key, view);
+    }
+    // S2 FIX (view-gated tombstone guard) -- see Properties() above for the full rationale.
+    if (view == storage::View::NEW && branch_ctx_->IsEdgeTombstoned(impl_.Gid())) {
+      return std::unexpected{storage::Error::DELETED_OBJECT};
     }
   }
   return impl_.GetPropertySize(key, view);

@@ -1974,3 +1974,90 @@ TEST_F(VersioningInterpreterTest, BranchDoubleDeleteAlreadyTombstonedVertexIsNoO
   auto vertices = faker.Interpret("MATCH (n:Iso) RETURN n");
   EXPECT_EQ(vertices.GetResults().size(), 0U) << "the double-deleted vertex must be gone, exactly as a single delete";
 }
+
+// Bug fix S2 (stale read of an entity deleted earlier in the SAME query on a branch): the branch
+// read methods (VertexAccessor::GetProperty/Labels/etc.) call BranchContext::ResolveVertex(gid,
+// view), which returns nullopt for a tombstoned gid and used to fall through unconditionally to
+// `impl_` -- the STALE historical/fork copy, still alive in memory -- silently returning the
+// pre-delete value instead of erroring. On `main`, `MATCH (n) DETACH DELETE n RETURN n.prop AS
+// prop` raises ("Delete node and return property throws an error", gql_behave delete.feature) --
+// by the time the result is serialized, the vertex really has been deleted, so reading it errors.
+// The branch must match: the fix gates the tombstone check on `view == storage::View::NEW` (the
+// query's current-command state, where the object genuinely is gone), returning
+// Error::DELETED_OBJECT instead of falling through to the stale `impl_` value.
+TEST_F(VersioningInterpreterTest, BranchDeleteThenReadPropertyOnNewViewRaises) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:P {prop: 1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  ASSERT_THROW(faker.Interpret("MATCH (n:P) DETACH DELETE n RETURN n.prop AS prop"),
+               memgraph::query::QueryRuntimeException)
+      << "reading a property of a vertex deleted earlier in the SAME query must raise, exactly as on main -- "
+         "the pre-fix bug silently returned the stale prop=1 instead";
+}
+
+// Label-read analogue of BranchDeleteThenReadPropertyOnNewViewRaises above -- exercises
+// VertexAccessor::Labels' own view-gated guard (a separate call site from GetProperty's).
+TEST_F(VersioningInterpreterTest, BranchDeleteThenReadLabelsOnNewViewRaises) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:P:Q)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  ASSERT_THROW(faker.Interpret("MATCH (n:P) DETACH DELETE n RETURN labels(n)"), memgraph::query::QueryRuntimeException)
+      << "reading labels of a vertex deleted earlier in the SAME query must raise, exactly as on main";
+}
+
+// Edge analogue of BranchDeleteThenReadPropertyOnNewViewRaises -- exercises EdgeAccessor::
+// GetProperty's own view-gated guard (FindDiffEdge miss + IsEdgeTombstoned at View::NEW).
+TEST_F(VersioningInterpreterTest, BranchDeleteEdgeThenReadPropertyOnNewViewRaises) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:S)-[:E {w: 1}]->(:A)");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  ASSERT_THROW(faker.Interpret("MATCH (:S)-[e:E]->(:A) DELETE e RETURN e.w AS w"),
+               memgraph::query::QueryRuntimeException)
+      << "reading a property of an edge deleted earlier in the SAME query must raise, exactly as on main -- "
+         "the pre-fix bug silently returned the stale w=1 instead";
+}
+
+// Write-path regression guard: SET/REMOVE following a DETACH DELETE in the SAME query (no RETURN)
+// must remain a silent no-op -- exactly as on main ("Delete node, set property throws an error" /
+// "Delete node, remove property throws an error", gql_behave delete.feature, both asserting "the
+// result should be empty" with NO exception for the no-RETURN form). This is unrelated to the S2
+// read-path fix (the write path -- CowVertex/CowIfNeeded -- was not touched by it) but pins down
+// that the new view-gated read guards did not accidentally change write behavior.
+TEST_F(VersioningInterpreterTest, BranchDeleteThenSetPropertyIsNoOpNotError) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:P {prop: 1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto stream = faker.Interpret("MATCH (n:P) DETACH DELETE n SET n.prop = 2");
+  EXPECT_EQ(stream.GetResults().size(), 0U) << "must be a silent no-op, matching main -- no exception, no rows";
+
+  auto vertices = faker.Interpret("MATCH (n:P) RETURN n");
+  EXPECT_EQ(vertices.GetResults().size(), 0U)
+      << "the vertex must still be gone -- the SET must not have resurrected it";
+}
+
+TEST_F(VersioningInterpreterTest, BranchDeleteThenRemovePropertyIsNoOpNotError) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:P {prop: 1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto stream = faker.Interpret("MATCH (n:P) DETACH DELETE n REMOVE n.prop");
+  EXPECT_EQ(stream.GetResults().size(), 0U) << "must be a silent no-op, matching main -- no exception, no rows";
+
+  auto vertices = faker.Interpret("MATCH (n:P) RETURN n");
+  EXPECT_EQ(vertices.GetResults().size(), 0U)
+      << "the vertex must still be gone -- the REMOVE must not have resurrected it";
+}

@@ -28,6 +28,16 @@ auto VertexAccessor::Labels(storage::View view) const -> decltype(impl_.Labels(v
     if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
       return resolved->Labels(view);
     }
+    // S2 FIX (view-gated tombstone guard): a resolve miss on a tombstoned gid is ambiguous by
+    // itself -- it also happens for subqueries.feature:424's incidental View::OLD re-resolution of
+    // an object that's alive in the pre-current-command state (main does NOT error there). What
+    // discriminates the two is the caller's own `view`: View::NEW is the query's current-command
+    // state, where a tombstoned object IS deleted -- matching main's MVCC read-after-delete-in-
+    // command error. View::OLD falls through to `impl_` unchanged (still the alive, pre-delete
+    // value), preserving the non-erroring OLD case.
+    if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
+      return std::unexpected{storage::Error::DELETED_OBJECT};
+    }
   }
   return impl_.Labels(view);
 }
@@ -36,6 +46,10 @@ storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::Labe
   if (branch_ctx_ != nullptr) {
     if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
       return resolved->HasLabel(label, view);
+    }
+    // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
+    if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
+      return std::unexpected{storage::Error::DELETED_OBJECT};
     }
   }
   return impl_.HasLabel(label, view);
@@ -46,6 +60,10 @@ auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Prop
     if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
       return resolved->Properties(view);
     }
+    // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
+    if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
+      return std::unexpected{storage::Error::DELETED_OBJECT};
+    }
   }
   return impl_.Properties(view);
 }
@@ -55,6 +73,10 @@ storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::Vie
     if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
       return resolved->GetProperty(key, view);
     }
+    // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
+    if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
+      return std::unexpected{storage::Error::DELETED_OBJECT};
+    }
   }
   return impl_.GetProperty(key, view);
 }
@@ -63,6 +85,10 @@ storage::Result<uint64_t> VertexAccessor::GetPropertySize(storage::PropertyId ke
   if (branch_ctx_ != nullptr) {
     if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
       return resolved->GetPropertySize(key, view);
+    }
+    // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
+    if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
+      return std::unexpected{storage::Error::DELETED_OBJECT};
     }
   }
   return impl_.GetPropertySize(key, view);
