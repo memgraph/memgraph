@@ -381,7 +381,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanParallelByVertexProperty &op) override {
     cardinality_ *= db_accessor_->VerticesCount(op.property_);
     IncrementCost(CostParam::kScanAllByVertexProperty);
-    num_threads_ = 1;
+    num_threads_ = 1;  // End of parallel section
     return true;
   }
 
@@ -398,14 +398,14 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     }
     cardinality_ *= factor;
     IncrementCost(CostParam::kScanAllByVertexPropertyValue);
-    num_threads_ = 1;
+    num_threads_ = 1;  // End of parallel section
     return true;
   }
 
   bool PostVisit(ScanParallelByVertexPropertyRange &op) override {
     cardinality_ *= EstimateVertexPropertyRangeCardinality(op.property_, op.lower_bound_, op.upper_bound_);
     IncrementCost(CostParam::kScanAllByVertexPropertyRange);
-    num_threads_ = 1;
+    num_threads_ = 1;  // End of parallel section
     return true;
   }
 
