@@ -280,7 +280,7 @@ inline bool IsCoordinatorPermittedAuthQuery(AuthQuery const &query) {
   }
 }
 
-/// Constant that holds all available privileges.
+/// Constant that holds all available privileges only for data instance. Coordinator privileges are excluded here.
 const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::CREATE,
     AuthQuery::Privilege::DELETE,
