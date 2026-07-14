@@ -164,6 +164,24 @@ auto CoordinatorState::SetCoordinatorSetting(std::string_view const setting_name
   return std::get<CoordinatorInstance>(data_).SetCoordinatorSetting(setting_name, setting_value);
 }
 
+auto CoordinatorState::CreateRole(std::string_view const role_name) const -> CreateRoleStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator role cannot be created since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).CreateRole(role_name);
+}
+
+auto CoordinatorState::DropRole(std::string_view const role_name) const -> DropRoleStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator role cannot be dropped since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).DropRole(role_name);
+}
+
+auto CoordinatorState::GetRoles(std::vector<std::string> &roles) const -> GetRolesStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator roles cannot be retrieved since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetRoles(roles);
+}
+
 auto CoordinatorState::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator settings cannot be retrieved since variant holds wrong alternative");

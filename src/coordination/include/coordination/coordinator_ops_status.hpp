@@ -20,6 +20,10 @@ namespace memgraph::coordination {
 enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
 enum class SetCoordinatorSettingStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR, UNKNOWN_SETTING, INVALID_ARGUMENT };
 
+enum class CreateRoleStatus : uint8_t { SUCCESS = 0, ROLE_ALREADY_EXISTS, NOT_LEADER, RAFT_LOG_ERROR };
+enum class DropRoleStatus : uint8_t { SUCCESS = 0, NO_SUCH_ROLE, NOT_LEADER, RAFT_LOG_ERROR };
+enum class GetRolesStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
+
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS = 0,
   MGMT_ENDPOINT_EXISTS,

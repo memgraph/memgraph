@@ -17,25 +17,34 @@ the `EnableWritingOnMainRpc` — add confusion without providing behavior.
 ## Solution
 
 Enable SSO (OIDC, SAML, Kerberos) authentication on coordinators, backed by a small,
-Raft-replicated list of role names.
+Raft-replicated set of roles, each carrying a coordinator privilege (READ or WRITE).
 
 From the user's perspective:
 
 - Connecting to a coordinator with **basic auth (username + password) always succeeds**,
-  exactly as today — credentials are ignored. Nothing about existing tooling breaks.
+  exactly as today — credentials are ignored, and the session has full (WRITE) access.
+  Nothing about existing tooling breaks.
 - Connecting with an **SSO scheme** (one listed in `--auth-module-mappings`) now runs the
   corresponding auth module and **actually authenticates**: the connection is accepted
   only if the IdP token is valid and every role the module returns already exists on the
   coordinator; otherwise the connection is rejected. SSO on coordinators works the same
   way for SAML and Kerberos as it does for OIDC.
-- Administrators manage the coordinator's role list with **`CREATE ROLE`**, **`DROP ROLE`**,
-  and **`SHOW ROLES`**. These queries work on any coordinator: if run on a follower they
-  are transparently forwarded to the leader. The role list is persisted through the Raft
-  log, so it survives restarts, follower catch-up, and leader failover.
-- All other auth queries (users, passwords, privileges, grants) remain **rejected** on
-  coordinators, as today.
-- SSO and role management on coordinators are **enterprise features** (require a valid
-  license); basic-auth passthrough remains free.
+- An authenticated SSO session is **restricted by its role privileges**. Coordinators have
+  exactly two privileges: **READ** (routing-table read, `SHOW COORDINATOR SETTINGS`,
+  `SHOW INSTANCE`, `SHOW INSTANCES`, `SHOW REPLICATION LAG`, and other read-only
+  introspection) and **WRITE** (everything runnable on a coordinator; WRITE is a superset
+  of READ). A session's effective privilege is the union of its roles' privileges.
+- Administrators manage roles with **`CREATE ROLE`**, **`DROP ROLE`**, **`SHOW ROLES`**,
+  assign privileges with **`GRANT READ|WRITE TO <role>`** / **`REVOKE`**, and inspect them
+  with **`SHOW PRIVILEGES FOR <role>`**. These queries work on any coordinator: if run on a
+  follower they are transparently forwarded to the leader. The role set and its privileges
+  are persisted through the Raft log, so they survive restarts, follower catch-up, and
+  leader failover.
+- All other auth queries (users, passwords, and privileges other than coordinator
+  READ/WRITE on roles) remain **rejected** on coordinators, as today.
+- SSO, role management, privilege grants, and privilege enforcement on coordinators are
+  **enterprise features** (require a valid license); basic-auth passthrough remains free
+  and retains full WRITE access, so community/unlicensed deployments are unaffected.
 
 Separately, this work removes two unused constructs — the `COORDINATOR` privilege and
 `EnableWritingOnMainRpc` — to reduce confusion.
@@ -80,29 +89,51 @@ Separately, this work removes two unused constructs — the `COORDINATOR` privil
 16. As an administrator, I want the role list to survive a leader failover, so that a change
     of leadership does not lose authentication configuration.
 17. As an administrator, I want all non-role auth queries (`CREATE USER`, `SET PASSWORD`,
-    `GRANT`/`DENY`/`REVOKE`, `SHOW USERS`, `SET ROLE`, `SHOW PRIVILEGES`, …) to be rejected
-    on coordinators, so that the coordinator's auth surface stays minimal and predictable.
-18. As an administrator, I want SSO login for a given role to be rejected before I create
+    `SHOW USERS`, `SET ROLE`, privilege grants other than coordinator READ/WRITE, …) to be
+    rejected on coordinators, so that the coordinator's auth surface stays minimal and
+    predictable.
+18. As an administrator, I want to grant a coordinator role either READ or WRITE with
+    `GRANT READ|WRITE TO <role>`, so that I can control what an SSO identity mapping to that
+    role may do.
+19. As an administrator, I want to remove a granted privilege with `REVOKE READ|WRITE FROM
+    <role>`, so that I can tighten access without dropping the role.
+20. As an administrator, I want `SHOW PRIVILEGES FOR <role>` to report a coordinator role's
+    granted privilege, so that I can audit and debug access.
+21. As a security engineer, I want a READ-only SSO session to be able to read the routing
+    table and run the read/introspection queries but be denied every mutating query, so that
+    least-privilege access to the control plane is enforced.
+22. As a security engineer, I want a WRITE SSO session to be able to run every coordinator
+    query (WRITE being a superset of READ), so that operators with write access are not
+    additionally blocked from reads.
+23. As a security engineer, I want an SSO session whose role has no privilege granted to be
+    denied everything (including the routing table) until an admin grants READ or WRITE, so
+    that roles never confer implicit access.
+24. As a security engineer, I want a multi-role SSO session to receive the union of its
+    roles' privileges, so that combined roles behave predictably.
+25. As an operator, I want basic-auth sessions to keep full WRITE access, so that existing
+    admin tooling that connects with username/password is never locked out by the new
+    privilege model.
+26. As an administrator, I want SSO login for a given role to be rejected before I create
     that role and to succeed after I create it, so that role provisioning has an observable,
     verifiable effect.
-19. As an operator, I want the coordinator to inherit my `MEMGRAPH_SSO_*` environment
+27. As an operator, I want the coordinator to inherit my `MEMGRAPH_SSO_*` environment
     variables into the auth module, so that I configure SSO on coordinators exactly as I do
     on data instances.
-20. As an operator, I want to configure the coordinator's SSO scheme-to-module mappings with
+28. As an operator, I want to configure the coordinator's SSO scheme-to-module mappings with
     `--auth-module-mappings`, so that I control which schemes and modules the coordinator uses.
-21. As an operator running a rolling upgrade, I want a role query forwarded to a
+29. As an operator running a rolling upgrade, I want a role or privilege query forwarded to a
     not-yet-upgraded leader to fail with an error rather than crash the coordinator, so that
     a mixed-version window degrades safely.
-22. As an operator without an enterprise license, I want SSO auth and role queries on
-    coordinators to be rejected with a license error while basic-auth still works, so that
-    licensing is consistent with the rest of auth.
-23. As a developer, I want the unused `COORDINATOR` privilege removed, so that the privilege
+30. As an operator without an enterprise license, I want SSO auth, role queries, privilege
+    grants, and enforcement on coordinators to be gated by a license error while basic-auth
+    still works with full access, so that licensing is consistent with the rest of auth.
+31. As a developer, I want the unused `COORDINATOR` privilege removed, so that the privilege
     model does not advertise a permission that gates nothing.
-24. As a developer, I want the unused `EnableWritingOnMainRpc` removed, so that the RPC
+32. As a developer, I want the unused `EnableWritingOnMainRpc` removed, so that the RPC
     surface reflects what is actually called.
-25. As a developer, I want a dedicated e2e suite for coordinator authentication, so that
+33. As a developer, I want a dedicated e2e suite for coordinator authentication, so that
     every scenario above is protected against regressions.
-26. As a developer, I want Kerberos exercised through the real coordinator Bolt handshake
+34. As a developer, I want Kerberos exercised through the real coordinator Bolt handshake
     (not just as an isolated Python unit test), so that the coordinator SSO path has genuine
     Kerberos coverage.
 
@@ -116,12 +147,24 @@ Separately, this work removes two unused constructs — the `COORDINATOR` privil
   module for that scheme, then validate the returned roles. Authentication **succeeds only
   if every returned role exists** in the coordinator's role list. Invalid token, any
   missing role, or an unknown scheme (not in mappings) → **connection rejected**.
-- **No privilege gating**: once authenticated (basic or SSO), a session may run any query
-  that coordinators otherwise allow. Roles exist to satisfy the SSO module contract and
-  identity, not to restrict which coordinator queries run.
-- **Enterprise-gated**: SSO authentication and the role queries require `MG_ENTERPRISE` +
-  a valid license; without it they are rejected with a license error. Basic-auth
-  passthrough works in any build.
+- **Privilege gating (supersedes the earlier no-gating decision)**: coordinators have
+  exactly two privileges, **READ** and **WRITE**, where **WRITE is a superset of READ**. A
+  READ-classified query requires READ or WRITE; a WRITE-classified query requires WRITE.
+  A basic-auth passthrough session has full WRITE (backward compatible). An SSO session's
+  effective privilege is the **union** of the masks of its matched roles; a role with no
+  grant confers nothing, so such a session is denied everything (including the routing
+  table) until granted.
+- **Query classification**: READ = routing-table read, `SHOW COORDINATOR SETTINGS`,
+  `SHOW INSTANCE`, `SHOW INSTANCES`, `SHOW REPLICATION LAG`, and all other read-only
+  introspection (`SHOW ROLES`, `SHOW PRIVILEGES FOR`, `SHOW CONFIG`, `SYSTEM INFO`, the SHOW
+  form of settings). WRITE = every mutating/admin query (`REGISTER`/`UNREGISTER INSTANCE`,
+  `SET INSTANCE TO MAIN`, `DEMOTE INSTANCE`, `ADD`/`REMOVE COORDINATOR`, `YIELD LEADERSHIP`,
+  `SET COORDINATOR SETTING`, `UPDATE CONFIG`, `FORCE RESET CLUSTER STATE`, `RELOAD SSL`, the
+  SET form of settings, `CREATE ROLE`, `DROP ROLE`, `GRANT`, `REVOKE`).
+- **Enterprise-gated**: SSO authentication, the role queries, privilege grants
+  (`GRANT`/`REVOKE`), `SHOW PRIVILEGES FOR`, and privilege enforcement require
+  `MG_ENTERPRISE` + a valid license; without it they are rejected with a license error.
+  Basic-auth passthrough works in any build and retains full WRITE.
 - The coordinator branch of the Bolt handshake's `AuthenticateUser` is changed from
   "ignore auth on coordinators" to: basic/none → passthrough; SSO scheme in mappings →
   the dedicated coordinator SSO path; otherwise reject.
@@ -134,16 +177,36 @@ Separately, this work removes two unused constructs — the `COORDINATOR` privil
   role-existence check is performed against `CoordinatorState`'s committed role list rather
   than the auth kvstore.
 - The authenticator is shaped as a testable unit: given a scheme and an IdP response, it
-  produces an authenticated/rejected result, using an injected module-runner and an injected
-  role-existence provider (predicate over the coordinator role list).
+  produces an authenticated/rejected result plus an **effective privilege mask** (the union
+  of the matched roles' masks), using an injected module-runner and an injected role/mask
+  provider over the coordinator role set.
+- On success, the session carries that effective mask; the coordinator privilege check
+  consults the session mask, **not** the auth kvstore (coordinator roles live only in Raft).
 - `MEMGRAPH_SSO_*` variables are the module's contract and are inherited by the spawned
   module subprocess. **No new C++ env parsing** is added on coordinators.
 
+### Coordinator privilege model & enforcement
+
+- Two new privileges are introduced (an `AuthQuery::Privilege` value and a `Permission` bit
+  each) for coordinator **READ** and **WRITE**. The previously-removed `COORDINATOR`
+  privilege stays removed (its reserved bit is not reused). Granting READ/WRITE is a
+  coordinator-only carve-out and these privileges are not meaningful on data instances.
+- Roles carry a permission bitmask. `GRANT READ|WRITE TO <role>` / `REVOKE ... FROM <role>`
+  set/clear the bits; `SHOW PRIVILEGES FOR <role>` reports them. `SHOW ROLES` stays
+  name-only. These queries are carved into the coordinator allowlist; all other auth
+  queries remain rejected.
+- Enforcement of Cypher coordinator queries reuses the existing required-privilege
+  extraction + `CheckAuthorized` path, comparing the query's required privilege against the
+  session's effective mask (WRITE satisfies a READ requirement).
+- The **routing table** is a Bolt `ROUTE` message that bypasses the query privilege path, so
+  an explicit READ check is added in the ROUTE handler against the session's effective mask.
+
 ### Roles as Raft-replicated state
 
-- A new field `std::vector<std::string> roles_` is added to `CoordinatorClusterState` and is
-  the **sole source of truth** for coordinator roles. There are no user records and no
-  privileges stored on coordinators; the auth kvstore is not used for coordinator roles.
+- A new field holding a **`vector<{name, privilege-mask}>`** (a small role struct: role name
+  plus its coordinator permission bitmask) is added to `CoordinatorClusterState` and is the
+  **sole source of truth** for coordinator roles and their privileges. There are no user
+  records stored on coordinators; the auth kvstore is not used for coordinator roles.
 - The field is added through the full established pattern: member + default, all special
   member functions, `operator==` tie-lists, a new optional in `CoordinatorClusterStateDelta`,
   getter/setter, `to_json`/`from_json` (full-state snapshot), `DoAction`,
@@ -151,27 +214,29 @@ Separately, this work removes two unused constructs — the `COORDINATOR` privil
 - **No `LogStoreVersion` bump.** Backward/forward compatibility is achieved the same way as
   the most recent fields: `add_if_set` when serializing the delta, a `contains`-guard in
   `DecodeLog`, and `j.value(key, {})` (default empty) in `from_json`. An older coordinator
-  ignores the unknown `roles` key; a newer coordinator reading an older log/snapshot sees an
-  empty role set.
+  ignores the unknown key; a newer coordinator reading an older log/snapshot sees an empty
+  role set.
 
-### Role query handling and forwarding
+### Role & privilege query handling and forwarding
 
 - The interpreter's coordinator query gate is extended to permit exactly `CREATE ROLE`,
-  `DROP ROLE`, and `SHOW ROLES` (carved out of the auth-query rejection by inspecting the
-  auth-query sub-action). All other auth queries remain rejected on coordinators with the
-  existing coordinator-only-queries error.
+  `DROP ROLE`, `SHOW ROLES`, `GRANT READ|WRITE TO <role>`, `REVOKE READ|WRITE FROM <role>`,
+  and `SHOW PRIVILEGES FOR <role>` (carved out of the auth-query rejection by inspecting the
+  auth-query sub-action; GRANT/REVOKE restricted to the READ/WRITE privileges). All other
+  auth queries remain rejected on coordinators with the existing coordinator-only-queries
+  error.
 - Semantics **match data instances**: `CREATE ROLE x` errors if `x` already exists, is a
   no-op with `IF NOT EXISTS`; `DROP ROLE x` errors if `x` does not exist.
-- New coordinator→coordinator RPCs are introduced: `CreateRoleRpc`, `DropRoleRpc`, and a
-  read RPC (`GetRolesRpc`) for `SHOW ROLES`.
-- **All three role operations forward to the leader** via the existing `ForwardToLeader`
-  mechanism. On the leader, `CREATE`/`DROP` build a `CoordinatorClusterStateDelta` carrying
-  the updated roles vector and commit it through `AppendLogAndWaitForCommit`. `SHOW ROLES`
-  is also forwarded to the leader (strong read) and returns the leader's committed list.
+- New coordinator→coordinator RPCs are introduced for the write operations (create role,
+  drop role, grant, revoke) and read operations (get roles, get role privileges).
+- **All role/privilege writes forward to the leader** via the existing `ForwardToLeader`
+  mechanism. On the leader, each write builds a `CoordinatorClusterStateDelta` carrying the
+  updated role set and commits it through `AppendLogAndWaitForCommit`. `SHOW ROLES` and
+  `SHOW PRIVILEGES FOR` are also forwarded to the leader (strong read).
 
 ### Mixed-version behavior (rolling upgrade)
 
-- **No RPC version negotiation.** If a new follower forwards a role RPC to a
+- **No RPC version negotiation.** If a new follower forwards a role/privilege RPC to a
   not-yet-upgraded leader that has no handler for it, the RPC **fails and surfaces an error**
   to the client.
 - This path must **not** trigger `MG_ASSERT` or otherwise crash the coordinator; the
@@ -211,16 +276,20 @@ remain valid if the implementation is refactored, as long as behavior holds.
 
 - **Coordinator role store**: add/drop/list operations on `CoordinatorClusterState`, plus a
   serialization roundtrip for both the per-log delta and the full-state snapshot (encode →
-  decode → identical role set, including the empty and backward-compatible-missing-key
-  cases). This directly protects the Raft-persisted `vector<string>` code path in isolation.
-  Prior art: existing `CoordinatorClusterState` / coordinator state-machine unit tests.
+  decode → identical role set **including each role's privilege mask**, and the empty /
+  backward-compatible-missing-key cases). This directly protects the Raft-persisted
+  `vector<{name, mask}>` code path in isolation. Prior art: existing
+  `CoordinatorClusterState` / coordinator state-machine unit tests.
 - **Auth-query gate**: assert that the coordinator gate permits exactly `CREATE ROLE`,
-  `DROP ROLE`, and `SHOW ROLES` and rejects all other auth queries, at unit level where
-  feasible without standing up a full cluster. Prior art: existing interpreter/required-
-  privileges tests.
+  `DROP ROLE`, `SHOW ROLES`, `GRANT`/`REVOKE READ|WRITE`, and `SHOW PRIVILEGES FOR` and
+  rejects all other auth queries, at unit level where feasible without standing up a full
+  cluster. Prior art: existing interpreter/required-privileges tests.
+- **Effective-privilege computation**: union of masks across multiple roles, and the
+  authorization check semantics (a READ requirement satisfied by READ or WRITE; a WRITE
+  requirement needs WRITE; a bare role confers nothing).
 
-The role RPCs and the coordinator SSO authenticator are covered by the e2e suite rather
-than dedicated unit tests.
+The role/privilege RPCs and the coordinator SSO authenticator are covered by the e2e suite
+rather than dedicated unit tests.
 
 ### End-to-end tests — `tests/e2e/high_availability/auth.py`
 
@@ -241,8 +310,15 @@ Functional buckets:
 - **Role CRUD + follower forwarding**: `CREATE`/`DROP`/`SHOW ROLE` on the leader; the same
   run on a follower and transparently forwarded; duplicate → error, `IF NOT EXISTS` →
   no-op, `DROP` missing → error; forwarded `SHOW ROLES`.
-- **Disallowed queries + SSO/role tie-in**: `CREATE USER`, `SET PASSWORD`,
-  `GRANT`/`DENY`/`REVOKE`, `SHOW USERS`, `SET ROLE`, `SHOW PRIVILEGES`, etc. rejected on
+- **Privilege management**: `GRANT READ|WRITE TO <role>` reflected in `SHOW PRIVILEGES FOR
+  <role>`; `REVOKE` clears it; a bare role shows no privilege; grants/revokes forwarded from
+  a follower; `GRANT`/`REVOKE`/`SHOW PRIVILEGES` rejected for non-role auth targets.
+- **Privilege enforcement (via SSO)**: a READ-only SSO session can read the routing table
+  and run the read/introspection queries but is denied every mutating query; a WRITE SSO
+  session can run everything; a bare-role SSO session is denied everything including the
+  routing table; basic-auth retains full WRITE.
+- **Disallowed queries + SSO/role tie-in**: `CREATE USER`, `SET PASSWORD`, `SHOW USERS`,
+  `SET ROLE`, and privilege grants other than coordinator READ/WRITE rejected on
   coordinators; SSO login for a role rejected before `CREATE ROLE` and succeeding after.
 
 Persistence / recovery:
@@ -264,12 +340,13 @@ lifecycle; `tests/e2e/sso/` (`test_sso.py`, `test_oidc.py`, `test_saml_sso_modul
   valid license masks the password in the query log; community and unlicensed-enterprise
   builds are unchanged. No masking is added to failed/slow/session-trace/audit sinks, and
   the syntax-error/client-facing path is untouched.
-- **Privilege enforcement on coordinators**: authenticated sessions are not restricted by
-  role; there is no per-role gating of coordinator queries.
+- **Privileges beyond READ/WRITE**: coordinators support only the two coarse privileges;
+  the fine-grained data-instance privilege set is not modeled on coordinators. (This
+  supersedes the earlier "no privilege gating on coordinators" decision.)
 - **SSO auto-provisioning of roles**: the data-instance-style scenario where SSO implies
   built-in roles (readonly/readwrite/admin) is explicitly not implemented on coordinators.
-- **User management on coordinators**: no users, passwords, or privileges are stored on
-  coordinators.
+- **User management on coordinators**: no users or passwords are stored on coordinators;
+  the only persisted auth state is the role set and each role's READ/WRITE mask.
 - **Real KDC/SPNEGO Kerberos integration**: Kerberos is tested through the coordinator Bolt
   handshake with a dummy module, not against a live KDC.
 - **RPC version negotiation / capability detection** for the new role RPCs.

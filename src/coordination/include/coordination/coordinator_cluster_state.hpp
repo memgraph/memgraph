@@ -54,6 +54,7 @@ struct CoordinatorClusterStateDelta {
   std::optional<uint32_t> instance_down_timeout_sec_;
   std::optional<uint32_t> instance_health_check_frequency_sec_;
   std::optional<bool> global_read_only_;
+  std::optional<std::vector<std::string>> roles_;
 
   bool operator==(const CoordinatorClusterStateDelta &other) const = default;
 };
@@ -107,6 +108,8 @@ class CoordinatorClusterState {
 
   auto GetGlobalReadOnly() const -> bool;
 
+  auto GetRoles() const -> std::vector<std::string>;
+
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
   // Setter function used on parsing data from json
@@ -135,6 +138,9 @@ class CoordinatorClusterState {
 
   void SetGlobalReadOnly(bool global_read_only);
 
+  // Setter function used on parsing data from json
+  void SetRoles(std::vector<std::string> roles);
+
   friend bool operator==(const CoordinatorClusterState &lhs, const CoordinatorClusterState &rhs) {
     if (&lhs == &rhs) {
       return true;
@@ -151,17 +157,19 @@ class CoordinatorClusterState {
                     lhs.deltas_batch_progress_size_,
                     lhs.instance_down_timeout_sec_,
                     lhs.instance_health_check_frequency_sec_,
-                    lhs.global_read_only_) == std::tie(rhs.data_instances_,
-                                                       rhs.coordinator_instances_,
-                                                       rhs.current_main_uuid_,
-                                                       rhs.enabled_reads_on_main_,
-                                                       rhs.sync_failover_only_,
-                                                       rhs.max_failover_replica_lag_,
-                                                       rhs.max_replica_read_lag_,
-                                                       rhs.deltas_batch_progress_size_,
-                                                       rhs.instance_down_timeout_sec_,
-                                                       rhs.instance_health_check_frequency_sec_,
-                                                       rhs.global_read_only_);
+                    lhs.global_read_only_,
+                    lhs.roles_) == std::tie(rhs.data_instances_,
+                                            rhs.coordinator_instances_,
+                                            rhs.current_main_uuid_,
+                                            rhs.enabled_reads_on_main_,
+                                            rhs.sync_failover_only_,
+                                            rhs.max_failover_replica_lag_,
+                                            rhs.max_replica_read_lag_,
+                                            rhs.deltas_batch_progress_size_,
+                                            rhs.instance_down_timeout_sec_,
+                                            rhs.instance_health_check_frequency_sec_,
+                                            rhs.global_read_only_,
+                                            rhs.roles_);
   }
 
  private:
@@ -189,6 +197,9 @@ class CoordinatorClusterState {
   // cluster does not unexpectedly freeze writes. It is the durable source of truth projected onto the main's writing
   // flag.
   bool global_read_only_{false};
+  // The list of role names the coordinator accepts from SSO. It is the sole source of truth for coordinator roles;
+  // there are no user records or privileges stored on coordinators.
+  std::vector<std::string> roles_;
   mutable utils::ResourceLock app_lock_;
 };
 
