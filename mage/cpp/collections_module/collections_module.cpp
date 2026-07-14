@@ -140,6 +140,21 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
           proc, Collections::kReturnValuePartition, mgp::type_list(mgp::type_nullable(mgp::type_any())));
     }
 
+    {
+      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureDisjunction), Collections::Disjunction);
+      mgp::func_add_arg(func, CStr(Collections::kDisjunctionArg1), ListOfNullable());
+      mgp::func_add_arg(func, CStr(Collections::kDisjunctionArg2), ListOfNullable());
+    }
+    {
+      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureSubtract), Collections::Subtract);
+      mgp::func_add_arg(func, CStr(Collections::kSubtractArg1), ListOfNullable());
+      mgp::func_add_arg(func, CStr(Collections::kSubtractArg2), ListOfNullable());
+    }
+    {
+      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureDuplicates), Collections::Duplicates);
+      mgp::func_add_arg(func, CStr(Collections::kDuplicatesArg1), ListOfNullable());
+    }
+
   } catch (const std::exception &e) {
     return 1;
   }

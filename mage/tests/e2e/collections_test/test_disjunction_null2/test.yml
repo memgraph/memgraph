@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.disjunction([1, 2], null) AS result;
+
+output:
+  - result: [1, 2]
