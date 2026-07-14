@@ -591,92 +591,27 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(LabelsTest &labels_test) override {
     auto expression_result = labels_test.expression_->Accept(*this);
+    // The AND/OR structure is one test over any labelled element; HasLabel(element,
+    // label) is the per-kind primitive (id-based over a real vertex, name-based
+    // over a projection node), so both kinds run the same test.
+    auto test = [&](const auto &element) -> TypedValue {
+      for (const auto &label : labels_test.labels_) {
+        if (!HasLabel(element, label)) return TypedValue(false, ctx_->memory);
+      }
+      for (const auto &or_labels_pattern : labels_test.or_labels_) {
+        if (!std::ranges::any_of(or_labels_pattern, [&](const LabelIx &label) { return HasLabel(element, label); })) {
+          return TypedValue(false, ctx_->memory);
+        }
+      }
+      return TypedValue(true, ctx_->memory);
+    };
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
-      case TypedValue::Type::Vertex: {
-        const auto &vertex = expression_result.ValueVertex();
-        for (const auto &label : labels_test.labels_) {
-          auto has_label = vertex.HasLabel(view_, GetLabel(label));
-          if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-            // This is a very nasty and temporary hack in order to make MERGE
-            // work. The old storage had the following logic when returning an
-            // `OLD` view: `return old ? old : new`. That means that if the
-            // `OLD` view didn't exist, it returned the NEW view. With this hack
-            // we simulate that behavior.
-            // TODO: Remove once MERGE is
-            // reimplemented.
-            has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
-          }
-          if (!has_label) {
-            switch (has_label.error()) {
-              case storage::Error::DELETED_OBJECT:
-                throw QueryRuntimeException("Trying to access labels on a deleted node.");
-              case storage::Error::NONEXISTENT_OBJECT:
-                throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
-              case storage::Error::SERIALIZATION_ERROR:
-              case storage::Error::VERTEX_HAS_EDGES:
-              case storage::Error::PROPERTIES_DISABLED:
-                throw QueryRuntimeException("Unexpected error when accessing labels.");
-            }
-          }
-          if (!*has_label) {
-            return TypedValue(false, ctx_->memory);
-          }
-        }
-        for (const auto &or_labels_pattern : labels_test.or_labels_) {
-          bool has_at_least_one_label = false;
-          for (const auto &label : or_labels_pattern) {
-            auto has_label = vertex.HasLabel(view_, GetLabel(label));
-            if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-              // This is a very nasty and temporary hack in order to make MERGE
-              // work. The old storage had the following logic when returning an
-              // `OLD` view: `return old ? old : new`. That means that if the
-              // `OLD` view didn't exist, it returned the NEW view. With this hack
-              // we simulate that behavior.
-              // TODO: Remove once MERGE is
-              // reimplemented.
-              has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
-            }
-            if (!has_label) {
-              switch (has_label.error()) {
-                case storage::Error::DELETED_OBJECT:
-                  throw QueryRuntimeException("Trying to access labels on a deleted node.");
-                case storage::Error::NONEXISTENT_OBJECT:
-                  throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
-                case storage::Error::SERIALIZATION_ERROR:
-                case storage::Error::VERTEX_HAS_EDGES:
-                case storage::Error::PROPERTIES_DISABLED:
-                  throw QueryRuntimeException("Unexpected error when accessing labels.");
-              }
-            }
-            if (*has_label) {
-              has_at_least_one_label = true;
-              break;
-            }
-          }
-          if (!has_at_least_one_label) {
-            return TypedValue(false, ctx_->memory);
-          }
-        }
-        return TypedValue(true, ctx_->memory);
-      }
-      case TypedValue::Type::VirtualNode: {
-        // A projection node carries its labels as names, not ids, and exposes no
-        // index, so the test is a membership check over its label list.
-        const auto &node = expression_result.ValueVirtualNode();
-        const auto has_label = [&](const LabelIx &label) {
-          return std::ranges::any_of(
-              node.Labels(), [&](const auto &held) { return std::string_view{held} == std::string_view{label.name}; });
-        };
-        for (const auto &label : labels_test.labels_) {
-          if (!has_label(label)) return TypedValue(false, ctx_->memory);
-        }
-        for (const auto &or_labels_pattern : labels_test.or_labels_) {
-          if (!std::ranges::any_of(or_labels_pattern, has_label)) return TypedValue(false, ctx_->memory);
-        }
-        return TypedValue(true, ctx_->memory);
-      }
+      case TypedValue::Type::Vertex:
+        return test(expression_result.ValueVertex());
+      case TypedValue::Type::VirtualNode:
+        return test(expression_result.ValueVirtualNode());
       default:
         throw QueryRuntimeException("Only nodes have labels.");
     }
@@ -1224,6 +1159,41 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
+
+  // Per-kind label-membership test behind one call site, so LabelsTest does not
+  // branch on the element kind (mirrors GetProperty). A real vertex tests by id
+  // under the current view, with the MERGE OLD->NEW fallback and the storage-error
+  // mapping; a projection node carries its labels as names and exposes no index,
+  // so it is a name membership check.
+  bool HasLabel(const VertexAccessor &vertex, const LabelIx &label) {
+    auto has_label = vertex.HasLabel(view_, GetLabel(label));
+    if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
+      // This is a very nasty and temporary hack in order to make MERGE work. The
+      // old storage had the following logic when returning an `OLD` view:
+      // `return old ? old : new`. That means that if the `OLD` view didn't exist,
+      // it returned the NEW view. With this hack we simulate that behavior.
+      // TODO: Remove once MERGE is reimplemented.
+      has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
+    }
+    if (!has_label) {
+      switch (has_label.error()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to access labels on a deleted node.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Unexpected error when accessing labels.");
+      }
+    }
+    return *has_label;
+  }
+
+  bool HasLabel(const VirtualNode &node, const LabelIx &label) const {
+    return std::ranges::any_of(
+        node.Labels(), [&](const auto &held) { return std::string_view{held} == std::string_view{label.name}; });
+  }
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
 
