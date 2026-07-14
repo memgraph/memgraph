@@ -166,12 +166,15 @@ text_vector_search_fga_setup_queries: &text_vector_search_fga_setup_queries
   - "GRANT DATABASE * TO user;"
   - "GRANT ALL PRIVILEGES TO user_prop;"
   - "GRANT DATABASE * TO user_prop;"
-  # fine-grained perms: user sees :Public + :LINKS_PUB; :Document + :LINKS_DOC are denied; :MIXED edge is granted but its endpoints aren't
+  # fine-grained perms: user sees :Public + :LINKS_PUB; :Document + :LINKS_DOC are denied; :MIXED edge is granted but its endpoints aren't.
+  # user also has global {*} property read, so it is *label*-restricted (not property-restricted): search returns content on granted labels and drops denied ones.
   - "GRANT READ ON NODES CONTAINING LABELS :Public TO user;"
   - "DENY READ ON NODES CONTAINING LABELS :Document TO user;"
   - "GRANT READ ON EDGES OF TYPE :LINKS_PUB TO user;"
   - "DENY READ ON EDGES OF TYPE :LINKS_DOC TO user;"
   - "GRANT READ ON EDGES OF TYPE :MIXED TO user;"
+  - "GRANT READ {*} ON NODES CONTAINING LABELS * TO user;"
+  - "GRANT READ {*} ON EDGES OF TYPE * TO user;"
   # user_prop has full label access but DENY on the .title property (text index target) on :Public + :Document and on .label on :LINKS_PUB + :LINKS_DOC; .embedding remains readable
   - "GRANT READ ON NODES CONTAINING LABELS * TO user_prop;"
   - "GRANT READ ON EDGES OF TYPE * TO user_prop;"

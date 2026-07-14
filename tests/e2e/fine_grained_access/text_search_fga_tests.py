@@ -16,10 +16,14 @@ import mgclient
 import pytest
 
 # Fixture summary (setup lives in workloads.yaml):
-#   user             - GRANT READ :Public + :LINKS_PUB + :MIXED, DENY READ :Document + :LINKS_DOC
-#   user_prop        - full label READ + GRANT READ {*}, DENY {title} :Public/:Document, DENY {label} :LINKS_*
-#   user_grant_only  - GRANT READ :Public + :LINKS_PUB only, no denies, no property rules
-# Indexed data: pub/doc text indexes on :Public/:Document; pub/doc/mixed edge text indexes.
+#   user                 - label-restricted: GRANT READ :Public + :LINKS_PUB + :MIXED, DENY :Document + :LINKS_DOC,
+#                          plus global GRANT READ {*} (so it reads content on the labels it can see)
+#   user_prop            - full label READ + GRANT READ {*}, DENY {title} :Public/:Document, DENY {label} :LINKS_*
+#   user_grant_only      - GRANT READ :Public + :LINKS_PUB only, no property rules (deny-by-default: reads no values)
+#   user_prop_deny_cross - full label READ + GRANT READ {*}, DENY {title} :Public only
+# Indexed data: property-less pub/doc text indexes on :Public/:Document; specified doc_title_text on :Document(title);
+# pub/doc/mixed edge text indexes. Since property read is deny-by-default, a hit surfaces only if the caller can read
+# the matched property on the hit's real labels; a label-only grant returns nothing.
 
 
 def admin_cursor():
@@ -45,12 +49,13 @@ def user_prop_deny_cross_cursor():
 # text_search on vertices -----------------------------------------------------
 
 
-def test_text_search_blocked_on_denied_label():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_cursor(),
-            "CALL text_search.search('doc_text', 'data.title:Secret') YIELD node RETURN node;",
-        )
+# a denied label yields no hits (silent per-row filter, like a MATCH the caller can't satisfy) — not an error
+def test_text_search_dropped_on_denied_label():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL text_search.search('doc_text', 'data.title:Secret') YIELD node RETURN node;",
+    )
+    assert res == []
 
 
 def test_text_search_returns_allowed_label():
@@ -61,20 +66,20 @@ def test_text_search_returns_allowed_label():
     assert len(res) == 1
 
 
-def test_text_search_all_blocked_on_denied_label():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_cursor(),
-            "CALL text_search.search_all('doc_text', 'Secret') YIELD node RETURN node;",
-        )
+def test_text_search_all_dropped_on_denied_label():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL text_search.search_all('doc_text', 'Secret') YIELD node RETURN node;",
+    )
+    assert res == []
 
 
-def test_text_regex_search_blocked_on_denied_label():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_cursor(),
-            "CALL text_search.regex_search('doc_text', 'Sec.*') YIELD node RETURN node;",
-        )
+def test_text_regex_search_dropped_on_denied_label():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL text_search.regex_search('doc_text', 'Sec.*') YIELD node RETURN node;",
+    )
+    assert res == []
 
 
 # Hybrid is :Public:Document — visible via pub_text index but DENY :Document wins per-row.
@@ -97,12 +102,12 @@ def test_admin_text_search_returns_results_on_denied_index():
 # text_search on edges -------------------------------------------------------
 
 
-def test_text_search_edges_blocked_on_denied_type():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_cursor(),
-            "CALL text_search.search_edges('doc_etext', 'data.label:Confidential') YIELD edge RETURN edge;",
-        )
+def test_text_search_edges_dropped_on_denied_type():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL text_search.search_edges('doc_etext', 'data.label:Confidential') YIELD edge RETURN edge;",
+    )
+    assert res == []
 
 
 def test_text_search_edges_returns_allowed_type():
@@ -123,23 +128,25 @@ def test_text_search_edges_skips_when_endpoint_denied():
 
 
 # property-level RBAC on text search ----------------------------------------
-# text indexes without an explicit property list cover every string property; any property RBAC blocks.
+# a hit is dropped when the searched property is unreadable on its real labels — for a property-less
+# index that means any DENY on a string property the caller carries. user_prop DENY {title} :Document,
+# so every :Document title match is filtered out.
 
 
-def test_text_search_blocked_on_property_denied():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_prop_cursor(),
-            "CALL text_search.search('doc_text', 'data.title:Secret') YIELD node RETURN node;",
-        )
+def test_text_search_dropped_on_property_denied():
+    res = common.execute_and_fetch_all(
+        user_prop_cursor(),
+        "CALL text_search.search('doc_text', 'data.title:Secret') YIELD node RETURN node;",
+    )
+    assert res == []
 
 
-def test_text_search_edges_blocked_on_property_denied():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_prop_cursor(),
-            "CALL text_search.search_edges('doc_etext', 'data.label:Confidential') YIELD edge RETURN edge;",
-        )
+def test_text_search_edges_dropped_on_property_denied():
+    res = common.execute_and_fetch_all(
+        user_prop_cursor(),
+        "CALL text_search.search_edges('doc_etext', 'data.label:Confidential') YIELD edge RETURN edge;",
+    )
+    assert res == []
 
 
 # per-row property drop on a specified text index (doc_title_text = :Document(title)):
@@ -162,8 +169,10 @@ def test_text_search_returns_readable_title_on_specified_index():
 
 
 # aggregate procs -----------------------------------------------------------
-# Tantivy can't honor per-row RBAC, so aggregate is blocked whenever a deny/property rule could
-# alter what the aggregate counts. Pure-GRANT users on a granted label/type may run it.
+# Aggregation runs inside Tantivy with no per-row hook, so it's gated up front: the caller must be able
+# to READ the index's bound label AND every indexed property (property read is deny-by-default, so a
+# label-only grant is not enough — it can't read the values it would aggregate). Admins (no fine-grained
+# checker) always may.
 
 
 def test_aggregate_blocked_for_restricted_user():
@@ -193,21 +202,33 @@ def test_admin_aggregate_works():
     assert len(res) == 1
 
 
-# user_grant_only has label GRANT :Public + edge GRANT :LINKS_PUB with zero denies and no property rules
-def test_aggregate_allowed_for_pure_grant_user_on_granted_label():
+# user_grant_only has label GRANT :Public but NO property grant — deny-by-default means it can't read
+# the title values, so aggregating over them would leak. The gate must block it.
+def test_aggregate_blocked_for_label_only_user_without_property_grant():
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(
+            user_grant_only_cursor(),
+            "CALL text_search.aggregate('pub_text', 'data.title:Welcome', "
+            '\'{"c":{"value_count":{"field":"data.title"}}}\') YIELD aggregation RETURN aggregation;',
+        )
+
+
+def test_aggregate_edges_blocked_for_label_only_user_without_property_grant():
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(
+            user_grant_only_cursor(),
+            "CALL text_search.aggregate_edges('pub_etext', 'data.label:Open', "
+            '\'{"c":{"value_count":{"field":"data.label"}}}\') YIELD aggregation RETURN aggregation;',
+        )
+
+
+# user_prop_deny_cross reads title on :Document (global {*}, DENY only on :Public), so it may aggregate
+# the specified doc_title_text index whose sole property it can read.
+def test_aggregate_allowed_with_property_grant_on_specified_index():
     res = common.execute_and_fetch_all(
-        user_grant_only_cursor(),
-        "CALL text_search.aggregate('pub_text', 'data.title:Welcome', "
+        user_prop_deny_cross_cursor(),
+        "CALL text_search.aggregate('doc_title_text', 'data.title:Secret', "
         '\'{"c":{"value_count":{"field":"data.title"}}}\') YIELD aggregation RETURN aggregation;',
-    )
-    assert len(res) == 1
-
-
-def test_aggregate_edges_allowed_for_pure_grant_user_on_granted_type():
-    res = common.execute_and_fetch_all(
-        user_grant_only_cursor(),
-        "CALL text_search.aggregate_edges('pub_etext', 'data.label:Open', "
-        '\'{"c":{"value_count":{"field":"data.label"}}}\') YIELD aggregation RETURN aggregation;',
     )
     assert len(res) == 1
 

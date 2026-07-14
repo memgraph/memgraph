@@ -16,9 +16,10 @@ import mgclient
 import pytest
 
 # Fixture summary (setup lives in workloads.yaml):
-#   user                    - GRANT READ :Public + :LINKS_PUB + :MIXED, DENY READ :Document + :LINKS_DOC
+#   user                    - label-restricted: GRANT :Public + :LINKS_PUB + :MIXED, DENY :Document + :LINKS_DOC,
+#                             plus global GRANT READ {*} (reads embeddings on the labels it can see)
 #   user_prop               - full label READ + GRANT READ {*}, DENY {title}/{label} on some labels/types
-#   user_prop_deny_indexed  - full label READ + GRANT READ {*}, DENY {embedding} :Public (blocks WILDCARD)
+#   user_prop_deny_indexed  - full label READ + GRANT READ {*}, DENY {embedding} :Public (drops :Public hits)
 # Indexed data: pub/doc vector indexes on :Public/:Document(embedding); pub/doc/mixed edge vector
 # indexes on :LINKS_PUB/:LINKS_DOC/:MIXED(embedding); wild_vec wildcard index on (embedding).
 
@@ -42,12 +43,13 @@ def user_prop_deny_indexed_cursor():
 # vector_search on vertices --------------------------------------------------
 
 
-def test_vector_search_blocked_on_denied_label():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_cursor(),
-            "CALL vector_search.search('doc_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
-        )
+# a denied label yields no hits (silent per-row filter), not an error
+def test_vector_search_dropped_on_denied_label():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL vector_search.search('doc_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
+    )
+    assert res == []
 
 
 def test_vector_search_returns_allowed_label():
@@ -78,12 +80,12 @@ def test_admin_vector_search_returns_results_on_denied_index():
 # vector_search on edges -----------------------------------------------------
 
 
-def test_vector_search_edges_blocked_on_denied_type():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_cursor(),
-            "CALL vector_search.search_edges('doc_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
-        )
+def test_vector_search_edges_dropped_on_denied_type():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL vector_search.search_edges('doc_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
+    )
+    assert res == []
 
 
 def test_vector_search_edges_returns_allowed_type():
@@ -150,14 +152,16 @@ def test_wildcard_vector_search_allowed_when_unrelated_property_denied():
     assert len(res) >= 1
 
 
-# user_prop_deny_indexed has DENY {embedding} :Public — a per-label DENY on the actually-indexed
-# property masks WILDCARD; the search must be blocked
-def test_wildcard_vector_search_blocked_when_indexed_property_has_per_label_deny():
-    with pytest.raises(mgclient.DatabaseError):
-        common.execute_and_fetch_all(
-            user_prop_deny_indexed_cursor(),
-            "CALL vector_search.search('wild_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
-        )
+# user_prop_deny_indexed has DENY {embedding} :Public. On the WILDCARD index the row filter is per-hit:
+# any node carrying :Public has its embedding denied (deny wins) and is dropped; nodes without :Public
+# keep their readable embedding. So the search returns results, but none bearing :Public.
+def test_wildcard_vector_search_drops_nodes_with_per_label_indexed_property_deny():
+    res = common.execute_and_fetch_all(
+        user_prop_deny_indexed_cursor(),
+        "CALL vector_search.search('wild_vec', 10, [1.0, 0.0]) YIELD node RETURN node;",
+    )
+    assert len(res) >= 1
+    assert all("Public" not in row[0].labels for row in res)
 
 
 # Hybrid is :Public:Document and lives in doc_vec (:Document). user_prop_deny_indexed DENY {embedding}
