@@ -27,20 +27,21 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
+#include "query/plan/rewrite/index_substitution_rewriter.hpp"
 
 namespace memgraph::query::plan {
 
 namespace impl {
 
 template <class TDbAccessor>
-class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
+class JoinRewriter final : public IndexSubstitutionRewriter {
  public:
   JoinRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
       : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
 
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
-  using HierarchicalLogicalOperatorVisitor::PreVisit;
-  using HierarchicalLogicalOperatorVisitor::Visit;
+  using IndexSubstitutionRewriter::PostVisit;
+  using IndexSubstitutionRewriter::PreVisit;
+  using IndexSubstitutionRewriter::Visit;
 
   bool Visit(Once &) override { return true; }
 
@@ -554,19 +555,6 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  bool PreVisit(BindGraphView &op) override {
-    prev_ops_.push_back(&op);
-    // The body scans a projection, which exposes no index to drive an indexed
-    // join. A join rewrite would consult the real graph's indexes, so the body is
-    // left as planned and not rewritten.
-    return false;
-  }
-
-  bool PostVisit(BindGraphView & /*op*/) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
   bool PostVisit(Apply & /*op*/) override {
     prev_ops_.pop_back();
     return true;
@@ -667,7 +655,6 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   Filters filters_;
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
-  std::vector<LogicalOperator *> prev_ops_;
   std::unordered_set<Symbol> cartesian_symbols_;
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("Operator not yet covered by JoinRewriter"); }
@@ -771,9 +758,8 @@ template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithJoinRewriter(std::unique_ptr<LogicalOperator> root_op,
                                                          SymbolTable *symbol_table, AstStorage *ast_storage,
                                                          TDbAccessor *db) {
-  impl::JoinRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
-  root_op->Accept(rewriter);
-  if (rewriter.new_root_) {
+  auto new_root = impl::RunIndexSubstitution<impl::JoinRewriter<TDbAccessor>>(*root_op, symbol_table, ast_storage, db);
+  if (new_root) {
     // This shouldn't happen in real use cases because, as JoinRewriter removes Filter operations, they cannot be the
     // root operator. In case we somehow missed this, raise NotYetImplemented instead of a MG_ASSERT crashing the
     // application.

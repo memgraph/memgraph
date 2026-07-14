@@ -38,6 +38,7 @@
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/balanced_union.hpp"
 #include "query/plan/rewrite/general.hpp"
+#include "query/plan/rewrite/index_substitution_rewriter.hpp"
 #include "query/plan/rewrite/order_by_elimination.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_properties_indices_info.hpp"
@@ -156,7 +157,7 @@ struct HashPair {
 };
 
 template <class TDbAccessor>
-class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
+class IndexLookupRewriter final : public IndexSubstitutionRewriter {
  public:
   IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints,
                       const Parameters &parameters, bool parallel_execution = false)
@@ -167,9 +168,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         parameters_(parameters),
         order_by_eliminator_(db, prev_ops_, parallel_execution) {}
 
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
-  using HierarchicalLogicalOperatorVisitor::PreVisit;
-  using HierarchicalLogicalOperatorVisitor::Visit;
+  using IndexSubstitutionRewriter::PostVisit;
+  using IndexSubstitutionRewriter::PreVisit;
+  using IndexSubstitutionRewriter::Visit;
 
   bool Visit(Once &) override { return true; }
 
@@ -805,20 +806,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(BindGraphView &op) override {
-    prev_ops_.push_back(&op);
-    // The body scans a projection, which exposes no index or statistics. Leave it
-    // a full ScanAll + Filter: an index scan reads the real graph through the
-    // accessor, not the bound projection, so substituting one here would read the
-    // wrong graph. The body is not rewritten.
-    return false;
-  }
-
-  bool PostVisit(BindGraphView & /*op*/) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
   bool PreVisit(LoadCsv &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -914,7 +901,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   Filters filters_;
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
-  std::vector<LogicalOperator *> prev_ops_;
   IndexHints index_hints_;
   const Parameters &parameters_;
   OrderByEliminator<TDbAccessor> order_by_eliminator_;
@@ -1891,14 +1877,13 @@ std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalO
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
                                                         TDbAccessor *db, IndexHints index_hints,
                                                         const Parameters &parameters, bool parallel_execution = false) {
-  impl::IndexLookupRewriter<TDbAccessor> rewriter(
-      symbol_table, ast_storage, db, index_hints, parameters, parallel_execution);
-  root_op->Accept(rewriter);
-  if (rewriter.new_root_) {
+  auto new_root = impl::RunIndexSubstitution<impl::IndexLookupRewriter<TDbAccessor>>(
+      *root_op, symbol_table, ast_storage, db, index_hints, parameters, parallel_execution);
+  if (new_root) {
     // The root operator was removed (e.g., OrderBy elimination or Filter removal).
     // Since the internal tree uses shared_ptr but this function returns unique_ptr,
     // we clone the new root subtree to get a properly-owned unique_ptr hierarchy.
-    return rewriter.new_root_->Clone(ast_storage);
+    return new_root->Clone(ast_storage);
   }
   return root_op;
 }
