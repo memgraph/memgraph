@@ -2684,3 +2684,113 @@ TEST_F(VersioningInterpreterTest, BranchGetHopsCounterTracksTraversal) {
   EXPECT_EQ(hc, 50) << "getHopsCounter() did not reflect the branch traversal (got " << hc
                     << " instead of 50) -- hops are not being counted on the branch InEdges/OutEdges path.";
 }
+
+// Graph Versioning v1: branch-local DROP INDEX. Unlike CREATE INDEX (schema-plane DDL, rejected on
+// a branch -- see BranchSchemaDdlRejected above), DROP INDEX on a checked-out branch is allowed and
+// applies ONLY to the branch's own diff engine: the branch stops using the index (planner falls back
+// to ScanAll+Filter, and results must still be correct through that fallback) while MAIN keeps the
+// index untouched.
+TEST_F(VersioningInterpreterTest, BranchLocalDropIndexIsQueryEffectiveAndMainUnaffected) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :Person(age)");
+  faker.Interpret("CREATE (:Person {age:10})");
+  faker.Interpret("CREATE (:Person {age:20})");
+  faker.Interpret("CREATE (:Person {age:30})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Branch-local drop must NOT throw -- this is the newly-allowed path.
+  faker.Interpret("DROP INDEX ON :Person(age)");
+
+  {
+    auto s = faker.Interpret("EXPLAIN MATCH (n:Person) WHERE n.age > 0 RETURN n");
+    std::string plan;
+    for (const auto &row : s.GetResults()) {
+      plan += row[0].ValueString();
+      plan += '\n';
+    }
+    EXPECT_THAT(plan, ::testing::Not(::testing::HasSubstr("ScanAllByLabelProperties")))
+        << "branch plan still selected the branch-dropped label-property index instead of falling "
+           "back to ScanAll+Filter; full plan:\n"
+        << plan;
+  }
+
+  {
+    auto s = faker.Interpret("MATCH (n:Person) WHERE n.age > 0 RETURN n.age AS a ORDER BY n.age");
+    const auto &rows = s.GetResults();
+    std::vector<int64_t> ages;
+    ages.reserve(rows.size());
+    for (const auto &row : rows) {
+      ages.emplace_back(row[0].ValueInt());
+    }
+    EXPECT_EQ(ages, (std::vector<int64_t>{10, 20, 30}))
+        << "branch-local DROP INDEX must still produce correct results via the ScanAll+Filter "
+           "fallback, not lose or corrupt rows.";
+  }
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto s = faker.Interpret("EXPLAIN MATCH (n:Person) WHERE n.age > 0 RETURN n");
+    std::string plan;
+    for (const auto &row : s.GetResults()) {
+      plan += row[0].ValueString();
+      plan += '\n';
+    }
+    EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByLabelProperties"))
+        << "main's :Person(age) index must be intact -- a branch-local DROP INDEX must not touch "
+           "main's own index set; full plan:\n"
+        << plan;
+  }
+}
+
+// Mirrors the test above at the SHOW INDEX INFO level: a branch-local DROP INDEX must remove the
+// dropped index from the branch's own index listing (read via the diff engine's GetActiveIndices,
+// see PrepareDatabaseInfoQuery's INDEX case) while leaving an untouched sibling index -- and main's
+// full index set -- alone.
+TEST_F(VersioningInterpreterTest, BranchLocalDropIndexReflectedInShowIndexInfo) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :Person(age)");
+  faker.Interpret("CREATE INDEX ON :Person");
+  faker.Interpret("CREATE (:Person {age:1})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("DROP INDEX ON :Person(age)");
+
+  {
+    // header = {"index type", "label", "property", "count"} -- row[0] is the type string.
+    auto s = faker.Interpret("SHOW INDEX INFO");
+    const auto &rows = s.GetResults();
+    std::vector<std::string> types;
+    types.reserve(rows.size());
+    for (const auto &row : rows) {
+      types.emplace_back(row[0].ValueString());
+    }
+
+    EXPECT_THAT(types, ::testing::Contains(std::string("label")))
+        << "the :Person label-only index must still be listed on the branch after dropping the "
+           "unrelated :Person(age) index.";
+    EXPECT_THAT(types, ::testing::Not(::testing::Contains(std::string("label+property"))))
+        << "the branch-dropped :Person(age) index must no longer be listed by SHOW INDEX INFO on "
+           "the branch.";
+  }
+
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto s = faker.Interpret("SHOW INDEX INFO");
+    const auto &rows = s.GetResults();
+    std::vector<std::string> types;
+    types.reserve(rows.size());
+    for (const auto &row : rows) {
+      types.emplace_back(row[0].ValueString());
+    }
+
+    EXPECT_THAT(types, ::testing::Contains(std::string("label+property")))
+        << "main's :Person(age) index must reappear intact -- the branch-local drop must not have "
+           "touched main's index set.";
+  }
+}

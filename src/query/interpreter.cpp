@@ -7069,8 +7069,15 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   switch (info_query->info_type_) {
     case DatabaseInfoQuery::InfoType::INDEX: {
       header = {"index type", "label", "property", "count"};
-      handler = [database] {
-        auto *storage = database->storage();
+      // Branch-aware SHOW INDEX INFO: on a checked-out branch, report the BRANCH's index set by
+      // reading the diff engine's GetActiveIndices (which is main's mirrored set MINUS any
+      // branch-local DROP INDEX), so a branch-local drop is visible here and re-appears on main.
+      // NOTE: the `count` column then reflects diff-engine-resident entries only (COW'd + branch-
+      // native), not the full historical∪diff union -- an approximate stat (SHOW INDEX INFO counts
+      // are approximate anyway); the index SET is the point of branch-awareness here.
+      storage::Storage *index_info_storage =
+          current_db.branch_context() != nullptr ? &current_db.branch_context()->diff_engine() : database->storage();
+      handler = [storage = index_info_storage] {
         constexpr std::string_view label_index_mark{"label"};
         constexpr std::string_view label_property_index_mark{"label+property"};
         constexpr std::string_view edge_type_index_mark{"edge-type"};
@@ -10995,18 +11002,30 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     if (current_db_.branch_context() != nullptr) {
       auto *q = parsed_query.query;
+      // Branch-local DROP INDEX is ALLOWED: a label/label-property or edge-type/edge-type-property
+      // index DROP on a checked-out branch is applied to the branch's own diff engine only (the
+      // handler routes through execution_db_accessor_ == the diff-engine accessor, so DropIndex hits
+      // the diff engine, never main), making the index disappear for THIS branch while main keeps it.
+      // Unlike CREATE (which would need to populate a new index from the historical∪diff union), DROP
+      // just removes the already-mirrored diff-engine copy. CREATE stays forbidden; every other
+      // schema/storage-global op stays forbidden too.
+      auto *iq = utils::Downcast<IndexQuery>(q);
+      auto *eiq = utils::Downcast<EdgeIndexQuery>(q);
+      const bool is_branch_local_index_drop = (iq != nullptr && iq->action_ == IndexQuery::Action::DROP) ||
+                                              (eiq != nullptr && eiq->action_ == EdgeIndexQuery::Action::DROP);
       const bool is_schema_or_storage_global_ddl =
-          utils::Downcast<IndexQuery>(q) != nullptr || utils::Downcast<EdgeIndexQuery>(q) != nullptr ||
-          utils::Downcast<PointIndexQuery>(q) != nullptr || utils::Downcast<VectorIndexQuery>(q) != nullptr ||
-          utils::Downcast<CreateVectorEdgeIndexQuery>(q) != nullptr || utils::Downcast<TextIndexQuery>(q) != nullptr ||
-          utils::Downcast<CreateTextEdgeIndexQuery>(q) != nullptr ||
-          utils::Downcast<DropAllIndexesQuery>(q) != nullptr ||
-          utils::Downcast<DropAllConstraintsQuery>(q) != nullptr || utils::Downcast<ConstraintQuery>(q) != nullptr ||
-          utils::Downcast<CreateEnumQuery>(q) != nullptr || utils::Downcast<AlterEnumAddValueQuery>(q) != nullptr ||
-          utils::Downcast<AlterEnumUpdateValueQuery>(q) != nullptr ||
-          utils::Downcast<AnalyzeGraphQuery>(q) != nullptr || utils::Downcast<DropGraphQuery>(q) != nullptr ||
-          utils::Downcast<TtlQuery>(q) != nullptr || utils::Downcast<StorageModeQuery>(q) != nullptr ||
-          utils::Downcast<RecoverSnapshotQuery>(q) != nullptr || utils::Downcast<EdgeImportModeQuery>(q) != nullptr;
+          !is_branch_local_index_drop &&
+          (utils::Downcast<IndexQuery>(q) != nullptr || utils::Downcast<EdgeIndexQuery>(q) != nullptr ||
+           utils::Downcast<PointIndexQuery>(q) != nullptr || utils::Downcast<VectorIndexQuery>(q) != nullptr ||
+           utils::Downcast<CreateVectorEdgeIndexQuery>(q) != nullptr || utils::Downcast<TextIndexQuery>(q) != nullptr ||
+           utils::Downcast<CreateTextEdgeIndexQuery>(q) != nullptr ||
+           utils::Downcast<DropAllIndexesQuery>(q) != nullptr ||
+           utils::Downcast<DropAllConstraintsQuery>(q) != nullptr || utils::Downcast<ConstraintQuery>(q) != nullptr ||
+           utils::Downcast<CreateEnumQuery>(q) != nullptr || utils::Downcast<AlterEnumAddValueQuery>(q) != nullptr ||
+           utils::Downcast<AlterEnumUpdateValueQuery>(q) != nullptr ||
+           utils::Downcast<AnalyzeGraphQuery>(q) != nullptr || utils::Downcast<DropGraphQuery>(q) != nullptr ||
+           utils::Downcast<TtlQuery>(q) != nullptr || utils::Downcast<StorageModeQuery>(q) != nullptr ||
+           utils::Downcast<RecoverSnapshotQuery>(q) != nullptr || utils::Downcast<EdgeImportModeQuery>(q) != nullptr);
       if (is_schema_or_storage_global_ddl) {
         throw QueryRuntimeException(
             "Schema-plane and storage-global operations (indexes, constraints, enums, TTL, ANALYZE GRAPH, DROP "
