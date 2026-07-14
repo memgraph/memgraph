@@ -1183,11 +1183,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
 
-#ifdef MG_ENTERPRISE
-  bool CheckPropertyPermission(VertexAccessor const &accessor, storage::PropertyId prop) const;
-  bool CheckPropertyPermission(EdgeAccessor const &accessor, storage::PropertyId prop) const;
-#endif
-
   Frame *frame_;
   const SymbolTable *symbol_table_;
   const EvaluationContext *ctx_;

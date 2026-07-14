@@ -145,6 +145,22 @@ class FineGrainedAuthChecker {
   mutable std::optional<bool> has_property_restrictions_;
 };
 
+// single source of truth for "may this caller READ this property on this entity", reused by the
+// expression evaluator (masks the value to NULL) and the search procedures (drop the hit)
+inline bool PropertyReadAllowed(FineGrainedAuthChecker const *auth_checker, VertexAccessor const &vertex,
+                                storage::View view, storage::PropertyId property) {
+  if (!auth_checker || !auth_checker->HasPropertyRestrictions()) return true;
+  const auto maybe_labels = vertex.Labels(view);
+  if (!maybe_labels) return false;
+  return auth_checker->HasPropertyPermission(*maybe_labels, property, AuthQuery::PropertyPermissionType::READ);
+}
+
+inline bool PropertyReadAllowed(FineGrainedAuthChecker const *auth_checker, EdgeAccessor const &edge,
+                                storage::PropertyId property) {
+  if (!auth_checker || !auth_checker->HasPropertyRestrictions()) return true;
+  return auth_checker->HasPropertyPermission(edge.EdgeType(), property, AuthQuery::PropertyPermissionType::READ);
+}
+
 class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecker {
  public:
   bool Has(const VertexAccessor & /*vertex*/, const memgraph::storage::View /*view*/,
