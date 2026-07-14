@@ -115,22 +115,29 @@ void VertexAccessor::CowIfNeeded() {
 // DbAccessor::Vertices(view, label)'s HIGH-3(b) fix closed on the vertex side. Delegates to
 // `BranchContext::ResolveEdges` (branch_engine.hpp) for the actual historical-vs-diff merge.
 //
-// FLAGGED, not fixed (out of scope for this slice): `hops_limit` is NOT wired through
-// ResolveEdges/consulted here on the branch path -- ordinary (unlimited) expansion is correct and
-// is this slice's whole point, but a hop-limited traversal (`context.hops_limit`, plan/operator.cpp)
-// against a checked-out branch would not have its quota decremented/enforced. Mirrors
-// DbAccessor::Vertices(view, label, properties, ...)'s own "NOTE (flagged, not fixed)" on IndexOrder
-// -- a follow-up slice's problem, not silently miscounted here.
+// S3 FIX: `hops_limit` is now threaded through and enforced, mirroring storage's
+// VertexAccessor::HandleExpansionsWithEdgeTypes (storage/v2/vertex_accessor.cpp) exactly: ResolveEdges
+// is called with an EMPTY edge_types filter so it returns every incident edge, unfiltered; the loop
+// then charges one hop per incident edge (IncrementHopsCount) and increments expanded_count BEFORE
+// applying the edge_types filter client-side, breaking out once the quota is exhausted. This matches
+// main's accounting for getHopsCounter()/USING HOPS LIMIT -- a non-matching-type edge still costs a
+// hop, and the returned expanded_count reflects edges visited, not edges kept.
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View view,
                                                                   const std::vector<storage::EdgeTypeId> &edge_types,
                                                                   query::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
-    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, edge_types);
+    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, {});
     std::vector<EdgeAccessor> edges;
-    edges.reserve(resolved.size());
-    std::ranges::transform(
-        resolved, std::back_inserter(edges), [this](auto const &edge) { return EdgeAccessor(edge, branch_ctx_); });
-    return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = static_cast<int64_t>(edges.size())};
+    int64_t expanded_count = 0;
+    for (auto const &edge : resolved) {
+      if (hops_limit != nullptr && hops_limit->IsUsed()) {
+        if (hops_limit->IncrementHopsCount() == 0) break;  // quota exhausted -> truncate
+      }
+      ++expanded_count;
+      if (!edge_types.empty() && !std::ranges::contains(edge_types, edge.EdgeType())) continue;
+      edges.emplace_back(edge, branch_ctx_);
+    }
+    return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = expanded_count};
   }
 
   auto maybe_result = impl_.InEdges(view, edge_types, nullptr, hops_limit);
@@ -151,20 +158,31 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
 // COW (a copy keeps its source's gid, see CowVertex/CowVertex-equivalent-for-edges), so comparing
 // raw storage gids here (no re-Resolve needed) is correct regardless of which side either endpoint
 // currently resolves through.
+//
+// S3 FIX: same hops-budget threading as the non-dest InEdges above -- ResolveEdges is called
+// unfiltered ({}) so every incident edge is visited and charged a hop; the dest-gid filter and the
+// edge_types filter both apply AFTER the hop is counted (post-count `continue`s, not the loop's
+// emission gate), matching storage's HandleExpansionsWithEdgeTypes ordering: hop charge, then
+// expanded_count++, then destination check, then edge_types check.
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View view,
                                                                   const std::vector<storage::EdgeTypeId> &edge_types,
                                                                   const VertexAccessor &dest,
                                                                   query::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
-    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, edge_types);
+    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, {});
     auto const dest_gid = dest.Gid();
     std::vector<EdgeAccessor> edges;
+    int64_t expanded_count = 0;
     for (auto const &edge : resolved) {
-      if (edge.FromVertex().Gid() == dest_gid) {
-        edges.emplace_back(edge, branch_ctx_);
+      if (hops_limit != nullptr && hops_limit->IsUsed()) {
+        if (hops_limit->IncrementHopsCount() == 0) break;  // quota exhausted -> truncate
       }
+      ++expanded_count;
+      if (edge.FromVertex().Gid() != dest_gid) continue;
+      if (!edge_types.empty() && !std::ranges::contains(edge_types, edge.EdgeType())) continue;
+      edges.emplace_back(edge, branch_ctx_);
     }
-    return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = static_cast<int64_t>(edges.size())};
+    return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = expanded_count};
   }
 
   auto maybe_result = impl_.InEdges(view, edge_types, &dest.impl_, hops_limit);
@@ -182,17 +200,25 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
   return InEdges(view, {});
 }
 
-// Branch-aware -- see InEdges' own doc-comment above (identical rationale, OUT direction).
+// Branch-aware -- see InEdges' own doc-comment above (identical rationale, OUT direction, including
+// the S3 hops-budget fix: ResolveEdges called unfiltered, hop charged per incident edge before the
+// edge_types filter, expanded_count reflecting edges visited not edges kept).
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View view,
                                                                    const std::vector<storage::EdgeTypeId> &edge_types,
                                                                    query::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
-    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, edge_types);
+    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, {});
     std::vector<EdgeAccessor> edges;
-    edges.reserve(resolved.size());
-    std::ranges::transform(
-        resolved, std::back_inserter(edges), [this](auto const &edge) { return EdgeAccessor(edge, branch_ctx_); });
-    return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = static_cast<int64_t>(edges.size())};
+    int64_t expanded_count = 0;
+    for (auto const &edge : resolved) {
+      if (hops_limit != nullptr && hops_limit->IsUsed()) {
+        if (hops_limit->IncrementHopsCount() == 0) break;  // quota exhausted -> truncate
+      }
+      ++expanded_count;
+      if (!edge_types.empty() && !std::ranges::contains(edge_types, edge.EdgeType())) continue;
+      edges.emplace_back(edge, branch_ctx_);
+    }
+    return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = expanded_count};
   }
 
   auto maybe_result = impl_.OutEdges(view, edge_types, nullptr, hops_limit);
@@ -209,20 +235,29 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
 // Branch mode: destination filter compares against the edge's TO vertex -- see InEdges(dest)'s own
 // doc-comment above (identical rationale, mirrored for OUT: `delta.vertex_edge.vertex` is the TO
 // vertex for an ADD_OUT_EDGE delta).
+//
+// S3 FIX: same hops-budget threading as InEdges(dest) above -- ResolveEdges called unfiltered ({}),
+// hop charged per incident edge before expanded_count++, dest-gid and edge_types filters both applied
+// as post-count `continue`s (not the emission gate), matching storage's HandleExpansionsWithEdgeTypes.
 storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View view,
                                                                    std::vector<storage::EdgeTypeId> const &edge_types,
                                                                    VertexAccessor const &dest,
                                                                    query::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
-    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, edge_types);
+    auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, {});
     auto const dest_gid = dest.Gid();
     std::vector<EdgeAccessor> edges;
+    int64_t expanded_count = 0;
     for (auto const &edge : resolved) {
-      if (edge.ToVertex().Gid() == dest_gid) {
-        edges.emplace_back(edge, branch_ctx_);
+      if (hops_limit != nullptr && hops_limit->IsUsed()) {
+        if (hops_limit->IncrementHopsCount() == 0) break;  // quota exhausted -> truncate
       }
+      ++expanded_count;
+      if (edge.ToVertex().Gid() != dest_gid) continue;
+      if (!edge_types.empty() && !std::ranges::contains(edge_types, edge.EdgeType())) continue;
+      edges.emplace_back(edge, branch_ctx_);
     }
-    return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = static_cast<int64_t>(edges.size())};
+    return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = expanded_count};
   }
 
   auto maybe_result = impl_.OutEdges(view, edge_types, &dest.impl_, hops_limit);

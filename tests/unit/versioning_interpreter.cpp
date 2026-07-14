@@ -2639,3 +2639,48 @@ TEST_F(VersioningInterpreterTest, BranchNestedLabelPropertyIndexSelectedInPlanOn
       << "branch plan did not select the mirrored nested-path label-property index; full plan:\n"
       << plan;
 }
+
+TEST_F(VersioningInterpreterTest, BranchHopsLimitEnforcedOnExpand) {
+  SatisfyGate();
+
+  // 100 disconnected 2-node edges -- an expansion that ignores the hops budget will happily
+  // traverse all 100 of them.
+  faker.Interpret("UNWIND range(1, 100) AS x CREATE ()-[:NEXT]->()");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto stream = faker.Interpret("USING HOPS LIMIT 5 MATCH p=()-[:NEXT]->() RETURN count(p) AS c");
+  const auto &rows = stream.GetResults();
+  ASSERT_EQ(rows.size(), 1U);
+  const auto c = rows[0][0].ValueInt();
+
+  // Locks that USING HOPS LIMIT is enforced on a branch: before the fix the branch InEdges/OutEdges
+  // path ignored the hops budget entirely and this returned 100 (the full disconnected edge set).
+  EXPECT_EQ(c, 5) << "USING HOPS LIMIT 5 did not truncate expansion on a checked-out branch (got " << c
+                  << " instead of 5) -- the branch edge-iteration path is not threading the hops budget "
+                     "through incident edges.";
+}
+
+TEST_F(VersioningInterpreterTest, BranchGetHopsCounterTracksTraversal) {
+  SatisfyGate();
+
+  faker.Interpret("UNWIND range(1, 100) AS x CREATE ()-[:NEXT]->()");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Exact shape exercised by hops_limit.feature ("Test retrieving hops limit counter", ~line 206):
+  // a CALL subquery traverses 50 of the 100 available edges, well within the 100-hop budget.
+  auto stream = faker.Interpret(
+      "USING HOPS LIMIT 100 CALL { MATCH (a)-[r]->(b) WITH a, r, b LIMIT 50 RETURN count(*) AS cnt } "
+      "RETURN getHopsCounter() AS hc");
+  const auto &rows = stream.GetResults();
+  ASSERT_EQ(rows.size(), 1U);
+  const auto hc = rows[0][0].ValueInt();
+
+  // Locks that getHopsCounter tracks branch traversal: before the fix the branch edge-iteration path
+  // never charged hops against the counter, so this read back 0 instead of 50.
+  EXPECT_EQ(hc, 50) << "getHopsCounter() did not reflect the branch traversal (got " << hc
+                    << " instead of 50) -- hops are not being counted on the branch InEdges/OutEdges path.";
+}
