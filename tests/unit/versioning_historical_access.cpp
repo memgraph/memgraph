@@ -816,31 +816,29 @@ TEST_F(VersioningHistoricalAccessTest, HistoricalEdgeTypeIndexScanReturnsForkSta
   mem_storage->ReleaseForkPin(fork_ts);
 }
 
-// Same claim (edge-R1) as above, but with properties_on_edges = false instead of the fixture's
-// default (true) -- see the large comment above this test's sibling for exactly what differs at
-// the storage layer between the two modes, and for the pre-existing-bug note about
-// InMemoryEdgeTypeIndex population unconditionally reading EdgeRef::ptr regardless of that flag.
-// A plain (non-fixture) TEST is used because this mode needs its own InMemoryStorage constructed
-// with a different Config than VersioningHistoricalAccessTest::SetUp builds, and there is nothing
-// else in the fixture this test needs.
-TEST(VersioningHistoricalAccessEdgeIndexLightEdgesTest, HistoricalEdgeTypeIndexScanReturnsForkState_LightEdges) {
-  // FINDING (empirically confirmed, then converted to a documented skip so it does not segfault CI):
-  // the edge-type index is NOT supported under properties_on_edges=false. Its population
-  // (InMemoryEdgeTypeIndex, inmemory/edge_type_index.cpp) unconditionally dereferences the
-  // EdgeRef union's `.ptr` member, but in light-edge mode only `.gid` is ever written (edge_ref.hpp),
-  // and CreateIndex(EdgeTypeId) (inmemory/storage.cpp:2229) has NO properties_on_edges gate -- unlike
-  // the edge-type+PROPERTY overload, which does refuse. So `CreateIndex(:KNOWS)` on a light-edge
-  // storage SEGFAULTS during PopulateIndex (verified: exit 139), on MAIN, independent of versioning.
-  // (The class doc at edge_type_index.hpp:40-42 states "only populated when properties_on_edges=true".)
-  //
-  // Consequence for the branch edge-index feature: it is inherently full-edge-mode only. A light-edge
-  // instance cannot hold a (populated) edge-type index in the first place, so there is nothing to
-  // mirror onto a light-edge branch's diff engine; Part A gates edge-type mirroring on
-  // properties_on_edges=true accordingly (branch_engine.cpp). This is a pre-existing MAIN crash bug,
-  // not a versioning bug -- worth a separate fix (a properties_on_edges gate in
-  // CreateIndex(EdgeTypeId), mirroring the edge-type+property overload), tracked outside this slice.
-  GTEST_SKIP() << "edge-type index is unsupported (segfaults on populate) under properties_on_edges=false -- "
-                  "pre-existing MAIN limitation; branch edge-index acceleration is full-edge-mode only";
+// Regression for the pre-existing MAIN crash: creating an edge-type index under
+// properties_on_edges=false used to SEGFAULT during PopulateIndex (verified: exit 139), because
+// InMemoryEdgeTypeIndex stores/derefs an Edge* per entry but a light edge only ever sets
+// EdgeRef::gid, so its `.ptr` is garbage. CreateIndex(EdgeTypeId) now GATES on properties_on_edges
+// (inmemory/storage.cpp) and refuses cleanly -- matching the sibling edge-type+property and global
+// edge-property overloads -- instead of crashing. This asserts the clean rejection (no crash).
+// (Full light-edge edge-type-index SUPPORT would need the Entry to carry an EdgeRef and the scan to
+// reconstruct a light-edge EdgeRef -- a separate, larger storage change; until then, refusing is
+// the correct behavior, and the branch edge-index mirror is correspondingly gated to full-edge
+// mode.) A plain (non-fixture) TEST is used because this mode needs its own light-edge
+// InMemoryStorage, not the fixture's default (properties_on_edges=true) one.
+TEST(VersioningHistoricalAccessEdgeIndexLightEdgesTest, EdgeTypeIndexRejectedCleanlyUnderLightEdges) {
+  ms::Config config;
+  config.gc = {.type = ms::Config::Gc::Type::NONE};
+  config.salient.items.properties_on_edges = false;
+  auto storage = std::make_unique<ms::InMemoryStorage>(config);
+
+  const auto knows_type = storage->NameToEdgeType("KNOWS");
+
+  auto index_acc = storage->ReadOnlyAccess();
+  auto created = index_acc->CreateIndex(knows_type);
+  EXPECT_FALSE(created.has_value()) << "creating an edge-type index under properties_on_edges=false must be refused "
+                                       "cleanly (not crash) -- the edge-type index is unsupported in light-edge mode";
 }
 
 }  // namespace
