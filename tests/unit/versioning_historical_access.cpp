@@ -21,15 +21,21 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "flags/general.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "storage/v2/indices/index_order.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage_test_utils.hpp"
@@ -493,6 +499,182 @@ TEST_F(VersioningHistoricalAccessGcTest, DropDuringOpenReadDoesNotReclaim) {
     storage->FreeMemory();
   }
   EXPECT_EQ(0, handles_.unreleased_delta_objects.Value());
+}
+
+// R1: a HistoricalAccess(fork_ts) accessor must be able to drive a label-property INDEX SCAN
+// (Storage::Accessor::Vertices(label, properties, property_ranges, view, order) -- the same entry
+// point ScanAllByLabelProperties uses) and get back fork-state, property-ordered results. This is a
+// NEW, previously-untested code path: no existing caller drives an index scan through
+// HistoricalAccess. Two failure modes are distinguished by the assertions below:
+//   (a) fork-state leak -- a post-fork write/create/delete becomes visible through the scan, or
+//   (b) ordering break -- the index returns vertices out of property order (e.g. falls back to
+//       gid/creation order), which would silently defeat any ORDER BY-elision plan that relies on
+//       index order.
+//
+// API shapes below are copied, not guessed, from tests/unit/storage_v2_indices.cpp:
+//   - CreateIndex(label, PropertiesPaths, IndexOrder) is called through storage->ReadOnlyAccess()
+//     (see IndexTest::CreateIndexAccessor, storage_v2_indices.cpp:121-128 -- a metadata-only DDL
+//     access mode for InMemoryStorage) and committed exactly like a normal write.
+//   - The index-scan overload of Vertices() and its std::array<PropertyPath>/PropertyValueRange
+//     argument shapes are copied from IndexTest.LabelPropertyIndexBasic
+//     (storage_v2_indices.cpp:911-946) and IndexTest.LabelPropertyDescIndexRangeBoundsVariants
+//     (storage_v2_indices.cpp:2321-2347), which is also where the DESC-index requirement below
+//     (see TEST 2) comes from.
+TEST_F(VersioningHistoricalAccessTest, HistoricalLabelPropertyIndexScanReturnsForkStateOrderedAsc) {
+  auto *mem_storage = static_cast<ms::InMemoryStorage *>(storage.get());
+  const auto label = storage->NameToLabel("Person");
+  const auto age_prop = storage->NameToProperty("age");
+
+  // Label-property index on :Person(age), ASC (the default order).
+  {
+    auto index_acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(index_acc->CreateIndex(label, {ms::PropertyPath{age_prop}}, ms::IndexOrder::ASC).has_value());
+    ASSERT_TRUE(index_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Pre-fork: 5 Person vertices, created in an order where gid-ascending != age-ascending -- so a
+  // correct-looking result that actually came back in creation/gid order would still be caught.
+  ms::Gid v20_gid;
+  ms::Gid v40_gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    for (int64_t age : {50, 20, 40, 10, 30}) {
+      auto v = acc->CreateVertex();
+      ASSERT_TRUE(v.AddLabel(label).has_value());
+      ASSERT_TRUE(v.SetProperty(age_prop, ms::PropertyValue(age)).has_value());
+      if (age == 20) v20_gid = v.Gid();
+      if (age == 40) v40_gid = v.Gid();
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const uint64_t fork_ts = mem_storage->RegisterForkPin();
+
+  // Post-fork committed mutations on MAIN: an in-place property edit, a new vertex, and a delete of
+  // an existing (pre-fork) vertex. None of this may leak into the fork_ts index scan below; the
+  // deleted vertex specifically MUST still appear, since it existed at fork_ts.
+  {
+    auto acc = storage->Access(ms::WRITE);
+
+    auto v20 = acc->FindVertex(v20_gid, ms::View::OLD);
+    ASSERT_TRUE(v20.has_value());
+    ASSERT_TRUE(v20->SetProperty(age_prop, ms::PropertyValue(999)).has_value());
+
+    auto v5 = acc->CreateVertex();
+    ASSERT_TRUE(v5.AddLabel(label).has_value());
+    ASSERT_TRUE(v5.SetProperty(age_prop, ms::PropertyValue(5)).has_value());
+
+    auto v40 = acc->FindVertex(v40_gid, ms::View::OLD);
+    ASSERT_TRUE(v40.has_value());
+    ASSERT_TRUE(acc->DetachDeleteVertex(&*v40).has_value());
+
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto historical = mem_storage->HistoricalAccess(fork_ts);
+  ASSERT_TRUE(historical.has_value());
+  {
+    auto &hist_acc = **historical;
+
+    std::vector<int64_t> ages;
+    for (auto v : hist_acc.Vertices(label,
+                                    std::array{ms::PropertyPath{age_prop}},
+                                    std::array{ms::PropertyValueRange::IsNotNull()},
+                                    ms::View::OLD,
+                                    ms::IndexOrder::ASC)) {
+      auto prop = v.GetProperty(age_prop, ms::View::OLD);
+      ASSERT_TRUE(prop.has_value());
+      ages.push_back(prop->ValueInt());
+    }
+
+    EXPECT_THAT(ages, ::testing::ElementsAre(10, 20, 30, 40, 50))
+        << "expected exactly the pre-fork ages {10,20,30,40,50} in ascending order; a mismatched "
+           "SET (age=20 must read 20, not the post-fork 999), an extra 5 (the post-fork-created "
+           "vertex must not appear), a missing 40 (the post-fork-deleted vertex must still appear, "
+           "since it existed at fork_ts), or any out-of-order sequence (the scan must be "
+           "property-ordered by the index, not gid/creation order) all indicate a real failure of "
+           "index-time-travel through HistoricalAccess";
+  }
+  historical->reset();
+  mem_storage->ReleaseForkPin(fork_ts);
+}
+
+// Same claim (R1) as above, but exercising IndexOrder::DESC. Per
+// IndexTest.LabelPropertyDescIndexRangeBoundsVariants (storage_v2_indices.cpp:2316-2411,
+// specifically the `GTEST_SKIP` for DiskStorage and the fact that every DESC scan there is preceded
+// by a CreateIndex(..., IndexOrder::DESC) call), DESC-ordered scanning is NOT a runtime option on
+// top of an ASC index -- it requires a separately-created DESC label-property index. This test
+// therefore creates its own DESC index (fresh storage instance via the fixture's per-test SetUp,
+// so there is no conflict with the ASC index created in the test above).
+TEST_F(VersioningHistoricalAccessTest, HistoricalLabelPropertyIndexScanRespectsDescOrder) {
+  auto *mem_storage = static_cast<ms::InMemoryStorage *>(storage.get());
+  const auto label = storage->NameToLabel("Person");
+  const auto age_prop = storage->NameToProperty("age");
+
+  // Label-property index on :Person(age), DESC -- a distinct index from the ASC variant above.
+  {
+    auto index_acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(index_acc->CreateIndex(label, {ms::PropertyPath{age_prop}}, ms::IndexOrder::DESC).has_value());
+    ASSERT_TRUE(index_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  ms::Gid v20_gid;
+  ms::Gid v40_gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    for (int64_t age : {50, 20, 40, 10, 30}) {
+      auto v = acc->CreateVertex();
+      ASSERT_TRUE(v.AddLabel(label).has_value());
+      ASSERT_TRUE(v.SetProperty(age_prop, ms::PropertyValue(age)).has_value());
+      if (age == 20) v20_gid = v.Gid();
+      if (age == 40) v40_gid = v.Gid();
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const uint64_t fork_ts = mem_storage->RegisterForkPin();
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+
+    auto v20 = acc->FindVertex(v20_gid, ms::View::OLD);
+    ASSERT_TRUE(v20.has_value());
+    ASSERT_TRUE(v20->SetProperty(age_prop, ms::PropertyValue(999)).has_value());
+
+    auto v5 = acc->CreateVertex();
+    ASSERT_TRUE(v5.AddLabel(label).has_value());
+    ASSERT_TRUE(v5.SetProperty(age_prop, ms::PropertyValue(5)).has_value());
+
+    auto v40 = acc->FindVertex(v40_gid, ms::View::OLD);
+    ASSERT_TRUE(v40.has_value());
+    ASSERT_TRUE(acc->DetachDeleteVertex(&*v40).has_value());
+
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto historical = mem_storage->HistoricalAccess(fork_ts);
+  ASSERT_TRUE(historical.has_value());
+  {
+    auto &hist_acc = **historical;
+
+    std::vector<int64_t> ages;
+    for (auto v : hist_acc.Vertices(label,
+                                    std::array{ms::PropertyPath{age_prop}},
+                                    std::array{ms::PropertyValueRange::IsNotNull()},
+                                    ms::View::OLD,
+                                    ms::IndexOrder::DESC)) {
+      auto prop = v.GetProperty(age_prop, ms::View::OLD);
+      ASSERT_TRUE(prop.has_value());
+      ages.push_back(prop->ValueInt());
+    }
+
+    EXPECT_THAT(ages, ::testing::ElementsAre(50, 40, 30, 20, 10))
+        << "expected exactly the pre-fork ages {50,40,30,20,10} in descending order through a "
+           "DESC-created index; see the ASC test above for what a fork-state leak vs. an "
+           "ordering break each look like here";
+  }
+  historical->reset();
+  mem_storage->ReleaseForkPin(fork_ts);
 }
 
 }  // namespace
