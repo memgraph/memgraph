@@ -674,6 +674,47 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     return coordinator_handler_.ShowCoordinatorSettings();
   }
 
+  void CreateRole(std::string_view const role_name, bool const if_not_exists) override {
+    switch (coordinator_handler_.CreateRole(role_name)) {
+      case coordination::CreateRoleStatus::SUCCESS:
+        break;
+      case coordination::CreateRoleStatus::ROLE_ALREADY_EXISTS:
+        if (!if_not_exists) {
+          throw QueryRuntimeException("Role '{}' already exists.", role_name);
+        }
+        spdlog::warn("Role '{}' already exists.", role_name);
+        break;
+      case coordination::CreateRoleStatus::NOT_LEADER:
+        throw QueryRuntimeException(GetNotLeaderRoleMessage());
+      case coordination::CreateRoleStatus::RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+    }
+  }
+
+  void DropRole(std::string_view const role_name) override {
+    switch (coordinator_handler_.DropRole(role_name)) {
+      case coordination::DropRoleStatus::SUCCESS:
+        break;
+      case coordination::DropRoleStatus::NO_SUCH_ROLE:
+        throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
+      case coordination::DropRoleStatus::NOT_LEADER:
+        throw QueryRuntimeException(GetNotLeaderRoleMessage());
+      case coordination::DropRoleStatus::RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+    }
+  }
+
+  std::vector<std::string> ShowRoles() override {
+    std::vector<std::string> roles;
+    switch (coordinator_handler_.GetRoles(roles)) {
+      case coordination::GetRolesStatus::SUCCESS:
+        return roles;
+      case coordination::GetRolesStatus::NOT_LEADER:
+        throw QueryRuntimeException(GetNotLeaderRoleMessage());
+    }
+    return roles;
+  }
+
   std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() override {
     return coordinator_handler_.ShowReplicationLag();
   }
@@ -972,8 +1013,68 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
  private:
+  // Builds a not-leader error message pointing at the current leader when known. Role queries are served by the leader;
+  // follower forwarding is a later slice.
+  std::string GetNotLeaderRoleMessage() const {
+    constexpr std::string_view common_message = "Role queries can only be run on the leader coordinator!";
+    if (auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData()) {
+      return fmt::format("{} Current leader is coordinator with id {} with bolt socket address {}",
+                         common_message,
+                         maybe_leader_coordinator->id,
+                         maybe_leader_coordinator->bolt_server);
+    }
+    return fmt::format(
+        "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+        "are down.",
+        common_message);
+  }
+
   dbms::CoordinatorHandler coordinator_handler_;
 };
+
+// Coordinators expose only role management (CREATE/DROP/SHOW ROLE) out of the whole auth surface. This path is
+// deliberately separate from the data-instance Auth path: roles live in the Raft-replicated coordinator cluster state,
+// not in the auth kvstore. The interpreter gate guarantees only these three actions reach here on a coordinator.
+Callback HandleCoordinatorRoleQuery(AuthQuery *auth_query, coordination::CoordinatorState &coordinator_state) {
+  Callback callback;
+  auto const if_not_exists = auth_query->if_not_exists_;
+  auto roles = auth_query->roles_;
+
+  switch (auth_query->action_) {
+    case AuthQuery::Action::CREATE_ROLE:
+      callback.fn = [coordinator_state = &coordinator_state, roles = std::move(roles), if_not_exists] {
+        if (roles.empty()) {
+          throw QueryRuntimeException("No role name provided for CREATE ROLE");
+        }
+        CoordQueryHandler{*coordinator_state}.CreateRole(roles[0], if_not_exists);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    case AuthQuery::Action::DROP_ROLE:
+      callback.fn = [coordinator_state = &coordinator_state, roles = std::move(roles)] {
+        if (roles.empty()) {
+          throw QueryRuntimeException("No role name provided for DROP ROLE");
+        }
+        CoordQueryHandler{*coordinator_state}.DropRole(roles[0]);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    case AuthQuery::Action::SHOW_ROLES:
+      callback.header = {"role"};
+      callback.fn = [coordinator_state = &coordinator_state] {
+        auto const role_names = CoordQueryHandler{*coordinator_state}.ShowRoles();
+        std::vector<std::vector<TypedValue>> rows;
+        rows.reserve(role_names.size());
+        for (auto const &role_name : role_names) {
+          rows.emplace_back(std::vector<TypedValue>{TypedValue(role_name)});
+        }
+        return rows;
+      };
+      return callback;
+    default:
+      throw QueryRuntimeException("Coordinators only support CREATE ROLE, DROP ROLE and SHOW ROLES auth queries.");
+  }
+}
 #endif
 
 /// returns false if the replication role can't be set
@@ -1018,6 +1119,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
   auto oldPassword = EvaluateOptionalExpression(auth_query->old_password_, evaluator);
   auto newPassword = EvaluateOptionalExpression(auth_query->new_password_, evaluator);
+
+#ifdef MG_ENTERPRISE
+  // On coordinators only CREATE/DROP/SHOW ROLE are permitted (enforced by the interpreter gate) and they operate on the
+  // Raft-replicated coordinator role list rather than the auth kvstore.
+  if (interpreter_context->coordinator_state_ && interpreter_context->coordinator_state_->IsCoordinator()) {
+    return HandleCoordinatorRoleQuery(auth_query, *interpreter_context->coordinator_state_);
+  }
+#endif
 
   Callback callback;
 
@@ -9915,6 +10024,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         utils::Downcast<UserProfileQuery>(parsed_query.query) ||
         utils::Downcast<TenantProfileQuery>(parsed_query.query) || utils::Downcast<ParameterQuery>(parsed_query.query);
 
+#ifdef MG_ENTERPRISE
+    // Coordinator role queries are the only auth queries allowed on a coordinator and they commit through Raft, not the
+    // system-transaction machinery (which would reach into the non-existent replication state on a coordinator).
+    if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator()) {
+      system_queries = false;
+    }
+#endif
+
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
     auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
       if (!system_queries) return std::nullopt;
@@ -9932,10 +10049,16 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // Must run before SetupDatabaseTransaction below: coordinators have no db_acc, so any query that
     // requests a storage accessor (e.g. CypherQuery) would otherwise throw a generic "Database required"
     // error instead of this clearer coordinator-specific message.
+    // Coordinators permit exactly CREATE ROLE, DROP ROLE and SHOW ROLES out of the whole auth surface; every other
+    // auth query is rejected with the coordinator-only-queries error below.
+    auto const is_coordinator_role_query = [](Query *query) {
+      auto *auth_query = utils::Downcast<AuthQuery>(query);
+      return auth_query != nullptr && IsCoordinatorPermittedAuthQuery(auth_query->action_);
+    };
     if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator() &&
         !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query) &&
         !utils::Downcast<ReloadSSLQuery>(parsed_query.query) && !utils::Downcast<ShowConfigQuery>(parsed_query.query) &&
-        !utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
+        !utils::Downcast<SystemInfoQuery>(parsed_query.query) && !is_coordinator_role_query(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");
     }
 #endif

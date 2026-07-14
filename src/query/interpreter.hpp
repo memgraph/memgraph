@@ -183,6 +183,15 @@ class CoordinatorQueryHandler {
 
   virtual std::vector<std::pair<std::string, std::string>> ShowCoordinatorSettings() = 0;
 
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void CreateRole(std::string_view role_name, bool if_not_exists) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void DropRole(std::string_view role_name) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual std::vector<std::string> ShowRoles() = 0;
+
   virtual std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() = 0;
 };
 #endif

@@ -59,6 +59,18 @@ auto CoordinatorHandler::SetCoordinatorSetting(std::string_view const setting_na
   return coordinator_state_.SetCoordinatorSetting(setting_name, setting_value);
 }
 
+auto CoordinatorHandler::CreateRole(std::string_view const role_name) const -> coordination::CreateRoleStatus {
+  return coordinator_state_.CreateRole(role_name);
+}
+
+auto CoordinatorHandler::DropRole(std::string_view const role_name) const -> coordination::DropRoleStatus {
+  return coordinator_state_.DropRole(role_name);
+}
+
+auto CoordinatorHandler::GetRoles(std::vector<std::string> &roles) const -> coordination::GetRolesStatus {
+  return coordinator_state_.GetRoles(roles);
+}
+
 auto CoordinatorHandler::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {
   return coordinator_state_.ShowCoordinatorSettings();
 }
