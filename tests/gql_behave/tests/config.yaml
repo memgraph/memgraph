@@ -78,3 +78,11 @@
     - memgraph_bfs.feature
     - update_clauses.feature
     - nested_property_update.feature
+    - caching.feature
+    - delete.feature
+    - descriptions.feature
+    - edge_indices_usage.feature
+    - map_projection.feature
+    - periodic_commit.feature
+    - procedure_call.feature
+    - server_side_parameters.feature
