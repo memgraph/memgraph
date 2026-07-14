@@ -2580,3 +2580,62 @@ TEST_F(VersioningInterpreterTest, BranchCompositeLabelPropertyIndexSelectedInPla
       << "branch plan did not select the mirrored composite label-property index; full plan:\n"
       << plan;
 }
+
+TEST_F(VersioningInterpreterTest, BranchNestedLabelPropertyIndexReflectsBranchMutations) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :P(a.b)");
+
+  // Creation order deliberately does NOT match b-value order.
+  faker.Interpret("CREATE (:P {n:'v1', a:{b:50}})");
+  faker.Interpret("CREATE (:P {n:'v2', a:{b:20}})");
+  faker.Interpret("CREATE (:P {n:'v3', a:{b:40}})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:P {n:'v2'}) SET n.a = {b: 99}");  // nested COW: (b:20) -> (b:99)
+  faker.Interpret("MATCH (n:P {n:'v3'}) DETACH DELETE n");    // tombstone: (b:40) must vanish
+  faker.Interpret("CREATE (:P {n:'v4', a:{b:25}})");          // branch-native: (b:25)
+
+  auto stream = faker.Interpret("MATCH (n:P) WHERE n.a.b > 0 RETURN n.a.b AS v ORDER BY n.a.b");
+  const auto &rows = stream.GetResults();
+  std::vector<int64_t> v;
+  v.reserve(rows.size());
+  for (const auto &row : rows) {
+    v.emplace_back(row[0].ValueInt());
+  }
+
+  EXPECT_EQ(v, (std::vector<int64_t>{25, 50, 99}))
+      << "expected the union of main@fork's historical nested-path index (v1=50, v3=40 -- "
+         "tombstoned away) with the branch's own diff-engine nested-path index (v2 COW'd from "
+         "b:20 to b:99 via a whole-map SET n.a = {b: 99}, v4 created natively at b:25), correctly "
+         "ordered by n.a.b -- a bug in the nested-path key extraction (ReadNestedPropertyValue) "
+         "through the branch merge, or in propagating a nested-map COW, would either drop a row, "
+         "keep a stale b-value, or fail to order by the extracted leaf.";
+}
+
+TEST_F(VersioningInterpreterTest, BranchNestedLabelPropertyIndexSelectedInPlanOnBranch) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :P(a.b)");
+  faker.Interpret("CREATE (:P {a:{b:1}})");
+  faker.Interpret("CREATE (:P {a:{b:1}})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto stream = faker.Interpret("EXPLAIN MATCH (n:P) WHERE n.a.b > 0 RETURN n ORDER BY n.a.b");
+  std::string plan;
+  for (const auto &row : stream.GetResults()) {
+    plan += row[0].ValueString();
+    plan += '\n';
+  }
+
+  // Locks that MirrorMainIndexDefinitionsIntoDiffEngine registers the nested-path label-property
+  // index on the branch's diff engine and that the planner selects the mirrored
+  // ScanAllByLabelProperties instead of falling back to a plain ScanAll+Filter.
+  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByLabelProperties"))
+      << "branch plan did not select the mirrored nested-path label-property index; full plan:\n"
+      << plan;
+}
