@@ -1,0 +1,5 @@
+query: >
+  RETURN map.get({name: "Zdravko"}, "age") AS value;
+
+exception: >
+  Key 'age' is not one of the existing keys

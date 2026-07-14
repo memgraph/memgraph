@@ -1,0 +1,5 @@
+query: >
+  RETURN map.merge_list([{profession: "Athlete"}, {profession: "Football player"}]) AS result;
+
+output:
+  - result: {profession: "Football player"}

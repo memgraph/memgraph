@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -66,6 +66,17 @@ constexpr std::string_view kArgumentsInputMapRemoveKeys = "map";
 constexpr std::string_view kArgumentsKeysListRemoveKeys = "keys";
 constexpr std::string_view kArgumentsRecursiveRemoveKeys = "config";
 
+/* get constants */
+constexpr std::string_view kProcedureGet = "get";
+constexpr std::string_view kGetArgMap = "map";
+constexpr std::string_view kGetArgKey = "key";
+constexpr std::string_view kGetArgValue = "value";
+constexpr std::string_view kGetArgFail = "fail";
+
+/* merge_list constants */
+constexpr std::string_view kProcedureMergeList = "merge_list";
+constexpr std::string_view kMergeListArgMaps = "maps";
+
 void FromNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 
 void FromValues(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
@@ -89,5 +100,11 @@ void FromLists(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_
 void RemoveRecursionSet(mgp::Map &result, bool recursive, std::unordered_set<std::string> &set);
 
 void RemoveKeys(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
+
+void SetResult(mgp::Result &result, const mgp::Value &value);
+
+void Get(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
+
+void MergeList(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
 }  // namespace Map

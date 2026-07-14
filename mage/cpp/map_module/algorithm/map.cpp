@@ -80,13 +80,18 @@ void Map::FromValues(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result
 
     auto iterator = values.begin();
     while (iterator != values.end()) {
-      std::ostringstream oss;
-      oss << *iterator;
-      const auto key = oss.str();
+      const auto key_value = *iterator;
+      ++iterator;
+      const auto value = *iterator;
+      ++iterator;
 
-      ++iterator;
-      map.Update(key, *iterator);
-      ++iterator;
+      // Skip pairs whose key is null.
+      if (key_value.IsNull()) {
+        continue;
+      }
+      std::ostringstream oss;
+      oss << key_value;
+      map.Update(oss.str(), value);
     }
 
     result.SetValue(map);
@@ -103,10 +108,11 @@ void Map::SetKey(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *re
   auto result = mgp::Result(res);
 
   try {
-    auto map = arguments[0].ValueMap();
-    const auto key{std::string(arguments[1].ValueString())};
-    const auto value{arguments[2]};
-    map.Update(key, value);
+    // A null map is treated as empty and a null key is a no-op.
+    mgp::Map map = arguments[0].IsMap() ? mgp::Map(arguments[0].ValueMap()) : mgp::Map();
+    if (!arguments[1].IsNull()) {
+      map.Update(std::string(arguments[1].ValueString()), arguments[2]);
+    }
     result.SetValue(std::move(map));
 
   } catch (const std::exception &e) {
@@ -249,9 +255,10 @@ void Map::FromLists(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result 
     mgp::List list2 = arguments[1].ValueList();
 
     const auto expected_list_size = list1.Size();
-    if (expected_list_size != list2.Size() || expected_list_size == 0) {
-      throw mgp::ValueException("Lists must be of same size and not empty");
+    if (expected_list_size != list2.Size()) {
+      throw mgp::ValueException("Lists must be of same size");
     }
+    // Empty lists yield an empty map.
     mgp::Map result = mgp::Map();
     for (size_t i = 0; i < expected_list_size; i++) {
       result.Update(list1[i].ValueString(), list2[i]);
@@ -301,6 +308,118 @@ void Map::RemoveKeys(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result
     }
     RemoveRecursionSet(map, recursive, set);
     result.SetValue(std::move(map));
+
+  } catch (const std::exception &e) {
+    result.SetErrorMessage(e.what());
+    return;
+  }
+}
+
+// mgp::Result::SetValue has no generic Value overload, so dispatch on the runtime type
+// (mirrors Collections::SetResult) with explicit null handling.
+void Map::SetResult(mgp::Result &result, const mgp::Value &value) {
+  switch (value.Type()) {
+    case mgp::Type::Null:
+      result.SetValue();
+      break;
+    case mgp::Type::Bool:
+      result.SetValue(value.ValueBool());
+      break;
+    case mgp::Type::Int:
+      result.SetValue(value.ValueInt());
+      break;
+    case mgp::Type::Double:
+      result.SetValue(value.ValueDouble());
+      break;
+    case mgp::Type::String:
+      result.SetValue(value.ValueString());
+      break;
+    case mgp::Type::List:
+      result.SetValue(value.ValueList());
+      break;
+    case mgp::Type::Map:
+      result.SetValue(value.ValueMap());
+      break;
+    case mgp::Type::Node:
+      result.SetValue(value.ValueNode());
+      break;
+    case mgp::Type::Relationship:
+      result.SetValue(value.ValueRelationship());
+      break;
+    case mgp::Type::Path:
+      result.SetValue(value.ValuePath());
+      break;
+    case mgp::Type::Date:
+      result.SetValue(value.ValueDate());
+      break;
+    case mgp::Type::LocalTime:
+      result.SetValue(value.ValueLocalTime());
+      break;
+    case mgp::Type::LocalDateTime:
+      result.SetValue(value.ValueLocalDateTime());
+      break;
+    case mgp::Type::Duration:
+      result.SetValue(value.ValueDuration());
+      break;
+    default:
+      std::ostringstream oss;
+      oss << value.Type();
+      throw mgp::ValueException("map.get has no Result.SetValue for: " + oss.str());
+  }
+}
+
+void Map::Get(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  auto result = mgp::Result(res);
+
+  try {
+    const auto map = arguments[0].ValueMap();
+    const auto key = std::string(arguments[1].ValueString());
+    const auto default_value = arguments[2];
+    const auto fail = arguments[3].ValueBool();
+
+    if (map.KeyExists(key)) {
+      SetResult(result, map.At(key));
+      return;
+    }
+    if (!default_value.IsNull()) {
+      SetResult(result, default_value);
+      return;
+    }
+    if (fail) {
+      std::ostringstream oss;
+      oss << "Key '" << key << "' is not one of the existing keys [";
+      bool first = true;
+      for (const auto element : map) {
+        oss << (first ? "" : ", ") << element.key;
+        first = false;
+      }
+      oss << "]";
+      throw mgp::ValueException(oss.str());
+    }
+    result.SetValue();
+
+  } catch (const std::exception &e) {
+    result.SetErrorMessage(e.what());
+    return;
+  }
+}
+
+void Map::MergeList(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  auto result = mgp::Result(res);
+
+  try {
+    const auto maps = arguments[0].ValueList();
+    mgp::Map merged{};
+    for (const auto element : maps) {
+      for (const auto entry : element.ValueMap()) {
+        merged.Update(entry.key, entry.value);  // last key wins
+      }
+    }
+    result.SetValue(std::move(merged));
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());
