@@ -18,6 +18,8 @@
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_connector.hpp"
@@ -103,6 +105,11 @@ class CoordinatorInstance {
 
   auto GetRolePrivileges(std::string_view role_name, uint64_t &privileges) const -> GetRolePrivilegesStatus;
 
+  // Leader-local reads backing the GetRoles*/GetRolePrivileges* forwarding RPCs. Return nullopt if this coordinator is
+  // not the ready leader; GetRolePrivilegesAsLeader returns {role_found, mask}.
+  auto GetRolesAsLeader() const -> std::optional<std::vector<CoordinatorRole>>;
+  auto GetRolePrivilegesAsLeader(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
+
   auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
   auto GetRoutingTableAsLeader(std::string_view db_name) const -> RoutingTable;
   auto GetRoutingTableAsFollower(auto leader_id, std::string_view db_name) const -> RoutingTable;
@@ -175,6 +182,29 @@ class CoordinatorInstance {
       return leader->SendRpc<Rpc>(std::forward<Args>(args)...) ? StatusEnum::SUCCESS : StatusEnum::LEADER_FAILED;
     }
     return StatusEnum::LEADER_NOT_FOUND;
+  }
+
+  // Like ForwardToLeader, but preserves the leader's exact status enum instead of collapsing it to success/failure.
+  // The RPC response carries an optional<uint8_t> holding the leader's status; an empty optional (leader down, or a
+  // mixed-version leader with no handler for the RPC -> SendRpc catches the exception and returns a default) maps to
+  // LEADER_FAILED so the client sees an error and the coordinator never asserts. Returns nullopt when this coordinator
+  // is the ready leader, so the caller performs the write locally.
+  template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
+  auto ForwardRoleWriteToLeader(Args &&...args) const -> std::optional<StatusEnum> {
+    auto const leader_id = raft_state_->GetLeaderId();
+    if (leader_id == raft_state_->GetMyCoordinatorId() &&
+        status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
+      return std::nullopt;
+    }
+    auto *leader = FindClientConnector(leader_id);
+    if (leader == nullptr) {
+      return StatusEnum::LEADER_NOT_FOUND;
+    }
+    auto const res = leader->SendRpc<Rpc>(std::forward<Args>(args)...);
+    if (!res.has_value()) {
+      return StatusEnum::LEADER_FAILED;
+    }
+    return static_cast<StatusEnum>(*res);
   }
 
   std::optional<utils::TlsConfig> tls_config_;

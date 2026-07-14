@@ -176,6 +176,73 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
             req_reader,
             res_builder);
       });
+
+  // Role/privilege writes forwarded from a follower. The response carries the leader's exact status enum (as an
+  // optional<uint8_t>) so the follower reproduces the same client-visible outcome rather than a bare success/failure.
+  server.Register<CreateRoleRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                     uint64_t const request_version,
+                                     slk::Reader *req_reader,
+                                     slk::Builder *res_builder) -> void {
+    CreateRoleReq req;
+    rpc::LoadWithUpgrade(req, request_version, req_reader);
+    auto const status = static_cast<uint8_t>(coordinator_instance.CreateRole(req.arg_));
+    rpc::SendFinalResponse(CreateRoleRes{std::optional<uint8_t>{status}}, request_version, res_builder);
+  });
+
+  server.Register<DropRoleRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                   uint64_t const request_version,
+                                   slk::Reader *req_reader,
+                                   slk::Builder *res_builder) -> void {
+    DropRoleReq req;
+    rpc::LoadWithUpgrade(req, request_version, req_reader);
+    auto const status = static_cast<uint8_t>(coordinator_instance.DropRole(req.arg_));
+    rpc::SendFinalResponse(DropRoleRes{std::optional<uint8_t>{status}}, request_version, res_builder);
+  });
+
+  server.Register<GrantPrivilegeRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        GrantPrivilegeReq req;
+        rpc::LoadWithUpgrade(req, request_version, req_reader);
+        auto const status = static_cast<uint8_t>(coordinator_instance.GrantPrivilege(req.arg_.first, req.arg_.second));
+        rpc::SendFinalResponse(GrantPrivilegeRes{std::optional<uint8_t>{status}}, request_version, res_builder);
+      });
+
+  server.Register<RevokePrivilegeRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        RevokePrivilegeReq req;
+        rpc::LoadWithUpgrade(req, request_version, req_reader);
+        auto const status = static_cast<uint8_t>(coordinator_instance.RevokePrivilege(req.arg_.first, req.arg_.second));
+        rpc::SendFinalResponse(RevokePrivilegeRes{std::optional<uint8_t>{status}}, request_version, res_builder);
+      });
+
+  // Role/privilege reads forwarded from a follower. An unengaged optional means this coordinator is not the ready
+  // leader, which the follower surfaces as a forwarding error.
+  server.Register<GetRolesRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                   uint64_t const request_version,
+                                   slk::Reader *req_reader,
+                                   slk::Builder *res_builder) -> void {
+    GetRolesReq req;
+    rpc::LoadWithUpgrade(req, request_version, req_reader);
+    rpc::SendFinalResponse(GetRolesRes{coordinator_instance.GetRolesAsLeader()}, request_version, res_builder);
+  });
+
+  server.Register<GetRolePrivilegesRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        GetRolePrivilegesReq req;
+        rpc::LoadWithUpgrade(req, request_version, req_reader);
+        rpc::SendFinalResponse(GetRolePrivilegesRes{coordinator_instance.GetRolePrivilegesAsLeader(req.arg_)},
+                               request_version,
+                               res_builder);
+      });
 }
 
 }  // namespace memgraph::coordination
