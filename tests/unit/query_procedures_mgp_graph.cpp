@@ -786,10 +786,14 @@ TYPED_TEST(MgpGraphTest, VirtualGraphRejectsMutations) {
   EXPECT_EQ(mgp_drop_label_index(&graph, "L", &int_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   EXPECT_EQ(mgp_create_label_property_index(&graph, "L", "p", &int_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   EXPECT_EQ(mgp_create_existence_constraint(&graph, "L", "p", &int_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_create_vertex_property_index(&graph, "p", &int_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_drop_vertex_property_index(&graph, "p", &int_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   EXPECT_EQ(mgp_graph_has_text_index(&graph, "idx", &int_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
 
   mgp_list *list_result = nullptr;
   EXPECT_EQ(mgp_list_all_label_indices(&graph, &this->memory, &list_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_list_all_vertex_property_indices(&graph, &this->memory, &list_result),
+            mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
 }
 
 TYPED_TEST(MgpGraphTest, GetStartTimestamp) {
