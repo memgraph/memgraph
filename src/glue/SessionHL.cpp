@@ -444,7 +444,7 @@ namespace {
 // Converts the query layer's projection schemas into the Bolt RUN-header table: a map keyed by each
 // projection's reference (rendered as a string, since Bolt map keys are strings) to a small,
 // extensible map describing that projection. Empty when the query produced no projection.
-bolt_map_t ToBoltProjectionSchema(const std::vector<memgraph::query::ProjectionSchema> &schemas) {
+bolt_map_t ToBoltProjectionSchemaEntry(const std::vector<memgraph::query::ProjectionSchemaEntry> &schemas) {
   bolt_map_t table;
   for (const auto &schema : schemas) {
     std::vector<bolt_value_t> overlay;
@@ -472,7 +472,7 @@ memgraph::communication::bolt::PreparedRunMetadata SessionHL::InterpretPrepare()
     interpreter_.CheckAuthorized(result.privileges, result.db);
     return {.fields = std::move(result.headers),
             .qid = result.qid,
-            .projection_schema = ToBoltProjectionSchema(result.projection_schemas)};
+            .projection_schema = ToBoltProjectionSchemaEntry(result.projection_schemas)};
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {

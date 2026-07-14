@@ -3567,9 +3567,9 @@ Expression *FindMapLiteralEntry(const MapLiteral &map, std::string_view key) {
 // against the query parameters. A key is overlay-bound either by an explicit 'overlay' propertyPolicy
 // binding or by appearing as a source/target property override - the same rules the executor applies
 // when it builds the overlay nodes, so the schema describes the nodes the client will receive.
-ProjectionSchema BuildProjectionSchema(int64_t ref, const MapLiteral &options,
-                                       ExpressionVisitor<TypedValue> &evaluator) {
-  ProjectionSchema schema;
+ProjectionSchemaEntry BuildProjectionSchemaEntry(int64_t ref, const MapLiteral &options,
+                                                 ExpressionVisitor<TypedValue> &evaluator) {
+  ProjectionSchemaEntry schema;
   schema.ref = ref;
 
   if (auto *edge_type = FindMapLiteralEntry(options, "virtualEdgeType")) {
@@ -3599,7 +3599,7 @@ ProjectionSchema BuildProjectionSchema(int64_t ref, const MapLiteral &options,
   return schema;
 }
 
-// Collects one ProjectionSchema per derive() projection in the plan whose options are a static map
+// Collects one ProjectionSchemaEntry per derive() projection in the plan whose options are a static map
 // literal. A derive() is an Aggregation::Op::DERIVE element; its output symbol's plan position is
 // the schema reference the executor stamps onto the matching overlay nodes. A projection whose
 // options are not a literal is skipped here, matching the executor leaving its nodes untagged.
@@ -3618,19 +3618,19 @@ class ProjectionSchemaExtractor final : public plan::HierarchicalLogicalOperator
       if (element.op != Aggregation::Op::DERIVE) continue;
       auto *options = utils::Downcast<MapLiteral>(element.arg2);
       if (options == nullptr) continue;
-      schemas.push_back(BuildProjectionSchema(element.output_sym.position(), *options, *evaluator_));
+      schemas.push_back(BuildProjectionSchemaEntry(element.output_sym.position(), *options, *evaluator_));
     }
     return true;
   }
 
-  std::vector<ProjectionSchema> schemas;
+  std::vector<ProjectionSchemaEntry> schemas;
 
  private:
   ExpressionVisitor<TypedValue> *evaluator_;
 };
 
-std::vector<ProjectionSchema> ExtractProjectionSchemas(const plan::LogicalOperator &plan,
-                                                       ExpressionVisitor<TypedValue> &evaluator) {
+std::vector<ProjectionSchemaEntry> ExtractProjectionSchemas(const plan::LogicalOperator &plan,
+                                                            ExpressionVisitor<TypedValue> &evaluator) {
   ProjectionSchemaExtractor extractor{evaluator};
   // The cached plan is shared and logically const at prepare time; the extractor only reads it, so
   // the const_cast for the non-const Accept interface is safe (mirrors ProvidePlanHints).

@@ -2708,7 +2708,12 @@ TYPED_TEST(FunctionTest, PropertySizeOverVirtualElements) {
   EXPECT_EQ(this->EvaluateFunction("PROPERTYSIZE", overlay, "name").ValueInt(), real_size);
 
   // Hidden key: invisible, contributes 0 even though the origin holds a value for it.
-  VirtualNode hidden({"L"}, {}, {}, std::optional<VertexAccessor>{real}, VirtualNode::hidden_keys{name_id});
+  VirtualNode hidden(
+      {"L"},
+      {},
+      {},
+      std::optional<VertexAccessor>{real},
+      std::make_shared<const ProjectionSchema>(ProjectionSchema::key_set{name_id}, ProjectionSchema::key_set{}));
   EXPECT_EQ(this->EvaluateFunction("PROPERTYSIZE", hidden, "name").ValueInt(), 0);
 
   // Key present in the mapper but absent on the node: 0.

@@ -22,7 +22,7 @@ namespace memgraph::query {
 // delivered once in the result header, tells the client which of those nodes' property keys are
 // computed overlays and what edge type connects them. Built statically from the plan at prepare
 // time, so it is available before the first record streams.
-struct ProjectionSchema {
+struct ProjectionSchemaEntry {
   // The schema reference shared by every overlay node from this derive(): the output symbol's plan
   // position, matching the value carried in the node's reserved tag property.
   int64_t ref;

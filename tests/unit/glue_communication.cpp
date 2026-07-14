@@ -175,12 +175,12 @@ TEST_F(ToBoltTest, PropertyFGAOverlayBoundOverrideExemptFromOriginDeny) {
   ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
   auto ssn_id = acc->NameToProperty("ssn");
+  // ssn is overlaid with "masked": it is overlay-bound through the overlay store (it carries a
+  // value), so no ProjectionSchema is needed to bind it.
   memgraph::query::VirtualNode overlay({"Employee"},
                                        {{ssn_id, memgraph::storage::PropertyValue("masked")}},
                                        {},
-                                       std::optional<memgraph::query::VertexAccessor>{vertex},
-                                       {},
-                                       memgraph::query::VirtualNode::key_set{ssn_id});
+                                       std::optional<memgraph::query::VertexAccessor>{vertex});
   StubPropertyFGAChecker checker(storage.get(), {{"Employee", "ssn"}});
   auto result = memgraph::glue::ToBoltVertex(overlay, *storage, memgraph::storage::View::NEW, &checker);
   ASSERT_TRUE(result.has_value());

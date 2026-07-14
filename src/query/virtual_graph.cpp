@@ -178,14 +178,47 @@ void ApplyPropertyMap(const TypedValue::TMap &options, std::string_view key, DbA
   }
 }
 
-// Builds one overlay node over a real vertex from the derive() options: its label override (or the
-// origin's labels), its overlay property values, and the static per-property binding (hidden /
-// overlay / origin), rejecting a key bound both to origin and overlaid.
-VirtualNode BuildDerivedNode(const VertexAccessor &real_vertex, std::string_view labels_key, std::string_view props_key,
-                             const TypedValue::TMap &options, int64_t projection_ref, DbAccessor *db_accessor,
-                             VirtualNode::allocator_type alloc) {
-  static constexpr auto kPropertyPolicy = "propertyPolicy";
+constexpr auto kPropertyPolicy = "propertyPolicy";
 
+// Builds a derive()'s shared, static schema from its propertyPolicy: the hidden keys and the
+// 'overlay'-bound keys, plus the provenance ref. Role-independent - a projection's source and target
+// nodes share one instance - so per-role labels and property overrides are applied per node in
+// BuildDerivedNode. A binding other than hidden/overlay/origin is a construction error.
+std::shared_ptr<const ProjectionSchema> MakeProjectionSchema(const TypedValue::TMap &options, int64_t projection_ref,
+                                                             DbAccessor *db_accessor,
+                                                             VirtualNode::allocator_type alloc) {
+  ProjectionSchema::key_set hidden{alloc};
+  ProjectionSchema::key_set overlay_bound{alloc};
+  if (const auto policy_it = options.find(kPropertyPolicy); policy_it != options.end()) {
+    if (policy_it->second.type() != TypedValue::Type::Map) {
+      throw QueryRuntimeException("derive() option '{}' must be a map of property names to bindings.", kPropertyPolicy);
+    }
+    for (const auto &[name, binding] : policy_it->second.ValueMap()) {
+      if (binding.type() != TypedValue::Type::String) {
+        throw QueryRuntimeException(
+            "derive() '{}' binding for '{}' must be 'origin', 'overlay', or 'hidden'.", kPropertyPolicy, name);
+      }
+      const auto id = db_accessor->NameToProperty(name);
+      const auto &value = binding.ValueString();
+      if (value == "hidden") {
+        hidden.push_back(id);
+      } else if (value == "overlay") {
+        overlay_bound.push_back(id);
+      } else if (value != "origin") {
+        throw QueryRuntimeException(
+            "derive() '{}' binding for '{}' must be 'origin', 'overlay', or 'hidden'.", kPropertyPolicy, name);
+      }
+    }
+  }
+  return std::make_shared<const ProjectionSchema>(std::move(hidden), std::move(overlay_bound), projection_ref);
+}
+
+// Builds one overlay node over a real vertex: its label override (or the origin's labels) and its
+// per-node overlay property values. The static binding + ref come from the shared `schema`. A key
+// the policy bound 'origin' may not also carry an overlay value here - a construction conflict.
+VirtualNode BuildDerivedNode(const VertexAccessor &real_vertex, std::string_view labels_key, std::string_view props_key,
+                             const TypedValue::TMap &options, const std::shared_ptr<const ProjectionSchema> &schema,
+                             DbAccessor *db_accessor, VirtualNode::allocator_type alloc) {
   VirtualNode::label_list labels{alloc};
   if (const auto labels_it = options.find(labels_key); labels_it != options.end()) {
     if (labels_it->second.type() != TypedValue::Type::List) {
@@ -209,57 +242,28 @@ VirtualNode BuildDerivedNode(const VertexAccessor &real_vertex, std::string_view
 
   // The overlay holds only the explicitly-overridden properties; every other property is read
   // through the origin lazily, so a projection never copies the origin's properties (e.g. vector
-  // embeddings) unless they are actually read.
-  // overlay_bound names every key whose read and write target this node's overlay: the
-  // construction-time override keys below and the 'overlay' propertyPolicy bindings. Every other
-  // key on the resulting overlay node is origin-bound, so a write to it persists to the origin.
+  // embeddings) unless they are actually read. These override keys carry a value, so they are
+  // overlay-bound through the overlay store itself - IsOverlayBound checks it before the schema.
   VirtualNode::property_map overlay{alloc};
-  VirtualNode::key_set overlay_bound{alloc};
   if (options.find(props_key) != options.end()) {
     ApplyPropertyMap(options, props_key, db_accessor, [&](storage::PropertyId id, storage::PropertyValue pv) {
-      overlay.insert_or_assign(id, std::move(pv));
-      overlay_bound.push_back(id);
+      overlay.insert_or_assign(id, pv);
     });
   }
 
-  // The static property policy: per property, 'hidden' makes it invisible, 'origin' binds it to
-  // the origin (read-through), 'overlay' allows an overlay value to shadow. Read source and write
-  // target are coupled, so a key bound to 'origin' may not also be overlaid - that is a conflict
-  // rejected at construction rather than resolved silently.
-  VirtualNode::hidden_keys hidden{alloc};
-  if (const auto policy_it = options.find(kPropertyPolicy); policy_it != options.end()) {
-    if (policy_it->second.type() != TypedValue::Type::Map) {
-      throw QueryRuntimeException("derive() option '{}' must be a map of property names to bindings.", kPropertyPolicy);
-    }
+  // Read source and write target are coupled, so a key the policy bound 'origin' may not also be
+  // overlaid here - rejected at construction rather than resolved silently.
+  if (const auto policy_it = options.find(kPropertyPolicy);
+      policy_it != options.end() && policy_it->second.type() == TypedValue::Type::Map) {
     for (const auto &[name, binding] : policy_it->second.ValueMap()) {
-      if (binding.type() != TypedValue::Type::String) {
-        throw QueryRuntimeException(
-            "derive() '{}' binding for '{}' must be 'origin', 'overlay', or 'hidden'.", kPropertyPolicy, name);
-      }
-      const auto id = db_accessor->NameToProperty(name);
-      const auto &value = binding.ValueString();
-      if (value == "hidden") {
-        hidden.push_back(id);
-      } else if (value == "origin") {
-        if (overlay.contains(id)) {
-          throw QueryRuntimeException("derive() property '{}' is both overlaid and bound to origin.", name);
-        }
-      } else if (value == "overlay") {
-        overlay_bound.push_back(id);
-      } else {
-        throw QueryRuntimeException(
-            "derive() '{}' binding for '{}' must be 'origin', 'overlay', or 'hidden'.", kPropertyPolicy, name);
+      if (binding.type() == TypedValue::Type::String && binding.ValueString() == "origin" &&
+          overlay.contains(db_accessor->NameToProperty(name))) {
+        throw QueryRuntimeException("derive() property '{}' is both overlaid and bound to origin.", name);
       }
     }
   }
 
-  return {std::move(labels),
-          std::move(overlay),
-          alloc,
-          std::optional<VertexAccessor>{real_vertex},
-          std::move(hidden),
-          std::move(overlay_bound),
-          projection_ref};
+  return {std::move(labels), std::move(overlay), alloc, std::optional<VertexAccessor>{real_vertex}, schema};
 }
 
 }  // namespace
@@ -286,6 +290,9 @@ void AddPathToProjection(const TypedValue &path_value, const TypedValue &options
   if (path_vertices.empty()) return;
 
   const auto alloc = projected_graph.get_allocator();
+  // The static binding + ref are role-independent, so build the schema once and share it across
+  // both endpoints' overlay nodes (and, via the dedup, across rows).
+  const auto schema = MakeProjectionSchema(options, projection_ref, db_accessor, alloc);
   auto canonical = [&](const VertexAccessor &real_vertex,
                        std::string_view labels_key,
                        std::string_view props_key) -> std::shared_ptr<const VirtualNode> {
@@ -293,7 +300,7 @@ void AddPathToProjection(const TypedValue &path_value, const TypedValue &options
     if (const auto it = dedup.find(real_gid); it != dedup.end()) {
       return projected_graph.FindNode(it->second);
     }
-    auto new_node = BuildDerivedNode(real_vertex, labels_key, props_key, options, projection_ref, db_accessor, alloc);
+    auto new_node = BuildDerivedNode(real_vertex, labels_key, props_key, options, schema, db_accessor, alloc);
     const auto synth_gid = new_node.Gid();
     dedup[real_gid] = synth_gid;
     projected_graph.InsertNode(std::move(new_node));

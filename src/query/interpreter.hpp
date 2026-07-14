@@ -221,7 +221,7 @@ struct PreparedQuery {
   std::function<std::string()> slow_query_plan_renderer{};
   // One entry per derive() projection whose schema is statically known; empty for queries with no
   // projection. Extracted from the plan at prepare time so it can ship in the result header.
-  std::vector<ProjectionSchema> projection_schemas{};
+  std::vector<ProjectionSchemaEntry> projection_schemas{};
 };
 
 /**
@@ -296,7 +296,7 @@ class Interpreter final {
     std::vector<query::AuthQuery::Privilege> privileges;
     std::optional<int> qid;
     std::optional<std::string> db;
-    std::vector<ProjectionSchema> projection_schemas;
+    std::vector<ProjectionSchemaEntry> projection_schemas;
   };
 
 #ifdef MG_ENTERPRISE
