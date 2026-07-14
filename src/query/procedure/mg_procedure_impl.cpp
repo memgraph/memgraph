@@ -4086,18 +4086,26 @@ mgp_edge *GetEdgeByGid(mgp_graph *graph, memgraph::storage::Gid edge_gid, memgra
 
 #ifdef MG_ENTERPRISE
 namespace {
-// A search hit is visible iff the node is label-readable AND every property that could have produced
-// the match is READ-permitted on the node's real labels — the same Filter/expression-mask semantics
+// A search hit is visible iff the entity is label/type-readable AND every property that could have
+// produced the match is READ-permitted on its real labels — the same Filter/expression-mask semantics
 // the query engine applies (a match on an unreadable property must not surface). `searched` is the
-// index's property set.
+// index's declared property set; empty means a property-less index (covers every string property), so
+// every string property present on the entity is a candidate match and must be readable.
 bool VertexSearchHitReadable(const memgraph::query::VertexAccessor &v, const mgp_graph &graph,
                              std::span<const memgraph::storage::PropertyId> searched) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return true;
   const auto *auth_checker = ctx->auth_checker;
   if (!auth_checker->Has(v, graph.view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
-  return std::ranges::all_of(searched, [&](const memgraph::storage::PropertyId property) {
+  if (!auth_checker->HasPropertyRestrictions()) return true;
+  const auto readable = [&](const memgraph::storage::PropertyId property) {
     return memgraph::query::PropertyReadAllowed(auth_checker, v, graph.view, property);
+  };
+  if (!searched.empty()) return std::ranges::all_of(searched, readable);
+  const auto props = v.Properties(graph.view);
+  if (!props) return false;
+  return std::ranges::all_of(*props, [&](const auto &kv) {
+    return kv.second.type() != memgraph::storage::PropertyValue::Type::String || readable(kv.first);
   });
 }
 
@@ -4112,8 +4120,15 @@ bool EdgeSearchHitReadable(const memgraph::query::EdgeAccessor &e, const mgp_gra
   const auto view = graph.view;
   if (!auth_checker->Has(e.From(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
   if (!auth_checker->Has(e.To(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
-  return std::ranges::all_of(searched, [&](const memgraph::storage::PropertyId property) {
+  if (!auth_checker->HasPropertyRestrictions()) return true;
+  const auto readable = [&](const memgraph::storage::PropertyId property) {
     return memgraph::query::PropertyReadAllowed(auth_checker, e, property);
+  };
+  if (!searched.empty()) return std::ranges::all_of(searched, readable);
+  const auto props = e.Properties(view);
+  if (!props) return false;
+  return std::ranges::all_of(*props, [&](const auto &kv) {
+    return kv.second.type() != memgraph::storage::PropertyValue::Type::String || readable(kv.first);
   });
 }
 
@@ -4155,162 +4170,11 @@ std::vector<memgraph::storage::PropertyId> VectorEdgeIndexSearchedProperty(const
   return {it->property};
 }
 
-[[noreturn]] void ThrowSearchAuthError(std::string_view message) { throw AuthorizationException{std::string{message}}; }
-
-void PrecheckVertexTextSearchAccess(const mgp_graph &graph, std::string_view index_name) {
-  const auto *ctx = graph.ctx;
-  if (!ctx || !ctx->auth_checker) return;
-  const auto *auth_checker = ctx->auth_checker;
-  const auto indices = graph.getImpl()->ListAllIndices();
-  const auto it = std::ranges::find_if(indices.text_indices, [&](const memgraph::storage::TextIndexSpec &spec) {
-    return spec.index_name == index_name;
-  });
-  if (it == indices.text_indices.end()) return;
-
-  const auto label_span = std::span<const memgraph::storage::LabelId>(&it->label, 1);
-  if (!auth_checker->Has(label_span, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-    ThrowSearchAuthError("text_search.* is unavailable for this index: caller lacks READ on its bound label.");
-  }
-  if (!auth_checker->HasAnyVertexPropertyRule()) return;
-  if (it->properties.empty()) {
-    ThrowSearchAuthError(
-        "text_search.* is unavailable: this index covers every string property of the label, and property-level "
-        "RBAC is active for the caller.");
-  }
-  const bool all_readable = std::ranges::all_of(it->properties, [&](const memgraph::storage::PropertyId property) {
-    return auth_checker->HasPropertyPermission(
-        label_span, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
-  });
-  if (!all_readable) {
-    ThrowSearchAuthError(
-        "text_search.* is unavailable for this index: caller lacks READ on at least one indexed property.");
-  }
-}
-
-void PrecheckEdgeTextSearchAccess(const mgp_graph &graph, std::string_view index_name) {
-  const auto *ctx = graph.ctx;
-  if (!ctx || !ctx->auth_checker) return;
-  const auto *auth_checker = ctx->auth_checker;
-  const auto indices = graph.getImpl()->ListAllIndices();
-  const auto it = std::ranges::find_if(
-      indices.text_edge_indices,
-      [&](const memgraph::storage::TextEdgeIndexSpec &spec) { return spec.index_name == index_name; });
-  if (it == indices.text_edge_indices.end()) return;
-
-  if (!auth_checker->Has(it->edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-    ThrowSearchAuthError("text_search.*_edges is unavailable for this index: caller lacks READ on its edge type.");
-  }
-  if (!auth_checker->HasAnyEdgeTypePropertyRule()) return;
-  if (it->properties.empty()) {
-    ThrowSearchAuthError(
-        "text_search.*_edges is unavailable: this index covers every string property of the edge type, and "
-        "property-level RBAC is active for the caller.");
-  }
-  const bool all_readable = std::ranges::all_of(it->properties, [&](const memgraph::storage::PropertyId property) {
-    return auth_checker->HasPropertyPermission(
-        it->edge_type, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
-  });
-  if (!all_readable) {
-    ThrowSearchAuthError(
-        "text_search.*_edges is unavailable for this index: caller lacks READ on at least one indexed property.");
-  }
-}
-
-void PrecheckVertexVectorSearchAccess(const mgp_graph &graph, std::string_view index_name) {
-  const auto *ctx = graph.ctx;
-  if (!ctx || !ctx->auth_checker) return;
-  const auto *auth_checker = ctx->auth_checker;
-  const auto indices = graph.getImpl()->ListAllIndices();
-  const auto it = std::ranges::find_if(
-      indices.vector_indices_spec,
-      [&](const memgraph::storage::VectorIndexSpec &spec) { return spec.index_name == index_name; });
-  if (it == indices.vector_indices_spec.end()) return;
-  const auto &filter = it->label_filter;
-
-  const auto labels_readable = [&]() -> bool {
-    if (filter.mode == memgraph::storage::VectorMatchMode::WILDCARD) return true;
-    if (filter.mode == memgraph::storage::VectorMatchMode::ALL_OF) {
-      return auth_checker->Has(filter.ids, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
-    }
-    return std::ranges::any_of(filter.ids, [&](const memgraph::storage::LabelId label) {
-      return auth_checker->Has(std::span<const memgraph::storage::LabelId>(&label, 1),
-                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
-    });
-  }();
-  if (!labels_readable) {
-    ThrowSearchAuthError(
-        "vector_search.search is unavailable for this index: caller lacks READ on its bound label(s).");
-  }
-
-  if (!auth_checker->HasAnyVertexPropertyRule()) return;
-  const auto property = it->property;
-  if (filter.mode == memgraph::storage::VectorMatchMode::WILDCARD) {
-    // no bound label list to iterate, so we need a per-row-invariant proxy:
-    //   global GRANT on the property (applies to every label by fallback)
-    //   + no per-label DENY that could override the global grant
-    // together they guarantee HasPropertyPermission would return GRANT for any label combo.
-    const auto empty_span = std::span<const memgraph::storage::LabelId>{};
-    const bool globally_readable = auth_checker->HasPropertyPermission(
-        empty_span, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
-    if (globally_readable && !auth_checker->HasVertexPropertyDeny(property)) return;
-    ThrowSearchAuthError(
-        "vector_search.search is unavailable for this WILDCARD index: caller lacks an unqualified global GRANT on "
-        "the indexed property.");
-  }
-  const bool property_readable = std::ranges::all_of(filter.ids, [&](const memgraph::storage::LabelId label) {
-    const auto label_span = std::span<const memgraph::storage::LabelId>(&label, 1);
-    return auth_checker->HasPropertyPermission(
-        label_span, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
-  });
-  if (!property_readable) {
-    ThrowSearchAuthError(
-        "vector_search.search is unavailable for this index: caller lacks READ on the indexed property.");
-  }
-}
-
-void PrecheckEdgeVectorSearchAccess(const mgp_graph &graph, std::string_view index_name) {
-  const auto *ctx = graph.ctx;
-  if (!ctx || !ctx->auth_checker) return;
-  const auto *auth_checker = ctx->auth_checker;
-  const auto indices = graph.getImpl()->ListAllIndices();
-  const auto it = std::ranges::find_if(
-      indices.vector_edge_indices_spec,
-      [&](const memgraph::storage::VectorEdgeIndexSpec &spec) { return spec.index_name == index_name; });
-  if (it == indices.vector_edge_indices_spec.end()) return;
-  const auto &filter = it->edge_type_filter;
-
-  const auto types_readable = [&]() -> bool {
-    if (filter.mode == memgraph::storage::VectorMatchMode::WILDCARD) return true;
-    return std::ranges::any_of(filter.ids, [&](const memgraph::storage::EdgeTypeId edge_type) {
-      return auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
-    });
-  }();
-  if (!types_readable) {
-    ThrowSearchAuthError(
-        "vector_search.search_edges is unavailable for this index: caller lacks READ on its edge type(s).");
-  }
-
-  if (!auth_checker->HasAnyEdgeTypePropertyRule()) return;
-  const auto property = it->property;
-  if (filter.mode == memgraph::storage::VectorMatchMode::WILDCARD) {
-    // no empty-span global-grant path exists for edge-type property permissions the way it does
-    // for labels (see PrecheckVertexVectorSearchAccess). Absent that, the only safe relaxation is
-    // when the caller has property rules but none of them DENY the indexed property.
-    if (!auth_checker->HasEdgeTypePropertyDeny(property)) return;
-    ThrowSearchAuthError(
-        "vector_search.search_edges is unavailable for this WILDCARD index: property-level RBAC denies the indexed "
-        "property for at least one edge type.");
-  }
-  const bool property_readable = std::ranges::all_of(filter.ids, [&](const memgraph::storage::EdgeTypeId edge_type) {
-    return auth_checker->HasPropertyPermission(
-        edge_type, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
-  });
-  if (!property_readable) {
-    ThrowSearchAuthError(
-        "vector_search.search_edges is unavailable for this index: caller lacks READ on the indexed property.");
-  }
-}
-
+// Aggregation runs inside Tantivy with no per-row hook, so RBAC can't be applied to the result — it
+// must be gated up front. Property dimension: require affirmative READ on every indexed property (an
+// all-string-properties index can't be certified, and a caller with property RBAC but no grant on the
+// indexed property would otherwise count values it can't read). Multi-label over-counting (a node the
+// caller can't fully read still contributes) stays a documented best-effort limitation.
 void PrecheckVertexTextAggregateAccess(const mgp_graph &graph, std::string_view index_name) {
   const auto *ctx = graph.ctx;
   if (!ctx || !ctx->auth_checker) return;
@@ -4323,18 +4187,20 @@ void PrecheckVertexTextAggregateAccess(const mgp_graph &graph, std::string_view 
 
   const auto label_span = std::span<const memgraph::storage::LabelId>(&it->label, 1);
   if (!auth_checker->Has(label_span, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-    ThrowSearchAuthError("text_search.aggregate is unavailable for this index: caller lacks READ on its bound label.");
+    throw AuthorizationException{
+        "text_search.aggregate is unavailable for this index: caller lacks READ on its bound label."};
   }
-  // any DENY on a *different* label could hide multi-label nodes the index still counts
-  if (auth_checker->HasAnyVertexLabelDeny()) {
-    ThrowSearchAuthError(
-        "text_search.aggregate is unavailable: label-level DENY rules could mask multi-label nodes the aggregate "
-        "would still count.");
-  }
-  if (auth_checker->HasAnyVertexPropertyDenyForLabel(it->label)) {
-    ThrowSearchAuthError(
-        "text_search.aggregate is unavailable: a property-level DENY on this label could cause Tantivy to count "
-        "values RBAC would otherwise hide. Use text_search.search and aggregate in Cypher.");
+  if (auth_checker->HasUnrestrictedAccessToVertexProperties()) return;
+  const bool all_readable =
+      !it->properties.empty() && std::ranges::all_of(it->properties, [&](const memgraph::storage::PropertyId property) {
+        return auth_checker->HasPropertyPermission(
+            label_span, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
+      });
+  if (!all_readable) {
+    throw AuthorizationException{
+        "text_search.aggregate is unavailable: property-level RBAC is active and the caller lacks READ on every "
+        "indexed property (an index covering all string properties cannot be certified). Use text_search.search and "
+        "aggregate the filtered results in Cypher."};
   }
 }
 
@@ -4349,20 +4215,19 @@ void PrecheckEdgeTextAggregateAccess(const mgp_graph &graph, std::string_view in
   if (it == indices.text_edge_indices.end()) return;
 
   if (!auth_checker->Has(it->edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-    ThrowSearchAuthError(
-        "text_search.aggregate_edges is unavailable for this index: caller lacks READ on its edge type.");
+    throw AuthorizationException{
+        "text_search.aggregate_edges is unavailable for this index: caller lacks READ on its edge type."};
   }
-  // vertex-label DENY could hide edges whose endpoints the caller can't read but the index still counts;
-  // an edge-type DENY on a *different* type doesn't affect this index — edges are single-typed
-  if (auth_checker->HasAnyVertexLabelDeny()) {
-    ThrowSearchAuthError(
-        "text_search.aggregate_edges is unavailable: vertex-label DENY rules could mask edges whose endpoints the "
-        "aggregate would still count.");
-  }
-  if (auth_checker->HasAnyEdgeTypePropertyDenyForType(it->edge_type)) {
-    ThrowSearchAuthError(
-        "text_search.aggregate_edges is unavailable: a property-level DENY on this edge type could cause Tantivy "
-        "to count values RBAC would otherwise hide. Use text_search.search_edges and aggregate in Cypher.");
+  if (auth_checker->HasUnrestrictedAccessToEdgeTypeProperties()) return;
+  const bool all_readable =
+      !it->properties.empty() && std::ranges::all_of(it->properties, [&](const memgraph::storage::PropertyId property) {
+        return auth_checker->HasPropertyPermission(
+            it->edge_type, property, memgraph::query::AuthQuery::PropertyPermissionType::READ);
+      });
+  if (!all_readable) {
+    throw AuthorizationException{
+        "text_search.aggregate_edges is unavailable: property-level RBAC is active and the caller lacks READ on every "
+        "indexed property. Use text_search.search_edges and aggregate the filtered results in Cypher."};
   }
 }
 }  // namespace
@@ -4880,7 +4745,6 @@ mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, 
     std::vector<memgraph::storage::PropertyId> searched;
     try {
 #ifdef MG_ENTERPRISE
-      PrecheckVertexTextSearchAccess(*graph, index_name);
       searched = TextIndexSearchedProperties(*graph, index_name);
 #endif
       text_search_results = graph->getImpl()->TextIndexSearch(index_name, search_query, search_mode, config);
@@ -4955,7 +4819,6 @@ mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *
     std::vector<memgraph::storage::PropertyId> searched;
     try {
 #ifdef MG_ENTERPRISE
-      PrecheckEdgeTextSearchAccess(*graph, index_name);
       searched = TextEdgeIndexSearchedProperties(*graph, index_name);
 #endif
       text_edge_search_results = graph->getImpl()->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
@@ -4974,9 +4837,6 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
     std::vector<std::tuple<memgraph::storage::VertexAccessor, double, double>> found_vertices;
     std::optional<std::string> error_msg = std::nullopt;
     try {
-#ifdef MG_ENTERPRISE
-      PrecheckVertexVectorSearchAccess(*graph, index_name);
-#endif
       std::vector<float> search_query_vector;
       search_query_vector.reserve(search_query->elems.size());
       for (auto &elem : search_query->elems) {
@@ -5024,9 +4884,6 @@ mgp_error mgp_graph_search_vector_index_on_edges(mgp_graph *graph, const char *i
     std::vector<std::tuple<memgraph::storage::EdgeAccessor, double, double>> found_edges;
     std::optional<std::string> error_msg = std::nullopt;
     try {
-#ifdef MG_ENTERPRISE
-      PrecheckEdgeVectorSearchAccess(*graph, index_name);
-#endif
       std::vector<float> search_query_vector;
       search_query_vector.reserve(search_query->elems.size());
       for (auto &elem : search_query->elems) {
