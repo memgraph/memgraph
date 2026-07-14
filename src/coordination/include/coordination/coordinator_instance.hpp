@@ -95,7 +95,13 @@ class CoordinatorInstance {
 
   auto DropRole(std::string_view role_name) const -> DropRoleStatus;
 
-  auto GetRoles(std::vector<std::string> &roles) const -> GetRolesStatus;
+  auto GetRoles(std::vector<CoordinatorRole> &roles) const -> GetRolesStatus;
+
+  auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> GrantPrivilegeStatus;
+
+  auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> RevokePrivilegeStatus;
+
+  auto GetRolePrivileges(std::string_view role_name, uint64_t &privileges) const -> GetRolePrivilegesStatus;
 
   auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
   auto GetRoutingTableAsLeader(std::string_view db_name) const -> RoutingTable;

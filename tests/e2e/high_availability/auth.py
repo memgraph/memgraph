@@ -656,6 +656,10 @@ def show_roles(cursor):
     return sorted(name for (name,) in execute_and_fetch_all(cursor, "SHOW ROLES"))
 
 
+def show_privileges(cursor, role):
+    return sorted(privilege for (privilege,) in execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR ROLE {role}"))
+
+
 def test_basic_auth_passthrough(test_name):
     # Coordinators with no users accept any connection; credentials are ignored (basic-auth passthrough).
     inner_instances_description = get_coords_only_description(test_name=test_name)
@@ -687,12 +691,27 @@ def test_disallowed_auth_queries_rejected(test_name):
         "DROP USER foo",
         "SHOW USERS",
         "SET PASSWORD FOR foo TO 'bar'",
-        "GRANT ALL PRIVILEGES TO foo",
+        # DENY in any form is rejected on a coordinator (only GRANT/REVOKE of coordinator privileges are supported).
+        "DENY COORDINATOR_READ TO foo",
         "DENY MATCH TO foo",
         "REVOKE MATCH FROM foo",
-        "SHOW PRIVILEGES FOR foo",
+        # SHOW PRIVILEGES / GRANT / REVOKE are permitted on a coordinator only for the coordinator READ/WRITE privileges
+        # on a role; a USER target or a data-instance privilege must be rejected.
+        "SHOW PRIVILEGES FOR USER foo",
+        "GRANT COORDINATOR_READ TO USER foo",
+        "GRANT MATCH TO foo",
         "SET ROLE FOR foo TO bar",
         "CLEAR ROLE FOR foo",
+        # Multi-tenancy database access grants are rejected on a coordinator (coordinators have no databases).
+        "GRANT DATABASE mydb TO foo",
+        "DENY DATABASE mydb FROM foo",
+        "REVOKE DATABASE mydb FROM foo",
+        "SET MAIN DATABASE mydb FOR foo",
+        # Fine-grained access control (label/edge-type entity privileges, property permissions) is rejected on a
+        # coordinator (coordinators have no graph to gate).
+        "GRANT CREATE, UPDATE ON NODES CONTAINING LABELS * TO foo",
+        "GRANT UPDATE ON EDGES OF TYPE * TO foo",
+        "GRANT READ {*} ON NODES CONTAINING LABELS * TO foo",
     ]
     for query in disallowed_queries:
         try:
@@ -739,6 +758,90 @@ def test_role_crud_on_leader(test_name):
         assert False, "DROP of a missing role should error"
     except Exception as e:
         assert "doesn't exist" in str(e)
+
+
+def test_privilege_grant_revoke_show_on_leader(test_name):
+    # On the leader, GRANT/REVOKE COORDINATOR_READ|COORDINATOR_WRITE update a role's persisted mask and
+    # SHOW PRIVILEGES FOR ROLE reports it.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+
+    execute_and_fetch_all(cursor, "CREATE ROLE reader")
+    execute_and_fetch_all(cursor, "CREATE ROLE writer")
+
+    # A freshly created (bare) role has no privileges.
+    assert show_privileges(cursor, "reader") == []
+    assert show_privileges(cursor, "writer") == []
+
+    # GRANT reflects in SHOW PRIVILEGES FOR ROLE.
+    execute_and_fetch_all(cursor, "GRANT COORDINATOR_READ TO reader")
+    assert show_privileges(cursor, "reader") == ["COORDINATOR_READ"]
+
+    # Granting COORDINATOR_WRITE too yields both (WRITE is a superset of READ, but both are reported as granted).
+    execute_and_fetch_all(cursor, "GRANT COORDINATOR_WRITE TO writer")
+    execute_and_fetch_all(cursor, "GRANT COORDINATOR_READ TO writer")
+    assert show_privileges(cursor, "writer") == ["COORDINATOR_READ", "COORDINATOR_WRITE"]
+
+    # REVOKE clears the specific privilege.
+    execute_and_fetch_all(cursor, "REVOKE COORDINATOR_READ FROM writer")
+    assert show_privileges(cursor, "writer") == ["COORDINATOR_WRITE"]
+
+    execute_and_fetch_all(cursor, "REVOKE COORDINATOR_WRITE FROM writer")
+    assert show_privileges(cursor, "writer") == []
+
+    # The other role's grant is untouched by operations on writer.
+    assert show_privileges(cursor, "reader") == ["COORDINATOR_READ"]
+
+    # GRANT ALL PRIVILEGES grants both coordinator privileges; REVOKE ALL PRIVILEGES removes both.
+    execute_and_fetch_all(cursor, "GRANT ALL PRIVILEGES TO writer")
+    assert show_privileges(cursor, "writer") == ["COORDINATOR_READ", "COORDINATOR_WRITE"]
+    execute_and_fetch_all(cursor, "REVOKE ALL PRIVILEGES FROM writer")
+    assert show_privileges(cursor, "writer") == []
+
+    # GRANT/REVOKE/SHOW PRIVILEGES on a non-existent role errors.
+    try:
+        execute_and_fetch_all(cursor, "GRANT COORDINATOR_READ TO missing_role")
+        assert False, "GRANT on a missing role should error"
+    except Exception as e:
+        assert "doesn't exist" in str(e)
+
+
+def test_privilege_queries_rejected_for_non_role_targets(test_name):
+    # GRANT/REVOKE/SHOW PRIVILEGES are accepted only for coordinator privileges on a role; USER targets, data-instance
+    # privileges, fine-grained access control, and database access grants are rejected with the coordinator-only error
+    # -- even when the target role exists.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+    execute_and_fetch_all(cursor, "CREATE ROLE some_role")
+
+    rejected_queries = [
+        # USER targets.
+        "GRANT COORDINATOR_READ TO USER some_role",
+        "REVOKE COORDINATOR_WRITE FROM USER some_role",
+        "SHOW PRIVILEGES FOR USER some_role",
+        # Data-instance system privileges.
+        "GRANT MATCH TO some_role",
+        "REVOKE AUTH FROM some_role",
+        # DENY is unsupported even for a coordinator privilege.
+        "DENY COORDINATOR_WRITE TO some_role",
+        # Fine-grained access control (label/edge-type entity privileges, property permissions).
+        "GRANT CREATE, UPDATE ON NODES CONTAINING LABELS * TO some_role",
+        "GRANT UPDATE ON EDGES OF TYPE * TO some_role",
+        "GRANT READ {*} ON NODES CONTAINING LABELS * TO some_role",
+        # Multi-tenancy database access.
+        "GRANT DATABASE mydb TO some_role",
+        "REVOKE DATABASE mydb FROM some_role",
+    ]
+    for query in rejected_queries:
+        try:
+            execute_and_fetch_all(cursor, query)
+            assert False, f"Query should have been rejected on a coordinator: {query}"
+        except Exception as e:
+            assert "Coordinator can run only coordinator queries!" in str(e), f"Unexpected error for {query}: {e}"
 
 
 def test_roles_survive_full_cluster_restart(test_name):

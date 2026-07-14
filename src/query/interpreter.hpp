@@ -192,6 +192,15 @@ class CoordinatorQueryHandler {
   /// @throw QueryRuntimeException if an error occurred.
   virtual std::vector<std::string> ShowRoles() = 0;
 
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void GrantCoordinatorPrivilege(std::string_view role_name, uint64_t privileges) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void RevokeCoordinatorPrivilege(std::string_view role_name, uint64_t privileges) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred. Returns the role's coordinator permission mask.
+  virtual uint64_t ShowRolePrivileges(std::string_view role_name) = 0;
+
   virtual std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() = 0;
 };
 #endif
@@ -320,6 +329,10 @@ class Interpreter final {
   std::shared_ptr<QueryUserOrRole>
       user_or_role_{};  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
+  // Effective coordinator privilege mask (union of the session's matched roles' masks; auth::Permission bits).
+  // Consulted only on coordinators, where roles live in Raft rather than the auth kvstore. A basic-auth passthrough
+  // session carries full WRITE; a restricted SSO session (later slice) carries a narrower mask. Zero denies everything.
+  uint64_t coordinator_permissions_;
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
@@ -501,6 +514,10 @@ class Interpreter final {
 
 #ifdef MG_ENTERPRISE
   void SetUser(std::shared_ptr<QueryUserOrRole> user, std::shared_ptr<utils::UserResources> user_resource = nullptr);
+
+  // Sets the session's effective coordinator privilege mask (auth::Permission bits). Called at authentication time on
+  // coordinators; a basic-auth passthrough session is granted full WRITE.
+  void SetCoordinatorPrivileges(uint64_t privileges) { coordinator_permissions_ = privileges; }
 #else
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
 #endif

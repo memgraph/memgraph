@@ -67,8 +67,24 @@ auto CoordinatorHandler::DropRole(std::string_view const role_name) const -> coo
   return coordinator_state_.DropRole(role_name);
 }
 
-auto CoordinatorHandler::GetRoles(std::vector<std::string> &roles) const -> coordination::GetRolesStatus {
+auto CoordinatorHandler::GetRoles(std::vector<coordination::CoordinatorRole> &roles) const
+    -> coordination::GetRolesStatus {
   return coordinator_state_.GetRoles(roles);
+}
+
+auto CoordinatorHandler::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
+    -> coordination::GrantPrivilegeStatus {
+  return coordinator_state_.GrantPrivilege(role_name, privileges);
+}
+
+auto CoordinatorHandler::RevokePrivilege(std::string_view const role_name, uint64_t const privileges) const
+    -> coordination::RevokePrivilegeStatus {
+  return coordinator_state_.RevokePrivilege(role_name, privileges);
+}
+
+auto CoordinatorHandler::GetRolePrivileges(std::string_view const role_name, uint64_t &privileges) const
+    -> coordination::GetRolePrivilegesStatus {
+  return coordinator_state_.GetRolePrivileges(role_name, privileges);
 }
 
 auto CoordinatorHandler::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {

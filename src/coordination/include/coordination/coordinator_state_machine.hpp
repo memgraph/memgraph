@@ -125,7 +125,7 @@ class CoordinatorStateMachine final : public state_machine {
   auto GetInstanceDownTimeoutSec() const -> uint32_t;
   auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
   auto GetGlobalReadOnly() const -> bool;
-  auto GetRoles() const -> std::vector<std::string>;
+  auto GetRoles() const -> std::vector<CoordinatorRole>;
 
  private:
   bool HandleMigration(LogStoreVersion stored_version);

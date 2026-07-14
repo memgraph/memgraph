@@ -2430,6 +2430,7 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
   } else {
     /* grant all privileges */
     auth->privileges_ = kPrivilegesAll;
+    auth->all_privileges_ = true;
   }
   return auth;
 }
@@ -2465,6 +2466,7 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
   } else {
     /* deny all privileges */
     auth->privileges_ = kPrivilegesAll;
+    auth->all_privileges_ = true;
   }
   return auth;
 }
@@ -2512,6 +2514,7 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
   } else {
     /* revoke all privileges */
     auth->privileges_ = kPrivilegesAll;
+    auth->all_privileges_ = true;
   }
   return auth;
 }
@@ -2782,6 +2785,8 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->PARALLEL_EXECUTION()) return AuthQuery::Privilege::PARALLEL_EXECUTION;
   if (ctx->SERVER_SIDE_PARAMETERS()) return AuthQuery::Privilege::SERVER_SIDE_PARAMETERS;
   if (ctx->RELOAD_TLS()) return AuthQuery::Privilege::RELOAD_TLS;
+  if (ctx->COORDINATOR_READ()) return AuthQuery::Privilege::COORDINATOR_READ;
+  if (ctx->COORDINATOR_WRITE()) return AuthQuery::Privilege::COORDINATOR_WRITE;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

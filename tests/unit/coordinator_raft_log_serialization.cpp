@@ -20,6 +20,7 @@
 
 using memgraph::coordination::CoordinatorClusterStateDelta;
 using memgraph::coordination::CoordinatorInstanceContext;
+using memgraph::coordination::CoordinatorRole;
 using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::DataInstanceConfig;
 using memgraph::coordination::DataInstanceContext;
@@ -132,18 +133,23 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterStateAllSettings) {
 }
 
 TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithRoles) {
+  // The per-log delta must roundtrip each role's name AND its privilege mask.
   // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const delta_state{.roles_ = std::vector<std::string>{"admin", "readonly"}};
+  CoordinatorClusterStateDelta const delta_state{
+      .roles_ =
+          std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}, {.name = "readonly", .permissions = 1}}};
   auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
   auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
   ASSERT_EQ(delta_state, decoded_log_state);
-  ASSERT_EQ(decoded_log_state.roles_, (std::vector<std::string>{"admin", "readonly"}));
+  ASSERT_EQ(
+      decoded_log_state.roles_,
+      (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}, {.name = "readonly", .permissions = 1}}));
 }
 
 TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithEmptyRoles) {
   // An empty (but set) roles vector must roundtrip as an empty vector, not as an unset optional.
   // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const delta_state{.roles_ = std::vector<std::string>{}};
+  CoordinatorClusterStateDelta const delta_state{.roles_ = std::vector<CoordinatorRole>{}};
   auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
   auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
   ASSERT_EQ(delta_state, decoded_log_state);

@@ -80,6 +80,10 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::SERVER_SIDE_DESCRIPTIONS;
     case query::AuthQuery::Privilege::RELOAD_TLS:
       return auth::Permission::RELOAD_TLS;
+    case query::AuthQuery::Privilege::COORDINATOR_READ:
+      return auth::Permission::COORDINATOR_READ;
+    case query::AuthQuery::Privilege::COORDINATOR_WRITE:
+      return auth::Permission::COORDINATOR_WRITE;
   }
 }
 

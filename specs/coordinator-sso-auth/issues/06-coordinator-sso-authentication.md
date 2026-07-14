@@ -11,7 +11,8 @@ the READ/WRITE privilege model actually restricts SSO sessions.
 End-to-end behavior:
 
 - Replace the coordinator branch of the Bolt handshake's authentication so that:
-  basic/none schemes always succeed (passthrough, full WRITE, credentials ignored); a scheme
+  basic/none schemes always succeed (passthrough, full `COORDINATOR_WRITE`, credentials
+  ignored); a scheme
   present in `--auth-module-mappings` runs the SSO path; any other/unknown scheme is rejected.
 - Add a dedicated coordinator SSO authenticator (session/glue layer) that reuses the existing
   auth-module subprocess machinery to run the module, then validates the returned roles
@@ -19,13 +20,14 @@ End-to-end behavior:
   succeeds only if every returned role exists; an invalid token, any missing role, or an
   empty/invalid response rejects the connection.
 - On success, the session carries an **effective privilege mask** equal to the union of the
-  matched roles' masks. The privilege enforcement built in slice 04 then applies: a READ-only
-  session can read the routing table and run the read/introspection queries but is denied
-  every mutating query; a WRITE session can run everything; a session whose role(s) have no
-  grant is denied everything including the routing table.
+  matched roles' masks. The privilege enforcement built in slice 04 then applies: a
+  `COORDINATOR_READ`-only session can read the routing table and run the read/introspection
+  queries but is denied every mutating query; a `COORDINATOR_WRITE` session can run
+  everything; a session whose role(s) have no grant is denied everything including the
+  routing table.
 - SSO authentication and the role/privilege queries are enterprise-gated: without a valid
   license they are rejected with a license error, while basic-auth passthrough keeps working
-  with full WRITE.
+  with full `COORDINATOR_WRITE`.
 - `MEMGRAPH_SSO_*` variables are inherited into the spawned module subprocess; no new C++ env
   parsing is added.
 
@@ -40,11 +42,11 @@ closing the long-standing gap where Kerberos had no server-path coverage.
 
 ## Acceptance criteria
 
-- [ ] On a coordinator, basic/none auth always succeeds with full WRITE; an SSO scheme in the mappings runs the module; an unknown scheme is rejected.
+- [ ] On a coordinator, basic/none auth always succeeds with full `COORDINATOR_WRITE`; an SSO scheme in the mappings runs the module; an unknown scheme is rejected.
 - [ ] SSO succeeds only when every role returned by the module exists; invalid token / missing role / multi-role with any missing → rejected; multi-role all-exist → accepted.
 - [ ] The session's effective privilege is the union of its matched roles' masks; a bare-role session is denied everything including the routing table.
-- [ ] Privilege enforcement bites via SSO: a READ-only SSO session reads the routing table + read/introspection queries but is denied mutating queries; a WRITE SSO session runs everything.
-- [ ] SSO auth and role/privilege queries require a valid enterprise license; without it they are rejected while basic-auth passthrough (full WRITE) still works.
+- [ ] Privilege enforcement bites via SSO: a `COORDINATOR_READ`-only SSO session reads the routing table + read/introspection queries but is denied mutating queries; a `COORDINATOR_WRITE` SSO session runs everything.
+- [ ] SSO auth and role/privilege queries require a valid enterprise license; without it they are rejected while basic-auth passthrough (full `COORDINATOR_WRITE`) still works.
 - [ ] The role-existence and mask lookup read the coordinator's committed role set; the auth kvstore is not used for coordinator roles.
 - [ ] The dummy auth module and fixtures cover OIDC, SAML, and Kerberos schemes (success + error responses).
 - [ ] E2E (OIDC through the real Bolt handshake): success; bad-token rejection; missing-role rejection; multi-role all-exist success / any-missing rejection; SSO for a role rejected before `CREATE ROLE` and succeeding after.

@@ -81,7 +81,12 @@ enum class Permission : uint64_t {
   PARALLEL_EXECUTION     = 1ULL << 28ULL,
   SERVER_SIDE_PARAMETERS = 1ULL << 29ULL,
   SERVER_SIDE_DESCRIPTIONS = 1ULL << 30ULL,
-  RELOAD_TLS             = 1ULL << 31ULL
+  RELOAD_TLS             = 1ULL << 31ULL,
+  // Coordinator-only privileges. Meaningful only on coordinators (roles live in Raft, not the auth kvstore) and never
+  // part of kPermissionsAll, so GRANT ALL PRIVILEGES on a data instance does not grant them. WRITE is a superset of
+  // READ. Bit 25 (the removed COORDINATOR privilege) is intentionally not reused.
+  COORDINATOR_READ       = 1ULL << 32ULL,
+  COORDINATOR_WRITE      = 1ULL << 33ULL
 };
 // clang-format on
 
@@ -120,6 +125,30 @@ inline constexpr std::array kPermissionsAll = {
     Permission::RELOAD_TLS
 };
 // clang-format on
+
+// Coordinator privilege model. Coordinators enforce exactly two privileges, COORDINATOR_READ and COORDINATOR_WRITE,
+// where WRITE is a superset of READ. A session's effective mask is the union (bitwise OR) of its matched roles' masks;
+// a role with no grant confers nothing.
+
+// Union of a collection of role permission masks.
+inline uint64_t CoordinatorEffectiveMask(std::span<uint64_t const> role_masks) {
+  uint64_t effective = 0;
+  for (auto const mask : role_masks) {
+    effective |= mask;
+  }
+  return effective;
+}
+
+// Whether an effective coordinator mask authorizes a query requiring `required` (COORDINATOR_READ or
+// COORDINATOR_WRITE). A WRITE grant satisfies a READ requirement; a READ grant does not satisfy a WRITE requirement.
+inline bool CoordinatorMaskSatisfies(uint64_t effective_mask, Permission required) {
+  auto const write_bit = static_cast<uint64_t>(Permission::COORDINATOR_WRITE);
+  auto const read_bit = static_cast<uint64_t>(Permission::COORDINATOR_READ);
+  if (required == Permission::COORDINATOR_WRITE) {
+    return (effective_mask & write_bit) != 0U;
+  }
+  return (effective_mask & (read_bit | write_bit)) != 0U;
+}
 
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
