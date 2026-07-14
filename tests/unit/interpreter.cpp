@@ -453,6 +453,21 @@ TEST_F(PlannerV2InterpreterTest, WherePatternPredicateReportsNotImplemented) {
                memgraph::query::QueryException);
 }
 
+TEST_F(PlannerV2InterpreterTest, OrderByUnsupportedSortKeyReportsNotImplemented) {
+  // ORDER BY sort keys go through the same expression lowering as WHERE, so an
+  // unsupported node (here a pattern comprehension) must throw rather than build
+  // an OrderBy that silently ignores the key.
+  EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x RETURN x ORDER BY size([(a)-[]->(b) | b]);"),
+               memgraph::query::QueryException);
+}
+
+TEST_F(PlannerV2InterpreterTest, SkipUnsupportedCountReportsNotImplemented) {
+  // SKIP/LIMIT counts also lower through Lower(); an unsupported count node (CASE)
+  // must throw. SKIP forbids variables, so the count is variable-free.
+  EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x RETURN x SKIP CASE WHEN true THEN 1 ELSE 0 END;"),
+               memgraph::query::QueryException);
+}
+
 TEST_F(PlannerV2InterpreterTest, ReturnDistinctDeduplicatesRows) {
   // DISTINCT dedups on the projected column: 1 appears twice, so two rows remain.
   auto stream = Interpret("UNWIND [1, 1, 2] AS x RETURN DISTINCT x;");
