@@ -164,8 +164,9 @@ def test_aggregate_edges_blocked_for_restricted_user():
 
 # =============================================================================
 # user_prop — full label READ + global GRANT READ {*}, but DENY {title} on :Public/:Document and
-# DENY {label} on :LINKS_*. It can see every node/edge, but cannot read the text-indexed properties
-# (title/label), so a content match over them never surfaces.
+# DENY {label} on :LINKS_*. So it reads every property except title/label. A search over a denied
+# property (or a blob search_all, which cannot isolate the matched field) never surfaces; but a
+# field-scoped search over a readable property does, even when a co-located property is denied.
 # =============================================================================
 
 
@@ -183,6 +184,43 @@ def test_text_search_edges_dropped_on_property_denied():
         "CALL text_search.search_edges('doc_etext', 'data.label:Confidential') YIELD edge RETURN edge;",
     )
     assert res == []
+
+
+# the Dual node is :Public {title, body}; title is denied, body is readable. A field-scoped search over
+# body surfaces it — only the queried property gates the hit, not every indexed property.
+def test_text_search_returns_readable_queried_property():
+    res = common.execute_and_fetch_all(
+        user_prop_cursor(),
+        "CALL text_search.search('pub_text', 'data.body:Bodyword') YIELD node RETURN node.body AS body;",
+    )
+    assert [row[0] for row in res] == ["Bodyword"]
+
+
+def test_text_search_dropped_when_queried_property_denied():
+    res = common.execute_and_fetch_all(
+        user_prop_cursor(),
+        "CALL text_search.search('pub_text', 'data.title:Dual') YIELD node RETURN node;",
+    )
+    assert res == []
+
+
+# search_all cannot tell which property matched, so any denied string property on the node drops it.
+def test_text_search_all_dropped_when_any_string_property_denied():
+    res = common.execute_and_fetch_all(
+        user_prop_cursor(),
+        "CALL text_search.search_all('pub_text', 'Bodyword') YIELD node RETURN node;",
+    )
+    assert res == []
+
+
+# the Solo node has only body; an OR query names both the denied title and the readable body. The queried
+# title is absent on the node, so it is skipped rather than dropping the hit, and body surfaces it.
+def test_text_search_or_query_skips_queried_property_the_node_lacks():
+    res = common.execute_and_fetch_all(
+        user_prop_cursor(),
+        "CALL text_search.search('pub_text', 'data.title:nomatch OR data.body:Solo') YIELD node RETURN node.body AS body;",
+    )
+    assert [row[0] for row in res] == ["Solo"]
 
 
 # =============================================================================

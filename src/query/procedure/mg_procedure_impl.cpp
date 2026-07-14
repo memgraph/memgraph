@@ -4086,10 +4086,11 @@ mgp_edge *GetEdgeByGid(mgp_graph *graph, memgraph::storage::Gid edge_gid, memgra
 
 #ifdef MG_ENTERPRISE
 namespace {
-// A search hit is visible iff the entity is label/type-readable AND every property that could have
-// produced the match is READ-permitted on its real labels. `searched` is the
-// index's declared property set; empty means a property-less index (covers every string property), so
-// every string property present on the entity is a candidate match and must be readable.
+// A search hit is visible iff the entity is label/type-readable AND every candidate property it actually
+// has is READ-permitted on its real labels. `searched` holds the candidates: the fields named in a
+// specified-property query, or the index's full property set for blob (search_all/regex) modes; empty ⇒
+// property-less index, where every string property present is a candidate. A declared property the
+// entity lacks is skipped — it could not have produced the match.
 bool VertexSearchHitReadable(const memgraph::query::VertexAccessor &v, const mgp_graph &graph,
                              std::span<const memgraph::storage::PropertyId> searched) {
   const auto *ctx = graph.ctx;
@@ -4097,12 +4098,14 @@ bool VertexSearchHitReadable(const memgraph::query::VertexAccessor &v, const mgp
   const auto *auth_checker = ctx->auth_checker;
   if (!auth_checker->Has(v, graph.view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
   if (!auth_checker->HasPropertyRestrictions()) return true;
+  const auto props = v.Properties(graph.view);
+  if (!props) return false;
   const auto readable = [&](const memgraph::storage::PropertyId property) {
     return memgraph::query::PropertyReadAllowed(auth_checker, v, graph.view, property);
   };
-  if (!searched.empty()) return std::ranges::all_of(searched, readable);
-  const auto props = v.Properties(graph.view);
-  if (!props) return false;
+  if (!searched.empty())
+    return std::ranges::all_of(searched,
+                               [&](const auto property) { return !props->contains(property) || readable(property); });
   return std::ranges::all_of(*props, [&](const auto &kv) {
     return kv.second.type() != memgraph::storage::PropertyValue::Type::String || readable(kv.first);
   });
@@ -4120,12 +4123,14 @@ bool EdgeSearchHitReadable(const memgraph::query::EdgeAccessor &e, const mgp_gra
   if (!auth_checker->Has(e.From(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
   if (!auth_checker->Has(e.To(), view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) return false;
   if (!auth_checker->HasPropertyRestrictions()) return true;
+  const auto props = e.Properties(view);
+  if (!props) return false;
   const auto readable = [&](const memgraph::storage::PropertyId property) {
     return memgraph::query::PropertyReadAllowed(auth_checker, e, property);
   };
-  if (!searched.empty()) return std::ranges::all_of(searched, readable);
-  const auto props = e.Properties(view);
-  if (!props) return false;
+  if (!searched.empty())
+    return std::ranges::all_of(searched,
+                               [&](const auto property) { return !props->contains(property) || readable(property); });
   return std::ranges::all_of(*props, [&](const auto &kv) {
     return kv.second.type() != memgraph::storage::PropertyValue::Type::String || readable(kv.first);
   });
@@ -4147,6 +4152,29 @@ std::vector<memgraph::storage::PropertyId> TextEdgeIndexSearchedProperties(const
     return s.index_name == index_name;
   });
   return it == indices.text_edge_indices.end() ? std::vector<memgraph::storage::PropertyId>{} : it->properties;
+}
+
+// A specified-property query names its fields as `data.<property>:value`, combinable with AND/OR/NOT/().
+// Collect the referenced property set; the boolean structure is irrelevant because a hit's existence can
+// reveal any referenced field's content, so all of them must be readable. Unknown names are skipped; an
+// empty result signals the caller to fall back to the index's full property set.
+std::vector<memgraph::storage::PropertyId> QueriedTextProperties(const mgp_graph &graph, std::string_view query) {
+  constexpr std::string_view kFieldPrefix = "data.";
+  const auto is_ident = [](const char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+  };
+  std::vector<memgraph::storage::PropertyId> properties;
+  for (auto pos = query.find(kFieldPrefix); pos != std::string_view::npos; pos = query.find(kFieldPrefix, pos)) {
+    const auto name_start = pos + kFieldPrefix.size();
+    auto name_end = name_start;
+    while (name_end < query.size() && is_ident(query[name_end])) ++name_end;
+    pos = name_end;
+    // the trailing ':' marks a field reference and rules out a value that merely contains "data."
+    if (name_end == name_start || name_end >= query.size() || query[name_end] != ':') continue;
+    if (const auto property = graph.getImpl()->NameToPropertyIfExists(query.substr(name_start, name_end - name_start)))
+      properties.push_back(*property);
+  }
+  return properties;
 }
 
 std::vector<memgraph::storage::PropertyId> VectorIndexSearchedProperty(const mgp_graph &graph,
@@ -4745,6 +4773,9 @@ mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, 
     try {
 #ifdef MG_ENTERPRISE
       searched = TextIndexSearchedProperties(*graph, index_name);
+      if (search_mode == text_search_mode::SPECIFIED_PROPERTIES) {
+        if (auto queried = QueriedTextProperties(*graph, search_query); !queried.empty()) searched = std::move(queried);
+      }
 #endif
       text_search_results = graph->getImpl()->TextIndexSearch(index_name, search_query, search_mode, config);
     } catch (const AuthorizationException &e) {
@@ -4819,6 +4850,9 @@ mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *
     try {
 #ifdef MG_ENTERPRISE
       searched = TextEdgeIndexSearchedProperties(*graph, index_name);
+      if (search_mode == text_search_mode::SPECIFIED_PROPERTIES) {
+        if (auto queried = QueriedTextProperties(*graph, search_query); !queried.empty()) searched = std::move(queried);
+      }
 #endif
       text_edge_search_results = graph->getImpl()->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
     } catch (const AuthorizationException &e) {

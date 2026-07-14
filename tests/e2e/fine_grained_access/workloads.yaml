@@ -207,6 +207,12 @@ text_search_fga_setup_queries: &text_search_fga_setup_queries
   - "CREATE (:Document {title: 'Secret'});"
   - "CREATE (:Document {title: 'Internal'});"
   - "CREATE (:Public:Document {title: 'Hybrid'});"
+  # a Public node with a second string property (body) — exercises field-scoped search precision on the
+  # property-less pub_text index: a query over the readable body must surface it though title is denied
+  - "CREATE (:Public {title: 'Dual', body: 'Bodyword'});"
+  # a Public node with only body (no title) — exercises the row filter skipping a queried field the node
+  # lacks: an OR query naming the denied title and the readable body must still surface it via body
+  - "CREATE (:Public {body: 'Solo'});"
   - "MATCH (a:Public {title:'Welcome'}), (b:Public {title:'Hello'}) CREATE (a)-[:LINKS_PUB {label:'Open'}]->(b);"
   - "MATCH (a:Document {title:'Secret'}), (b:Document {title:'Internal'}) CREATE (a)-[:LINKS_DOC {label:'Confidential'}]->(b);"
   - "CREATE (p:Public {title:'CrossSrc'}), (d:Document {title:'CrossDst'}) CREATE (p)-[:MIXED {label:'CrossOver'}]->(d);"
