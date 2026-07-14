@@ -842,13 +842,14 @@ class DbAccessor final {
                             std::span<storage::PropertyValueRange const> property_ranges,
                             storage::IndexOrder order = storage::IndexOrder::ASC) {
     if (branch_ctx_ != nullptr) {
-      // Graph Versioning v1, Slice 2/Part B: composite/nested property paths are never mirrored onto
-      // the diff engine's index (Part A, branch_engine.cpp, only mirrors SINGLE simple-property
-      // indexes), so the planner never actually emits a ScanAllByLabelProperties for one on a branch
-      // -- this scope guard is therefore defensive, not a live path. Keep the EXISTING (unordered,
-      // gid-order) filter-scan behavior byte-for-byte for that case, including its own
-      // NotYetImplemented throw for genuinely nested paths.
-      if (!(properties.size() == 1 && properties[0].size() == 1)) {
+      // Graph Versioning v1, Slice 2/Part B: NESTED property paths (any path.size() > 1, e.g.
+      // `CREATE INDEX ON :L(a.b.c)`) are never mirrored onto the diff engine's index (Part A,
+      // branch_engine.cpp, mirrors single AND composite -- i.e. every path single-level -- indexes,
+      // but still skips nested ones), so the planner never actually emits a ScanAllByLabelProperties
+      // for a nested-path index on a branch -- this scope guard is therefore defensive, not a live
+      // path for that case. Keep the EXISTING (unordered, gid-order) filter-scan behavior byte-for-
+      // byte for nested paths, including its own NotYetImplemented throw once it actually walks one.
+      if (std::ranges::any_of(properties, [](const auto &p) { return p.size() != 1; })) {
         // Copy properties/ranges by VALUE into the predicate closure -- the caller's spans are not
         // guaranteed to outlive this call (they typically point at a plan operator's own member
         // vectors), but MaterializeFilteredBranchScan's predicate is invoked immediately (eagerly),
@@ -875,11 +876,15 @@ class DbAccessor final {
             }));
       }
 
-      // ORDERED single-simple-property path (Slice 2/Part B). The planner has ELIDED an explicit
-      // OrderBy here -- it trusts index order -- so this path must return PROPERTY-ordered rows, not
-      // gid-ordered ones. Two match streams are merged then explicitly sorted (the merge itself is
-      // not in any single order):
-      //   (a) the diff engine's own mirrored index (Part A guarantees it always exists), and
+      // ORDERED single-OR-composite (every path single-level) property path (Slice 2/Part B). The
+      // planner has ELIDED an explicit OrderBy here -- it trusts index order -- so this path must
+      // return PROPERTY-ordered rows, not gid-ordered ones. The merge key is a
+      // `std::vector<PropertyValue>` -- one value per entry in `properties`, in `properties` order --
+      // compared LEXICOGRAPHICALLY; the single-property case is just the 1-element-vector special
+      // case of the same key, so no separate code path is needed for it. Two match streams are merged
+      // then explicitly sorted (the merge itself is not in any single order):
+      //   (a) the diff engine's own mirrored index (Part A guarantees it always exists for single AND
+      //       composite, non-nested, label-property indexes), and
       //   (b) main@fork's index as of the fork timestamp, via `historical()` -- falling back (B1) to
       //       a full historical scan + manual predicate if main DROPPED the index after the fork
       //       (a historical index scan against a dropped index would be wrong/unsafe).
@@ -889,52 +894,81 @@ class DbAccessor final {
       // a COW that moved the value out of range is still correctly suppressed here: the diff-engine
       // stream in (a) already represents that gid at its authoritative/new value (or excludes it, if
       // the COW moved it out of range) -- both matches were already applied over there.
-      auto const prop_id = properties[0].front();
-      using KeyedVertex = std::pair<storage::PropertyValue, VertexAccessor>;
+      using KeyedVertex = std::pair<std::vector<storage::PropertyValue>, VertexAccessor>;
       std::vector<KeyedVertex> keyed;
+
+      // Builds the composite key for `v` by reading each `properties[i]` (guaranteed single-level by
+      // the scope guard above) at `readview`. Returns nullopt if ANY property read fails, signaling
+      // the caller to skip this vertex -- mirrors the old single-property `!prop_res.has_value()`
+      // skip, generalized across the whole key. Shared across the diff-engine stream, the historical-
+      // index stream, and the B1 historical-full-scan fallback below, so the extraction logic exists
+      // exactly once.
+      auto extract_key = [&properties](VertexAccessor &v,
+                                       storage::View readview) -> std::optional<std::vector<storage::PropertyValue>> {
+        std::vector<storage::PropertyValue> key;
+        key.reserve(properties.size());
+        for (const auto &path : properties) {
+          auto prop_res = v.GetProperty(readview, path.front());
+          if (!prop_res.has_value()) return std::nullopt;  // defensive: an index candidate should always have it
+          key.push_back(std::move(*prop_res));
+        }
+        return key;
+      };
 
       // (a) Diff-engine matches.
       for (auto raw : accessor_->Vertices(label, properties, property_ranges, view, order)) {
         VertexAccessor candidate(raw, branch_ctx_);
-        auto prop_res = candidate.GetProperty(view, prop_id);
-        if (!prop_res.has_value()) continue;  // defensive: an index candidate should always have it
-        keyed.emplace_back(std::move(*prop_res), candidate);
+        auto key = extract_key(candidate, view);
+        if (!key.has_value()) continue;
+        keyed.emplace_back(std::move(*key), candidate);
       }
 
       // (b) Main@fork matches, gated by the tombstone/COW skip above.
       auto &historical = branch_ctx_->historical();
-      auto consider_main_candidate = [this](
-                                         std::vector<KeyedVertex> &out, VertexAccessor mc, storage::PropertyValue key) {
-        auto const g = mc.Gid();
-        if (branch_ctx_->IsVertexTombstoned(g)) return;
-        if (accessor_->FindVertex(g, storage::View::NEW).has_value()) return;
-        out.emplace_back(std::move(key), mc);
-      };
+      auto consider_main_candidate =
+          [this](std::vector<KeyedVertex> &out, VertexAccessor mc, std::vector<storage::PropertyValue> key) {
+            auto const g = mc.Gid();
+            if (branch_ctx_->IsVertexTombstoned(g)) return;
+            if (accessor_->FindVertex(g, storage::View::NEW).has_value()) return;
+            out.emplace_back(std::move(key), mc);
+          };
 
       if (historical.LabelPropertyIndexReady(label, properties)) {
         for (auto raw : historical.Vertices(label, properties, property_ranges, storage::View::OLD, order)) {
           VertexAccessor mc(raw, branch_ctx_);
-          auto prop_res = mc.GetProperty(storage::View::OLD, prop_id);
-          if (!prop_res.has_value()) continue;
-          consider_main_candidate(keyed, mc, std::move(*prop_res));
+          auto key = extract_key(mc, storage::View::OLD);
+          if (!key.has_value()) continue;
+          consider_main_candidate(keyed, mc, std::move(*key));
         }
       } else {
         // B1: main dropped this label-property index after the fork -- fall back to a full
         // historical scan + manual predicate (mirrors MaterializeFilteredBranchScan's own predicate
-        // style); the explicit sort below makes the resulting unordered full scan fine.
+        // style); the explicit sort below makes the resulting unordered full scan fine. Generalized
+        // from the single-property range check to loop over every properties[i]/property_ranges[i]
+        // pair -- a candidate must satisfy ALL of them (same semantics as the diff-engine's own
+        // composite index scan and MaterializeFilteredBranchScan's nested-path predicate above).
         for (auto raw : historical.Vertices(storage::View::OLD)) {
           VertexAccessor mc(raw, branch_ctx_);
           if (!VertexHasLabel(mc, storage::View::OLD, label)) continue;
-          auto prop_res = mc.GetProperty(storage::View::OLD, prop_id);
-          if (!prop_res.has_value()) continue;
-          if (!property_ranges[0].IsValueInRange(*prop_res)) continue;
-          consider_main_candidate(keyed, mc, std::move(*prop_res));
+          auto key = extract_key(mc, storage::View::OLD);
+          if (!key.has_value()) continue;
+          bool in_range = true;
+          for (size_t i = 0; i < properties.size(); ++i) {
+            if (!property_ranges[i].IsValueInRange((*key)[i])) {
+              in_range = false;
+              break;
+            }
+          }
+          if (!in_range) continue;
+          consider_main_candidate(keyed, mc, std::move(*key));
         }
       }
 
-      // Explicit sort by the indexed property, reusing storage::PropertyValue's own `operator<=>`
-      // (defined in property_value.cppm) -- EXACTLY the comparator the storage index itself uses to
-      // order IndexOrderedValues, so this matches native index order bit-for-bit.
+      // Explicit sort by the composite key: `std::vector<PropertyValue>`'s own `operator<` performs
+      // an element-wise LEXICOGRAPHIC comparison (built on `storage::PropertyValue`'s `operator<=>`,
+      // defined in property_value.cppm) -- EXACTLY the comparator the storage index itself uses to
+      // order IndexOrderedValues for a composite index, so this matches native index order bit-for-
+      // bit (and, for a single property, degrades to the prior 1-element-vector comparison).
       std::stable_sort(keyed.begin(), keyed.end(), [order](const KeyedVertex &a, const KeyedVertex &b) {
         return order == storage::IndexOrder::ASC ? a.first < b.first : b.first < a.first;
       });

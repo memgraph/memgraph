@@ -2512,3 +2512,71 @@ TEST_F(VersioningInterpreterTest, BranchLabelOnlyIndexSelectedInPlanOnBranch) {
       << "branch plan did not select the mirrored label-only index; full plan:\n"
       << plan;
 }
+
+// Locks the composite (multi single-level property) label-property index mirror + the branch
+// read path's LEXICOGRAPHIC tuple-key merge (diff ∪ main@fork, tombstone/COW skip). Unlike the
+// single-property index above, the planner keeps an explicit OrderBy for a composite index (the
+// Sort is NOT elided), so ordering correctness here rides on that explicit OrderBy -- what this
+// test actually locks down is that the composite INDEX SELECTION and the merged SET (with a
+// COW-reposition inside a composite key, a delete, and a native create) are correct.
+TEST_F(VersioningInterpreterTest, BranchCompositeLabelPropertyIndexReflectsBranchMutations) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :P(a, b)");
+
+  // Creation order deliberately does NOT match (a,b) lexicographic order.
+  faker.Interpret("CREATE (:P {n:'v1', a:2, b:1})");
+  faker.Interpret("CREATE (:P {n:'v2', a:1, b:9})");
+  faker.Interpret("CREATE (:P {n:'v3', a:1, b:2})");
+  faker.Interpret("CREATE (:P {n:'v4', a:3, b:0})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:P {n:'v2'}) SET n.b = 0");      // COW: repositions (1,9) -> (1,0)
+  faker.Interpret("MATCH (n:P {n:'v4'}) DETACH DELETE n");  // tombstone: (3,0) must vanish
+  faker.Interpret("CREATE (:P {n:'v5', a:2, b:5})");        // branch-native: (2,5)
+
+  auto stream = faker.Interpret("MATCH (n:P) WHERE n.a > 0 RETURN n.a AS a, n.b AS b ORDER BY n.a, n.b");
+  const auto &rows = stream.GetResults();
+  std::vector<std::pair<int64_t, int64_t>> ab;
+  ab.reserve(rows.size());
+  for (const auto &row : rows) {
+    ab.emplace_back(row[0].ValueInt(), row[1].ValueInt());
+  }
+
+  EXPECT_EQ(ab, (std::vector<std::pair<int64_t, int64_t>>{{1, 0}, {1, 2}, {2, 1}, {2, 5}}))
+      << "expected the union of main@fork's historical composite index (v1=(2,1), v3=(1,2) -- v4's "
+         "(3,0) tombstoned away) with the branch's own diff-engine composite index (v2 COW'd from "
+         "(1,9) to (1,0), v5 created at (2,5)), correctly ordered by the explicit (a, b) OrderBy -- "
+         "a keying bug that treats 'a' and 'b' as independent single-property slots instead of one "
+         "composite tuple key would either collapse the COW'd v2 onto the wrong slot or fail to "
+         "distinguish it from v1/v3.";
+}
+
+TEST_F(VersioningInterpreterTest, BranchCompositeLabelPropertyIndexSelectedInPlanOnBranch) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :P(a, b)");
+  faker.Interpret("CREATE (:P {a:1, b:1})");
+  faker.Interpret("CREATE (:P {a:2, b:2})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto stream = faker.Interpret("EXPLAIN MATCH (n:P) WHERE n.a > 0 RETURN n ORDER BY n.a, n.b");
+  std::string plan;
+  for (const auto &row : stream.GetResults()) {
+    plan += row[0].ValueString();
+    plan += '\n';
+  }
+
+  // Locks that MirrorMainIndexDefinitionsIntoDiffEngine registers the composite label-property
+  // index on the branch's diff engine and that the planner selects the mirrored
+  // ScanAllByLabelProperties instead of falling back to a plain ScanAll+Filter. Unlike the
+  // single-property index test above, composite indexes keep the explicit OrderBy (the Sort is
+  // NOT elided), so there is no accompanying OrderBy-elision assertion here.
+  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByLabelProperties"))
+      << "branch plan did not select the mirrored composite label-property index; full plan:\n"
+      << plan;
+}

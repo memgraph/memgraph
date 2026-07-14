@@ -368,15 +368,14 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
     commit_one(*mirror);
   }
   for (const auto &entry : main_indices.label_properties) {
-    // SLICE-2 SCOPE: mirror ONLY single, non-nested-path label-property indexes. The branch-aware
-    // ordered merge that backs an index scan on this branch (db_accessor.hpp, Part B) handles a
-    // single simple property only. A composite (multi-property) or nested-path (`:L(a.b.c)`) index
-    // must NOT be mirrored: mirroring it would make the planner select it on a branch and elide the
-    // ORDER BY, but the read path has no ordered merge for it yet -- silently returning misordered
-    // rows. Leaving it unmirrored keeps such queries on the correct full-scan + explicit-Sort
-    // fallback until a later slice extends the merge. (entry.properties.size() == 1 == the property
-    // count; entry.properties[0].size() == 1 == a non-nested single-level path.)
-    if (entry.properties.size() != 1 || entry.properties[0].size() != 1) {
+    // SCOPE (Slice 2 = single simple property; Task 5 = composite, i.e. multiple simple
+    // properties): mirror any label-property index whose every path is a NON-NESTED single-level
+    // property (`:L(a)` or `:L(a, b, ...)`). A NESTED path (`:L(a.b.c)`, path.size() > 1) is still
+    // skipped -- the branch-aware read merge (db_accessor.hpp, Part B) extracts a per-property key
+    // via GetProperty and has no nested-Map walk yet; mirroring a nested index would make the
+    // planner select it on a branch while the read path can't key it correctly. Nested stays on the
+    // correct full-scan + explicit-Sort fallback until that slice.
+    if (std::ranges::any_of(entry.properties, [](const auto &path) { return path.size() != 1; })) {
       continue;
     }
     auto mirror = diff_engine.ReadOnlyAccess();
