@@ -423,6 +423,22 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
                 property.AsUint());
       commit_one(*mirror);
     }
+    // SLICE-3c: global edge-property indexes (any edge type). Created via CreateGlobalEdgeIndex,
+    // which itself refuses under light-edge storage (returns IndexDefinitionConfigError, not a crash
+    // -- so it's the safe kind), but kept inside this properties_on_edges gate for consistency and to
+    // never even attempt it in light mode. Ordering-sensitive like edge-type+property: the branch
+    // read path (db_accessor.hpp Edges(view, property[, value/range])) does the same ASC-ordered
+    // merge (reuses MergeBranchEdgePropertyScan), since the planner elides the Sort for global
+    // edge-property index scans too.
+    for (const auto &property : main_indices.edge_property) {
+      auto mirror = diff_engine.ReadOnlyAccess();
+      auto created = mirror->CreateGlobalEdgeIndex(property);
+      MG_ASSERT(created.has_value(),
+                "BranchContext::BuildFromFork: mirroring main's global edge-property index (property {}) onto a "
+                "freshly-built, otherwise-empty diff engine failed -- should be impossible.",
+                property.AsUint());
+      commit_one(*mirror);
+    }
   }
 }
 

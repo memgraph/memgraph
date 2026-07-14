@@ -1157,35 +1157,74 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
   }
 
+  // Slice 3c/Part B: PRESENCE (property IS NOT NULL) GLOBAL edge-property scan (no edge_type) --
+  // reuses the exact same index-accelerated merge as the edge-type+property presence overload above
+  // (`MergeBranchEdgePropertyScan`), just seeking main's GLOBAL edge-property index instead of the
+  // edge-type+property one: merges the diff engine's own mirrored global edge-property index (Part A
+  // always mirrors it) with main@fork's index via `historical()`, tombstone/COW skip applied inside
+  // the helper, rows returned ASCENDING by `property` (the planner elides the OrderBy here too,
+  // trusting index order, exactly as for the edge-type+property case). B1: if main dropped this
+  // index after the fork, fall back to the existing (gid-order) full filter-scan verbatim.
   EdgesIterable Edges(storage::View view, storage::PropertyId property) {
     if (branch_ctx_ != nullptr) {
-      return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, view](EdgeAccessor &e) {
-        auto prop = e.GetProperty(view, property);
-        return prop.has_value() && !prop->IsNull();
-      }));
+      auto &historical = branch_ctx_->historical();
+      if (!historical.EdgePropertyIndexReady(property)) {
+        return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, view](EdgeAccessor &e) {
+          auto prop = e.GetProperty(view, property);
+          return prop.has_value() && !prop->IsNull();
+        }));
+      }
+      return EdgesIterable(MergeBranchEdgePropertyScan(
+          view, property, accessor_->Edges(property, view), historical.Edges(property, storage::View::OLD)));
     }
     return EdgesIterable(accessor_->Edges(property, view));
   }
 
+  // Slice 3c/Part B: EQUALITY GLOBAL edge-property scan -- same index-accelerated merge as the
+  // presence overload above, ASC-ordered by `property` (planner elides the OrderBy, same
+  // verification), B1 fallback to the existing filter-scan verbatim when main dropped the index.
   EdgesIterable Edges(storage::View view, storage::PropertyId property, const storage::PropertyValue value) {
     if (branch_ctx_ != nullptr) {
-      return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, value, view](EdgeAccessor &e) {
-        auto prop = e.GetProperty(view, property);
-        return prop.has_value() && *prop == value;
-      }));
+      auto &historical = branch_ctx_->historical();
+      if (!historical.EdgePropertyIndexReady(property)) {
+        // Copy `value` by VALUE into the predicate closure -- same defensive reasoning as the
+        // edge-type+property equality overload above (see its own doc-comment): the predicate is
+        // invoked eagerly, during THIS call, never stored past it, but the copy is cheap and avoids
+        // relying on the caller's `value` reference outliving this call.
+        return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, value, view](EdgeAccessor &e) {
+          auto prop = e.GetProperty(view, property);
+          return prop.has_value() && *prop == value;
+        }));
+      }
+      return EdgesIterable(MergeBranchEdgePropertyScan(view,
+                                                       property,
+                                                       accessor_->Edges(property, value, view),
+                                                       historical.Edges(property, value, storage::View::OLD)));
     }
     return EdgesIterable(accessor_->Edges(property, value, view));
   }
 
+  // Slice 3c/Part B: RANGE GLOBAL edge-property scan -- same index-accelerated merge as the presence
+  // overload above, ASC-ordered by `property` (planner elides the OrderBy, same verification), B1
+  // fallback to the existing filter-scan verbatim when main dropped the index.
   EdgesIterable Edges(storage::View view, storage::PropertyId property,
                       const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                       const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
     if (branch_ctx_ != nullptr) {
-      auto range = storage::PropertyValueRange::Bounded(lower, upper);
-      return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, range, view](EdgeAccessor &e) {
-        auto prop = e.GetProperty(view, property);
-        return prop.has_value() && !prop->IsNull() && range.IsValueInRange(*prop);
-      }));
+      auto &historical = branch_ctx_->historical();
+      if (!historical.EdgePropertyIndexReady(property)) {
+        // Copy lower/upper by VALUE (via PropertyValueRange::Bounded) into the predicate closure --
+        // same defensive reasoning as the edge-type+property range overload above.
+        auto range = storage::PropertyValueRange::Bounded(lower, upper);
+        return EdgesIterable(MaterializeFilteredBranchEdgeScan(view, [property, range, view](EdgeAccessor &e) {
+          auto prop = e.GetProperty(view, property);
+          return prop.has_value() && !prop->IsNull() && range.IsValueInRange(*prop);
+        }));
+      }
+      return EdgesIterable(MergeBranchEdgePropertyScan(view,
+                                                       property,
+                                                       accessor_->Edges(property, lower, upper, view),
+                                                       historical.Edges(property, lower, upper, storage::View::OLD)));
     }
     return EdgesIterable(accessor_->Edges(property, lower, upper, view));
   }

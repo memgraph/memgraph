@@ -2376,3 +2376,72 @@ TEST_F(VersioningInterpreterTest, BranchEdgeTypePropertyIndexSelectedInPlanOnBra
          "ASC order; full plan:\n"
       << plan;
 }
+
+TEST_F(VersioningInterpreterTest, BranchGlobalEdgePropertyIndexScanOrderedReflectsBranchMutations) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+
+  faker.Interpret("CREATE (:N {n:'a'}),(:N {n:'b'}),(:N {n:'c'})");
+  // Creation order deliberately does NOT match w order, and edge types deliberately differ, so a
+  // gid-ordered or type-filtered result would be trivially distinguishable from a correct
+  // property-ordered, type-agnostic one.
+  faker.Interpret("MATCH (a:N {n:'a'}),(b:N {n:'b'}) CREATE (a)-[:KNOWS {w: 50}]->(b)");
+  faker.Interpret("MATCH (b:N {n:'b'}),(c:N {n:'c'}) CREATE (b)-[:LIKES {w: 20}]->(c)");
+  faker.Interpret("MATCH (a:N {n:'a'}),(c:N {n:'c'}) CREATE (a)-[:KNOWS {w: 40}]->(c)");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Branch mutations: COW a cross-type (LIKES) edge, delete a KNOWS edge, add a branch-native edge
+  // of a third type (FOLLOWS) to prove the global index has no type filter.
+  faker.Interpret("MATCH (:N {n:'b'})-[r:LIKES]->(:N {n:'c'}) SET r.w = 99");
+  faker.Interpret("MATCH (:N {n:'a'})-[r:KNOWS]->(:N {n:'c'}) DELETE r");
+  faker.Interpret("MATCH (a:N {n:'c'}),(b:N {n:'a'}) CREATE (a)-[:FOLLOWS {w: 25}]->(b)");
+
+  auto stream = faker.Interpret("MATCH ()-[r]->() WHERE r.w > 0 RETURN r.w AS w ORDER BY r.w");
+  const auto &rows = stream.GetResults();
+  std::vector<int64_t> ws;
+  ws.reserve(rows.size());
+  for (const auto &row : rows) {
+    ws.push_back(row[0].ValueInt());
+  }
+
+  EXPECT_EQ(ws, (std::vector<int64_t>{25, 50, 99}))
+      << "expected the union of main@fork's historical global edge-property(w) index (a-[:KNOWS]->b=50, "
+         "b-[:LIKES]->c=20, a-[:KNOWS]->c=40) with the branch's own diff-engine mutations "
+         "(b-[:LIKES]->c COW'd 20->99, a-[:KNOWS]->c tombstoned away, c-[:FOLLOWS]->a created "
+         "branch-native at 25), correctly ASC-ordered by w and spanning three distinct edge types -- "
+         "fork survivor {50} plus branch survivors {99, 25} sorted is {25, 50, 99}; a gid/creation-"
+         "ordered, unsorted, or edge-type-filtered result would indicate the branch GLOBAL "
+         "edge-property merge (sort / tombstone skip / COW dedup / no-type-filter) is wrong. Note "
+         "the planner elides the explicit ORDER BY (Sort) when it selects the property index, so "
+         "order correctness here rides entirely on the merge itself.";
+}
+
+TEST_F(VersioningInterpreterTest, BranchGlobalEdgePropertyIndexSelectedInPlanOnBranch) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("CREATE (:N {n:'a'})-[:KNOWS {w: 1}]->(:N {n:'b'})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto stream = faker.Interpret("EXPLAIN MATCH ()-[r]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w");
+  std::string plan;
+  for (const auto &row : stream.GetResults()) {
+    plan += row[0].ValueString();
+    plan += '\n';
+  }
+
+  // Locks that the GLOBAL edge-property index is mirrored via its own diff-engine registration, and
+  // that the planner selects it for an untyped edge pattern.
+  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByEdgePropertyRange"))
+      << "branch plan did not select the mirrored global edge-property index; full plan:\n"
+      << plan;
+  EXPECT_THAT(plan, ::testing::Not(::testing::HasSubstr("OrderBy")))
+      << "branch plan should elide the explicit Sort once the property index scan already produces "
+         "ASC order; full plan:\n"
+      << plan;
+}
