@@ -264,6 +264,8 @@ class TestParallelIndices:
         memgraph.execute_query("CREATE INDEX ON :KNOWS;")
         # 4. Edge Type Property Index
         memgraph.execute_query("CREATE INDEX ON :KNOWS(since);")
+        # 5. Global Vertex Property Index
+        memgraph.execute_query("CREATE GLOBAL INDEX ON :(age);")
 
         return memgraph
 
@@ -298,6 +300,18 @@ class TestParallelIndices:
     def test_edge_property_index_all(self, indexed_db):
         """Test edge property index for all values."""
         verify_parallel_matches_serial(indexed_db, "MATCH ()-[e:KNOWS]->() WHERE e.since IS NOT NULL RETURN e")
+
+    def test_global_vertex_property_index_specific(self, indexed_db):
+        """Test global vertex property index with specific value."""
+        verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age = 30 RETURN n")
+
+    def test_global_vertex_property_index_range(self, indexed_db):
+        """Test global vertex property index with range."""
+        verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age > 25 RETURN n")
+
+    def test_global_vertex_property_index_all(self, indexed_db):
+        """Test global vertex property index for all values (IS NOT NULL)."""
+        verify_parallel_matches_serial(indexed_db, "MATCH (n) WHERE n.age IS NOT NULL RETURN n")
 
     @pytest.fixture
     def desc_indexed_db(self, memgraph):
