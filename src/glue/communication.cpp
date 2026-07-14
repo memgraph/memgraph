@@ -107,16 +107,74 @@ query::TypedValue ToTypedValue(const Value &value, storage::Storage const *stora
   }
 }
 
+// Graph Versioning v1 (S9 fix): on a checked-out branch, a COW-modified vertex's `impl_` still
+// points at whichever storage object it was minted against (see vertex_accessor.hpp's HIGH-2
+// doc-comment) -- delegating unconditionally to the storage-accessor overload below reads that
+// object straight out of MAIN storage and silently drops the branch overlay (`branch_ctx_`),
+// serving stale/empty properties for a `RETURN`ed whole node. Branch-native creates are unaffected
+// (their `impl_` already IS the diff object), so this only matters once `branch_ctx_` is set: in
+// that case rebuild the bolt::Vertex by hand through the branch-aware query-accessor
+// Labels()/Properties() (which resolve through the diff engine), mirroring the storage overload's
+// own construction (~line 275) field-for-field. The non-branch path is untouched.
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
                                                           const storage::Storage &db, storage::View view,
                                                           query::FineGrainedAuthChecker const *auth_checker) {
-  return ToBoltVertex(vertex.impl_, db, view, auth_checker);
+  if (vertex.branch_ctx_ == nullptr) {
+    return ToBoltVertex(vertex.impl_, db, view, auth_checker);
+  }
+  auto id = communication::bolt::Id::FromUint(vertex.Gid().AsUint());
+  auto maybe_labels = vertex.Labels(view);
+  if (!maybe_labels) return std::unexpected{maybe_labels.error()};
+  std::vector<std::string> labels;
+  labels.reserve(maybe_labels->size());
+  for (const auto &label : *maybe_labels) {
+    labels.push_back(db.LabelToName(label));
+  }
+  auto maybe_properties = vertex.Properties(view);
+  if (!maybe_properties) return std::unexpected{maybe_properties.error()};
+  bolt_map_t properties;
+  for (const auto &prop : *maybe_properties) {
+    if (auth_checker && !auth_checker->HasPropertyPermission(
+                            *maybe_labels, prop.first, query::AuthQuery::PropertyPermissionType::READ)) {
+      continue;
+    }
+    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
+  }
+  auto element_id = std::to_string(id.AsInt());
+  return communication::bolt::Vertex{
+      .id = id, .labels = std::move(labels), .properties = std::move(properties), .element_id = std::move(element_id)};
 }
 
+// Graph Versioning v1 (S9 fix): symmetric to the query::VertexAccessor overload above -- a
+// COW-modified edge's `impl_` on a checked-out branch would otherwise be read straight from MAIN
+// storage via unconditional delegation, dropping `branch_ctx_`'s diff overlay. Only matters once
+// branch_ctx_ is set; rebuilds the bolt::Edge through the branch-aware Properties()/To()/From()
+// query-accessor methods, mirroring the storage overload's own construction (~line 302).
 storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor &edge, const storage::Storage &db,
                                                       storage::View view,
                                                       query::FineGrainedAuthChecker const *auth_checker) {
-  return ToBoltEdge(edge.impl_, db, view, auth_checker);
+  if (edge.branch_ctx_ == nullptr) {
+    return ToBoltEdge(edge.impl_, db, view, auth_checker);
+  }
+  auto id = communication::bolt::Id::FromUint(edge.Gid().AsUint());
+  auto from = communication::bolt::Id::FromUint(edge.From().Gid().AsUint());
+  auto to = communication::bolt::Id::FromUint(edge.To().Gid().AsUint());
+  auto type = db.EdgeTypeToName(edge.EdgeType());
+  auto maybe_properties = edge.Properties(view);
+  if (!maybe_properties) return std::unexpected{maybe_properties.error()};
+  bolt_map_t properties;
+  for (const auto &prop : *maybe_properties) {
+    if (auth_checker && !auth_checker->HasPropertyPermission(
+                            edge.EdgeType(), prop.first, query::AuthQuery::PropertyPermissionType::READ)) {
+      continue;
+    }
+    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
+  }
+  const auto element_id = std::to_string(id.AsInt());
+  const auto from_element_id = std::to_string(from.AsInt());
+  const auto to_element_id = std::to_string(to.AsInt());
+  return communication::bolt::Edge{
+      id, from, to, std::move(type), std::move(properties), element_id, from_element_id, to_element_id};
 }
 
 namespace {

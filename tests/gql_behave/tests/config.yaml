@@ -76,3 +76,5 @@
     - memgraph_wshortest.feature
     - memgraph_allshortest.feature
     - memgraph_bfs.feature
+    - update_clauses.feature
+    - nested_property_update.feature
