@@ -355,6 +355,121 @@ TEST_F(PlannerV2InterpreterTest, UserParameterRangeLengthEnablesElision) {
   for (auto const &row : exec.GetResults()) EXPECT_EQ(row[0].ValueInt(), 42);
 }
 
+TEST_F(PlannerV2InterpreterTest, WithWhereFiltersRows) {
+  // The WHERE predicate filters the projected rows: only 2 and 3 satisfy x > 1.
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);
+}
+
+TEST_F(PlannerV2InterpreterTest, WithWhereThatMatchesNothingYieldsEmptyResult) {
+  // A predicate no row satisfies executes to an empty result, not an error.
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x > 100 RETURN x;");
+  EXPECT_EQ(stream.GetResults().size(), 0U);
+}
+
+TEST_F(PlannerV2InterpreterTest, WithWhereThatMatchesEverythingPassesAllRows) {
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x > 0 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 3);
+}
+
+TEST_F(PlannerV2InterpreterTest, WithWhereComposesBooleanPredicates) {
+  // A conjunction is a single boolean predicate expression; only 2 lies in (1, 3).
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 AND x < 3 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+}
+
+TEST_F(PlannerV2InterpreterTest, WithWherePredicateOverAliasInlinesTheAliasAndDropsItsBind) {
+  // y is used only in the WHERE. The inline rewrite merges Identifier(y) with its
+  // definition, so the predicate extracts as x * 2 > 2 (filter reads {x}) and y's Bind
+  // is dropped, not kept. Demand-based keep-alive: see PredicateDemandKeepsUnwindBinding.
+  auto const plan = PlanText(Interpret("EXPLAIN UNWIND [1, 2, 3] AS x WITH x, x * 2 AS y WHERE y > 2 RETURN x;"));
+  EXPECT_NE(plan.find("Filter Generic {x}"), std::string::npos) << plan;
+  auto stream = Interpret("UNWIND [1, 2, 3] AS x WITH x, x * 2 AS y WHERE y > 2 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);
+}
+
+TEST_F(PlannerV2InterpreterTest, WithWhereDisjunctionFiltersRows) {
+  // A single OR predicate: x < 2 (x = 1) OR x = 4 keeps the endpoints, drops 2 and 3.
+  auto stream = Interpret("UNWIND [1, 2, 3, 4] AS x WITH x WHERE x < 2 OR x = 4 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 4);
+}
+
+TEST_F(PlannerV2InterpreterTest, WithWhereNegationFiltersRows) {
+  // NOT over an equality: everything except 3 survives.
+  auto stream = Interpret("UNWIND [1, 2, 3, 4] AS x WITH x WHERE NOT x = 3 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 4);
+}
+
+TEST_F(PlannerV2InterpreterTest, ChainedWithWhereAppliesEveryFilter) {
+  // Two WITH ... WHERE clauses stack into two Filters; the resolver threads scope
+  // through the lower Filter into the upper one. x > 1 then x < 5 leaves {2, 3, 4}.
+  auto stream = Interpret("UNWIND [1, 2, 3, 4, 5] AS x WITH x WHERE x > 1 WITH x WHERE x < 5 RETURN x;");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 3);
+  EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 4);
+}
+
+TEST_F(PlannerV2InterpreterTest, ExplainShowsFilterOperator) {
+  // The predicate renders as a Generic filter over x. Asserting the text (not just
+  // "Filter") proves all_filters_ was captured and survived the plan clone.
+  auto const plan = PlanText(Interpret("EXPLAIN UNWIND [1, 2, 3] AS x WITH x WHERE x > 1 RETURN x;"));
+  EXPECT_NE(plan.find("Filter Generic {x}"), std::string::npos) << plan;
+}
+
+TEST_F(PlannerV2InterpreterTest, WhereFilterIsAlwaysGenericNeverIndexClassified) {
+  // plan_v2 records every predicate as one Generic filter and never runs v1's index
+  // classification. id(x) classifies as an Id filter in v1 (labelled "id(x)"); here
+  // it must stay Generic - index selection is deferred to a future e-graph rewrite.
+  auto const plan = PlanText(Interpret("EXPLAIN UNWIND [1, 2, 3] AS x WITH x WHERE id(x) = 5 RETURN x;"));
+  EXPECT_NE(plan.find("Filter Generic {x}"), std::string::npos) << plan;
+  EXPECT_EQ(plan.find("id(x)"), std::string::npos) << plan;
+}
+
+TEST_F(PlannerV2InterpreterTest, UnsupportedPredicateReportsNotImplemented) {
+  // IN-list is an unsupported expression node; it must error, not silently drop rows.
+  EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x IN [1, 2] RETURN x;"), memgraph::query::QueryException);
+}
+
+TEST_F(PlannerV2InterpreterTest, WherePatternPredicateReportsNotImplemented) {
+  // A graph-pattern sub-expression in a WHERE is what v1 compiles into a Filter's
+  // pattern_filters_. plan_v2 doesn't lower pattern expressions, so it refuses the
+  // predicate during expression lowering rather than building a Filter with pattern
+  // sub-plans - pattern_filters_ is always empty in plan_v2.
+  EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE size([(a)-[]->(b) | b]) > 0 RETURN x;"),
+               memgraph::query::QueryException);
+}
+
+TEST_F(PlannerV2InterpreterTest, TailClauseOnWithReportsNotImplemented) {
+  // ORDER BY / SKIP / LIMIT aren't built yet; refused rather than silently dropped.
+  EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x WITH x SKIP 1 RETURN x;"), memgraph::query::QueryException);
+}
+
+TEST_F(PlannerV2InterpreterTest, TailClauseOnReturnReportsNotImplemented) {
+  // Same guard on the final RETURN body.
+  EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x RETURN x LIMIT 2;"), memgraph::query::QueryException);
+  EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x;"), memgraph::query::QueryException);
+}
+
+TEST_F(PlannerV2InterpreterTest, DistinctReportsNotImplemented) {
+  // DISTINCT isn't lowered yet; dropping it would silently return duplicates.
+  EXPECT_THROW(Interpret("UNWIND [1, 1, 2] AS x RETURN DISTINCT x;"), memgraph::query::QueryException);
+  EXPECT_THROW(Interpret("UNWIND [1, 1, 2] AS x WITH DISTINCT x RETURN x;"), memgraph::query::QueryException);
+}
+
 TYPED_TEST(InterpreterTest, MultiplePulls) {
   {
     auto [stream, qid] = this->Prepare("UNWIND [1,2,3,4,5] as n RETURN n");

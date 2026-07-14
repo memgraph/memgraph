@@ -35,6 +35,11 @@ namespace unwind_dead {
 inline constexpr std::size_t input = 0, list = 1;
 }
 
+// WHERE filter: [input row pipe, predicate expression]. Introduces no binding.
+namespace filter {
+inline constexpr std::size_t input = 0, predicate = 1;
+}
+
 namespace identifier {
 inline constexpr std::size_t sym = 0;
 }

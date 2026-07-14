@@ -294,15 +294,12 @@ auto Lower(LoweringCtx &ctx, Expression &expr) -> eclass {
 
 auto LowerSingleQuery(SingleQuery &sq, LoweringCtx &ctx) -> eclass;
 
-// ORDER BY / SKIP / LIMIT expressions are lowered for their e-graph
-// presence only; their result e-classes are not chained into the row-pipe
-// in the minimum scope. Hashconsing dedupes shared expressions across
-// clauses; when Sort/Skip/Limit operators land, the resolver will recover
-// these e-classes by hashconsing again.
-void HashConsTailExpressions(ReturnBody const &body, LoweringCtx &ctx) {
-  for (auto const &ob : body.order_by) (void)Lower(ctx, *ob.expression);
-  if (body.skip) (void)Lower(ctx, *body.skip);
-  if (body.limit) (void)Lower(ctx, *body.limit);
+// ORDER BY / SKIP / LIMIT / DISTINCT aren't lowered yet; refuse them rather than
+// silently drop them (wrong results). Replaced when those operators land.
+void GuardUnsupportedTailClauses(ReturnBody const &body) {
+  if (!body.order_by.empty() || body.skip || body.limit || body.distinct) {
+    ThrowNotImplementedYet("ORDER BY / SKIP / LIMIT / DISTINCT");
+  }
 }
 
 // exposed_syms come from the inner cypher_query_'s last RETURN clause.
@@ -332,8 +329,12 @@ auto LowerWith(query::With &with, eclass pipe, LoweringCtx &ctx) -> eclass {
     auto expr = Lower(ctx, *ne->expression_);
     pipe = ctx.g.MakeBind(pipe, SymEclassFor(ctx, *ne), expr);
   }
-  HashConsTailExpressions(with.body_, ctx);
-  if (with.where_ != nullptr) ThrowNotImplementedYet(*with.where_);
+  GuardUnsupportedTailClauses(with.body_);
+  // WHERE filters the projected rows, so Filter sits above the projection Binds.
+  if (with.where_) {
+    auto predicate = Lower(ctx, *with.where_->expression_);
+    pipe = ctx.g.MakeFilter(pipe, predicate);
+  }
   return pipe;
 }
 
@@ -359,7 +360,7 @@ auto LowerReturn(query::Return &ret, eclass pipe, LoweringCtx &ctx) -> eclass {
     frame.push(ctx.g.MakeNamedOutput(OutputDisplayName(ctx, *ne), SymEclassFor(ctx, *ne), expr));
   }
   auto output = ctx.g.MakeOutput(pipe, frame.as_span());
-  HashConsTailExpressions(ret.body_, ctx);
+  GuardUnsupportedTailClauses(ret.body_);
   return output;
 }
 

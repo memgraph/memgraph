@@ -4392,6 +4392,9 @@ std::unique_ptr<LogicalOperator> Filter::Clone(AstStorage *storage) const {
     object->pattern_filters_[i1] = pattern_filters_[i1] ? pattern_filters_[i1]->Clone(storage) : nullptr;
   }
   object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  // Shallow copy suffices: only Filter::ToString reads all_filters_, and the source
+  // AstStorage outlives the clone, so its aliased expressions need no re-homing.
+  object->all_filters_ = all_filters_;
   return object;
 }
 

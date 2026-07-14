@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <span>
 #include <utility>
 
 #include <boost/container_hash/hash.hpp>
@@ -162,6 +163,20 @@ struct symbol_resolve_traits<symbol::Subquery> {
   }
 };
 
+// Threads a "pipe + non-introducing reader children" operator. The pipe must
+// introduce `pipe_must_introduce`; each reader child reads
+// parent.in_scope ∪ pipe_must_introduce and introduces nothing. Shared by
+// Output (readers = NamedOutput children) and Filter (reader = predicate).
+void ResolvePipeThenReaders(planner::core::EClassId pipe, std::span<planner::core::EClassId const> reader_children,
+                            ResolverKey const &parent_key, VariableSet const &pipe_must_introduce,
+                            planner::core::extract::ChildSink<ResolverKey> auto visit) {
+  auto const reader_in_scope = parent_key.in_scope.set_union(pipe_must_introduce);
+  visit(ResolverKey{pipe, parent_key.in_scope, pipe_must_introduce});
+  for (auto reader : reader_children) {
+    visit(ResolverKey{reader, reader_in_scope, {}});
+  }
+}
+
 template <>
 struct symbol_resolve_traits<symbol::Output> {
   // own_syms = {each NamedOutput child's sym}. Pipe gets:
@@ -178,11 +193,21 @@ struct symbol_resolve_traits<symbol::Output> {
     DMG_ASSERT(!children.empty(), "Output enode must have at least a pipe child");
     auto const own_syms = ExtractOutputOwnSyms(enode, syms.egraph, syms.variable_index);
     auto const pipe_must_introduce = chosen_introduces.difference(own_syms);
-    auto const named_out_in_scope = parent_key.in_scope.set_union(pipe_must_introduce);
-    visit(ResolverKey{children[pipe], parent_key.in_scope, pipe_must_introduce});
-    for (auto named_out : children.subspan(first_named)) {
-      visit(ResolverKey{named_out, named_out_in_scope, {}});
-    }
+    ResolvePipeThenReaders(children[pipe], children.subspan(first_named), parent_key, pipe_must_introduce, visit);
+  }
+};
+
+template <>
+struct symbol_resolve_traits<symbol::Filter> {
+  // Output with own_syms = ∅: the pipe must introduce the chosen alt's full set
+  // (⊇ predicate.required via FilterFlatMap's pruning), and the predicate reads
+  // parent.in_scope ∪ that set.
+  static void resolve_children(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key,
+                               VariableSet const &chosen_introduces, SymbolContext const & /*syms*/,
+                               planner::core::extract::ChildSink<ResolverKey> auto visit) {
+    using namespace child::filter;
+    auto const &children = enode.children();
+    ResolvePipeThenReaders(children[input], children.subspan(predicate, 1), parent_key, chosen_introduces, visit);
   }
 };
 

@@ -88,6 +88,12 @@ auto symbol_make_traits<Unwind>::make(storage_type & /*s*/, planner::core::EClas
           .seed = default_analysis_seed<Unwind>()};
 }
 
+auto symbol_make_traits<Filter>::make(storage_type & /*s*/, planner::core::EClassId input,
+                                      planner::core::EClassId predicate) -> seeded_node {
+  return {.lowered = {.children = utils::small_vector{input, predicate}, .disambiguator = std::nullopt},
+          .seed = default_analysis_seed<Filter>()};
+}
+
 auto symbol_make_traits<Subquery>::make(storage_type & /*s*/, utils::small_vector<planner::core::EClassId> children)
     -> seeded_node {
   return {.lowered = {.children = std::move(children), .disambiguator = std::nullopt},
