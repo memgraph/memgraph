@@ -2106,3 +2106,141 @@ TEST_F(VersioningInterpreterTest, BranchDeleteThenSetLabelThenReturnRaises) {
       << "S2b: reading (via RETURN) an entity deleted earlier in the same query must raise, "
          "matching main -- the pre-S2-fix bug returned a stale value";
 }
+
+// -----------------------------------------------------------------------------------------------
+// Graph Versioning v1, Slice 2 (branch-aware label-property index scan) regression tests.
+//
+// Part A (branch_engine.cpp, MirrorMainIndexDefinitionsIntoDiffEngine): a single simple-property
+// label index main held at fork_ts is mirrored onto the branch's diff engine, so the planner
+// selects a real ScanAllByLabelProperties on a checked-out branch instead of falling back to a
+// plain ScanAll.
+// Part B (db_accessor.hpp, DbAccessor::Vertices(view, label, properties, property_ranges, order)):
+// the branch-aware overload merges (a) the diff engine's own mirrored-index matches with (b)
+// main@fork's historical index matches (tombstone/COW-gated), then explicitly re-sorts by the
+// indexed property -- because the planner, trusting index order, has ELIDED an explicit Sort/
+// OrderBy operator for this query shape.
+//
+// These tests lock the OBSERVABLE union + order behavior end-to-end through the real interpreter
+// (CREATE INDEX + ORDER BY exercise the real planner and the real merge) -- they do not reach into
+// BranchContext/DbAccessor internals directly.
+// -----------------------------------------------------------------------------------------------
+
+TEST_F(VersioningInterpreterTest, BranchIndexScanOrderByAscReflectsBranchMutations) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :Person(age)");
+
+  // Creation order deliberately does NOT match age order, so a gid-ordered (unsorted) result would
+  // be trivially distinguishable from a property-ordered one.
+  faker.Interpret("CREATE (:Person {age: 50, name: 'E'})");
+  faker.Interpret("CREATE (:Person {age: 20, name: 'B'})");
+  faker.Interpret("CREATE (:Person {age: 40, name: 'D'})");
+  faker.Interpret("CREATE (:Person {age: 10, name: 'A'})");
+  faker.Interpret("CREATE (:Person {age: 30, name: 'C'})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:Person {name: 'B'}) SET n.age = 99");   // COW: moves B out of its old slot
+  faker.Interpret("MATCH (n:Person {name: 'D'}) DETACH DELETE n");  // tombstone: D must vanish
+  faker.Interpret("CREATE (:Person {age: 25, name: 'F'})");         // branch-native: F is diff-engine-only
+
+  auto stream = faker.Interpret("MATCH (n:Person) WHERE n.age > 0 RETURN n.age AS age ORDER BY n.age");
+  const auto &rows = stream.GetResults();
+  std::vector<int64_t> ages;
+  ages.reserve(rows.size());
+  for (const auto &row : rows) {
+    ages.push_back(row[0].ValueInt());
+  }
+
+  EXPECT_EQ(ages, (std::vector<int64_t>{10, 25, 30, 50, 99}))
+      << "expected the union of main@fork's historical index (A=10, C=30, E=50 -- D tombstoned "
+         "away) with the branch's own diff-engine index (B COW'd to 99, F created at 25), "
+         "correctly ASC-ordered by age -- a gid/creation-ordered result (e.g. {50, 99, 10, 30, 25}) "
+         "would indicate the merge is returning rows in the wrong order.";
+}
+
+TEST_F(VersioningInterpreterTest, BranchIndexScanOrderByDescReflectsBranchMutations) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :Person(age)");
+
+  faker.Interpret("CREATE (:Person {age: 50, name: 'E'})");
+  faker.Interpret("CREATE (:Person {age: 20, name: 'B'})");
+  faker.Interpret("CREATE (:Person {age: 40, name: 'D'})");
+  faker.Interpret("CREATE (:Person {age: 10, name: 'A'})");
+  faker.Interpret("CREATE (:Person {age: 30, name: 'C'})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n:Person {name: 'B'}) SET n.age = 99");
+  faker.Interpret("MATCH (n:Person {name: 'D'}) DETACH DELETE n");
+  faker.Interpret("CREATE (:Person {age: 25, name: 'F'})");
+
+  auto stream = faker.Interpret("MATCH (n:Person) WHERE n.age > 0 RETURN n.age AS age ORDER BY n.age DESC");
+  const auto &rows = stream.GetResults();
+  std::vector<int64_t> ages;
+  ages.reserve(rows.size());
+  for (const auto &row : rows) {
+    ages.push_back(row[0].ValueInt());
+  }
+
+  EXPECT_EQ(ages, (std::vector<int64_t>{99, 50, 30, 25, 10}))
+      << "same union as the ASC test, but IndexOrder::DESC must flip the explicit re-sort "
+         "comparator too, not just the ASC one -- a stale ASC-only comparator would still produce "
+         "the ascending order here.";
+}
+
+TEST_F(VersioningInterpreterTest, BranchIndexScanEqualKeyDifferentVerticesBothReturned) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :Person(age)");
+
+  faker.Interpret("CREATE (:Person {age: 30, name: 'C'})");
+  faker.Interpret("CREATE (:Person {age: 30, name: 'C2'})");
+  faker.Interpret("CREATE (:Person {age: 10, name: 'A'})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto stream = faker.Interpret("MATCH (n:Person) WHERE n.age = 30 RETURN n.name AS name ORDER BY n.name");
+  const auto &rows = stream.GetResults();
+  ASSERT_EQ(rows.size(), 2U) << "an equal-key tie between two distinct historical vertices must not drop a row";
+  std::vector<std::string> names;
+  names.reserve(rows.size());
+  for (const auto &row : rows) {
+    names.push_back(row[0].ValueString());
+  }
+
+  EXPECT_EQ(names, (std::vector<std::string>{"C", "C2"}))
+      << "both same-age vertices (C, C2) must survive the merge -- a keying bug that collapses "
+         "equal property values onto one slot would silently lose one of them";
+}
+
+// Locks the multi-index mirror fix: MirrorMainIndexDefinitionsIntoDiffEngine gives each mirrored
+// index its OWN fresh ReadOnlyAccess (branch_engine.cpp's `commit_one` helper) precisely because
+// InMemoryStorage::InMemoryAccessor::CreateIndex calls DowngradeToReadIfValid() internally, which
+// downgrades the access from READ_ONLY to READ after the FIRST index -- a second CreateIndex
+// reusing that same (now-downgraded) access used to trip CreateIndex's own
+// `MG_ASSERT(type() == UNIQUE || type() == READ_ONLY)` and abort the process. Two single-property
+// label indexes at fork_ts is exactly the case that used to hit that abort.
+TEST_F(VersioningInterpreterTest, BranchTwoLabelPropertyIndexesOrExpressionDoesNotAbort) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :Label1(id)");
+  faker.Interpret("CREATE INDEX ON :Label2(id)");
+
+  faker.Interpret("CREATE (:Label1 {id: 1})");
+  faker.Interpret("CREATE (:Label2 {id: 2})");
+  faker.Interpret("CREATE (:Label1:Label2 {id: 1})");
+
+  // This is where the abort used to fire -- BuildFromFork mirrors BOTH indexes while constructing
+  // the branch's diff engine.
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto stream = faker.Interpret("MATCH (n:Label1|Label2) WHERE n.id < 2 RETURN n");
+  EXPECT_EQ(stream.GetResults().size(), 2U) << "must return both id=1 vertices (:Label1 and :Label1:Label2) "
+                                               "without throwing/aborting on the two-index mirror";
+}

@@ -287,6 +287,105 @@ void ReplayChangelogIntoDiffEngine(storage::InMemoryStorage &diff_engine,
   MG_ASSERT(commit_res.has_value(), "BranchContext::BuildFromFork: replay-on-checkout commit failed.");
 }
 
+// Graph Versioning v1, Slice 2 / Part A (index-scan support): mirror MAIN's vertex index
+// DEFINITIONS (label and label+property only -- see this function's own SCOPE paragraph below)
+// onto the freshly-built, still-empty `diff_engine` at checkout time -- the DEFINITION only, never
+// the contents. Registering an (empty) index against an (empty) diff engine is essentially free;
+// the diff engine's own completely ordinary index-maintenance machinery -- the very same
+// RegisterIndex/PopulateIndex/md_deltas path CreateIndex always runs -- then auto-populates it
+// incrementally as replay (ReplayChangelogIntoDiffEngine, above) and later branch-native writes
+// touch matching vertices. The payoff is at planning time: the query planner's index-selection
+// pass only ever considers an index scan if `ListAllIndices()` reports the index as registered on
+// the storage a query is actually running against -- without this mirror step, every query issued
+// against a checked-out branch would silently fall back to a full scan no matter how well-indexed
+// `main` is, defeating the point of an index-scan-capable branch entirely.
+//
+// fork_ts-TIME snapshot, not main's live index set: `main_indices` is expected to come from
+// `historical` (main.HistoricalAccess(fork_ts), pinned at BuildFromFork's own step 1), consistent
+// with everything else this diff engine mirrors from main (config.salient.items, the shared
+// NameIdMapper) -- the branch's world view is main exactly as of fork_ts. An index main defines
+// AFTER fork_ts is main's own future, not this branch's past, and is symmetrically never revisited
+// here: this mirror step runs exactly once, at BuildFromFork time.
+//
+// ACCESS-TYPE CONSTRAINT (verified against InMemoryStorage::InMemoryAccessor::CreateIndex,
+// inmemory/storage.cpp): CreateIndex MG_ASSERTs `type() == UNIQUE || type() == READ_ONLY` -- unlike
+// ReserveBranchNativeGidRange/ReplayChangelogIntoDiffEngine above (both plain
+// StorageAccessType::WRITE, via a ReplicationAccessor, for the explicit-gid vertex/edge primitives
+// they need), so this step needs its OWN, separate access. Uses `diff_engine.ReadOnlyAccess()`,
+// mirroring the existing production idiom for exactly this kind of internal/automatic index
+// creation (AsyncIndexer::Run, async_indexer.cpp: ReadOnlyAccess + CreateIndex +
+// PrepareForCommitPhase(CommitArgs::make_main(storage->make_database_protector()))) rather than the
+// query-session DDL path (which always goes through a caller-supplied UniqueAccess instead).
+//
+// COMMIT-ARGS MECHANISM: `diff_engine` is a local, single-threaded, not-yet-published storage --
+// nothing else can be observing it yet (see BuildFromFork's own step-2 doc-comment) -- constructed
+// with a null `database_protector_factory` (BuildFromFork's own `std::make_unique<InMemoryStorage>
+// (...)` call passes `nullptr` for it), which `storage::Storage::Storage` (storage.cpp) resolves to
+// a safe `DefaultDatabaseProtector` stand-in built for exactly this kind of internal/test-like
+// commit. So `diff_engine.make_database_protector()` needs no caller-supplied
+// `dbms::DatabaseAccess`/`dbms::DatabaseProtector` at all -- unlike `commit_args`/
+// `replay_commit_args` above (both real, caller-supplied protector clones tied to the live "main"
+// database; see CheckoutBranchEngine, interpreter.cpp) -- and this function needs no new parameter
+// threaded in from BuildFromFork's own caller. Reusing that already-established
+// `make_database_protector()` + `CommitArgs::make_main` pairing (identical to AsyncIndexer::Run and
+// TTL's own async commits, ttl.cpp) is the existing mechanism, not a new one.
+//
+// SCOPE: label and label+property indexes ONLY (`.label`/`.label_properties`, `IndicesInfo`,
+// storage.hpp). Edge-type, edge-type+property, global-edge-property, point, text, vector,
+// existence, and uniqueness constraints are all deliberately OUT of scope for this slice -- left
+// entirely unmirrored; a later slice may extend this the same way.
+void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_engine,
+                                              const storage::IndicesInfo &main_indices) {
+  if (main_indices.label.empty() && main_indices.label_properties.empty()) {
+    return;  // main had no (label/label-property) indexes at fork_ts -- nothing to mirror
+  }
+
+  // ONE ReadOnlyAccess + commit PER index: CreateIndex internally calls DowngradeToReadIfValid()
+  // (inmemory/storage.cpp), which drops the access type from READ_ONLY to READ after the first
+  // index -- so a SECOND CreateIndex on the SAME access would trip CreateIndex's own
+  // `MG_ASSERT(type() == UNIQUE || READ_ONLY)`. Each index therefore gets its own fresh access,
+  // exactly as the per-index test helper (storage_v2_indices.cpp CreateIndexAccessor) does.
+  auto commit_one = [&diff_engine](storage::Storage::Accessor &acc) {
+    auto protector = diff_engine.make_database_protector();
+    MG_ASSERT(protector != nullptr,
+              "BranchContext::BuildFromFork: failed to obtain a database protector for the freshly-built diff "
+              "engine while mirroring main's index definitions -- should be impossible (a null "
+              "database_protector_factory_ always resolves to a non-null DefaultDatabaseProtector, storage.cpp).");
+    auto commit_res = acc.PrepareForCommitPhase(storage::CommitArgs::make_main(std::move(protector)));
+    MG_ASSERT(commit_res.has_value(), "BranchContext::BuildFromFork: index-definition mirror commit failed.");
+  };
+
+  for (const auto &label : main_indices.label) {
+    auto mirror = diff_engine.ReadOnlyAccess();
+    auto created = mirror->CreateIndex(label);
+    MG_ASSERT(created.has_value(),
+              "BranchContext::BuildFromFork: mirroring main's label index (label {}) onto a freshly-built, "
+              "otherwise-empty diff engine failed -- should be impossible.",
+              label.AsUint());
+    commit_one(*mirror);
+  }
+  for (const auto &entry : main_indices.label_properties) {
+    // SLICE-2 SCOPE: mirror ONLY single, non-nested-path label-property indexes. The branch-aware
+    // ordered merge that backs an index scan on this branch (db_accessor.hpp, Part B) handles a
+    // single simple property only. A composite (multi-property) or nested-path (`:L(a.b.c)`) index
+    // must NOT be mirrored: mirroring it would make the planner select it on a branch and elide the
+    // ORDER BY, but the read path has no ordered merge for it yet -- silently returning misordered
+    // rows. Leaving it unmirrored keeps such queries on the correct full-scan + explicit-Sort
+    // fallback until a later slice extends the merge. (entry.properties.size() == 1 == the property
+    // count; entry.properties[0].size() == 1 == a non-nested single-level path.)
+    if (entry.properties.size() != 1 || entry.properties[0].size() != 1) {
+      continue;
+    }
+    auto mirror = diff_engine.ReadOnlyAccess();
+    auto created = mirror->CreateIndex(entry.label, entry.properties, entry.order);
+    MG_ASSERT(created.has_value(),
+              "BranchContext::BuildFromFork: mirroring main's label-property index (label {}) onto a "
+              "freshly-built, otherwise-empty diff engine failed -- should be impossible.",
+              entry.label.AsUint());
+    commit_one(*mirror);
+  }
+}
+
 }  // namespace
 
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
@@ -381,6 +480,22 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
   std::unordered_set<storage::Gid> tombstoned_edges;
   ReplayChangelogIntoDiffEngine(
       *diff_engine, changelog, std::move(replay_commit_args), tombstoned_vertices, tombstoned_edges);
+
+  // -----------------------------------------------------------------------------------------
+  // 3c. Slice 2 / Part A (index-scan support): mirror main's (fork_ts-pinned) vertex index
+  //     DEFINITIONS onto the now-replayed diff engine, so ordinary index maintenance auto-
+  //     populates them as the branch is read/written and the query planner can select an index
+  //     scan on this branch -- see MirrorMainIndexDefinitionsIntoDiffEngine's own doc-comment above
+  //     for the full mechanism, access-type constraint, commit-args mechanism, and scope limits.
+  //     Placed AFTER replay (3b): CreateIndex's own PopulateIndex pass walks `diff_engine`'s live
+  //     vertices at the time it runs, so running it after replay means an already-replayed
+  //     branch's own prior vertices are captured by the initial population instead of being left to
+  //     trickle in one at a time via later per-write index maintenance -- strictly an efficiency
+  //     concern, not a correctness one (replay's own vertices are ordinary tracked writes either
+  //     way). BEFORE the durable-capture step below: that step only mints bookkeeping this session's
+  //     own future BranchLog needs, and has no ordering dependency on this step either way.
+  // -----------------------------------------------------------------------------------------
+  MirrorMainIndexDefinitionsIntoDiffEngine(*diff_engine, historical->ListAllIndices());
 
   // -----------------------------------------------------------------------------------------
   // 4. Durable-capture slice, reshaped by the MULTI-COMMIT fix (2026-07-12): rather than opening
