@@ -1099,8 +1099,9 @@ class DbAccessor final {
   // A main-stream candidate is skipped if the branch tombstoned it (branch-deleted fork edge), OR
   // if the diff engine already holds that gid (`FindDiffEdge(g, View::NEW)` -- a COW): the diff
   // stream in (a) already represents that gid, so counting it again from (b) would double-count it.
-  // Full-edge-mode only: an edge-type index does not exist at all in light-edge mode, so this path
-  // is only ever reached when Part A actually mirrored one.
+  // Requires properties_on_edges=true (which the --storage-light-edge feature also satisfies, so
+  // light edges are fully supported): an edge-type index cannot exist when properties_on_edges=false
+  // (reference-only edges), so this path is only ever reached when Part A actually mirrored one.
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     if (branch_ctx_ != nullptr) {
       auto &historical = branch_ctx_->historical();

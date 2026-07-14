@@ -381,16 +381,18 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
     commit_one(*mirror);
   }
 
-  // SLICE-3a SCOPE: edge-type indexes. GATED on properties_on_edges: the edge-type index is only
-  // ever populated in properties_on_edges=true mode -- its PopulateIndex unconditionally reads the
-  // EdgeRef union's `.ptr` member (inmemory/edge_type_index.cpp), which is uninitialized under
-  // light-edge storage, so CreateIndex(EdgeTypeId) SEGFAULTS there (a pre-existing MAIN limitation,
-  // class-doc'd at edge_type_index.hpp: "only populated when properties_on_edges=true"). The diff
-  // engine copies main's properties_on_edges (config parity, above), so in light-edge mode main can
-  // hold no populated edge-type index to mirror anyway; guard defensively so we never drive the
-  // crashing populate on the diff engine. Edge-type indexes carry no property order, so the branch
-  // read path (db_accessor.hpp Edges(view, edge_type)) is a plain gid-order set-union -- no ordering
-  // elision risk (unlike label-property), so mirroring is safe even before the merged read path.
+  // SLICE-3a SCOPE: edge-type indexes. GATED on properties_on_edges. NOTE the terminology: this is
+  // about `--storage-properties-on-edges=false` (REFERENCE-ONLY edges -- an EdgeRef holds only a
+  // gid, there is NO Edge object), which is NOT the same as the `--storage-light-edge` feature (that
+  // one has pool-allocated Edge* objects and REQUIRES properties_on_edges=true, so it is fully
+  // supported here). In properties_on_edges=false mode the edge-type index is unusable: its
+  // PopulateIndex reads the EdgeRef union's `.ptr` member (inmemory/edge_type_index.cpp), which is a
+  // garbage pointer when only `.gid` is set -- CreateIndex(EdgeTypeId) is now refused cleanly there
+  // (inmemory/storage.cpp, Task 7 gate; the Cypher path was already forbidden by the interpreter).
+  // The diff engine copies main's properties_on_edges (config parity, above), so with
+  // properties_on_edges=false main holds no edge-type index to mirror anyway; gate defensively.
+  // Edge-type indexes carry no property order, so the branch read path (db_accessor.hpp
+  // Edges(view, edge_type)) is a plain gid-order set-union -- no ordering elision risk.
   if (diff_engine.config_.salient.items.properties_on_edges) {
     for (const auto &edge_type : main_indices.edge_type) {
       auto mirror = diff_engine.ReadOnlyAccess();
@@ -402,7 +404,7 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
       commit_one(*mirror);
     }
     // SLICE-3b: edge-type+property indexes (same properties_on_edges gate -- CreateIndex(EdgeTypeId,
-    // PropertyId) itself refuses under light-edge storage, inmemory/storage.cpp). Ordering-sensitive:
+    // PropertyId) itself refuses when properties_on_edges=false, inmemory/storage.cpp). Ordering-sensitive:
     // the branch read path (db_accessor.hpp Edges(view, edge_type, property[, value/range])) does an
     // ASC-ordered merge, since the planner elides the Sort for edge-property index scans just like it
     // does for label-property -- so mirroring MUST land together with that ordered read path.
@@ -417,9 +419,9 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
       commit_one(*mirror);
     }
     // SLICE-3c: global edge-property indexes (any edge type). Created via CreateGlobalEdgeIndex,
-    // which itself refuses under light-edge storage (returns IndexDefinitionConfigError, not a crash
-    // -- so it's the safe kind), but kept inside this properties_on_edges gate for consistency and to
-    // never even attempt it in light mode. Ordering-sensitive like edge-type+property: the branch
+    // which itself refuses when properties_on_edges=false (returns IndexDefinitionConfigError, not a
+    // crash), but kept inside this properties_on_edges gate for consistency and to never even attempt
+    // it when properties_on_edges=false. Ordering-sensitive like edge-type+property: the branch
     // read path (db_accessor.hpp Edges(view, property[, value/range])) does the same ASC-ordered
     // merge (reuses MergeBranchEdgePropertyScan), since the planner elides the Sort for global
     // edge-property index scans too.

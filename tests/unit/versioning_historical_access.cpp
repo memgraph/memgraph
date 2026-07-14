@@ -816,18 +816,23 @@ TEST_F(VersioningHistoricalAccessTest, HistoricalEdgeTypeIndexScanReturnsForkSta
   mem_storage->ReleaseForkPin(fork_ts);
 }
 
-// Regression for the pre-existing MAIN crash: creating an edge-type index under
-// properties_on_edges=false used to SEGFAULT during PopulateIndex (verified: exit 139), because
-// InMemoryEdgeTypeIndex stores/derefs an Edge* per entry but a light edge only ever sets
-// EdgeRef::gid, so its `.ptr` is garbage. CreateIndex(EdgeTypeId) now GATES on properties_on_edges
-// (inmemory/storage.cpp) and refuses cleanly -- matching the sibling edge-type+property and global
-// edge-property overloads -- instead of crashing. This asserts the clean rejection (no crash).
-// (Full light-edge edge-type-index SUPPORT would need the Entry to carry an EdgeRef and the scan to
-// reconstruct a light-edge EdgeRef -- a separate, larger storage change; until then, refusing is
-// the correct behavior, and the branch edge-index mirror is correspondingly gated to full-edge
-// mode.) A plain (non-fixture) TEST is used because this mode needs its own light-edge
+// Regression for the pre-existing MAIN crash: creating an edge-type index with
+// properties_on_edges=false (REFERENCE-ONLY edges: an EdgeRef holds only a gid, no Edge object)
+// used to SEGFAULT during PopulateIndex (verified: exit 139), because InMemoryEdgeTypeIndex
+// stores/derefs an Edge* per entry but `.ptr` is garbage when only `.gid` is set.
+// CreateIndex(EdgeTypeId) now GATES on properties_on_edges (inmemory/storage.cpp) and refuses
+// cleanly -- matching the sibling edge-type+property and global edge-property overloads -- instead
+// of crashing. This asserts the clean rejection (no crash).
+//
+// TERMINOLOGY: properties_on_edges=false is NOT the `--storage-light-edge` feature. Light edges
+// have pool-allocated Edge* objects and REQUIRE properties_on_edges=true, so edge-type/edge-property
+// indexes work fine with light edges (verified separately); this gate never fires for them.
+// Supporting properties_on_edges=false itself would need the index Entry to carry an EdgeRef + a
+// reference-only scan reconstruction -- a separate, larger storage change; until then refusing is
+// correct, and the branch edge-index mirror is correspondingly gated to properties_on_edges=true.
+// A plain (non-fixture) TEST is used because this needs its own properties_on_edges=false
 // InMemoryStorage, not the fixture's default (properties_on_edges=true) one.
-TEST(VersioningHistoricalAccessEdgeIndexLightEdgesTest, EdgeTypeIndexRejectedCleanlyUnderLightEdges) {
+TEST(VersioningHistoricalAccessEdgeIndexTest, EdgeTypeIndexRejectedCleanlyWithoutPropertiesOnEdges) {
   ms::Config config;
   config.gc = {.type = ms::Config::Gc::Type::NONE};
   config.salient.items.properties_on_edges = false;
@@ -837,8 +842,9 @@ TEST(VersioningHistoricalAccessEdgeIndexLightEdgesTest, EdgeTypeIndexRejectedCle
 
   auto index_acc = storage->ReadOnlyAccess();
   auto created = index_acc->CreateIndex(knows_type);
-  EXPECT_FALSE(created.has_value()) << "creating an edge-type index under properties_on_edges=false must be refused "
-                                       "cleanly (not crash) -- the edge-type index is unsupported in light-edge mode";
+  EXPECT_FALSE(created.has_value()) << "creating an edge-type index with properties_on_edges=false must be refused "
+                                       "cleanly (not crash) -- the edge-type index is unsupported in that mode "
+                                       "(this is NOT the --storage-light-edge feature, which supports it)";
 }
 
 }  // namespace

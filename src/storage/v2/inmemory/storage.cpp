@@ -2234,12 +2234,14 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // The edge-type index stores/derefs an Edge* per entry (see InMemoryEdgeTypeIndex::Entry) and
-    // its population reads EdgeRef::ptr unconditionally -- but a light edge (properties_on_edges =
-    // false) only ever sets EdgeRef::gid, so populating/scanning it would deref a garbage pointer
-    // (SIGSEGV). Refuse cleanly here, matching the sibling edge-type+property and global
-    // edge-property CreateIndex overloads which already gate on this flag. (Full light-edge
-    // edge-type-index support would need the Entry to carry an EdgeRef and the scan to reconstruct a
-    // light-edge EdgeRef -- a separate, larger change.)
+    // its population reads EdgeRef::ptr unconditionally -- but with properties_on_edges=false
+    // (REFERENCE-ONLY edges: an EdgeRef holds only a gid, there is no Edge object) `.ptr` is a
+    // garbage pointer, so populating/scanning would deref it (SIGSEGV). Refuse cleanly here, matching
+    // the sibling edge-type+property and global edge-property CreateIndex overloads which already
+    // gate on this flag. NOTE: this is NOT the --storage-light-edge feature (that has pool-allocated
+    // Edge* objects and REQUIRES properties_on_edges=true, so edge-type indexes work fine with it).
+    // Supporting properties_on_edges=false here would need the Entry to carry an EdgeRef and the scan
+    // to reconstruct a reference-only EdgeRef -- a separate, larger change.
     return std::unexpected{IndexDefinitionConfigError{}};
   }
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
