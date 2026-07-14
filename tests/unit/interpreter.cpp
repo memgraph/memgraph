@@ -444,6 +444,15 @@ TEST_F(PlannerV2InterpreterTest, UnsupportedPredicateReportsNotImplemented) {
   EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE x IN [1, 2] RETURN x;"), memgraph::query::QueryException);
 }
 
+TEST_F(PlannerV2InterpreterTest, WherePatternPredicateReportsNotImplemented) {
+  // A graph-pattern sub-expression in a WHERE is what v1 compiles into a Filter's
+  // pattern_filters_. plan_v2 doesn't lower pattern expressions, so it refuses the
+  // predicate during expression lowering rather than building a Filter with pattern
+  // sub-plans - pattern_filters_ is always empty in plan_v2.
+  EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x WITH x WHERE size([(a)-[]->(b) | b]) > 0 RETURN x;"),
+               memgraph::query::QueryException);
+}
+
 TEST_F(PlannerV2InterpreterTest, TailClauseOnWithReportsNotImplemented) {
   // ORDER BY / SKIP / LIMIT aren't built yet; refused rather than silently dropped.
   EXPECT_THROW(Interpret("UNWIND [1, 2, 3] AS x WITH x SKIP 1 RETURN x;"), memgraph::query::QueryException);
