@@ -149,18 +149,16 @@ property_fga_cluster: &property_fga_cluster
       setup_queries: *property_fga_setup_queries
       validation_queries: []
 
-# Text-search RBAC fixture — self-contained: users, a title/label graph (no embeddings — text indexes
-# only touch string properties), and the text indexes. user (label-restricted + global {*}), user_prop
-# (full read + {*}, DENY {title}/{label}), user_grant_only (label only, no property grant → deny-by-
-# default), user_prop_deny_cross (DENY {title} :Public only), admin (unrestricted).
-text_search_fga_setup_queries: &text_search_fga_setup_queries
-  # users
+# Users shared by both search fixtures (identical grants): user (label-restricted + global {*}),
+# user_prop (full read + {*}, DENY {title}/{label}), user_grant_only (label only, no property grant →
+# deny-by-default), admin (unrestricted). Each fixture aliases this, then adds its own special user,
+# graph, and indexes.
+_fga_common_users: &_fga_common_users
   - "CREATE ROLE _dummy_role;"
   - "CREATE USER admin IDENTIFIED BY 'test';"
   - "CREATE USER user IDENTIFIED BY 'test';"
   - "CREATE USER user_prop IDENTIFIED BY 'test';"
   - "CREATE USER user_grant_only IDENTIFIED BY 'test';"
-  - "CREATE USER user_prop_deny_cross IDENTIFIED BY 'test';"
   - "GRANT ALL PRIVILEGES TO admin;"
   - "GRANT DATABASE * TO admin;"
   - "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;"
@@ -171,8 +169,6 @@ text_search_fga_setup_queries: &text_search_fga_setup_queries
   - "GRANT DATABASE * TO user_prop;"
   - "GRANT ALL PRIVILEGES TO user_grant_only;"
   - "GRANT DATABASE * TO user_grant_only;"
-  - "GRANT ALL PRIVILEGES TO user_prop_deny_cross;"
-  - "GRANT DATABASE * TO user_prop_deny_cross;"
   # user: label-restricted (sees :Public + :LINKS_PUB + :MIXED, DENY :Document + :LINKS_DOC) + global {*}
   - "GRANT READ ON NODES CONTAINING LABELS :Public TO user;"
   - "DENY READ ON NODES CONTAINING LABELS :Document TO user;"
@@ -181,7 +177,7 @@ text_search_fga_setup_queries: &text_search_fga_setup_queries
   - "GRANT READ ON EDGES OF TYPE :MIXED TO user;"
   - "GRANT READ {*} ON NODES CONTAINING LABELS * TO user;"
   - "GRANT READ {*} ON EDGES OF TYPE * TO user;"
-  # user_prop: full label read + {*}, DENY {title} (the text target) on nodes and {label} on edges
+  # user_prop: full label read + {*}, DENY {title} on nodes and {label} on edges (non-embedding props)
   - "GRANT READ ON NODES CONTAINING LABELS * TO user_prop;"
   - "GRANT READ ON EDGES OF TYPE * TO user_prop;"
   - "GRANT READ {*} ON NODES CONTAINING LABELS * TO user_prop;"
@@ -193,8 +189,16 @@ text_search_fga_setup_queries: &text_search_fga_setup_queries
   # user_grant_only: label read on :Public + :LINKS_PUB, NO property grant (deny-by-default: reads no values)
   - "GRANT READ ON NODES CONTAINING LABELS :Public TO user_grant_only;"
   - "GRANT READ ON EDGES OF TYPE :LINKS_PUB TO user_grant_only;"
+
+# Text-search RBAC fixture: common users + user_prop_deny_cross + a title/label graph (no embeddings —
+# text indexes only touch string properties) + text indexes.
+text_search_fga_setup_queries: &text_search_fga_setup_queries
+  - *_fga_common_users
   # user_prop_deny_cross: full read + {*}, DENY {title} on :Public only — title readable on pure :Document
   # but denied on the :Public:Document Hybrid (deny wins), for the multi-label per-row drop
+  - "CREATE USER user_prop_deny_cross IDENTIFIED BY 'test';"
+  - "GRANT ALL PRIVILEGES TO user_prop_deny_cross;"
+  - "GRANT DATABASE * TO user_prop_deny_cross;"
   - "GRANT READ ON NODES CONTAINING LABELS * TO user_prop_deny_cross;"
   - "GRANT READ {*} ON NODES CONTAINING LABELS * TO user_prop_deny_cross;"
   - "DENY READ {title} ON NODES CONTAINING LABELS :Public TO user_prop_deny_cross;"
@@ -215,52 +219,17 @@ text_search_fga_setup_queries: &text_search_fga_setup_queries
   - "CREATE TEXT EDGE INDEX doc_etext ON :LINKS_DOC;"
   - "CREATE TEXT EDGE INDEX mixed_etext ON :MIXED;"
 
-# Vector-search RBAC fixture — self-contained: users, an embedding graph, and the vector indexes.
-# Nodes/edges keep title/label alongside embedding because they are the non-indexed properties the
+# Vector-search RBAC fixture: common users + user_prop_deny_indexed + an embedding graph + vector
+# indexes. Nodes/edges keep title/label alongside embedding — those are the non-indexed properties the
 # tests deny (user_prop DENY {title}/{label} → proves a deny on a non-embedding property doesn't block
-# vector search) and the identifiers the tests read back. user_prop_deny_indexed DENY {embedding} :Public.
+# vector search) and the identifiers the tests read back.
 vector_search_fga_setup_queries: &vector_search_fga_setup_queries
-  # users
-  - "CREATE ROLE _dummy_role;"
-  - "CREATE USER admin IDENTIFIED BY 'test';"
-  - "CREATE USER user IDENTIFIED BY 'test';"
-  - "CREATE USER user_prop IDENTIFIED BY 'test';"
-  - "CREATE USER user_grant_only IDENTIFIED BY 'test';"
-  - "CREATE USER user_prop_deny_indexed IDENTIFIED BY 'test';"
-  - "GRANT ALL PRIVILEGES TO admin;"
-  - "GRANT DATABASE * TO admin;"
-  - "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;"
-  - "GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;"
-  - "GRANT ALL PRIVILEGES TO user;"
-  - "GRANT DATABASE * TO user;"
-  - "GRANT ALL PRIVILEGES TO user_prop;"
-  - "GRANT DATABASE * TO user_prop;"
-  - "GRANT ALL PRIVILEGES TO user_grant_only;"
-  - "GRANT DATABASE * TO user_grant_only;"
-  - "GRANT ALL PRIVILEGES TO user_prop_deny_indexed;"
-  - "GRANT DATABASE * TO user_prop_deny_indexed;"
-  # user: label-restricted (sees :Public + :LINKS_PUB + :MIXED, DENY :Document + :LINKS_DOC) + global {*}
-  - "GRANT READ ON NODES CONTAINING LABELS :Public TO user;"
-  - "DENY READ ON NODES CONTAINING LABELS :Document TO user;"
-  - "GRANT READ ON EDGES OF TYPE :LINKS_PUB TO user;"
-  - "DENY READ ON EDGES OF TYPE :LINKS_DOC TO user;"
-  - "GRANT READ ON EDGES OF TYPE :MIXED TO user;"
-  - "GRANT READ {*} ON NODES CONTAINING LABELS * TO user;"
-  - "GRANT READ {*} ON EDGES OF TYPE * TO user;"
-  # user_prop: full label read + {*}, DENY {title}/{label} — non-embedding properties, so embedding stays readable
-  - "GRANT READ ON NODES CONTAINING LABELS * TO user_prop;"
-  - "GRANT READ ON EDGES OF TYPE * TO user_prop;"
-  - "GRANT READ {*} ON NODES CONTAINING LABELS * TO user_prop;"
-  - "GRANT READ {*} ON EDGES OF TYPE * TO user_prop;"
-  - "DENY READ {title} ON NODES CONTAINING LABELS :Public TO user_prop;"
-  - "DENY READ {title} ON NODES CONTAINING LABELS :Document TO user_prop;"
-  - "DENY READ {label} ON EDGES OF TYPE :LINKS_PUB TO user_prop;"
-  - "DENY READ {label} ON EDGES OF TYPE :LINKS_DOC TO user_prop;"
-  # user_grant_only: label read on :Public + :LINKS_PUB, NO property grant (deny-by-default: reads no values)
-  - "GRANT READ ON NODES CONTAINING LABELS :Public TO user_grant_only;"
-  - "GRANT READ ON EDGES OF TYPE :LINKS_PUB TO user_grant_only;"
+  - *_fga_common_users
   # user_prop_deny_indexed: full read + {*}, DENY {embedding} :Public — per-label deny on the indexed
   # property; drops :Public hits on the WILDCARD index
+  - "CREATE USER user_prop_deny_indexed IDENTIFIED BY 'test';"
+  - "GRANT ALL PRIVILEGES TO user_prop_deny_indexed;"
+  - "GRANT DATABASE * TO user_prop_deny_indexed;"
   - "GRANT READ ON NODES CONTAINING LABELS * TO user_prop_deny_indexed;"
   - "GRANT READ ON EDGES OF TYPE * TO user_prop_deny_indexed;"
   - "GRANT READ {*} ON NODES CONTAINING LABELS * TO user_prop_deny_indexed;"
