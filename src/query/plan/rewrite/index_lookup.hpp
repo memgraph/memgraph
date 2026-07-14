@@ -1621,7 +1621,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   std::optional<ScanByIndexResult> FindBestVertexPropertyScan(Symbol const &node_symbol,
                                                               std::unordered_set<Symbol> const &bound_symbols,
-                                                              auto const &are_bound,
                                                               std::shared_ptr<LogicalOperator> input,
                                                               storage::View view, ScanByIndexMetadata metadata) {
     auto property_filters = filters_.PropertyFilters(node_symbol);
@@ -1635,7 +1634,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::optional<Candidate> best;
 
     for (auto const &filter : property_filters) {
-      if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) continue;
+      if (filter.property_filter->is_symbol_in_value_ ||
+          !std::ranges::all_of(filter.used_symbols, [&](auto const &s) { return bound_symbols.contains(s); }))
+        continue;
       if (filter.property_filter->property_ids_.path.size() != 1) continue;
       auto const &prop_ix = filter.property_filter->property_ids_.path[0];
       auto property = GetProperty(prop_ix);
@@ -1791,7 +1792,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto labels = filters_.FilteredLabels(node_symbol);
     auto or_labels = filters_.FilteredOrLabels(node_symbol);
     if (labels.empty() && or_labels.empty()) {
-      return FindBestVertexPropertyScan(node_symbol, bound_symbols, are_bound, input, view, metadata);
+      return FindBestVertexPropertyScan(node_symbol, bound_symbols, input, view, metadata);
     }
 
     // Point index prefered over regular label+property index
@@ -1881,7 +1882,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return ScanByIndexResult{std::move(op), std::move(metadata), has_in};
     }
     // Try global vertex-property index as fallback — may beat label-only scan
-    auto vertex_prop_result = FindBestVertexPropertyScan(node_symbol, bound_symbols, are_bound, input, view, metadata);
+    auto vertex_prop_result = FindBestVertexPropertyScan(node_symbol, bound_symbols, input, view, metadata);
 
     if (!labels.empty()) {
       auto maybe_label = FindBestLabelIndex(labels);
