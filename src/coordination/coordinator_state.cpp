@@ -176,10 +176,31 @@ auto CoordinatorState::DropRole(std::string_view const role_name) const -> DropR
   return std::get<CoordinatorInstance>(data_).DropRole(role_name);
 }
 
-auto CoordinatorState::GetRoles(std::vector<std::string> &roles) const -> GetRolesStatus {
+auto CoordinatorState::GetRoles(std::vector<CoordinatorRole> &roles) const -> GetRolesStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator roles cannot be retrieved since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).GetRoles(roles);
+}
+
+auto CoordinatorState::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
+    -> GrantPrivilegeStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator privilege cannot be granted since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GrantPrivilege(role_name, privileges);
+}
+
+auto CoordinatorState::RevokePrivilege(std::string_view const role_name, uint64_t const privileges) const
+    -> RevokePrivilegeStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator privilege cannot be revoked since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).RevokePrivilege(role_name, privileges);
+}
+
+auto CoordinatorState::GetRolePrivileges(std::string_view const role_name, uint64_t &privileges) const
+    -> GetRolePrivilegesStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator role privileges cannot be retrieved since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetRolePrivileges(role_name, privileges);
 }
 
 auto CoordinatorState::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {

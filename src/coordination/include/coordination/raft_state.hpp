@@ -105,7 +105,7 @@ class RaftState {
   auto GetInstanceDownTimeoutSec() const -> uint32_t;
   auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
   auto GetGlobalReadOnly() const -> bool;
-  auto GetRoles() const -> std::vector<std::string>;
+  auto GetRoles() const -> std::vector<CoordinatorRole>;
 
  private:
   uint16_t coordinator_port_;

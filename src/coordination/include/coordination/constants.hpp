@@ -69,6 +69,8 @@ constexpr std::string_view kClusterState = "cluster_state";
 constexpr std::string_view kCoordinatorInstances = "coordinator_instances";
 constexpr std::string_view kMainUUID = "current_main_uuid";
 constexpr std::string_view kRoles = "roles";
+constexpr std::string_view kRoleName = "name";
+constexpr std::string_view kRolePermissions = "permissions";
 constexpr std::string_view kConfig{"config"};
 constexpr std::string_view kStatus{"status"};
 // CoordinatorInstanceConfig

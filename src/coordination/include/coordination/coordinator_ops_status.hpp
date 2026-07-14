@@ -23,6 +23,9 @@ enum class SetCoordinatorSettingStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR, 
 enum class CreateRoleStatus : uint8_t { SUCCESS = 0, ROLE_ALREADY_EXISTS, NOT_LEADER, RAFT_LOG_ERROR };
 enum class DropRoleStatus : uint8_t { SUCCESS = 0, NO_SUCH_ROLE, NOT_LEADER, RAFT_LOG_ERROR };
 enum class GetRolesStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
+enum class GrantPrivilegeStatus : uint8_t { SUCCESS = 0, NO_SUCH_ROLE, NOT_LEADER, RAFT_LOG_ERROR };
+enum class RevokePrivilegeStatus : uint8_t { SUCCESS = 0, NO_SUCH_ROLE, NOT_LEADER, RAFT_LOG_ERROR };
+enum class GetRolePrivilegesStatus : uint8_t { SUCCESS = 0, NO_SUCH_ROLE, NOT_LEADER };
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS = 0,

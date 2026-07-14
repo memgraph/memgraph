@@ -257,7 +257,7 @@ auto CoordinatorClusterState::GetGlobalReadOnly() const -> bool {
   return global_read_only_;
 }
 
-auto CoordinatorClusterState::GetRoles() const -> std::vector<std::string> {
+auto CoordinatorClusterState::GetRoles() const -> std::vector<CoordinatorRole> {
   auto lock = std::shared_lock{app_lock_};
   return roles_;
 }
@@ -317,9 +317,18 @@ void CoordinatorClusterState::SetGlobalReadOnly(bool const global_read_only) {
   global_read_only_ = global_read_only;
 }
 
-void CoordinatorClusterState::SetRoles(std::vector<std::string> roles) {
+void CoordinatorClusterState::SetRoles(std::vector<CoordinatorRole> roles) {
   auto lock = std::lock_guard{app_lock_};
   roles_ = std::move(roles);
+}
+
+void to_json(nlohmann::json &j, CoordinatorRole const &role) {
+  j = nlohmann::json{{kRoleName.data(), role.name}, {kRolePermissions.data(), role.permissions}};
+}
+
+void from_json(nlohmann::json const &j, CoordinatorRole &role) {
+  j.at(kRoleName.data()).get_to(role.name);
+  role.permissions = j.value(kRolePermissions.data(), uint64_t{0});
 }
 
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
@@ -389,7 +398,7 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
 
   // roles defaults to an empty list for clusters serialized before coordinator SSO. An older coordinator ignores the
   // unknown key; a newer coordinator reading an older snapshot sees an empty role set.
-  instance_state.SetRoles(j.value(kRoles.data(), std::vector<std::string>{}));
+  instance_state.SetRoles(j.value(kRoles.data(), std::vector<CoordinatorRole>{}));
 }
 
 }  // namespace memgraph::coordination

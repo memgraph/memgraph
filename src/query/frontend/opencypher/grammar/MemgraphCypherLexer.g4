@@ -56,6 +56,8 @@ CONSTRAINTS             : C O N S T R A I N T S ;
 CONSUMER_GROUP          : C O N S U M E R UNDERSCORE G R O U P ;
 CONTAINING              : C O N T A I N I N G ;
 COORDINATOR             : C O O R D I N A T O R ;
+COORDINATOR_READ        : C O O R D I N A T O R UNDERSCORE R E A D ;
+COORDINATOR_WRITE       : C O O R D I N A T O R UNDERSCORE W R I T E ;
 CREDENTIALS             : C R E D E N T I A L S ;
 CSV                     : C S V ;
 CURRENT                 : C U R R E N T ;

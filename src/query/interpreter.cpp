@@ -705,14 +705,54 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   std::vector<std::string> ShowRoles() override {
-    std::vector<std::string> roles;
+    std::vector<coordination::CoordinatorRole> roles;
     switch (coordinator_handler_.GetRoles(roles)) {
-      case coordination::GetRolesStatus::SUCCESS:
-        return roles;
+      case coordination::GetRolesStatus::SUCCESS: {
+        return roles | rv::transform([](auto const &role) { return role.name; }) | ranges::to_vector;
+      }
       case coordination::GetRolesStatus::NOT_LEADER:
         throw QueryRuntimeException(GetNotLeaderRoleMessage());
     }
-    return roles;
+    return {};
+  }
+
+  void GrantCoordinatorPrivilege(std::string_view const role_name, uint64_t const privileges) override {
+    switch (coordinator_handler_.GrantPrivilege(role_name, privileges)) {
+      case coordination::GrantPrivilegeStatus::SUCCESS:
+        break;
+      case coordination::GrantPrivilegeStatus::NO_SUCH_ROLE:
+        throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
+      case coordination::GrantPrivilegeStatus::NOT_LEADER:
+        throw QueryRuntimeException(GetNotLeaderRoleMessage());
+      case coordination::GrantPrivilegeStatus::RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+    }
+  }
+
+  void RevokeCoordinatorPrivilege(std::string_view const role_name, uint64_t const privileges) override {
+    switch (coordinator_handler_.RevokePrivilege(role_name, privileges)) {
+      case coordination::RevokePrivilegeStatus::SUCCESS:
+        break;
+      case coordination::RevokePrivilegeStatus::NO_SUCH_ROLE:
+        throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
+      case coordination::RevokePrivilegeStatus::NOT_LEADER:
+        throw QueryRuntimeException(GetNotLeaderRoleMessage());
+      case coordination::RevokePrivilegeStatus::RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+    }
+  }
+
+  uint64_t ShowRolePrivileges(std::string_view const role_name) override {
+    uint64_t privileges{0};
+    switch (coordinator_handler_.GetRolePrivileges(role_name, privileges)) {
+      case coordination::GetRolePrivilegesStatus::SUCCESS:
+        return privileges;
+      case coordination::GetRolePrivilegesStatus::NO_SUCH_ROLE:
+        throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
+      case coordination::GetRolePrivilegesStatus::NOT_LEADER:
+        throw QueryRuntimeException(GetNotLeaderRoleMessage());
+    }
+    return privileges;
   }
 
   std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() override {
@@ -1032,13 +1072,51 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   dbms::CoordinatorHandler coordinator_handler_;
 };
 
-// Coordinators expose only role management (CREATE/DROP/SHOW ROLE) out of the whole auth surface. This path is
-// deliberately separate from the data-instance Auth path: roles live in the Raft-replicated coordinator cluster state,
-// not in the auth kvstore. The interpreter gate guarantees only these three actions reach here on a coordinator.
+// Maps a coordinator GRANT/REVOKE to its auth::Permission bitmask. ALL PRIVILEGES maps to both coordinator
+// privileges; otherwise the explicit COORDINATOR_READ/COORDINATOR_WRITE list is mapped. The interpreter gate
+// (IsCoordinatorPermittedAuthQuery) guarantees only these forms reach here.
+uint64_t CoordinatorPrivilegesToMask(AuthQuery const &auth_query) {
+  constexpr auto read_bit = static_cast<uint64_t>(auth::Permission::COORDINATOR_READ);
+  constexpr auto write_bit = static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE);
+  if (auth_query.all_privileges_) {
+    return read_bit | write_bit;
+  }
+  uint64_t mask = 0;
+  for (auto const privilege : auth_query.privileges_) {
+    switch (privilege) {
+      case AuthQuery::Privilege::COORDINATOR_READ:
+        mask |= read_bit;
+        break;
+      case AuthQuery::Privilege::COORDINATOR_WRITE:
+        mask |= write_bit;
+        break;
+      default:
+        throw QueryRuntimeException(
+            "Only COORDINATOR_READ and COORDINATOR_WRITE privileges can be granted on a coordinator.");
+    }
+  }
+  return mask;
+}
+
+// Coordinators expose only role management (CREATE/DROP/SHOW ROLE) and coordinator privilege management on roles
+// (GRANT/REVOKE READ|WRITE, SHOW PRIVILEGES FOR <role>) out of the whole auth surface. This path is deliberately
+// separate from the data-instance Auth path: roles and their masks live in the Raft-replicated coordinator cluster
+// state, not in the auth kvstore. The interpreter gate guarantees only these actions reach here on a coordinator.
 Callback HandleCoordinatorRoleQuery(AuthQuery *auth_query, coordination::CoordinatorState &coordinator_state) {
   Callback callback;
   auto const if_not_exists = auth_query->if_not_exists_;
   auto roles = auth_query->roles_;
+  auto target_role = auth_query->user_or_role_;
+
+  // SSO, role management, privilege grants, SHOW PRIVILEGES FOR and enforcement are enterprise features. CREATE/DROP/
+  // SHOW ROLE remain available so a role set can be provisioned, but grants and privilege inspection require a license.
+  static constexpr std::array kLicensedActions{
+      AuthQuery::Action::GRANT_PRIVILEGE, AuthQuery::Action::REVOKE_PRIVILEGE, AuthQuery::Action::SHOW_PRIVILEGES};
+  if (auto const license_check_result = license::global_license_checker.IsEnterpriseValid();
+      !license_check_result && std::ranges::contains(kLicensedActions, auth_query->action_)) {
+    throw QueryRuntimeException(
+        license::LicenseCheckErrorToString(license_check_result.error(), "coordinator privilege management"));
+  }
 
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_ROLE:
@@ -1071,9 +1149,77 @@ Callback HandleCoordinatorRoleQuery(AuthQuery *auth_query, coordination::Coordin
         return rows;
       };
       return callback;
+    case AuthQuery::Action::GRANT_PRIVILEGE: {
+      auto const mask = CoordinatorPrivilegesToMask(*auth_query);
+      callback.fn = [coordinator_state = &coordinator_state, target_role = std::move(target_role), mask] {
+        CoordQueryHandler{*coordinator_state}.GrantCoordinatorPrivilege(target_role, mask);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case AuthQuery::Action::REVOKE_PRIVILEGE: {
+      auto const mask = CoordinatorPrivilegesToMask(*auth_query);
+      callback.fn = [coordinator_state = &coordinator_state, target_role = std::move(target_role), mask] {
+        CoordQueryHandler{*coordinator_state}.RevokeCoordinatorPrivilege(target_role, mask);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case AuthQuery::Action::SHOW_PRIVILEGES:
+      callback.header = {"privilege"};
+      callback.fn = [coordinator_state = &coordinator_state, target_role = std::move(target_role)] {
+        auto const mask = CoordQueryHandler{*coordinator_state}.ShowRolePrivileges(target_role);
+        std::vector<std::vector<TypedValue>> rows;
+        // COORDINATOR_WRITE is a superset of COORDINATOR_READ; report each granted privilege on its own row. A bare
+        // role reports nothing.
+        if ((mask & static_cast<uint64_t>(auth::Permission::COORDINATOR_READ)) != 0U) {
+          rows.emplace_back(std::vector<TypedValue>{TypedValue("COORDINATOR_READ")});
+        }
+        if ((mask & static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE)) != 0U) {
+          rows.emplace_back(std::vector<TypedValue>{TypedValue("COORDINATOR_WRITE")});
+        }
+        return rows;
+      };
+      return callback;
     default:
-      throw QueryRuntimeException("Coordinators only support CREATE ROLE, DROP ROLE and SHOW ROLES auth queries.");
+      throw QueryRuntimeException(
+          "Coordinators only support CREATE ROLE, DROP ROLE, SHOW ROLES, GRANT/REVOKE "
+          "COORDINATOR_READ|COORDINATOR_WRITE and SHOW PRIVILEGES FOR ROLE <role> auth queries.");
   }
+}
+
+// Classifies a coordinator-runnable query as requiring READ or WRITE. Read-only introspection needs READ; every
+// mutating/admin query needs WRITE (a superset of READ). Fails closed to WRITE for anything unrecognized.
+auth::Permission RequiredCoordinatorPermission(Query *query) {
+  if (auto *coordinator_query = utils::Downcast<CoordinatorQuery>(query)) {
+    switch (coordinator_query->action_) {
+      case CoordinatorQuery::Action::SHOW_INSTANCE:
+      case CoordinatorQuery::Action::SHOW_INSTANCES:
+      case CoordinatorQuery::Action::SHOW_COORDINATOR_SETTINGS:
+      case CoordinatorQuery::Action::SHOW_REPLICATION_LAG:
+        return auth::Permission::COORDINATOR_READ;
+      default:
+        return auth::Permission::COORDINATOR_WRITE;
+    }
+  }
+  if (auto *setting_query = utils::Downcast<SettingQuery>(query)) {
+    return setting_query->action_ == SettingQuery::Action::SET_SETTING ? auth::Permission::COORDINATOR_WRITE
+                                                                       : auth::Permission::COORDINATOR_READ;
+  }
+  if (utils::Downcast<ShowConfigQuery>(query) || utils::Downcast<SystemInfoQuery>(query)) {
+    return auth::Permission::COORDINATOR_READ;
+  }
+  if (auto *auth_query = utils::Downcast<AuthQuery>(query)) {
+    switch (auth_query->action_) {
+      case AuthQuery::Action::SHOW_ROLES:
+      case AuthQuery::Action::SHOW_PRIVILEGES:
+        return auth::Permission::COORDINATOR_READ;
+      default:  // CREATE_ROLE, DROP_ROLE, GRANT_PRIVILEGE, REVOKE_PRIVILEGE
+        return auth::Permission::COORDINATOR_WRITE;
+    }
+  }
+  // ReloadSSLQuery and anything else runnable on a coordinator are mutating/admin operations.
+  return auth::Permission::COORDINATOR_WRITE;
 }
 #endif
 
@@ -3485,12 +3631,23 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
 }  // namespace
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context)
-    : cached_fga_(std::make_unique<CachedFineGrainedAuth>()), interpreter_context_(interpreter_context) {
+    :
+#ifdef MG_ENTERPRISE
+      coordinator_permissions_(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
+                               static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE)),
+#endif
+      cached_fga_(std::make_unique<CachedFineGrainedAuth>()),
+      interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
-    : cached_fga_(std::make_unique<CachedFineGrainedAuth>()),
+    :
+#ifdef MG_ENTERPRISE
+      coordinator_permissions_(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
+                               static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE)),
+#endif
+      cached_fga_(std::make_unique<CachedFineGrainedAuth>()),
       current_db_{std::move(db)},
       interpreter_context_(interpreter_context) {
   MG_ASSERT(current_db_.db_acc_, "Database accessor needs to be valid");
@@ -9629,6 +9786,12 @@ auto Interpreter::Route(std::optional<std::string> const &db) -> RouteResult {
     throw QueryException("Cannot fetch routing table from a data instance!");
   }
 
+  // The routing table is a Bolt ROUTE message that bypasses the query privilege path, so gate it here: reading the
+  // routing table requires READ (WRITE satisfies it). A basic-auth passthrough session carries full WRITE.
+  if (!auth::CoordinatorMaskSatisfies(coordinator_permissions_, auth::Permission::COORDINATOR_READ)) {
+    throw QueryException("You don't have permission to read the routing table on the coordinator!");
+  }
+
   auto const db_name = db.has_value() ? *db : dbms::kDefaultDB;
   return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable(db_name)};
 }
@@ -10049,17 +10212,28 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // Must run before SetupDatabaseTransaction below: coordinators have no db_acc, so any query that
     // requests a storage accessor (e.g. CypherQuery) would otherwise throw a generic "Database required"
     // error instead of this clearer coordinator-specific message.
-    // Coordinators permit exactly CREATE ROLE, DROP ROLE and SHOW ROLES out of the whole auth surface; every other
-    // auth query is rejected with the coordinator-only-queries error below.
+    // Coordinators permit only role management (CREATE/DROP/SHOW ROLE) and coordinator privilege management on roles
+    // (GRANT/REVOKE READ|WRITE, SHOW PRIVILEGES FOR <role>) out of the whole auth surface; every other auth query is
+    // rejected with the coordinator-only-queries error below.
     auto const is_coordinator_role_query = [](Query *query) {
       auto *auth_query = utils::Downcast<AuthQuery>(query);
-      return auth_query != nullptr && IsCoordinatorPermittedAuthQuery(auth_query->action_);
+      return auth_query != nullptr && IsCoordinatorPermittedAuthQuery(*auth_query);
     };
     if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator() &&
         !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query) &&
         !utils::Downcast<ReloadSSLQuery>(parsed_query.query) && !utils::Downcast<ShowConfigQuery>(parsed_query.query) &&
         !utils::Downcast<SystemInfoQuery>(parsed_query.query) && !is_coordinator_role_query(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");
+    }
+
+    // Enforce the coordinator privilege model on the (now allow-listed) query: classify it READ or WRITE and check the
+    // session's effective coordinator mask (WRITE satisfies a READ requirement). A basic-auth passthrough session
+    // carries full WRITE, so it runs everything; a restricted SSO session (later slice) is denied mutating queries.
+    if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator()) {
+      auto const required = RequiredCoordinatorPermission(parsed_query.query);
+      if (!auth::CoordinatorMaskSatisfies(coordinator_permissions_, required)) {
+        throw QueryRuntimeException("You don't have the required privilege to run this query on the coordinator!");
+      }
     }
 #endif
 

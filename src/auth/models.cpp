@@ -149,6 +149,10 @@ std::string PermissionToString(Permission permission) {
       return "SERVER_SIDE_DESCRIPTIONS";
     case Permission::RELOAD_TLS:
       return "RELOAD_TLS";
+    case Permission::COORDINATOR_READ:
+      return "COORDINATOR_READ";
+    case Permission::COORDINATOR_WRITE:
+      return "COORDINATOR_WRITE";
   }
 }
 
