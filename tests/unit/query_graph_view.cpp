@@ -13,6 +13,7 @@
 
 #include <optional>
 #include <set>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -22,8 +23,10 @@
 #include "query/graph.hpp"
 #include "query/graph_view.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/path.hpp"
 #include "query/plan/operator.hpp"
 #include "query/subgraph_graph_view.hpp"
+#include "query/typed_value.hpp"
 #include "query/virtual_graph.hpp"
 #include "query/virtual_graph_view.hpp"
 #include "query/virtual_node.hpp"
@@ -526,6 +529,36 @@ TEST_F(GraphViewTest, SeamDropsNonMemberSubgraphEdges) {
   // Only the member edge survives; the non-member edge to c is dropped.
   EXPECT_EQ(RealEndpoints(view.OutEdges(ScanVertex{a}, View::NEW, {}, std::nullopt, nullptr), /*out=*/true),
             (std::set<Gid>{b.Gid()}));
+}
+
+// AddPathToProjection collapses a real path into an overlay projection directly -
+// no Aggregate operator or plan - so the derive()/project() assembly is unit-testable
+// in isolation now that it lives in the virtual_graph module.
+TEST_F(GraphViewTest, AddPathToProjectionBuildsOverlayGraph) {
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
+  DbAccessor dba{acc.get()};
+  auto a = dba.InsertVertex();
+  auto b = dba.InsertVertex();
+  auto edge = dba.InsertEdge(&a, &b, dba.NameToEdgeType("R"));
+  ASSERT_TRUE(edge.has_value());
+  dba.AdvanceCommand();
+
+  auto *mem = memgraph::utils::NewDeleteResource();
+  TypedValue::TMap options(mem);
+  options.emplace(TypedValue::TString{"virtualEdgeType", mem}, TypedValue{"E", mem});
+  const TypedValue options_value{std::move(options), mem};
+  const TypedValue path_value{Path{a, *edge, b}, mem};
+
+  VirtualGraph graph{mem};
+  DerivedNodeDedup dedup{mem};
+  AddPathToProjection(path_value, options_value, graph, dedup, VirtualNode::kNoProjectionRef, &dba);
+
+  // The path collapses to two overlay nodes (over the real endpoints) and one 'E'
+  // synthetic edge; each overlay reads through to its real origin.
+  EXPECT_EQ(graph.nodes().size(), 2U);
+  ASSERT_EQ(graph.edges().size(), 1U);
+  EXPECT_EQ(std::string_view{graph.edges().begin()->EdgeTypeName()}, "E");
+  for (const auto &[gid, node] : graph.nodes()) EXPECT_TRUE(node->HasOrigin());
 }
 
 }  // namespace memgraph::query::test

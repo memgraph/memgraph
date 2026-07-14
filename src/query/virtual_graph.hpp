@@ -23,6 +23,9 @@
 
 namespace memgraph::query {
 
+class TypedValue;
+class DbAccessor;
+
 // Maps synthetic gids in one VirtualGraph (the "aliased" one) to the synthetic
 // gid of the canonical VirtualNode in another VirtualGraph.
 using VirtualGraphAliasMap = utils::pmr::unordered_map<storage::Gid, storage::Gid>;
@@ -88,5 +91,20 @@ enum class DanglingEdgePolicy { kError, kDrop };
 // from/to/type). A dangling edge aborts the assembly under kError or is omitted under kDrop.
 VirtualGraph AssembleVirtualGraph(std::span<const VirtualNode> nodes, std::span<const VirtualEdge> edges,
                                   DanglingEdgePolicy policy, VirtualGraph::allocator_type alloc);
+
+// The real-vertex-gid -> canonical-synthetic-gid map derive()/project() assembly uses to deduplicate
+// a path endpoint that recurs across rows: the first occurrence builds an overlay node, later ones
+// reuse it. Owned by the aggregation slot and threaded into AddPathToProjection.
+using DerivedNodeDedup = utils::pmr::unordered_map<storage::Gid, storage::Gid>;
+
+// Collapse a derive() path to a single synthetic overlay edge between its endpoints (intermediate
+// vertices are ignored by design), adding the endpoint overlay nodes and the edge to
+// projected_graph. Each endpoint reads through to its real origin lazily; options carries the
+// label / property / edge-type / binding configuration. dedup canonicalizes endpoints that recur
+// across rows; projection_ref is the schema reference stamped on the overlay nodes (or
+// VirtualNode::kNoProjectionRef). This is the aggregation counterpart to AssembleVirtualGraph's list
+// assembly - the Aggregate operator drives it per row - so all VirtualGraph construction lives here.
+void AddPathToProjection(const TypedValue &path_value, const TypedValue &options_value, VirtualGraph &projected_graph,
+                         DerivedNodeDedup &dedup, int64_t projection_ref, DbAccessor *db_accessor);
 
 }  // namespace memgraph::query
