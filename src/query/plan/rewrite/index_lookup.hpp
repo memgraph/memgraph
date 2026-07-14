@@ -1533,26 +1533,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return std::max(source_cnt, target_cnt) < (estimated_midpoint_frontier / bidirectional_overhead_factor);
   }
 
-  std::optional<storage::PropertyValue> ResolveExpression(Expression const *expr) const {
-    auto *mapper = db_->GetStorageAccessor()->GetNameIdMapper();
-    if (auto *lit = utils::Downcast<PrimitiveLiteral const>(expr)) {
-      return storage::ToPropertyValue(lit->value_, mapper);
-    }
-    if (auto *param = utils::Downcast<ParameterLookup const>(expr)) {
-      return storage::ToPropertyValue(parameters_.AtTokenPosition(param->token_position_), mapper);
-    }
-    return std::nullopt;
-  }
-
-  std::optional<utils::Bound<storage::PropertyValue>> ResolveBound(
-      std::optional<utils::Bound<Expression *>> const &bound) const {
-    if (!bound) return std::nullopt;
-    if (auto val = ResolveExpression(bound->value())) {
-      return utils::Bound<storage::PropertyValue>{std::move(*val), bound->type()};
-    }
-    return std::nullopt;
-  }
-
   // Estimates cardinality for indexed scan operators only.
   // Since we only call this when we know the operator uses an index, we only need
   // to handle the indexed scan operator types.
@@ -1596,17 +1576,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (type_info == ScanAllByVertexPropertyValue::kType) {
       auto *scan_op = dynamic_cast<ScanAllByVertexPropertyValue *>(op);
-      if (auto val = ResolveExpression(scan_op->expression_)) {
-        return static_cast<double>(db_->VerticesCount(scan_op->property_, *val));
+      auto *mapper = db_->GetStorageAccessor()->GetNameIdMapper();
+      if (auto pvr = ExpressionRange::Equal(scan_op->expression_).ResolveAtPlantime(parameters_, mapper)) {
+        return static_cast<double>(db_->VerticesCount(scan_op->property_, pvr->lower_->value()));
       }
       return static_cast<double>(db_->VerticesCount(scan_op->property_));
     }
     if (type_info == ScanAllByVertexPropertyRange::kType) {
       auto *scan_op = dynamic_cast<ScanAllByVertexPropertyRange *>(op);
-      auto lower = ResolveBound(scan_op->lower_bound_);
-      auto upper = ResolveBound(scan_op->upper_bound_);
-      if (lower || upper) {
-        return static_cast<double>(db_->VerticesCount(scan_op->property_, lower, upper));
+      auto *mapper = db_->GetStorageAccessor()->GetNameIdMapper();
+      if (auto pvr = ExpressionRange::Range(scan_op->lower_bound_, scan_op->upper_bound_)
+                         .ResolveAtPlantime(parameters_, mapper)) {
+        return static_cast<double>(db_->VerticesCount(scan_op->property_, pvr->lower_, pvr->upper_));
       }
       return static_cast<double>(db_->VerticesCount(scan_op->property_));
     }
