@@ -785,10 +785,54 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(view));
   }
 
+  // Graph Versioning v1, Task 4: label-only scan is now INDEX-ACCELERATED, mirroring the plain
+  // edge-type merge (`Edges(view, edge_type)` above) rather than the label-PROPERTY merge
+  // (`Vertices(view, label, properties, ranges, order)` above): a label index carries no property
+  // key, so both streams are already just "every vertex with this label" in whatever order their
+  // respective index storage yields them -- a plain gid-order SET-UNION, no merge-sort needed
+  // (unlike the property-ordered merge, which must explicitly sort to match the planner's elided
+  // OrderBy). Two streams:
+  //   (a) the diff engine's own label index (`accessor_->Vertices(label, view)` -- Part A,
+  //       branch_engine.cpp, mirrors main's label index definitions onto the diff engine, so this
+  //       is always populated once a branch exists), and
+  //   (b) main@fork's label index as of the fork timestamp, via `historical()` -- falling back (B1)
+  //       to the existing full filter-scan (MaterializeFilteredBranchScan) if main DROPPED the
+  //       index after the fork (largely unreachable in practice, since label indexes are covered by
+  //       the same global schema gate as everything else Part A mirrors, but defense-in-depth
+  //       against a mid-flight drop).
+  // A main-stream candidate is skipped if the branch tombstoned it (branch-deleted fork vertex), OR
+  // if the diff engine already holds that gid (`accessor_->FindVertex(g, View::NEW)` -- a COW): the
+  // diff stream in (a) already represents that gid at its authoritative/new value, so counting it
+  // again from (b) would double-count it.
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
     if (branch_ctx_ != nullptr) {
-      return VerticesIterable(MaterializeFilteredBranchScan(
-          view, [label, view](VertexAccessor &v) { return VertexHasLabel(v, view, label); }));
+      auto &historical = branch_ctx_->historical();
+      if (!historical.LabelIndexReady(label)) {
+        // B1: main dropped this label index after the fork -- fall back to the existing full
+        // filter-scan (correct, just O(graph) instead of O(matches)).
+        return VerticesIterable(MaterializeFilteredBranchScan(
+            view, [label, view](VertexAccessor &v) { return VertexHasLabel(v, view, label); }));
+      }
+
+      auto result = std::make_shared<std::vector<VertexAccessor>>();
+
+      // (a) Diff stream: the diff engine's own (branch-native + COW'd) label index scan.
+      for (auto raw : accessor_->Vertices(label, view)) {
+        result->push_back(VertexAccessor(raw, branch_ctx_));
+      }
+
+      // (b) Main@fork stream, gated by the tombstone/COW skip -- diff wins on any overlap.
+      for (auto raw : historical.Vertices(label, storage::View::OLD)) {
+        VertexAccessor mc(raw, branch_ctx_);
+        auto const g = mc.Gid();
+        if (branch_ctx_->IsVertexTombstoned(g)) continue;
+        if (accessor_->FindVertex(g, storage::View::NEW).has_value()) continue;
+        result->push_back(mc);
+      }
+
+      // No sort: label indexes carry no property order, so gid/unspecified order matches main's
+      // own label scan semantics.
+      return VerticesIterable(std::move(result));
     }
     return VerticesIterable(accessor_->Vertices(label, view));
   }

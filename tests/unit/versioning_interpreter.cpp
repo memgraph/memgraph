@@ -2445,3 +2445,70 @@ TEST_F(VersioningInterpreterTest, BranchGlobalEdgePropertyIndexSelectedInPlanOnB
          "ASC order; full plan:\n"
       << plan;
 }
+
+TEST_F(VersioningInterpreterTest, BranchLabelOnlyIndexScanReflectsBranchMutations) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :L");
+
+  faker.Interpret("CREATE (:L {n:'a'})");
+  faker.Interpret("CREATE (:L {n:'b'})");
+  faker.Interpret("CREATE (:L {n:'c'})");
+  faker.Interpret("CREATE (:Other {n:'x'})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Branch mutations: delete a fork L vertex, COW-remove the label off another fork L vertex,
+  // COW-add the label onto a fork non-L vertex, and create a branch-native L vertex.
+  faker.Interpret("MATCH (n:L {n:'a'}) DETACH DELETE n");
+  faker.Interpret("MATCH (n:L {n:'b'}) REMOVE n:L");
+  faker.Interpret("MATCH (n:Other {n:'x'}) SET n:L");
+  faker.Interpret("CREATE (:L {n:'d'})");
+
+  // The ORDER BY here is just to make the vector comparison deterministic -- the label scan itself
+  // carries no property order (label-only indexes have no property order).
+  auto stream = faker.Interpret("MATCH (n:L) RETURN n.n AS name ORDER BY n.n");
+  const auto &rows = stream.GetResults();
+  std::vector<std::string> names;
+  names.reserve(rows.size());
+  for (const auto &row : rows) {
+    names.push_back(row[0].ValueString());
+  }
+
+  EXPECT_EQ(names, (std::vector<std::string>{"c", "d", "x"}))
+      << "locks the label-only set-union merge (diff-engine label index union main@fork's label "
+         "index, skipping tombstoned/COW'd) including the COW label add/remove cases: 'a' was "
+         "deleted on the branch and must be gone; 'b' lost the :L label via COW and must be excluded "
+         "even though it is still sitting in main@fork's historical label index -- the "
+         "COW-membership skip must catch it; 'x' gained the :L label via COW on a previously "
+         "non-L fork vertex and must be included via the diff-engine's own label index; 'd' is "
+         "branch-native and must be included; 'c' was never touched on the branch and must still "
+         "surface from main@fork's index untouched.";
+}
+
+TEST_F(VersioningInterpreterTest, BranchLabelOnlyIndexSelectedInPlanOnBranch) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :L");
+  faker.Interpret("CREATE (:L {n:'a'})");
+  faker.Interpret("CREATE (:L {n:'b'})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto stream = faker.Interpret("EXPLAIN MATCH (n:L) RETURN n");
+  std::string plan;
+  for (const auto &row : stream.GetResults()) {
+    plan += row[0].ValueString();
+    plan += '\n';
+  }
+
+  // Locks that MirrorMainIndexDefinitionsIntoDiffEngine registers the label-only index on the
+  // branch's diff engine and that the planner selects the mirrored ScanAllByLabel instead of
+  // falling back to a plain ScanAll+Filter. Label-only indexes carry no property order, so there is
+  // no accompanying OrderBy-elision assertion here (unlike the label-property index tests above).
+  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByLabel"))
+      << "branch plan did not select the mirrored label-only index; full plan:\n"
+      << plan;
+}
