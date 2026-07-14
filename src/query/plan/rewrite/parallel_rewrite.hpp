@@ -133,6 +133,23 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
 
 #undef DEFAULT_VISITS
 
+  // A `CALL { USE ... }` scope body scans a bound projection, not the real graph.
+  // A parallel scan reads the real graph, so parallelizing a scan inside the scope
+  // would read the wrong graph - the same correctness bug ADR 0004 describes for
+  // the index rewriters, which is why they stop at BindGraphView too. Do not
+  // descend into the body; the plan outside the scope is still parallelized.
+  // (Unifying this guard with the index rewriters' IndexSubstitutionRewriter base
+  // under one scope-guard base is a possible later cleanup - see issue 45.)
+  bool PreVisit(BindGraphView &op) override {
+    prev_ops_.push_back(&op);
+    return false;
+  }
+
+  bool PostVisit(BindGraphView & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   // Single threaded Aggregate (potentially parallelizable)
   bool PreVisit(Aggregate &op) override {
     // Special case for DISTINCT operator - we don't support parallelizing DISTINCT operators
