@@ -241,5 +241,6 @@ VALUES                  : V A L U E S ;
 VECTOR                  : V E C T O R ;
 VERSION                 : V E R S I O N ;
 WEBSOCKET               : W E B S O C K E T ;
+WRITE                   : W R I T E ;
 YIELD                   : Y I E L D ;
 ZONEDDATETIME           : Z O N E D D A T E T I M E ;

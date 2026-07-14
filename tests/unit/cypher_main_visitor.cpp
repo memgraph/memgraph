@@ -4523,6 +4523,52 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
                SemanticException);
 }
 
+TEST_P(CypherMainVisitorTest, GrantRevokeCoordinatorPrivilege) {
+  auto &ast_generator = *GetParam();
+
+  // The coordinator READ/WRITE privileges parse as system privileges on GRANT/REVOKE.
+  check_auth_query(&ast_generator,
+                   "GRANT READ TO admin",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "admin",
+                   {},
+                   {AuthQuery::Privilege::COORDINATOR_READ},
+                   {},
+                   {});
+  check_auth_query(&ast_generator,
+                   "GRANT WRITE TO admin",
+                   AuthQuery::Action::GRANT_PRIVILEGE,
+                   "",
+                   {},
+                   "admin",
+                   {},
+                   {AuthQuery::Privilege::COORDINATOR_WRITE},
+                   {},
+                   {});
+  check_auth_query(&ast_generator,
+                   "REVOKE READ FROM admin",
+                   AuthQuery::Action::REVOKE_PRIVILEGE,
+                   "",
+                   {},
+                   "admin",
+                   {},
+                   {AuthQuery::Privilege::COORDINATOR_READ},
+                   {},
+                   {});
+  check_auth_query(&ast_generator,
+                   "REVOKE WRITE FROM admin",
+                   AuthQuery::Action::REVOKE_PRIVILEGE,
+                   "",
+                   {},
+                   "admin",
+                   {},
+                   {AuthQuery::Privilege::COORDINATOR_WRITE},
+                   {},
+                   {});
+}
+
 TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {
   auto &ast_generator = *GetParam();
   auto const kRead = AuthQuery::PropertyPermissionType::READ;

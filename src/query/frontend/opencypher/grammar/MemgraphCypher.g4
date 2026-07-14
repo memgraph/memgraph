@@ -240,6 +240,7 @@ memgraphCypherKeyword : cypherKeyword
                       | VECTOR
                       | VERSION
                       | WEBSOCKET
+                      | WRITE
                       | YIELD
                       | ZONEDDATETIME
                       ;
@@ -595,6 +596,8 @@ privilege : CREATE
           | PARALLEL_EXECUTION
           | SERVER_SIDE_PARAMETERS
           | RELOAD_TLS
+          | READ
+          | WRITE
           ;
 
 granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;

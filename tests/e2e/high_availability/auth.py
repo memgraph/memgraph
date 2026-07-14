@@ -656,6 +656,10 @@ def show_roles(cursor):
     return sorted(name for (name,) in execute_and_fetch_all(cursor, "SHOW ROLES"))
 
 
+def show_privileges(cursor, role):
+    return sorted(privilege for (privilege,) in execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR {role}"))
+
+
 def test_basic_auth_passthrough(test_name):
     # Coordinators with no users accept any connection; credentials are ignored (basic-auth passthrough).
     inner_instances_description = get_coords_only_description(test_name=test_name)
@@ -690,7 +694,11 @@ def test_disallowed_auth_queries_rejected(test_name):
         "GRANT ALL PRIVILEGES TO foo",
         "DENY MATCH TO foo",
         "REVOKE MATCH FROM foo",
-        "SHOW PRIVILEGES FOR foo",
+        # SHOW PRIVILEGES / GRANT / REVOKE are permitted on a coordinator only for the coordinator READ/WRITE privileges
+        # on a role; a USER target or a data-instance privilege must be rejected.
+        "SHOW PRIVILEGES FOR USER foo",
+        "GRANT READ TO USER foo",
+        "GRANT MATCH TO foo",
         "SET ROLE FOR foo TO bar",
         "CLEAR ROLE FOR foo",
     ]
@@ -739,6 +747,72 @@ def test_role_crud_on_leader(test_name):
         assert False, "DROP of a missing role should error"
     except Exception as e:
         assert "doesn't exist" in str(e)
+
+
+def test_privilege_grant_revoke_show_on_leader(test_name):
+    # On the leader, GRANT/REVOKE READ|WRITE update a role's persisted mask and SHOW PRIVILEGES FOR reports it.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+
+    execute_and_fetch_all(cursor, "CREATE ROLE reader")
+    execute_and_fetch_all(cursor, "CREATE ROLE writer")
+
+    # A freshly created (bare) role has no privileges.
+    assert show_privileges(cursor, "reader") == []
+    assert show_privileges(cursor, "writer") == []
+
+    # GRANT reflects in SHOW PRIVILEGES FOR.
+    execute_and_fetch_all(cursor, "GRANT READ TO reader")
+    assert show_privileges(cursor, "reader") == ["READ"]
+
+    # Granting WRITE too yields both (WRITE is a superset of READ, but both are reported as granted).
+    execute_and_fetch_all(cursor, "GRANT WRITE TO writer")
+    execute_and_fetch_all(cursor, "GRANT READ TO writer")
+    assert show_privileges(cursor, "writer") == ["READ", "WRITE"]
+
+    # REVOKE clears the specific privilege.
+    execute_and_fetch_all(cursor, "REVOKE READ FROM writer")
+    assert show_privileges(cursor, "writer") == ["WRITE"]
+
+    execute_and_fetch_all(cursor, "REVOKE WRITE FROM writer")
+    assert show_privileges(cursor, "writer") == []
+
+    # The other role's grant is untouched by operations on writer.
+    assert show_privileges(cursor, "reader") == ["READ"]
+
+    # GRANT/REVOKE/SHOW PRIVILEGES on a non-existent role errors.
+    try:
+        execute_and_fetch_all(cursor, "GRANT READ TO missing_role")
+        assert False, "GRANT on a missing role should error"
+    except Exception as e:
+        assert "doesn't exist" in str(e)
+
+
+def test_privilege_queries_rejected_for_non_role_targets(test_name):
+    # GRANT/REVOKE/SHOW PRIVILEGES are accepted only for coordinator READ/WRITE on a role; USER targets and
+    # data-instance privileges are rejected with the coordinator-only-queries error.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+    execute_and_fetch_all(cursor, "CREATE ROLE some_role")
+
+    rejected_queries = [
+        "GRANT READ TO USER some_role",
+        "REVOKE WRITE FROM USER some_role",
+        "SHOW PRIVILEGES FOR USER some_role",
+        "GRANT MATCH TO some_role",
+        "GRANT ALL PRIVILEGES TO some_role",
+        "REVOKE AUTH FROM some_role",
+    ]
+    for query in rejected_queries:
+        try:
+            execute_and_fetch_all(cursor, query)
+            assert False, f"Query should have been rejected on a coordinator: {query}"
+        except Exception as e:
+            assert "Coordinator can run only coordinator queries!" in str(e), f"Unexpected error for {query}: {e}"
 
 
 def test_roles_survive_full_cluster_restart(test_name):

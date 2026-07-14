@@ -280,27 +280,33 @@ TEST_F(CoordinatorClusterStateTest, RolesAddDropList) {
   // Empty by default.
   ASSERT_TRUE(cluster_state.GetRoles().empty());
 
-  // Add roles. The delta always carries the full updated vector (matching how the leader builds it).
+  // Add roles. The delta always carries the full updated vector (matching how the leader builds it). Each role carries
+  // its coordinator permission mask.
   // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const add_delta{.roles_ = std::vector<std::string>{"admin", "readonly"}};
+  CoordinatorClusterStateDelta const add_delta{
+      .roles_ =
+          std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}, {.name = "readonly", .permissions = 1}}};
   cluster_state.DoAction(add_delta);
-  ASSERT_EQ(cluster_state.GetRoles(), (std::vector<std::string>{"admin", "readonly"}));
+  ASSERT_EQ(
+      cluster_state.GetRoles(),
+      (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}, {.name = "readonly", .permissions = 1}}));
 
   // Drop one role.
   // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const drop_delta{.roles_ = std::vector<std::string>{"admin"}};
+  CoordinatorClusterStateDelta const drop_delta{.roles_ =
+                                                    std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}}};
   cluster_state.DoAction(drop_delta);
-  ASSERT_EQ(cluster_state.GetRoles(), (std::vector<std::string>{"admin"}));
+  ASSERT_EQ(cluster_state.GetRoles(), (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}}));
 
   // A delta that doesn't touch roles leaves them unchanged.
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const unrelated_delta{.enabled_reads_on_main_ = true};
   cluster_state.DoAction(unrelated_delta);
-  ASSERT_EQ(cluster_state.GetRoles(), (std::vector<std::string>{"admin"}));
+  ASSERT_EQ(cluster_state.GetRoles(), (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}}));
 
   // Drop all roles.
   // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const clear_delta{.roles_ = std::vector<std::string>{}};
+  CoordinatorClusterStateDelta const clear_delta{.roles_ = std::vector<CoordinatorRole>{}};
   cluster_state.DoAction(clear_delta);
   ASSERT_TRUE(cluster_state.GetRoles().empty());
 }
@@ -308,8 +314,12 @@ TEST_F(CoordinatorClusterStateTest, RolesAddDropList) {
 TEST_F(CoordinatorClusterStateTest, RolesMarshalling) {
   CoordinatorClusterState cluster_state{};
 
+  // Roundtrip must preserve each role's name AND its privilege mask.
   // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const delta_state{.roles_ = std::vector<std::string>{"admin", "readonly", "readwrite"}};
+  CoordinatorClusterStateDelta const delta_state{
+      .roles_ = std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3},
+                                             {.name = "readonly", .permissions = 1},
+                                             {.name = "bare", .permissions = 0}}};
   cluster_state.DoAction(delta_state);
 
   ptr<buffer> data;
@@ -317,7 +327,10 @@ TEST_F(CoordinatorClusterStateTest, RolesMarshalling) {
 
   auto deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
   ASSERT_EQ(cluster_state, deserialized_cluster_state);
-  ASSERT_EQ(deserialized_cluster_state.GetRoles(), (std::vector<std::string>{"admin", "readonly", "readwrite"}));
+  ASSERT_EQ(deserialized_cluster_state.GetRoles(),
+            (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3},
+                                          {.name = "readonly", .permissions = 1},
+                                          {.name = "bare", .permissions = 0}}));
 }
 
 TEST_F(CoordinatorClusterStateTest, RolesBackwardCompat) {
@@ -332,11 +345,11 @@ TEST_F(CoordinatorClusterStateTest, RolesBackwardCompat) {
   nlohmann::from_json(json, legacy_state);
   ASSERT_TRUE(legacy_state.GetRoles().empty());
 
-  // When present, from_json reads the stored value.
-  json[memgraph::coordination::kRoles.data()] = std::vector<std::string>{"admin"};
+  // When present, from_json reads the stored value including the mask.
+  json[memgraph::coordination::kRoles.data()] = std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}};
   CoordinatorClusterState feature_state;
   nlohmann::from_json(json, feature_state);
-  ASSERT_EQ(feature_state.GetRoles(), (std::vector<std::string>{"admin"}));
+  ASSERT_EQ(feature_state.GetRoles(), (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}}));
 }
 
 TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {

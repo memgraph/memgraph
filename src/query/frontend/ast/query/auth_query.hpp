@@ -103,7 +103,11 @@ class AuthQuery : public memgraph::query::Query {
     PARALLEL_EXECUTION,
     SERVER_SIDE_PARAMETERS,
     SERVER_SIDE_DESCRIPTIONS,
-    RELOAD_TLS
+    RELOAD_TLS,
+    // Coordinator-only privileges (READ / WRITE in the grammar). Not part of kPrivilegesAll, so GRANT ALL PRIVILEGES on
+    // a data instance does not grant them; they gate queries only on coordinators.
+    COORDINATOR_READ,
+    COORDINATOR_WRITE
   };
 
   enum class FineGrainedPrivilege {
@@ -223,11 +227,42 @@ class AuthQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
-/// Coordinators expose only role management out of the whole auth surface: CREATE ROLE, DROP ROLE and SHOW ROLES.
-/// Every other auth query (users, passwords, privileges, grants) is rejected on a coordinator.
-inline bool IsCoordinatorPermittedAuthQuery(AuthQuery::Action action) {
-  return action == AuthQuery::Action::CREATE_ROLE || action == AuthQuery::Action::DROP_ROLE ||
-         action == AuthQuery::Action::SHOW_ROLES;
+/// The two coordinator-only privileges (READ / WRITE in the grammar).
+inline bool IsCoordinatorPrivilege(AuthQuery::Privilege privilege) {
+  return privilege == AuthQuery::Privilege::COORDINATOR_READ || privilege == AuthQuery::Privilege::COORDINATOR_WRITE;
+}
+
+/// Coordinators expose only a small slice of the whole auth surface:
+///   - role management: CREATE ROLE, DROP ROLE, SHOW ROLES;
+///   - coordinator privilege management on roles: GRANT/REVOKE READ|WRITE, SHOW PRIVILEGES FOR <role>.
+/// GRANT/REVOKE are permitted only for the coordinator READ/WRITE privileges and never target a USER; SHOW PRIVILEGES
+/// likewise never targets a USER (coordinators have no users). Every other auth query is rejected on a coordinator.
+inline bool IsCoordinatorPermittedAuthQuery(AuthQuery const &query) {
+  switch (query.action_) {
+    case AuthQuery::Action::CREATE_ROLE:
+    case AuthQuery::Action::DROP_ROLE:
+    case AuthQuery::Action::SHOW_ROLES:
+      return true;
+    case AuthQuery::Action::GRANT_PRIVILEGE:
+    case AuthQuery::Action::REVOKE_PRIVILEGE: {
+      if (query.entity_type_ == AuthQuery::UserOrRoleType::USER) {
+        return false;
+      }
+      if (query.privileges_.empty()) {
+        return false;
+      }
+      for (auto const privilege : query.privileges_) {
+        if (!IsCoordinatorPrivilege(privilege)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    case AuthQuery::Action::SHOW_PRIVILEGES:
+      return query.entity_type_ != AuthQuery::UserOrRoleType::USER;
+    default:
+      return false;
+  }
 }
 
 /// Constant that holds all available privileges.

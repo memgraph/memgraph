@@ -224,8 +224,15 @@ TEST_F(TestPrivilegeExtractor, ShowSnapshotsQuery) {
 }
 
 TEST_F(TestPrivilegeExtractor, CoordinatorQuery) {
-  auto *query = storage.Create<CoordinatorQuery>();
-  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre());
+  // Read-only coordinator introspection requires COORDINATOR_READ.
+  auto *show_instances = storage.Create<CoordinatorQuery>();
+  show_instances->action_ = CoordinatorQuery::Action::SHOW_INSTANCES;
+  EXPECT_THAT(GetRequiredPrivileges(show_instances), UnorderedElementsAre(AuthQuery::Privilege::COORDINATOR_READ));
+
+  // Mutating/admin coordinator queries require COORDINATOR_WRITE.
+  auto *register_instance = storage.Create<CoordinatorQuery>();
+  register_instance->action_ = CoordinatorQuery::Action::REGISTER_INSTANCE;
+  EXPECT_THAT(GetRequiredPrivileges(register_instance), UnorderedElementsAre(AuthQuery::Privilege::COORDINATOR_WRITE));
 }
 
 TEST_F(TestPrivilegeExtractor, StreamQuery) {
@@ -311,12 +318,49 @@ TEST_F(TestPrivilegeExtractor, ShowQueryCallableMappingsQuery) {
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CONFIG));
 }
 
-// The coordinator auth-query gate permits exactly CREATE ROLE, DROP ROLE and SHOW ROLES; every other auth query is
-// rejected on a coordinator. This exercises the predicate the interpreter gate uses.
-TEST(CoordinatorAuthQueryGate, PermitsExactlyRoleQueries) {
-  EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(AuthQuery::Action::CREATE_ROLE));
-  EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(AuthQuery::Action::DROP_ROLE));
-  EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(AuthQuery::Action::SHOW_ROLES));
+// The coordinator auth-query gate permits exactly CREATE/DROP/SHOW ROLE, GRANT/REVOKE of the coordinator READ/WRITE
+// privileges on a role, and SHOW PRIVILEGES FOR a role; every other auth query (and any grant of a non-coordinator
+// privilege or against a USER) is rejected on a coordinator. This exercises the predicate the interpreter gate uses.
+TEST(CoordinatorAuthQueryGate, PermitsExactlyRoleAndCoordinatorPrivilegeQueries) {
+  AstStorage storage;
+  auto make = [&storage](AuthQuery::Action action,
+                         std::vector<AuthQuery::Privilege> privileges = {},
+                         AuthQuery::UserOrRoleType entity_type = AuthQuery::UserOrRoleType::UNSPECIFIED) {
+    auto *query = storage.Create<AuthQuery>();
+    query->action_ = action;
+    query->privileges_ = std::move(privileges);
+    query->entity_type_ = entity_type;
+    return query;
+  };
+
+  // Role management is always permitted.
+  EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::CREATE_ROLE)));
+  EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::DROP_ROLE)));
+  EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::SHOW_ROLES)));
+
+  // GRANT/REVOKE of coordinator READ/WRITE on a role (or unspecified target) is permitted.
+  EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(
+      *make(AuthQuery::Action::GRANT_PRIVILEGE, {AuthQuery::Privilege::COORDINATOR_READ})));
+  EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::REVOKE_PRIVILEGE,
+                                                    {AuthQuery::Privilege::COORDINATOR_WRITE},
+                                                    AuthQuery::UserOrRoleType::ROLE)));
+  EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(
+      *make(AuthQuery::Action::GRANT_PRIVILEGE,
+            {AuthQuery::Privilege::COORDINATOR_READ, AuthQuery::Privilege::COORDINATOR_WRITE})));
+
+  // SHOW PRIVILEGES FOR a role (or unspecified target) is permitted.
+  EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::SHOW_PRIVILEGES)));
+  EXPECT_TRUE(
+      IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::SHOW_PRIVILEGES, {}, AuthQuery::UserOrRoleType::ROLE)));
+
+  // Rejected: granting a non-coordinator privilege, an empty privilege list, or targeting a USER.
+  EXPECT_FALSE(
+      IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::GRANT_PRIVILEGE, {AuthQuery::Privilege::MATCH})));
+  EXPECT_FALSE(IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::GRANT_PRIVILEGE, {})));
+  EXPECT_FALSE(IsCoordinatorPermittedAuthQuery(*make(
+      AuthQuery::Action::GRANT_PRIVILEGE, {AuthQuery::Privilege::COORDINATOR_READ}, AuthQuery::UserOrRoleType::USER)));
+  EXPECT_FALSE(
+      IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::SHOW_PRIVILEGES, {}, AuthQuery::UserOrRoleType::USER)));
 
   // Every other auth action is rejected on a coordinator.
   for (auto const action : {AuthQuery::Action::CREATE_USER,
@@ -330,10 +374,7 @@ TEST(CoordinatorAuthQueryGate, PermitsExactlyRoleQueries) {
                             AuthQuery::Action::CLEAR_ROLE,
                             AuthQuery::Action::GRANT_ROLE,
                             AuthQuery::Action::REVOKE_ROLE,
-                            AuthQuery::Action::GRANT_PRIVILEGE,
                             AuthQuery::Action::DENY_PRIVILEGE,
-                            AuthQuery::Action::REVOKE_PRIVILEGE,
-                            AuthQuery::Action::SHOW_PRIVILEGES,
                             AuthQuery::Action::SHOW_ROLE_FOR_USER,
                             AuthQuery::Action::SHOW_USERS_FOR_ROLE,
                             AuthQuery::Action::GRANT_DATABASE_TO_USER,
@@ -346,6 +387,6 @@ TEST(CoordinatorAuthQueryGate, PermitsExactlyRoleQueries) {
                             AuthQuery::Action::GRANT_PROPERTY_PERMISSION,
                             AuthQuery::Action::DENY_PROPERTY_PERMISSION,
                             AuthQuery::Action::REVOKE_PROPERTY_PERMISSION}) {
-    EXPECT_FALSE(IsCoordinatorPermittedAuthQuery(action));
+    EXPECT_FALSE(IsCoordinatorPermittedAuthQuery(*make(action)));
   }
 }

@@ -4227,3 +4227,31 @@ TEST(MigrateAuthJson, NoFgaFieldNeedsNoMigration) {
     EXPECT_EQ(data[key], value) << "Mismatch for key: " << key;
   }
 }
+
+// Coordinator privilege model: a session's effective mask is the union of its roles' masks, and a query requiring READ
+// is satisfied by READ or WRITE while a query requiring WRITE needs WRITE. A bare role (mask 0) confers nothing.
+TEST(CoordinatorPrivileges, EffectiveMaskUnionAndAuthorization) {
+  auto const read = static_cast<uint64_t>(Permission::COORDINATOR_READ);
+  auto const write = static_cast<uint64_t>(Permission::COORDINATOR_WRITE);
+
+  // Union across multiple role masks (bitwise OR).
+  EXPECT_EQ(CoordinatorEffectiveMask(std::vector<uint64_t>{}), 0U);
+  EXPECT_EQ(CoordinatorEffectiveMask(std::vector<uint64_t>{0U}), 0U);
+  EXPECT_EQ(CoordinatorEffectiveMask(std::vector<uint64_t>{read, 0U}), read);
+  EXPECT_EQ(CoordinatorEffectiveMask(std::vector<uint64_t>{read, write}), read | write);
+  EXPECT_EQ(CoordinatorEffectiveMask(std::vector<uint64_t>{write, write}), write);
+
+  // A READ requirement is satisfied by READ or WRITE.
+  EXPECT_TRUE(CoordinatorMaskSatisfies(read, Permission::COORDINATOR_READ));
+  EXPECT_TRUE(CoordinatorMaskSatisfies(write, Permission::COORDINATOR_READ));
+  EXPECT_TRUE(CoordinatorMaskSatisfies(read | write, Permission::COORDINATOR_READ));
+
+  // A WRITE requirement needs WRITE; READ alone does not satisfy it.
+  EXPECT_TRUE(CoordinatorMaskSatisfies(write, Permission::COORDINATOR_WRITE));
+  EXPECT_TRUE(CoordinatorMaskSatisfies(read | write, Permission::COORDINATOR_WRITE));
+  EXPECT_FALSE(CoordinatorMaskSatisfies(read, Permission::COORDINATOR_WRITE));
+
+  // A bare role (empty mask) confers nothing.
+  EXPECT_FALSE(CoordinatorMaskSatisfies(0U, Permission::COORDINATOR_READ));
+  EXPECT_FALSE(CoordinatorMaskSatisfies(0U, Permission::COORDINATOR_WRITE));
+}

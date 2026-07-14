@@ -251,7 +251,7 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
 
     if (json.contains(kRoles.data())) {
       // roles is added later, read it optionally so older logs decode to an unset delta field
-      delta_state.roles_ = json[kRoles.data()].get<std::vector<std::string>>();
+      delta_state.roles_ = json[kRoles.data()].get<std::vector<CoordinatorRole>>();
     }
 
     return delta_state;
@@ -459,7 +459,7 @@ auto CoordinatorStateMachine::GetInstanceHealthCheckFrequencySec() const -> std:
 
 auto CoordinatorStateMachine::GetGlobalReadOnly() const -> bool { return cluster_state_.GetGlobalReadOnly(); }
 
-auto CoordinatorStateMachine::GetRoles() const -> std::vector<std::string> { return cluster_state_.GetRoles(); }
+auto CoordinatorStateMachine::GetRoles() const -> std::vector<CoordinatorRole> { return cluster_state_.GetRoles(); }
 
 }  // namespace memgraph::coordination
 #endif

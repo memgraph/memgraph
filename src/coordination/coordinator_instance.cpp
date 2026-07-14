@@ -1156,10 +1156,11 @@ auto CoordinatorInstance::CreateRole(std::string_view const role_name) const -> 
   }
 
   auto roles = raft_state_->GetRoles();
-  if (std::ranges::contains(roles, role_name)) {
+  if (std::ranges::contains(roles, role_name, &CoordinatorRole::name)) {
     return CreateRoleStatus::ROLE_ALREADY_EXISTS;
   }
-  roles.emplace_back(role_name);
+  // New roles start with an empty privilege mask; GRANT populates it later.
+  roles.emplace_back(CoordinatorRole{.name = std::string{role_name}, .permissions = 0});
 
   CoordinatorClusterStateDelta delta_state;
   delta_state.roles_ = std::move(roles);
@@ -1178,7 +1179,8 @@ auto CoordinatorInstance::DropRole(std::string_view const role_name) const -> Dr
   }
 
   auto roles = raft_state_->GetRoles();
-  auto const removed = std::erase(roles, role_name);
+  auto const removed =
+      std::erase_if(roles, [role_name](CoordinatorRole const &role) { return role.name == role_name; });
   if (removed == 0) {
     return DropRoleStatus::NO_SUCH_ROLE;
   }
@@ -1193,13 +1195,76 @@ auto CoordinatorInstance::DropRole(std::string_view const role_name) const -> Dr
   return DropRoleStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::GetRoles(std::vector<std::string> &roles) const -> GetRolesStatus {
+auto CoordinatorInstance::GetRoles(std::vector<CoordinatorRole> &roles) const -> GetRolesStatus {
   // SHOW ROLES is a strong read served by the leader; follower forwarding is a later slice.
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return GetRolesStatus::NOT_LEADER;
   }
   roles = raft_state_->GetRoles();
   return GetRolesStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
+    -> GrantPrivilegeStatus {
+  // Follower forwarding is a later slice; for now the operation must run on the ready leader.
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return GrantPrivilegeStatus::NOT_LEADER;
+  }
+
+  auto roles = raft_state_->GetRoles();
+  auto const it = std::ranges::find(roles, role_name, &CoordinatorRole::name);
+  if (it == roles.end()) {
+    return GrantPrivilegeStatus::NO_SUCH_ROLE;
+  }
+  it->permissions |= privileges;
+
+  CoordinatorClusterStateDelta delta_state;
+  delta_state.roles_ = std::move(roles);
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
+    spdlog::error("Aborting grant of privileges to role {}. Writing to Raft failed.", role_name);
+    return GrantPrivilegeStatus::RAFT_LOG_ERROR;
+  }
+
+  return GrantPrivilegeStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::RevokePrivilege(std::string_view const role_name, uint64_t const privileges) const
+    -> RevokePrivilegeStatus {
+  // Follower forwarding is a later slice; for now the operation must run on the ready leader.
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return RevokePrivilegeStatus::NOT_LEADER;
+  }
+
+  auto roles = raft_state_->GetRoles();
+  auto const it = std::ranges::find(roles, role_name, &CoordinatorRole::name);
+  if (it == roles.end()) {
+    return RevokePrivilegeStatus::NO_SUCH_ROLE;
+  }
+  it->permissions &= ~privileges;
+
+  CoordinatorClusterStateDelta delta_state;
+  delta_state.roles_ = std::move(roles);
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
+    spdlog::error("Aborting revoke of privileges from role {}. Writing to Raft failed.", role_name);
+    return RevokePrivilegeStatus::RAFT_LOG_ERROR;
+  }
+
+  return RevokePrivilegeStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::GetRolePrivileges(std::string_view const role_name, uint64_t &privileges) const
+    -> GetRolePrivilegesStatus {
+  // SHOW PRIVILEGES FOR is a strong read served by the leader; follower forwarding is a later slice.
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return GetRolePrivilegesStatus::NOT_LEADER;
+  }
+  auto const roles = raft_state_->GetRoles();
+  auto const it = std::ranges::find(roles, role_name, &CoordinatorRole::name);
+  if (it == roles.end()) {
+    return GetRolePrivilegesStatus::NO_SUCH_ROLE;
+  }
+  privileges = it->permissions;
+  return GetRolePrivilegesStatus::SUCCESS;
 }
 
 void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name, InstanceState const &instance_state) {
