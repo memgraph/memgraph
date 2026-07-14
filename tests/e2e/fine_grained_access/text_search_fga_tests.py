@@ -15,11 +15,6 @@ import common
 import mgclient
 import pytest
 
-# Setup lives in workloads.yaml. Tests are grouped by user; each group's header states what that user
-# can and cannot see. Governing rule: a text hit surfaces only if the caller can read the node (label)
-# AND the matched property (property read is deny-by-default) on the hit's real labels — matching normal
-# iteration. Aggregation has no per-row hook, so it is gated up front and fails closed.
-
 
 def admin_cursor():
     return common.connect(username="admin", password="test").cursor()
@@ -51,6 +46,14 @@ def test_admin_text_search_returns_results_on_denied_index():
     res = common.execute_and_fetch_all(
         admin_cursor(),
         "CALL text_search.search('doc_text', 'data.title:Secret') YIELD node RETURN node;",
+    )
+    assert len(res) >= 1
+
+
+def test_admin_search_all_returns_results_on_denied_index():
+    res = common.execute_and_fetch_all(
+        admin_cursor(),
+        "CALL text_search.search_all('doc_text', 'Secret') YIELD node RETURN node;",
     )
     assert len(res) >= 1
 
