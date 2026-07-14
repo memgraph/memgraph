@@ -11,9 +11,12 @@
 
 #pragma once
 
+#include <algorithm>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "query/db_accessor.hpp"
 #include "query/graph_view.hpp"
@@ -29,10 +32,11 @@ namespace memgraph::query {
 // mints no label/property/edge-type ids of its own.
 //
 // It is the projection GraphView: a scan over it yields the projection's nodes
-// as the common scan element, so the read operators run over a projection the
-// same way they run over the real graph. Edge expansion stays on the element, so
-// OutEdges/InEdges are exposed here for the projection's expand surface rather
-// than on GraphView.
+// as the common scan element, and OutEdges/InEdges expand a node's edges, so the
+// read operators run over a projection the same way they run over the real graph.
+// A real vertex reaching this view (an outer-scope vertex used inside a USE block)
+// is not a projection node and has no edges here. The span-returning OutEdges/
+// InEdges below remain for the mgp procedure path.
 class VirtualGraphView final : public GraphView {
   VirtualGraph *graph_;
   DbAccessor *names_;
@@ -52,6 +56,22 @@ class VirtualGraphView final : public GraphView {
 
   std::span<const VirtualEdge *const> InEdges(storage::Gid node) const { return graph_->InEdges(node); }
 
+  EdgeRange OutEdges(const ScanVertex &from, storage::View /*view*/, const std::vector<storage::EdgeTypeId> &edge_types,
+                     const std::optional<ScanVertex> &existing_dest, HopsLimit * /*hops*/) override {
+    const auto *node = std::get_if<VirtualNode>(&from);
+    if (node == nullptr)
+      return EdgeRange{std::vector<const VirtualEdge *>{}, 0};  // a real vertex is no projection node
+    return FilterEdges(graph_->OutEdges(node->Gid()), edge_types, existing_dest, /*neighbor_is_to=*/true);
+  }
+
+  EdgeRange InEdges(const ScanVertex &from, storage::View /*view*/, const std::vector<storage::EdgeTypeId> &edge_types,
+                    const std::optional<ScanVertex> &existing_dest, HopsLimit * /*hops*/) override {
+    const auto *node = std::get_if<VirtualNode>(&from);
+    if (node == nullptr)
+      return EdgeRange{std::vector<const VirtualEdge *>{}, 0};  // a real vertex is no projection node
+    return FilterEdges(graph_->InEdges(node->Gid()), edge_types, existing_dest, /*neighbor_is_to=*/false);
+  }
+
   storage::LabelId NameToLabel(std::string_view name) override { return names_->NameToLabel(name); }
 
   const std::string &LabelToName(storage::LabelId label) const override { return names_->LabelToName(label); }
@@ -63,6 +83,39 @@ class VirtualGraphView final : public GraphView {
   storage::EdgeTypeId NameToEdgeType(std::string_view name) override { return names_->NameToEdgeType(name); }
 
   const std::string &EdgeTypeToName(storage::EdgeTypeId type) const override { return names_->EdgeTypeToName(type); }
+
+ private:
+  // Keep the projection edges whose type is in edge_types (empty = any) and, when a
+  // destination endpoint is already bound, only the edge reaching it. neighbor_is_to
+  // picks the far end for the current direction: the target for an out-edge, the
+  // source for an in-edge. Projection edges carry type names, so the requested type
+  // ids are resolved to names once per call.
+  EdgeRange FilterEdges(std::span<const VirtualEdge *const> edges, const std::vector<storage::EdgeTypeId> &edge_types,
+                        const std::optional<ScanVertex> &existing_dest, bool neighbor_is_to) const {
+    std::vector<std::string_view> allowed;
+    allowed.reserve(edge_types.size());
+    for (const auto type : edge_types) allowed.emplace_back(names_->EdgeTypeToName(type));
+
+    std::optional<storage::Gid> dest_gid;
+    if (existing_dest) dest_gid = std::get<VirtualNode>(*existing_dest).Gid();
+
+    // Every incident edge is examined; the count is taken before filtering so a
+    // projection accounts the same traversal as the real graph (EdgeRange comment).
+    const auto examined = static_cast<int64_t>(edges.size());
+    std::vector<const VirtualEdge *> kept;
+    kept.reserve(edges.size());
+    for (const auto *edge : edges) {
+      if (!allowed.empty() && std::ranges::find(allowed, std::string_view{edge->EdgeTypeName()}) == allowed.end()) {
+        continue;
+      }
+      if (dest_gid) {
+        const auto neighbor = neighbor_is_to ? edge->ToGid() : edge->FromGid();
+        if (neighbor != *dest_gid) continue;
+      }
+      kept.push_back(edge);
+    }
+    return EdgeRange{std::move(kept), examined};
+  }
 };
 
 }  // namespace memgraph::query

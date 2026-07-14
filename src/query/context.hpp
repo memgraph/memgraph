@@ -75,8 +75,11 @@ struct EvaluationContext {
   mutable std::unordered_map<std::string, int64_t> counters{};
   Scope scope{};
   // The ambient graph the read operators scan and the topology functions resolve
-  // over. Bound to the identity view (the real graph) by default; a
-  // `CALL { USE ... }` scope rebinds a projection or subgraph view for the block.
+  // over. Every executor binds one before the plan runs - the real graph as the
+  // identity view (PullPlan, the trigger executor, the test MakeContext helper) -
+  // and a `CALL { USE ... }` scope rebinds a projection or subgraph view for the
+  // block. The read path assumes it is non-null during execution; the null default
+  // is only the pre-bind value.
   GraphView *graph_view{nullptr};
   // Query-local projection of synthetic Gids onto dense external ids. Shared (not deep-copied) so
   // parallel workers agree on a virtual entity's external id; a fresh one per query gives the

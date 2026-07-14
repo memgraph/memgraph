@@ -11,14 +11,19 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
 #include <set>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
+#include "query/graph.hpp"
 #include "query/graph_view.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "query/subgraph_graph_view.hpp"
 #include "query/virtual_graph.hpp"
 #include "query/virtual_graph_view.hpp"
 #include "query/virtual_node.hpp"
@@ -374,6 +379,153 @@ TEST_F(VirtualGraphViewTest, NameMappingSharesTheRealNamespace) {
   EXPECT_EQ(label, dba_.NameToLabel("Person"));
   EXPECT_EQ(prop, dba_.NameToProperty("name"));
   EXPECT_EQ(edge_type, dba_.NameToEdgeType("KNOWS"));
+}
+
+// --- Edge expansion through the GraphView seam (Stage A) -------------------
+//
+// The base GraphView OutEdges/InEdges are exercised on each concrete view: the
+// identity view forwards to the real accessor (keeping storage-level type and
+// destination pushdown), the projection view reads its own in/out index, and the
+// subgraph view forwards to the real accessor then drops non-member edges.
+
+// Collects a projection expansion into (from, to) gid pairs.
+std::vector<std::pair<Gid, Gid>> VirtualPairs(EdgeRange range) {
+  std::vector<std::pair<Gid, Gid>> pairs;
+  for (auto edge : range) {
+    const auto &ve = std::get<VirtualEdge>(edge);
+    pairs.emplace_back(ve.FromGid(), ve.ToGid());
+  }
+  return pairs;
+}
+
+// Collects a real expansion into the set of reached (To/From) vertex gids.
+std::set<Gid> RealEndpoints(EdgeRange range, bool out) {
+  std::set<Gid> gids;
+  for (auto edge : range) {
+    const auto &ea = std::get<EdgeAccessor>(edge);
+    gids.insert(out ? ea.To().Gid() : ea.From().Gid());
+  }
+  return gids;
+}
+
+// A directed projection edge appears among its source's out-edges and its
+// target's in-edges only, expanded through the seam rather than the concrete view.
+TEST_F(VirtualGraphViewTest, SeamExpandsProjectionEdgeDirectionally) {
+  std::vector<VirtualNode> nodes;
+  nodes.push_back(HandledNode(1, {"A"}));
+  nodes.push_back(HandledNode(2, {"B"}));
+  const auto src = nodes[0].Gid();
+  const auto dst = nodes[1].Gid();
+  std::vector<VirtualEdge> edges;
+  edges.emplace_back(int64_t{1}, int64_t{2}, "KNOWS");
+  auto graph = AssembleVirtualGraph(nodes, edges, DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());
+  VirtualGraphView view{&graph, &dba_};
+
+  const auto outs = VirtualPairs(view.OutEdges(ScanVertex{nodes[0]}, View::NEW, {}, std::nullopt, nullptr));
+  ASSERT_EQ(outs.size(), 1U);
+  EXPECT_EQ(outs[0], std::make_pair(src, dst));
+
+  const auto ins = VirtualPairs(view.InEdges(ScanVertex{nodes[1]}, View::NEW, {}, std::nullopt, nullptr));
+  ASSERT_EQ(ins.size(), 1U);
+  EXPECT_EQ(ins[0], std::make_pair(src, dst));
+
+  // Wrong direction against each endpoint is empty.
+  EXPECT_TRUE(VirtualPairs(view.InEdges(ScanVertex{nodes[0]}, View::NEW, {}, std::nullopt, nullptr)).empty());
+  EXPECT_TRUE(VirtualPairs(view.OutEdges(ScanVertex{nodes[1]}, View::NEW, {}, std::nullopt, nullptr)).empty());
+}
+
+// An edge-type filter keeps only edges of a requested type.
+TEST_F(VirtualGraphViewTest, SeamFiltersProjectionEdgesByType) {
+  std::vector<VirtualNode> nodes;
+  nodes.push_back(HandledNode(1));
+  nodes.push_back(HandledNode(2));
+  nodes.push_back(HandledNode(3));
+  std::vector<VirtualEdge> edges;
+  edges.emplace_back(int64_t{1}, int64_t{2}, "KNOWS");
+  edges.emplace_back(int64_t{1}, int64_t{3}, "LIKES");
+  auto graph = AssembleVirtualGraph(nodes, edges, DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());
+  VirtualGraphView view{&graph, &dba_};
+
+  const std::vector<storage::EdgeTypeId> only_knows{dba_.NameToEdgeType("KNOWS")};
+  const auto outs = VirtualPairs(view.OutEdges(ScanVertex{nodes[0]}, View::NEW, only_knows, std::nullopt, nullptr));
+  ASSERT_EQ(outs.size(), 1U);
+  EXPECT_EQ(outs[0].second, nodes[1].Gid());
+}
+
+// An already-bound destination keeps only the edge that reaches it.
+TEST_F(VirtualGraphViewTest, SeamFiltersProjectionEdgesByExistingDest) {
+  std::vector<VirtualNode> nodes;
+  nodes.push_back(HandledNode(1));
+  nodes.push_back(HandledNode(2));
+  nodes.push_back(HandledNode(3));
+  std::vector<VirtualEdge> edges;
+  edges.emplace_back(int64_t{1}, int64_t{2}, "R");
+  edges.emplace_back(int64_t{1}, int64_t{3}, "R");
+  auto graph = AssembleVirtualGraph(nodes, edges, DanglingEdgePolicy::kError, memgraph::utils::NewDeleteResource());
+  VirtualGraphView view{&graph, &dba_};
+
+  const std::optional<ScanVertex> dest{ScanVertex{nodes[1]}};
+  const auto outs = VirtualPairs(view.OutEdges(ScanVertex{nodes[0]}, View::NEW, {}, dest, nullptr));
+  ASSERT_EQ(outs.size(), 1U);
+  EXPECT_EQ(outs[0].second, nodes[1].Gid());
+}
+
+// The identity view expands a real vertex's edges through the seam, pushing the
+// type and destination filters down to the real accessor.
+TEST_F(GraphViewTest, SeamExpandsRealEdgesWithPushdown) {
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
+  DbAccessor dba{acc.get()};
+  auto a = dba.InsertVertex();
+  auto b = dba.InsertVertex();
+  auto c = dba.InsertVertex();
+  const auto knows = dba.NameToEdgeType("KNOWS");
+  const auto likes = dba.NameToEdgeType("LIKES");
+  ASSERT_TRUE(dba.InsertEdge(&a, &b, knows).has_value());
+  ASSERT_TRUE(dba.InsertEdge(&a, &c, likes).has_value());
+  dba.AdvanceCommand();
+
+  DbAccessorGraphView view{&dba};
+  const ScanVertex from{a};
+
+  EXPECT_EQ(RealEndpoints(view.OutEdges(from, View::NEW, {}, std::nullopt, nullptr), /*out=*/true),
+            (std::set<Gid>{b.Gid(), c.Gid()}));
+
+  const std::vector<storage::EdgeTypeId> only_knows{knows};
+  EXPECT_EQ(RealEndpoints(view.OutEdges(from, View::NEW, only_knows, std::nullopt, nullptr), true),
+            (std::set<Gid>{b.Gid()}));
+
+  const std::optional<ScanVertex> dest{ScanVertex{c}};
+  EXPECT_EQ(RealEndpoints(view.OutEdges(from, View::NEW, {}, dest, nullptr), true), (std::set<Gid>{c.Gid()}));
+
+  // In-edges of b are a's edge, seen from the other end.
+  EXPECT_EQ(RealEndpoints(view.InEdges(ScanVertex{b}, View::NEW, {}, std::nullopt, nullptr), /*out=*/false),
+            (std::set<Gid>{a.Gid()}));
+}
+
+// The subgraph view forwards to the real accessor and then drops edges that are
+// not members of the subgraph, so expansion stays within it.
+TEST_F(GraphViewTest, SeamDropsNonMemberSubgraphEdges) {
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
+  DbAccessor dba{acc.get()};
+  auto a = dba.InsertVertex();
+  auto b = dba.InsertVertex();
+  auto c = dba.InsertVertex();
+  const auto t = dba.NameToEdgeType("R");
+  auto member = dba.InsertEdge(&a, &b, t);
+  auto non_member = dba.InsertEdge(&a, &c, t);
+  ASSERT_TRUE(member.has_value());
+  ASSERT_TRUE(non_member.has_value());
+  dba.AdvanceCommand();
+
+  Graph graph{memgraph::utils::NewDeleteResource()};
+  graph.InsertVertex(a);
+  graph.InsertVertex(b);
+  graph.InsertEdge(*member);  // a->b is a member; a->c is not
+  SubgraphGraphView view{&graph, &dba};
+
+  // Only the member edge survives; the non-member edge to c is dropped.
+  EXPECT_EQ(RealEndpoints(view.OutEdges(ScanVertex{a}, View::NEW, {}, std::nullopt, nullptr), /*out=*/true),
+            (std::set<Gid>{b.Gid()}));
 }
 
 }  // namespace memgraph::query::test

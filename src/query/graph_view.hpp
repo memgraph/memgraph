@@ -11,15 +11,23 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "query/db_accessor.hpp"
+#include "query/edge_accessor.hpp"
+#include "query/exceptions.hpp"
+#include "query/hops_limit.hpp"
+#include "query/virtual_edge.hpp"
 #include "query/virtual_graph.hpp"
 #include "query/virtual_node.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/view.hpp"
 
 namespace memgraph::query {
@@ -105,9 +113,99 @@ class VertexRange final {
   }
 };
 
-// The single graph abstraction the read operators run against: scan the vertices
-// and map names to/from ids. Property reads and edge expansion stay on the
-// element (VertexAccessor / VirtualNode), not here.
+// One expanded edge: a real EdgeAccessor (identity or subgraph view) or a
+// projection's VirtualEdge. Mirrors ScanVertex - an expansion yields these
+// directly, the virtual boundary having been crossed once to obtain the range.
+using ScanEdge = std::variant<EdgeAccessor, VirtualEdge>;
+
+// A range over the edges yielded by one expansion of a GraphView node. As with
+// VertexRange the boundary is crossed once to obtain the range; iteration is then
+// over concrete elements. The identity and subgraph views back it with a real
+// EdgeAccessor vector (already filtered and counted by storage); a projection
+// backs it with the borrowed VirtualEdge pointers matching the requested
+// direction and filters. expanded_count is the number of edges examined during
+// the expansion (for hops accounting), counted before any type/destination filter
+// drops one - so a projection and the real graph account the same traversal.
+class EdgeRange final {
+  std::variant<std::vector<EdgeAccessor>, std::vector<const VirtualEdge *>> impl_;
+  int64_t expanded_count_{0};
+
+ public:
+  EdgeRange(std::vector<EdgeAccessor> edges, int64_t expanded_count)
+      : impl_(std::move(edges)), expanded_count_(expanded_count) {}
+
+  EdgeRange(std::vector<const VirtualEdge *> edges, int64_t expanded_count)
+      : impl_(std::move(edges)), expanded_count_(expanded_count) {}
+
+  [[nodiscard]] int64_t expanded_count() const { return expanded_count_; }
+
+  class Iterator final {
+    std::variant<std::vector<EdgeAccessor>::const_iterator, std::vector<const VirtualEdge *>::const_iterator> it_;
+
+   public:
+    explicit Iterator(std::vector<EdgeAccessor>::const_iterator it) : it_(it) {}
+
+    explicit Iterator(std::vector<const VirtualEdge *>::const_iterator it) : it_(it) {}
+
+    ScanEdge operator*() const {
+      return std::visit(
+          [](const auto &it) -> ScanEdge {
+            // The real arm dereferences to an EdgeAccessor; the projection arm
+            // dereferences to a VirtualEdge pointer, so it is deref'd once more to
+            // copy the edge into the variant.
+            using Elem = std::decay_t<decltype(*it)>;
+            if constexpr (std::is_same_v<Elem, EdgeAccessor>) {
+              return *it;
+            } else {
+              return **it;
+            }
+          },
+          it_);
+    }
+
+    Iterator &operator++() {
+      std::visit([](auto &it) { ++it; }, it_);
+      return *this;
+    }
+
+    bool operator==(const Iterator &other) const { return it_ == other.it_; }
+
+    bool operator!=(const Iterator &other) const { return it_ != other.it_; }
+  };
+
+  Iterator begin() const {
+    return std::visit([](const auto &edges) { return Iterator(edges.begin()); }, impl_);
+  }
+
+  Iterator end() const {
+    return std::visit([](const auto &edges) { return Iterator(edges.end()); }, impl_);
+  }
+};
+
+// Maps a storage edges result onto the query-layer edge/count shape, turning a
+// storage error into the query error the read path reports. Mirrors the read
+// path's edges-result unwrap; the operator's copy retires once expansion routes
+// through this seam.
+inline EdgeVertexAccessorResult UnwrapEdges(storage::Result<EdgeVertexAccessorResult> &&result) {
+  if (!result) {
+    switch (result.error()) {
+      case storage::Error::DELETED_OBJECT:
+        throw QueryRuntimeException("Trying to get relationships of a deleted node.");
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw QueryRuntimeException("Trying to get relationships from a node that doesn't exist.");
+      case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::SERIALIZATION_ERROR:
+      case storage::Error::PROPERTIES_DISABLED:
+        throw QueryRuntimeException("Unexpected error when accessing relationships.");
+    }
+  }
+  return std::move(*result);
+}
+
+// The single graph abstraction the read operators run against: scan the vertices,
+// expand a node's edges, and map names to/from ids. Property reads stay on the
+// element (VertexAccessor / VirtualNode); topology - scan and expand - is here, so
+// the operators run over real, subgraph, and projection graphs through one seam.
 //
 // The real DbAccessor is the identity view (DbAccessorGraphView); a subgraph or
 // projection is a view layered over it. ExecutionContext binds the ambient view,
@@ -125,6 +223,27 @@ class GraphView {
   // projection scope a label-filtered match is a full scan plus a filter, since
   // a projection exposes no index.
   virtual VertexRange Vertices(storage::View view) = 0;
+
+  // Expand a scanned node's out-/in-edges through the view. edge_types filters by
+  // type (empty = any); existing_dest, when set, keeps only the edge reaching that
+  // already-bound endpoint. `from` must match the view's element kind - a real
+  // vertex for the identity/subgraph views, a VirtualNode for a projection - which
+  // holds because a node is expanded through the same view that scanned it; a
+  // mismatch is a programming error.
+  //
+  // Topology filtering (type, destination) happens behind the seam; the range
+  // yields edges only. Fine-grained READ authorization is NOT applied here - it
+  // stays on the operator, which drops forbidden edges and neighbours per element -
+  // so the seam stays topology-only. hops threads the traversal's budget to storage
+  // for the identity and subgraph views; enforcing it over a projection lands with
+  // the variable-length routing (issue 43).
+  virtual EdgeRange OutEdges(const ScanVertex &from, storage::View view,
+                             const std::vector<storage::EdgeTypeId> &edge_types,
+                             const std::optional<ScanVertex> &existing_dest, HopsLimit *hops) = 0;
+
+  virtual EdgeRange InEdges(const ScanVertex &from, storage::View view,
+                            const std::vector<storage::EdgeTypeId> &edge_types,
+                            const std::optional<ScanVertex> &existing_dest, HopsLimit *hops) = 0;
 
   virtual storage::LabelId NameToLabel(std::string_view name) = 0;
   virtual const std::string &LabelToName(storage::LabelId label) const = 0;
@@ -144,6 +263,24 @@ class DbAccessorGraphView final : public GraphView {
   explicit DbAccessorGraphView(DbAccessor *dba) : dba_(dba) {}
 
   VertexRange Vertices(storage::View view) override { return VertexRange{dba_->Vertices(view)}; }
+
+  EdgeRange OutEdges(const ScanVertex &from, storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
+                     const std::optional<ScanVertex> &existing_dest, HopsLimit *hops) override {
+    const auto &vertex = std::get<VertexAccessor>(from);
+    auto result = existing_dest ? vertex.OutEdges(view, edge_types, std::get<VertexAccessor>(*existing_dest), hops)
+                                : vertex.OutEdges(view, edge_types, hops);
+    auto edges = UnwrapEdges(std::move(result));
+    return EdgeRange{std::move(edges.edges), edges.expanded_count};
+  }
+
+  EdgeRange InEdges(const ScanVertex &from, storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
+                    const std::optional<ScanVertex> &existing_dest, HopsLimit *hops) override {
+    const auto &vertex = std::get<VertexAccessor>(from);
+    auto result = existing_dest ? vertex.InEdges(view, edge_types, std::get<VertexAccessor>(*existing_dest), hops)
+                                : vertex.InEdges(view, edge_types, hops);
+    auto edges = UnwrapEdges(std::move(result));
+    return EdgeRange{std::move(edges.edges), edges.expanded_count};
+  }
 
   storage::LabelId NameToLabel(std::string_view name) override { return dba_->NameToLabel(name); }
 

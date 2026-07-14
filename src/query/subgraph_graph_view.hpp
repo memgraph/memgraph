@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "query/db_accessor.hpp"
 #include "query/graph.hpp"
@@ -47,6 +49,20 @@ class SubgraphGraphView final : public GraphView {
 
   VertexRange Vertices(storage::View /*view*/) override { return VertexRange{VerticesIterable(&graph_->vertices())}; }
 
+  EdgeRange OutEdges(const ScanVertex &from, storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
+                     const std::optional<ScanVertex> &existing_dest, HopsLimit *hops) override {
+    const auto &vertex = std::get<VertexAccessor>(from);
+    return MemberEdges(existing_dest ? vertex.OutEdges(view, edge_types, std::get<VertexAccessor>(*existing_dest), hops)
+                                     : vertex.OutEdges(view, edge_types, hops));
+  }
+
+  EdgeRange InEdges(const ScanVertex &from, storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
+                    const std::optional<ScanVertex> &existing_dest, HopsLimit *hops) override {
+    const auto &vertex = std::get<VertexAccessor>(from);
+    return MemberEdges(existing_dest ? vertex.InEdges(view, edge_types, std::get<VertexAccessor>(*existing_dest), hops)
+                                     : vertex.InEdges(view, edge_types, hops));
+  }
+
   storage::LabelId NameToLabel(std::string_view name) override { return names_->NameToLabel(name); }
 
   const std::string &LabelToName(storage::LabelId label) const override { return names_->LabelToName(label); }
@@ -58,6 +74,20 @@ class SubgraphGraphView final : public GraphView {
   storage::EdgeTypeId NameToEdgeType(std::string_view name) override { return names_->NameToEdgeType(name); }
 
   const std::string &EdgeTypeToName(storage::EdgeTypeId type) const override { return names_->EdgeTypeToName(type); }
+
+ private:
+  // Real-vertex edges filtered to the subgraph's membership: expansion stays within
+  // the subgraph. All traversed real edges count toward hops (expanded_count), even
+  // the non-member ones dropped from the range.
+  EdgeRange MemberEdges(storage::Result<EdgeVertexAccessorResult> &&result) const {
+    auto edges = UnwrapEdges(std::move(result));
+    std::vector<EdgeAccessor> kept;
+    kept.reserve(edges.edges.size());
+    for (auto &edge : edges.edges) {
+      if (ContainsEdge(edge)) kept.push_back(std::move(edge));
+    }
+    return EdgeRange{std::move(kept), edges.expanded_count};
+  }
 };
 
 }  // namespace memgraph::query

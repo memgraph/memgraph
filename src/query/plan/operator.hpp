@@ -23,6 +23,7 @@
 
 #include "query/common.hpp"
 #include "query/frontend/semantic/symbol.hpp"
+#include "query/graph_view.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
@@ -1075,46 +1076,23 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     ExpansionInfo GetExpansionInfo(Frame &);
 
    private:
-    using InEdgeT = std::vector<EdgeAccessor>;
-    using InEdgeIteratorT = decltype(std::declval<InEdgeT>().begin());
-    using OutEdgeT = std::vector<EdgeAccessor>;
-    using OutEdgeIteratorT = decltype(std::declval<OutEdgeT>().begin());
-
-    // A projection's incident edges, borrowed from the bound view's edge index.
-    using VEdgeRange = std::span<const VirtualEdge *const>;
-    using VEdgeIteratorT = VEdgeRange::iterator;
-
     const Expand &self_;
     const UniqueCursorPtr input_cursor_;
 
-    // The iterable over edges and the current edge iterator are referenced via
-    // optional because they can not be initialized in the constructor of
-    // this class. They are initialized once for each pull from the input.
-    std::optional<InEdgeT> in_edges_;
-    std::optional<InEdgeIteratorT> in_edges_it_;
-    std::optional<OutEdgeT> out_edges_;
-    std::optional<OutEdgeIteratorT> out_edges_it_;
+    // The edges to expand and the current position, per direction. Optional
+    // because they are (re)initialized once per pull from the input, not in the
+    // constructor. Each is obtained from the ambient GraphView, so it carries the
+    // real graph's edges (identity or subgraph view) or the projection's edges
+    // uniformly, and iteration yields a ScanEdge for either kind.
+    std::optional<EdgeRange> in_edges_;
+    std::optional<EdgeRange::Iterator> in_edges_it_;
+    std::optional<EdgeRange> out_edges_;
+    std::optional<EdgeRange::Iterator> out_edges_it_;
     ExpansionInfo expansion_info_;
     int64_t prev_input_degree_{-1};
     int64_t prev_existing_degree_{-1};
 
-    // The projection-expansion arm, live when the input node is a VirtualNode.
-    // The ranges borrow the bound view's edge index, stable for the read-only
-    // scope; the allowed type names and existing-node gid are the in/out filter.
-    std::optional<VEdgeRange> in_vedges_;
-    std::optional<VEdgeIteratorT> in_vedges_it_;
-    std::optional<VEdgeRange> out_vedges_;
-    std::optional<VEdgeIteratorT> out_vedges_it_;
-    std::vector<std::string_view> allowed_edge_type_names_;
-    std::optional<storage::Gid> existing_vnode_gid_;
-
-    // Non-null while expanding a real member of a bound subgraph; expansion drops
-    // edges that are not members.
-    SubgraphGraphView *subgraph_view_{nullptr};
-
     bool InitEdges(Frame &, ExecutionContext &);
-    bool InitVirtualEdges(Frame &, ExecutionContext &, const VirtualNode &);
-    bool VirtualEdgeMatches(const VirtualEdge &, const VirtualNode &other) const;
   };
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;

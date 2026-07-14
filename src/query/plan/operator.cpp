@@ -1062,12 +1062,11 @@ UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem, metrics::Databas
   metric_handles.scan_all_operator.Increment();
 
   auto vertices = [this](Frame &, ExecutionContext &context) -> std::optional<VertexRange> {
-    // Scan through the ambient graph view. Without one bound, read the real
-    // graph directly - the identity view's behaviour, expressed inline.
-    if (context.evaluation_context.graph_view != nullptr) {
-      return context.evaluation_context.graph_view->Vertices(view_);
-    }
-    return VertexRange{context.db_accessor->Vertices(view_)};
+    // Scan through the ambient graph view. Every executor binds one - the real
+    // graph as the identity view by default, a projection or subgraph inside a
+    // USE scope - so the read path is uniform and does not special-case the graph
+    // kind here.
+    return context.evaluation_context.graph_view->Vertices(view_);
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
       mem, *this, output_symbol_, input_->MakeCursor(mem, metric_handles), view_, std::move(vertices), "ScanAll");
@@ -1872,106 +1871,72 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
-  // A helper function for expanding a node from an edge.
   auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-  auto pull_node = [this, &frame_writer]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
-                                                                        utils::tag_value<direction>) {
-    if (self_.common_.existing_node) return;
-    if constexpr (direction == EdgeAtom::Direction::IN) {
-      frame_writer.Write(self_.common_.node_symbol, new_edge.From());
-    } else if constexpr (direction == EdgeAtom::Direction::OUT) {
-      frame_writer.Write(self_.common_.node_symbol, new_edge.To());
-    } else {
-      LOG_FATAL("Must indicate exact expansion direction here");
+
+  // A self-loop is both an in-edge and an out-edge; when expanding BOTH ways the
+  // in-edge arm emits it, so the out-edge arm skips it to keep it single.
+  auto is_self_loop = [](const ScanEdge &edge) {
+    if (const auto *real = std::get_if<EdgeAccessor>(&edge)) return real->IsCycle();
+    const auto &ve = std::get<VirtualEdge>(edge);
+    return ve.FromGid() == ve.ToGid();
+  };
+
+  // Writes an expanded edge and its far endpoint to the frame, after the
+  // fine-grained visibility check for the edge's kind (real edge + endpoint READ,
+  // or overlay-node visibility for a projection edge). Returns false when the edge
+  // is filtered out, true when emitted. Authorization stays here on the operator,
+  // not behind the GraphView seam, which is topology-only.
+  auto emit = [this, &frame_writer, &context]<EdgeAtom::Direction direction>(const ScanEdge &edge,
+                                                                             utils::tag_value<direction>) -> bool {
+    static_assert(direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::OUT);
+    if (const auto *real = std::get_if<EdgeAccessor>(&edge)) {
+      const auto other = direction == EdgeAtom::Direction::IN ? real->From() : real->To();
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !(context.auth_checker->Has(*real, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+            context.auth_checker->Has(other, self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+        return false;
+      }
+#endif
+      frame_writer.Write(self_.common_.edge_symbol, *real);
+      if (!self_.common_.existing_node) frame_writer.Write(self_.common_.node_symbol, other);
+      return true;
     }
+    const auto &ve = std::get<VirtualEdge>(edge);
+    const VirtualNode &other = direction == EdgeAtom::Direction::IN ? ve.From() : ve.To();
+#ifdef MG_ENTERPRISE
+    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        !OverlayNodeVisible(*context.auth_checker, other, self_.view_)) {
+      return false;
+    }
+#endif
+    frame_writer.Write(self_.common_.edge_symbol, ve);
+    if (!self_.common_.existing_node) frame_writer.Write(self_.common_.node_symbol, other);
+    return true;
   };
 
   while (true) {
     AbortCheck(context);
 
-    // A projection's edges, when the input node is a VirtualNode. The endpoint
-    // is the edge's other end, and both edge and node go to the frame as their
-    // virtual TypedValue variants.
-    if (in_vedges_ && *in_vedges_it_ != in_vedges_->end()) {
-      const VirtualEdge *edge = *(*in_vedges_it_)++;
-      const VirtualNode &other = edge->From();
-      if (!VirtualEdgeMatches(*edge, other)) continue;
-#ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !OverlayNodeVisible(*context.auth_checker, other, self_.view_)) {
-        continue;
-      }
-#endif
-      frame_writer.Write(self_.common_.edge_symbol, *edge);
-      if (!self_.common_.existing_node) frame_writer.Write(self_.common_.node_symbol, other);
-      return true;
-    }
-    if (out_vedges_ && *out_vedges_it_ != out_vedges_->end()) {
-      const VirtualEdge *edge = *(*out_vedges_it_)++;
-      // A self-loop is both an in-edge and an out-edge; expanding BOTH ways it
-      // was already emitted from the in-edge arm, so emit it once.
-      if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge->FromGid() == edge->ToGid()) continue;
-      const VirtualNode &other = edge->To();
-      if (!VirtualEdgeMatches(*edge, other)) continue;
-#ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !OverlayNodeVisible(*context.auth_checker, other, self_.view_)) {
-        continue;
-      }
-#endif
-      frame_writer.Write(self_.common_.edge_symbol, *edge);
-      if (!self_.common_.existing_node) frame_writer.Write(self_.common_.node_symbol, other);
-      return true;
-    }
-
-    // attempt to get a value from the incoming edges
+    // The in-edges then the out-edges of the ambient view (real, subgraph, or
+    // projection - the seam yields a ScanEdge for whichever). emit applies the
+    // per-kind visibility check and writes the edge and its far endpoint.
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
-      auto edge = *(*in_edges_it_)++;
-      // Inside a subgraph scope, expansion stays within the subgraph: drop an
-      // edge that is not a member.
-      if (subgraph_view_ && !subgraph_view_->ContainsEdge(edge)) continue;
-#ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-            context.auth_checker->Has(
-                edge.From(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-        continue;
-      }
-#endif
-
-      frame_writer.Write(self_.common_.edge_symbol, edge);
-      pull_node(edge, utils::tag_v<EdgeAtom::Direction::IN>);
-      return true;
+      const ScanEdge edge = **in_edges_it_;
+      ++*in_edges_it_;
+      if (emit(edge, utils::tag_v<EdgeAtom::Direction::IN>)) return true;
+      continue;
     }
-
-    // attempt to get a value from the outgoing edges
     if (out_edges_ && *out_edges_it_ != out_edges_->end()) {
-      auto edge = *(*out_edges_it_)++;
-      // Inside a subgraph scope, expansion stays within the subgraph: drop an
-      // edge that is not a member.
-      if (subgraph_view_ && !subgraph_view_->ContainsEdge(edge)) continue;
-      // when expanding in EdgeAtom::Direction::BOTH directions
-      // we should do only one expansion for cycles, and it was
-      // already done in the block above
-      if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
-#ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-            context.auth_checker->Has(
-                edge.To(), self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-        continue;
-      }
-#endif
-      frame_writer.Write(self_.common_.edge_symbol, edge);
-      pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
-      return true;
+      const ScanEdge edge = **out_edges_it_;
+      ++*out_edges_it_;
+      if (self_.common_.direction == EdgeAtom::Direction::BOTH && is_self_loop(edge)) continue;
+      if (emit(edge, utils::tag_v<EdgeAtom::Direction::OUT>)) return true;
+      continue;
     }
 
-    // If we are here, either the edges have not been initialized,
-    // or they have been exhausted. Attempt to initialize the edges.
+    // Edges not yet initialized or exhausted; (re)initialize from the next input.
     if (!InitEdges(frame, context)) return false;
-
-    // we have re-initialized the edges, continue with the loop
   }
 }
 
@@ -1983,10 +1948,6 @@ void Expand::ExpandCursor::Reset() {
   in_edges_it_ = std::nullopt;
   out_edges_ = std::nullopt;
   out_edges_it_ = std::nullopt;
-  in_vedges_ = std::nullopt;
-  in_vedges_it_ = std::nullopt;
-  out_vedges_ = std::nullopt;
-  out_vedges_it_ = std::nullopt;
 }
 
 ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame) {
@@ -2040,6 +2001,36 @@ ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame) {
 }
 
 bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
+  // Fetch a node's in- and/or out-edges through the ambient view (identity,
+  // subgraph, or projection - the seam picks the topology) and position the
+  // iterators, resetting the arms first. Returns the edges examined per direction.
+  // The hops budget is threaded to the view (the real graph enforces it); the
+  // caller accumulates number_of_hops only for a real expansion, as before.
+  auto fetch = [&](const ScanVertex &from,
+                   EdgeAtom::Direction direction,
+                   const std::optional<ScanVertex> &existing_dest) -> std::pair<int64_t, int64_t> {
+    auto *const view = context.evaluation_context.graph_view;
+    in_edges_ = std::nullopt;
+    in_edges_it_ = std::nullopt;
+    out_edges_ = std::nullopt;
+    out_edges_it_ = std::nullopt;
+    int64_t in_count = 0;
+    int64_t out_count = 0;
+    if (direction != EdgeAtom::Direction::OUT) {
+      auto range = view->InEdges(from, self_.view_, self_.common_.edge_types, existing_dest, &context.hops_limit);
+      in_count = range.expanded_count();
+      in_edges_.emplace(std::move(range));
+      in_edges_it_.emplace(in_edges_->begin());
+    }
+    if (direction != EdgeAtom::Direction::IN) {
+      auto range = view->OutEdges(from, self_.view_, self_.common_.edge_types, existing_dest, &context.hops_limit);
+      out_count = range.expanded_count();
+      out_edges_.emplace(std::move(range));
+      out_edges_it_.emplace(out_edges_->begin());
+    }
+    return {in_count, out_count};
+  };
+
   // Input Vertex could be null if it is created by a failed optional match. In
   // those cases we skip that input pull and continue with the next.
   while (true) {
@@ -2047,142 +2038,71 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
 
     if (context.hops_limit.IsLimitReached()) return false;
 
-    // A projection node expands through the bound view's edge index, not the
-    // real-graph accessor.
     const TypedValue &input_value = frame[self_.input_symbol_];
+    if (input_value.IsNull()) continue;
+
+    // A projection node expands through the bound view's edge index. There is no
+    // degree heuristic - a projection exposes no statistics - so it always expands
+    // from the input node. (A real vertex reaching a projection view has no edges
+    // there; the projection view returns an empty range.)
     if (input_value.IsVirtualNode()) {
-      if (InitVirtualEdges(frame, context, input_value.ValueVirtualNode())) return true;
-      continue;
-    }
-
-    // A real vertex is not a node of a projection, so inside a projection scope
-    // it has no edges in the ambient graph: its real-graph edges are not part of
-    // the projection and are not expanded. This keeps expansion consistent with
-    // degree(), which reports zero for the same pairing.
-    if (dynamic_cast<VirtualGraphView *>(context.evaluation_context.graph_view) != nullptr) {
-      continue;
-    }
-
-    // A real member of a bound subgraph expands its real edges filtered to the
-    // subgraph's membership; outside a subgraph scope this stays null.
-    subgraph_view_ = dynamic_cast<SubgraphGraphView *>(context.evaluation_context.graph_view);
-
-    expansion_info_ = GetExpansionInfo(frame);
-
-    if (!expansion_info_.input_node) {
-      continue;
-    }
-
-    auto vertex = *expansion_info_.input_node;
-    auto direction = expansion_info_.direction;
-
-    int64_t num_expanded_first = -1;
-    if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
+      const ScanVertex from{input_value.ValueVirtualNode()};
+      std::optional<ScanVertex> existing_dest;
       if (self_.common_.existing_node) {
-        if (expansion_info_.existing_node) {
-          auto existing_node = *expansion_info_.existing_node;
-
-          auto edges_result = UnwrapEdgesResult(
-              vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
-          context.number_of_hops += edges_result.expanded_count;
-          in_edges_.emplace(std::move(edges_result.edges));
-          num_expanded_first = edges_result.expanded_count;
+        const TypedValue &existing = frame[self_.common_.node_symbol];
+        if (existing.IsNull()) {  // an unbound optional end matches nothing
+          in_edges_ = std::nullopt;
+          out_edges_ = std::nullopt;
+          return true;
         }
-      } else {
-        auto edges_result =
-            UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
-        context.number_of_hops += edges_result.expanded_count;
-        in_edges_.emplace(std::move(edges_result.edges));
-        num_expanded_first = edges_result.expanded_count;
+        existing_dest = ScanVertex{existing.ValueVirtualNode()};
       }
-      if (in_edges_) {
-        in_edges_it_.emplace(in_edges_->begin());
-      }
-    }
-
-    int64_t num_expanded_second = -1;
-    if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
-      if (self_.common_.existing_node) {
-        if (expansion_info_.existing_node) {
-          auto existing_node = *expansion_info_.existing_node;
-          auto edges_result = UnwrapEdgesResult(
-              vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
-          context.number_of_hops += edges_result.expanded_count;
-          out_edges_.emplace(std::move(edges_result.edges));
-          num_expanded_second = edges_result.expanded_count;
-        }
-      } else {
-        auto edges_result =
-            UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
-        context.number_of_hops += edges_result.expanded_count;
-        out_edges_.emplace(std::move(edges_result.edges));
-        num_expanded_second = edges_result.expanded_count;
-      }
-      if (out_edges_) {
-        out_edges_it_.emplace(out_edges_->begin());
-      }
-    }
-
-    if (!expansion_info_.existing_node) {
+      fetch(from, self_.common_.direction, existing_dest);
       return true;
     }
 
-    num_expanded_first = num_expanded_first == -1 ? 0 : num_expanded_first;
-    num_expanded_second = num_expanded_second == -1 ? 0 : num_expanded_second;
-    int64_t total_expanded_edges = num_expanded_first + num_expanded_second;
-
-    if (!expansion_info_.reversed) {
-      prev_input_degree_ = total_expanded_edges;
-    } else {
-      prev_existing_degree_ = total_expanded_edges;
+    // A real input vertex cannot reach an already-bound projection node through
+    // the ambient graph, so it has no such edges. Skip before GetExpansionInfo,
+    // whose ExpectType would otherwise raise on the virtual existing end. (This
+    // and the projection view's empty range for a real `from` together replace the
+    // old real-vertex-under-a-projection-view guard.)
+    if (self_.common_.existing_node && frame[self_.common_.node_symbol].IsVirtualNode()) {
+      in_edges_ = std::nullopt;
+      out_edges_ = std::nullopt;
+      return true;
     }
 
+    // A real vertex: the degree heuristic picks which end to expand from and the
+    // direction (possibly reversed).
+    expansion_info_ = GetExpansionInfo(frame);
+    if (!expansion_info_.input_node) continue;
+
+    // existing_node set but the bound end is null (an unbound optional) matches
+    // nothing.
+    if (self_.common_.existing_node && !expansion_info_.existing_node) {
+      in_edges_ = std::nullopt;
+      out_edges_ = std::nullopt;
+      return true;
+    }
+
+    const ScanVertex from{*expansion_info_.input_node};
+    std::optional<ScanVertex> existing_dest;
+    if (expansion_info_.existing_node) existing_dest = ScanVertex{*expansion_info_.existing_node};
+
+    const auto [in_count, out_count] = fetch(from, expansion_info_.direction, existing_dest);
+    context.number_of_hops += in_count + out_count;
+
+    // The degree heuristic records this end's degree only when both ends are bound.
+    if (self_.common_.existing_node) {
+      const int64_t total_expanded_edges = in_count + out_count;
+      if (!expansion_info_.reversed) {
+        prev_input_degree_ = total_expanded_edges;
+      } else {
+        prev_existing_degree_ = total_expanded_edges;
+      }
+    }
     return true;
   }
-}
-
-bool Expand::ExpandCursor::VirtualEdgeMatches(const VirtualEdge &edge, const VirtualNode &other) const {
-  if (!allowed_edge_type_names_.empty() &&
-      std::ranges::find(allowed_edge_type_names_, std::string_view{edge.EdgeTypeName()}) ==
-          allowed_edge_type_names_.end()) {
-    return false;
-  }
-  // When the pattern's other end is already bound (existing_node), only the edge
-  // reaching that node matches.
-  if (existing_vnode_gid_ && other.Gid() != *existing_vnode_gid_) return false;
-  return true;
-}
-
-bool Expand::ExpandCursor::InitVirtualEdges(Frame &frame, ExecutionContext &context, const VirtualNode &vnode) {
-  // A VirtualNode on the frame means a projection is the ambient view, so its
-  // edge index is the bound view's. Edge expansion is the projection's, reached
-  // through the view rather than the real-graph accessor.
-  auto *view = dynamic_cast<VirtualGraphView *>(context.evaluation_context.graph_view);
-  DMG_ASSERT(view, "A VirtualNode is scanned only with a projection bound as the ambient view");
-
-  allowed_edge_type_names_.clear();
-  for (const auto edge_type : self_.common_.edge_types) {
-    allowed_edge_type_names_.emplace_back(view->EdgeTypeToName(edge_type));
-  }
-
-  existing_vnode_gid_.reset();
-  if (self_.common_.existing_node) {
-    const TypedValue &existing = frame[self_.common_.node_symbol];
-    if (existing.IsNull()) return true;  // an unbound optional end matches nothing
-    existing_vnode_gid_ = existing.ValueVirtualNode().Gid();
-  }
-
-  const auto gid = vnode.Gid();
-  const auto direction = self_.common_.direction;
-  if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
-    in_vedges_ = view->InEdges(gid);
-    in_vedges_it_ = in_vedges_->begin();
-  }
-  if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
-    out_vedges_ = view->OutEdges(gid);
-    out_vedges_it_ = out_vedges_->begin();
-  }
-  return true;
 }
 
 ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,
