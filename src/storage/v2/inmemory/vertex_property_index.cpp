@@ -107,7 +107,7 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, Vertex *&current_vertex,
       continue;
     }
 
-    if (!CurrentVertexVersionHasProperty(*index_iterator->vertex, property, index_iterator->value, transaction, view)) {
+    if (!CurrentVersionHasProperty(*index_iterator->vertex, property, index_iterator->value, transaction, view)) {
       continue;
     }
 
