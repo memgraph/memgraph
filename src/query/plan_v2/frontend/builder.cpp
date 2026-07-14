@@ -65,6 +65,15 @@ struct Children {
            std::views::transform([](ChildRef c) -> typename Slot::type { return as<typename Slot::type>(c); });
   }
 
+  // Built child at a runtime index, cast to `T`. For nodes split at a runtime
+  // boundary (OrderBy: sort-key Expressions then value Symbols) that a
+  // compile-time slot can't name.
+  template <typename T>
+  auto at(std::size_t index) const -> T const & {
+    if (refs.size() <= index) ThrowPlannerBug("missing child node");
+    return as<T>(refs[index]);
+  }
+
   [[nodiscard]] auto size() const -> std::size_t { return refs.size(); }
 
  private:
@@ -324,6 +333,91 @@ struct symbol_build_traits<symbol::Filter> {
         {query::plan::FilterInfo{query::plan::FilterInfo::Type::Generic, predicate, std::move(collector.symbols_)}});
     return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::Filter>(
         input, std::vector<std::shared_ptr<LogicalOperator>>{}, predicate, std::move(all_filters)));
+  }
+};
+
+template <>
+struct symbol_build_traits<symbol::Distinct> {
+  using result_type = LogicalOperatorPtr;
+
+  struct slots {
+    using input = ChildSlot<child::distinct::input, LogicalOperatorPtr>;
+    using values = ChildRestSlot<child::distinct::first_value, Symbol>;
+  };
+
+  // The value Symbols were demanded by cost (materialised), so read them straight
+  // back here rather than from input->OutputSymbols() (empty for an inlined WITH).
+  static auto build(BuildState & /*state*/, ENodeRef /*node*/, Children children) -> result_type {
+    auto const &input = children.get<slots::input>();
+    auto value_symbols = children.get<slots::values>() | ranges::to<std::vector>;
+    return std::static_pointer_cast<LogicalOperator>(
+        std::make_shared<query::plan::Distinct>(input, std::move(value_symbols)));
+  }
+};
+
+template <>
+struct symbol_build_traits<symbol::Skip> {
+  using result_type = LogicalOperatorPtr;
+
+  struct slots {
+    using input = ChildSlot<child::skip::input, LogicalOperatorPtr>;
+    using count = ChildSlot<child::skip::count, Expression *>;
+  };
+
+  static auto build(BuildState & /*state*/, ENodeRef /*node*/, Children children) -> result_type {
+    auto const &input = children.get<slots::input>();
+    auto *count = children.get<slots::count>();
+    return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::Skip>(input, count));
+  }
+};
+
+template <>
+struct symbol_build_traits<symbol::Limit> {
+  using result_type = LogicalOperatorPtr;
+
+  struct slots {
+    using input = ChildSlot<child::limit::input, LogicalOperatorPtr>;
+    using count = ChildSlot<child::limit::count, Expression *>;
+  };
+
+  static auto build(BuildState & /*state*/, ENodeRef /*node*/, Children children) -> result_type {
+    auto const &input = children.get<slots::input>();
+    auto *count = children.get<slots::count>();
+    return std::static_pointer_cast<LogicalOperator>(std::make_shared<query::plan::Limit>(input, count));
+  }
+};
+
+template <>
+struct symbol_build_traits<symbol::OrderBy> {
+  using result_type = LogicalOperatorPtr;
+
+  struct slots {
+    using input = ChildSlot<child::order_by::input, LogicalOperatorPtr>;
+  };
+
+  // Split the tail by the interned orderings count: first num_keys are sort-key
+  // Expressions, the rest value Symbols to remember through the sort.
+  static auto build(BuildState &state, ENodeRef node, Children children) -> result_type {
+    using namespace child::order_by;
+    auto const &input = children.get<slots::input>();
+    auto const dis = node.disambiguator();
+    DMG_ASSERT(dis < state.orderby_info.size(), "OrderBy id out of range");
+    auto const &orderings = state.orderby_info[dis];
+    auto const num_keys = orderings.size();
+    DMG_ASSERT(children.size() >= first_expr + num_keys, "OrderBy has fewer children than sort keys");
+
+    std::vector<SortItem> order_by;
+    order_by.reserve(num_keys);
+    for (std::size_t i = 0; i < num_keys; ++i) {
+      order_by.push_back(SortItem{.ordering = orderings[i], .expression = children.at<Expression *>(first_expr + i)});
+    }
+    std::vector<Symbol> output_symbols;
+    output_symbols.reserve(children.size() - first_expr - num_keys);
+    for (std::size_t i = first_expr + num_keys; i < children.size(); ++i) {
+      output_symbols.push_back(children.at<Symbol>(i));
+    }
+    return std::static_pointer_cast<LogicalOperator>(
+        std::make_shared<query::plan::OrderBy>(input, order_by, output_symbols));
   }
 };
 

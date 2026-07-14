@@ -183,6 +183,26 @@ class SimplePlanChecker : public plan::HierarchicalLogicalOperatorVisitor {
     operator_details.push_back("Apply");
     return true;
   }
+
+  bool PreVisit(plan::Distinct &) override {
+    operator_details.push_back("Distinct");
+    return true;
+  }
+
+  bool PreVisit(plan::Skip &) override {
+    operator_details.push_back("Skip");
+    return true;
+  }
+
+  bool PreVisit(plan::Limit &) override {
+    operator_details.push_back("Limit");
+    return true;
+  }
+
+  bool PreVisit(plan::OrderBy &op) override {
+    operator_details.push_back(op.ToString());
+    return true;
+  }
 };
 
 // Test case data for parameterized testing
@@ -790,6 +810,27 @@ INSTANTIATE_TEST_SUITE_P(
             .query = "UNWIND range(1, 100) AS x WITH x WHERE x > 50 RETURN 42 AS r;",
             .expected_details = {"Produce {r`1:42}", "Filter (x > 50)", "Unwind {x:RANGE(1, 100)}", "Once"},
             .expected_rewrites = 1,  // the no-op WITH x bind is rewritten away
+        },
+        // DISTINCT stacks above the RETURN projection.
+        PipelineTestCase{
+            .name = "ReturnDistinct",
+            .query = "UNWIND [1, 1, 2] AS x RETURN DISTINCT x;",
+            .expected_details = {"Distinct", "Produce {x`1:x}", "Unwind {x:literal}", "Once"},
+            .expected_rewrites = 0,
+        },
+        // SKIP then LIMIT stack above the projection, Limit outermost (v1 order).
+        PipelineTestCase{
+            .name = "ReturnSkipLimit",
+            .query = "UNWIND [1, 2, 3, 4] AS x RETURN x SKIP 1 LIMIT 2;",
+            .expected_details = {"Limit", "Skip", "Produce {x`1:x}", "Unwind {x:literal}", "Once"},
+            .expected_rewrites = 0,
+        },
+        // ORDER BY stacks above the projection and remembers the output column.
+        PipelineTestCase{
+            .name = "ReturnOrderBy",
+            .query = "UNWIND [3, 1, 2] AS x RETURN x ORDER BY x;",
+            .expected_details = {"OrderBy {x}", "Produce {x`1:x}", "Unwind {x:literal}", "Once"},
+            .expected_rewrites = 0,
         }
     ),
     TestCaseName
