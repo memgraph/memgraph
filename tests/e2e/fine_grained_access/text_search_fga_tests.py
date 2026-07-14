@@ -21,9 +21,6 @@ import pytest
 #   user_prop            - full label READ + GRANT READ {*}, DENY {title} :Public/:Document, DENY {label} :LINKS_*
 #   user_grant_only      - GRANT READ :Public + :LINKS_PUB only, no property rules (deny-by-default: reads no values)
 #   user_prop_deny_cross - full label READ + GRANT READ {*}, DENY {title} :Public only
-# Indexed data: property-less pub/doc text indexes on :Public/:Document; specified doc_title_text on :Document(title);
-# pub/doc/mixed edge text indexes. Since property read is deny-by-default, a hit surfaces only if the caller can read
-# the matched property on the hit's real labels; a label-only grant returns nothing.
 
 
 def admin_cursor():
@@ -49,7 +46,6 @@ def user_prop_deny_cross_cursor():
 # text_search on vertices -----------------------------------------------------
 
 
-# a denied label yields no hits (silent per-row filter, like a MATCH the caller can't satisfy) — not an error
 def test_text_search_dropped_on_denied_label():
     res = common.execute_and_fetch_all(
         user_cursor(),
@@ -66,10 +62,27 @@ def test_text_search_returns_allowed_label():
     assert len(res) == 1
 
 
+# search_all and regex are distinct procs; confirm each returns a permitted hit (so the empty results
+# below are meaningful drops, not a broken mode). Their RBAC drop path is the shared row filter, already
+# covered by the label-deny and NEUTRAL cases.
+def test_text_search_all_returns_allowed():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL text_search.search_all('pub_text', 'Welcome') YIELD node RETURN node;",
+    )
+    assert len(res) == 1
+
+
+def test_text_regex_search_returns_allowed():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL text_search.regex_search('pub_text', 'Wel.*') YIELD node RETURN node;",
+    )
+    assert len(res) == 1
+
+
 # deny-by-default: user_grant_only has the :Public label but no property grant, so it can read no title
-# value — a content match must not surface. This locks in the NEUTRAL (ungranted, not DENIED) case that
-# the old code leaked, and covers the search_all mode. (Label-deny is covered above; the row filter is
-# mode-agnostic, so regex/search_all don't need their own label-deny cases.)
+# value — a content match must not surface.
 def test_text_search_all_dropped_for_label_only_user():
     res = common.execute_and_fetch_all(
         user_grant_only_cursor(),
@@ -124,9 +137,7 @@ def test_text_search_edges_skips_when_endpoint_denied():
 
 
 # property-level RBAC on text search ----------------------------------------
-# a hit is dropped when the searched property is unreadable on its real labels — for a property-less
-# index that means any DENY on a string property the caller carries. user_prop DENY {title} :Document,
-# so every :Document title match is filtered out.
+# a hit is dropped when the searched property is unreadable on its real labels
 
 
 def test_text_search_dropped_on_property_denied():

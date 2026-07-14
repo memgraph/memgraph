@@ -190,8 +190,7 @@ _fga_common_users: &_fga_common_users
   - "GRANT READ ON NODES CONTAINING LABELS :Public TO user_grant_only;"
   - "GRANT READ ON EDGES OF TYPE :LINKS_PUB TO user_grant_only;"
 
-# Text-search RBAC fixture: common users + user_prop_deny_cross + a title/label graph (no embeddings —
-# text indexes only touch string properties) + text indexes.
+# Text-search RBAC fixture: common users + user_prop_deny_cross + a title/label graph + text indexes.
 text_search_fga_setup_queries: &text_search_fga_setup_queries
   - *_fga_common_users
   # user_prop_deny_cross: full read + {*}, DENY {title} on :Public only — title readable on pure :Document
