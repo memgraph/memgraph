@@ -332,7 +332,7 @@ class Interpreter final {
   // Effective coordinator privilege mask (union of the session's matched roles' masks; auth::Permission bits).
   // Consulted only on coordinators, where roles live in Raft rather than the auth kvstore. A basic-auth passthrough
   // session carries full WRITE; a restricted SSO session (later slice) carries a narrower mask. Zero denies everything.
-  uint64_t coordinator_permissions_{0};
+  uint64_t coordinator_permissions_;
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;

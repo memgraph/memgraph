@@ -574,12 +574,6 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
     auto &user_or_role = interpreter_.user_or_role_;
     MultiDatabaseAuth(user_or_role.get(), db_name);
   });
-  // Coordinators authenticate basic-auth connections as a passthrough (credentials ignored) and grant them full WRITE,
-  // preserving backward compatibility. A restricted SSO mask (later slice) will override this after a successful login.
-  if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator()) {
-    interpreter_.SetCoordinatorPrivileges(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
-                                          static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE));
-  }
 #endif
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
 }

@@ -24,6 +24,7 @@
 using memgraph::coordination::CoordinatorClusterState;
 using memgraph::coordination::CoordinatorClusterStateDelta;
 using memgraph::coordination::CoordinatorInstanceContext;
+using memgraph::coordination::CoordinatorRole;
 using memgraph::coordination::DataInstanceConfig;
 using memgraph::coordination::DataInstanceContext;
 using memgraph::coordination::InstanceUUIDUpdate;

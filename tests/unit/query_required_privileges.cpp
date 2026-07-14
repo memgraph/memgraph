@@ -348,6 +348,30 @@ TEST(CoordinatorAuthQueryGate, PermitsExactlyRoleAndCoordinatorPrivilegeQueries)
       *make(AuthQuery::Action::GRANT_PRIVILEGE,
             {AuthQuery::Privilege::COORDINATOR_READ, AuthQuery::Privilege::COORDINATOR_WRITE})));
 
+  // GRANT/REVOKE ALL PRIVILEGES is permitted (maps to both coordinator privileges downstream).
+  {
+    auto *grant_all = make(AuthQuery::Action::GRANT_PRIVILEGE, kPrivilegesAll);
+    grant_all->all_privileges_ = true;
+    EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(*grant_all));
+    auto *revoke_all = make(AuthQuery::Action::REVOKE_PRIVILEGE, kPrivilegesAll);
+    revoke_all->all_privileges_ = true;
+    EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(*revoke_all));
+  }
+
+  // Fine-grained access control (label/edge-type entity privileges) is rejected even on GRANT_PRIVILEGE.
+  {
+    auto *fgac_labels = make(AuthQuery::Action::GRANT_PRIVILEGE);
+    fgac_labels->label_privileges_.emplace_back(
+        std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{
+            {AuthQuery::FineGrainedPrivilege::CREATE, {"*"}}});
+    EXPECT_FALSE(IsCoordinatorPermittedAuthQuery(*fgac_labels));
+    auto *fgac_edges = make(AuthQuery::Action::GRANT_PRIVILEGE);
+    fgac_edges->edge_type_privileges_.emplace_back(
+        std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>{
+            {AuthQuery::FineGrainedPrivilege::UPDATE, {"*"}}});
+    EXPECT_FALSE(IsCoordinatorPermittedAuthQuery(*fgac_edges));
+  }
+
   // SHOW PRIVILEGES FOR a role (or unspecified target) is permitted.
   EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::SHOW_PRIVILEGES)));
   EXPECT_TRUE(

@@ -4526,9 +4526,9 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
 TEST_P(CypherMainVisitorTest, GrantRevokeCoordinatorPrivilege) {
   auto &ast_generator = *GetParam();
 
-  // The coordinator READ/WRITE privileges parse as system privileges on GRANT/REVOKE.
+  // The coordinator COORDINATOR_READ/COORDINATOR_WRITE privileges parse as system privileges on GRANT/REVOKE.
   check_auth_query(&ast_generator,
-                   "GRANT READ TO admin",
+                   "GRANT COORDINATOR_READ TO admin",
                    AuthQuery::Action::GRANT_PRIVILEGE,
                    "",
                    {},
@@ -4538,7 +4538,7 @@ TEST_P(CypherMainVisitorTest, GrantRevokeCoordinatorPrivilege) {
                    {},
                    {});
   check_auth_query(&ast_generator,
-                   "GRANT WRITE TO admin",
+                   "GRANT COORDINATOR_WRITE TO admin",
                    AuthQuery::Action::GRANT_PRIVILEGE,
                    "",
                    {},
@@ -4548,7 +4548,7 @@ TEST_P(CypherMainVisitorTest, GrantRevokeCoordinatorPrivilege) {
                    {},
                    {});
   check_auth_query(&ast_generator,
-                   "REVOKE READ FROM admin",
+                   "REVOKE COORDINATOR_READ FROM admin",
                    AuthQuery::Action::REVOKE_PRIVILEGE,
                    "",
                    {},
@@ -4558,7 +4558,7 @@ TEST_P(CypherMainVisitorTest, GrantRevokeCoordinatorPrivilege) {
                    {},
                    {});
   check_auth_query(&ast_generator,
-                   "REVOKE WRITE FROM admin",
+                   "REVOKE COORDINATOR_WRITE FROM admin",
                    AuthQuery::Action::REVOKE_PRIVILEGE,
                    "",
                    {},
@@ -4567,6 +4567,20 @@ TEST_P(CypherMainVisitorTest, GrantRevokeCoordinatorPrivilege) {
                    {AuthQuery::Privilege::COORDINATOR_WRITE},
                    {},
                    {});
+
+  // GRANT/REVOKE ALL PRIVILEGES set the all_privileges_ flag (mapped to both coordinator privileges downstream).
+  {
+    auto *query = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("GRANT ALL PRIVILEGES TO admin"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_, AuthQuery::Action::GRANT_PRIVILEGE);
+    EXPECT_TRUE(query->all_privileges_);
+  }
+  {
+    auto *query = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("REVOKE ALL PRIVILEGES FROM admin"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_, AuthQuery::Action::REVOKE_PRIVILEGE);
+    EXPECT_TRUE(query->all_privileges_);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, GrantPropertyReadPrivilege) {

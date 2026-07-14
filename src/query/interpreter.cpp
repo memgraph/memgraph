@@ -708,12 +708,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     std::vector<coordination::CoordinatorRole> roles;
     switch (coordinator_handler_.GetRoles(roles)) {
       case coordination::GetRolesStatus::SUCCESS: {
-        std::vector<std::string> role_names;
-        role_names.reserve(roles.size());
-        for (auto &role : roles) {
-          role_names.push_back(std::move(role.name));
-        }
-        return role_names;
+        return roles | rv::transform([](auto const &role) { return role.name; }) | ranges::to_vector;
       }
       case coordination::GetRolesStatus::NOT_LEADER:
         throw QueryRuntimeException(GetNotLeaderRoleMessage());
@@ -1077,20 +1072,27 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   dbms::CoordinatorHandler coordinator_handler_;
 };
 
-// Maps the coordinator READ/WRITE privileges to their auth::Permission bitmask. The interpreter gate guarantees only
-// coordinator privileges reach here.
-uint64_t CoordinatorPrivilegesToMask(std::vector<AuthQuery::Privilege> const &privileges) {
+// Maps a coordinator GRANT/REVOKE to its auth::Permission bitmask. ALL PRIVILEGES maps to both coordinator
+// privileges; otherwise the explicit COORDINATOR_READ/COORDINATOR_WRITE list is mapped. The interpreter gate
+// (IsCoordinatorPermittedAuthQuery) guarantees only these forms reach here.
+uint64_t CoordinatorPrivilegesToMask(AuthQuery const &auth_query) {
+  constexpr auto read_bit = static_cast<uint64_t>(auth::Permission::COORDINATOR_READ);
+  constexpr auto write_bit = static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE);
+  if (auth_query.all_privileges_) {
+    return read_bit | write_bit;
+  }
   uint64_t mask = 0;
-  for (auto const privilege : privileges) {
+  for (auto const privilege : auth_query.privileges_) {
     switch (privilege) {
       case AuthQuery::Privilege::COORDINATOR_READ:
-        mask |= static_cast<uint64_t>(auth::Permission::COORDINATOR_READ);
+        mask |= read_bit;
         break;
       case AuthQuery::Privilege::COORDINATOR_WRITE:
-        mask |= static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE);
+        mask |= write_bit;
         break;
       default:
-        throw QueryRuntimeException("Only READ and WRITE privileges can be granted on a coordinator.");
+        throw QueryRuntimeException(
+            "Only COORDINATOR_READ and COORDINATOR_WRITE privileges can be granted on a coordinator.");
     }
   }
   return mask;
@@ -1148,7 +1150,7 @@ Callback HandleCoordinatorRoleQuery(AuthQuery *auth_query, coordination::Coordin
       };
       return callback;
     case AuthQuery::Action::GRANT_PRIVILEGE: {
-      auto const mask = CoordinatorPrivilegesToMask(auth_query->privileges_);
+      auto const mask = CoordinatorPrivilegesToMask(*auth_query);
       callback.fn = [coordinator_state = &coordinator_state, target_role = std::move(target_role), mask] {
         CoordQueryHandler{*coordinator_state}.GrantCoordinatorPrivilege(target_role, mask);
         return std::vector<std::vector<TypedValue>>{};
@@ -1156,7 +1158,7 @@ Callback HandleCoordinatorRoleQuery(AuthQuery *auth_query, coordination::Coordin
       return callback;
     }
     case AuthQuery::Action::REVOKE_PRIVILEGE: {
-      auto const mask = CoordinatorPrivilegesToMask(auth_query->privileges_);
+      auto const mask = CoordinatorPrivilegesToMask(*auth_query);
       callback.fn = [coordinator_state = &coordinator_state, target_role = std::move(target_role), mask] {
         CoordQueryHandler{*coordinator_state}.RevokeCoordinatorPrivilege(target_role, mask);
         return std::vector<std::vector<TypedValue>>{};
@@ -1168,20 +1170,21 @@ Callback HandleCoordinatorRoleQuery(AuthQuery *auth_query, coordination::Coordin
       callback.fn = [coordinator_state = &coordinator_state, target_role = std::move(target_role)] {
         auto const mask = CoordQueryHandler{*coordinator_state}.ShowRolePrivileges(target_role);
         std::vector<std::vector<TypedValue>> rows;
-        // WRITE is a superset of READ; report each granted privilege on its own row. A bare role reports nothing.
+        // COORDINATOR_WRITE is a superset of COORDINATOR_READ; report each granted privilege on its own row. A bare
+        // role reports nothing.
         if ((mask & static_cast<uint64_t>(auth::Permission::COORDINATOR_READ)) != 0U) {
-          rows.emplace_back(std::vector<TypedValue>{TypedValue("READ")});
+          rows.emplace_back(std::vector<TypedValue>{TypedValue("COORDINATOR_READ")});
         }
         if ((mask & static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE)) != 0U) {
-          rows.emplace_back(std::vector<TypedValue>{TypedValue("WRITE")});
+          rows.emplace_back(std::vector<TypedValue>{TypedValue("COORDINATOR_WRITE")});
         }
         return rows;
       };
       return callback;
     default:
       throw QueryRuntimeException(
-          "Coordinators only support CREATE ROLE, DROP ROLE, SHOW ROLES, GRANT/REVOKE READ|WRITE and SHOW PRIVILEGES "
-          "FOR <role> auth queries.");
+          "Coordinators only support CREATE ROLE, DROP ROLE, SHOW ROLES, GRANT/REVOKE "
+          "COORDINATOR_READ|COORDINATOR_WRITE and SHOW PRIVILEGES FOR ROLE <role> auth queries.");
   }
 }
 
@@ -3628,12 +3631,17 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
 }  // namespace
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context)
-    : cached_fga_(std::make_unique<CachedFineGrainedAuth>()), interpreter_context_(interpreter_context) {
+    : coordinator_permissions_(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
+                               static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE)),
+      cached_fga_(std::make_unique<CachedFineGrainedAuth>()),
+      interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
-    : cached_fga_(std::make_unique<CachedFineGrainedAuth>()),
+    : coordinator_permissions_(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
+                               static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE)),
+      cached_fga_(std::make_unique<CachedFineGrainedAuth>()),
       current_db_{std::move(db)},
       interpreter_context_(interpreter_context) {
   MG_ASSERT(current_db_.db_acc_, "Database accessor needs to be valid");

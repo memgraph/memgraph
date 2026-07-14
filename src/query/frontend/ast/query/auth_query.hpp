@@ -156,6 +156,9 @@ class AuthQuery : public memgraph::query::Query {
   memgraph::query::Expression *password_{nullptr};
   std::string database_;
   std::vector<memgraph::query::AuthQuery::Privilege> privileges_;
+  // True for GRANT/DENY/REVOKE ALL PRIVILEGES. On coordinators this maps to both COORDINATOR_READ and
+  // COORDINATOR_WRITE; privileges_ still carries the data-instance kPrivilegesAll expansion for other instances.
+  bool all_privileges_{false};
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       label_privileges_;
   std::vector<memgraph::query::AuthQuery::LabelMatchingMode> label_matching_modes_;
@@ -185,6 +188,7 @@ class AuthQuery : public memgraph::query::Query {
     object->password_ = password_ ? password_->Clone(storage) : nullptr;
     object->database_ = database_;
     object->privileges_ = privileges_;
+    object->all_privileges_ = all_privileges_;
     object->label_privileges_ = label_privileges_;
     object->label_matching_modes_ = label_matching_modes_;
     object->edge_type_privileges_ = edge_type_privileges_;
@@ -234,9 +238,12 @@ inline bool IsCoordinatorPrivilege(AuthQuery::Privilege privilege) {
 
 /// Coordinators expose only a small slice of the whole auth surface:
 ///   - role management: CREATE ROLE, DROP ROLE, SHOW ROLES;
-///   - coordinator privilege management on roles: GRANT/REVOKE READ|WRITE, SHOW PRIVILEGES FOR <role>.
-/// GRANT/REVOKE are permitted only for the coordinator READ/WRITE privileges and never target a USER; SHOW PRIVILEGES
-/// likewise never targets a USER (coordinators have no users). Every other auth query is rejected on a coordinator.
+///   - coordinator privilege management on roles: GRANT/REVOKE COORDINATOR_READ|COORDINATOR_WRITE|ALL PRIVILEGES,
+///     SHOW PRIVILEGES FOR ROLE <role>.
+/// GRANT/REVOKE are permitted only for the coordinator privileges (COORDINATOR_READ/COORDINATOR_WRITE, or
+/// ALL PRIVILEGES which maps to both) and never target a USER; fine-grained access control (label/edge-type entity
+/// privileges) is rejected. SHOW PRIVILEGES likewise never targets a USER (coordinators have no users). Every other
+/// auth query -- DENY in any form, GRANT DATABASE, property permissions, ... -- is rejected on a coordinator.
 inline bool IsCoordinatorPermittedAuthQuery(AuthQuery const &query) {
   switch (query.action_) {
     case AuthQuery::Action::CREATE_ROLE:
@@ -247,6 +254,14 @@ inline bool IsCoordinatorPermittedAuthQuery(AuthQuery const &query) {
     case AuthQuery::Action::REVOKE_PRIVILEGE: {
       if (query.entity_type_ == AuthQuery::UserOrRoleType::USER) {
         return false;
+      }
+      // Reject fine-grained access control (GRANT ... ON NODES/EDGES ...); coordinators have no graph.
+      if (!query.label_privileges_.empty() || !query.edge_type_privileges_.empty()) {
+        return false;
+      }
+      // ALL PRIVILEGES maps to both coordinator privileges.
+      if (query.all_privileges_) {
+        return true;
       }
       if (query.privileges_.empty()) {
         return false;
