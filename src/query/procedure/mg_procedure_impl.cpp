@@ -4087,8 +4087,7 @@ mgp_edge *GetEdgeByGid(mgp_graph *graph, memgraph::storage::Gid edge_gid, memgra
 #ifdef MG_ENTERPRISE
 namespace {
 // A search hit is visible iff the entity is label/type-readable AND every property that could have
-// produced the match is READ-permitted on its real labels — the same Filter/expression-mask semantics
-// the query engine applies (a match on an unreadable property must not surface). `searched` is the
+// produced the match is READ-permitted on its real labels. `searched` is the
 // index's declared property set; empty means a property-less index (covers every string property), so
 // every string property present on the entity is a candidate match and must be readable.
 bool VertexSearchHitReadable(const memgraph::query::VertexAccessor &v, const mgp_graph &graph,
@@ -4864,8 +4863,8 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
 #ifdef MG_ENTERPRISE
       if (graph->ctx && graph->ctx->auth_checker) {
         const auto searched = VectorIndexSearchedProperty(*graph, index_name);
-        std::erase_if(found_vertices, [&](const auto &t) {
-          return !VertexSearchHitReadable(memgraph::query::VertexAccessor(std::get<0>(t)), *graph, searched);
+        std::erase_if(found_vertices, [&](const auto &hit) {
+          return !VertexSearchHitReadable(memgraph::query::VertexAccessor(std::get<0>(hit)), *graph, searched);
         });
       }
 #endif
@@ -4911,8 +4910,8 @@ mgp_error mgp_graph_search_vector_index_on_edges(mgp_graph *graph, const char *i
 #ifdef MG_ENTERPRISE
       if (graph->ctx && graph->ctx->auth_checker) {
         const auto searched = VectorEdgeIndexSearchedProperty(*graph, index_name);
-        std::erase_if(found_edges, [&](const auto &t) {
-          return !EdgeSearchHitReadable(memgraph::query::EdgeAccessor(std::get<0>(t)), *graph, searched);
+        std::erase_if(found_edges, [&](const auto &hit) {
+          return !EdgeSearchHitReadable(memgraph::query::EdgeAccessor(std::get<0>(hit)), *graph, searched);
         });
       }
 #endif
