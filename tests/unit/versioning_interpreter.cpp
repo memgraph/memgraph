@@ -2061,3 +2061,48 @@ TEST_F(VersioningInterpreterTest, BranchDeleteThenRemovePropertyIsNoOpNotError) 
   EXPECT_EQ(vertices.GetResults().size(), 0U)
       << "the vertex must still be gone -- the REMOVE must not have resurrected it";
 }
+
+// S2b family: sibling of S2 (commit 7a012aa8b). S2 made branch read methods return
+// storage::Error::DELETED_OBJECT when a query reads an entity it deleted earlier in the same
+// query, gated on view == storage::View::NEW. That guard also closes DELETE ... SET/REMOVE ...
+// RETURN queries in one statement: the trailing RETURN reads the just-deleted entity at
+// View::NEW and must raise, exactly as on main -- unlike the plain SET/REMOVE-with-no-RETURN
+// no-op cases above, which stay silent because they never read the entity back.
+TEST_F(VersioningInterpreterTest, BranchDeleteThenSetThenReturnRaises) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:P {prop: 1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  ASSERT_THROW(faker.Interpret("MATCH (n:P) DETACH DELETE n SET n.prop = 2 RETURN n.prop AS prop"),
+               memgraph::query::QueryRuntimeException)
+      << "S2b: reading (via RETURN) an entity deleted earlier in the same query must raise, "
+         "matching main -- the pre-S2-fix bug returned a stale value";
+}
+
+TEST_F(VersioningInterpreterTest, BranchDeleteThenRemoveThenReturnRaises) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:P {prop: 1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  ASSERT_THROW(faker.Interpret("MATCH (n:P) DETACH DELETE n REMOVE n.prop RETURN n.prop AS prop"),
+               memgraph::query::QueryRuntimeException)
+      << "S2b: reading (via RETURN) an entity deleted earlier in the same query must raise, "
+         "matching main -- the pre-S2-fix bug returned a stale value";
+}
+
+TEST_F(VersioningInterpreterTest, BranchDeleteThenSetLabelThenReturnRaises) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:P {prop: 1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  ASSERT_THROW(faker.Interpret("MATCH (n:P) DETACH DELETE n SET n:X RETURN labels(n)"),
+               memgraph::query::QueryRuntimeException)
+      << "S2b: reading (via RETURN) an entity deleted earlier in the same query must raise, "
+         "matching main -- the pre-S2-fix bug returned a stale value";
+}
