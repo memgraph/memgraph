@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import concurrent
 import os
 import sys
 import time
@@ -667,9 +668,7 @@ def test_basic_auth_passthrough(test_name):
     assert show_roles(no_auth_cursor) == []
 
     # Connect with arbitrary username/password: the credentials are ignored and the session works the same.
-    basic_auth_cursor = connect(
-        host="localhost", port=leader_port, username="whoever", password="whatever"
-    ).cursor()
+    basic_auth_cursor = connect(host="localhost", port=leader_port, username="whoever", password="whatever").cursor()
     assert show_roles(basic_auth_cursor) == []
     # A basic-auth session can run role management.
     execute_and_fetch_all(basic_auth_cursor, "CREATE ROLE passthrough_role")
@@ -758,8 +757,17 @@ def test_roles_survive_full_cluster_restart(test_name):
     for name in ["coordinator_1", "coordinator_2", "coordinator_3"]:
         inner_instances_description[name]["setup_queries"] = []
         interactive_mg_runner.kill(inner_instances_description, name)
-    for name in ["coordinator_1", "coordinator_2", "coordinator_3"]:
-        interactive_mg_runner.start(inner_instances_description, name)
+
+    with concurrent.futures.ThreadPoolExecutor(2) as executor:
+        futures = [
+            executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_1"),
+            executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_2"),
+            executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_3"),
+        ]
+        # Block until both coordinators have fully started and surface any startup errors,
+        # otherwise the connect below can race a coordinator whose Bolt server isn't up yet.
+        for future in concurrent.futures.as_completed(futures):
+            future.result()
 
     # After the cluster re-forms, the role list must be reconstructed from the log/snapshot.
     def get_roles_from_leader():
