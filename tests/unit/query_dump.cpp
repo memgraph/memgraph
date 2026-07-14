@@ -978,6 +978,43 @@ TYPED_TEST(DumpTest, EdgeIndicesKeys) {
   }
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(DumpTest, VertexPropertyIndex) {
+  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    GTEST_SKIP() << "Vertex-property index not implemented for on-disk storage mode";
+  }
+
+  auto const prop_id = this->db->storage()->NameToProperty("prop");
+
+  {
+    auto dba = this->db->Access(memgraph::storage::WRITE);
+    CreateVertex(dba.get(), {}, {{prop_id, memgraph::storage::PropertyValue(42)}}, false);
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    auto index_acc = this->CreateIndexAccessor();
+    ASSERT_TRUE(index_acc->CreateGlobalVertexIndex(prop_id).has_value());
+    ASSERT_TRUE(index_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access(memgraph::storage::WRITE);
+      memgraph::query::DbAccessor dba(acc.get());
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
+    VerifyQueries(stream.GetResults(),
+                  "CREATE GLOBAL INDEX ON :(`prop`);",
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__ {__mg_id__: 0, `prop`: 42});",
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
+  }
+}
+
 TYPED_TEST(DumpTest, PointIndices) {
   if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     GTEST_SKIP() << "Point index not implemented for ondisk";
