@@ -336,8 +336,8 @@ void ReplayChangelogIntoDiffEngine(storage::InMemoryStorage &diff_engine,
 // entirely unmirrored; a later slice may extend this the same way.
 void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_engine,
                                               const storage::IndicesInfo &main_indices) {
-  if (main_indices.label.empty() && main_indices.label_properties.empty()) {
-    return;  // main had no (label/label-property) indexes at fork_ts -- nothing to mirror
+  if (main_indices.label.empty() && main_indices.label_properties.empty() && main_indices.edge_type.empty()) {
+    return;  // main had no (label / label-property / edge-type) indexes at fork_ts -- nothing to mirror
   }
 
   // ONE ReadOnlyAccess + commit PER index: CreateIndex internally calls DowngradeToReadIfValid()
@@ -383,6 +383,28 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
               "freshly-built, otherwise-empty diff engine failed -- should be impossible.",
               entry.label.AsUint());
     commit_one(*mirror);
+  }
+
+  // SLICE-3a SCOPE: edge-type indexes. GATED on properties_on_edges: the edge-type index is only
+  // ever populated in properties_on_edges=true mode -- its PopulateIndex unconditionally reads the
+  // EdgeRef union's `.ptr` member (inmemory/edge_type_index.cpp), which is uninitialized under
+  // light-edge storage, so CreateIndex(EdgeTypeId) SEGFAULTS there (a pre-existing MAIN limitation,
+  // class-doc'd at edge_type_index.hpp: "only populated when properties_on_edges=true"). The diff
+  // engine copies main's properties_on_edges (config parity, above), so in light-edge mode main can
+  // hold no populated edge-type index to mirror anyway; guard defensively so we never drive the
+  // crashing populate on the diff engine. Edge-type indexes carry no property order, so the branch
+  // read path (db_accessor.hpp Edges(view, edge_type)) is a plain gid-order set-union -- no ordering
+  // elision risk (unlike label-property), so mirroring is safe even before the merged read path.
+  if (diff_engine.config_.salient.items.properties_on_edges) {
+    for (const auto &edge_type : main_indices.edge_type) {
+      auto mirror = diff_engine.ReadOnlyAccess();
+      auto created = mirror->CreateIndex(edge_type);
+      MG_ASSERT(created.has_value(),
+                "BranchContext::BuildFromFork: mirroring main's edge-type index (edge type {}) onto a "
+                "freshly-built, otherwise-empty diff engine failed -- should be impossible.",
+                edge_type.AsUint());
+      commit_one(*mirror);
+    }
   }
 }
 

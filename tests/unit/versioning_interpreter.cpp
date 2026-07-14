@@ -35,6 +35,7 @@
 
 #include <filesystem>
 
+#include <gmock/gmock.h>
 #include "gtest/gtest.h"
 
 #include "flags/general.hpp"
@@ -2243,4 +2244,65 @@ TEST_F(VersioningInterpreterTest, BranchTwoLabelPropertyIndexesOrExpressionDoesN
   auto stream = faker.Interpret("MATCH (n:Label1|Label2) WHERE n.id < 2 RETURN n");
   EXPECT_EQ(stream.GetResults().size(), 2U) << "must return both id=1 vertices (:Label1 and :Label1:Label2) "
                                                "without throwing/aborting on the two-index mirror";
+}
+
+TEST_F(VersioningInterpreterTest, BranchEdgeTypeIndexScanReflectsBranchMutations) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE EDGE INDEX ON :KNOWS");
+
+  faker.Interpret("CREATE (a:N {n:'a'}),(b:N {n:'b'}),(c:N {n:'c'})");
+  faker.Interpret("MATCH (a:N {n:'a'}),(b:N {n:'b'}) CREATE (a)-[:KNOWS]->(b)");
+  faker.Interpret("MATCH (b:N {n:'b'}),(c:N {n:'c'}) CREATE (b)-[:KNOWS]->(c)");
+  faker.Interpret("MATCH (a:N {n:'a'}),(c:N {n:'c'}) CREATE (a)-[:KNOWS]->(c)");
+  faker.Interpret("MATCH (a:N {n:'a'}),(c:N {n:'c'}) CREATE (a)-[:LIKES]->(c)");  // distractor type
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Branch mutations: tombstone the fork's a->b KNOWS edge, add a branch-native c->a KNOWS edge.
+  faker.Interpret("MATCH (:N {n:'a'})-[r:KNOWS]->(:N {n:'b'}) DELETE r");
+  faker.Interpret("MATCH (a:N {n:'c'}),(b:N {n:'a'}) CREATE (a)-[:KNOWS]->(b)");
+
+  // The ORDER BY here is just to make the vector comparison deterministic -- the KNOWS scan itself
+  // carries no property order.
+  auto stream = faker.Interpret("MATCH (x)-[r:KNOWS]->(y) RETURN x.n + '->' + y.n AS e ORDER BY e");
+  const auto &rows = stream.GetResults();
+  std::vector<std::string> edges;
+  edges.reserve(rows.size());
+  for (const auto &row : rows) {
+    edges.push_back(row[0].ValueString());
+  }
+
+  EXPECT_EQ(edges, (std::vector<std::string>{"a->c", "b->c", "c->a"}))
+      << "expected the union of main@fork's historical KNOWS index (a->b, b->c, a->c) with the "
+         "branch's own diff-engine KNOWS mutations (a->b tombstoned away, c->a created "
+         "branch-native), correctly restricted to the KNOWS type -- a missing/extra edge means the "
+         "branch edge-type merge (tombstone skip / diff-union / type filter) is wrong, and the LIKES "
+         "distractor edge must never appear.";
+}
+
+TEST_F(VersioningInterpreterTest, BranchEdgeTypeIndexSelectedInPlanOnBranch) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE EDGE INDEX ON :KNOWS");
+  faker.Interpret("CREATE (:N {n:'a'})-[:KNOWS]->(:N {n:'b'})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  auto stream = faker.Interpret("EXPLAIN MATCH ()-[r:KNOWS]->() RETURN r");
+  std::string plan;
+  for (const auto &row : stream.GetResults()) {
+    plan += row[0].ValueString();
+    plan += '\n';
+  }
+
+  // Locks both that MirrorMainIndexDefinitionsIntoDiffEngine registers the edge-type index on the
+  // branch's diff engine AND that its early-return guard accounts for edge_type indexes -- a bug
+  // where main had ONLY an edge-type index (no label/label-property index) made the mirror bail out
+  // early and left the branch planning ScanAll+Expand instead of the mirrored ScanAllByEdgeType.
+  EXPECT_THAT(plan, ::testing::HasSubstr("ScanAllByEdgeType"))
+      << "branch plan did not select the mirrored edge-type index; full plan:\n"
+      << plan;
 }

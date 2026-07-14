@@ -958,18 +958,63 @@ class DbAccessor final {
   // to begin with (nothing creates one on a branch yet) -- but silently wrong the moment that
   // changes, so guard now rather than wait for a silent-data-loss bug report.
   //
-  // SLICE E-2d IMPLEMENTATION: each overload below builds a predicate over the dimensions it cares
-  // about (edge type / property presence / property value / property range) and hands it to
-  // `MaterializeFilteredBranchEdgeScan` -- the edge-side mirror of `MaterializeFilteredBranchScan`,
-  // union-materialize instead of an index seek, same "eager, full-scan, but correct" trade-off (no
-  // branch-aware edge index to seek instead, out of scope for this slice). A property read that
-  // comes back without a value, or with a Null value, is treated as "does not match" by every
-  // predicate below -- matching main's own index semantics: an edge missing (or nulled-out on) the
-  // property is never a member of a property index.
+  // SLICE E-2d IMPLEMENTATION (edge_type+property / +value / +range overloads below):
+  // each of THOSE overloads builds a predicate over the dimensions it cares about (property
+  // presence / property value / property range) and hands it to `MaterializeFilteredBranchEdgeScan`
+  // -- the edge-side mirror of `MaterializeFilteredBranchScan`, union-materialize instead of an
+  // index seek, same "eager, full-scan, but correct" trade-off (no branch-aware edge index to seek
+  // instead, out of scope for this slice). A property read that comes back without a value, or with
+  // a Null value, is treated as "does not match" by every predicate below -- matching main's own
+  // index semantics: an edge missing (or nulled-out on) the property is never a member of a
+  // property index.
+  //
+  // Slice 3a/Part B: the plain edge_type-only overload immediately below is now
+  // INDEX-ACCELERATED, mirroring the vertex label-property Part B merge above (Vertices(view,
+  // label, properties, ranges, order)) but WITHOUT that overload's explicit sort: an edge-type
+  // index carries no property key, so both streams are already just "every edge of this type" in
+  // whatever order their respective index storage yields them -- a plain gid-order SET-UNION, no
+  // merge-sort needed. Two streams:
+  //   (a) the diff engine's own edge-type index (`accessor_->Edges(edge_type, view)` -- Part A,
+  //       branch_engine.cpp, mirrors main's edge-type index definitions onto the diff engine in
+  //       full-edge mode, so this is always populated once a branch exists), and
+  //   (b) main@fork's edge-type index as of the fork timestamp, via `historical()` -- falling back
+  //       (B1) to the existing full filter-scan if main DROPPED the index after the fork (largely
+  //       unreachable in practice, since edge-type indexes are covered by the same global schema
+  //       gate as everything else Part A mirrors, but defense-in-depth against a mid-flight drop).
+  // A main-stream candidate is skipped if the branch tombstoned it (branch-deleted fork edge), OR
+  // if the diff engine already holds that gid (`FindDiffEdge(g, View::NEW)` -- a COW): the diff
+  // stream in (a) already represents that gid, so counting it again from (b) would double-count it.
+  // Full-edge-mode only: an edge-type index does not exist at all in light-edge mode, so this path
+  // is only ever reached when Part A actually mirrored one.
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     if (branch_ctx_ != nullptr) {
-      return EdgesIterable(
-          MaterializeFilteredBranchEdgeScan(view, [edge_type](EdgeAccessor &e) { return e.EdgeType() == edge_type; }));
+      auto &historical = branch_ctx_->historical();
+      if (!historical.EdgeTypeIndexReady(edge_type)) {
+        // B1: main dropped this edge-type index after the fork -- fall back to the existing
+        // full filter-scan (correct, just O(graph) instead of O(matches)).
+        return EdgesIterable(MaterializeFilteredBranchEdgeScan(
+            view, [edge_type](EdgeAccessor &e) { return e.EdgeType() == edge_type; }));
+      }
+
+      auto result = std::make_shared<std::vector<EdgeAccessor>>();
+
+      // (a) Diff stream: the diff engine's own (branch-native + COW'd) edge-type index scan.
+      for (auto raw : accessor_->Edges(edge_type, view)) {
+        result->push_back(EdgeAccessor(raw, branch_ctx_));
+      }
+
+      // (b) Main@fork stream, gated by the tombstone/COW skip -- diff wins on any overlap.
+      for (auto raw : historical.Edges(edge_type, storage::View::OLD)) {
+        EdgeAccessor mc(raw, branch_ctx_);
+        auto const g = mc.Gid();
+        if (branch_ctx_->IsEdgeTombstoned(g)) continue;
+        if (branch_ctx_->FindDiffEdge(g, storage::View::NEW).has_value()) continue;
+        result->push_back(mc);
+      }
+
+      // No sort: edge-type indexes carry no property order, so gid/unspecified order matches
+      // main's own edge-type scan semantics.
+      return EdgesIterable(std::move(result));
     }
     return EdgesIterable(accessor_->Edges(edge_type, view));
   }

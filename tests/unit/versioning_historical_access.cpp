@@ -677,4 +677,170 @@ TEST_F(VersioningHistoricalAccessTest, HistoricalLabelPropertyIndexScanRespectsD
   mem_storage->ReleaseForkPin(fork_ts);
 }
 
+// R1 (edge analogue): the same "HistoricalAccess(fork_ts) can drive an INDEX SCAN and see
+// fork-state, not live-state" claim as the two label-property tests above, but for an
+// edge-type INDEX SCAN (Storage::Accessor::Edges(EdgeTypeId, View) -- storage.hpp:628) instead of
+// a label-property scan. This gates a planned branch edge-index feature and must be checked in
+// BOTH edge-storage modes, since the underlying storage layout differs materially:
+//   - properties_on_edges = true  (fixture default): edges are heap-allocated Edge objects and
+//     EdgeRef holds an Edge* (edge_ref.hpp:22-42, `union { Gid gid; Edge *ptr; }`).
+//   - properties_on_edges = false: edges carry no property store and, per that same EdgeRef
+//     union, only the Gid member is ever populated for them -- edge_accessor.cpp:243
+//     (InitProperties) explicitly rejects property writes with Error::PROPERTIES_DISABLED, and
+//     EdgeAccessor::Gid() (edge_accessor.cpp:580-585) branches on properties_on_edges to read
+//     either edge_.ptr->gid or edge_.gid accordingly.
+//
+// IMPORTANT pre-existing-bug note found while wiring this test (grepped, not guessed):
+// InMemoryEdgeTypeIndex population (inmemory/edge_type_index.cpp:40 `index_accessor.insert({...,
+// edge_ref.ptr, ...})` and :83 the transactional variant) unconditionally reads the `.ptr` member
+// of every out-edge's EdgeRef while building the index, with no properties_on_edges branch and no
+// gate in InMemoryAccessor::CreateIndex(EdgeTypeId, ...) (inmemory/storage.cpp:2229-2256 -- unlike
+// the edge-type+property overload at :2258, which explicitly checks
+// `!in_memory->config_.salient.items.properties_on_edges` and refuses with
+// IndexDefinitionConfigError). The class comment at inmemory/edge_type_index.hpp:40-42 even flags
+// this: "this index is only populated when properties_on_edges=true, where the edge object is
+// always materialised and a raw pointer is valid." Under properties_on_edges=false, `edge_ref`
+// only ever had its `.gid` member written, so `.ptr` reinterprets a Gid's bit pattern as an
+// Edge*; the iterator side (AdvanceUntilValid_, edge_type_index.cpp:98) then dereferences that
+// same wild pointer (`index_iterator->edge->gid`). So the _LightEdges test below may not merely
+// return a wrong count -- it may crash/UB during CreateIndex or during the scan itself. That
+// outcome is itself the answer to whether edge-R1 holds for this mode; it is deliberately not
+// papered over here.
+//
+// API shapes below are copied, not guessed, from tests/unit/storage_v2_indices.cpp:
+//   - CreateIndex(EdgeTypeId) is called through storage->ReadOnlyAccess() and committed exactly
+//     like the label-index case (storage_v2_indices.cpp:2805-2808, IndexTest.EdgeTypeIndexCreate);
+//     like label CreateIndex, it internally calls DowngradeToReadIfValid()
+//     (inmemory/storage.cpp:2240), so ONE access per CreateIndex.
+//   - CreateEdge(VertexAccessor*, VertexAccessor*, EdgeTypeId) is Storage::Accessor::CreateEdge
+//     (storage.hpp:730), returning Result<EdgeAccessor>; see the IndexTest::CreateEdge helper
+//     (storage_v2_indices.cpp:164-169: `accessor->CreateEdge(from, to, edge_type)`).
+//   - Edges(EdgeTypeId, View) is Storage::Accessor::Edges (storage.hpp:628); iterated the same
+//     way as GetIds()'s `for (auto item : iterable)` loop (storage_v2_indices.cpp:172-178).
+//   - Deleting one specific edge among several on the same source vertex: OutEdges(view,
+//     {edge_type}) returns Result<EdgesVertexAccessorResult> whose `.edges` field is iterated to
+//     find the target edge, then DeleteEdge(&edge) removes it -- copied from
+//     storage_v2_indices.cpp:2900-2906 (`vertex.OutEdges(View::OLD)->edges` /
+//     `acc->DeleteEdge(&edge)`). Identification here uses EdgeType() + ToVertex().Gid() rather
+//     than an edge property (edge_accessor.hpp:52-64: FromVertex()/ToVertex()/EdgeType()), since
+//     properties_on_edges=false has no edge properties to key on -- this keeps the deletion logic
+//     identical across both tests below.
+TEST_F(VersioningHistoricalAccessTest, HistoricalEdgeTypeIndexScanReturnsForkState_PropertiesOnEdges) {
+  auto *mem_storage = static_cast<ms::InMemoryStorage *>(storage.get());
+  const auto knows_type = storage->NameToEdgeType("KNOWS");
+  const auto likes_type = storage->NameToEdgeType("LIKES");
+
+  // Edge-type index on :KNOWS.
+  {
+    auto index_acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(index_acc->CreateIndex(knows_type).has_value());
+    ASSERT_TRUE(index_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // Pre-fork: A, B, C vertices; A-[:KNOWS]->B, B-[:KNOWS]->C (the 2 fork-time KNOWS edges), and
+  // A-[:LIKES]->C (a distractor of a different edge type, must never appear in a KNOWS scan).
+  ms::Gid a_gid;
+  ms::Gid b_gid;
+  ms::Gid c_gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto a = acc->CreateVertex();
+    auto b = acc->CreateVertex();
+    auto c = acc->CreateVertex();
+    a_gid = a.Gid();
+    b_gid = b.Gid();
+    c_gid = c.Gid();
+
+    auto ab = acc->CreateEdge(&a, &b, knows_type);
+    ASSERT_TRUE(ab.has_value());
+    auto bc = acc->CreateEdge(&b, &c, knows_type);
+    ASSERT_TRUE(bc.has_value());
+    auto ac_likes = acc->CreateEdge(&a, &c, likes_type);
+    ASSERT_TRUE(ac_likes.has_value());
+
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  const uint64_t fork_ts = mem_storage->RegisterForkPin();
+
+  // Post-fork committed mutations on MAIN: a NEW KNOWS edge (A->C), and a DELETE of the pre-fork
+  // A-[:KNOWS]->B edge. Neither may leak into the fork_ts scan below; the deleted edge specifically
+  // MUST still appear, since it existed at fork_ts.
+  {
+    auto acc = storage->Access(ms::WRITE);
+
+    auto a = acc->FindVertex(a_gid, ms::View::OLD);
+    ASSERT_TRUE(a.has_value());
+    auto c = acc->FindVertex(c_gid, ms::View::OLD);
+    ASSERT_TRUE(c.has_value());
+    auto ac_new = acc->CreateEdge(&*a, &*c, knows_type);
+    ASSERT_TRUE(ac_new.has_value());
+
+    auto out_edges = a->OutEdges(ms::View::OLD, {knows_type});
+    ASSERT_TRUE(out_edges.has_value());
+    bool deleted_ab = false;
+    for (auto &edge : out_edges->edges) {
+      if (edge.ToVertex().Gid() == b_gid) {
+        ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+        deleted_ab = true;
+        break;
+      }
+    }
+    ASSERT_TRUE(deleted_ab) << "setup bug: pre-fork A-[:KNOWS]->B edge not found for deletion";
+
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto historical = mem_storage->HistoricalAccess(fork_ts);
+  ASSERT_TRUE(historical.has_value());
+  {
+    auto &hist_acc = **historical;
+
+    std::vector<std::pair<uint64_t, uint64_t>> seen;
+    for (auto edge : hist_acc.Edges(knows_type, ms::View::OLD)) {
+      EXPECT_EQ(edge.EdgeType(), knows_type) << "scan must only yield :KNOWS edges, never the :LIKES distractor";
+      seen.emplace_back(edge.FromVertex().Gid().AsUint(), edge.ToVertex().Gid().AsUint());
+    }
+
+    EXPECT_THAT(seen,
+                ::testing::UnorderedElementsAre(std::pair{a_gid.AsUint(), b_gid.AsUint()},
+                                                std::pair{b_gid.AsUint(), c_gid.AsUint()}))
+        << "expected exactly the 2 fork-time KNOWS edges (A->B, B->C); a missing A->B (the "
+           "post-fork-deleted edge must still be visible, since it existed at fork_ts), an extra "
+           "A->C (the post-fork-created edge must not appear), or any other mismatch means "
+           "edge-type index-time-travel through HistoricalAccess does NOT hold for this edge mode "
+           "(properties_on_edges=true), which would gate/limit the planned branch edge-index "
+           "feature";
+  }
+  historical->reset();
+  mem_storage->ReleaseForkPin(fork_ts);
+}
+
+// Same claim (edge-R1) as above, but with properties_on_edges = false instead of the fixture's
+// default (true) -- see the large comment above this test's sibling for exactly what differs at
+// the storage layer between the two modes, and for the pre-existing-bug note about
+// InMemoryEdgeTypeIndex population unconditionally reading EdgeRef::ptr regardless of that flag.
+// A plain (non-fixture) TEST is used because this mode needs its own InMemoryStorage constructed
+// with a different Config than VersioningHistoricalAccessTest::SetUp builds, and there is nothing
+// else in the fixture this test needs.
+TEST(VersioningHistoricalAccessEdgeIndexLightEdgesTest, HistoricalEdgeTypeIndexScanReturnsForkState_LightEdges) {
+  // FINDING (empirically confirmed, then converted to a documented skip so it does not segfault CI):
+  // the edge-type index is NOT supported under properties_on_edges=false. Its population
+  // (InMemoryEdgeTypeIndex, inmemory/edge_type_index.cpp) unconditionally dereferences the
+  // EdgeRef union's `.ptr` member, but in light-edge mode only `.gid` is ever written (edge_ref.hpp),
+  // and CreateIndex(EdgeTypeId) (inmemory/storage.cpp:2229) has NO properties_on_edges gate -- unlike
+  // the edge-type+PROPERTY overload, which does refuse. So `CreateIndex(:KNOWS)` on a light-edge
+  // storage SEGFAULTS during PopulateIndex (verified: exit 139), on MAIN, independent of versioning.
+  // (The class doc at edge_type_index.hpp:40-42 states "only populated when properties_on_edges=true".)
+  //
+  // Consequence for the branch edge-index feature: it is inherently full-edge-mode only. A light-edge
+  // instance cannot hold a (populated) edge-type index in the first place, so there is nothing to
+  // mirror onto a light-edge branch's diff engine; Part A gates edge-type mirroring on
+  // properties_on_edges=true accordingly (branch_engine.cpp). This is a pre-existing MAIN crash bug,
+  // not a versioning bug -- worth a separate fix (a properties_on_edges gate in
+  // CreateIndex(EdgeTypeId), mirroring the edge-type+property overload), tracked outside this slice.
+  GTEST_SKIP() << "edge-type index is unsupported (segfaults on populate) under properties_on_edges=false -- "
+                  "pre-existing MAIN limitation; branch edge-index acceleration is full-edge-mode only";
+}
+
 }  // namespace
