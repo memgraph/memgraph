@@ -2338,24 +2338,35 @@ struct SubgraphTraversal {
   }
 };
 
+// Classifies the ambient graph view into its concrete kind and invokes the matching handler: a
+// projection (VirtualGraphView), a subgraph (SubgraphGraphView), or the real identity view (any other
+// view, including none bound). The dynamic_cast ladder over the GraphView kinds lives here once - one
+// cast per call, never per row - so the callers that need it (traversal-family dispatch and
+// procedure-call routing) share a single place to extend when a new graph kind is added.
+template <class OnVirtual, class OnSubgraph, class OnReal>
+decltype(auto) WithAmbientView(GraphView *ambient, OnVirtual &&on_virtual, OnSubgraph &&on_subgraph, OnReal &&on_real) {
+  if (auto *vview = dynamic_cast<VirtualGraphView *>(ambient)) return on_virtual(*vview);
+  if (auto *sview = dynamic_cast<SubgraphGraphView *>(ambient)) return on_subgraph(*sview);
+  return on_real();
+}
+
 // Selects the traversal policy for the ambient graph view and invokes make(policy) to build the arm's
 // cursor: a projection materialises its level from the bound overlay; a subgraph materialises a
 // membership-filtered level; anything else (the real identity view) keeps RealTraversal's lazy,
-// unregressed hot path. The view dispatch (one dynamic_cast per cursor build, never per row) and the
-// projection edge-type name resolution live here once, shared by all six traversal-family arms.
+// unregressed hot path. The projection edge-type name resolution lives here once, shared by all six
+// traversal-family arms; the view classification is WithAmbientView's single dynamic_cast per build.
 template <bool AccountHops, class Make>
 void DispatchAmbientTraversal(ExecutionContext &context, const ExpandVariable &self, Make &&make) {
-  auto *ambient = context.evaluation_context.graph_view;
-  if (auto *vview = dynamic_cast<VirtualGraphView *>(ambient)) {
-    std::vector<std::string_view> allowed;
-    allowed.reserve(self.common_.edge_types.size());
-    for (const auto type : self.common_.edge_types) allowed.emplace_back(vview->EdgeTypeToName(type));
-    make(VirtualTraversal{&self, vview, std::move(allowed)});
-  } else if (auto *sview = dynamic_cast<SubgraphGraphView *>(ambient)) {
-    make(SubgraphTraversal<AccountHops>{&self, sview});
-  } else {
-    make(RealTraversal<AccountHops>{&self});
-  }
+  WithAmbientView(
+      context.evaluation_context.graph_view,
+      [&](VirtualGraphView &vview) {
+        std::vector<std::string_view> allowed;
+        allowed.reserve(self.common_.edge_types.size());
+        for (const auto type : self.common_.edge_types) allowed.emplace_back(vview.EdgeTypeToName(type));
+        make(VirtualTraversal{&self, &vview, std::move(allowed)});
+      },
+      [&](SubgraphGraphView &sview) { make(SubgraphTraversal<AccountHops>{&self, &sview}); },
+      [&] { make(RealTraversal<AccountHops>{&self}); });
 }
 
 // The variable-length (DFS) expansion, written once over a traversal policy.
@@ -8026,13 +8037,18 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // No explicit graph argument, but a `CALL { USE g ... }` scope bound an
     // ambient view: route the procedure over it, borrowing the scope-owned
     // graph (no copy). An explicit argument above takes precedence over this.
-    if (auto *subgraph_view = dynamic_cast<query::SubgraphGraphView *>(ambient_view)) {
-      db_acc = query::SubgraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), subgraph_view->graph());
-      graph.impl = &*db_acc;
-    } else if (auto *virtual_view = dynamic_cast<query::VirtualGraphView *>(ambient_view)) {
-      vg_acc = query::VirtualGraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), virtual_view->graph());
-      graph.impl = &*vg_acc;
-    }
+    // The real identity view needs no wrapper - the procedure runs over the real graph directly.
+    WithAmbientView(
+        ambient_view,
+        [&](query::VirtualGraphView &virtual_view) {
+          vg_acc = query::VirtualGraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), virtual_view.graph());
+          graph.impl = &*vg_acc;
+        },
+        [&](query::SubgraphGraphView &subgraph_view) {
+          db_acc = query::SubgraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), subgraph_view.graph());
+          graph.impl = &*db_acc;
+        },
+        [] {});
   }
 
   procedure::ValidateArguments(args_list, proc, fully_qualified_procedure_name);
