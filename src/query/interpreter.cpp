@@ -3573,6 +3573,21 @@ Expression *FindMapLiteralEntry(const MapLiteral &map, std::string_view key) {
   return nullptr;
 }
 
+// Evaluates a derive() config value at prepare time, but only if it is statically resolvable - a
+// literal or a parameter-substituted literal. A value that needs runtime context (a bound variable, or
+// a function requiring a database accessor such as `type(r)`) is not statically known: the prepare-time
+// evaluator raises a QueryRuntimeException, which is caught here and reported as nullopt rather than
+// failing the query. The field it feeds is then omitted from the header schema; the executor still
+// resolves the value per row. A genuine error in a constant expression resurfaces at execution, where
+// the config is evaluated for real.
+std::optional<TypedValue> EvaluateIfStatic(Expression &expr, ExpressionVisitor<TypedValue> &evaluator) {
+  try {
+    return expr.Accept(evaluator);
+  } catch (const QueryRuntimeException &) {
+    return std::nullopt;
+  }
+}
+
 // Reads a derive()'s overlay key set and edge type out of its options. The options map keys are
 // structural (kept in the literal), but scalar values are stripped to parameters for plan caching,
 // so the edge type and the policy bindings are recovered by evaluating those constant expressions
@@ -3585,12 +3600,14 @@ ProjectionSchemaEntry BuildProjectionSchemaEntry(int64_t ref, const MapLiteral &
   schema.ref = ref;
 
   if (auto *edge_type = FindMapLiteralEntry(options, "virtualEdgeType")) {
-    if (auto value = edge_type->Accept(evaluator); value.IsString()) schema.edge_type = value.ValueString();
+    if (auto value = EvaluateIfStatic(*edge_type, evaluator); value && value->IsString())
+      schema.edge_type = value->ValueString();
   }
 
   if (auto *policy = utils::Downcast<MapLiteral>(FindMapLiteralEntry(options, "propertyPolicy"))) {
     for (const auto &[property, binding] : policy->elements_) {
-      if (auto value = binding->Accept(evaluator); value.IsString() && value.ValueString() == "overlay") {
+      if (auto value = EvaluateIfStatic(*binding, evaluator);
+          value && value->IsString() && value->ValueString() == "overlay") {
         schema.overlay.push_back(property.name);
       }
     }

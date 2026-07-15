@@ -1102,6 +1102,27 @@ TYPED_TEST(InterpreterTest, CallUseScopeOverDeriveHiddenInvisible) {
   EXPECT_EQ(pred.GetResults()[1][0].ValueInt(), 2);
 }
 
+// derive()'s virtualEdgeType may be a per-row expression (type(r)) rather than a constant. The
+// prepare-time projection-schema extraction cannot evaluate it statically, but that must not fail the
+// query - the executor evaluates the config per row. undirectedEdgeTypes then makes the listed types'
+// edges count in both directions. Regression for the GQL Behave aggregations scenarios that a
+// non-constant virtualEdgeType previously aborted at prepare time.
+TYPED_TEST(InterpreterTest, DeriveWithDynamicVirtualEdgeType) {
+  this->Interpret("CREATE (a:N {x: 1})-[:R1]->(b:N {x: 2}), (b)-[:R2]->(c:N {x: 3}), (c)-[:R3]->(a)");
+  auto stream = this->Interpret(
+      "MATCH p=(:N)-[r]->(:N) "
+      "WITH derive(p, {virtualEdgeType: type(r), undirectedEdgeTypes: ['R1', 'R2']}) AS g "
+      "UNWIND g.edges AS e WITH type(e) AS t, count(*) AS c "
+      "RETURN t, c ORDER BY t");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "R1");
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueString(), "R2");
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[2][0].ValueString(), "R3");
+  EXPECT_EQ(stream.GetResults()[2][1].ValueInt(), 1);
+}
+
 // A USE scope over a project() subgraph scans only the subgraph's member nodes,
 // not other real-graph nodes.
 TYPED_TEST(InterpreterTest, CallUseScopeOverSubgraphScansMembers) {
