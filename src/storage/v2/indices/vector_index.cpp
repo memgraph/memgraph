@@ -431,7 +431,8 @@ std::optional<uint64_t> VectorIndex::ApproximateNodesVectorCount(std::string_vie
 
 VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view index_name, uint64_t result_set_size,
                                                               const std::vector<float> &query_vector,
-                                                              NameIdMapper *name_id_mapper) const {
+                                                              NameIdMapper *name_id_mapper,
+                                                              const std::unordered_set<Gid> &vertex_filter) const {
   auto maybe_id = name_id_mapper->NameToIdIfExists(index_name);
   if (!maybe_id.has_value()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
@@ -446,7 +447,14 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
   result.reserve(result_set_size);
 
   auto guard = utils::SharedResourceLockGuard(item_ptr->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
-  const auto result_keys = item_ptr->mg_index.index.search(query_vector.data(), result_set_size);
+  // Reading Vertex::gid is safe under the shared index lock: gid is immutable and the storage layer holds a vertices
+  // accessor that keeps the pointers alive for the duration of the search.
+  const auto result_keys = vertex_filter.empty()
+                               ? item_ptr->mg_index.index.search(query_vector.data(), result_set_size)
+                               : item_ptr->mg_index.index.filtered_search(
+                                     query_vector.data(), result_set_size, [&vertex_filter](Vertex *vertex) {
+                                       return vertex_filter.contains(vertex->gid);
+                                     });
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
     result.emplace_back(

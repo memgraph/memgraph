@@ -370,9 +370,9 @@ std::optional<uint64_t> VectorEdgeIndex::ApproximateEdgesVectorCount(std::string
   return std::nullopt;
 }
 
-VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::string_view index_name,
-                                                                      uint64_t result_set_size,
-                                                                      const std::vector<float> &query_vector) const {
+VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(
+    std::string_view index_name, uint64_t result_set_size, const std::vector<float> &query_vector,
+    const std::unordered_set<Gid> &edge_filter) const {
   auto maybe_id = std::invoke([&]() -> std::optional<uint64_t> {
     for (const auto &[id, item_ptr] : *index_) {
       if (item_ptr->spec.index_name == index_name) return id;
@@ -390,8 +390,11 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
 
   auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
   auto ep_lock = std::shared_lock{edge_endpoints_mutex_};
-  const auto result_keys = mg_index.index.filtered_search(
-      query_vector.data(), result_set_size, [this](Edge *edge) { return edge_endpoints_.contains(edge); });
+  // Reading Edge::gid is safe here: gid is immutable and the storage layer holds an edges accessor for the search.
+  const auto result_keys =
+      mg_index.index.filtered_search(query_vector.data(), result_set_size, [this, &edge_filter](Edge *edge) {
+        return edge_endpoints_.contains(edge) && (edge_filter.empty() || edge_filter.contains(edge->gid));
+      });
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     auto *edge = static_cast<Edge *>(result_keys[i].member.key);
     auto [from_vertex, to_vertex, edge_type] = edge_endpoints_.at(edge);

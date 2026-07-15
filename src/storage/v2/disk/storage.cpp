@@ -2448,12 +2448,14 @@ auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*pr
 }
 
 std::vector<std::tuple<VertexAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearchOnNodes(
-    const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/) {
+    const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/,
+    const std::unordered_set<Gid> & /*vertex_filter*/) {
   throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 
 std::vector<std::tuple<EdgeAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearchOnEdges(
-    const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/) {
+    const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/,
+    const std::unordered_set<Gid> & /*edge_filter*/) {
   throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 

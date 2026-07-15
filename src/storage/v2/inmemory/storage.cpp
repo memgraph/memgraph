@@ -5170,14 +5170,15 @@ auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId 
 }
 
 std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemoryAccessor::VectorIndexSearchOnNodes(
-    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector,
+    const std::unordered_set<Gid> &vertex_filter) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   std::vector<std::tuple<VertexAccessor, double, double>> result;
 
   // we have to take vertices accessor to be sure no vertex is deleted while we are searching
   auto acc = mem_storage->vertices_.access();
   const auto search_results = storage_->indices_.vector_index_.SearchNodes(
-      index_name, number_of_results, vector, mem_storage->name_id_mapper_.get());
+      index_name, number_of_results, vector, mem_storage->name_id_mapper_.get(), vertex_filter);
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
     auto &[vertex, distance, score] = item;
     return std::make_tuple(VertexAccessor{vertex, storage_, &transaction_}, distance, score);
@@ -5187,13 +5188,15 @@ std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemor
 }
 
 std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryAccessor::VectorIndexSearchOnEdges(
-    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector,
+    const std::unordered_set<Gid> &edge_filter) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   std::vector<std::tuple<EdgeAccessor, double, double>> result;
 
   // we have to take edges accessor to be sure no edge is deleted while we are searching
   auto acc = mem_storage->edges_.access();
-  const auto search_results = storage_->indices_.vector_edge_index_.SearchEdges(index_name, number_of_results, vector);
+  const auto search_results =
+      storage_->indices_.vector_edge_index_.SearchEdges(index_name, number_of_results, vector, edge_filter);
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
     const auto &[entry, distance, score] = item;
     return std::make_tuple(

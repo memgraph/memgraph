@@ -256,13 +256,15 @@ bool DbAccessor::PointIndexExists(storage::LabelId label, storage::PropertyId pr
 }
 
 std::vector<std::tuple<storage::VertexAccessor, double, double>> DbAccessor::VectorIndexSearchOnNodes(
-    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
-  return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector);
+    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector,
+    const std::unordered_set<storage::Gid> &vertex_filter) {
+  return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector, vertex_filter);
 }
 
 std::vector<std::tuple<storage::EdgeAccessor, double, double>> DbAccessor::VectorIndexSearchOnEdges(
-    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
-  return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector);
+    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector,
+    const std::unordered_set<storage::Gid> &edge_filter) {
+  return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector, edge_filter);
 }
 
 std::vector<storage::VectorIndexInfo> DbAccessor::ListAllVectorIndices() const {
