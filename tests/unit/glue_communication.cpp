@@ -177,7 +177,7 @@ TEST_F(ToBoltTest, PropertyFGAOverlayBoundOverrideExemptFromOriginDeny) {
 
   auto ssn_id = acc->NameToProperty("ssn");
   // ssn is overlaid with "masked": it is overlay-bound through the overlay store (it carries a
-  // value), so no ProjectionSchema is needed to bind it.
+  // value), so no PropertyBinding is needed to bind it.
   memgraph::query::VirtualNode overlay({"Employee"},
                                        {{ssn_id, memgraph::storage::PropertyValue("masked")}},
                                        {},

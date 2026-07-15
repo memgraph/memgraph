@@ -184,11 +184,10 @@ constexpr auto kPropertyPolicy = "propertyPolicy";
 // 'overlay'-bound keys, plus the provenance ref. Role-independent - a projection's source and target
 // nodes share one instance - so per-role labels and property overrides are applied per node in
 // BuildDerivedNode. A binding other than hidden/overlay/origin is a construction error.
-std::shared_ptr<const ProjectionSchema> MakeProjectionSchema(const TypedValue::TMap &options, int64_t projection_ref,
-                                                             DbAccessor *db_accessor,
-                                                             VirtualNode::allocator_type alloc) {
-  ProjectionSchema::key_set hidden{alloc};
-  ProjectionSchema::key_set overlay_bound{alloc};
+std::shared_ptr<const PropertyBinding> MakePropertyBinding(const TypedValue::TMap &options, int64_t projection_ref,
+                                                           DbAccessor *db_accessor, VirtualNode::allocator_type alloc) {
+  PropertyBinding::key_set hidden{alloc};
+  PropertyBinding::key_set overlay_bound{alloc};
   if (const auto policy_it = options.find(kPropertyPolicy); policy_it != options.end()) {
     if (policy_it->second.type() != TypedValue::Type::Map) {
       throw QueryRuntimeException("derive() option '{}' must be a map of property names to bindings.", kPropertyPolicy);
@@ -210,14 +209,14 @@ std::shared_ptr<const ProjectionSchema> MakeProjectionSchema(const TypedValue::T
       }
     }
   }
-  return std::make_shared<const ProjectionSchema>(std::move(hidden), std::move(overlay_bound), projection_ref);
+  return std::make_shared<const PropertyBinding>(std::move(hidden), std::move(overlay_bound), projection_ref);
 }
 
 // Builds one overlay node over a real vertex: its label override (or the origin's labels) and its
 // per-node overlay property values. The static binding + ref come from the shared `schema`. A key
 // the policy bound 'origin' may not also carry an overlay value here - a construction conflict.
 VirtualNode BuildDerivedNode(const VertexAccessor &real_vertex, std::string_view labels_key, std::string_view props_key,
-                             const TypedValue::TMap &options, const std::shared_ptr<const ProjectionSchema> &schema,
+                             const TypedValue::TMap &options, const std::shared_ptr<const PropertyBinding> &schema,
                              DbAccessor *db_accessor, VirtualNode::allocator_type alloc) {
   VirtualNode::label_list labels{alloc};
   if (const auto labels_it = options.find(labels_key); labels_it != options.end()) {
@@ -292,7 +291,7 @@ void AddPathToProjection(const TypedValue &path_value, const TypedValue &options
   const auto alloc = projected_graph.get_allocator();
   // The static binding + ref are role-independent, so build the schema once and share it across
   // both endpoints' overlay nodes (and, via the dedup, across rows).
-  const auto schema = MakeProjectionSchema(options, projection_ref, db_accessor, alloc);
+  const auto schema = MakePropertyBinding(options, projection_ref, db_accessor, alloc);
   auto canonical = [&](const VertexAccessor &real_vertex,
                        std::string_view labels_key,
                        std::string_view props_key) -> std::shared_ptr<const VirtualNode> {

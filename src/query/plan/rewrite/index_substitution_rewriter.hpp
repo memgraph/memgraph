@@ -20,17 +20,17 @@
 
 namespace memgraph::query::plan::impl {
 
-/// Base for the plan rewriters that substitute real-graph scans - the index,
-/// edge-index, and join rewriters. Their substitutions consult the real graph's
-/// indexes and statistics, so they must never descend into a `CALL { USE ... }`
-/// scope body (a `BindGraphView`), whose scan runs over a bound projection:
-/// substituting an index scan there would silently read the real graph, which
-/// ADR 0004 calls a correctness bug, not an optimization.
+/// Base for any plan rewriter that must not descend into a `CALL { USE ... }`
+/// scope body (a `BindGraphView`), whose scan runs over a bound projection rather
+/// than the real graph. The index, edge-index, and join rewriters substitute
+/// real-graph index scans; the parallel rewriter parallelizes real-graph scans -
+/// entering the scope would silently operate on the wrong graph, which ADR 0004
+/// calls a correctness bug, not an optimization.
 ///
-/// The guard is declared here, once, and `final`, so it cannot be copy-pasted
-/// out of sync per rewriter and no derived rewriter can re-enable descent - not
-/// even by accident. `prev_ops_` lives here too, since the guard maintains it.
-class IndexSubstitutionRewriter : public HierarchicalLogicalOperatorVisitor {
+/// The guard is declared here, once, and `final`, so it cannot be copy-pasted out
+/// of sync per rewriter and no derived rewriter can re-enable descent - not even
+/// by accident. `prev_ops_` lives here too, since the guard maintains it.
+class BoundViewScopeRewriter : public HierarchicalLogicalOperatorVisitor {
  public:
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -52,6 +52,12 @@ class IndexSubstitutionRewriter : public HierarchicalLogicalOperatorVisitor {
  protected:
   std::vector<LogicalOperator *> prev_ops_;
 };
+
+/// The scope-guard base for the real-graph index-substitution rewriters (index,
+/// edge-index, join). It adds nothing beyond `BoundViewScopeRewriter`; it exists
+/// so `RunIndexSubstitution` can require it and reject any rewriter that was not
+/// built to stop at a USE-scope body.
+class IndexSubstitutionRewriter : public BoundViewScopeRewriter {};
 
 /// The single sanctioned way to run an index-substitution rewrite: construct the
 /// rewriter, walk the plan, and hand back its replacement root (null when the

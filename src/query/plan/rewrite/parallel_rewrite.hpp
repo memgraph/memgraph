@@ -24,6 +24,7 @@
 #include "query/dependant_symbol_visitor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
+#include "query/plan/rewrite/index_substitution_rewriter.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
@@ -31,7 +32,7 @@ namespace memgraph::query::plan {
 namespace impl {
 
 template <class TDbAccessor>
-class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
+class ParallelRewriter final : public BoundViewScopeRewriter {
  public:
   ParallelRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db, size_t num_threads)
       : symbol_table(symbolTable), ast_storage(astStorage), db(db), num_threads_(num_threads) {}
@@ -44,9 +45,9 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   ~ParallelRewriter() override = default;
 
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
-  using HierarchicalLogicalOperatorVisitor::PreVisit;
-  using HierarchicalLogicalOperatorVisitor::Visit;
+  using BoundViewScopeRewriter::PostVisit;
+  using BoundViewScopeRewriter::PreVisit;
+  using BoundViewScopeRewriter::Visit;
 
   bool Visit(Once &) override { return true; }
 
@@ -133,22 +134,9 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
 
 #undef DEFAULT_VISITS
 
-  // A `CALL { USE ... }` scope body scans a bound projection, not the real graph.
-  // A parallel scan reads the real graph, so parallelizing a scan inside the scope
-  // would read the wrong graph - the same correctness bug ADR 0004 describes for
-  // the index rewriters, which is why they stop at BindGraphView too. Do not
-  // descend into the body; the plan outside the scope is still parallelized.
-  // (Unifying this guard with the index rewriters' IndexSubstitutionRewriter base
-  // under one scope-guard base is a possible later cleanup - see issue 45.)
-  bool PreVisit(BindGraphView &op) override {
-    prev_ops_.push_back(&op);
-    return false;
-  }
-
-  bool PostVisit(BindGraphView & /*op*/) override {
-    prev_ops_.pop_back();
-    return true;
-  }
+  // The BindGraphView (USE-scope) guard that keeps this rewriter out of a bound
+  // projection's scan is inherited from BoundViewScopeRewriter, shared with the
+  // index-substitution rewriters.
 
   // Single threaded Aggregate (potentially parallelizable)
   bool PreVisit(Aggregate &op) override {
@@ -262,7 +250,6 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   SymbolTable *symbol_table;
   AstStorage *ast_storage;
   TDbAccessor *db;
-  std::vector<LogicalOperator *> prev_ops_;
   size_t num_threads_;
 
   /**

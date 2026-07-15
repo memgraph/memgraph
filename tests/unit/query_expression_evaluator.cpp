@@ -2713,7 +2713,7 @@ TYPED_TEST(FunctionTest, PropertySizeOverVirtualElements) {
       {},
       {},
       std::optional<VertexAccessor>{real},
-      std::make_shared<const ProjectionSchema>(ProjectionSchema::key_set{name_id}, ProjectionSchema::key_set{}));
+      std::make_shared<const PropertyBinding>(PropertyBinding::key_set{name_id}, PropertyBinding::key_set{}));
   EXPECT_EQ(this->EvaluateFunction("PROPERTYSIZE", hidden, "name").ValueInt(), 0);
 
   // Key present in the mapper but absent on the node: 0.

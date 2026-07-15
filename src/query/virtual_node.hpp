@@ -36,12 +36,12 @@ namespace memgraph::query {
 // Node-local overlay values and the node's labels stay on the node; only this role-independent part
 // is shared. Construction-time property overrides are overlay-bound through the node's own overlay
 // store (they carry a value there), so they need not be listed here.
-class ProjectionSchema {
+class PropertyBinding {
  public:
   using key_set = utils::pmr::vector<storage::PropertyId>;
   static constexpr int64_t kNoRef = -1;
 
-  ProjectionSchema(key_set hidden, key_set overlay_bound, int64_t ref = kNoRef)
+  PropertyBinding(key_set hidden, key_set overlay_bound, int64_t ref = kNoRef)
       : hidden_(std::move(hidden)), overlay_bound_(std::move(overlay_bound)), ref_(ref) {}
 
   [[nodiscard]] bool IsHidden(storage::PropertyId key) const {
@@ -83,7 +83,7 @@ class VirtualNode final {
 
   VirtualNode(label_list labels, property_map properties, allocator_type alloc = {},
               std::optional<VertexAccessor> origin = std::nullopt,
-              std::shared_ptr<const ProjectionSchema> schema = nullptr)
+              std::shared_ptr<const PropertyBinding> schema = nullptr)
       : gid_(NextSyntheticGid()),
         impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), std::move(origin), std::move(schema),
                                      std::nullopt, alloc)) {}
@@ -250,15 +250,15 @@ class VirtualNode final {
     std::optional<VertexAccessor> origin;
     // The static per-projection binding + ref, shared across the projection's nodes; null for a
     // synthetic node (which hides nothing and binds every overlay-valued key).
-    std::shared_ptr<const ProjectionSchema> schema;
+    std::shared_ptr<const PropertyBinding> schema;
     std::optional<int64_t> handle;
 
     Impl(const label_list &lbls, const property_map &props, const std::optional<VertexAccessor> &orig,
-         std::shared_ptr<const ProjectionSchema> sch, std::optional<int64_t> hndl, allocator_type alloc)
+         std::shared_ptr<const PropertyBinding> sch, std::optional<int64_t> hndl, allocator_type alloc)
         : labels(lbls, alloc), properties(props, alloc), origin(orig), schema(std::move(sch)), handle(hndl) {}
 
     Impl(label_list &&lbls, property_map &&props, std::optional<VertexAccessor> &&orig,
-         std::shared_ptr<const ProjectionSchema> sch, std::optional<int64_t> hndl, allocator_type alloc)
+         std::shared_ptr<const PropertyBinding> sch, std::optional<int64_t> hndl, allocator_type alloc)
         : labels(std::move(lbls), alloc),
           properties(std::move(props), alloc),
           origin(std::move(orig)),
