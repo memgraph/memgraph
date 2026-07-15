@@ -10,12 +10,87 @@
 // licenses/APL.txt.
 
 #include <fmt/format.h>
+#include <charconv>
+#include <cmath>
 #include <list>
 #include <sstream>
+#include <vector>
 
 #include "map.hpp"
 
 const auto number_of_elements_in_pair = 2;
+
+namespace {
+// Formats a double as the shortest round-tripping decimal, always keeping a fractional
+// part and switching to scientific notation outside the [1e-3, 1e7) range (e.g. 2.0 ->
+// "2.0", 0.1 -> "0.1", 1e10 -> "1.0E10").
+std::string DoubleToKey(double value) {
+  if (std::isnan(value)) return "NaN";
+  if (std::isinf(value)) return value < 0 ? "-Infinity" : "Infinity";
+
+  char buffer[40];
+  const auto conv = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::scientific);
+  const std::string scientific(buffer, conv.ptr);  // e.g. "-1.5e+02", "2e+00", "1e-01"
+
+  size_t pos = 0;
+  std::string sign;
+  if (scientific[pos] == '-') {
+    sign = "-";
+    ++pos;
+  }
+  const size_t e_pos = scientific.find('e', pos);
+  std::string digits;
+  for (size_t i = pos; i < e_pos; ++i) {
+    if (scientific[i] != '.') digits += scientific[i];
+  }
+  const int exponent = std::stoi(scientific.substr(e_pos + 1));
+
+  std::string mantissa;
+  if (exponent >= -3 && exponent < 7) {
+    if (exponent >= 0) {
+      const size_t int_digits = static_cast<size_t>(exponent) + 1;
+      if (int_digits >= digits.size()) {
+        mantissa = digits + std::string(int_digits - digits.size(), '0') + ".0";
+      } else {
+        mantissa = digits.substr(0, int_digits) + "." + digits.substr(int_digits);
+      }
+    } else {
+      mantissa = "0." + std::string(static_cast<size_t>(-exponent) - 1, '0') + digits;
+    }
+  } else {
+    const std::string fraction = digits.size() > 1 ? digits.substr(1) : "0";
+    mantissa = digits.substr(0, 1) + "." + fraction + "E" + std::to_string(exponent);
+  }
+  return sign + mantissa;
+}
+}  // namespace
+
+std::string Map::KeyToString(const mgp::Value &value) {
+  if (value.IsDouble()) {
+    return DoubleToKey(value.ValueDouble());
+  }
+  std::ostringstream oss;
+  oss << value;
+  return oss.str();
+}
+
+mgp::Map Map::ToMap(const mgp::Value &value) {
+  if (value.IsNode()) {
+    mgp::Map map{};
+    for (const auto &[key, property_value] : value.ValueNode().Properties()) {
+      map.Insert(key, property_value);
+    }
+    return map;
+  }
+  if (value.IsRelationship()) {
+    mgp::Map map{};
+    for (const auto &[key, property_value] : value.ValueRelationship().Properties()) {
+      map.Insert(key, property_value);
+    }
+    return map;
+  }
+  return mgp::Map(value.ValueMap());
+}
 
 /*NOTE: FromNodes isn't 1:1 for graphQL, because first, we need to extend C and CPP API to iterate vertices using ctx
 object, since the `FromNodes` procedure (function if we want to change API) needs to iterate over all graph nodes*/
@@ -33,9 +108,7 @@ void Map::FromNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
     for (const auto node : all_nodes) {
       if (!node.HasLabel(label) || !node.Properties().contains(std::string(property))) continue;
 
-      std::ostringstream oss;
-      oss << node.GetProperty(std::string(property));
-      const auto key = oss.str();
+      const auto key = KeyToString(node.GetProperty(std::string(property)));
 
       mgp::Map map{};
       map.Update("identity", mgp::Value(node.Id().AsInt()));
@@ -89,12 +162,10 @@ void Map::FromValues(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result
       if (key_value.IsNull()) {
         continue;
       }
-      std::ostringstream oss;
-      oss << key_value;
-      map.Update(oss.str(), value);
+      map.Update(KeyToString(key_value), value);
     }
 
-    result.SetValue(map);
+    result.SetValue(std::move(map));
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());
@@ -108,9 +179,9 @@ void Map::SetKey(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *re
   auto result = mgp::Result(res);
 
   try {
-    // A null map is treated as empty and a null key is a no-op; any other non-map
-    // (e.g. a node) falls through to ValueMap() and throws, like the sibling functions.
-    mgp::Map map = arguments[0].IsNull() ? mgp::Map() : mgp::Map(arguments[0].ValueMap());
+    // A null map is treated as empty and a null key is a no-op; a node/relationship is
+    // coerced to its properties map.
+    mgp::Map map = arguments[0].IsNull() ? mgp::Map() : ToMap(arguments[0]);
     if (!arguments[1].IsNull()) {
       map.Update(std::string(arguments[1].ValueString()), arguments[2]);
     }
@@ -123,21 +194,29 @@ void Map::SetKey(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *re
 }
 
 void Map::RemoveRecursion(mgp::Map &result, bool recursive, std::string_view key) {
-  for (auto element : result) {
+  // Collect mutations first: erasing/updating while iterating invalidates the map iterator.
+  std::vector<std::string> to_erase;
+  std::vector<std::pair<std::string, mgp::Value>> to_update;
+  for (const auto element : result) {
     if (element.key == key) {
-      result.Erase(element.key);
+      to_erase.emplace_back(element.key);
       continue;
     }
     if (element.value.IsMap() && recursive) {
-      // TO-DO no need for non_const_value_map in new version of memgraph
       mgp::Map non_const_value_map = mgp::Map(element.value.ValueMap());
       RemoveRecursion(non_const_value_map, recursive, key);
       if (non_const_value_map.Empty()) {
-        result.Erase(element.key);
-        continue;
+        to_erase.emplace_back(element.key);
+      } else {
+        to_update.emplace_back(element.key, mgp::Value(std::move(non_const_value_map)));
       }
-      result.Update(element.key, mgp::Value(std::move(non_const_value_map)));
     }
+  }
+  for (const auto &erase_key : to_erase) {
+    result.Erase(erase_key);
+  }
+  for (auto &[update_key, value] : to_update) {
+    result.Update(update_key, std::move(value));
   }
 }
 
@@ -197,8 +276,8 @@ void Map::Merge(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res
   auto result = mgp::Result(res);
 
   try {
-    const auto map1 = arguments[0].IsMap() ? arguments[0].ValueMap() : mgp::Map();
-    const auto map2 = arguments[1].IsMap() ? arguments[1].ValueMap() : mgp::Map();
+    const auto map1 = arguments[0].IsNull() ? mgp::Map() : ToMap(arguments[0]);
+    const auto map2 = arguments[1].IsNull() ? mgp::Map() : ToMap(arguments[1]);
 
     mgp::Map merged_map = mgp::Map(map2);
     for (const auto element : map1) {
@@ -257,7 +336,7 @@ void Map::FromLists(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result 
 
     const auto expected_list_size = list1.Size();
     if (expected_list_size != list2.Size()) {
-      throw mgp::ValueException("Lists must be of same size");
+      throw mgp::ValueException("keys and values lists have to be not null and of same size");
     }
     // Empty lists yield an empty map.
     mgp::Map result = mgp::Map();
@@ -273,24 +352,29 @@ void Map::FromLists(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result 
 }
 
 void Map::RemoveRecursionSet(mgp::Map &result, bool recursive, std::unordered_set<std::string> &set) {
-  for (auto element : result) {
-    bool inSet = false;
+  // Collect mutations first: erasing/updating while iterating invalidates the map iterator.
+  std::vector<std::string> to_erase;
+  std::vector<std::pair<std::string, mgp::Value>> to_update;
+  for (const auto element : result) {
     if (set.contains(std::string(element.key))) {
-      inSet = true;
-    }
-    if (inSet) {
-      result.Erase(element.key);
+      to_erase.emplace_back(element.key);
       continue;
     }
     if (element.value.IsMap() && recursive) {
       mgp::Map non_const_value_map = mgp::Map(element.value.ValueMap());
       RemoveRecursionSet(non_const_value_map, recursive, set);
       if (non_const_value_map.Empty()) {
-        result.Erase(element.key);
-        continue;
+        to_erase.emplace_back(element.key);
+      } else {
+        to_update.emplace_back(element.key, mgp::Value(std::move(non_const_value_map)));
       }
-      result.Update(element.key, mgp::Value(std::move(non_const_value_map)));
     }
+  }
+  for (const auto &erase_key : to_erase) {
+    result.Erase(erase_key);
+  }
+  for (auto &[update_key, value] : to_update) {
+    result.Update(update_key, std::move(value));
   }
 }
 
@@ -387,11 +471,13 @@ void Map::Get(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, 
   auto result = mgp::Result(res);
 
   try {
-    const auto map = arguments[0].ValueMap();
+    const auto map = ToMap(arguments[0]);
     const auto key = std::string(arguments[1].ValueString());
     const auto default_value = arguments[2];
     const auto fail = arguments[3].ValueBool();
 
+    // Precedence: an existing key always wins (even when its value is null), then a
+    // non-null default, then fail (throw) or a null result.
     if (map.KeyExists(key)) {
       SetResult(result, map.At(key));
       return;
@@ -402,7 +488,7 @@ void Map::Get(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, 
     }
     if (fail) {
       std::ostringstream oss;
-      oss << "Key '" << key << "' is not one of the existing keys [";
+      oss << "Key " << key << " is not of one of the existing keys [";
       bool first = true;
       for (const auto element : map) {
         oss << (first ? "" : ", ") << element.key;
@@ -428,7 +514,7 @@ void Map::MergeList(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result 
     const auto maps = arguments[0].ValueList();
     mgp::Map merged{};
     for (const auto element_map : maps) {
-      for (const auto entry : element_map.ValueMap()) {
+      for (const auto entry : ToMap(element_map)) {
         merged.Update(entry.key, entry.value);  // last key wins
       }
     }
