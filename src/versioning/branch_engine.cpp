@@ -935,37 +935,55 @@ std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vert
             "runs against a checked-out branch.");
 
   std::vector<storage::EdgeAccessor> result;
-  // gid -> index into `result`, so a later (diff-side) hit can overwrite an earlier
-  // (historical-side) entry for the same gid -- the diff engine's copy is always authoritative on a
-  // tie, mirroring UnionVerticesIterable::Iterator::SeekNext's own tie-break (branch_engine.cpp,
-  // above).
-  std::unordered_map<storage::Gid, size_t> seen;
 
-  auto collect = [&](storage::VertexAccessor &v, storage::View collect_view, bool diff_wins) {
-    auto maybe_result = (direction == storage::EdgeDirection::OUT) ? v.OutEdges(collect_view, edge_types, nullptr)
-                                                                   : v.InEdges(collect_view, edge_types, nullptr);
-    if (!maybe_result.has_value()) return;
-    for (auto &edge : maybe_result->edges) {
-      // Tombstone hook (ACTIVE as of slice E-4 -- tombstoned_edges_ is populated by
-      // query::DbAccessor::RemoveEdge/DetachDelete and by ReplayChangelogIntoDiffEngine's own
-      // WalEdgeDelete handler, see its own doc-comment, branch_engine.hpp): a tombstoned gid must
-      // never enter `result`, from EITHER side.
-      if (tombstoned_edges_.contains(edge.Gid())) continue;
-
-      auto [it, inserted] = seen.try_emplace(edge.Gid(), result.size());
-      if (inserted) {
+  // Collect the DIFF side first. Only diff-side edges can shadow a historical edge (a COW'd edge
+  // keeps its fork gid; branch-native edges get fresh gids), and a branch touches only a FEW of a
+  // vertex's edges -- so the diff side is small. Recording it first lets the historical pass skip
+  // shadowed gids with a cheap linear scan over that small prefix, replacing the old
+  // std::unordered_map<Gid,size_t> `seen` that was allocated + rehashed to the FULL vertex degree
+  // on every read of a branched/hub vertex (perf 2026-07-15: this per-call heap churn was the
+  // dominant branch-BFS overhead). The diff engine's copy remains authoritative on a tie, mirroring
+  // UnionVerticesIterable::Iterator::SeekNext's own tie-break (branch_engine.cpp, above) -- it is
+  // simply expressed here as "collected first, never overwritten" instead of "collected second,
+  // overwrites."
+  if (auto diff_vertex = current_diff_txn_->FindVertex(vertex_gid, view)) {
+    auto maybe_result = (direction == storage::EdgeDirection::OUT) ? diff_vertex->OutEdges(view, edge_types, nullptr)
+                                                                   : diff_vertex->InEdges(view, edge_types, nullptr);
+    if (maybe_result.has_value()) {
+      for (auto &edge : maybe_result->edges) {
+        // Tombstone hook (ACTIVE as of slice E-4 -- tombstoned_edges_ is populated by
+        // query::DbAccessor::RemoveEdge/DetachDelete and by ReplayChangelogIntoDiffEngine's own
+        // WalEdgeDelete handler, see its own doc-comment, branch_engine.hpp): a tombstoned gid must
+        // never enter `result`, from EITHER side.
+        if (tombstoned_edges_.contains(edge.Gid())) continue;
         result.push_back(edge);
-      } else if (diff_wins) {
-        result[it->second] = edge;
       }
     }
-  };
-
-  if (auto hist_vertex = historical_base_->FindVertex(vertex_gid, storage::View::OLD)) {
-    collect(*hist_vertex, storage::View::OLD, /*diff_wins=*/false);
   }
-  if (auto diff_vertex = current_diff_txn_->FindVertex(vertex_gid, view)) {
-    collect(*diff_vertex, view, /*diff_wins=*/true);
+  const size_t diff_count = result.size();
+
+  // Historical side: append every edge not already provided (and thus shadowed) by the diff side,
+  // and not tombstoned. diff_count is small, so the linear scan beats a hash set and needs no
+  // allocation of its own.
+  if (auto hist_vertex = historical_base_->FindVertex(vertex_gid, storage::View::OLD)) {
+    auto maybe_result = (direction == storage::EdgeDirection::OUT)
+                            ? hist_vertex->OutEdges(storage::View::OLD, edge_types, nullptr)
+                            : hist_vertex->InEdges(storage::View::OLD, edge_types, nullptr);
+    if (maybe_result.has_value()) {
+      result.reserve(diff_count + maybe_result->edges.size());
+      for (auto &edge : maybe_result->edges) {
+        const auto gid = edge.Gid();
+        if (tombstoned_edges_.contains(gid)) continue;
+        bool shadowed = false;
+        for (size_t i = 0; i < diff_count; ++i) {
+          if (result[i].Gid() == gid) {
+            shadowed = true;
+            break;
+          }
+        }
+        if (!shadowed) result.push_back(edge);
+      }
+    }
   }
 
   return result;
