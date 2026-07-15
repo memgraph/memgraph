@@ -1,0 +1,123 @@
+<!-- Graph Versioning v1 — Branch vs Main performance report. Self-contained. -->
+<style>
+  :root{--bg:#0f1116;--panel:#171a21;--panel2:#1e222b;--ink:#e6e9ef;--dim:#9aa4b2;--line:#2a2f3a;
+        --ok:#2ea043;--warn:#d29922;--bad:#f85149;--info:#58a6ff;--accent:#a371f7;--track:#2a2f3a;}
+  @media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--panel:#fff;--panel2:#f0f2f5;--ink:#1a1f28;--dim:#5b6572;--line:#dfe3ea;--track:#e6e9ee;}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:32px 22px 90px}
+  h1{font-size:28px;margin:0 0 4px;letter-spacing:-.4px}
+  h2{font-size:21px;margin:40px 0 8px;padding-top:14px;border-top:1px solid var(--line)}
+  h3{font-size:16px;margin:22px 0 6px;color:var(--accent)}
+  .sub{color:var(--dim);font-size:13.5px;margin:0 0 8px}
+  p{margin:9px 0}
+  code{background:var(--panel2);padding:1px 6px;border-radius:5px;font:12.5px/1.5 "SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:middle}
+  th{background:var(--panel2);font-weight:600}
+  td.n{font-family:"SF Mono",ui-monospace,Menlo,monospace;text-align:right;white-space:nowrap}
+  .q{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12px}
+  .note{border-left:3px solid var(--info);padding:2px 0 2px 14px;color:var(--dim);margin:12px 0}
+  .note.bad{border-left-color:var(--bad)}.note.warn{border-left-color:var(--warn)}.note.ok{border-left-color:var(--ok)}
+  .bar{position:relative;height:16px;background:var(--track);border-radius:4px;min-width:120px;width:200px}
+  .bar>span{position:absolute;left:0;top:0;bottom:0;border-radius:4px;display:block}
+  .pill{display:inline-block;padding:1px 7px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
+  .g{background:rgba(46,160,67,.18);color:var(--ok)} .y{background:rgba(210,153,34,.18);color:var(--warn)}
+  .o{background:rgba(210,120,34,.20);color:#e0803a} .r{background:rgba(248,81,73,.18);color:var(--bad)}
+  .strip{display:inline-flex;gap:2px;align-items:flex-end;height:24px}
+  .strip i{width:5px;background:var(--accent);border-radius:1px;display:inline-block;opacity:.8}
+  ul{margin:6px 0;padding-left:20px}li{margin:3px 0}
+  .kpi{display:flex;flex-wrap:wrap;gap:12px;margin:10px 0}
+  .kpi div{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;flex:1;min-width:150px}
+  .kpi b{font-size:22px;display:block}
+</style>
+
+<div class="wrap">
+  <h1>⚡ Graph Versioning v1 — Branch vs Main Performance</h1>
+  <p class="sub">pokec_small (10k vertices / 121k edges) · binary HEAD <code>9659d6e0b</code> RelWithDebInfo · 10 runs · paired branch/main ratio · 2026-07-14</p>
+
+  <div class="note ok"><b>Headline:</b> point/index reads on a churned branch are near-free (~1.1×); pure expansion overhead is modest (~1.15–1.25×); but <b>full index range-scans (~5.5×), whole-graph aggregations (~2.4×), and deep multi-hop expansions on split-adjacency vertices (~3.8×) carry a real branch-read tax.</b> The overhead is a function of <i>how many rows the merge touches</i>, not a fixed per-query cost.</div>
+
+  <h2>Method</h2>
+  <div class="panel">
+    <ul>
+      <li><b>One instance, two pinned connections.</b> Session&nbsp;M stays on <code>main</code>; Session&nbsp;B checks out branch <code>bench</code> once and holds it. Separate single-connection drivers (branch checkout is connection-scoped — a shared pool would leak B's checkout into M).</li>
+      <li><b>Worst-case churn on the branch</b> (applied live, session stays checked out): COW 20% of vertices (property update), tombstone ~2% (<code>DETACH DELETE</code>), add branch-native <code>:Friend</code> edges to a 300-vertex hot set (split adjacency), insert 500 branch-native vertices.</li>
+      <li><b>Paired ratio, unstable-machine-robust.</b> Within each of 10 runs, M and B are measured interleaved per query parameter; the reported number is the per-run ratio branch/main, then the distribution across 10 runs. Machine-wide transients cancel in the ratio — hence the tight ranges below.</li>
+      <li><b>Clean vs split decomposition for expansions:</b> <i>clean</i> start vertices are untouched (identical edge set to main → isolates pure branch read-path overhead); <i>split</i> start vertices are churned (COW'd + branch-added edges → true worst case, also more rows).</li>
+    </ul>
+  </div>
+  <div class="kpi">
+    <div><b>~1.1×</b><span class="sub">point / COW vertex read</span></div>
+    <div><b>~1.2×</b><span class="sub">expansion, pure overhead</span></div>
+    <div><b>~1.4×</b><span class="sub">expansion, split adjacency</span></div>
+    <div><b>~2.4×</b><span class="sub">full-graph aggregation</span></div>
+    <div><b>~5.5×</b><span class="sub">full index range-scan</span></div>
+  </div>
+
+  <h2>Results — branch/main latency ratio (median of 10 runs)</h2>
+  <p class="sub">Bar scale 1×–6×. Strip = the 10 individual per-run ratios (shows run-to-run stability). Lower is better; 1.00× = branch as fast as main.</p>
+  <table>
+    <tr><th>Query</th><th>main</th><th>branch</th><th>ratio (med)</th><th>magnitude (1×–6×)</th><th>10-run spread</th><th>range</th></tr>
+    <tr><td class="q">vertex_read_clean<br><span class="sub">point lookup, untouched</span></td><td class="n">0.156ms</td><td class="n">0.172ms</td><td><span class="pill g">1.11×</span></td>
+        <td><div class="bar"><span class="g" style="width:2.2%;background:var(--ok)"></span></div></td>
+        <td><span class="strip"><i style="height:37%"></i><i style="height:40%"></i><i style="height:40%"></i><i style="height:52%"></i><i style="height:40%"></i><i style="height:52%"></i><i style="height:44%"></i><i style="height:48%"></i><i style="height:33%"></i><i style="height:52%"></i></span></td><td class="n">1.08–1.13</td></tr>
+    <tr><td class="q">vertex_read_cow<br><span class="sub">point lookup, COW'd (diff hit)</span></td><td class="n">0.156ms</td><td class="n">0.170ms</td><td><span class="pill g">1.10×</span></td>
+        <td><div class="bar"><span style="width:2.0%;background:var(--ok)"></span></div></td>
+        <td><span class="strip"><i style="height:43%"></i><i style="height:26%"></i><i style="height:48%"></i><i style="height:33%"></i><i style="height:30%"></i><i style="height:43%"></i><i style="height:43%"></i><i style="height:56%"></i><i style="height:43%"></i><i style="height:60%"></i></span></td><td class="n">1.07–1.13</td></tr>
+    <tr><td class="q">expansion_1_clean<br><span class="sub">1-hop, untouched start</span></td><td class="n">0.205ms</td><td class="n">0.256ms</td><td><span class="pill g">1.23×</span></td>
+        <td><div class="bar"><span style="width:4.6%;background:var(--ok)"></span></div></td>
+        <td><span class="strip"><i style="height:70%"></i><i style="height:52%"></i><i style="height:48%"></i><i style="height:70%"></i><i style="height:56%"></i><i style="height:48%"></i><i style="height:56%"></i><i style="height:52%"></i><i style="height:74%"></i><i style="height:63%"></i></span></td><td class="n">1.21–1.28</td></tr>
+    <tr><td class="q">expansion_2_clean<br><span class="sub">2-hop, untouched start</span></td><td class="n">1.509ms</td><td class="n">1.733ms</td><td><span class="pill g">1.15×</span></td>
+        <td><div class="bar"><span style="width:3.0%;background:var(--ok)"></span></div></td>
+        <td><span class="strip"><i style="height:40%"></i><i style="height:40%"></i><i style="height:53%"></i><i style="height:47%"></i><i style="height:47%"></i><i style="height:33%"></i><i style="height:47%"></i><i style="height:60%"></i><i style="height:53%"></i><i style="height:47%"></i></span></td><td class="n">1.13–1.17</td></tr>
+    <tr><td class="q">expansion_1_split<br><span class="sub">1-hop, split-adjacency start</span></td><td class="n">0.168ms</td><td class="n">0.232ms</td><td><span class="pill y">1.37×</span></td>
+        <td><div class="bar"><span style="width:7.4%;background:var(--warn)"></span></div></td>
+        <td><span class="strip"><i style="height:42%"></i><i style="height:58%"></i><i style="height:38%"></i><i style="height:38%"></i><i style="height:35%"></i><i style="height:69%"></i><i style="height:54%"></i><i style="height:46%"></i><i style="height:23%"></i><i style="height:31%"></i></span></td><td class="n">1.33–1.45</td></tr>
+    <tr><td class="q">expansion_2_split<br><span class="sub">2-hop, split-adjacency start</span></td><td class="n">1.045ms</td><td class="n">1.488ms</td><td><span class="pill y">1.42×</span></td>
+        <td><div class="bar"><span style="width:8.4%;background:var(--warn)"></span></div></td>
+        <td><span class="strip"><i style="height:38%"></i><i style="height:33%"></i><i style="height:56%"></i><i style="height:31%"></i><i style="height:38%"></i><i style="height:38%"></i><i style="height:87%"></i><i style="height:59%"></i><i style="height:54%"></i><i style="height:51%"></i></span></td><td class="n">1.37–1.59</td></tr>
+    <tr><td class="q">neighbours_var_1_2_split<br><span class="sub">-[*1..2]-> variable, split start</span></td><td class="n">1.066ms</td><td class="n">1.498ms</td><td><span class="pill y">1.44×</span></td>
+        <td><div class="bar"><span style="width:8.8%;background:var(--warn)"></span></div></td>
+        <td><span class="strip"><i style="height:31%"></i><i style="height:47%"></i><i style="height:56%"></i><i style="height:79%"></i><i style="height:37%"></i><i style="height:60%"></i><i style="height:37%"></i><i style="height:70%"></i><i style="height:56%"></i><i style="height:19%"></i></span></td><td class="n">1.33–1.52</td></tr>
+    <tr><td class="q">aggregate_min_max_avg<br><span class="sub">full scan + property read</span></td><td class="n">2.028ms</td><td class="n">4.772ms</td><td><span class="pill o">2.36×</span></td>
+        <td><div class="bar"><span style="width:27.2%;background:#e0803a"></span></div></td>
+        <td><span class="strip"><i style="height:40%"></i><i style="height:52%"></i><i style="height:58%"></i><i style="height:58%"></i><i style="height:70%"></i><i style="height:58%"></i><i style="height:46%"></i><i style="height:58%"></i><i style="height:40%"></i><i style="height:58%"></i></span></td><td class="n">2.33–2.38</td></tr>
+    <tr><td class="q">aggregate_count<br><span class="sub">full-graph count</span></td><td class="n">0.875ms</td><td class="n">2.074ms</td><td><span class="pill o">2.37×</span></td>
+        <td><div class="bar"><span style="width:27.4%;background:#e0803a"></span></div></td>
+        <td><span class="strip"><i style="height:31%"></i><i style="height:77%"></i><i style="height:69%"></i><i style="height:100%"></i><i style="height:8%"></i><i style="height:100%"></i><i style="height:69%"></i><i style="height:54%"></i><i style="height:85%"></i><i style="height:100%"></i></span></td><td class="n">2.28–2.41</td></tr>
+    <tr><td class="q">expansion_4_split<br><span class="sub">4-hop, split-adjacency start</span></td><td class="n">27.24ms</td><td class="n">104.84ms</td><td><span class="pill r">3.80×</span></td>
+        <td><div class="bar"><span style="width:56%;background:var(--bad)"></span></div></td>
+        <td><span class="strip"><i style="height:63%"></i><i style="height:12%"></i><i style="height:53%"></i><i style="height:44%"></i><i style="height:68%"></i><i style="height:61%"></i><i style="height:88%"></i><i style="height:16%"></i><i style="height:100%"></i><i style="height:88%"></i></span></td><td class="n">3.44–4.01</td></tr>
+    <tr><td class="q">index_scan_gender<br><span class="sub">label-property index range scan (~5k rows)</span></td><td class="n">0.468ms</td><td class="n">2.563ms</td><td><span class="pill r">5.48×</span></td>
+        <td><div class="bar"><span style="width:89.6%;background:var(--bad)"></span></div></td>
+        <td><span class="strip"><i style="height:81%"></i><i style="height:88%"></i><i style="height:38%"></i><i style="height:44%"></i><i style="height:44%"></i><i style="height:6%"></i><i style="height:13%"></i><i style="height:38%"></i><i style="height:25%"></i><i style="height:100%"></i></span></td><td class="n">5.36–5.68</td></tr>
+  </table>
+
+  <h2>Where the overhead comes from</h2>
+  <div class="panel">
+    <ul>
+      <li><b>Point reads (~1.1×) — negligible.</b> An index point-lookup resolves one gid; the branch pays a tombstone-set check + a diff-engine probe. Whether the vertex is COW'd or untouched barely matters.</li>
+      <li><b>Index range scan (~5.5×) — the worst offender.</b> <code>gender='man'</code> matches ~5,000 vertices. The branch runs the diff-engine index scan <i>and</i> the historical index scan, concatenates, skips tombstoned/COW'd gids, and <code>stable_sort</code>s the union. The cost scales with rows returned, so a wide scan pays the full merge+sort tax. This is the single most important number for read-heavy branch workloads.</li>
+      <li><b>Full-graph aggregations (~2.4×) — consistent tax.</b> <code>MATCH (n)</code> drives the streaming <code>Vertices()</code> union (historical ∪ diff, tombstone-skipping) over the whole graph; every vertex pays the merge step, and the property variant adds the COW-aware property read.</li>
+      <li><b>Expansions — pure overhead is small (~1.15–1.25×), split adjacency adds ~15–20pp (~1.37–1.44×).</b> On a branch, <code>ResolveEdges</code> <i>always</i> unions historical + diff incident edges and de-dupes by gid — even for an untouched vertex (that's the clean-case overhead). A split-adjacency vertex has branch-added edges, so the union is non-trivial AND there are more rows to traverse.</li>
+      <li><b>Deep expansion compounds (4-hop split ~3.8×).</b> The per-hop <code>ResolveEdges</code> union multiplies across hops, and on hot split vertices the fan-out is larger on the branch than on main. Absolute cost is also large (main 27ms → branch 105ms) — deep multi-hop on high-degree vertices is the pattern to watch.</li>
+    </ul>
+  </div>
+
+  <h2>Distribution / confidence</h2>
+  <p>The paired-ratio methodology worked as intended on this unstable box: run-to-run spread is tight for every query (e.g. aggregations 2.28–2.41×, index-scan 5.36–5.68×, expansions within ±0.1×). The ratios are stable signal, not noise. Absolute millisecond values will vary with hardware; the <b>ratios</b> are the portable result.</p>
+
+  <h2>Caveats &amp; scope</h2>
+  <div class="note bad"><b>A server-crash bug was found while building this benchmark</b> (unrelated to steady-state read perf, but blocking one measurement path). Replaying a branch's changelog on <b>re-checkout / restart</b> aborts (<code>SIGABRT</code>, <code>branch_engine.cpp:208</code>) when the branch has done <code>SET</code>/label changes on a <i>pre-existing fork vertex</i> — the replay assumes a create-before-mutate that COW'd fork vertices don't have. The benchmark therefore applies churn in a session that <b>stays checked out</b> (live diff engine, no replay), which also measures steady-state read overhead more directly. Filed separately; recommend re-checkout + restart durability tests be added.</div>
+  <div class="note warn"><b>What this does and doesn't cover:</b> single-instance, single-branch, single-connection-per-role, IN_MEMORY_TRANSACTIONAL, pokec_small. It measures <b>read</b> overhead on a churned branch. It does <b>not</b> cover: branch write throughput, MERGE cost, concurrent multi-session load, larger datasets (overhead trends should hold or grow with graph size for the scan/aggregate cases), or replication.</div>
+
+  <h2>Recommendations</h2>
+  <ul>
+    <li><b>Branch reads are cheap for point/short-traversal workloads</b> (~1.1–1.4×) — the overlay model is well-suited to "fork, poke around, merge" use cases.</li>
+    <li><b>Wide index scans and full-graph aggregations on a branch are 2.4–5.5× slower.</b> If branch analytics over large result sets matter, the union-then-<code>stable_sort</code> merge-at-read is the place to optimize (e.g. a true streaming k-way merge instead of collect-then-sort, or short-circuiting when the diff side is empty for a given index).</li>
+    <li><b>Deep multi-hop traversals on high-degree vertices compound</b> — surface this in guidance for agent/what-if workloads that lean on long expansions.</li>
+    <li>Fix the re-checkout/restart replay crash before the durability story can be trusted for branches that edit existing data.</li>
+  </ul>
+</div>

@@ -1,0 +1,91 @@
+<!-- Graph Versioning v1 — Branch-read perf optimization investigation. Self-contained. -->
+<style>
+  :root{--bg:#0f1116;--panel:#171a21;--panel2:#1e222b;--ink:#e6e9ef;--dim:#9aa4b2;--line:#2a2f3a;
+        --ok:#2ea043;--warn:#d29922;--bad:#f85149;--info:#58a6ff;--accent:#a371f7;--track:#2a2f3a;}
+  @media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--panel:#fff;--panel2:#f0f2f5;--ink:#1a1f28;--dim:#5b6572;--line:#dfe3ea;--track:#e6e9ee;}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 22px 90px}
+  h1{font-size:27px;margin:0 0 4px;letter-spacing:-.4px}
+  h2{font-size:20px;margin:38px 0 8px;padding-top:14px;border-top:1px solid var(--line)}
+  h3{font-size:16px;margin:22px 0 6px;color:var(--accent)}
+  .sub{color:var(--dim);font-size:13.5px;margin:0 0 8px}
+  p{margin:9px 0}
+  code{background:var(--panel2);padding:1px 6px;border-radius:5px;font:12.5px/1.5 "SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600}
+  td.n{font-family:"SF Mono",ui-monospace,Menlo,monospace;text-align:right;white-space:nowrap}
+  .pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
+  .p-ok{background:rgba(46,160,67,.16);color:var(--ok)} .p-warn{background:rgba(210,153,34,.16);color:var(--warn)}
+  .p-bad{background:rgba(248,81,73,.16);color:var(--bad)} .p-info{background:rgba(88,166,255,.16);color:var(--info)}
+  .p-dim{background:rgba(154,164,178,.16);color:var(--dim)}
+  .note{border-left:3px solid var(--info);padding:2px 0 2px 14px;color:var(--dim);margin:12px 0}
+  .note.ok{border-left-color:var(--ok)} .note.bad{border-left-color:var(--bad)} .note.warn{border-left-color:var(--warn)}
+  ul{margin:6px 0;padding-left:20px}li{margin:3px 0}
+  b.ok{color:var(--ok)}b.bad{color:var(--bad)}b.warn{color:var(--warn)}
+</style>
+
+<div class="wrap">
+  <h1>⚙️ Graph Versioning v1 — Branch-Read Performance Investigation</h1>
+  <p class="sub">pokec_small (10k vtx / 121k edges) · HEAD <code>9659d6e0b</code> RelWithDebInfo · 10-run paired branch/main ratios · worst (~25%) &amp; realistic (~1.3%) churn · 2026-07-14</p>
+
+  <div class="note ok"><b>Bottom line.</b> Branch-read overhead has <b>two structural cost centers</b>, both <b>main-result-bound</b> (they do NOT shrink with a smaller branch): a <b>scan</b> path (wide index scans / aggregations, ~2.3–3.2× at realistic churn) and a <b>traversal</b> path (shortest-path ~4×, deep expansion ~3.3×). Of the levers investigated, exactly one is both cheap and confirmed — <b>entry-value exposure</b> (~½ the index-scan overhead). The traversal cost is <b>architectural</b> (per-hop gid re-resolution), not cheaply fixable. A fork-epoch base-retention design is <b>feasible</b> but not worth its commit-path cost.</div>
+
+  <h2>Method (recap)</h2>
+  <ul>
+    <li>One instance; Session M on <code>main</code>, Session B on branch <code>bench</code>, separate single-connection drivers (checkout is connection-scoped).</li>
+    <li>Per run, M vs B measured interleaved per parameter; headline = per-run ratio branch/main, distribution across 10 runs (cancels machine transients → tight ranges).</li>
+    <li>Two churn profiles: <b>worst</b> ≈ 25% of vertices touched (COW 20% + 2% delete + split-adjacency hot set + native), <b>realistic</b> ≈ 1.3% (COW ~80, ~20 delete, 30 hot, 50 native).</li>
+    <li>Perf theories tested with <b>destructive A/B probes</b> (skip the suspected cost, measure the delta) since hardware PMU is unavailable on this VM.</li>
+  </ul>
+
+  <h2>Results — branch/main latency ratio (median of 10 runs)</h2>
+  <table>
+    <tr><th>Query</th><th>main</th><th>worst ~25%</th><th>realistic ~1.3%</th><th>churn-sensitive?</th><th>cost center</th></tr>
+    <tr><td>vertex read (point, clean/COW)</td><td class="n">0.16ms</td><td>1.12×</td><td>1.11×</td><td>no</td><td>trivial</td></tr>
+    <tr><td>expansion 1–2 hop (clean)</td><td class="n">0.2–1.3ms</td><td>1.16–1.28×</td><td>1.18–1.24×</td><td>no</td><td>trivial</td></tr>
+    <tr><td>expansion 1–2 hop (split-adjacency)</td><td class="n">0.2–1.1ms</td><td>1.39–1.42×</td><td>1.23–1.34×</td><td><b>yes</b></td><td>extra branch edges</td></tr>
+    <tr><td>neighbours <code>[*1..2]</code></td><td class="n">1.1ms</td><td>1.43×</td><td>1.17×</td><td><b>yes</b></td><td>extra branch edges</td></tr>
+    <tr><td><b>aggregate count / min-max-avg</b></td><td class="n">0.8–2ms</td><td>2.2–2.3×</td><td>2.3×</td><td><b>no — flat</b></td><td>scan (Vertices union + GetProperty)</td></tr>
+    <tr><td><b>wide index scan</b> (gender, ~5k rows)</td><td class="n">0.46ms</td><td>4.49×</td><td>3.17×</td><td>partial (stays ~3×)</td><td>scan (per-row GetProperty)</td></tr>
+    <tr><td><b>deep expansion (4-hop)</b></td><td class="n">35ms</td><td>3.54×</td><td>3.28×</td><td><b>no — flat</b></td><td>traversal (per-hop ResolveEdges)</td></tr>
+    <tr><td><b>shortest path (BFS)</b></td><td class="n">0.24ms</td><td>3.61×</td><td>4.06×</td><td><b>no — flat</b></td><td>traversal (per-hop ResolveEdges)</td></tr>
+  </table>
+  <div class="note"><b>Key finding: overhead is main-bound, not churn-bound.</b> The heavy queries barely move from 25%→1.3% churn — they scan/traverse <i>main's</i> rows regardless of how little the branch changed. A realistic (small) branch does <b>not</b> make scan/traverse-heavy reads cheap. Only the split-adjacency cases shrink (fewer branch-added edges).</div>
+
+  <h2>Levers investigated (all measured, none assumed)</h2>
+
+  <h3><span class="pill p-ok">SHIPPED</span> 1 · Streaming merge (index scans)</h3>
+  <p>The branch index-scan merge collected both streams (diff ∪ main@fork) into one vector and <code>std::stable_sort</code>'d it — but both streams are already index-ordered. Replaced with a streaming 2-way merge on the index value comparator (ASC/DESC-aware; B1 dropped-index fallback still sorts). <b>Worst-case wide index scan 5.48× → 4.52×</b> (~19% branch-side). In the working tree, unit-green (82/82, 10/10); not committed.</p>
+
+  <h3><span class="pill p-dim">REVERTED — wash</span> 2 · O(1) dedup set</h3>
+  <p>Replaced the per-row <code>FindVertex(g,NEW)</code> skiplist COW-probe with an O(1) <code>unordered_set&lt;Gid&gt;</code>. <b>No measurable change</b> (index scan 2.068→2.060ms). The diff skiplist is small and cache-friendly; the dedup probe was never the bottleneck. Correct + asymptotically better, but perf-neutral at these scales → reverted to keep the diff minimal.</p>
+
+  <h3><span class="pill p-ok">CONFIRMED → BUILD</span> 3 · Entry-value exposure (index scans)</h3>
+  <p>The merge re-reads each row's ordering key via <code>GetProperty(View::OLD)</code> — an MVCC read — even though the index <i>entry</i> already stores the value. A destructive probe (skip <code>GetProperty</code>, return a constant key) dropped the worst-case index scan <b>2.068ms → 1.121ms = ~46% of branch time, ratio 4.52× → 2.35×</b>; controls stayed flat (clean isolation). <b>Fix:</b> expose the index entry's stored <code>values</code> through the scan iterator (both diff + historical sides) and use them directly. No MVCC change, no second copy — a storage-iterator change. <b>This is the one cheap, confirmed win.</b></p>
+
+  <h3><span class="pill p-bad">PROBE-DISPROVEN</span> 4 · ResolveEdges union (traversals)</h3>
+  <p>Hypothesis: the per-hop union machinery (diff <code>FindVertex</code> + <code>seen</code> dedup map + eager vector) drives the ~4× traversal cost. Probe stripped the <i>entire</i> union apparatus (kept only the historical read + O(1) tombstone filter): <b>shortest-path stayed flat, 4.06× → 4.09×</b>; clean expansions flat. So the union machinery is <b>not</b> the cost. The real traversal cost is <b>architectural</b>: per hop the branch does <code>historical_base_->FindVertex(gid, OLD)</code> — a skiplist <i>re-resolution of the vertex by gid</i> — then reads its edges through the historical accessor and materializes an eager <code>vector&lt;EdgeAccessor&gt;</code>, whereas main follows the raw neighbour <code>Vertex*</code> and streams. The overlay resolves by gid because a vertex may be COW'd or historical (it can't pointer-follow across the two stores). <b>No cheap lever here</b> — a real attack needs cross-store pointer-following (a much larger redesign). Traversal overhead accepted as architectural for v1.</p>
+
+  <h3><span class="pill p-warn">FEASIBLE — but shelved</span> 5 · Fork-epoch base-retention (user's design)</h3>
+  <p>Retain each COW'd object's fork-value as a distinct MVCC version stamped at a reserved low "fork epoch" so <code>HistoricalAccess(fork_epoch)</code> on the diff engine yields a value-aligned suppression stream (iterator-2) for a 3-way merge — killing both the dedup probe and the property re-read on the scan path.</p>
+  <p><b>Feasibility corrected to TRUE.</b> An earlier "infeasible — monotonic timestamp" read was incomplete: a version's visibility ts is stamped from the <b>per-accessor</b> <code>commit_timestamp_</code> (<code>storage.cpp:1283</code>→<code>:1448</code>), separable from the shared <code>timestamp_++</code>. A <code>CommitArgs::make_base_seed(F)</code> variant can stamp a base at a low F without advancing the counter; GC=NONE + durability-off remove the horizon/LDT read-path concerns. (An alternative "open uncommitted base transaction" variant is <b>dead</b> — blocked by <code>PrepareForWrite</code>'s write-write conflict against another still-open txn.)</p>
+  <p><b>Shelved on cost/benefit:</b> invasive commit-finalization surgery (new CommitArgs variant + per-txn gating for the LDT assert + distinct low-F allocation + capture/replay re-seed + 3-way merge), it helps only the <i>scan</i> path (redundant with the far cheaper entry-value change), and does nothing for the dominant <i>traversal</i> cost. Its non-perf benefits (SHOW BRANCH DIFF "before", MERGE base, self-containment) are already served by the pinned <code>main@fork</code>.</p>
+
+  <h2>Net stack &amp; recommendation</h2>
+  <p>Worst-case wide index scan: <b>5.48× (baseline) → 4.52× (streaming, shipped) → ~2.35× (with entry-value, confirmed-achievable).</b></p>
+  <ul>
+    <li><b>Build entry-value exposure</b> — the only cheap, confirmed lever; ~halves the wide-index-scan overhead.</li>
+    <li><b>Accept traversal overhead (~3–4×) as architectural for v1</b> — it's per-hop gid re-resolution, inherent to the overlay; document it, don't rush a cross-store redesign.</li>
+    <li><b>Do not build base-retention</b> — feasible but redundant-with-entry-value on scans and useless for traversals.</li>
+    <li><b>Ship the streaming merge</b> (already in tree, green).</li>
+  </ul>
+
+  <h2>Bug found during this work (unrelated to perf)</h2>
+  <div class="note bad"><b>C3 — re-checkout/restart crash (HIGH, pre-existing, file separately).</b> <code>CaptureBranchCommit</code> (<code>branch_reconstruction.cpp:243</code>) iterates a transaction's deltas in <code>forward_list</code> slab order (capacity 292, <code>emplace_front</code> on overflow) → <b>reversed across slab boundaries</b>. A single branch transaction with &gt;292 deltas can capture a SET before its CREATE; on re-checkout, replay hits the mutation before the create → <code>MG_ASSERT</code> (<code>branch_engine.cpp:221</code>) → SIGABRT. Reconciliation test: a 1-vertex COW re-checkout is fine; a 150-vertex single-transaction COW crashes. Fix: iterate the transaction's deltas chronologically across slabs. This is what made the first (25%-churn, ~2000-vertex-per-txn) benchmark attempt crash — not a COW-semantics flaw.</div>
+
+  <h2>Caveats</h2>
+  <p class="sub">Single-instance, single-branch, IN_MEMORY_TRANSACTIONAL, pokec_small, read-only overhead. Absolute ms are hardware-specific; the ratios are the portable result. Not covered: write throughput, MERGE cost, concurrency, replication, larger datasets (scan/traversal ratios are expected to hold or grow with graph size since they're main-bound).</p>
+</div>

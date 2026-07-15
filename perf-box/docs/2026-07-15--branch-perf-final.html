@@ -1,0 +1,87 @@
+<!-- Graph Versioning v1 — Branch-read perf: final results. Self-contained. -->
+<style>
+  :root{--bg:#0f1116;--panel:#171a21;--panel2:#1e222b;--ink:#e6e9ef;--dim:#9aa4b2;--line:#2a2f3a;
+        --ok:#2ea043;--warn:#d29922;--bad:#f85149;--info:#58a6ff;--accent:#a371f7;}
+  @media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--panel:#fff;--panel2:#f0f2f5;--ink:#1a1f28;--dim:#5b6572;--line:#dfe3ea;}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1060px;margin:0 auto;padding:32px 22px 90px}
+  h1{font-size:27px;margin:0 0 4px;letter-spacing:-.4px}
+  h2{font-size:20px;margin:36px 0 8px;padding-top:14px;border-top:1px solid var(--line)}
+  h3{font-size:16px;margin:20px 0 6px;color:var(--accent)}
+  .sub{color:var(--dim);font-size:13.5px;margin:0 0 8px}
+  p{margin:9px 0}
+  code{background:var(--panel2);padding:1px 6px;border-radius:5px;font:12.5px/1.5 "SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600}
+  td.n{font-family:"SF Mono",ui-monospace,Menlo,monospace;text-align:right;white-space:nowrap}
+  .pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
+  .p-ok{background:rgba(46,160,67,.16);color:var(--ok)} .p-warn{background:rgba(210,153,34,.16);color:var(--warn)}
+  .p-bad{background:rgba(248,81,73,.16);color:var(--bad)} .p-info{background:rgba(88,166,255,.16);color:var(--info)}
+  .note{border-left:3px solid var(--info);padding:2px 0 2px 14px;color:var(--dim);margin:12px 0}
+  .note.ok{border-left-color:var(--ok)} .note.bad{border-left-color:var(--bad)} .note.warn{border-left-color:var(--warn)}
+  ul{margin:6px 0;padding-left:20px}li{margin:3px 0}
+  b.ok{color:var(--ok)}
+</style>
+
+<div class="wrap">
+  <h1>🏁 Graph Versioning v1 — Branch-Read Performance: Final Results</h1>
+  <p class="sub">pokec_small (10k vtx / 121k edges) · HEAD <code>9659d6e0b</code> RelWithDebInfo · 10-run paired branch/main ratios · realistic ~1.3% churn · quiet-machine runs · 2026-07-15</p>
+
+  <div class="note ok"><b>Outcome.</b> The two dominant branch-read costs — <b>wide index scans</b> and <b>traversals</b> — were taken from <b>3–4.5×</b> main down to <b>~1.2–1.7×</b>, with all correctness gates green throughout. Point reads and shallow expansions are at parity (~1.1×). One family remains elevated: full-graph <b>aggregations ~2.3×</b> (a structural two-stream-scan cost, next follow-up).</div>
+
+  <h2>The journey (realistic churn)</h2>
+  <table>
+    <tr><th>query family</th><th>baseline<br>(streaming)</th><th>+ entry-value</th><th>+ branched-bit<br>(scan)</th><th>+ To/From<br>(traversal)</th><th>net</th></tr>
+    <tr><td><b>wide index scan</b></td><td class="n">3.17×</td><td class="n">1.76×</td><td class="n">1.35×</td><td class="n">1.24×</td><td><span class="pill p-ok">1.2×</span></td></tr>
+    <tr><td><b>shortest-path (BFS)</b></td><td class="n">4.06×</td><td class="n">4.06×</td><td class="n">3.86×</td><td class="n">1.73×</td><td><span class="pill p-ok">1.7×</span></td></tr>
+    <tr><td><b>deep expansion (4-hop)</b></td><td class="n">3.28×</td><td class="n">3.30×</td><td class="n">3.01×</td><td class="n">2.39×</td><td><span class="pill p-warn">2.4×</span></td></tr>
+    <tr><td>neighbours [*1..2]</td><td class="n">1.43×</td><td class="n">1.43×</td><td class="n">1.17×</td><td class="n">1.14×</td><td><span class="pill p-ok">1.1×</span></td></tr>
+    <tr><td>expansion 1–2 hop</td><td class="n">1.2–1.4×</td><td class="n">—</td><td class="n">—</td><td class="n">1.14–1.38×</td><td><span class="pill p-ok">1.1–1.4×</span></td></tr>
+    <tr><td>point reads</td><td class="n">1.1×</td><td class="n">1.1×</td><td class="n">1.1×</td><td class="n">1.1×</td><td><span class="pill p-ok">1.1×</span></td></tr>
+    <tr><td><b>full-graph aggregation</b></td><td class="n">2.29×</td><td class="n">2.29×</td><td class="n">2.26×</td><td class="n">2.26×</td><td><span class="pill p-warn">2.3×</span></td></tr>
+  </table>
+  <p class="sub">Baseline = streaming-merge build (props-on-edges=true). Final = +entry-value +branched-bit +To/From (props-on-edges=false, chosen to isolate endpoint resolution — the To/From fix is storage-mode-independent). Each column is a measured 10-run build, not a projection.</p>
+
+  <h2>What each change did (measured, not assumed)</h2>
+
+  <h3><span class="pill p-ok">1</span> Streaming merge — index scans</h3>
+  <p>Branch index-scan merge was collect-both-then-<code>std::stable_sort</code>; both streams are already index-ordered, so it's now a streaming 2-way merge. Wide index scan 5.48×→4.52× (worst).</p>
+
+  <h3><span class="pill p-ok">2</span> Entry-value exposure — index scans</h3>
+  <p>The merge re-read each row's ordering key via <code>GetProperty(View::OLD)</code> though the index entry already stores it. Exposing the entry's <code>values</code> through the iterator (zero-copy view) removed that per-row MVCC read — probe-confirmed ~46% of branch scan time. Index scan → 1.76× realistic.</p>
+
+  <h3><span class="pill p-ok">3</span> Branched-bit filter — the root fix</h3>
+  <p>A single monotonic <b>"touched by any branch"</b> bit in a spare tag bit of each main Vertex/Edge's packed delta pointer (zero size cost; same pattern as the existing <code>deleted()</code> bit). Set under the object lock whenever a branch COWs/tombstones a fork object; re-seeded from the changelog at checkout; <b>never cleared in v1</b>. It's a conservative filter: <code>false</code> ⇒ definitely-not-shadowed ⇒ take a fast path; <code>true</code> ⇒ existing per-branch reconciliation. This inverts the overlay's cost asymmetry — <b>work becomes proportional to the branch, not to main</b> — and is correctness-safe by construction (only a stale-<i>false</i> could be wrong, and the restart re-seed prevents it; stale-<i>true</i> just costs a slow path).</p>
+  <ul>
+    <li><b>Scan fast-path</b>: an un-branched main row skips the dedup/tombstone probe → index scan 1.76×→1.35×.</li>
+    <li><b>Traversal fast-path (OutEdges/InEdges)</b>: skips <code>ResolveEdges</code>' historical∪diff union for un-branched sources. <i>Alone this did almost nothing</i> (shortest-path 3.86×) — because the edge-list retrieval was never the traversal bottleneck.</li>
+  </ul>
+
+  <h3><span class="pill p-ok">4</span> To/From endpoint fast-path — the traversal fix</h3>
+  <p>The real per-hop cost: every traversed edge called <code>EdgeAccessor::To()/From()</code> → <code>branch_ctx_->ResolveVertex(gid, NEW)</code> (a diff-engine skiplist probe + historical resolve) to get the next vertex — while main just follows the raw <code>Vertex*</code> off the edge. Extending the branched-bit fast-path to <code>To()/From()</code> (un-branched main endpoint ⇒ return it directly, skip <code>ResolveVertex</code>) is what collapsed traversal: <b>shortest-path 3.88×→1.73×</b> (branch 1.04ms→0.42ms), deep 4-hop 3.01×→2.39×. This was the decisive fix, and it confirmed the bottleneck was endpoint resolution, not edge-list retrieval.</p>
+
+  <h2>Where the remaining overhead lives</h2>
+  <ul>
+    <li><b>Full-graph aggregations (~2.3×)</b> — <code>MATCH (n)</code> uses the gid-ordered full-scan union (<code>UnionVerticesIterable</code>), which the scan fast-path doesn't cover. The cost is the O(M) two-stream merge + per-row property read over <i>every</i> vertex; the branched-bit can only skip O(1) per-row checks there, so a fast-path is expected to be marginal (same shape as the dedup hash-set that was a wash). <b>Being probed before committing a build.</b></li>
+    <li><b>Deep expansion residual (2.4×)</b> — after the endpoint fix, what's left is the eager <code>vector&lt;EdgeAccessor&gt;</code> materialization per hop + branch-aware accessor overhead + <code>View::OLD</code> reads. Diminishing returns; deeper to attack (lazy edge streaming).</li>
+    <li><b>Shortest-path residual (1.7×)</b> — same class as above; already a strong result for a 15-hop BFS.</li>
+  </ul>
+
+  <h2>Correctness &amp; safety</h2>
+  <ul>
+    <li>All changes kept <code>versioning_interpreter</code> 82/82 and <code>versioning_historical_access</code> 10/10 green; branch/main isolation sanity passed on every benchmark run.</li>
+    <li>Branched-bit safety rests on a documented, load-bearing invariant: fast-discard is disabled while a fork pin is held, so the under-lock bit write never races the one unlocked <code>delta_</code> writer; the fast-path read is a relaxed-atomic load. Re-seed runs under the object lock (checked-out set is per-branch-name → concurrent branches can touch overlapping objects).</li>
+    <li>All work is in the working tree, <b>not committed, not pushed</b> (standing constraint).</li>
+  </ul>
+
+  <h2>Follow-ups</h2>
+  <ul>
+    <li><b>Aggregate/union fast-path (deferred — needs careful design).</b> A probe proved the ~2.3× is removable (plain historical-only full scan runs at 1.01×), so it's the union+wrapper overhead, not the inherent scan. BUT the naive fix — yielding un-branched rows as plain (non-branch) accessors — is <b>unsafe</b>: <code>query::VertexAccessor</code> gates <i>both</i> its read fast-path and <code>CowIfNeeded()</code> on the same <code>branch_ctx_</code>, so a plain accessor that is later mutated (<code>MATCH (n) SET …</code>) would write straight into main = corruption. A safe recovery needs decoupling the read-fast-path signal from the mutation-COW gate (a cached read-only flag recovers only the O(1) per-call guard, not the union-merge/construction bulk) or a mutation-safe main-scan + branch-patch restructure. Real project, not a fast-path — deferred.</li>
+    <li><b>Branched-bit clear-tracking (v2)</b> — never-clear degrades the filter under long-lived heavy branch churn (self-heals on restart). Safe clearing needs per-object refcount or a VersionStore touched-set; danger surface is over-clear → stale-false. Deferred.</li>
+    <li><b>C3 crash (separate, pre-existing, HIGH)</b> — <code>CaptureBranchCommit</code> iterates a transaction's deltas in reversed slab order; a &gt;292-delta branch transaction can capture SET-before-CREATE → re-checkout/restart <code>MG_ASSERT</code>. Fix: iterate chronologically. Independent of perf.</li>
+    <li>Benchmark caveats: single-instance, single-branch, IN_MEMORY_TRANSACTIONAL, read-only overhead; ratios portable, absolute ms hardware-specific.</li>
+  </ul>
+</div>

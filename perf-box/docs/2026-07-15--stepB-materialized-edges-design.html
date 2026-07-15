@@ -1,0 +1,84 @@
+<!-- Step B: materialized incident-edge cache for branched vertices. Design + verification target. -->
+<style>
+  :root{--bg:#0f1116;--panel:#171a21;--panel2:#1e222b;--ink:#e6e9ef;--dim:#9aa4b2;--line:#2a2f3a;
+        --ok:#2ea043;--warn:#d29922;--bad:#f85149;--info:#58a6ff;--accent:#a371f7;}
+  @media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--panel:#fff;--panel2:#f0f2f5;--ink:#1a1f28;--dim:#5b6572;--line:#dfe3ea;}}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:1020px;margin:0 auto;padding:32px 22px 90px}
+  h1{font-size:24px;margin:0 0 4px}h2{font-size:18px;margin:30px 0 8px;padding-top:12px;border-top:1px solid var(--line)}
+  h3{font-size:15px;margin:16px 0 6px;color:var(--accent)}.sub{color:var(--dim);font-size:13px;margin:0 0 8px}p{margin:9px 0}
+  code{background:var(--panel2);padding:1px 6px;border-radius:5px;font:12.5px/1.5 "SF Mono",ui-monospace,Menlo,monospace}
+  pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font:12px/1.5 ui-monospace,Menlo,monospace}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}th{background:var(--panel2)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11px;font-weight:700}
+  .p-ok{background:rgba(46,160,67,.16);color:var(--ok)}.p-bad{background:rgba(248,81,73,.16);color:var(--bad)}.p-warn{background:rgba(210,153,34,.16);color:var(--warn)}
+  .note{border-left:3px solid var(--info);padding:2px 0 2px 14px;color:var(--dim);margin:12px 0}
+  .note.bad{border-left-color:var(--bad)}.note.ok{border-left-color:var(--ok)}
+  ul{margin:6px 0;padding-left:20px}li{margin:4px 0}
+</style>
+<div class="wrap">
+  <h1>Step B — materialized incident-edge list for branched vertices</h1>
+  <p class="sub">Graph Versioning v1 · target: eliminate per-read <code>FindVertex</code> probes + union rebuild in <code>BranchContext::ResolveEdges</code> · design for adversarial review BEFORE implementation · 2026-07-15</p>
+
+  <div class="note bad"><b>STATUS: DEFERRED (verified 2026-07-15, user decision).</b> Skeptic + concurrency-debugger + logic-verifier found the historical-immutability core is sound BUT the design as written has (1) a deterministic correctness bug — <code>EdgeRef</code> is an undiscriminated <code>union{Gid; Edge*}</code>, so the sketched <code>h.ref.gid</code> misreads an <code>Edge*</code> as a Gid when <code>properties_on_edges=true</code>; fix = cache the resolved <code>.Gid()</code> explicitly at population time; (2) a narrow use-after-free — <code>IN_MEMORY_ANALYTICAL</code> GC frees objects WITHOUT the fork-pin check and the chunk-0 branch-gate reads storage mode UNLOCKED (TOCTOU); today's un-cached code self-heals via a FindVertex miss, but this cache would dereference a freed pointer for the rest of the checkout — fix = re-check <code>storage_mode_ == IN_MEMORY_TRANSACTIONAL</code> after the SHARED lock, or per-cache-hit fallback to live resolve; (3) the cache must be direction-tagged (OUT/IN) and hold the UNFILTERED incident set, applying <code>edge_types</code> at read time. Verdict: IMPLEMENT-WITH-GUARD. Deferred because the residual it targets is only ~2–3% self-time and the guard work is non-trivial relative to that ceiling. The 3 fixes above are the entry conditions if revived.</div>
+  <div class="note">Step A removed the per-call dedup-map allocation (committed <code>8c8b4a388</code>). The residual branch traversal cost is what remains in <code>ResolveEdges</code>: two <code>FindVertex</code> skiplist probes (historical + diff) and rebuilding the merged edge vector, per branched vertex, per read. Step B (below) would remove them — deferred per the banner above.</div>
+
+  <h2>Core insight that makes this safe</h2>
+  <p><b>The historical side of a vertex's incident edges is IMMUTABLE for the branch's lifetime.</b> <code>historical_base_</code> is main pinned at <code>fork_ts</code>; a branch never mutates main, and its own writes go to the diff engine. So the fork-state adjacency of any vertex never changes while the branch is checked out. That means a cache of the historical incident edges needs <b>no invalidation</b> — the classic cache-staleness trap (the user's own warning) simply does not apply to the historical half.</p>
+  <p>The <b>diff side</b> is small (a branch touches few of a vertex's edges) and dynamic — so we keep collecting it <b>live</b> every call (cheap: it's the small side, and a diff-engine <code>FindVertex</code> on a tiny engine is fast). No caching of the diff side → no diff invalidation problem either.</p>
+
+  <h2>What is cached (transaction-independent)</h2>
+  <p>NOT <code>storage::EdgeAccessor</code> objects — those embed a <code>Transaction*</code> that is per-query, so caching them across queries would dangle. Instead cache the <b>raw, transaction-independent</b> pieces from main's frozen adjacency, per branched vertex, per direction:</p>
+  <pre>struct HistoricalIncident {                 // one per fork-state incident edge
+  storage::EdgeTypeId type;
+  storage::Vertex    *other;                // the far endpoint (main Vertex*, stable under fork pin)
+  storage::EdgeRef    ref;                  // the edge (gid for ref-only; Edge* if props-on-edges)
+};
+// on BranchContext, populated at CowVertex time (eager) for the COW'd gid:
+std::unordered_map&lt;storage::Gid,
+   std::pair&lt;std::vector&lt;HistoricalIncident&gt;,      // OUT
+             std::vector&lt;HistoricalIncident&gt;&gt;&gt;      // IN
+   hist_incident_cache_;
+// plus the vertex's own historical Vertex* so we don't FindVertex it either.</pre>
+  <p>These pointers/refs are stable because the fork pin keeps main's fork-state objects alive and GC cannot reclaim/relocate them while the branch holds the pin (same invariant the branched-bit write already relies on).</p>
+
+  <h2>ResolveEdges after Step B</h2>
+  <pre>if (hist_incident_cache_ has vertex_gid) {
+   result.reserve(cached.size() + small);
+   // diff side LIVE (small): current_diff_txn_->FindVertex + OutEdges, push, record diff gids
+   collect_diff_live(...);                        // unchanged, small
+   // historical side from CACHE: rebuild EdgeAccessor from (ref,type,ownV,other) + HISTORICAL txn
+   for (h : cached_out) {
+     if (tombstoned_edges_.contains(h.ref.gid)) continue;
+     if (shadowed by a diff gid) continue;         // small linear scan, as Step A
+     result.emplace_back( rebuild_hist_accessor(h) );   // NO FindVertex, NO adjacency walk
+   }
+}
+else  // cache miss (branched via tombstone / native-edge endpoint, never CowVertex'd): current path
+   &lt;Step-A union&gt;</pre>
+  <p><code>rebuild_hist_accessor</code> constructs a <code>storage::EdgeAccessor</code> from the cached raw parts using the CURRENT historical accessor's storage+transaction — the same object <code>OutEdges</code> would have produced, minus the lookup/walk.</p>
+
+  <h2>Population &amp; the (minimal) update rules</h2>
+  <table>
+    <tr><th>event</th><th>action on cache</th><th>why safe</th></tr>
+    <tr><td><b>CowVertex(gid)</b></td><td>compute + store the fork-state OUT/IN incident lists for gid (read historical once, here, at write time)</td><td>fork-state is immutable → this snapshot is valid for the branch's whole life</td></tr>
+    <tr><td><b>branch adds/deletes/COWs an edge</b></td><td><b>nothing</b> — the diff side is always collected live</td><td>only the diff half changes; it is never cached</td></tr>
+    <tr><td><b>TombstoneVertex / TombstoneEdge</b></td><td><b>nothing</b> — the existing <code>tombstoned_*</code> filter in ResolveEdges still applies to cached entries</td><td>tombstone check is on gid, applied at read; cache holds all fork edges, tombstone hides them</td></tr>
+    <tr><td><b>DROP BRANCH / re-checkout</b></td><td>cache lives on BranchContext → destroyed/rebuilt with it</td><td>lifetime-bound to the context</td></tr>
+  </table>
+  <p>So the ONLY write-path hook is at <code>CowVertex</code>. Everything else is read-time filtering that already exists. This is what makes the invalidation surface tiny.</p>
+
+  <h2>Claims to falsify (for skeptic/logic-verifier)</h2>
+  <ul>
+    <li><b>C1 (immutability):</b> a checked-out branch never mutates main's fork-state adjacency, and main's fork-state Vertex*/EdgeRef stay alive+unrelocated for the branch's life (fork pin + GC gate). If main CAN advance under a live branch and GC could reclaim a superseded fork-state edge, the cached <code>other</code>/<code>ref</code> could dangle.</li>
+    <li><b>C2 (transaction-safety):</b> rebuilding a <code>storage::EdgeAccessor</code> from cached raw parts + the current historical accessor's txn yields an accessor identical in behavior to one produced by <code>historical_base_->FindVertex(...).OutEdges(...)</code>.</li>
+    <li><b>C3 (completeness):</b> every path that reaches ResolveEdges for a vertex WITH a cache entry is still correct; every path for a vertex WITHOUT one falls through to the (correct) Step-A union.</li>
+    <li><b>C4 (diff-wins + tombstone):</b> preserved — diff collected live first, historical-cache entries skipped if shadowed or tombstoned, exactly as Step A.</li>
+    <li><b>C5 (props-on-edges=true):</b> a COW'd edge modifies props in the diff engine but keeps its gid; the historical cache still lists it, the live diff side also lists it (diff-wins) → the diff copy shadows the cached historical one. Verify no double-count and that the diff copy wins.</li>
+  </ul>
+
+  <h2>Expected payoff / risk</h2>
+  <p>Removes both <code>FindVertex</code> probes' historical half + the historical adjacency walk + rebuild, per branched-vertex read. Ceiling bounded by the FindVertex/rebuild share (~2–3% self measured). Realistic gain: shortest-path worst 2.04→~1.8–1.9×, deep-expansion worst similar; realistic churn small (few branched vertices). <b>Risk</b> concentrated in C1 (dangling if the immutability assumption is wrong) — hence verify before coding.</p>
+</div>

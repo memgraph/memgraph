@@ -1,0 +1,76 @@
+<!-- Graph Versioning v1 — branch read-path fast-path design (aggregate/projection). Self-contained. -->
+<style>
+  :root{--bg:#0f1116;--panel:#171a21;--panel2:#1e222b;--ink:#e6e9ef;--dim:#9aa4b2;--line:#2a2f3a;
+        --ok:#2ea043;--warn:#d29922;--bad:#f85149;--info:#58a6ff;--accent:#a371f7;}
+  @media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--panel:#fff;--panel2:#f0f2f5;--ink:#1a1f28;--dim:#5b6572;--line:#dfe3ea;}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:32px 22px 90px}
+  h1{font-size:25px;margin:0 0 4px}h2{font-size:19px;margin:32px 0 8px;padding-top:12px;border-top:1px solid var(--line)}
+  h3{font-size:15px;margin:18px 0 6px;color:var(--accent)}
+  .sub{color:var(--dim);font-size:13px;margin:0 0 8px}p{margin:9px 0}
+  code{background:var(--panel2);padding:1px 6px;border-radius:5px;font:12.5px/1.5 "SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font:12px/1.5 "SF Mono",ui-monospace,Menlo,monospace}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;display:block;overflow-x:auto}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600}
+  .pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11px;font-weight:700}
+  .p-ok{background:rgba(46,160,67,.16);color:var(--ok)}.p-warn{background:rgba(210,153,34,.16);color:var(--warn)}
+  .p-info{background:rgba(88,166,255,.16);color:var(--info)}
+  .note{border-left:3px solid var(--info);padding:2px 0 2px 14px;color:var(--dim);margin:12px 0}
+  .note.ok{border-left-color:var(--ok)}.note.warn{border-left-color:var(--warn)}
+  ul{margin:6px 0;padding-left:20px}li{margin:3px 0}b.ok{color:var(--ok)}
+</style>
+<div class="wrap">
+  <h1>Branch read-path fast-path — design</h1>
+  <p class="sub">Graph Versioning v1 · <code>src/query/vertex_accessor.cpp</code> · target: full-graph aggregation 2.26× + all branch property/label reads · 2026-07-15</p>
+
+  <div class="note ok"><b>Thesis.</b> Every branch-mode property/label read currently pays a per-row <code>ResolveVertex(gid, view)</code> — a diff-engine skiplist probe + historical resolve — even for un-branched main objects. Extend the <i>already-shipped</i> branched-bit fast path (InEdges/OutEdges/To/From) to the five read methods so an un-branched main object reads <code>impl_</code> directly. No layout change, mutation-safe, byte-identical result.</div>
+
+  <h2>The overhead (measured)</h2>
+  <p>A destructive probe (read plain historical only, no branch machinery) took full-graph aggregation from <b>2.26× → 1.01×</b>. So the ~1.26× is the branch wrapper cost, split between (a) the <code>UnionVerticesIterable</code> two-stream gid-merge in <code>db_accessor.hpp</code> and (b) the per-row <code>ResolveVertex</code> in the read methods below. This change attacks (b); the follow-up measurement tells us how much of the 1.26× is (b) vs (a).</p>
+
+  <h2>Current per-read path (all 5 methods identical shape)</h2>
+  <pre>storage::Result&lt;PropertyValue&gt; VertexAccessor::GetProperty(View view, PropertyId key) const {
+  if (branch_ctx_ != nullptr) {
+    if (auto resolved = branch_ctx_-&gt;ResolveVertex(impl_.Gid(), view)) {   // &lt;-- skiplist probe PER ROW
+      return resolved-&gt;GetProperty(key, view);
+    }
+    if (view == View::NEW &amp;&amp; branch_ctx_-&gt;IsVertexTombstoned(impl_.Gid()))   // S2 guard
+      return std::unexpected{Error::DELETED_OBJECT};
+  }
+  return impl_.GetProperty(key, view);
+}</pre>
+
+  <h2>The fast path (mirror of InEdges line 146)</h2>
+  <pre>  if (branch_ctx_ != nullptr) {
+    // Phase-2 read fast path (branched-bit). Un-COW'd, un-tombstoned MAIN-resident object:
+    // impl_ IS the historical accessor ResolveVertex would return, so read it directly.
+    if (impl_.storage_ != &amp;branch_ctx_-&gt;diff_engine() &amp;&amp; !impl_.vertex_-&gt;branched()) {
+      return impl_.GetProperty(key, view);
+    }
+    if (auto resolved = branch_ctx_-&gt;ResolveVertex(impl_.Gid(), view)) { ... }   // slow path unchanged
+    ...S2 guard...
+  }</pre>
+
+  <h2>Why it is byte-identical to the slow path</h2>
+  <ul>
+    <li>For an un-branched, historical-resident object, <code>ResolveVertex</code> misses the diff engine and resolves the same gid on the historical side → the <b>same Vertex*</b> that <code>impl_</code> already holds. So <code>impl_.GetProperty(key, view)</code> ≡ <code>resolved-&gt;GetProperty(key, view)</code>. Read at the caller's <code>view</code> (not forced OLD) to be exactly the slow path's return.</li>
+  </ul>
+
+  <h2>Safety</h2>
+  <table>
+    <tr><th>hazard</th><th>why fast path is safe</th></tr>
+    <tr><td><b>Mutation / COW-gating</b> (the blocker that killed the plain-accessor idea)</td><td><code>branch_ctx_</code> stays non-null. Mutators never read the bit — they unconditionally <code>CowIfNeeded()</code>. Only READ methods consult it. No mutator behavior changes.</td></tr>
+    <tr><td><b>HIGH-2 stale copy</b> (<code>MATCH (n) SET n.x=2 RETURN n.x</code>)</td><td>The <code>SET</code>'s COW flips <code>branched()</code> → <code>true</code> and populates the diff engine. The subsequent <code>RETURN</code> read (even on a stale value-copy) fails the bit test → takes the re-resolve slow path → picks up the diff copy. Correct.</td></tr>
+    <tr><td><b>S2 tombstone</b> (read-after-delete-in-command)</td><td><code>TombstoneVertex</code> calls <code>MarkMainObjectBranched</code> → <code>branched()==true</code> → fast path skipped → the <code>View::NEW</code> tombstone guard runs. Correct.</td></tr>
+    <tr><td><b>Stale-<i>false</i> bit</b></td><td>Impossible during a live branch: the bit is set under the object lock at COW/tombstone time, and fast-discard is disabled while a fork-pin is held (so the one unlocked delta writer can't race the set). Restart re-seeds. Only stale-<i>false</i> could be wrong; it can't occur.</td></tr>
+  </table>
+
+  <h2>Scope</h2>
+  <p>Five methods in <code>vertex_accessor.cpp</code>: <code>Labels</code>, <code>HasLabel</code>, <code>Properties</code>, <code>GetProperty</code>, <code>GetPropertySize</code>. One TU + relink (cheap rebuild). Edge-side (<code>edge_accessor.cpp</code>) reads: separate follow-up if measurement shows edge-property reads matter (shortest-path w/o edge props doesn't hit them).</p>
+
+  <h2>Gates</h2>
+  <p><code>versioning_interpreter</code> (82/82) + <code>versioning_historical_access</code> (10/10) must stay green — they cover the HIGH-2 stale-copy and S2 tombstone cases directly.</p>
+</div>
