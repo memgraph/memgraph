@@ -202,5 +202,26 @@ def test_vector_search_drops_multilabel_node_with_denied_indexed_property():
     assert "Secret" in titles
 
 
+# WILDCARD edge vector index spans every edge type. The row filter is per-hit: user grants :LINKS_PUB +
+# :MIXED and denies :LINKS_DOC, but the MIXED edge has a :Document endpoint (endpoint deny wins), so only
+# the pure :LINKS_PUB edge survives.
+def test_wildcard_vector_search_edges_allowed_for_type_restricted_user():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL vector_search.search_edges('wild_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge.label AS label;",
+    )
+    assert [row[0] for row in res] == ["Open"]
+
+
+# NEUTRAL indexed property on the WILDCARD edge index: user_grant_only reads :LINKS_PUB but has no
+# {embedding} grant, so every hit's embedding is unreadable and all are dropped.
+def test_wildcard_vector_search_edges_dropped_for_label_only_user():
+    res = common.execute_and_fetch_all(
+        user_grant_only_cursor(),
+        "CALL vector_search.search_edges('wild_evec', 10, [1.0, 0.0]) YIELD edge RETURN edge;",
+    )
+    assert res == []
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

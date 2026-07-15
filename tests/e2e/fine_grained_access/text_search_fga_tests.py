@@ -101,6 +101,30 @@ def test_text_regex_search_returns_allowed():
     assert len(res) == 1
 
 
+def test_text_fuzzy_phrase_search_returns_allowed():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL text_search.fuzzy_phrase_search('pub_text', 'data.title:Welcome') YIELD node RETURN node;",
+    )
+    assert len(res) == 1
+
+
+def test_text_fuzzy_phrase_search_dropped_on_denied_label():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL text_search.fuzzy_phrase_search('doc_text', 'data.title:Secret') YIELD node RETURN node;",
+    )
+    assert res == []
+
+
+def test_text_fuzzy_phrase_search_edges_dropped_on_denied_type():
+    res = common.execute_and_fetch_all(
+        user_cursor(),
+        "CALL text_search.fuzzy_phrase_search_edges('doc_etext', 'data.label:Confidential') YIELD edge RETURN edge;",
+    )
+    assert res == []
+
+
 def test_text_search_dropped_on_denied_label():
     res = common.execute_and_fetch_all(
         user_cursor(),
@@ -221,6 +245,24 @@ def test_text_search_or_query_skips_queried_property_the_node_lacks():
         "CALL text_search.search('pub_text', 'data.title:nomatch OR data.body:Solo') YIELD node RETURN node.body AS body;",
     )
     assert [row[0] for row in res] == ["Solo"]
+
+
+# same field-scoped precision on edges: DualEdge is :LINKS_PUB {label, note}; label is denied, note is
+# readable, so a search over note surfaces it, and an OR naming the absent label still returns SoloEdge.
+def test_text_search_edges_returns_readable_queried_property():
+    res = common.execute_and_fetch_all(
+        user_prop_cursor(),
+        "CALL text_search.search_edges('pub_etext', 'data.note:EdgeNote') YIELD edge RETURN edge.note AS note;",
+    )
+    assert [row[0] for row in res] == ["EdgeNote"]
+
+
+def test_text_search_edges_or_query_skips_queried_property_the_edge_lacks():
+    res = common.execute_and_fetch_all(
+        user_prop_cursor(),
+        "CALL text_search.search_edges('pub_etext', 'data.label:none OR data.note:SoloEdge') YIELD edge RETURN edge.note AS note;",
+    )
+    assert [row[0] for row in res] == ["SoloEdge"]
 
 
 # =============================================================================

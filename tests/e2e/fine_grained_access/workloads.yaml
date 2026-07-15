@@ -216,6 +216,10 @@ text_search_fga_setup_queries: &text_search_fga_setup_queries
   - "MATCH (a:Public {title:'Welcome'}), (b:Public {title:'Hello'}) CREATE (a)-[:LINKS_PUB {label:'Open'}]->(b);"
   - "MATCH (a:Document {title:'Secret'}), (b:Document {title:'Internal'}) CREATE (a)-[:LINKS_DOC {label:'Confidential'}]->(b);"
   - "CREATE (p:Public {title:'CrossSrc'}), (d:Document {title:'CrossDst'}) CREATE (p)-[:MIXED {label:'CrossOver'}]->(d);"
+  # two more LINKS_PUB edges for edge field-scoped search precision on the property-less pub_etext index:
+  # one with a readable note beside the denied label, one with only note (no label)
+  - "MATCH (a:Public {title:'Welcome'}), (b:Public {title:'Hello'}) CREATE (a)-[:LINKS_PUB {label:'DualEdge', note:'EdgeNote'}]->(b);"
+  - "MATCH (a:Public {title:'Welcome'}), (b:Public {title:'Hello'}) CREATE (a)-[:LINKS_PUB {note:'SoloEdge'}]->(b);"
   # text indexes: property-less pub/doc + a specified :Document(title) + edge text indexes
   - "CREATE TEXT INDEX pub_text ON :Public;"
   - "CREATE TEXT INDEX doc_text ON :Document;"
@@ -249,13 +253,14 @@ vector_search_fga_setup_queries: &vector_search_fga_setup_queries
   - "MATCH (a:Public {title:'Welcome'}), (b:Public {title:'Hello'}) CREATE (a)-[:LINKS_PUB {label:'Open', embedding:[1.0, 0.0]}]->(b);"
   - "MATCH (a:Document {title:'Secret'}), (b:Document {title:'Internal'}) CREATE (a)-[:LINKS_DOC {label:'Confidential', embedding:[1.0, 0.0]}]->(b);"
   - "CREATE (p:Public {title:'CrossSrc', embedding:[1.0, 0.0]}), (d:Document {title:'CrossDst', embedding:[1.0, 0.0]}) CREATE (p)-[:MIXED {label:'CrossOver', embedding:[1.0, 0.0]}]->(d);"
-  # vertex + edge vector indexes on (embedding) + a WILDCARD index over any label
+  # vertex + edge vector indexes on (embedding) + WILDCARD indexes (node and edge) over any label/type
   - 'CREATE VECTOR INDEX pub_vec ON :Public(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
   - 'CREATE VECTOR INDEX doc_vec ON :Document(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
   - 'CREATE VECTOR EDGE INDEX pub_evec ON :LINKS_PUB(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
   - 'CREATE VECTOR EDGE INDEX doc_evec ON :LINKS_DOC(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
   - 'CREATE VECTOR EDGE INDEX mixed_evec ON :MIXED(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
   - 'CREATE VECTOR INDEX wild_vec ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
+  - 'CREATE VECTOR EDGE INDEX wild_evec ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
 
 text_search_fga_cluster: &text_search_fga_cluster
   cluster:
