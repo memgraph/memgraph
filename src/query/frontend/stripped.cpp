@@ -13,6 +13,7 @@
 
 #include <cctype>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <string>
 #include <utility>
@@ -116,6 +117,45 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
   // For every token in original query remember token index in stripped query.
   std::vector<int> position_mapping(tokens.size(), -1);
 
+  // `-9223372036854775808` (INT64_MIN) can't be range-checked as a bare integer literal, because
+  // its unsigned magnitude `9223372036854775808` alone exceeds INT64_MAX, even though the full
+  // signed value is representable. When such a magnitude is immediately preceded by a unary minus
+  // (i.e. not a binary subtraction), fold the sign into the literal so INT64_MIN can be written
+  // directly, instead of failing while parsing the magnitude in isolation.
+  constexpr std::string_view kInt64MinMagnitude = "9223372036854775808";
+  auto is_operand_end = [](const std::pair<Token, std::string> &t) {
+    switch (t.first) {
+      case Token::INT:
+      case Token::REAL:
+      case Token::STRING:
+      case Token::PARAMETER:
+      case Token::ESCAPED_NAME:
+      case Token::UNESCAPED_NAME:
+        return true;
+      case Token::KEYWORD:
+        return utils::IEquals(t.second, "true") || utils::IEquals(t.second, "false") ||
+               utils::IEquals(t.second, "null");
+      case Token::SPECIAL:
+        return t.second == ")" || t.second == "]" || t.second == "}";
+      default:
+        return false;
+    }
+  };
+  // Returns the index of the INT64_MIN-magnitude literal token following the unary minus at index
+  // `i`, or -1 if the minus at `i` isn't a foldable unary minus directly preceding that literal.
+  auto FindFoldableInt64MinLiteral = [&tokens, &is_operand_end](int i) {
+    int p = i - 1;
+    while (p >= 0 && tokens[p].first == Token::SPACE) --p;
+    if (p >= 0 && is_operand_end(tokens[p])) return -1;
+    int j = i + 1;
+    while (j < static_cast<int>(tokens.size()) && tokens[j].first == Token::SPACE) ++j;
+    if (j < static_cast<int>(tokens.size()) && tokens[j].first == Token::INT &&
+        tokens[j].second == kInt64MinMagnitude) {
+      return j;
+    }
+    return -1;
+  };
+
   // Convert tokens to strings, perform filtering, store literals and nonaliased
   // named expressions in return.
   for (int i = 0; i < static_cast<int>(tokens.size()); ++i) {
@@ -124,6 +164,17 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     // We need to shift token index for every parameter since antlr's parser
     // thinks of parameter as two tokens.
     int token_index = token_strings.size() + parameters_.size();
+
+    if (token.first == Token::SPECIAL && token.second == "-") {
+      if (int int_token_index = FindFoldableInt64MinLiteral(i); int_token_index != -1) {
+        replace_stripped(token_index, std::numeric_limits<int64_t>::min(), kStrippedIntToken);
+        position_mapping[i] = token_index;
+        position_mapping[int_token_index] = token_index;
+        i = int_token_index;
+        continue;
+      }
+    }
+
     switch (token.first) {
       case Token::UNMATCHED:
         LOG_FATAL("Shouldn't happen");

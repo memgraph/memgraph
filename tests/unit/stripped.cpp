@@ -14,6 +14,9 @@
 // Created by Florijan Stamenkovic on 07.03.17.
 //
 
+#include <cstdint>
+#include <limits>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -73,6 +76,31 @@ TEST(QueryStripper, HexInteger) {
   EXPECT_EQ(stripped.literals().size(), 1);
   EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), 10);
   EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken);
+}
+
+TEST(QueryStripper, Int64Min) {
+  StrippedQuery stripped("RETURN -9223372036854775808");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), std::numeric_limits<int64_t>::min());
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken);
+}
+
+TEST(QueryStripper, Int64MinWithSpace) {
+  StrippedQuery stripped("RETURN - 9223372036854775808");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.ValueInt(), std::numeric_limits<int64_t>::min());
+  EXPECT_EQ(stripped.stripped_query().str(), "RETURN " + kStrippedIntToken);
+}
+
+TEST(QueryStripper, Int64MinMagnitudeAlone) {
+  // The bare magnitude, without a preceding unary minus, still exceeds INT64_MAX.
+  ASSERT_THROW(StrippedQuery("RETURN 9223372036854775808"), SemanticException);
+}
+
+TEST(QueryStripper, Int64MinMagnitudeAfterBinaryMinus) {
+  // A minus following an operand is subtraction, not a sign to fold into the literal, so the
+  // oversized right-hand operand should still fail to parse.
+  ASSERT_THROW(StrippedQuery("RETURN 5-9223372036854775808"), SemanticException);
 }
 
 TEST(QueryStripper, RegularDecimal) {
