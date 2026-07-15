@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
 namespace memgraph::utils {
@@ -51,6 +52,26 @@ class PointerPack {
     static_assert(Pos >= 0 && Size > 0 && Pos + Size <= NumFlagBits);
     const uintptr_t field_mask = ((1UL << Size) - 1) << Pos;
     storage_ = (storage_ & ~field_mask) | ((value << Pos) & field_mask);
+  }
+
+  /// Relaxed-atomic read of the single bit at position @p Pos. Intended for a caller that reads
+  /// the flag WITHOUT holding whatever lock guards `Set<Pos>`/`SetPtr` (e.g. a lock-free read
+  /// fast-path) -- a plain (non-atomic) load here would be a data race against a concurrent
+  /// `Set`/`SetPtr` on another thread. `storage_` itself stays a plain `uintptr_t` (all writers
+  /// are still ordinary, lock-serialized stores, see the owning bit's own accessor doc-comment for
+  /// which lock); this only changes how THIS read observes it, via `std::atomic_ref` over the same
+  /// memory. `memory_order_relaxed` is deliberate: this only needs a non-torn snapshot of the flag
+  /// bit itself, not a synchronizes-with relationship to whatever the writer did before setting it
+  /// -- callers needing the latter must establish it through their own, separate synchronization.
+  template <int Pos>
+  bool GetRelaxed() const {
+    static_assert(Pos >= 0 && Pos < NumFlagBits);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) -- std::atomic_ref<T> requires a
+    // non-const T&; `storage_` is only const here because this accessor is `const`, not because
+    // the referenced object actually is (a sibling `Set<Pos>` on the same, non-const `*this` may
+    // run concurrently on another thread -- that possibility is exactly why this function exists).
+    auto const bits = std::atomic_ref<uintptr_t>(const_cast<uintptr_t &>(storage_)).load(std::memory_order_relaxed);
+    return ((bits >> Pos) & 1UL) != 0;
   }
 
   operator T *() const { return GetPtr(); }  // NOLINT(google-explicit-constructor)

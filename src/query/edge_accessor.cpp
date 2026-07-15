@@ -30,7 +30,23 @@ namespace memgraph::query {
 // fallback shape).
 VertexAccessor EdgeAccessor::To() const {
   if (branch_ctx_ != nullptr) {
-    if (auto resolved = branch_ctx_->ResolveVertex(impl_.ToVertex().Gid(), storage::View::NEW)) {
+    // Phase 2 (read side) of the branched-bit fast path -- see
+    // query::VertexAccessor::InEdges/OutEdges' own doc-comment (vertex_accessor.cpp) for the full
+    // rationale; this is the same test applied to an edge's TO endpoint instead of the traversal
+    // origin. An un-COW'd, un-tombstoned MAIN-resident endpoint is, by the bit's own invariant,
+    // untouched by this branch -- ResolveVertex would walk the diff engine's skiplist, miss, fall
+    // through to the historical resolve, and hand back this EXACT Vertex*, so returning it directly
+    // is equivalent and skips that dual lookup entirely on the (dominant, per-hop) traversal path.
+    // The returned VertexAccessor still carries branch_ctx_, so any later read through it
+    // (Properties/Labels/etc.) stays branch-aware and self-corrects if the endpoint is COW'd or
+    // tombstoned AFTER this call returns. A diff-engine-resident endpoint
+    // (`to.storage_ == &diff_engine()`) or a `branched()==true` endpoint is NOT covered by the bit
+    // and must still go through the full ResolveVertex below.
+    auto to = impl_.ToVertex();
+    if (to.storage_ != &branch_ctx_->diff_engine() && !to.vertex_->branched()) {
+      return VertexAccessor(to, branch_ctx_);
+    }
+    if (auto resolved = branch_ctx_->ResolveVertex(to.Gid(), storage::View::NEW)) {
       return VertexAccessor(*resolved, branch_ctx_);
     }
   }
@@ -39,7 +55,13 @@ VertexAccessor EdgeAccessor::To() const {
 
 VertexAccessor EdgeAccessor::From() const {
   if (branch_ctx_ != nullptr) {
-    if (auto resolved = branch_ctx_->ResolveVertex(impl_.FromVertex().Gid(), storage::View::NEW)) {
+    // Phase 2 fast path -- see To()'s own doc-comment above for the full rationale (identical
+    // main-resident + unbranched test, applied to the FROM endpoint instead).
+    auto from = impl_.FromVertex();
+    if (from.storage_ != &branch_ctx_->diff_engine() && !from.vertex_->branched()) {
+      return VertexAccessor(from, branch_ctx_);
+    }
+    if (auto resolved = branch_ctx_->ResolveVertex(from.Gid(), storage::View::NEW)) {
       return VertexAccessor(*resolved, branch_ctx_);
     }
   }

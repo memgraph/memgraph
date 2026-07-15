@@ -13,6 +13,7 @@
 
 #include <fmt/format.h>
 
+#include <mutex>
 #include <unordered_map>
 
 #include "storage/v2/durability/wal.hpp"
@@ -575,14 +576,87 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
   // own size -- every record captured across all PRIOR sessions of this branch -- so the retention
   // cap (`FLAGS_versioning_max_changelog_length`) is enforced against the branch's whole life, not
   // reset back to 0 on every fresh checkout.
-  return std::unique_ptr<BranchContext>(new BranchContext(std::move(diff_engine),
-                                                          std::move(historical),
-                                                          std::move(tombstoned_vertices),
-                                                          std::move(tombstoned_edges),
-                                                          std::move(branch_log_session_directory),
-                                                          config.salient.items,
-                                                          main.GetSharedNameIdMapper().get(),
-                                                          changelog.size()));
+  //
+  // NOTE: constructed into a named local (`branch_ctx`), rather than returned directly, so the
+  // phase-1 re-seed step below (which needs a live `BranchContext` -- it calls the PRIVATE
+  // `MarkMainObjectBranched`, only reachable via `this`/an instance) has something to call it on
+  // before this function returns. `historical`'s self-pin is already moved into `branch_ctx` by
+  // this point, so it stays alive across the re-seed loop exactly as required (see the loop's own
+  // doc-comment below).
+  auto branch_ctx = std::unique_ptr<BranchContext>(new BranchContext(std::move(diff_engine),
+                                                                     std::move(historical),
+                                                                     std::move(tombstoned_vertices),
+                                                                     std::move(tombstoned_edges),
+                                                                     std::move(branch_log_session_directory),
+                                                                     config.salient.items,
+                                                                     main.GetSharedNameIdMapper().get(),
+                                                                     changelog.size()));
+
+  // -----------------------------------------------------------------------------------------
+  // 5. Graph Versioning v1 -- phase 1 (write-side only) of the per-object "touched by any branch"
+  //    hint: RE-SEED restart correctness. `storage::Vertex::branched()`/`SetBranched()` (vertex.hpp)
+  //    live only in MAIN's in-memory `Vertex` object -- a process restart (or simply this branch
+  //    being checked out again in a fresh process) loses the bit entirely, even though `changelog`
+  //    (just replayed into `diff_engine`, above) still faithfully records every MAIN object this
+  //    branch has EVER touched across every prior session. Walk it once more here -- purely for
+  //    this side effect, no diff-engine mutation -- and re-mark every referenced MAIN vertex, so a
+  //    resumed branch's already-touched vertices read `branched()==true` again immediately, before
+  //    any query ever runs against this checkout.
+  //
+  //    VERTEX GIDS ONLY (deliberate, not an oversight): `MarkMainObjectBranched` resolves through
+  //    `historical_->FindVertex(gid, ...)`, the same lookup already relied on elsewhere in this
+  //    file -- reliable. The edge-side analogue (`historical_->FindEdge(gid, ...)`) is NOT reliable
+  //    (see `ResolveEdge`'s own doc-comment) and is never used for anything correctness-sensitive in
+  //    this file; using it here would risk a WORSE bug than the one being fixed (a bare edge gid
+  //    silently misresolving against an unrelated vertex that happens to share the same numeric
+  //    gid -- vertex and edge gids are independent counters, see kBranchNativeGidWatermark's own
+  //    doc-comment). This is not a coverage gap: a `WalEdgeCreate` record's `from_vertex`/
+  //    `to_vertex` fields ARE vertex gids (handled below), and `ReplayChangelogIntoDiffEngine`'s own
+  //    ORDERING doc-comment above already establishes that an edge's endpoints are ALWAYS captured
+  //    (as their own `WalVertexCreate`, same or earlier commit) before/alongside that edge's own
+  //    `WalEdgeCreate` -- so every changelog-referenced edge's endpoints are re-marked one way or
+  //    the other regardless. A bare `WalEdgeSetProperty`/`WalEdgeDelete` record (edge gid only, no
+  //    endpoint fields) needs no separate handling for exactly that same reason -- see CowEdge's own
+  //    doc-comment for why the edge's own `Edge` object is best-effort/supplementary in the first
+  //    place, keyed off the endpoints being marked, not the other way around.
+  //
+  //    `< kBranchNativeGidWatermark` filters out branch-native gids up front (never a MAIN vertex,
+  //    see kBranchNativeGidWatermark's own doc-comment) -- `MarkMainObjectBranched` would just
+  //    silently no-op on one anyway (a `historical_->FindVertex` miss), so this only avoids the
+  //    wasted lookup, it is not load-bearing for correctness.
+  //
+  //    NO DE-DUP SET: `MarkMainObjectBranched` is idempotent (the bit is monotonic/never-clear, see
+  //    its own doc-comment) -- re-marking an already-branched gid is a harmless redundant
+  //    lock-acquire-and-no-op-set, and `changelog` is itself bounded (`FLAGS_
+  //    versioning_max_changelog_length`, see `ChangelogLength()`'s own doc-comment) -- not worth a
+  //    second hash-set here just to skip re-marking a few duplicate gids. O(changelog) either way.
+  // -----------------------------------------------------------------------------------------
+  auto mark_if_main_vertex_gid = [&branch_ctx](storage::Gid gid) {
+    if (gid.AsUint() < kBranchNativeGidWatermark) branch_ctx->MarkMainObjectBranched(gid);
+  };
+  for (const auto &delta : changelog) {
+    std::visit(utils::Overloaded{[&](sd::WalVertexCreate const &data) { mark_if_main_vertex_gid(data.gid); },
+                                 [&](sd::WalVertexAddLabel const &data) { mark_if_main_vertex_gid(data.gid); },
+                                 [&](sd::WalVertexSetProperty const &data) { mark_if_main_vertex_gid(data.gid); },
+                                 [&](sd::WalVertexDelete const &data) { mark_if_main_vertex_gid(data.gid); },
+                                 [&](sd::WalEdgeCreate const &data) {
+                                   mark_if_main_vertex_gid(data.from_vertex);
+                                   mark_if_main_vertex_gid(data.to_vertex);
+                                 },
+                                 [&](auto const &) {}},
+               delta.data_);
+  }
+
+  return branch_ctx;
+}
+
+// See the declaration's own doc-comment (branch_engine.hpp) for the full contract.
+void BranchContext::MarkMainObjectBranched(storage::Gid gid) {
+  auto hist_vertex = historical_base_->FindVertex(gid, storage::View::OLD);
+  if (!hist_vertex) return;  // best-effort hint -- see doc-comment.
+  storage::Vertex *main_vertex = hist_vertex->vertex_;
+  auto guard = std::unique_lock{main_vertex->lock};
+  main_vertex->SetBranched(true);
 }
 
 std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::CowVertex(storage::Gid gid) {
@@ -626,6 +700,15 @@ std::expected<storage::VertexAccessor, BranchContext::CowError> BranchContext::C
                              "this should be unreachable (callers resolve a vertex before mutating it).",
                              gid.AsUint())});
   }
+
+  // Graph Versioning v1 -- phase 1 (write-side only) of the per-object "touched by any branch"
+  // hint (see MarkMainObjectBranched's own doc-comment, branch_engine.hpp). Marked as soon as the
+  // fork vertex is resolved -- BEFORE the enum-rejection check below -- deliberately: over-marking
+  // (setting the bit even if this particular COW attempt goes on to fail/reject) is always safe
+  // per the bit's own directional invariant (`branched()==false` implies fork-state equality;
+  // `branched()==true` is only ever a hint, never a claim of actual divergence), so there is no
+  // need to gate this on the COW actually succeeding.
+  MarkMainObjectBranched(gid);
 
   auto labels_res = hist_vertex->Labels(storage::View::OLD);
   MG_ASSERT(labels_res.has_value(),
@@ -745,6 +828,26 @@ std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::Cow
   if (!from_diff) return std::unexpected(from_diff.error());
   auto to_diff = CowVertex(to_gid);
   if (!to_diff) return std::unexpected(to_diff.error());
+
+  // Graph Versioning v1 -- phase 1 (write-side only) of the per-object "touched by any branch"
+  // hint (see storage::Edge::SetBranched's own doc-comment, edge.hpp). ADDITIONAL to the two
+  // endpoint marks above -- `CowVertex(from_gid)`/`CowVertex(to_gid)` just marked BOTH endpoint
+  // Vertex objects already (that's what the phase-2 traversal fast-path is documented to actually
+  // key on, see MarkMainObjectBranched's own doc-comment) -- this is a best-effort, supplementary
+  // mark of the edge's OWN `Edge` object. Only attempted `properties_on_edges` -- with it false,
+  // edges are REFERENCE-ONLY (`EdgeRef` holds just a gid, no `Edge` object exists at all to mark;
+  // same gate MirrorMainIndexDefinitionsIntoDiffEngine above uses for the identical
+  // properties_on_edges/EdgeRef-union reason). `fork_edge` is guaranteed to still be historical_'s
+  // own (not yet COW'd) copy at this point (see this function's own comment above, "Not yet
+  // COW'd") -- `historical_` is a time-travelling view over the SAME physical objects main owns
+  // (R35), so `fork_edge.edge_.ptr` IS main's own live `Edge*` directly; no separate by-gid lookup
+  // is attempted here (unlike the vertex case) since a reliable `historical_->FindEdge(gid)` does
+  // not exist (see ResolveEdge's own doc-comment).
+  if (diff_engine_->config_.salient.items.properties_on_edges) {
+    storage::Edge *main_edge = fork_edge.edge_.ptr;
+    auto edge_guard = std::unique_lock{main_edge->lock};
+    main_edge->SetBranched(true);
+  }
 
   // Same idiom as CowVertex: `diff_txn`'s actual object is guaranteed to be a ReplicationAccessor
   // (or an InMemoryAccessor whose layout ReplicationAccessor doesn't extend), reached through

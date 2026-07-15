@@ -605,44 +605,78 @@ class DbAccessor final {
   //       branch_engine.cpp, always populates it once a branch exists), and
   //   (b) `hist_stream` -- main@fork's edge-type+property index as of the fork timestamp, via
   //       `historical()`; a main-stream candidate is skipped if the branch tombstoned it, OR if the
-  //       diff engine already holds that gid (`FindDiffEdge(g, View::NEW)` -- a COW): the diff stream
-  //       in (a) already represents that gid at its authoritative/new value (diff wins on overlap).
+  //       diff engine already holds that gid (`FindDiffEdge(g, View::NEW)` -- a COW): the diff
+  //       stream in (a) already represents that gid at its authoritative/new value (diff wins on
+  //       overlap).
   // `storage::EdgesIterable` is move-only (see edges_iterable.hpp) so both streams are taken BY VALUE
   // -- callers pass the storage scan's return value directly (a prvalue), which guaranteed copy
   // elision (C++17) direct-initializes these parameters with no copy/move call at all.
   auto MergeBranchEdgePropertyScan(storage::View view, storage::PropertyId property, storage::EdgesIterable diff_stream,
                                    storage::EdgesIterable hist_stream) -> std::shared_ptr<std::vector<EdgeAccessor>> {
     using KeyedEdge = std::pair<storage::PropertyValue, EdgeAccessor>;
-    std::vector<KeyedEdge> keyed;
 
-    // (a) Diff-engine matches.
-    for (auto raw : diff_stream) {
-      EdgeAccessor e(raw, branch_ctx_);
-      auto prop_res = e.GetProperty(view, property);
-      if (!prop_res.has_value()) continue;  // defensive: an index candidate should always have it
-      keyed.emplace_back(std::move(*prop_res), e);
-    }
+    // Both `diff_stream` and `hist_stream` are already ASCENDING by the indexed property (each is a
+    // native storage index scan) -- reusing storage::PropertyValue's own `operator<=>` (defined in
+    // property_value.cppm), EXACTLY the comparator the storage index itself uses. So this merges the
+    // two sorted streams in one O(D+H) pass instead of materializing+`std::stable_sort`ing a combined
+    // vector: hold the current candidate + its extracted key on each side, emit whichever key comes
+    // first (diff on an exact tie, matching the old stable_sort's diff-pushed-first stability -- see
+    // ties below), and advance only the emitted side. `explicit Iterator` (move-only, single-pass:
+    // edges_iterable.hpp) means each side is walked with its own `begin()/end()` pair, never
+    // re-iterated.
+    auto diff_it = diff_stream.begin();
+    auto diff_end = diff_stream.end();
+    auto hist_it = hist_stream.begin();
+    auto hist_end = hist_stream.end();
 
-    // (b) Main@fork matches, gated by the tombstone/COW skip -- diff wins on any overlap.
-    for (auto raw : hist_stream) {
-      EdgeAccessor mc(raw, branch_ctx_);
-      auto const g = mc.Gid();
-      if (branch_ctx_->IsEdgeTombstoned(g)) continue;
-      if (branch_ctx_->FindDiffEdge(g, storage::View::NEW).has_value()) continue;
-      auto prop_res = mc.GetProperty(storage::View::OLD, property);
-      if (!prop_res.has_value()) continue;  // defensive: an index candidate should always have it
-      keyed.emplace_back(std::move(*prop_res), mc);
-    }
+    // Advances past diff-engine candidates until the next keyed one (or the stream is exhausted).
+    // Diff-engine candidates are never tombstone/COW-skipped -- the diff engine IS the branch's own
+    // authoritative state -- only a defensively-missing property excludes one, exactly as the
+    // original `for` loop's `continue` did.
+    auto advance_diff = [&]() -> std::optional<KeyedEdge> {
+      while (diff_it != diff_end) {
+        EdgeAccessor e(*diff_it, branch_ctx_);
+        ++diff_it;
+        auto prop_res = e.GetProperty(view, property);
+        if (!prop_res.has_value()) continue;  // defensive: an index candidate should always have it
+        return std::make_optional<KeyedEdge>(std::move(*prop_res), e);
+      }
+      return std::nullopt;
+    };
 
-    // Explicit sort ASCENDING by the indexed property, reusing storage::PropertyValue's own
-    // `operator<=>` (defined in property_value.cppm) -- EXACTLY the comparator the storage index
-    // itself uses, so this matches native (ascending-only) index order bit-for-bit.
-    std::stable_sort(
-        keyed.begin(), keyed.end(), [](const KeyedEdge &a, const KeyedEdge &b) { return a.first < b.first; });
+    // Advances past main@fork candidates until the next one that survives the tombstone/COW skip
+    // (diff wins on any overlap) AND is keyed -- unchanged predicate/semantics from the original loop.
+    auto advance_hist = [&]() -> std::optional<KeyedEdge> {
+      while (hist_it != hist_end) {
+        EdgeAccessor mc(*hist_it, branch_ctx_);
+        ++hist_it;
+        auto const g = mc.Gid();
+        if (branch_ctx_->IsEdgeTombstoned(g)) continue;
+        if (branch_ctx_->FindDiffEdge(g, storage::View::NEW).has_value()) continue;
+        auto prop_res = mc.GetProperty(storage::View::OLD, property);
+        if (!prop_res.has_value()) continue;  // defensive: an index candidate should always have it
+        return std::make_optional<KeyedEdge>(std::move(*prop_res), mc);
+      }
+      return std::nullopt;
+    };
 
     auto result = std::make_shared<std::vector<EdgeAccessor>>();
-    result->reserve(keyed.size());
-    for (auto &entry : keyed) result->push_back(entry.second);
+
+    auto diff_cur = advance_diff();
+    auto hist_cur = advance_hist();
+    while (diff_cur.has_value() || hist_cur.has_value()) {
+      // Emit diff whenever hist is exhausted, OR diff's key does not strictly exceed hist's --
+      // ties resolve to diff first (a `!(hist < diff)` test, so an exact tie takes this branch),
+      // matching the old stable_sort's diff-pushed-first-in-`keyed` stability.
+      const bool take_diff = diff_cur.has_value() && (!hist_cur.has_value() || !(hist_cur->first < diff_cur->first));
+      if (take_diff) {
+        result->push_back(diff_cur->second);
+        diff_cur = advance_diff();
+      } else {
+        result->push_back(hist_cur->second);
+        hist_cur = advance_hist();
+      }
+    }
     return result;
   }
 
@@ -822,9 +856,22 @@ class DbAccessor final {
       }
 
       // (b) Main@fork stream, gated by the tombstone/COW skip -- diff wins on any overlap.
+      //
+      // Phase 2 (read side) of the branched-bit fast path (storage::Vertex::branched(), vertex.hpp):
+      // an un-COW'd, un-tombstoned MAIN-resident vertex is, by phase 1's own invariant, guaranteed
+      // to be NEITHER tombstoned NOR diff-resident -- both dedup checks below exist purely to catch
+      // exactly those two cases, so a `branched() == false` candidate can be emitted directly,
+      // skipping the tombstone-set probe and the diff-engine `FindVertex` point lookup entirely.
+      // Every candidate here already comes from the historical_ stream by construction, so it is
+      // main-resident by definition -- no separate storage-identity check is needed (contrast
+      // VertexAccessor::InEdges/OutEdges' fast path, which must also rule out a diff-resident impl_).
       for (auto raw : historical.Vertices(label, storage::View::OLD)) {
         VertexAccessor mc(raw, branch_ctx_);
         auto const g = mc.Gid();
+        if (!raw.vertex_->branched()) {
+          result->push_back(mc);
+          continue;
+        }
         if (branch_ctx_->IsVertexTombstoned(g)) continue;
         if (accessor_->FindVertex(g, storage::View::NEW).has_value()) continue;
         result->push_back(mc);
@@ -861,10 +908,23 @@ class DbAccessor final {
       //       (a historical index scan against a dropped index would be wrong/unsafe).
       // A main-stream candidate is skipped if the branch tombstoned it, OR if the diff engine already
       // physically holds that gid (a COW) -- that membership probe is deliberately
-      // predicate-INDEPENDENT (checked via `accessor_->FindVertex`, not by re-testing the range), so
-      // a COW that moved the value out of range is still correctly suppressed here: the diff-engine
-      // stream in (a) already represents that gid at its authoritative/new value (or excludes it, if
-      // the COW moved it out of range) -- both matches were already applied over there.
+      // predicate-INDEPENDENT (checked via `accessor_->FindVertex`, not by re-testing the range),
+      // so a COW that moved the value out of range is still
+      // correctly suppressed here: the diff-engine stream in (a) already represents that gid at its
+      // authoritative/new value (or excludes it, if the COW moved it out of range) -- both matches
+      // were already applied over there.
+      //
+      // Streaming-merge note: `keyed` (the diff side, filled by (a) below) is filled by iterating
+      // `accessor_->Vertices(...)` directly, which is ITSELF a native index scan already yielding
+      // NATIVE INDEX ORDER (ASC/DESC per `order`) -- so `keyed` is already correctly ordered the
+      // moment (a) finishes, with no sort needed for that side alone. When main@fork's index is still
+      // present (the common case, below), its stream is ALSO a native index scan in the same order,
+      // so the two sides are merged in one O(D+H) streaming pass keyed on this same
+      // `std::vector<storage::PropertyValue>` (lexicographic `operator<`, built on
+      // `storage::PropertyValue::operator<=>`) instead of combining everything and
+      // `std::stable_sort`ing. Only the B1 fallback below (a genuinely UNSORTED full historical scan)
+      // still needs the collect-then-sort shape, since there is no ordered hist-side stream to merge
+      // against in that case.
       using KeyedVertex = std::pair<std::vector<storage::PropertyValue>, VertexAccessor>;
       std::vector<KeyedVertex> keyed;
 
@@ -898,18 +958,46 @@ class DbAccessor final {
         return key;
       };
 
+      // Builds the merge key for one index-scan row, preferring the scan's already-resolved entry
+      // key (`VerticesIterable::Iterator::CurrentPropertyValues()` -- zero-copy, no MVCC/property
+      // re-read: the index scan only ever parks on an entry once its stored values are confirmed
+      // equal to the view-visible property values, nested paths included -- see
+      // `CurrentVersionHasLabelProperties`/`AdvanceUntilValid_` in inmemory/label_property_index.cpp)
+      // over `extract_key` (a per-property `GetProperty(readview, ...)` re-read, measured at ~46% of
+      // branch index-scan latency). Both (a) and (b) below are native label-property index scans, so
+      // the fast path is always available on this branch; falling back to `extract_key` is purely
+      // defensive here and is the ONLY path taken by the B1 full historical scan further down (not an
+      // index scan, so its iterator has no key to hand out).
+      auto key_for = [&extract_key](auto &it,
+                                    VertexAccessor &v,
+                                    storage::View readview) -> std::optional<std::vector<storage::PropertyValue>> {
+        if (auto entry_values = it.CurrentPropertyValues(); entry_values.has_value()) {
+          return std::vector<storage::PropertyValue>(entry_values->begin(), entry_values->end());
+        }
+        return extract_key(v, readview);
+      };
+
       // (a) Diff-engine matches.
-      for (auto raw : accessor_->Vertices(label, properties, property_ranges, view, order)) {
-        VertexAccessor candidate(raw, branch_ctx_);
-        auto key = extract_key(candidate, view);
+      auto diff_stream = accessor_->Vertices(label, properties, property_ranges, view, order);
+      for (auto diff_it = diff_stream.begin(), diff_end = diff_stream.end(); diff_it != diff_end; ++diff_it) {
+        VertexAccessor candidate(*diff_it, branch_ctx_);
+        auto key = key_for(diff_it, candidate, view);
         if (!key.has_value()) continue;
         keyed.emplace_back(std::move(*key), candidate);
       }
 
       // (b) Main@fork matches, gated by the tombstone/COW skip above.
       auto &historical = branch_ctx_->historical();
+      // Phase 2 fast path -- see the label-only Vertices(view, label) overload's own doc-comment
+      // above for the full rationale. `mc` here always originates from the historical_ stream (this
+      // helper is only ever called with a main@fork candidate), so it is main-resident by
+      // construction -- an un-branched `mc` can skip both dedup checks unconditionally.
       auto consider_main_candidate =
           [this](std::vector<KeyedVertex> &out, VertexAccessor mc, std::vector<storage::PropertyValue> key) {
+            if (!mc.impl_.vertex_->branched()) {
+              out.emplace_back(std::move(key), mc);
+              return;
+            }
             auto const g = mc.Gid();
             if (branch_ctx_->IsVertexTombstoned(g)) return;
             if (accessor_->FindVertex(g, storage::View::NEW).has_value()) return;
@@ -917,12 +1005,64 @@ class DbAccessor final {
           };
 
       if (historical.LabelPropertyIndexReady(label, properties)) {
-        for (auto raw : historical.Vertices(label, properties, property_ranges, storage::View::OLD, order)) {
-          VertexAccessor mc(raw, branch_ctx_);
-          auto key = extract_key(mc, storage::View::OLD);
-          if (!key.has_value()) continue;
-          consider_main_candidate(keyed, mc, std::move(*key));
+        // Streaming 2-way merge: `keyed` (diff side) is already ordered (see the note above), and
+        // `historical.Vertices(...)` below is ALSO a native index scan in the same `order` -- so walk
+        // both with explicit iterators (each stream is move-only/single-pass) and emit into `result`
+        // already merged, with no `std::stable_sort` needed for this branch.
+        auto hist_stream = historical.Vertices(label, properties, property_ranges, storage::View::OLD, order);
+        auto hist_it = hist_stream.begin();
+        auto hist_end = hist_stream.end();
+
+        // Advances past main@fork candidates until the next one that survives the tombstone/COW skip
+        // AND is keyed -- same predicate/semantics as `consider_main_candidate` above, just pulled
+        // one candidate at a time instead of eagerly draining the whole stream into `keyed`.
+        auto advance_hist = [&]() -> std::optional<KeyedVertex> {
+          while (hist_it != hist_end) {
+            VertexAccessor mc(*hist_it, branch_ctx_);
+            // Key must be read from `hist_it` BEFORE it advances (`CurrentPropertyValues()` reads
+            // the entry the iterator is currently parked on) -- the increment moved below the key
+            // read accordingly; `extract_key`'s fallback path doesn't care about iterator position,
+            // so this reordering is safe for both branches of `key_for`.
+            auto key = key_for(hist_it, mc, storage::View::OLD);
+            ++hist_it;
+            if (!key.has_value()) continue;
+            // Phase 2 fast path -- see the label-only Vertices(view, label) overload's own
+            // doc-comment above. `mc` is drawn from `hist_stream` (main@fork's own index), so it is
+            // main-resident by construction; an un-branched `mc` skips both dedup checks.
+            if (!mc.impl_.vertex_->branched()) {
+              return std::make_optional<KeyedVertex>(std::move(*key), mc);
+            }
+            auto const g = mc.Gid();
+            if (branch_ctx_->IsVertexTombstoned(g)) continue;
+            if (accessor_->FindVertex(g, storage::View::NEW).has_value()) continue;
+            return std::make_optional<KeyedVertex>(std::move(*key), mc);
+          }
+          return std::nullopt;
+        };
+
+        auto result = std::make_shared<std::vector<VertexAccessor>>();
+        result->reserve(keyed.size());
+
+        size_t diff_i = 0;
+        auto hist_cur = advance_hist();
+        while (diff_i < keyed.size() || hist_cur.has_value()) {
+          // Emit the diff-side element whenever hist is exhausted, OR the diff key does not strictly
+          // exceed the hist key in the requested `order` -- ties resolve to diff first (the
+          // `!(hist < diff)`/`!(diff < hist)` tests are both true on an exact tie), matching the old
+          // stable_sort's diff-pushed-first-into-`keyed` stability regardless of ASC/DESC.
+          const bool take_diff =
+              diff_i < keyed.size() &&
+              (!hist_cur.has_value() || (order == storage::IndexOrder::ASC ? !(hist_cur->first < keyed[diff_i].first)
+                                                                           : !(keyed[diff_i].first < hist_cur->first)));
+          if (take_diff) {
+            result->push_back(keyed[diff_i].second);
+            ++diff_i;
+          } else {
+            result->push_back(hist_cur->second);
+            hist_cur = advance_hist();
+          }
         }
+        return VerticesIterable(std::move(result));
       } else {
         // B1: main dropped this label-property index after the fork -- fall back to a full
         // historical scan + manual predicate; the explicit sort below makes the resulting unordered
@@ -947,10 +1087,13 @@ class DbAccessor final {
         }
       }
 
-      // Explicit sort by the composite key: `std::vector<PropertyValue>`'s own `operator<` performs
-      // an element-wise LEXICOGRAPHIC comparison (built on `storage::PropertyValue`'s `operator<=>`,
-      // defined in property_value.cppm) -- EXACTLY the comparator the storage index itself uses to
-      // order IndexOrderedValues for a composite or nested index, so this matches native index order
+      // B1-ONLY TAIL: only reached via the `else` branch above (index-ready always `return`s its own
+      // streamed `result` earlier) -- `keyed` here holds the diff side PLUS the B1 full-scan's
+      // UNORDERED hist matches, so an explicit sort is still required for this fallback.
+      // `std::vector<PropertyValue>`'s own `operator<` performs an element-wise LEXICOGRAPHIC
+      // comparison (built on `storage::PropertyValue`'s `operator<=>`, defined in
+      // property_value.cppm) -- EXACTLY the comparator the storage index itself uses to order
+      // IndexOrderedValues for a composite or nested index, so this matches native index order
       // bit-for-bit (and, for a single property, degrades to the prior 1-element-vector comparison).
       std::stable_sort(keyed.begin(), keyed.end(), [order](const KeyedVertex &a, const KeyedVertex &b) {
         return order == storage::IndexOrder::ASC ? a.first < b.first : b.first < a.first;

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <optional>
 #include <variant>
 
 #include "storage/v2/all_vertices_iterable.hpp"
@@ -94,6 +95,26 @@ class VerticesIterable final {
 
     value_type const &operator*() const {
       return std::visit([](auto const &it) -> value_type const & { return *it; }, data_);
+    }
+
+    // Zero-copy access to the CURRENT row's already-resolved index key, for the variants backed by
+    // a label-property index scan (Asc/Desc, any composite arity) -- avoids a per-row
+    // GetProperty(View::...) re-read in callers (e.g. the branch label-property merge in
+    // query/db_accessor.hpp) that already trust index order and only need the key to merge/compare
+    // by. Returns nullopt for the variants with no notion of an ordered property key
+    // (AllVerticesIterable, label-only index) -- callers must fall back to an explicit property read
+    // for those. Dispatches via `if constexpr (requires {...})` rather than enumerating variant
+    // alternatives, so adding a new keyless iterable to `Data` needs no change here.
+    auto CurrentPropertyValues() const -> std::optional<IndexOrderedValuesView> {
+      return std::visit(
+          [](auto const &it) -> std::optional<IndexOrderedValuesView> {
+            if constexpr (requires { it.CurrentValues(); }) {
+              return it.CurrentValues();
+            } else {
+              return std::nullopt;
+            }
+          },
+          data_);
     }
 
     Iterator &operator++() {

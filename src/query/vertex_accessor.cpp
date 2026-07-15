@@ -25,6 +25,16 @@ namespace memgraph::query {
 // point lookup already on this hot path.
 auto VertexAccessor::Labels(storage::View view) const -> decltype(impl_.Labels(view)) {
   if (branch_ctx_ != nullptr) {
+    // Phase-2 read fast path (branched-bit) -- mirror of InEdges/OutEdges' own fast path in this
+    // file. An un-COW'd, un-tombstoned MAIN-resident vertex's state is, by phase 1's invariant,
+    // identical to what ResolveVertex would resolve on the historical side: impl_ already IS that
+    // historical accessor, so read it directly and skip the diff-engine skiplist probe. Byte-
+    // identical to the slow path's return (same Vertex*, same view). SAFE: mutators never consult
+    // this bit (they always CowIfNeeded); a COW or tombstone flips branched()->true, disabling this
+    // fast path so the re-resolve / View::NEW tombstone guard below runs.
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+      return impl_.Labels(view);
+    }
     if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
       return resolved->Labels(view);
     }
@@ -44,6 +54,16 @@ auto VertexAccessor::Labels(storage::View view) const -> decltype(impl_.Labels(v
 
 storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::LabelId label) const {
   if (branch_ctx_ != nullptr) {
+    // Phase-2 read fast path (branched-bit) -- mirror of InEdges/OutEdges' own fast path in this
+    // file. An un-COW'd, un-tombstoned MAIN-resident vertex's state is, by phase 1's invariant,
+    // identical to what ResolveVertex would resolve on the historical side: impl_ already IS that
+    // historical accessor, so read it directly and skip the diff-engine skiplist probe. Byte-
+    // identical to the slow path's return (same Vertex*, same view). SAFE: mutators never consult
+    // this bit (they always CowIfNeeded); a COW or tombstone flips branched()->true, disabling this
+    // fast path so the re-resolve / View::NEW tombstone guard below runs.
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+      return impl_.HasLabel(label, view);
+    }
     if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
       return resolved->HasLabel(label, view);
     }
@@ -57,6 +77,16 @@ storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::Labe
 
 auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Properties(view)) {
   if (branch_ctx_ != nullptr) {
+    // Phase-2 read fast path (branched-bit) -- mirror of InEdges/OutEdges' own fast path in this
+    // file. An un-COW'd, un-tombstoned MAIN-resident vertex's state is, by phase 1's invariant,
+    // identical to what ResolveVertex would resolve on the historical side: impl_ already IS that
+    // historical accessor, so read it directly and skip the diff-engine skiplist probe. Byte-
+    // identical to the slow path's return (same Vertex*, same view). SAFE: mutators never consult
+    // this bit (they always CowIfNeeded); a COW or tombstone flips branched()->true, disabling this
+    // fast path so the re-resolve / View::NEW tombstone guard below runs.
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+      return impl_.Properties(view);
+    }
     if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
       return resolved->Properties(view);
     }
@@ -70,6 +100,16 @@ auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Prop
 
 storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::View view, storage::PropertyId key) const {
   if (branch_ctx_ != nullptr) {
+    // Phase-2 read fast path (branched-bit) -- mirror of InEdges/OutEdges' own fast path in this
+    // file. An un-COW'd, un-tombstoned MAIN-resident vertex's state is, by phase 1's invariant,
+    // identical to what ResolveVertex would resolve on the historical side: impl_ already IS that
+    // historical accessor, so read it directly and skip the diff-engine skiplist probe. Byte-
+    // identical to the slow path's return (same Vertex*, same view). SAFE: mutators never consult
+    // this bit (they always CowIfNeeded); a COW or tombstone flips branched()->true, disabling this
+    // fast path so the re-resolve / View::NEW tombstone guard below runs.
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+      return impl_.GetProperty(key, view);
+    }
     if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
       return resolved->GetProperty(key, view);
     }
@@ -83,6 +123,16 @@ storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::Vie
 
 storage::Result<uint64_t> VertexAccessor::GetPropertySize(storage::PropertyId key, storage::View view) const {
   if (branch_ctx_ != nullptr) {
+    // Phase-2 read fast path (branched-bit) -- mirror of InEdges/OutEdges' own fast path in this
+    // file. An un-COW'd, un-tombstoned MAIN-resident vertex's state is, by phase 1's invariant,
+    // identical to what ResolveVertex would resolve on the historical side: impl_ already IS that
+    // historical accessor, so read it directly and skip the diff-engine skiplist probe. Byte-
+    // identical to the slow path's return (same Vertex*, same view). SAFE: mutators never consult
+    // this bit (they always CowIfNeeded); a COW or tombstone flips branched()->true, disabling this
+    // fast path so the re-resolve / View::NEW tombstone guard below runs.
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+      return impl_.GetPropertySize(key, view);
+    }
     if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
       return resolved->GetPropertySize(key, view);
     }
@@ -126,6 +176,36 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
                                                                   const std::vector<storage::EdgeTypeId> &edge_types,
                                                                   query::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
+    // Phase 2 (read side) of the branched-bit fast path (storage::Vertex::branched(), vertex.hpp):
+    // an un-COW'd, un-tombstoned MAIN-resident vertex's incident-edge set is, by phase 1's own
+    // invariant, IDENTICAL to what this branch would see via the historical-vs-diff union below --
+    // so its edges can be read straight off main's own adjacency list, skipping ResolveEdges'
+    // dual lookup (historical_ + current_diff_txn_) and gid seen-map entirely.
+    //   - `impl_.storage_ != &branch_ctx_->diff_engine()` tests "not already diff-resident": a
+    //     diff-engine-resident impl_ (branch-native create, or a prior COW) is exactly the case the
+    //     bit does NOT cover -- the diff engine is the authoritative side for it, so it must still
+    //     go through the union below.
+    //   - `!impl_.vertex_->branched()` tests the hint itself (a relaxed-atomic, lock-free read --
+    //     see branched()'s own doc-comment for why this is safe without the vertex's lock).
+    // Reads at View::OLD, mirroring ResolveEdges' own fixed-View::OLD convention for the historical_
+    // side (historical_ is a frozen, self-pinned snapshot -- it has no "NEW" relative to this
+    // transaction). `hops_limit`/`edge_types` are handed straight to storage's own
+    // HandleExpansionsWithEdgeTypes/HandleExpansionsWithoutEdgeTypes (storage/v2/vertex_accessor.cpp),
+    // which already charges one hop per incident edge BEFORE the edge_types filter -- byte-identical
+    // accounting to the manual loop below, so this cannot regress the S3 hops-limit fix.
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+      auto maybe_result = impl_.InEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
+      if (!maybe_result) return std::unexpected{maybe_result.error()};
+
+      std::vector<EdgeAccessor> edges;
+      edges.reserve((*maybe_result).edges.size());
+      std::ranges::transform((*maybe_result).edges, std::back_inserter(edges), [this](auto const &edge) {
+        return EdgeAccessor(edge, branch_ctx_);
+      });
+
+      return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
+    }
+
     auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, {});
     std::vector<EdgeAccessor> edges;
     int64_t expanded_count = 0;
@@ -169,6 +249,34 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
                                                                   const VertexAccessor &dest,
                                                                   query::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
+    // Phase 2 fast path -- see the non-dest InEdges' own doc-comment above for the full rationale
+    // (identical main-resident + unbranched test). IMPORTANT DIFFERENCE from that overload: `dest`
+    // is NOT handed to `impl_.InEdges` as a destination pointer here, even though storage's own
+    // InEdges accepts one -- `dest.impl_` may be DIFF-engine-resident (a branched/COW'd neighbor),
+    // in which case its `.transaction_` differs from `impl_.transaction_` (historical_'s own), which
+    // would trip storage's own `DMG_ASSERT(!destination || destination->transaction_ ==
+    // transaction_, "Invalid accessor!")` (storage/v2/vertex_accessor.cpp) -- and even a same-
+    // transaction Vertex* comparison would be wrong regardless, since a COW'd dest is a physically
+    // DIFFERENT Vertex object from main's own adjacency-list pointer to it (COW copies props/labels,
+    // it never rewrites main's adjacency). So the destination filter is done client-side by GID
+    // (matching the slow path's own `edge.FromVertex().Gid() != dest_gid` comparison below) over the
+    // type-filtered, hop-truncated list storage already produced -- `edge_types`/`hops_limit` are
+    // still safe to hand straight to storage (no pointer-identity hazard for a type id or a hop
+    // counter), so hop accounting is still storage's, not re-derived here.
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+      auto maybe_result = impl_.InEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
+      if (!maybe_result) return std::unexpected{maybe_result.error()};
+
+      auto const dest_gid = dest.Gid();
+      std::vector<EdgeAccessor> edges;
+      edges.reserve((*maybe_result).edges.size());
+      for (auto const &edge : (*maybe_result).edges) {
+        if (edge.FromVertex().Gid() != dest_gid) continue;
+        edges.emplace_back(edge, branch_ctx_);
+      }
+      return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
+    }
+
     auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::IN, view, {});
     auto const dest_gid = dest.Gid();
     std::vector<EdgeAccessor> edges;
@@ -207,6 +315,20 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
                                                                    const std::vector<storage::EdgeTypeId> &edge_types,
                                                                    query::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
+    // Phase 2 fast path -- see InEdges' own doc-comment above (identical rationale, OUT direction).
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+      auto maybe_result = impl_.OutEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
+      if (!maybe_result) return std::unexpected{maybe_result.error()};
+
+      std::vector<EdgeAccessor> edges;
+      edges.reserve((*maybe_result).edges.size());
+      std::ranges::transform((*maybe_result).edges, std::back_inserter(edges), [this](auto const &edge) {
+        return EdgeAccessor(edge, branch_ctx_);
+      });
+
+      return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
+    }
+
     auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, {});
     std::vector<EdgeAccessor> edges;
     int64_t expanded_count = 0;
@@ -244,6 +366,24 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
                                                                    VertexAccessor const &dest,
                                                                    query::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
+    // Phase 2 fast path -- see InEdges(dest)'s own doc-comment above (identical rationale + the
+    // same "never hand `dest` to storage as a destination pointer" caveat, mirrored for OUT: the
+    // client-side gid filter compares against `edge.ToVertex().Gid()`, the TO vertex for an OUT
+    // edge, instead of FromVertex()).
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+      auto maybe_result = impl_.OutEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
+      if (!maybe_result) return std::unexpected{maybe_result.error()};
+
+      auto const dest_gid = dest.Gid();
+      std::vector<EdgeAccessor> edges;
+      edges.reserve((*maybe_result).edges.size());
+      for (auto const &edge : (*maybe_result).edges) {
+        if (edge.ToVertex().Gid() != dest_gid) continue;
+        edges.emplace_back(edge, branch_ctx_);
+      }
+      return EdgeVertexAccessorResult{.edges = std::move(edges), .expanded_count = (*maybe_result).expanded_count};
+    }
+
     auto resolved = branch_ctx_->ResolveEdges(Gid(), storage::EdgeDirection::OUT, view, {});
     auto const dest_gid = dest.Gid();
     std::vector<EdgeAccessor> edges;

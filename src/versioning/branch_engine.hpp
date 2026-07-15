@@ -424,9 +424,27 @@ class BranchContext {
   // `historical_` and resurrect). Called by `query::DbAccessor::RemoveVertex`/`DetachDelete`
   // (db_accessor.hpp) right after the underlying diff-engine delete succeeds -- idempotent
   // (`std::unordered_set::insert` on an already-present gid is a no-op).
-  void TombstoneVertex(storage::Gid gid) { tombstoned_vertices_.insert(gid); }
+  // Belt-and-suspenders (phase 1, per-object "touched by any branch" hint, see
+  // `MarkMainObjectBranched`'s own doc-comment below): every call site already COWs the target
+  // before tombstoning it (query::DbAccessor::RemoveVertex/DetachDelete/DetachRemoveVertex,
+  // db_accessor.hpp -- `CowVertex` always runs first), so `CowVertex` has, in practice, already
+  // marked this gid. Marked again here anyway so the invariant can never be silently missed by some
+  // future caller that reaches `TombstoneVertex` via a path that skipped `CowVertex` --
+  // `MarkMainObjectBranched` is idempotent (monotonic bit, see its own doc-comment), so this is a
+  // harmless redundant call in the already-COW'd case.
+  void TombstoneVertex(storage::Gid gid) {
+    tombstoned_vertices_.insert(gid);
+    MarkMainObjectBranched(gid);
+  }
 
-  // Symmetric for edges -- see `tombstoned_edges_`'s own doc-comment.
+  // Symmetric for edges -- see `tombstoned_edges_`'s own doc-comment. NOTE: unlike
+  // `TombstoneVertex` above, this does NOT attempt to mark MAIN's own `Edge` object here -- there
+  // is no reliable `historical_->FindEdge(gid)` to resolve it from a bare gid (documented
+  // unreliable, see `ResolveEdge`'s own doc-comment) the way `historical_->FindVertex(gid)` is for
+  // vertices. This is not a coverage gap in practice: every edge this branch ever tombstones was
+  // necessarily COW'd first (same call-site guarantee as above), and `CowEdge` (branch_engine.cpp)
+  // already marks both endpoint vertices AND (best-effort, `properties_on_edges`-gated) the edge's
+  // own `Edge` object at that point -- see its own doc-comment.
   void TombstoneEdge(storage::Gid gid) { tombstoned_edges_.insert(gid); }
 
   // Bug fix (double-delete-on-a-branch crash): thin, read-only predicates over the tombstone sets
@@ -467,6 +485,24 @@ class BranchContext {
         branch_log_items_(branch_log_items),
         branch_log_mapper_(branch_log_mapper),
         changelog_length_(initial_changelog_length) {}
+
+  // Graph Versioning v1 -- phase 1 (write-side only) of a per-object "touched by any branch" hint:
+  // the actual mutator behind `storage::Vertex::SetBranched` (vertex.hpp) -- see its own
+  // doc-comment for the bit's monotonic/never-clear policy and the invariant it maintains.
+  // Resolves MAIN's own live `Vertex` for `gid` through `historical_->FindVertex(gid,
+  // storage::View::OLD)` -- the SAME lookup `CowVertex` already uses (its `.vertex_` member IS
+  // main's live `Vertex` object, not a branch-private copy: `historical_` is a time-travelling view
+  // over the SAME physical objects main owns, see R35's own doc-comment above) -- takes that
+  // vertex's own object `lock` (mirrors every other `delta_`-mutating caller across the codebase,
+  // e.g. `std::unique_lock{vertex_->lock}` in vertex_accessor.cpp), and sets the bit. A silent
+  // no-op if `gid` is not found in `historical_` -- this is a best-effort hint, never a
+  // correctness-load-bearing lookup for anything phase 1 does (nothing reads the bit yet).
+  //
+  // Call sites (branch_engine.cpp/.hpp): `CowVertex` (right after resolving the fork vertex),
+  // `TombstoneVertex` (belt-and-suspenders), and `BuildFromFork`'s own changelog re-seed loop
+  // (restart correctness -- the bit is in-memory only, so a resumed checkout must re-derive it from
+  // the branch's own already-captured history before any query runs against it again).
+  void MarkMainObjectBranched(storage::Gid gid);
 
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
   std::unique_ptr<storage::Storage::Accessor> historical_base_;
