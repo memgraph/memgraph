@@ -366,13 +366,10 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::CoordinatorSSOA
     return std::unexpected{communication::bolt::AuthFailure::kGeneric};
   }
 
-  // Snapshot the coordinator's committed role set once (forwarded to the leader if this coordinator is a follower).
-  // The role-existence and mask lookup below read this Raft-replicated set -- the auth kvstore is never consulted for
-  // coordinator roles. A failure to reach the committed state (no leader, RPC failure) rejects the connection.
-  std::vector<coordination::CoordinatorRole> roles;
-  if (coordinator_state->GetRoles(roles) != coordination::GetRolesStatus::SUCCESS) {
-    return std::unexpected{communication::bolt::AuthFailure::kGeneric};
-  }
+  // Snapshot the coordinator's committed role set once (forwarded to the leader if this coordinator is a follower,
+  // falling back to local replicated state when the leader is unreachable). The role-existence and mask lookup below
+  // read this Raft-replicated set -- the auth kvstore is never consulted for coordinator roles.
+  auto const roles = coordinator_state->GetRoles();
 
   auto role_mask_provider = [&roles](std::string const &role_name) -> std::optional<uint64_t> {
     auto const it = std::ranges::find(roles, role_name, &coordination::CoordinatorRole::name);
