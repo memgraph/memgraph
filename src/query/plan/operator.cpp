@@ -2229,10 +2229,9 @@ struct RealTraversal {
 
   static bool Visible(const Edge &edge, const Vertex &far, ExecutionContext &context) {
 #ifdef MG_ENTERPRISE
-    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-        !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-          context.auth_checker->Has(far, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-      return false;
+    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+      return context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+             context.auth_checker->Has(far, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
     }
 #endif
     return true;
@@ -2363,7 +2362,7 @@ void DispatchAmbientTraversal(ExecutionContext &context, const ExpandVariable &s
         std::vector<std::string_view> allowed;
         allowed.reserve(self.common_.edge_types.size());
         for (const auto type : self.common_.edge_types) allowed.emplace_back(vview.EdgeTypeToName(type));
-        make(VirtualTraversal{&self, &vview, std::move(allowed)});
+        make(VirtualTraversal{.self = &self, .vview = &vview, .allowed = std::move(allowed)});
       },
       [&](SubgraphGraphView &sview) { make(SubgraphTraversal<AccountHops>{&self, &sview}); },
       [&] { make(RealTraversal<AccountHops>{&self}); });
@@ -2395,7 +2394,7 @@ class VariableExpansionImpl final : public VariableExpansion {
       if (PullInput(frame, context)) {
         // if lower bound is zero we also yield empty paths
         if (lower_bound_ == 0) {
-          Vertex start = Trav::GetInput(frame[self_.input_symbol_], self_.input_symbol_);
+          Vertex const start = Trav::GetInput(frame[self_.input_symbol_], self_.input_symbol_);
           if (!self_.common_.existing_node) {
             auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
             frame_writer.Write(self_.common_.node_symbol, start);
@@ -2455,7 +2454,7 @@ class VariableExpansionImpl final : public VariableExpansion {
         }
       }
 
-      Vertex vertex = Trav::GetInput(vertex_value, self_.input_symbol_);
+      Vertex const vertex = Trav::GetInput(vertex_value, self_.input_symbol_);
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
       if (upper_bound_ > 0) {
@@ -2493,6 +2492,9 @@ class VariableExpansionImpl final : public VariableExpansion {
   }
 
   [[gnu::noinline]] bool Expand(Frame &frame, ExecutionContext &context) {
+    // The real-graph instantiation passes this to EvaluateFilter by non-const reference; it is
+    // const-detectable only in the projection instantiation, where the filtered branch below is gone.
+    // NOLINTNEXTLINE(misc-const-correctness)
     [[maybe_unused]] ExpressionEvaluator evaluator{
         &frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
@@ -2511,7 +2513,7 @@ class VariableExpansionImpl final : public VariableExpansion {
       auto current_edge = *edges_it_.back()++;
       if (Trav::AlreadyOnFrame(current_edge.first, edges_on_frame)) return false;
 
-      Vertex current_vertex =
+      Vertex const current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
       if (!Trav::Visible(current_edge.first, current_vertex, context)) return false;
 
@@ -2558,7 +2560,7 @@ class VariableExpansionImpl final : public VariableExpansion {
 
       bool const expand_is_valid = frame_writer.Modify(self_.common_.edge_symbol, try_expand);
       auto const &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
-      if (expand_is_valid && static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_) return true;
+      if (expand_is_valid && std::cmp_greater_equal(edges_on_frame.size(), lower_bound_)) return true;
     }
   }
 };
@@ -2669,8 +2671,8 @@ class STShortestPathImpl final : public STShortestPath {
         }
       }
 
-      Vertex source = Trav::GetInput(source_tv, self_.input_symbol_);
-      Vertex sink = Trav::GetInput(sink_tv, self_.common_.node_symbol);
+      Vertex const source = Trav::GetInput(source_tv, self_.input_symbol_);
+      Vertex const sink = Trav::GetInput(sink_tv, self_.common_.node_symbol);
       if (FindPath(source, sink, lower_bound, upper_bound, &frame, &evaluator, context)) return true;
     }
     return false;
@@ -2737,9 +2739,11 @@ class STShortestPathImpl final : public STShortestPath {
     VertexEdgeMap in_edge(pull_memory);
     VertexEdgeMap out_edge(pull_memory);
 
-    const auto reversed = self_.common_.direction == EdgeAtom::Direction::IN    ? EdgeAtom::Direction::OUT
-                          : self_.common_.direction == EdgeAtom::Direction::OUT ? EdgeAtom::Direction::IN
-                                                                                : EdgeAtom::Direction::BOTH;
+    const auto reversed = [&]() -> EdgeAtom::Direction {
+      if (self_.common_.direction == EdgeAtom::Direction::IN) return EdgeAtom::Direction::OUT;
+      if (self_.common_.direction == EdgeAtom::Direction::OUT) return EdgeAtom::Direction::IN;
+      return EdgeAtom::Direction::BOTH;
+    }();
 
     size_t current_length = 0;
     source_frontier.emplace_back(source);
@@ -2751,7 +2755,7 @@ class STShortestPathImpl final : public STShortestPath {
       AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
-      if (static_cast<int64_t>(current_length) > upper_bound) return false;
+      if (std::cmp_greater(current_length, upper_bound)) return false;
       for (const auto &vertex : source_frontier) {
         if (context.hops_limit.IsLimitReached()) break;
         for (auto [edge, dir] : trav_.Expand(vertex, self_.common_.direction, context)) {
@@ -2760,7 +2764,7 @@ class STShortestPathImpl final : public STShortestPath {
           if (ShouldExpand(far, edge, frame, evaluator, context) && !in_edge.contains(far)) {
             in_edge.emplace(far, edge);
             if (out_edge.contains(far)) {
-              if (current_length >= static_cast<size_t>(lower_bound)) {
+              if (std::cmp_greater_equal(current_length, lower_bound)) {
                 ReconstructPath(far, in_edge, out_edge, frame, context);
                 return true;
               }
@@ -2776,7 +2780,7 @@ class STShortestPathImpl final : public STShortestPath {
 
       // Bottom-up step (expansion from the sink); direction mirrored.
       ++current_length;
-      if (static_cast<int64_t>(current_length) > upper_bound) return false;
+      if (std::cmp_greater(current_length, upper_bound)) return false;
       for (const auto &vertex : sink_frontier) {
         if (context.hops_limit.IsLimitReached()) break;
         for (auto [edge, dir] : trav_.Expand(vertex, reversed, context)) {
@@ -2785,7 +2789,7 @@ class STShortestPathImpl final : public STShortestPath {
           if (ShouldExpand(vertex, edge, frame, evaluator, context) && !out_edge.contains(far)) {
             out_edge.emplace(far, edge);
             if (in_edge.contains(far)) {
-              if (current_length >= static_cast<size_t>(lower_bound)) {
+              if (std::cmp_greater_equal(current_length, lower_bound)) {
                 ReconstructPath(far, in_edge, out_edge, frame, context);
                 return true;
               }
@@ -2814,7 +2818,7 @@ class STShortestPathCursor : public query::plan::Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP("STShortestPath");
     if (std::holds_alternative<std::monostate>(impl_)) [[unlikely]]
       Init(context);
@@ -2896,6 +2900,7 @@ class SingleSourceShortestPathImpl final : public SingleSourceShortestPath {
       if (processed_.contains(vertex)) return false;
       if (!Trav::Visible(edge, vertex, context)) return false;
 
+      // NOLINTNEXTLINE(misc-const-correctness): assigned below in the real-graph instantiation only.
       std::optional<Path> curr_acc_path = std::nullopt;
       if constexpr (std::same_as<Edge, EdgeAccessor>) {
         frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
@@ -2939,9 +2944,9 @@ class SingleSourceShortestPathImpl final : public SingleSourceShortestPath {
     };
 
     auto expand_from_vertex = [&](const Vertex &vertex) {
-      for (auto [edge, dir] : trav_.Expand(vertex, self_.common_.direction, context)) {
-        Vertex far = dir == EdgeAtom::Direction::IN ? edge.From() : edge.To();
-        bool was_expanded = expand_pair(edge, far);
+      for (const auto &[edge, dir] : trav_.Expand(vertex, self_.common_.direction, context)) {
+        Vertex const far = dir == EdgeAtom::Direction::IN ? edge.From() : edge.To();
+        bool const was_expanded = expand_pair(edge, far);
         restore_frame_state_after_expansion(was_expanded);
       }
     };
@@ -3004,7 +3009,7 @@ class SingleSourceShortestPathImpl final : public SingleSourceShortestPath {
         edge_list.emplace_back(last_edge);
       }
 
-      if (static_cast<int64_t>(edge_list.size()) < upper_bound_) {
+      if (std::cmp_less(edge_list.size(), upper_bound_)) {
         if constexpr (std::same_as<Edge, EdgeAccessor>) {
           if (self_.filter_lambda_.accumulated_path_symbol) {
             MG_ASSERT(curr_acc_path.has_value(), "Expected non-null accumulated path");
@@ -3014,7 +3019,7 @@ class SingleSourceShortestPathImpl final : public SingleSourceShortestPath {
         if (!context.hops_limit.IsLimitReached()) expand_from_vertex(curr_vertex);
       }
 
-      if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
+      if (std::cmp_less(edge_list.size(), lower_bound_)) continue;
 
       frame_writer.Write(self_.common_.node_symbol, curr_vertex);
       // is_reverse_ false: reverse to source-to-destination order; true: keep destination-to-source.
@@ -3059,7 +3064,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP("SingleSourceShortestPath");
     if (std::holds_alternative<std::monostate>(impl_)) [[unlikely]]
       Init(context);
@@ -3216,8 +3221,9 @@ class WeightedShortestPathImpl final : public WeightedShortestPath {
     auto expand_pair = [&](const Edge &edge, const Vertex &vertex, const TypedValue &total_weight, int64_t depth) {
       frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, edge);
       frame_writer.Write(self_.weight_lambda_->inner_node_symbol, vertex);
-      TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
+      TypedValue const next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
 
+      // NOLINTNEXTLINE(misc-const-correctness): assigned below in the real-graph instantiation only.
       std::optional<Path> curr_acc_path = std::nullopt;
       if constexpr (std::same_as<Edge, EdgeAccessor>) {
         if (self_.filter_lambda_.expression) {
@@ -3260,8 +3266,8 @@ class WeightedShortestPathImpl final : public WeightedShortestPath {
     };
 
     auto expand_from_vertex = [&](const Vertex &vertex, const TypedValue &weight, int64_t depth) {
-      for (auto [edge, dir] : trav_.Expand(vertex, self_.common_.direction, context)) {
-        Vertex far = dir == EdgeAtom::Direction::IN ? edge.From() : edge.To();
+      for (const auto &[edge, dir] : trav_.Expand(vertex, self_.common_.direction, context)) {
+        Vertex const far = dir == EdgeAtom::Direction::IN ? edge.From() : edge.To();
         if (!Trav::Visible(edge, far, context)) continue;
         expand_pair(edge, far, weight, depth);
         restore_frame_state_after_expansion();
@@ -3288,6 +3294,7 @@ class WeightedShortestPathImpl final : public WeightedShortestPath {
           if (node.IsNull()) continue;  // unbound optional end
         }
 
+        // NOLINTNEXTLINE(misc-const-correctness): assigned below in the real-graph instantiation only.
         std::optional<Path> curr_acc_path;
         if constexpr (std::same_as<Edge, EdgeAccessor>) {
           if (self_.filter_lambda_.accumulated_path_symbol) {
@@ -3308,7 +3315,7 @@ class WeightedShortestPathImpl final : public WeightedShortestPath {
 
         frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, TypedValue());
         frame_writer.Write(self_.weight_lambda_->inner_node_symbol, vertex);
-        TypedValue current_weight = CalculateNextWeight(self_.weight_lambda_, TypedValue(), evaluator);
+        TypedValue const current_weight = CalculateNextWeight(self_.weight_lambda_, TypedValue(), evaluator);
 
         previous_.clear();
         total_cost_.clear();
@@ -3403,7 +3410,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       : self_(self), mem_(mem), metric_handles_(metric_handles) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
     if (std::holds_alternative<std::monostate>(impl_)) [[unlikely]]
       Init(context);
@@ -3532,6 +3539,7 @@ class AllShortestPathsImpl final : public AllShortestPaths {
           frame_writer.Write(self_.weight_lambda_->inner_node_symbol, next_vertex);
           TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
 
+          // NOLINTNEXTLINE(misc-const-correctness): assigned below in the real-graph instantiation only.
           std::optional<Path> curr_acc_path = std::nullopt;
           if constexpr (std::same_as<Edge, EdgeAccessor>) {
             if (self_.filter_lambda_.expression) {
@@ -3558,7 +3566,7 @@ class AllShortestPathsImpl final : public AllShortestPaths {
           auto found_it = visited_cost_.find(next_vertex);
           if (found_it != visited_cost_.end()) {
             auto &weights = found_it->second;
-            bool insert = std::ranges::none_of(weights, [&depth, &next_weight](const auto &entry) {
+            bool const insert = std::ranges::none_of(weights, [&depth, &next_weight](const auto &entry) {
               auto const &[old_weight, old_depth] = entry;
               return old_depth <= depth && (old_weight < next_weight).ValueBool() &&
                      !are_equal(old_weight, next_weight);
@@ -3595,8 +3603,8 @@ class AllShortestPathsImpl final : public AllShortestPaths {
     };
 
     auto expand_from_vertex = [&](const Vertex &vertex, const TypedValue &weight, int64_t depth) {
-      for (auto [edge, dir] : trav_.Expand(vertex, self_.common_.direction, context)) {
-        Vertex far = dir == EdgeAtom::Direction::IN ? edge.From() : edge.To();
+      for (const auto &[edge, dir] : trav_.Expand(vertex, self_.common_.direction, context)) {
+        Vertex const far = dir == EdgeAtom::Direction::IN ? edge.From() : edge.To();
         if (!Trav::Visible(edge, far, context)) continue;
         expand_vertex(edge, dir, weight, depth);
         restore_frame_state_after_expansion();
@@ -3746,7 +3754,7 @@ class AllShortestPathsImpl final : public AllShortestPaths {
 
         frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, TypedValue());
         frame_writer.Write(self_.weight_lambda_->inner_node_symbol, *start_vertex);
-        TypedValue current_weight = CalculateNextWeight(self_.weight_lambda_, TypedValue(), evaluator);
+        TypedValue const current_weight = CalculateNextWeight(self_.weight_lambda_, TypedValue(), evaluator);
 
         expand_from_vertex(*start_vertex, current_weight, 0);
         cheapest_cost_[*start_vertex] = 0;
@@ -3807,7 +3815,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       : self_(self), mem_(mem), metric_handles_(metric_handles) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
     if (std::holds_alternative<std::monostate>(impl_)) [[unlikely]]
       Init(context);
@@ -3943,8 +3951,8 @@ class KShortestPathsImpl final : public KShortestPaths {
       AbortCheck(context);
       if (context.hops_limit.IsLimitReached()) return false;
 
-      auto &source_tv = frame[self_.input_symbol_];
-      auto &target_tv = frame[self_.common_.node_symbol];
+      const auto &source_tv = frame[self_.input_symbol_];
+      const auto &target_tv = frame[self_.common_.node_symbol];
       if (source_tv.IsNull() || target_tv.IsNull()) continue;
 
       if constexpr (std::same_as<Edge, VirtualEdge>) {
@@ -3953,8 +3961,8 @@ class KShortestPathsImpl final : public KShortestPaths {
         }
       }
 
-      Vertex source_vertex = Trav::GetInput(source_tv, self_.input_symbol_);
-      Vertex target_vertex = Trav::GetInput(target_tv, self_.common_.node_symbol);
+      Vertex const source_vertex = Trav::GetInput(source_tv, self_.input_symbol_);
+      Vertex const target_vertex = Trav::GetInput(target_tv, self_.common_.node_symbol);
       if (source_vertex == target_vertex) continue;
 
       lower_bound_ = self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in expansion") : 1;
@@ -4059,7 +4067,7 @@ class KShortestPathsImpl final : public KShortestPaths {
   void GenerateCandidatesFromDeviation(const Vertex &source, const Vertex &target, const PathInfo &base_path,
                                        size_t deviation_index, ExecutionContext &context) {
     SetupBlockedElementsForDeviation(source, base_path, deviation_index);
-    Vertex deviation_vertex = GetVertexAtIndex(source, base_path, deviation_index);
+    Vertex const deviation_vertex = GetVertexAtIndex(source, base_path, deviation_index);
     auto spur_path = ComputeShortestPath(deviation_vertex, target, context);
     if (!spur_path.edges.empty()) {
       PathInfo candidate_path(context.evaluation_context.memory);
@@ -4169,7 +4177,7 @@ class KShortestPathsImpl final : public KShortestPaths {
     while (true) {
       AbortCheck(context);
       ++current_length;
-      if (current_length > static_cast<size_t>(upper_bound_)) return PathInfo(pull_memory);
+      if (std::cmp_greater(current_length, upper_bound_)) return PathInfo(pull_memory);
       for (const auto &vertex : source_frontier) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
@@ -4184,7 +4192,7 @@ class KShortestPathsImpl final : public KShortestPaths {
       std::swap(source_frontier, source_next);
 
       ++current_length;
-      if (current_length > static_cast<size_t>(upper_bound_)) return PathInfo(pull_memory);
+      if (std::cmp_greater(current_length, upper_bound_)) return PathInfo(pull_memory);
       for (const auto &vertex : target_frontier) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
@@ -4240,7 +4248,7 @@ class KShortestPathsCursor : public Cursor {
       : self_(self), mem_(mem), metric_handles_(metric_handles) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP("KShortestPaths");
     if (std::holds_alternative<std::monostate>(impl_)) [[unlikely]]
       Init(context);
