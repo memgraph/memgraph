@@ -56,7 +56,7 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
   explicit InMemoryVertexPropertyIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
   struct IndividualIndex {
-    explicit IndividualIndex() : skip_list_{} {}
+    IndividualIndex() : skip_list_{} {}
 
     ~IndividualIndex();
     void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
