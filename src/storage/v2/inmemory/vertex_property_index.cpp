@@ -134,7 +134,7 @@ bool InMemoryVertexPropertyIndex::InstallIndividualIndex_(PropertyId property, s
                                                           ActiveIndicesUpdater const &updater,
                                                           bool register_in_all_indices) {
   return index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
-    if (indices_container->indices_.find(property) != indices_container->indices_.cend()) return false;
+    if (indices_container->indices_.contains(property)) return false;
     utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
     auto new_container = std::make_shared<IndicesContainer>(*indices_container);
     auto [new_it, _] = new_container->indices_.emplace(property, std::move(entry));
