@@ -616,15 +616,15 @@ struct UpdateDataInstanceConfigRes {
 using UpdateDataInstanceConfigRpc = rpc::RequestResponse<UpdateDataInstanceConfigReq, UpdateDataInstanceConfigRes>;
 
 // Coordinator->leader role/privilege RPCs. Follower coordinators forward role and privilege queries to the leader so
-// the query works from any coordinator. The write responses carry the leader's exact status enum (as an optional
-// uint8_t) so the follower reproduces the same client-visible outcome; an empty optional means the RPC itself failed
-// (dead leader, or a mixed-version leader with no handler), surfaced to the client as an error rather than a crash.
+// the query works from any coordinator. Write responses carry a bool success flag, matching the other management RPCs;
+// a false value (the write was rejected by the leader, or the RPC itself failed on a dead or mixed-version leader) is
+// surfaced to the client as a forwarding error rather than a crash.
 using CreateRoleReq = SingleArgMsg<utils::TypeId::COORD_CREATE_ROLE_REQ, "CreateRoleReq", 1, std::string>;
-using CreateRoleRes = SingleArgMsg<utils::TypeId::COORD_CREATE_ROLE_RES, "CreateRoleRes", 1, std::optional<uint8_t>>;
+using CreateRoleRes = SingleArgMsg<utils::TypeId::COORD_CREATE_ROLE_RES, "CreateRoleRes", 1, bool>;
 using CreateRoleRpc = rpc::RequestResponse<CreateRoleReq, CreateRoleRes>;
 
 using DropRoleReq = SingleArgMsg<utils::TypeId::COORD_DROP_ROLE_REQ, "DropRoleReq", 1, std::string>;
-using DropRoleRes = SingleArgMsg<utils::TypeId::COORD_DROP_ROLE_RES, "DropRoleRes", 1, std::optional<uint8_t>>;
+using DropRoleRes = SingleArgMsg<utils::TypeId::COORD_DROP_ROLE_RES, "DropRoleRes", 1, bool>;
 using DropRoleRpc = rpc::RequestResponse<DropRoleReq, DropRoleRes>;
 
 // GetRoles reads the committed role set from the leader. An empty optional response means the receiver is not the ready
@@ -637,14 +637,12 @@ using GetRolesRpc = rpc::RequestResponse<GetRolesReq, GetRolesRes>;
 // Grant/Revoke carry (role name, privilege mask). Response mirrors the write-status convention above.
 using GrantPrivilegeReq =
     SingleArgMsg<utils::TypeId::COORD_GRANT_PRIVILEGE_REQ, "GrantPrivilegeReq", 1, std::pair<std::string, uint64_t>>;
-using GrantPrivilegeRes =
-    SingleArgMsg<utils::TypeId::COORD_GRANT_PRIVILEGE_RES, "GrantPrivilegeRes", 1, std::optional<uint8_t>>;
+using GrantPrivilegeRes = SingleArgMsg<utils::TypeId::COORD_GRANT_PRIVILEGE_RES, "GrantPrivilegeRes", 1, bool>;
 using GrantPrivilegeRpc = rpc::RequestResponse<GrantPrivilegeReq, GrantPrivilegeRes>;
 
 using RevokePrivilegeReq =
     SingleArgMsg<utils::TypeId::COORD_REVOKE_PRIVILEGE_REQ, "RevokePrivilegeReq", 1, std::pair<std::string, uint64_t>>;
-using RevokePrivilegeRes =
-    SingleArgMsg<utils::TypeId::COORD_REVOKE_PRIVILEGE_RES, "RevokePrivilegeRes", 1, std::optional<uint8_t>>;
+using RevokePrivilegeRes = SingleArgMsg<utils::TypeId::COORD_REVOKE_PRIVILEGE_RES, "RevokePrivilegeRes", 1, bool>;
 using RevokePrivilegeRpc = rpc::RequestResponse<RevokePrivilegeReq, RevokePrivilegeRes>;
 
 // GetRolePrivileges reads one role's mask from the leader. The response pair is {role_found, mask}; an empty optional

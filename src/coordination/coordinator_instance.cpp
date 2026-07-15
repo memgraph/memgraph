@@ -1150,9 +1150,8 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
 }
 
 auto CoordinatorInstance::CreateRole(std::string_view const role_name) const -> CreateRoleStatus {
-  // Run on a follower, the write is forwarded to the leader, which returns its exact status.
-  if (auto const res = ForwardRoleWriteToLeader<CreateRoleRpc, CreateRoleStatus>(std::string{role_name});
-      res.has_value()) {
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res = ForwardToLeader<CreateRoleRpc, CreateRoleStatus>(std::string{role_name}); res.has_value()) {
     return *res;
   }
 
@@ -1178,8 +1177,8 @@ auto CoordinatorInstance::CreateRole(std::string_view const role_name) const -> 
 }
 
 auto CoordinatorInstance::DropRole(std::string_view const role_name) const -> DropRoleStatus {
-  // Run on a follower, the write is forwarded to the leader, which returns its exact status.
-  if (auto const res = ForwardRoleWriteToLeader<DropRoleRpc, DropRoleStatus>(std::string{role_name}); res.has_value()) {
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res = ForwardToLeader<DropRoleRpc, DropRoleStatus>(std::string{role_name}); res.has_value()) {
     return *res;
   }
 
@@ -1237,9 +1236,9 @@ auto CoordinatorInstance::GetRoles(std::vector<CoordinatorRole> &roles) const ->
 
 auto CoordinatorInstance::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
     -> GrantPrivilegeStatus {
-  // Run on a follower, the write is forwarded to the leader, which returns its exact status.
-  if (auto const res = ForwardRoleWriteToLeader<GrantPrivilegeRpc, GrantPrivilegeStatus>(
-          std::pair{std::string{role_name}, privileges});
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res =
+          ForwardToLeader<GrantPrivilegeRpc, GrantPrivilegeStatus>(std::pair{std::string{role_name}, privileges});
       res.has_value()) {
     return *res;
   }
@@ -1267,9 +1266,9 @@ auto CoordinatorInstance::GrantPrivilege(std::string_view const role_name, uint6
 
 auto CoordinatorInstance::RevokePrivilege(std::string_view const role_name, uint64_t const privileges) const
     -> RevokePrivilegeStatus {
-  // Run on a follower, the write is forwarded to the leader, which returns its exact status.
-  if (auto const res = ForwardRoleWriteToLeader<RevokePrivilegeRpc, RevokePrivilegeStatus>(
-          std::pair{std::string{role_name}, privileges});
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res =
+          ForwardToLeader<RevokePrivilegeRpc, RevokePrivilegeStatus>(std::pair{std::string{role_name}, privileges});
       res.has_value()) {
     return *res;
   }

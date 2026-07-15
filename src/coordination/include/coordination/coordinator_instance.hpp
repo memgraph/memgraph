@@ -184,29 +184,6 @@ class CoordinatorInstance {
     return StatusEnum::LEADER_NOT_FOUND;
   }
 
-  // Like ForwardToLeader, but preserves the leader's exact status enum instead of collapsing it to success/failure.
-  // The RPC response carries an optional<uint8_t> holding the leader's status; an empty optional (leader down, or a
-  // mixed-version leader with no handler for the RPC -> SendRpc catches the exception and returns a default) maps to
-  // LEADER_FAILED so the client sees an error and the coordinator never asserts. Returns nullopt when this coordinator
-  // is the ready leader, so the caller performs the write locally.
-  template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
-  auto ForwardRoleWriteToLeader(Args &&...args) const -> std::optional<StatusEnum> {
-    auto const leader_id = raft_state_->GetLeaderId();
-    if (leader_id == raft_state_->GetMyCoordinatorId() &&
-        status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
-      return std::nullopt;
-    }
-    auto *leader = FindClientConnector(leader_id);
-    if (leader == nullptr) {
-      return StatusEnum::LEADER_NOT_FOUND;
-    }
-    auto const res = leader->SendRpc<Rpc>(std::forward<Args>(args)...);
-    if (!res.has_value()) {
-      return StatusEnum::LEADER_FAILED;
-    }
-    return static_cast<StatusEnum>(*res);
-  }
-
   std::optional<utils::TlsConfig> tls_config_;
 
   // Cache which stores information db->num_committed_txns from the current main. This gets updated through the

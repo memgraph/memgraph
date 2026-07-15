@@ -1094,14 +1094,14 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   // A role/privilege query was forwarded but no leader could be found (e.g. an election is in progress).
-  static std::string GetLeaderNotFoundRoleMessage() {
+  static constexpr std::string_view GetLeaderNotFoundRoleMessage() {
     return "Tried to forward the role query to the current leader but the leader couldn't be found! Try contacting "
            "other coordinators as there might be leader election happening or other coordinators are down.";
   }
 
   // A role/privilege query was forwarded to the leader but the RPC failed. This also covers a mixed-version leader that
   // has no handler for the role RPC during a rolling upgrade -- the query fails with an error rather than crashing.
-  static std::string GetLeaderFailedRoleMessage() {
+  static constexpr std::string_view GetLeaderFailedRoleMessage() {
     return "Role query forwarded to the leader but it failed to process the request! Check the logs on the leader to "
            "find out what happened. During a rolling upgrade this can mean the leader has not been upgraded yet.";
   }
