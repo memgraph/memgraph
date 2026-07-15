@@ -81,7 +81,8 @@ std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &s
 }
 
 void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex,
-                                     Vertex *to_vertex, std::optional<std::size_t> thread_id) {
+                                     Vertex *to_vertex, NameIdMapper *name_id_mapper,
+                                     std::optional<std::size_t> thread_id) {
   auto it = index_->find(index_id);
   if (it == index_->end()) {
     throw query::VectorSearchException(fmt::format("Vector edge index {} does not exist.", index_id));
@@ -90,6 +91,12 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
   auto &spec = item_ptr->spec;
   auto property = edge->properties.GetProperty(spec.property);
   if (property.IsNull()) return;
+  // an edge already indexed by another vector-edge index stores no inline vector; recover it from that
+  // index's uSearch so RegisterIndexId re-registers the real vector — else this second index gets nothing
+  if (property.IsVectorIndexId()) {
+    property.ValueVectorIndexList() = GetVectorPropertyFromEdgeIndex(
+        edge, name_id_mapper->IdToName(property.ValueVectorIndexIds()[0]), name_id_mapper);
+  }
 
   auto vector = RegisterIndexId(property, index_id);
   edge->properties.SetProperty(spec.property, property);
@@ -118,7 +125,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
         auto *edge = std::get<kEdgeRefPos>(edge_tuple).ptr;
         if (edge->deleted() || to_vertex->deleted()) continue;
 
-        AddEdgeToIndex(*index_id, edge, edge_type, &vertex, to_vertex, thread_id);
+        AddEdgeToIndex(*index_id, edge, edge_type, &vertex, to_vertex, name_id_mapper, thread_id);
         if (snapshot_info) {
           snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
         }
@@ -168,7 +175,7 @@ void VectorEdgeIndex::RecoverIndex(VectorEdgeIndexRecoveryInfo &recovery_info,
           vector.clear();
           vector.shrink_to_fit();
         } else {
-          AddEdgeToIndex(*index_id, edge, edge_type, &vertex, to_vertex, thread_id);
+          AddEdgeToIndex(*index_id, edge, edge_type, &vertex, to_vertex, name_id_mapper, thread_id);
         }
       }
       if (snapshot_info) {
