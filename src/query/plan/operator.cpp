@@ -2227,7 +2227,8 @@ struct RealTraversal {
     return value.ValueVertex();
   }
 
-  static bool Visible(const Edge &edge, const Vertex &far, ExecutionContext &context) {
+  static bool Visible([[maybe_unused]] const Edge &edge, [[maybe_unused]] const Vertex &far,
+                      [[maybe_unused]] ExecutionContext &context) {
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
       return context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
@@ -2275,7 +2276,8 @@ struct VirtualTraversal {
 
   static Vertex GetInput(const TypedValue &value, const Symbol & /*symbol*/) { return value.ValueVirtualNode(); }
 
-  static bool Visible(const Edge & /*edge*/, const Vertex &far, ExecutionContext &context) {
+  static bool Visible(const Edge & /*edge*/, [[maybe_unused]] const Vertex &far,
+                      [[maybe_unused]] ExecutionContext &context) {
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
       return OverlayNodeVisible(*context.auth_checker, far, storage::View::OLD);
