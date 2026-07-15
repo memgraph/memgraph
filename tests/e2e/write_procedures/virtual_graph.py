@@ -1364,6 +1364,47 @@ class TestUseScopeOverSubgraph:
         real = execute_and_fetch_all(cursor, "MATCH (b:B {id: 1}) RETURN degree(b) AS d;")
         assert real == [(2,)]
 
+    def test_use_scope_over_subgraph_variable_length_respects_membership(self, connection):
+        """Variable-length expansion stays within membership too, exactly as single-hop: a path
+        cannot leak out of the subgraph via a non-member edge (issue 49). The subgraph holds a->b;
+        the real graph also has b->c (same type), reachable only via a non-member edge."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(
+            cursor,
+            "CREATE (a:A {name: 'a'})-[:R]->(b:B {name: 'b'}), (b)-[:R]->(:C {name: 'c'});",
+        )
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:A)-[:R]->(:B)
+            WITH project(p) AS sg
+            CALL { USE sg MATCH (x:A)-[:R*1..3]->(y) RETURN y.name AS yn }
+            RETURN yn ORDER BY yn;
+            """,
+        )
+        assert results == [("b",)]
+
+    def test_use_scope_over_subgraph_bfs_respects_membership(self, connection):
+        """The shortest-path family (here BFS) respects subgraph membership as well: the same
+        member-filtered traversal applies to every arm, not just plain variable-length (issue 49)."""
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(
+            cursor,
+            "CREATE (a:A {name: 'a'})-[:R]->(b:B {name: 'b'}), (b)-[:R]->(:C {name: 'c'});",
+        )
+        results = execute_and_fetch_all(
+            cursor,
+            """
+            MATCH p=(:A)-[:R]->(:B)
+            WITH project(p) AS sg
+            CALL { USE sg MATCH (x:A)-[*BFS]->(y) RETURN y.name AS yn }
+            RETURN yn ORDER BY yn;
+            """,
+        )
+        assert results == [("b",)]
+
 
 class TestUseScopeProceduresHonorAmbientView:
     """Inside a `CALL { USE g ... }` scope, an unmodified read procedure that

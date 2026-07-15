@@ -2297,10 +2297,65 @@ struct VirtualTraversal {
   }
 };
 
-// True when the ambient graph view is a projection; then a VirtualTraversal is used, otherwise the
-// real graph (identity or subgraph view) is traversed unchanged.
-inline VirtualGraphView *ProjectionView(ExecutionContext &context) {
-  return dynamic_cast<VirtualGraphView *>(context.evaluation_context.graph_view);
+// Subgraph traversal: real vertices and edges, but a vertex's edges are filtered to the subgraph's
+// membership so an expansion cannot leave the subgraph (issue 49). Mirrors RealTraversal for input,
+// visibility, and cyphermorphism; only Expand differs, materialising the member-filtered level. A
+// subgraph is non-hot (like a projection), so the real identity path keeps its lazy, unregressed shape.
+template <bool AccountHops>
+struct SubgraphTraversal {
+  using Vertex = VertexAccessor;
+  using Edge = EdgeAccessor;
+
+  const ExpandVariable *self;
+  SubgraphGraphView *sview;
+
+  utils::pmr::vector<std::pair<Edge, EdgeAtom::Direction>> Expand(const Vertex &vertex, EdgeAtom::Direction direction,
+                                                                  ExecutionContext &context) const {
+    utils::pmr::vector<std::pair<Edge, EdgeAtom::Direction>> level(context.evaluation_context.memory);
+    // All traversed real edges count toward hops (via ExpandFromVertex), even non-member ones dropped
+    // here - matching single-hop expansion over a subgraph.
+    for (auto pair : ExpandFromVertex<AccountHops>(
+             vertex, direction, self->common_.edge_types, context.evaluation_context.memory, &context)) {
+      if (sview->ContainsEdge(pair.first)) level.push_back(pair);
+    }
+    return level;
+  }
+
+  static Vertex GetInput(const TypedValue &value, const Symbol &symbol) {
+    return RealTraversal<AccountHops>::GetInput(value, symbol);
+  }
+
+  static bool Visible(const Edge &edge, const Vertex &far, ExecutionContext &context) {
+    return RealTraversal<AccountHops>::Visible(edge, far, context);
+  }
+
+  static bool AlreadyOnFrame(const Edge &edge, const utils::pmr::vector<TypedValue> &edges_on_frame) {
+    return RealTraversal<AccountHops>::AlreadyOnFrame(edge, edges_on_frame);
+  }
+
+  static bool SameBoundNode(const Vertex &vertex, const Symbol &symbol, Frame &frame) {
+    return RealTraversal<AccountHops>::SameBoundNode(vertex, symbol, frame);
+  }
+};
+
+// Selects the traversal policy for the ambient graph view and invokes make(policy) to build the arm's
+// cursor: a projection materialises its level from the bound overlay; a subgraph materialises a
+// membership-filtered level; anything else (the real identity view) keeps RealTraversal's lazy,
+// unregressed hot path. The view dispatch (one dynamic_cast per cursor build, never per row) and the
+// projection edge-type name resolution live here once, shared by all six traversal-family arms.
+template <bool AccountHops, class Make>
+void DispatchAmbientTraversal(ExecutionContext &context, const ExpandVariable &self, Make &&make) {
+  auto *ambient = context.evaluation_context.graph_view;
+  if (auto *vview = dynamic_cast<VirtualGraphView *>(ambient)) {
+    std::vector<std::string_view> allowed;
+    allowed.reserve(self.common_.edge_types.size());
+    for (const auto type : self.common_.edge_types) allowed.emplace_back(vview->EdgeTypeToName(type));
+    make(VirtualTraversal{&self, vview, std::move(allowed)});
+  } else if (auto *sview = dynamic_cast<SubgraphGraphView *>(ambient)) {
+    make(SubgraphTraversal<AccountHops>{&self, sview});
+  } else {
+    make(RealTraversal<AccountHops>{&self});
+  }
 }
 
 // The variable-length (DFS) expansion, written once over a traversal policy.
@@ -2513,13 +2568,16 @@ class ExpandVariableCursor : public Cursor {
       Init(context);
     if (auto *impl = std::get_if<VariableExpansionImpl<RealTraversal<true>>>(&impl_)) [[likely]]
       return impl->Pull(frame, context);
-    return std::get<VariableExpansionImpl<VirtualTraversal>>(impl_).Pull(frame, context);
+    if (auto *impl = std::get_if<VariableExpansionImpl<VirtualTraversal>>(&impl_)) return impl->Pull(frame, context);
+    return std::get<VariableExpansionImpl<SubgraphTraversal<true>>>(impl_).Pull(frame, context);
   }
 
   void Shutdown() override {
     if (auto *impl = std::get_if<VariableExpansionImpl<RealTraversal<true>>>(&impl_))
       impl->Shutdown();
     else if (auto *impl = std::get_if<VariableExpansionImpl<VirtualTraversal>>(&impl_))
+      impl->Shutdown();
+    else if (auto *impl = std::get_if<VariableExpansionImpl<SubgraphTraversal<true>>>(&impl_))
       impl->Shutdown();
     else
       input_cursor_->Shutdown();
@@ -2530,6 +2588,8 @@ class ExpandVariableCursor : public Cursor {
       impl->Reset();
     else if (auto *impl = std::get_if<VariableExpansionImpl<VirtualTraversal>>(&impl_))
       impl->Reset();
+    else if (auto *impl = std::get_if<VariableExpansionImpl<SubgraphTraversal<true>>>(&impl_))
+      impl->Reset();
     else
       input_cursor_->Reset();
   }
@@ -2538,22 +2598,17 @@ class ExpandVariableCursor : public Cursor {
   const ExpandVariable &self_;
   utils::MemoryResource *mem_;
   UniqueCursorPtr input_cursor_;
-  // Chosen on the first Pull from the ambient graph view and reused; a projection traverses the
-  // overlay, anything else the real graph. One implementation, two instantiations.
-  std::variant<std::monostate, VariableExpansionImpl<RealTraversal<true>>, VariableExpansionImpl<VirtualTraversal>>
+  // Chosen on the first Pull from the ambient graph view and reused: a projection traverses the
+  // overlay, a subgraph the member-filtered real edges, anything else the real graph. One
+  // implementation, three instantiations.
+  std::variant<std::monostate, VariableExpansionImpl<RealTraversal<true>>, VariableExpansionImpl<VirtualTraversal>,
+               VariableExpansionImpl<SubgraphTraversal<true>>>
       impl_;
 
   void Init(ExecutionContext &context) {
-    if (auto *vview = ProjectionView(context)) {
-      std::vector<std::string_view> allowed;
-      allowed.reserve(self_.common_.edge_types.size());
-      for (const auto type : self_.common_.edge_types) allowed.emplace_back(vview->EdgeTypeToName(type));
-      impl_.emplace<VariableExpansionImpl<VirtualTraversal>>(
-          self_, VirtualTraversal{&self_, vview, std::move(allowed)}, std::move(input_cursor_), mem_);
-    } else {
-      impl_.emplace<VariableExpansionImpl<RealTraversal<true>>>(
-          self_, RealTraversal<true>{&self_}, std::move(input_cursor_), mem_);
-    }
+    DispatchAmbientTraversal<true>(context, self_, [&](auto trav) {
+      impl_.emplace<VariableExpansionImpl<decltype(trav)>>(self_, std::move(trav), std::move(input_cursor_), mem_);
+    });
   }
 };
 
@@ -2754,13 +2809,16 @@ class STShortestPathCursor : public query::plan::Cursor {
       Init(context);
     if (auto *impl = std::get_if<STShortestPathImpl<RealTraversal<true>>>(&impl_)) [[likely]]
       return impl->Pull(frame, context);
-    return std::get<STShortestPathImpl<VirtualTraversal>>(impl_).Pull(frame, context);
+    if (auto *impl = std::get_if<STShortestPathImpl<VirtualTraversal>>(&impl_)) return impl->Pull(frame, context);
+    return std::get<STShortestPathImpl<SubgraphTraversal<true>>>(impl_).Pull(frame, context);
   }
 
   void Shutdown() override {
     if (auto *impl = std::get_if<STShortestPathImpl<RealTraversal<true>>>(&impl_))
       impl->Shutdown();
     else if (auto *impl = std::get_if<STShortestPathImpl<VirtualTraversal>>(&impl_))
+      impl->Shutdown();
+    else if (auto *impl = std::get_if<STShortestPathImpl<SubgraphTraversal<true>>>(&impl_))
       impl->Shutdown();
   }
 
@@ -2769,25 +2827,23 @@ class STShortestPathCursor : public query::plan::Cursor {
       impl->Reset();
     else if (auto *impl = std::get_if<STShortestPathImpl<VirtualTraversal>>(&impl_))
       impl->Reset();
+    else if (auto *impl = std::get_if<STShortestPathImpl<SubgraphTraversal<true>>>(&impl_))
+      impl->Reset();
   }
 
  private:
   const ExpandVariable &self_;
   utils::MemoryResource *mem_;
   metrics::DatabaseMetricHandles &metric_handles_;
-  std::variant<std::monostate, STShortestPathImpl<RealTraversal<true>>, STShortestPathImpl<VirtualTraversal>> impl_;
+  std::variant<std::monostate, STShortestPathImpl<RealTraversal<true>>, STShortestPathImpl<VirtualTraversal>,
+               STShortestPathImpl<SubgraphTraversal<true>>>
+      impl_;
 
   void Init(ExecutionContext &context) {
     auto input_cursor = self_.input()->MakeCursor(mem_, metric_handles_);
-    if (auto *vview = ProjectionView(context)) {
-      std::vector<std::string_view> allowed;
-      allowed.reserve(self_.common_.edge_types.size());
-      for (const auto type : self_.common_.edge_types) allowed.emplace_back(vview->EdgeTypeToName(type));
-      impl_.emplace<STShortestPathImpl<VirtualTraversal>>(
-          self_, VirtualTraversal{&self_, vview, std::move(allowed)}, std::move(input_cursor));
-      return;
-    }
-    impl_.emplace<STShortestPathImpl<RealTraversal<true>>>(self_, RealTraversal<true>{&self_}, std::move(input_cursor));
+    DispatchAmbientTraversal<true>(context, self_, [&](auto trav) {
+      impl_.emplace<STShortestPathImpl<decltype(trav)>>(self_, std::move(trav), std::move(input_cursor));
+    });
   }
 };
 
@@ -2998,13 +3054,17 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       Init(context);
     if (auto *impl = std::get_if<SingleSourceShortestPathImpl<RealTraversal<true>>>(&impl_)) [[likely]]
       return impl->Pull(frame, context);
-    return std::get<SingleSourceShortestPathImpl<VirtualTraversal>>(impl_).Pull(frame, context);
+    if (auto *impl = std::get_if<SingleSourceShortestPathImpl<VirtualTraversal>>(&impl_))
+      return impl->Pull(frame, context);
+    return std::get<SingleSourceShortestPathImpl<SubgraphTraversal<true>>>(impl_).Pull(frame, context);
   }
 
   void Shutdown() override {
     if (auto *impl = std::get_if<SingleSourceShortestPathImpl<RealTraversal<true>>>(&impl_))
       impl->Shutdown();
     else if (auto *impl = std::get_if<SingleSourceShortestPathImpl<VirtualTraversal>>(&impl_))
+      impl->Shutdown();
+    else if (auto *impl = std::get_if<SingleSourceShortestPathImpl<SubgraphTraversal<true>>>(&impl_))
       impl->Shutdown();
   }
 
@@ -3013,6 +3073,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       impl->Reset();
     else if (auto *impl = std::get_if<SingleSourceShortestPathImpl<VirtualTraversal>>(&impl_))
       impl->Reset();
+    else if (auto *impl = std::get_if<SingleSourceShortestPathImpl<SubgraphTraversal<true>>>(&impl_))
+      impl->Reset();
   }
 
  private:
@@ -3020,21 +3082,15 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   utils::MemoryResource *mem_;
   metrics::DatabaseMetricHandles &metric_handles_;
   std::variant<std::monostate, SingleSourceShortestPathImpl<RealTraversal<true>>,
-               SingleSourceShortestPathImpl<VirtualTraversal>>
+               SingleSourceShortestPathImpl<VirtualTraversal>, SingleSourceShortestPathImpl<SubgraphTraversal<true>>>
       impl_;
 
   void Init(ExecutionContext &context) {
     auto input_cursor = self_.input()->MakeCursor(mem_, metric_handles_);
-    if (auto *vview = ProjectionView(context)) {
-      std::vector<std::string_view> allowed;
-      allowed.reserve(self_.common_.edge_types.size());
-      for (const auto type : self_.common_.edge_types) allowed.emplace_back(vview->EdgeTypeToName(type));
-      impl_.emplace<SingleSourceShortestPathImpl<VirtualTraversal>>(
-          self_, VirtualTraversal{&self_, vview, std::move(allowed)}, std::move(input_cursor), mem_);
-      return;
-    }
-    impl_.emplace<SingleSourceShortestPathImpl<RealTraversal<true>>>(
-        self_, RealTraversal<true>{&self_}, std::move(input_cursor), mem_);
+    DispatchAmbientTraversal<true>(context, self_, [&](auto trav) {
+      impl_.emplace<SingleSourceShortestPathImpl<decltype(trav)>>(
+          self_, std::move(trav), std::move(input_cursor), mem_);
+    });
   }
 };
 
@@ -3342,13 +3398,16 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       Init(context);
     if (auto *impl = std::get_if<WeightedShortestPathImpl<RealTraversal<false>>>(&impl_)) [[likely]]
       return impl->Pull(frame, context);
-    return std::get<WeightedShortestPathImpl<VirtualTraversal>>(impl_).Pull(frame, context);
+    if (auto *impl = std::get_if<WeightedShortestPathImpl<VirtualTraversal>>(&impl_)) return impl->Pull(frame, context);
+    return std::get<WeightedShortestPathImpl<SubgraphTraversal<false>>>(impl_).Pull(frame, context);
   }
 
   void Shutdown() override {
     if (auto *impl = std::get_if<WeightedShortestPathImpl<RealTraversal<false>>>(&impl_))
       impl->Shutdown();
     else if (auto *impl = std::get_if<WeightedShortestPathImpl<VirtualTraversal>>(&impl_))
+      impl->Shutdown();
+    else if (auto *impl = std::get_if<WeightedShortestPathImpl<SubgraphTraversal<false>>>(&impl_))
       impl->Shutdown();
   }
 
@@ -3357,6 +3416,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       impl->Reset();
     else if (auto *impl = std::get_if<WeightedShortestPathImpl<VirtualTraversal>>(&impl_))
       impl->Reset();
+    else if (auto *impl = std::get_if<WeightedShortestPathImpl<SubgraphTraversal<false>>>(&impl_))
+      impl->Reset();
   }
 
  private:
@@ -3364,22 +3425,15 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   utils::MemoryResource *mem_;
   metrics::DatabaseMetricHandles &metric_handles_;
   std::variant<std::monostate, WeightedShortestPathImpl<RealTraversal<false>>,
-               WeightedShortestPathImpl<VirtualTraversal>>
+               WeightedShortestPathImpl<VirtualTraversal>, WeightedShortestPathImpl<SubgraphTraversal<false>>>
       impl_;
 
   void Init(ExecutionContext &context) {
     auto input_cursor = self_.input_->MakeCursor(mem_, metric_handles_);
-    if (auto *vview = ProjectionView(context)) {
-      std::vector<std::string_view> allowed;
-      allowed.reserve(self_.common_.edge_types.size());
-      for (const auto type : self_.common_.edge_types) allowed.emplace_back(vview->EdgeTypeToName(type));
-      impl_.emplace<WeightedShortestPathImpl<VirtualTraversal>>(
-          self_, VirtualTraversal{&self_, vview, std::move(allowed)}, std::move(input_cursor), mem_);
-      return;
-    }
-    // Weighted shortest path historically does not account hops (RealTraversal<false>).
-    impl_.emplace<WeightedShortestPathImpl<RealTraversal<false>>>(
-        self_, RealTraversal<false>{&self_}, std::move(input_cursor), mem_);
+    // Weighted shortest path historically does not account hops (AccountHops = false).
+    DispatchAmbientTraversal<false>(context, self_, [&](auto trav) {
+      impl_.emplace<WeightedShortestPathImpl<decltype(trav)>>(self_, std::move(trav), std::move(input_cursor), mem_);
+    });
   }
 };
 
@@ -3748,13 +3802,16 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       Init(context);
     if (auto *impl = std::get_if<AllShortestPathsImpl<RealTraversal<false>>>(&impl_)) [[likely]]
       return impl->Pull(frame, context);
-    return std::get<AllShortestPathsImpl<VirtualTraversal>>(impl_).Pull(frame, context);
+    if (auto *impl = std::get_if<AllShortestPathsImpl<VirtualTraversal>>(&impl_)) return impl->Pull(frame, context);
+    return std::get<AllShortestPathsImpl<SubgraphTraversal<false>>>(impl_).Pull(frame, context);
   }
 
   void Shutdown() override {
     if (auto *impl = std::get_if<AllShortestPathsImpl<RealTraversal<false>>>(&impl_))
       impl->Shutdown();
     else if (auto *impl = std::get_if<AllShortestPathsImpl<VirtualTraversal>>(&impl_))
+      impl->Shutdown();
+    else if (auto *impl = std::get_if<AllShortestPathsImpl<SubgraphTraversal<false>>>(&impl_))
       impl->Shutdown();
   }
 
@@ -3763,28 +3820,24 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       impl->Reset();
     else if (auto *impl = std::get_if<AllShortestPathsImpl<VirtualTraversal>>(&impl_))
       impl->Reset();
+    else if (auto *impl = std::get_if<AllShortestPathsImpl<SubgraphTraversal<false>>>(&impl_))
+      impl->Reset();
   }
 
  private:
   const ExpandVariable &self_;
   utils::MemoryResource *mem_;
   metrics::DatabaseMetricHandles &metric_handles_;
-  std::variant<std::monostate, AllShortestPathsImpl<RealTraversal<false>>, AllShortestPathsImpl<VirtualTraversal>>
+  std::variant<std::monostate, AllShortestPathsImpl<RealTraversal<false>>, AllShortestPathsImpl<VirtualTraversal>,
+               AllShortestPathsImpl<SubgraphTraversal<false>>>
       impl_;
 
   void Init(ExecutionContext &context) {
     auto input_cursor = self_.input_->MakeCursor(mem_, metric_handles_);
-    if (auto *vview = ProjectionView(context)) {
-      std::vector<std::string_view> allowed;
-      allowed.reserve(self_.common_.edge_types.size());
-      for (const auto type : self_.common_.edge_types) allowed.emplace_back(vview->EdgeTypeToName(type));
-      impl_.emplace<AllShortestPathsImpl<VirtualTraversal>>(
-          self_, VirtualTraversal{&self_, vview, std::move(allowed)}, std::move(input_cursor), mem_);
-      return;
-    }
-    // All-shortest historically does not account hops (RealTraversal<false>).
-    impl_.emplace<AllShortestPathsImpl<RealTraversal<false>>>(
-        self_, RealTraversal<false>{&self_}, std::move(input_cursor), mem_);
+    // All-shortest historically does not account hops (AccountHops = false).
+    DispatchAmbientTraversal<false>(context, self_, [&](auto trav) {
+      impl_.emplace<AllShortestPathsImpl<decltype(trav)>>(self_, std::move(trav), std::move(input_cursor), mem_);
+    });
   }
 };
 
@@ -4182,13 +4235,16 @@ class KShortestPathsCursor : public Cursor {
       Init(context);
     if (auto *impl = std::get_if<KShortestPathsImpl<RealTraversal<true>>>(&impl_)) [[likely]]
       return impl->Pull(frame, context);
-    return std::get<KShortestPathsImpl<VirtualTraversal>>(impl_).Pull(frame, context);
+    if (auto *impl = std::get_if<KShortestPathsImpl<VirtualTraversal>>(&impl_)) return impl->Pull(frame, context);
+    return std::get<KShortestPathsImpl<SubgraphTraversal<true>>>(impl_).Pull(frame, context);
   }
 
   void Shutdown() override {
     if (auto *impl = std::get_if<KShortestPathsImpl<RealTraversal<true>>>(&impl_))
       impl->Shutdown();
     else if (auto *impl = std::get_if<KShortestPathsImpl<VirtualTraversal>>(&impl_))
+      impl->Shutdown();
+    else if (auto *impl = std::get_if<KShortestPathsImpl<SubgraphTraversal<true>>>(&impl_))
       impl->Shutdown();
   }
 
@@ -4197,26 +4253,23 @@ class KShortestPathsCursor : public Cursor {
       impl->Reset();
     else if (auto *impl = std::get_if<KShortestPathsImpl<VirtualTraversal>>(&impl_))
       impl->Reset();
+    else if (auto *impl = std::get_if<KShortestPathsImpl<SubgraphTraversal<true>>>(&impl_))
+      impl->Reset();
   }
 
  private:
   const ExpandVariable &self_;
   utils::MemoryResource *mem_;
   metrics::DatabaseMetricHandles &metric_handles_;
-  std::variant<std::monostate, KShortestPathsImpl<RealTraversal<true>>, KShortestPathsImpl<VirtualTraversal>> impl_;
+  std::variant<std::monostate, KShortestPathsImpl<RealTraversal<true>>, KShortestPathsImpl<VirtualTraversal>,
+               KShortestPathsImpl<SubgraphTraversal<true>>>
+      impl_;
 
   void Init(ExecutionContext &context) {
     auto input_cursor = self_.input_->MakeCursor(mem_, metric_handles_);
-    if (auto *vview = ProjectionView(context)) {
-      std::vector<std::string_view> allowed;
-      allowed.reserve(self_.common_.edge_types.size());
-      for (const auto type : self_.common_.edge_types) allowed.emplace_back(vview->EdgeTypeToName(type));
-      impl_.emplace<KShortestPathsImpl<VirtualTraversal>>(
-          self_, VirtualTraversal{&self_, vview, std::move(allowed)}, std::move(input_cursor), mem_);
-      return;
-    }
-    impl_.emplace<KShortestPathsImpl<RealTraversal<true>>>(
-        self_, RealTraversal<true>{&self_}, std::move(input_cursor), mem_);
+    DispatchAmbientTraversal<true>(context, self_, [&](auto trav) {
+      impl_.emplace<KShortestPathsImpl<decltype(trav)>>(self_, std::move(trav), std::move(input_cursor), mem_);
+    });
   }
 };
 

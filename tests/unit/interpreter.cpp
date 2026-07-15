@@ -1130,6 +1130,34 @@ TYPED_TEST(InterpreterTest, CallUseScopeOverSubgraphExpansionRespectsMembership)
   EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "b");
 }
 
+// Variable-length expansion inside a USE scope over a subgraph stays within membership,
+// exactly as single-hop does: a member node's edge to a non-member is not traversed, so a
+// path cannot leak out of the subgraph (issue 49). The subgraph holds a->b; the real graph
+// also has b->c, reachable only via a non-member edge.
+TYPED_TEST(InterpreterTest, CallUseScopeVariableLengthOverSubgraphRespectsMembership) {
+  this->Interpret("CREATE (a:A {name: 'a'})-[:R]->(b:B {name: 'b'}), (b)-[:R]->(:C {name: 'c'})");
+  auto stream = this->Interpret(
+      "MATCH p=(:A)-[:R]->(:B) "
+      "WITH project(p) AS sg "
+      "CALL { USE sg MATCH (x:A)-[:R*1..3]->(y) RETURN y.name AS yn } "
+      "RETURN yn ORDER BY yn");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "b");
+}
+
+// The shortest-path family (here BFS) also respects subgraph membership inside a USE scope: the
+// same member-filtered traversal applies to every arm, not just plain variable-length (issue 49).
+TYPED_TEST(InterpreterTest, CallUseScopeBreadthFirstOverSubgraphRespectsMembership) {
+  this->Interpret("CREATE (a:A {name: 'a'})-[:R]->(b:B {name: 'b'}), (b)-[:R]->(:C {name: 'c'})");
+  auto stream = this->Interpret(
+      "MATCH p=(:A)-[:R]->(:B) "
+      "WITH project(p) AS sg "
+      "CALL { USE sg MATCH (x:A)-[*BFS]->(y) RETURN y.name AS yn } "
+      "RETURN yn ORDER BY yn");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "b");
+}
+
 // degree/inDegree/outDegree over a projection node inside a USE scope count the
 // projection's edges, which differ from the node's real-graph degree.
 TYPED_TEST(InterpreterTest, CallUseScopeDegreeOverProjection) {
