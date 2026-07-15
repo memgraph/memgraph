@@ -815,8 +815,9 @@ void Collections::Duplicates(mgp_list *args, mgp_func_context *ctx, mgp_func_res
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
-    // A null list (or one too small to contain a duplicate) yields an empty list.
-    if (arguments[0].IsNull() || arguments[0].ValueList().Size() <= 1) {
+    // A null list yields an empty list (the loop below already yields an empty
+    // list for a 0- or 1-element input, so no size check is needed).
+    if (arguments[0].IsNull()) {
       result.SetValue(mgp::List());
       return;
     }
