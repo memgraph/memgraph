@@ -19,6 +19,7 @@
 #include "communication/bolt/v1/value.hpp"
 #include "query/auth_checker.hpp"
 #include "query/graph.hpp"
+#include "query/synthetic_gid.hpp"
 #include "query/typed_value.hpp"
 #include "query/virtual_graph.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -121,10 +122,22 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
 }
 
 namespace {
-communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db) {
-  auto id = communication::bolt::Id::FromUint(ve.Gid().AsUint());
-  auto from = communication::bolt::Id::FromUint(ve.FromGid().AsUint());
-  auto to = communication::bolt::Id::FromUint(ve.ToGid().AsUint());
+communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db,
+                                     query::SyntheticIdMapper *id_mapper) {
+  // A synthetic gid maps to the query-local external id id() reports; null falls back to the raw
+  // gid. The edge's own id and any resolved endpoint travel this axis.
+  const auto external = [&](storage::Gid gid) {
+    return id_mapper ? communication::bolt::Id::FromInt(id_mapper->ExternalId(gid))
+                     : communication::bolt::Id::FromUint(gid.AsUint());
+  };
+  // An unresolved (handle) endpoint references an import key, not a node identity, so it stays on
+  // the raw handle axis (never mapped); a resolved endpoint shares id()'s external axis.
+  const auto endpoint = [&](std::optional<int64_t> handle, storage::Gid gid) {
+    return handle ? communication::bolt::Id::FromInt(*handle) : external(gid);
+  };
+  auto id = external(ve.Gid());
+  auto from = endpoint(ve.FromHandle(), ve.FromGid());
+  auto to = endpoint(ve.ToHandle(), ve.ToGid());
   bolt_map_t properties;
   for (const auto &[prop_id, prop_value] : ve.Properties()) {
     properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
@@ -145,7 +158,8 @@ communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage
 }  // namespace
 
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view,
-                                   query::FineGrainedAuthChecker const *auth_checker) {
+                                   query::FineGrainedAuthChecker const *auth_checker,
+                                   query::SyntheticIdMapper *id_mapper) {
   auto check_db = [db]() {
     if (db == nullptr) [[unlikely]]
       throw communication::bolt::ValueException("Database needed for TypedValue conversion.");
@@ -222,7 +236,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     }
     case query::TypedValue::Type::VirtualGraph: {
       check_db();
-      auto maybe_vg = ToBoltVirtualGraph(value.ValueVirtualGraph(), *db, view, auth_checker);
+      auto maybe_vg = ToBoltVirtualGraph(value.ValueVirtualGraph(), *db, view, auth_checker, id_mapper);
       if (!maybe_vg) return std::unexpected{maybe_vg.error()};
       return storage::Result<Value>{std::in_place, std::move(*maybe_vg)};
     }
@@ -246,12 +260,12 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
 
     case query::TypedValue::Type::VirtualEdge: {
       check_db();
-      return storage::Result<Value>{std::in_place, ToBoltEdge(value.ValueVirtualEdge(), *db)};
+      return storage::Result<Value>{std::in_place, ToBoltEdge(value.ValueVirtualEdge(), *db, id_mapper)};
     }
 
     case query::TypedValue::Type::VirtualNode: {
       check_db();
-      auto maybe_vertex = ToBoltVertex(value.ValueVirtualNode(), *db, view, auth_checker);
+      auto maybe_vertex = ToBoltVertex(value.ValueVirtualNode(), *db, view, auth_checker, id_mapper);
       if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
       return storage::Result<Value>{std::in_place, std::move(*maybe_vertex)};
     }
@@ -292,11 +306,14 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
 
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db,
                                                           storage::View view,
-                                                          query::FineGrainedAuthChecker const *auth_checker) {
-  // An overlay node serializes at its origin's identity so a client maps it back to the real node; a
-  // synthetic node keeps its synthetic id.
-  const auto gid = node.HasOrigin() ? node.Origin()->Gid() : node.Gid();
-  auto id = communication::bolt::Id::FromUint(gid.AsUint());
+                                                          query::FineGrainedAuthChecker const *auth_checker,
+                                                          query::SyntheticIdMapper *id_mapper) {
+  // An overlay node serializes at its origin's real identity so a client maps it back to the real
+  // node (real gid axis, unchanged). A synthetic node maps its synthetic gid to the query-local
+  // external id id() reports; null falls back to the raw synthetic gid.
+  auto id = node.HasOrigin() ? communication::bolt::Id::FromUint(node.Origin()->Gid().AsUint())
+            : id_mapper      ? communication::bolt::Id::FromInt(id_mapper->ExternalId(node.Gid()))
+                             : communication::bolt::Id::FromUint(node.Gid().AsUint());
   std::vector<std::string> labels;
   labels.reserve(node.Labels().size());
   for (const auto &label : node.Labels()) labels.emplace_back(label);
@@ -401,12 +418,13 @@ storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage
 }
 
 storage::Result<bolt_map_t> ToBoltVirtualGraph(const query::VirtualGraph &vg, const storage::Storage &db,
-                                               storage::View view, query::FineGrainedAuthChecker const *auth_checker) {
+                                               storage::View view, query::FineGrainedAuthChecker const *auth_checker,
+                                               query::SyntheticIdMapper *id_mapper) {
   bolt_map_t map;
   std::vector<Value> nodes;
   nodes.reserve(vg.nodes().size());
   for (const auto &[gid, vn] : vg.nodes()) {
-    auto maybe_vertex = ToBoltVertex(*vn, db, view, auth_checker);
+    auto maybe_vertex = ToBoltVertex(*vn, db, view, auth_checker, id_mapper);
     if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
     nodes.emplace_back(std::move(*maybe_vertex));
   }
@@ -415,7 +433,7 @@ storage::Result<bolt_map_t> ToBoltVirtualGraph(const query::VirtualGraph &vg, co
   std::vector<Value> edges;
   edges.reserve(vg.edges().size());
   for (const auto &ve : vg.edges()) {
-    edges.emplace_back(ToBoltEdge(ve, db));
+    edges.emplace_back(ToBoltEdge(ve, db, id_mapper));
   }
   map.emplace("edges", Value(std::move(edges)));
 

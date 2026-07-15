@@ -291,6 +291,12 @@ class Interpreter final {
   void ResetCachedFga();
   FineGrainedAuthChecker const *GetCachedFga() const;
 
+  // The current query's synthetic-id mapper - the same instance id()/virtual_id() use, so Bolt
+  // serialization externalizes virtual ids onto the identical query-local axis. Renewed per query
+  // (a new query restarts the external ids at -1).
+  SyntheticIdMapper *GetSyntheticIdMapper() const;
+  std::shared_ptr<SyntheticIdMapper> RenewSyntheticIdMapper();
+
   struct PrepareResult {
     std::vector<std::string> headers;
     std::vector<query::AuthQuery::Privilege> privileges;
@@ -319,6 +325,7 @@ class Interpreter final {
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
+  std::shared_ptr<SyntheticIdMapper> synthetic_id_mapper_{std::make_shared<SyntheticIdMapper>()};
   SessionInfo session_info_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;

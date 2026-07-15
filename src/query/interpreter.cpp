@@ -3154,7 +3154,8 @@ struct PullPlan {
                     std::optional<size_t> parallel_execution = std::nullopt,
                     std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
-  );
+                    ,
+                    std::shared_ptr<SyntheticIdMapper> synthetic_id_mapper = {});
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -3198,7 +3199,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
 #endif
-                   )
+                   ,
+                   std::shared_ptr<SyntheticIdMapper> synthetic_id_mapper)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory, metric_handles)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -3212,6 +3214,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       identity_graph_view_(dba) {
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
   ctx_.metric_handles = &metric_handles;
+  // Share the interpreter's per-query mapper so id()/virtual_id() (evaluated here) and Bolt
+  // serialization externalize virtual ids through the same instance; else keep the default.
+  if (synthetic_id_mapper) ctx_.evaluation_context.synthetic_id_mapper = std::move(synthetic_id_mapper);
   if (hops_limit) {
 #ifdef MG_ENTERPRISE
     if (parallel_execution) {
@@ -3399,6 +3404,13 @@ Interpreter::~Interpreter() { Abort(); }
 void Interpreter::ResetCachedFga() { cached_fga_->Reset(); }
 
 FineGrainedAuthChecker const *Interpreter::GetCachedFga() const { return cached_fga_->get(); }
+
+SyntheticIdMapper *Interpreter::GetSyntheticIdMapper() const { return synthetic_id_mapper_.get(); }
+
+std::shared_ptr<SyntheticIdMapper> Interpreter::RenewSyntheticIdMapper() {
+  synthetic_id_mapper_ = std::make_shared<SyntheticIdMapper>();
+  return synthetic_id_mapper_;
+}
 
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
   using double_seconds = std::chrono::duration<double>;
@@ -3774,7 +3786,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               parallel_execution,
                                               user_resource
 #endif
-  );
+                                              ,
+                                              interpreter.RenewSyntheticIdMapper());
   return PreparedQuery{
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),

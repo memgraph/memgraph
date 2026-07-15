@@ -15,6 +15,7 @@
 #include "glue/communication.hpp"
 #include "helpers/stub_property_fga_checker.hpp"
 #include "query/db_accessor.hpp"
+#include "query/synthetic_gid.hpp"
 #include "query/virtual_edge.hpp"
 #include "query/virtual_graph.hpp"
 #include "query/virtual_node.hpp"
@@ -241,6 +242,96 @@ TEST_F(ToBoltTest, ToBoltVirtualGraphRedactsDeniedOverlayProperty) {
   auto const &props = nodes[0].ValueVertex().properties;
   EXPECT_EQ(props.at("name").ValueString(), "Alice");
   EXPECT_FALSE(props.contains("ssn"));
+}
+
+// --- Issue 40: virtual element ids serialize on the same query-local external axis as id() ---
+
+TEST_F(ToBoltTest, SyntheticNodeBoltIdUsesExternalMapper) {
+  // With the query's mapper threaded in, a synthetic node serializes at the query-local external id
+  // id() reports (a small negative), not its raw synthetic gid.
+  memgraph::query::SyntheticIdMapper mapper;
+  memgraph::query::VirtualNode synthetic({"N"}, {});
+  auto const expected = mapper.ExternalId(synthetic.Gid());
+  auto result = memgraph::glue::ToBoltVertex(synthetic, *storage, memgraph::storage::View::NEW, nullptr, &mapper);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_LT(expected, 0);
+  EXPECT_EQ(result->id.AsInt(), expected);
+}
+
+TEST_F(ToBoltTest, SyntheticNodeBoltIdWithoutMapperKeepsRawGid) {
+  // A null mapper (non-query serialization paths) falls back to the raw synthetic gid.
+  memgraph::query::VirtualNode synthetic({"N"}, {});
+  auto result = memgraph::glue::ToBoltVertex(synthetic, *storage, memgraph::storage::View::NEW, nullptr, nullptr);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->id.AsUint(), synthetic.Gid().AsUint());
+}
+
+TEST_F(ToBoltTest, OverlayNodeBoltIdStaysOnOriginAxis) {
+  // An overlay node serializes at its origin's real id regardless of the mapper - the real gid axis
+  // is unchanged, so a client still maps it back to the real node.
+  auto acc = storage->Access(memgraph::storage::WRITE);
+  auto vertex = acc->CreateVertex();
+  auto const origin_gid = vertex.Gid();
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  memgraph::query::SyntheticIdMapper mapper;
+  memgraph::query::VirtualNode overlay({"N"}, {}, {}, std::optional<memgraph::query::VertexAccessor>{vertex});
+  auto result = memgraph::glue::ToBoltVertex(overlay, *storage, memgraph::storage::View::NEW, nullptr, &mapper);
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->id.AsUint(), origin_gid.AsUint());
+}
+
+TEST_F(ToBoltTest, VirtualEdgeResolvedEndpointsUseExternalMapper) {
+  // A virtual edge between resolved nodes serializes its endpoints and its own id on id()'s external
+  // axis, through the same mapper instance id() used (e2e test_construct_between_virtual_nodes).
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  auto ga = vg.InsertNode(memgraph::query::VirtualNode({"A"}, {})).Gid();
+  auto gb = vg.InsertNode(memgraph::query::VirtualNode({"B"}, {})).Gid();
+  memgraph::query::VirtualEdge ve(vg.FindNode(ga), vg.FindNode(gb), "KNOWS");
+
+  memgraph::query::SyntheticIdMapper mapper;
+  auto const aid = mapper.ExternalId(ga);  // as id(a) assigns during the pull
+  auto const bid = mapper.ExternalId(gb);
+
+  memgraph::query::TypedValue tv(ve);
+  auto result = memgraph::glue::ToBoltValue(tv, storage.get(), memgraph::storage::View::NEW, nullptr, &mapper);
+  ASSERT_TRUE(result.has_value());
+  auto const &edge = result->ValueEdge();
+  EXPECT_EQ(edge.from.AsInt(), aid);
+  EXPECT_EQ(edge.to.AsInt(), bid);
+  EXPECT_EQ(edge.id.AsInt(), mapper.ExternalId(ve.Gid()));
+  EXPECT_LT(edge.id.AsInt(), 0);
+}
+
+TEST_F(ToBoltTest, VirtualEdgeHandleEndpointsStayRaw) {
+  // An unresolved (handle) endpoint references an import key, not a node identity, so it serializes
+  // as the raw handle and is never mapped (e2e test_construct_between_gid_handles).
+  memgraph::query::VirtualEdge ve(int64_t{1}, int64_t{2}, "LINKS");
+  memgraph::query::SyntheticIdMapper mapper;
+  memgraph::query::TypedValue tv(ve);
+  auto result = memgraph::glue::ToBoltValue(tv, storage.get(), memgraph::storage::View::NEW, nullptr, &mapper);
+  ASSERT_TRUE(result.has_value());
+  auto const &edge = result->ValueEdge();
+  EXPECT_EQ(edge.from.AsInt(), 1);
+  EXPECT_EQ(edge.to.AsInt(), 2);
+}
+
+TEST_F(ToBoltTest, VirtualEdgeMixedEndpointsMapResolvedButNotHandle) {
+  // The two endpoint forms may be mixed: the resolved end maps onto id()'s axis, the handle end
+  // stays raw (e2e test_mixed_node_and_handle_endpoints).
+  memgraph::query::VirtualGraph vg(memgraph::utils::NewDeleteResource());
+  auto ga = vg.InsertNode(memgraph::query::VirtualNode({"A"}, {})).Gid();
+  memgraph::query::VirtualEdge ve(vg.FindNode(ga), int64_t{2}, "M");
+
+  memgraph::query::SyntheticIdMapper mapper;
+  auto const aid = mapper.ExternalId(ga);
+
+  memgraph::query::TypedValue tv(ve);
+  auto result = memgraph::glue::ToBoltValue(tv, storage.get(), memgraph::storage::View::NEW, nullptr, &mapper);
+  ASSERT_TRUE(result.has_value());
+  auto const &edge = result->ValueEdge();
+  EXPECT_LT(aid, 0);
+  EXPECT_EQ(edge.from.AsInt(), aid);
+  EXPECT_EQ(edge.to.AsInt(), 2);
 }
 
 #endif
