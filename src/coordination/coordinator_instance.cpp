@@ -1212,13 +1212,14 @@ auto CoordinatorInstance::GetRolesAsLeader() const -> std::optional<std::vector<
 
 auto CoordinatorInstance::GetRoles(std::vector<CoordinatorRole> &roles) const -> GetRolesStatus {
   // SHOW ROLES is a strong read served by the leader; a follower forwards the read.
+  if (auto local = GetRolesAsLeader(); local.has_value()) {
+    roles = std::move(*local);
+    return GetRolesStatus::SUCCESS;
+  }
+
   auto const leader_id = raft_state_->GetLeaderId();
-  if (leader_id == raft_state_->GetMyCoordinatorId()) {
-    if (auto local = GetRolesAsLeader(); local.has_value()) {
-      roles = std::move(*local);
-      return GetRolesStatus::SUCCESS;
-    }
-    // We are (becoming) leader but not yet ready to serve; treat as no reachable leader.
+  // We are (becoming) leader but not yet ready to serve, or no leader is elected; treat as no reachable leader.
+  if (leader_id == raft_state_->GetMyCoordinatorId() || leader_id == -1) {
     return GetRolesStatus::LEADER_NOT_FOUND;
   }
 
@@ -1310,18 +1311,18 @@ auto CoordinatorInstance::GetRolePrivilegesAsLeader(std::string_view const role_
 auto CoordinatorInstance::GetRolePrivileges(std::string_view const role_name, uint64_t &privileges) const
     -> GetRolePrivilegesStatus {
   // SHOW PRIVILEGES FOR is a strong read served by the leader; a follower forwards the read.
-  auto const leader_id = raft_state_->GetLeaderId();
-  if (leader_id == raft_state_->GetMyCoordinatorId()) {
-    auto const local = GetRolePrivilegesAsLeader(role_name);
-    if (!local.has_value()) {
-      // We are (becoming) leader but not yet ready to serve; treat as no reachable leader.
-      return GetRolePrivilegesStatus::LEADER_NOT_FOUND;
-    }
+  if (auto const local = GetRolePrivilegesAsLeader(role_name); local.has_value()) {
     if (!local->first) {
       return GetRolePrivilegesStatus::NO_SUCH_ROLE;
     }
     privileges = local->second;
     return GetRolePrivilegesStatus::SUCCESS;
+  }
+
+  auto const leader_id = raft_state_->GetLeaderId();
+  // We are (becoming) leader but not yet ready to serve, or no leader is elected; treat as no reachable leader.
+  if (leader_id == raft_state_->GetMyCoordinatorId() || leader_id == -1) {
+    return GetRolePrivilegesStatus::LEADER_NOT_FOUND;
   }
 
   auto *leader = FindClientConnector(leader_id);
