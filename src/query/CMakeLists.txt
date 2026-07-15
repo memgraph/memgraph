@@ -83,7 +83,9 @@ target_sources(mg-query
     plan_v2/frontend/builder.cpp
     plan_v2/cost/cost_model.cpp
     plan_v2/rewrite/rewrites.cpp
+    plan_v2/rewrite/fold.cpp
     plan_v2/egraph/symbol_make_traits.cpp
+    plan_v2/resolve/analysis.cpp
     plan/parallel_checker.cpp
     procedure/mg_procedure_impl.cpp
     procedure/callable_alias_mapper.cpp
@@ -107,6 +109,7 @@ target_sources(mg-query
     FILES
     dependant_symbol_visitor.hpp
     plan_v2/rewrite/rewrites.hpp
+    plan_v2/rewrite/fold.hpp
     edge_accessor.hpp
     frontend/ast/ast.hpp
     frontend/ast/query/aggregation.hpp
@@ -141,6 +144,8 @@ target_sources(mg-query
     TYPE HEADERS
     FILES
     plan_v2/frontend/builder.hpp
+    plan_v2/resolve/analysis.hpp
+    plan_v2/resolve/constant_identity.hpp
     plan_v2/resolve/extraction_env.hpp
     plan_v2/resolve/resolver.hpp
     plan_v2/egraph/symbol.hpp

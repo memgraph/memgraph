@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 #include "test_support/symbols.hpp"
@@ -19,10 +20,12 @@
 import memgraph.planner.core.egraph;
 import memgraph.planner.core.typed_egraph;
 
-/// Trait specialisations for the test/benchmark `Op` symbol set. All Ops
-/// lower as "just children, no storage, no disambiguator"; the toy
-/// planner has no interning or scope semantics. Different arities are
-/// modelled by the number of `EClassId` parameters in `make()`.
+/// Trait specialisations for the test/benchmark `Op` symbol set. Ops carry no
+/// storage; the toy planner has no interning or scope semantics. Different
+/// arities are modelled by the number of `EClassId` parameters in `make()`.
+/// Leaves also accept an explicit disambiguator so a rule can mint fresh
+/// distinct leaves (`Make<Op::Var>(id)`), the way growth tests exercise the
+/// rewriter's new-e-class bookkeeping.
 namespace memgraph::planner::core::test {
 
 template <Op S>
@@ -35,7 +38,13 @@ template <Op S>
 struct op_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/) -> LoweredNode { return {.children = {}, .disambiguator = std::nullopt}; }
+  static auto make(storage_type & /*s*/) -> MakeResult<NoAnalysis> {
+    return {.lowered = {.children = {}, .disambiguator = std::nullopt}};
+  }
+
+  static auto make(storage_type & /*s*/, std::uint64_t disambiguator) -> MakeResult<NoAnalysis> {
+    return {.lowered = {.children = {}, .disambiguator = disambiguator}};
+  }
 };
 
 // Unary nodes: one child.
@@ -44,8 +53,8 @@ template <Op S>
 struct op_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/, EClassId child) -> LoweredNode {
-    return {.children = utils::small_vector<EClassId>{child}, .disambiguator = std::nullopt};
+  static auto make(storage_type & /*s*/, EClassId child) -> MakeResult<NoAnalysis> {
+    return {.lowered = {.children = utils::small_vector<EClassId>{child}, .disambiguator = std::nullopt}};
   }
 };
 
@@ -55,8 +64,8 @@ template <Op S>
 struct op_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/, EClassId lhs, EClassId rhs) -> LoweredNode {
-    return {.children = utils::small_vector<EClassId>{lhs, rhs}, .disambiguator = std::nullopt};
+  static auto make(storage_type & /*s*/, EClassId lhs, EClassId rhs) -> MakeResult<NoAnalysis> {
+    return {.lowered = {.children = utils::small_vector<EClassId>{lhs, rhs}, .disambiguator = std::nullopt}};
   }
 };
 
@@ -66,8 +75,8 @@ template <Op S>
 struct op_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/, EClassId a, EClassId b, EClassId c) -> LoweredNode {
-    return {.children = utils::small_vector<EClassId>{a, b, c}, .disambiguator = std::nullopt};
+  static auto make(storage_type & /*s*/, EClassId a, EClassId b, EClassId c) -> MakeResult<NoAnalysis> {
+    return {.lowered = {.children = utils::small_vector<EClassId>{a, b, c}, .disambiguator = std::nullopt}};
   }
 };
 
@@ -77,8 +86,9 @@ template <Op S>
 struct op_make_traits<S> {
   struct storage_type {};
 
-  static auto make(storage_type & /*s*/, std::vector<EClassId> args) -> LoweredNode {
-    return {.children = utils::small_vector<EClassId>(args.begin(), args.end()), .disambiguator = std::nullopt};
+  static auto make(storage_type & /*s*/, std::vector<EClassId> args) -> MakeResult<NoAnalysis> {
+    return {.lowered = {.children = utils::small_vector<EClassId>(args.begin(), args.end()),
+                        .disambiguator = std::nullopt}};
   }
 };
 
