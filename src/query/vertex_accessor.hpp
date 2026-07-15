@@ -215,7 +215,22 @@ static_assert(std::is_trivially_copyable<VertexAccessor>::value,
 namespace std {
 template <>
 struct hash<memgraph::query::VertexAccessor> {
-  size_t operator()(const memgraph::query::VertexAccessor &v) const { return std::hash<decltype(v.impl_)>{}(v.impl_); }
+  size_t operator()(const memgraph::query::VertexAccessor &v) const {
+    // Graph Versioning v1 (branch-read fast path, deferred endpoint resolution): mirror
+    // VertexAccessor::operator== (which compares by Gid() when a branch is checked out) so the
+    // hash/equality contract holds -- a fork vertex and its diff-engine COW'd copy are ==-equal
+    // (same gid) and MUST hash equal. Without this they hash by distinct impl_ pointers, so any
+    // std::hash<VertexAccessor> container (bidirectional/weighted shortest path, Graph::project,
+    // Path-DISTINCT, VerticesIterable dedup) mis-keys a COW'd branch vertex. gids are unique across
+    // historical_ + diff engine (branch-native gid watermark, branch_engine.cpp). The hash keys off
+    // v.branch_ctx_ while operator== triggers on EITHER operand's branch_ctx_, but a single query has
+    // exactly one DbAccessor branch_ctx_ (db_accessor.hpp) so no mixed comparison is reachable.
+    // Non-branch path (branch_ctx_==nullptr) is unchanged. This is what lets EdgeAccessor::To()/From()
+    // (edge_accessor.cpp) return endpoints WITHOUT eagerly resolving them to their diff-engine copy
+    // first -- canonicalization is no longer needed for identity to hold.
+    if (v.branch_ctx_ != nullptr) return std::hash<memgraph::storage::Gid>{}(v.Gid());
+    return std::hash<decltype(v.impl_)>{}(v.impl_);
+  }
 };
 
 }  // namespace std

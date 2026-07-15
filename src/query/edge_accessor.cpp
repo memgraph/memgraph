@@ -17,56 +17,20 @@
 
 namespace memgraph::query {
 
-// Graph Versioning v1 (lazy diff-context, slice E-2a): in branch mode, re-Resolve the endpoint by
-// gid (View::NEW, so this sees the branch's own prior writes -- mirrors
-// query::VertexAccessor::CowIfNeeded's own View::NEW-on-the-diff-engine convention) rather than
-// trusting `impl_.ToVertex()`/`impl_.FromVertex()` verbatim -- the storage-level edge's endpoint
-// Vertex* was fixed at whatever engine CREATED the edge, but a LATER statement in the same branch
-// session could have COW'd that same vertex (e.g. a subsequent `SET` on it) into the diff engine --
-// `ResolveVertex` picks up that COW'd copy; the raw `impl_.ToVertex()`/`FromVertex()` would keep
-// pointing at the (now-superseded) object the endpoint resolved to at CREATE/EXPAND time. Falls back
-// to the raw endpoint if ResolveVertex somehow misses (defensive; every endpoint gid is guaranteed
-// to exist in one store or the other by construction, mirroring DbAccessor::FindVertex's own
-// fallback shape).
-VertexAccessor EdgeAccessor::To() const {
-  if (branch_ctx_ != nullptr) {
-    // Phase 2 (read side) of the branched-bit fast path -- see
-    // query::VertexAccessor::InEdges/OutEdges' own doc-comment (vertex_accessor.cpp) for the full
-    // rationale; this is the same test applied to an edge's TO endpoint instead of the traversal
-    // origin. An un-COW'd, un-tombstoned MAIN-resident endpoint is, by the bit's own invariant,
-    // untouched by this branch -- ResolveVertex would walk the diff engine's skiplist, miss, fall
-    // through to the historical resolve, and hand back this EXACT Vertex*, so returning it directly
-    // is equivalent and skips that dual lookup entirely on the (dominant, per-hop) traversal path.
-    // The returned VertexAccessor still carries branch_ctx_, so any later read through it
-    // (Properties/Labels/etc.) stays branch-aware and self-corrects if the endpoint is COW'd or
-    // tombstoned AFTER this call returns. A diff-engine-resident endpoint
-    // (`to.storage_ == &diff_engine()`) or a `branched()==true` endpoint is NOT covered by the bit
-    // and must still go through the full ResolveVertex below.
-    auto to = impl_.ToVertex();
-    if (to.storage_ != &branch_ctx_->diff_engine() && !to.vertex_->branched()) {
-      return VertexAccessor(to, branch_ctx_);
-    }
-    if (auto resolved = branch_ctx_->ResolveVertex(to.Gid(), storage::View::NEW)) {
-      return VertexAccessor(*resolved, branch_ctx_);
-    }
-  }
-  return VertexAccessor(impl_.ToVertex(), branch_ctx_);
-}
+// Graph Versioning v1 (branch endpoint resolution -- deferred): return the raw TO endpoint wrapped
+// with branch_ctx_, WITHOUT eagerly resolving it to its diff-engine copy. Every value read through
+// the returned accessor (Labels/HasLabel/Properties/GetProperty/GetPropertySize) is already
+// branch-aware and self-corrects by gid via ResolveVertex + the View::NEW tombstone guard
+// (vertex_accessor.cpp), and identity (==/hash) is now gid-based (std::hash<VertexAccessor>,
+// vertex_accessor.hpp) -- so the eager per-edge ResolveVertex->FindVertex canonicalization this
+// used to do (the dominant cost of deep/high-churn branch traversals, perf 2026-07-15) is
+// redundant. A tombstoned endpoint returns identically to before: the old eager path returned
+// nullopt from ResolveVertex and fell through to this same raw accessor, whose reads hide it.
+VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex(), branch_ctx_); }
 
-VertexAccessor EdgeAccessor::From() const {
-  if (branch_ctx_ != nullptr) {
-    // Phase 2 fast path -- see To()'s own doc-comment above for the full rationale (identical
-    // main-resident + unbranched test, applied to the FROM endpoint instead).
-    auto from = impl_.FromVertex();
-    if (from.storage_ != &branch_ctx_->diff_engine() && !from.vertex_->branched()) {
-      return VertexAccessor(from, branch_ctx_);
-    }
-    if (auto resolved = branch_ctx_->ResolveVertex(from.Gid(), storage::View::NEW)) {
-      return VertexAccessor(*resolved, branch_ctx_);
-    }
-  }
-  return VertexAccessor(impl_.FromVertex(), branch_ctx_);
-}
+// Graph Versioning v1 (branch endpoint resolution -- deferred): see To()'s own doc-comment above for
+// the full rationale (identical reasoning, applied to the FROM endpoint instead).
+VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex(), branch_ctx_); }
 
 /// When edge is deleted and you are accessing To vertex
 /// for_deleted_ flag will in this case be updated properly

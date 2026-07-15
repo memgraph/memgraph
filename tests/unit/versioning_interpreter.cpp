@@ -2803,6 +2803,92 @@ TEST_F(VersioningInterpreterTest, BranchGetHopsCounterTracksTraversal) {
                     << " instead of 50) -- hops are not being counted on the branch InEdges/OutEdges path.";
 }
 
+// Graph Versioning v1 (Gid-based std::hash<VertexAccessor>, vertex_accessor.hpp): regression lock for
+// the identity fix that makes EdgeAccessor::To()/From()'s DEFERRED endpoint resolution (edge_accessor.cpp)
+// safe. To()/From() used to eagerly ResolveVertex() every branched endpoint to canonicalize it to ONE
+// physical copy, purely so std::hash<VertexAccessor> (keyed on the impl_ pointer) would stay consistent
+// with operator== (keyed on Gid() once a branch is checked out) -- two containers disagreeing on identity
+// for the "same" vertex. Hashing by Gid() instead (when branch_ctx_ != nullptr) removes the need for that
+// canonicalization, so To()/From() can now hand back the RAW endpoint. This test builds a vertex that gets
+// COW'd (historical copy -> diff-engine copy, same gid, distinct impl_) mid-query, then drives it through
+// STShortestPathCursor::VertexEdgeMapT (plan/operator.cpp) -- a bidirectional-BFS map keyed directly on
+// VertexAccessor via the plain (no custom-hash-functor) std::hash<VertexAccessor> specialization. Without
+// the Gid-based hash, the historical and COW'd copies of the middle vertex would land in different hash
+// buckets despite comparing ==, mis-keying the map and corrupting/truncating the reconstructed path.
+TEST_F(VersioningInterpreterTest, BranchShortestPathAcrossCowdVertexHasConsistentIdentity) {
+  SatisfyGate();
+
+  // A simple directed chain on main: 1 -> 2 -> 3 -> 4.
+  faker.Interpret("CREATE (:Chain {id: 1})-[:R]->(:Chain {id: 2})-[:R]->(:Chain {id: 3})-[:R]->(:Chain {id: 4})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // COW the MIDDLE vertex (id=2) mid-query via a branch-local SET -- this splits it into a historical
+  // copy (pre-SET, still resident in `historical_`) and a diff-engine copy (post-SET), sharing one gid.
+  faker.Interpret("MATCH (n:Chain {id: 2}) SET n.tag = 'cowd'");
+
+  // Pre-binding BOTH endpoints in a separate MATCH forces ExpandVariable::MakeCursor to pick
+  // STShortestPathCursor (existing_node on both sides, bidirectional BFS) over
+  // SingleSourceShortestPathCursor -- see that cursor's VertexEdgeMapT (operator.cpp) this test locks.
+  auto stream = faker.Interpret(
+      "MATCH (a:Chain {id: 1}), (d:Chain {id: 4}) MATCH p=(a)-[*bfs..10]->(d) "
+      "RETURN [x IN nodes(p) | x.id] AS path");
+  const auto &rows = stream.GetResults();
+  ASSERT_EQ(rows.size(), 1U);
+
+  const auto &path_list = rows[0][0].ValueList();
+  std::vector<int64_t> ids;
+  ids.reserve(path_list.size());
+  for (const auto &v : path_list) ids.push_back(v.ValueInt());
+
+  EXPECT_EQ(ids, (std::vector<int64_t>{1, 2, 3, 4}))
+      << "shortest path through a mid-query COW'd vertex must be intact and pass through id=2 exactly "
+         "once -- a broken hash/equality contract on VertexAccessor (impl_-pointer hash vs Gid-based "
+         "operator==) would mis-key STShortestPathCursor's VertexEdgeMapT, corrupting or truncating the "
+         "reconstructed path.";
+}
+
+// Graph Versioning v1 (Gid-based std::hash<VertexAccessor>, vertex_accessor.hpp): companion regression to
+// BranchShortestPathAcrossCowdVertexHasConsistentIdentity above, exercising a DIFFERENT direct consumer of
+// the same std::hash<VertexAccessor> specialization: SingleSourceShortestPathCursor::processed_
+// (plan/operator.cpp), selected instead of STShortestPathCursor when the destination is introduced fresh
+// in the SAME MATCH pattern as the traversal (not pre-bound in an earlier clause), i.e. existing_node ==
+// false. Deliberately NOT written as a TypedValue-level DISTINCT/equality check: TypedValue::Hash's
+// Type::Vertex branch (typed_value.cpp) independently re-derives Gid().AsUint() and never calls
+// std::hash<VertexAccessor> at all, so a DISTINCT-based test would pass even without this fix and would
+// not actually lock it -- this test's map is keyed DIRECTLY on VertexAccessor via the specialization.
+TEST_F(VersioningInterpreterTest, BranchSingleSourceShortestPathAcrossCowdVertexHasConsistentIdentity) {
+  SatisfyGate();
+
+  // Same chain as above: 1 -> 2 -> 3 -> 4.
+  faker.Interpret("CREATE (:Chain {id: 1})-[:R]->(:Chain {id: 2})-[:R]->(:Chain {id: 3})-[:R]->(:Chain {id: 4})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // COW the middle vertex (id=2) mid-query -- identical setup to the test above.
+  faker.Interpret("MATCH (n:Chain {id: 2}) SET n.tag = 'cowd'");
+
+  // Both endpoints introduced fresh in ONE MATCH pattern -- existing_node == false on the destination,
+  // so this selects SingleSourceShortestPathCursor (its own `processed_` map) instead of
+  // STShortestPathCursor.
+  auto stream =
+      faker.Interpret("MATCH p=(a:Chain {id: 1})-[*bfs..10]->(d:Chain {id: 4}) RETURN [x IN nodes(p) | x.id] AS path");
+  const auto &rows = stream.GetResults();
+  ASSERT_EQ(rows.size(), 1U);
+
+  const auto &path_list = rows[0][0].ValueList();
+  std::vector<int64_t> ids;
+  ids.reserve(path_list.size());
+  for (const auto &v : path_list) ids.push_back(v.ValueInt());
+
+  EXPECT_EQ(ids, (std::vector<int64_t>{1, 2, 3, 4}))
+      << "shortest path through a mid-query COW'd vertex must be intact and pass through id=2 exactly "
+         "once -- a broken hash/equality contract on VertexAccessor would mis-key "
+         "SingleSourceShortestPathCursor::processed_, corrupting or truncating the reconstructed path.";
+}
+
 // Graph Versioning v1: branch-local DROP INDEX. Unlike CREATE INDEX (schema-plane DDL, rejected on
 // a branch -- see BranchSchemaDdlRejected above), DROP INDEX on a checked-out branch is allowed and
 // applies ONLY to the branch's own diff engine: the branch stops using the index (planner falls back
