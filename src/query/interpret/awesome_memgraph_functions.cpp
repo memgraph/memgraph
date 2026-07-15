@@ -31,11 +31,13 @@
 #include "query/auth_checker.hpp"
 #include "query/common.hpp"
 #include "query/exceptions.hpp"
+#include "query/overlay_authorization.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/query_user.hpp"
 #include "query/string_helpers.hpp"
 #include "query/subgraph_graph_view.hpp"
+#include "query/synthetic_gid.hpp"
 #include "query/typed_value.hpp"
 #include "query/virtual_graph.hpp"
 #include "query/virtual_graph_view.hpp"
@@ -513,21 +515,9 @@ void ForEachElementProperty(const TypedValue &value, storage::View view, std::st
     auto const &vnode = value.ValueVirtualNode();
     auto maybe_props = vnode.Properties(view);
     if (!maybe_props) throw QueryRuntimeException("Reading {} of a projected node's origin failed.", fn);
-    auto const &origin = vnode.Origin();
-    if (!checker || !origin) {
-      // A synthetic node (no origin) mints no real-graph data; without a checker nothing is filtered.
-      emit(*maybe_props, allow_all_properties);
-    } else {
-      // An overlay node reads through to its origin, so origin-backed properties get the origin's
-      // per-property READ permission (over the origin's labels), matching a real vertex. An
-      // overlay-bound override is the author's own value and is exempt.
-      auto maybe_labels = origin->Labels(view);
-      if (!maybe_labels) ThrowVertexLabelsReadFailure(maybe_labels.error());
-      emit(*maybe_props, [&](storage::PropertyId prop) {
-        return vnode.IsOverlayBound(prop) ||
-               checker->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
-      });
-    }
+    auto auth = OverlayReadAuthorization::For(vnode, view, checker);
+    if (!auth) ThrowVertexLabelsReadFailure(auth.error());
+    emit(*maybe_props, [&](storage::PropertyId prop) { return auth->IsReadable(vnode, prop); });
   } else {
     emit(value.ValueVirtualEdge().Properties(), allow_all_properties);
   }
@@ -1261,8 +1251,7 @@ TypedValue Counter(const TypedValue *args, int64_t nargs, const FunctionContext 
 // The query-local external id for a synthetic Gid, or the raw synthetic id when there is no mapper
 // (a path with no query context).
 int64_t ExternalSyntheticId(storage::Gid gid, const FunctionContext &ctx) {
-  if (ctx.synthetic_id_mapper) return ctx.synthetic_id_mapper->ExternalId(gid);
-  return gid.AsInt();
+  return ExternalId(gid, ctx.synthetic_id_mapper);
 }
 
 TypedValue IdOf(const TypedValue &arg, const FunctionContext &ctx) {

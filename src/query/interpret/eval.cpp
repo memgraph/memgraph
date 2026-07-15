@@ -13,6 +13,7 @@
 
 #include "query/auth_checker.hpp"
 #include "query/graph.hpp"
+#include "query/overlay_authorization.hpp"
 #include "query/virtual_graph.hpp"
 
 #include <ranges>
@@ -589,17 +590,10 @@ bool ExpressionEvaluator::CheckPropertyPermission(EdgeAccessor const &accessor, 
 }
 
 bool ExpressionEvaluator::IsPropertyAllowed(VirtualNode const &node, storage::PropertyId prop) const {
-  // An overlay-bound override is the author's own computed value, not the origin's protected data, so
-  // it is always readable (any origin data it was computed from was itself FGA-checked at construction).
-  if (node.IsOverlayBound(prop)) return true;
-  // An origin-read-through property gets the origin's per-property READ permission - the same decision
-  // a real vertex receives over its labels. A synthetic node has no origin and is always allowed.
-  auto const &origin = node.Origin();
-  if (!origin) return true;
-  if (!auth_checker_) return true;
-  auto maybe_labels = origin->Labels(view_);
-  if (!maybe_labels) return false;
-  return auth_checker_->HasPropertyPermission(*maybe_labels, prop, AuthQuery::PropertyPermissionType::READ);
+  auto auth = OverlayReadAuthorization::For(node, view_, auth_checker_);
+  // The read path fails closed: if the origin's labels cannot be read, the property is not exposed.
+  if (!auth) return false;
+  return auth->IsReadable(node, prop);
 }
 
 #endif

@@ -310,6 +310,11 @@ add_unit_test(query_graph_view
     LINK_TARGETS mg-query storage_test_utils mg-glue mg-auth
 )
 
+add_unit_test(query_overlay_authorization
+    SOURCES query_overlay_authorization.cpp
+    LINK_TARGETS mg-query storage_test_utils
+)
+
 
 # END query/procedure
 add_unit_test(query_profile

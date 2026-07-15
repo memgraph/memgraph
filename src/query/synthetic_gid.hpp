@@ -50,4 +50,12 @@ class SyntheticIdMapper {
   int64_t next_{-1};
 };
 
+// The single synthetic-axis id fallback: a mapper maps the synthetic Gid to the query-local external
+// id id() reports; with no mapper the raw synthetic Gid is used, read as a signed int so the query and
+// wire axes agree. This is the synthetic axis only - a real (overlay) node serializes at its origin's
+// unsigned real Gid, a separate axis that does not go through here.
+inline int64_t ExternalId(storage::Gid gid, SyntheticIdMapper *mapper) {
+  return mapper != nullptr ? mapper->ExternalId(gid) : gid.AsInt();
+}
+
 }  // namespace memgraph::query

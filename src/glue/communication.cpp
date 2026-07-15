@@ -19,6 +19,7 @@
 #include "communication/bolt/v1/value.hpp"
 #include "query/auth_checker.hpp"
 #include "query/graph.hpp"
+#include "query/overlay_authorization.hpp"
 #include "query/synthetic_gid.hpp"
 #include "query/typed_value.hpp"
 #include "query/virtual_graph.hpp"
@@ -127,8 +128,7 @@ communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage
   // A synthetic gid maps to the query-local external id id() reports; null falls back to the raw
   // gid. The edge's own id and any resolved endpoint travel this axis.
   const auto external = [&](storage::Gid gid) {
-    return id_mapper ? communication::bolt::Id::FromInt(id_mapper->ExternalId(gid))
-                     : communication::bolt::Id::FromUint(gid.AsUint());
+    return communication::bolt::Id::FromInt(query::ExternalId(gid, id_mapper));
   };
   // An unresolved (handle) endpoint references an import key, not a node identity, so it stays on
   // the raw handle axis (never mapped); a resolved endpoint shares id()'s external axis.
@@ -312,8 +312,7 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VirtualNo
   // node (real gid axis, unchanged). A synthetic node maps its synthetic gid to the query-local
   // external id id() reports; null falls back to the raw synthetic gid.
   auto id = node.HasOrigin() ? communication::bolt::Id::FromUint(node.Origin()->Gid().AsUint())
-            : id_mapper      ? communication::bolt::Id::FromInt(id_mapper->ExternalId(node.Gid()))
-                             : communication::bolt::Id::FromUint(node.Gid().AsUint());
+                             : communication::bolt::Id::FromInt(query::ExternalId(node.Gid(), id_mapper));
   std::vector<std::string> labels;
   labels.reserve(node.Labels().size());
   for (const auto &label : node.Labels()) labels.emplace_back(label);
@@ -321,21 +320,14 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VirtualNo
   // Origin-read-through properties are gated by the origin's per-property READ permission (over the
   // origin's real labels), matching a real vertex. Overlay-bound overrides are the author's own
   // computed values, and a synthetic node (no origin) mints no real-graph data - both are always
-  // included.
-  std::optional<std::vector<storage::LabelId>> origin_labels;
-  if (auth_checker && node.HasOrigin()) {
-    auto maybe_labels = node.Origin()->Labels(view);
-    if (!maybe_labels) return std::unexpected{maybe_labels.error()};
-    origin_labels.emplace(maybe_labels->begin(), maybe_labels->end());
-  }
+  // included. The visibility decision is single-sourced in OverlayReadAuthorization.
+  auto auth = query::OverlayReadAuthorization::For(node, view, auth_checker);
+  if (!auth) return std::unexpected{auth.error()};
   auto maybe_props = node.Properties(view);
   if (!maybe_props) return std::unexpected{maybe_props.error()};
   bolt_map_t properties;
   for (const auto &[prop_id, prop_value] : *maybe_props) {
-    if (origin_labels && !node.IsOverlayBound(prop_id) &&
-        !auth_checker->HasPropertyPermission(*origin_labels, prop_id, query::AuthQuery::PropertyPermissionType::READ)) {
-      continue;
-    }
+    if (!auth->IsReadable(node, prop_id)) continue;
     properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
   }
   // An overlay node from a projection with a known schema carries a reserved Int property pointing at
