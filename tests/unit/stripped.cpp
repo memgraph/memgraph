@@ -532,6 +532,7 @@ TEST(QueryStripper, SignFoldInList) {
   {
     StrippedQuery stripped("RETURN [-1e-3]");
     EXPECT_FLOAT_EQ(SingleLiteral(stripped).ValueDouble(), -1e-3);
+    EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ " + kStrippedDoubleToken + " ]");
   }
   {
     StrippedQuery stripped("RETURN [+42]");
