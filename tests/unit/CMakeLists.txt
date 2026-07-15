@@ -899,6 +899,13 @@ else ()
     )
 endif ()
 
+if (MG_ENTERPRISE)
+    add_unit_test(coordinator_sso_authenticator
+        SOURCES coordinator_sso_authenticator.cpp
+        LINK_TARGETS mg-glue mg-auth
+    )
+endif ()
+
 add_unit_test(cpp_api
     SOURCES cpp_api.cpp
     LINK_TARGETS mg-query disk_test_utils

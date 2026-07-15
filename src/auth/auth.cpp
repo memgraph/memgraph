@@ -381,44 +381,12 @@ auto ParseAndMigrateJson(std::string_view str) {
   return data;
 }
 
-};  // namespace
-
-Auth::Auth(std::string storage_directory, Config config
-#ifdef MG_ENTERPRISE
-           ,
-           utils::ResourceMonitoring *user_resources
-#endif
-           )
-    : storage_(std::move(storage_directory)),
-#ifdef MG_ENTERPRISE
-      user_resources_{user_resources},
-#endif
-      config_{std::move(config)} {
-  modules_ = PopulateModules(FLAGS_auth_module_mappings);
-  if (storage_.Size() > 0) {
-    MigrateVersions(storage_);
-  } else {
-    // Clean storage; put the version
-    storage_.Put(kStoreVersionKey, kCurrentStoreVersion);
-  }
-
-#ifdef MG_ENTERPRISE
-  if (user_resources_) {
-    // Update user resources with the initial profile limits
-    for (const auto &profile : user_profiles_.GetAll()) {
-      for (const auto &username : profile.usernames) {
-        UpdateProfileLimits(username, profile, *user_resources_);
-      }
-    }
-  }
-#endif
-}  // namespace memgraph::auth
-
-std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, nlohmann::json module_params,
-                                                   std::optional<std::string> provided_username) {
-  spdlog::trace("Calling external auth module for scheme '{}'.", scheme);
-  auto ret = modules_.at(scheme).Call(std::move(module_params), FLAGS_auth_module_timeout_ms);
-
+// Validates an auth module's response object and, on a successful authentication, returns the role names it reports.
+// Returns nullopt if the module did not authenticate, the response is malformed, or no role was returned. This is the
+// portion of the module contract shared by the data-instance path (Auth::CallExternalModule, which additionally
+// validates the roles against the auth kvstore) and the coordinator path (Auth::SSOGetRoleNames, which validates them
+// against the Raft-replicated coordinator role set instead).
+std::optional<std::vector<std::string>> ExtractAuthenticatedRoleNames(const nlohmann::json &ret) {
   auto get_errors = [&ret]() -> std::string {
     std::string default_error = "Couldn't authenticate user: check stderr for auth module error messages.";
     if (!ret.contains("errors")) {
@@ -428,8 +396,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, nl
     if (!ret_errors.is_string()) {
       return "Couldn't authenticate user: the error message returned by the auth module needs to be a string value.";
     }
-    const auto &errors = ret_errors.get<std::string>();
-    return errors;
+    return ret_errors.get<std::string>();
   };
 
   auto get_string_field = [&ret](const auto &name) -> std::optional<std::string> {
@@ -469,18 +436,17 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, nl
         "https://memgr.ph/sso"));
     return std::nullopt;
   }
-  const auto is_authenticated = ret_authenticated.get<bool>();
 
-  if (!is_authenticated) {
+  if (!ret_authenticated.get<bool>()) {
     const auto error = get_errors();
     spdlog::warn(utils::MessageWithLink("Couldn't authenticate user:", error, "https://memgr.ph/sso"));
     return std::nullopt;
   }
 
-  // Handle both single role and multiple roles
+  // Handle both single role and multiple roles.
   std::vector<std::string> role_names;
 
-  // Check for "roles" field first (multiple roles)
+  // Check for "roles" field first (multiple roles).
   if (ret.contains("roles")) {
     const auto &roles_field = ret.at("roles");
     if (roles_field.is_array()) {
@@ -494,7 +460,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, nl
     }
   }
 
-  // Fall back to single "role" field for backward compatibility
+  // Fall back to single "role" field for backward compatibility.
   if (role_names.empty()) {
     const auto rolename = get_string_field("role");
     if (!rolename) {
@@ -511,6 +477,75 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, nl
         "Couldn't authenticate user: no valid role(s) returned by the external auth module.", "https://memgr.ph/sso"));
     return std::nullopt;
   }
+
+  return role_names;
+}
+
+};  // namespace
+
+Auth::Auth(std::string storage_directory, Config config
+#ifdef MG_ENTERPRISE
+           ,
+           utils::ResourceMonitoring *user_resources
+#endif
+           )
+    : storage_(std::move(storage_directory)),
+#ifdef MG_ENTERPRISE
+      user_resources_{user_resources},
+#endif
+      config_{std::move(config)} {
+  modules_ = PopulateModules(FLAGS_auth_module_mappings);
+  if (storage_.Size() > 0) {
+    MigrateVersions(storage_);
+  } else {
+    // Clean storage; put the version
+    storage_.Put(kStoreVersionKey, kCurrentStoreVersion);
+  }
+
+#ifdef MG_ENTERPRISE
+  if (user_resources_) {
+    // Update user resources with the initial profile limits
+    for (const auto &profile : user_profiles_.GetAll()) {
+      for (const auto &username : profile.usernames) {
+        UpdateProfileLimits(username, profile, *user_resources_);
+      }
+    }
+  }
+#endif
+}  // namespace memgraph::auth
+
+std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, nlohmann::json module_params,
+                                                   std::optional<std::string> provided_username) {
+  spdlog::trace("Calling external auth module for scheme '{}'.", scheme);
+  auto ret = modules_.at(scheme).Call(std::move(module_params), FLAGS_auth_module_timeout_ms);
+
+  auto get_string_field = [&ret](const auto &name) -> std::optional<std::string> {
+    if (!ret.contains(name)) {
+      spdlog::warn(utils::MessageWithLink(
+          "Couldn't authenticate user: the field \"{}\" was not returned by the external auth module.",
+          name,
+          "https://memgr.ph/sso"));
+      return std::nullopt;
+    }
+
+    const auto &ret_field = ret.at(name);
+    if (!ret_field.is_string()) {
+      spdlog::warn(
+          utils::MessageWithLink("Couldn't authenticate user: the field \"{}\" returned by the external auth module "
+                                 "needs to have a string value.",
+                                 name,
+                                 "https://memgr.ph/sso"));
+      return std::nullopt;
+    }
+
+    return ret_field.template get<std::string>();
+  };
+
+  auto role_names_opt = ExtractAuthenticatedRoleNames(ret);
+  if (!role_names_opt) {
+    return std::nullopt;
+  }
+  const auto &role_names = *role_names_opt;
 
   // Get all the roles
   auth::Roles roles;
@@ -592,6 +627,27 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   params["response"] = identity_provider_response;
 
   return CallExternalModule(scheme, std::move(params));
+}
+
+std::optional<std::vector<std::string>> Auth::SSOGetRoleNames(const std::string &scheme,
+                                                              const std::string &identity_provider_response) {
+  // Same enterprise-license + configured-module gate as the data-instance SSO path: a missing license or an unmapped
+  // scheme rejects (returns nullopt), so SSO on coordinators is enterprise-gated too.
+  if (!HasAuthModulePrerequisites(scheme)) {
+    return std::nullopt;
+  }
+
+  nlohmann::json params = nlohmann::json::object();
+  params["scheme"] = scheme;
+  params["response"] = identity_provider_response;
+
+  // Reuse the auth-module subprocess machinery to run the module, but only extract the role names it reports. The
+  // coordinator path deliberately does NOT validate the roles against the auth kvstore (GetRole) or check for a
+  // colliding local user -- coordinators have no user/role records in the kvstore; role existence is checked by the
+  // caller against the Raft-replicated coordinator role set.
+  spdlog::trace("Calling external auth module for coordinator SSO scheme '{}'.", scheme);
+  auto ret = modules_.at(scheme).Call(std::move(params), FLAGS_auth_module_timeout_ms);
+  return ExtractAuthenticatedRoleNames(ret);
 }
 
 void Auth::LinkUser(User &user) const {
