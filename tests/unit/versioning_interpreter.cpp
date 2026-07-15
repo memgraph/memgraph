@@ -1925,6 +1925,124 @@ TEST_F(VersioningInterpreterTest, UsingVersionMainWriteWhileOnBranchIsNotCapture
   }
 }
 
+// Graph Versioning v1 (branch-local plan cache) regression lock: the plan cache used to be forced
+// to nullptr for the whole session whenever a branch was checked out (`current_db.branch_context()
+// == nullptr` in the old plan-cache selection), specifically because a plan built and cached while
+// on MAIN (e.g. a ScanAllByLabel against main's populated label index) must never be reused
+// verbatim on a branch, where the exact same operator would scan the diff engine's own
+// always-empty index instead -- silently returning 0 rows. The fix routes a checked-out session to
+// its own private, per-checkout `CurrentDB::branch_plan_cache()` instead of disabling caching
+// outright, so branches get real plan reuse while remaining structurally unable to read/pollute
+// main's cache (see the plan-cache selection comment at PrepareCypherQuery, interpreter.cpp). This
+// test locks the two things that must both hold for that fix to be correct rather than merely
+// "not obviously broken": (1) a query run on the branch must see fork-state data (the very
+// 0-rows hazard the old guard was protecting against) on both the first (cold) and second
+// (cache-hit) run, and (2) since the cache holds a PLAN, not a materialized result, a later run of
+// the identically-cached query must still reflect newly-written branch data, not a frozen
+// snapshot from the first run.
+TEST_F(VersioningInterpreterTest, BranchQueryPlanCacheServesCorrectResultsAcrossRepeatedRuns) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE INDEX ON :User(id)");
+  faker.Interpret("CREATE (:User {id: 1, tag: 'main'})");
+  faker.Interpret("CREATE (:User {id: 2, tag: 'main'})");
+  faker.Interpret("CREATE (:User {id: 3, tag: 'main'})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // First (cold) run: fork-state row must be visible through the branch's diff engine -- this is
+  // exactly the hazard the old branch-context guard existed to prevent (a main-shaped plan reused
+  // on a branch would instead scan the diff engine's own empty index and return 0 rows here).
+  {
+    auto stream = faker.Interpret("MATCH (n:User {id: 1}) RETURN n.tag");
+    ASSERT_EQ(stream.GetResults().size(), 1U)
+        << "fork-state row must be visible on the branch -- must NOT be the old 0-rows hazard";
+    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "main");
+  }
+
+  // Second, identical run: now served from the branch-local cache. A cache hit must reproduce the
+  // exact same (correct) result, not corrupt it or silently fall back to something stale/wrong.
+  {
+    auto stream = faker.Interpret("MATCH (n:User {id: 1}) RETURN n.tag");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "main");
+  }
+
+  // A fresh branch-native row under the SAME id -- proves the cache holds a reusable PLAN, not a
+  // memoized result set: re-running the cached plan must pick up this brand-new branch write.
+  faker.Interpret("CREATE (:User {id: 1, tag: 'branch'})");
+  {
+    auto stream = faker.Interpret("MATCH (n:User {id: 1}) RETURN n.tag");
+    ASSERT_EQ(stream.GetResults().size(), 2U)
+        << "reused plan must reflect fresh branch data, not a stale cached result";
+    const auto &tag0 = stream.GetResults()[0][0].ValueString();
+    const auto &tag1 = stream.GetResults()[1][0].ValueString();
+    EXPECT_TRUE((tag0 == "main" && tag1 == "branch") || (tag0 == "branch" && tag1 == "main"))
+        << "expected the set {main, branch}, got {" << tag0 << ", " << tag1 << "}";
+  }
+
+  // Same stripped query text (literal id stripped into a parameter), different id -- the cache is
+  // keyed on the stripped query, so this must still resolve against the correct id=2 row, not
+  // whatever id=1 last produced.
+  {
+    auto stream = faker.Interpret("MATCH (n:User {id: 2}) RETURN n.tag");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "main");
+  }
+}
+
+// Graph Versioning v1 (branch-local plan cache) hardening regression: the branch-local cache
+// selection must key off the per-TRANSACTION signal, not session state. `current_db.branch_context()`
+// alone stays non-null across a `USING VERSION 'main'` force-main query even though that query
+// routes THIS transaction at main's own storage -- so a naive `on_branch` computed from
+// branch_context() alone would file the main-shaped plan it builds under the branch's cache slot
+// (or, symmetrically, let a branch-shaped plan answer a force-main query from that same
+// mis-keyed slot). The fix keys `on_branch` off `bctx->current_diff_txn() != nullptr` instead --
+// set only when this transaction's own SetupDatabaseTransaction actually ran against the branch's
+// diff engine, which a force-main query never does -- mirroring the identical guard idiom
+// `Interpreter::Commit` uses to gate branch-changelog capture (interpreter.cpp:~11938), and its
+// sibling regression test above, UsingVersionMainWriteWhileOnBranchIsNotCapturedIntoBranchLog
+// (~line 1881), which locks the same guard for commit-time capture rather than plan-cache
+// selection.
+TEST_F(VersioningInterpreterTest, UsingVersionMainDoesNotPolluteBranchPlanCache) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:User {id: 1, tag: 'main'})");
+
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Branch-only row: main has no id=100 vertex.
+  faker.Interpret("CREATE (:User {id: 100, tag: 'branch'})");
+
+  // Force-main query while checked out on 'b': routes at main (current_diff_txn() stays null for
+  // this transaction), so main correctly has no id=100 row. This primes whatever cache slot a
+  // buggy `on_branch` computed from branch_context() alone would have used.
+  {
+    auto stream = faker.Interpret("USING VERSION 'main' MATCH (n:User {id: 100}) RETURN n.tag");
+    EXPECT_EQ(stream.GetResults().size(), 0U) << "main has no id=100 row";
+  }
+
+  // Ordinary (session-routed) branch query, same stripped text: if the force-main plan above had
+  // been cached under the branch's slot, this would wrongly reuse it and return 0 rows instead of
+  // the real branch-only vertex.
+  {
+    auto stream = faker.Interpret("MATCH (n:User {id: 100}) RETURN n.tag");
+    ASSERT_EQ(stream.GetResults().size(), 1U)
+        << "branch plan cache must not have been polluted by the force-main query above";
+    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "branch");
+  }
+
+  // Reverse direction: a second force-main query must not be answered by the branch-cached plan
+  // either -- main must still correctly report 0 rows.
+  {
+    auto stream = faker.Interpret("USING VERSION 'main' MATCH (n:User {id: 100}) RETURN n.tag");
+    EXPECT_EQ(stream.GetResults().size(), 0U)
+        << "force-main path must not be polluted by the branch-cached plan either";
+  }
+}
+
 // Bug fix (double-delete-on-a-branch crash): on a checked-out branch, `MATCH (:A)-[r:R]->(:B) DETACH
 // DELETE r DELETE r` used to ABORT the process (MG_ASSERT "The edge must be inserted here!",
 // storage.cpp) -- two separate Delete operators each call query::DbAccessor::DetachDelete once; the

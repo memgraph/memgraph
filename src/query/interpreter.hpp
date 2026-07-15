@@ -21,6 +21,7 @@
 #include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "query/context.hpp"
+#include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/plan_v2/frontend/query_planner_context.hpp"
 #include "query/stream.hpp"
@@ -363,6 +364,11 @@ struct CurrentDB {
     branch_context_ = std::move(context);
     branch_context_version_store_ = version_store;
     branch_context_name_ = std::move(name);
+    // Graph Versioning v1 (branch-local plan cache): a fresh, empty, per-checkout cache -- never
+    // shared with main's (see branch_plan_cache_ doc-comment below) -- so this checkout starts with
+    // no stale plans from whatever branch/checkout previously used this CurrentDB slot. Sized the
+    // same as main's own plan_cache_ (dbms/database.cpp), via the same flag.
+    branch_plan_cache_ = std::make_unique<query::PlanCacheLRU>(FLAGS_query_plan_cache_max_size);
     // CHUNK 7d (D10): a real branch context is now installed -- this connection is (re-)engaged
     // onto a branch; see VersioningEngaged() doc-comment above. A subsequent CHECKOUT BRANCH 'main'
     // un-engages this again via SetCurrentVersion(std::nullopt); there is no stickiness.
@@ -372,6 +378,13 @@ struct CurrentDB {
   // The session's private branch context, if CurrentVersion() names a checked-out branch; nullptr
   // on `main`. Consulted by SetupDatabaseTransaction (interpreter.cpp) to route ordinary Cypher.
   versioning::BranchContext *branch_context() { return branch_context_.get(); }
+
+  // Graph Versioning v1 (branch-local plan cache): the private plan cache for this checkout, if
+  // CurrentVersion() names a checked-out branch; nullptr on `main`. Holds ONLY plans built against
+  // this branch's own DbAccessor (its diff engine's always-empty index, not main's populated one),
+  // so it can never be cross-contaminated with main's cache -- see the plan-cache selection sites
+  // in interpreter.cpp (CypherQuery/EXPLAIN/PROFILE) for the full hazard writeup.
+  query::PlanCacheLRU *branch_plan_cache() { return branch_plan_cache_.get(); }
 
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
@@ -387,6 +400,11 @@ struct CurrentDB {
   // Graph Versioning v1 (lazy diff-context, slice E-1) -- see SetBranchContext()/branch_context()
   // above.
   std::unique_ptr<versioning::BranchContext> branch_context_;
+  // Graph Versioning v1 (branch-local plan cache) -- see SetBranchContext()/branch_plan_cache()
+  // above. Owned per-checkout (created in SetBranchContext, torn down in ClearBranchContext) so it
+  // never outlives -- and never mixes plans across -- a single branch checkout. Non-null iff
+  // branch_context_ is non-null; always nullptr on `main`.
+  std::unique_ptr<query::PlanCacheLRU> branch_plan_cache_;
 
  private:
   // Graph Versioning v1, CHUNK 7d (D10) -- paired with current_version_ above; see

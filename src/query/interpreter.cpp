@@ -341,6 +341,11 @@ void memgraph::query::CurrentDB::ClearBranchContext() {
   // Finalizing before releasing closes that window: by the time ReleaseCheckout makes the checkout
   // visible as free to a concurrent BeginMerge, this session's file is already renamed and complete.
   branch_context_.reset();
+  // Graph Versioning v1 (branch-local plan cache): tear down this checkout's private plan cache
+  // alongside branch_context_ itself -- no cross-Database pointer dependency here (unlike
+  // branch_context_version_store_ below), so its exact position among these resets isn't ordering-
+  // sensitive; kept next to branch_context_.reset() so the two lifetimes match exactly.
+  branch_plan_cache_.reset();
   branch_context_version_store_->ReleaseCheckout(branch_context_name_);
   branch_context_version_store_ = nullptr;
   branch_context_name_.clear();
@@ -3663,15 +3668,26 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       &*current_db
             .execution_db_accessor_;  // todo pass the full current_db into planner...make plan optimisation optional
 
-  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(a) FIX (adversarial-review): the plan
-  // cache is per-Database, shared between main and every branch checked out against it. A plan
-  // built while on main (e.g. a ScanAllByLabel using main's populated label index) would otherwise
-  // be reused verbatim on a branch, where it scans the diff engine's own (always-empty) index
-  // instead -- silently returning 0 rows. Branches must always replan, and must never pollute (or
-  // read from) main's cache with a branch-shaped plan. Checked via current_db.branch_context()
-  // (non-null iff a branch is checked out for this transaction) rather than is_cacheable alone.
-  const auto is_cacheable = parsed_query.is_cacheable && current_db.branch_context() == nullptr;
-  auto *plan_cache = is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
+  // Graph Versioning v1 (branch-local plan cache) HIGH-3(a) FIX (adversarial-review): the shared,
+  // per-Database plan cache is main-shaped -- a plan built while on main (e.g. a ScanAllByLabel
+  // using main's populated label index) would otherwise be reused verbatim on a branch, where it
+  // scans the diff engine's own (always-empty) index instead -- silently returning 0 rows. Rather
+  // than disabling caching for branches outright, route a checked-out session to its own private,
+  // per-checkout branch_plan_cache() (see CurrentDB::SetBranchContext/ClearBranchContext): it holds
+  // ONLY plans built against that branch's own DbAccessor, so it structurally can never be
+  // cross-contaminated with -- or reused from -- main's cache, while still giving branches plan
+  // reuse within a checkout. `on_branch` must be the per-TRANSACTION signal, not session state:
+  // current_db.branch_context() alone stays non-null across a USING VERSION 'main' force-main
+  // override, which routes THIS transaction at main's own storage -- caching that plan under the
+  // branch would still be a main-shaped plan mislabeled as branch-shaped. `current_diff_txn()` is
+  // set only when SetupDatabaseTransaction actually ran this transaction against the branch's diff
+  // engine (interpreter.cpp:282), so it is false on a force-main query -- mirroring the identical
+  // guard Commit() uses to decide branch-changelog capture (interpreter.cpp:~11938).
+  auto *bctx = current_db.branch_context();
+  const bool on_branch = bctx != nullptr && bctx->current_diff_txn() != nullptr;
+  auto *plan_cache = !parsed_query.is_cacheable ? nullptr
+                     : on_branch                ? current_db.branch_plan_cache()
+                                                : current_db.db_acc_->get()->plan_cache();
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query,
                                 std::move(parsed_query.ast_storage),
@@ -3802,12 +3818,16 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
   MG_ASSERT(current_db.execution_db_accessor_, "Explain query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(a) FIX: same branch-vs-main plan
-  // cache hazard as the main Cypher path above -- EXPLAIN must not read/write main's cache while a
-  // branch is checked out either (see the fuller comment at the CypherQuery plan-cache selection).
-  auto *plan_cache = (parsed_inner_query.is_cacheable && current_db.branch_context() == nullptr)
-                         ? current_db.db_acc_->get()->plan_cache()
-                         : nullptr;
+  // Graph Versioning v1 (branch-local plan cache) HIGH-3(a) FIX: same branch-vs-main plan cache
+  // selection as the main Cypher path above -- EXPLAIN routes a checked-out branch to its own
+  // private branch_plan_cache() instead of main's cache (see the fuller comment at the CypherQuery
+  // plan-cache selection, including why `on_branch` must key off the per-transaction
+  // current_diff_txn(), not session-level branch_context() alone).
+  auto *bctx = current_db.branch_context();
+  const bool on_branch = bctx != nullptr && bctx->current_diff_txn() != nullptr;
+  auto *plan_cache = !parsed_inner_query.is_cacheable ? nullptr
+                     : on_branch                      ? current_db.branch_plan_cache()
+                                                      : current_db.db_acc_->get()->plan_cache();
 
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,
                                              std::move(parsed_inner_query.ast_storage),
@@ -3918,12 +3938,16 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-  // Graph Versioning v1 (lazy diff-context, slice E-1) HIGH-3(a) FIX: same branch-vs-main plan
-  // cache hazard as the main Cypher path above -- PROFILE must not read/write main's cache while a
-  // branch is checked out either (see the fuller comment at the CypherQuery plan-cache selection).
-  auto *plan_cache = (parsed_inner_query.is_cacheable && current_db.branch_context() == nullptr)
-                         ? current_db.db_acc_->get()->plan_cache()
-                         : nullptr;
+  // Graph Versioning v1 (branch-local plan cache) HIGH-3(a) FIX: same branch-vs-main plan cache
+  // selection as the main Cypher path above -- PROFILE routes a checked-out branch to its own
+  // private branch_plan_cache() instead of main's cache (see the fuller comment at the CypherQuery
+  // plan-cache selection, including why `on_branch` must key off the per-transaction
+  // current_diff_txn(), not session-level branch_context() alone).
+  auto *bctx = current_db.branch_context();
+  const bool on_branch = bctx != nullptr && bctx->current_diff_txn() != nullptr;
+  auto *plan_cache = !parsed_inner_query.is_cacheable ? nullptr
+                     : on_branch                      ? current_db.branch_plan_cache()
+                                                      : current_db.db_acc_->get()->plan_cache();
   auto cypher_query_plan = CypherQueryToPlan(parsed_inner_query.stripped_query,
                                              std::move(parsed_inner_query.ast_storage),
                                              cypher_query,
