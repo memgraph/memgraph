@@ -94,6 +94,7 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
   // an edge already indexed by another vector-edge index stores no inline vector; recover it from that
   // index's uSearch so RegisterIndexId re-registers the real vector — else this second index gets nothing
   if (property.IsVectorIndexId()) {
+    DMG_ASSERT(!property.ValueVectorIndexIds().empty(), "VectorIndexId property has no index IDs");
     property.ValueVectorIndexList() = GetVectorPropertyFromEdgeIndex(
         edge, name_id_mapper->IdToName(property.ValueVectorIndexIds()[0]), name_id_mapper);
   }
