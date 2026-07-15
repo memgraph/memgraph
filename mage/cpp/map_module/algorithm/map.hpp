@@ -68,14 +68,14 @@ constexpr std::string_view kArgumentsRecursiveRemoveKeys = "config";
 
 /* get constants */
 constexpr std::string_view kProcedureGet = "get";
-constexpr std::string_view kGetArgMap = "map";
-constexpr std::string_view kGetArgKey = "key";
-constexpr std::string_view kGetArgValue = "value";
-constexpr std::string_view kGetArgFail = "fail";
+constexpr std::string_view kArgumentMapGet = "map";
+constexpr std::string_view kArgumentKeyGet = "key";
+constexpr std::string_view kArgumentValueGet = "value";
+constexpr std::string_view kArgumentFailGet = "fail";
 
 /* merge_list constants */
 constexpr std::string_view kProcedureMergeList = "merge_list";
-constexpr std::string_view kMergeListArgMaps = "maps";
+constexpr std::string_view kArgumentMapsMergeList = "maps";
 
 void FromNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 

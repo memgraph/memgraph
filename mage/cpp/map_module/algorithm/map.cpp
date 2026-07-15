@@ -108,8 +108,9 @@ void Map::SetKey(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *re
   auto result = mgp::Result(res);
 
   try {
-    // A null map is treated as empty and a null key is a no-op.
-    mgp::Map map = arguments[0].IsMap() ? mgp::Map(arguments[0].ValueMap()) : mgp::Map();
+    // A null map is treated as empty and a null key is a no-op; any other non-map
+    // (e.g. a node) falls through to ValueMap() and throws, like the sibling functions.
+    mgp::Map map = arguments[0].IsNull() ? mgp::Map() : mgp::Map(arguments[0].ValueMap());
     if (!arguments[1].IsNull()) {
       map.Update(std::string(arguments[1].ValueString()), arguments[2]);
     }
@@ -361,6 +362,18 @@ void Map::SetResult(mgp::Result &result, const mgp::Value &value) {
     case mgp::Type::Duration:
       result.SetValue(value.ValueDuration());
       break;
+    case mgp::Type::ZonedDateTime:
+      result.SetValue(value.ValueZonedDateTime());
+      break;
+    case mgp::Type::Point2d:
+      result.SetValue(value.ValuePoint2d());
+      break;
+    case mgp::Type::Point3d:
+      result.SetValue(value.ValuePoint3d());
+      break;
+    case mgp::Type::Enum:
+      result.SetValue(value.ValueEnum());
+      break;
     default:
       std::ostringstream oss;
       oss << value.Type();
@@ -414,8 +427,8 @@ void Map::MergeList(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result 
   try {
     const auto maps = arguments[0].ValueList();
     mgp::Map merged{};
-    for (const auto element : maps) {
-      for (const auto entry : element.ValueMap()) {
+    for (const auto element_map : maps) {
+      for (const auto entry : element_map.ValueMap()) {
         merged.Update(entry.key, entry.value);  // last key wins
       }
     }

@@ -1,0 +1,5 @@
+query: >
+  MATCH (n:Person) RETURN map.merge_list([n, {x: 1}]) AS result;
+
+exception: >
+  Type of value is wrong: expected Map.
