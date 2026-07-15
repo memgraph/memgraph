@@ -1628,7 +1628,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     struct Candidate {
       FilterInfo filter;
       storage::PropertyId property;
-      int64_t count;
+      int64_t estimated_count;
     };
 
     std::optional<Candidate> best;
@@ -1641,9 +1641,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto const &prop_ix = filter.property_filter->property_ids_.path[0];
       auto property = GetProperty(prop_ix);
       if (!db_->VertexPropertyIndexReady(property)) continue;
-      auto count = db_->VerticesCount(property);
-      if (!best || count < best->count) {
-        best = Candidate{filter, property, count};
+      auto const total = db_->VerticesCount(property);
+      auto const estimated = filter.property_filter->type_ == PropertyFilter::Type::IS_NOT_NULL
+                                 ? total
+                                 : static_cast<int64_t>(total * CardParam::kFilter);
+      if (!best || estimated < best->estimated_count) {
+        best = Candidate{filter, property, estimated};
       }
     }
 
@@ -1655,10 +1658,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     metadata.filters_to_erase.push_back(best->filter);
 
-    auto const total_count = best->count;
-    auto const estimated_count = prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL
-                                     ? total_count
-                                     : static_cast<int64_t>(total_count * CardParam::kFilter);
+    auto const estimated_count = best->estimated_count;
 
     if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
       return ScanByIndexResult{
