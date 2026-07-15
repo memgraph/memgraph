@@ -510,26 +510,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return referenced ? TypedValue(found->second, ctx_->memory) : TypedValue(std::move(found->second), ctx_->memory);
     }
 
-    if (lhs_ptr->IsVertex()) {
+    if (lhs_ptr->IsVertex() || lhs_ptr->IsEdge() || lhs_ptr->IsVirtualNode() || lhs_ptr->IsVirtualEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
-    }
-
-    if (lhs_ptr->IsEdge()) {
-      if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
-    };
-
-    if (lhs_ptr->IsVirtualNode()) {
-      if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      // A projected node reads through the same GetProperty as a real vertex.
-      return {GetProperty(lhs_ptr->ValueVirtualNode(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
-    }
-
-    if (lhs_ptr->IsVirtualEdge()) {
-      if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      // A projected edge reads through the same GetProperty as a real edge.
-      return {GetProperty(lhs_ptr->ValueVirtualEdge(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
+      // A real and a projected element read through the same GetProperty; GetElementProperty hides the
+      // element-kind extraction so this call site does not branch on real-vs-virtual.
+      return {GetElementProperty(*lhs_ptr, index.ValueString()), GetNameIdMapper(), ctx_->memory};
     }
 
     // lhs is Null
@@ -1120,6 +1105,25 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
     }
     return *maybe_prop;
+  }
+
+  // Reads a named property from a node- or edge-like TypedValue, hiding the real-vs-virtual element
+  // extraction behind one call. The read logic is the shared GetProperty template above; only which
+  // concrete accessor it is handed differs, so the element-kind switch lives here once rather than
+  // being repeated at each property call site. Callers guard that `element` is one of these kinds.
+  storage::PropertyValue GetElementProperty(const TypedValue &element, std::string_view name) {
+    switch (element.type()) {
+      case TypedValue::Type::Vertex:
+        return GetProperty(element.ValueVertex(), name);
+      case TypedValue::Type::VirtualNode:
+        return GetProperty(element.ValueVirtualNode(), name);
+      case TypedValue::Type::Edge:
+        return GetProperty(element.ValueEdge(), name);
+      case TypedValue::Type::VirtualEdge:
+        return GetProperty(element.ValueVirtualEdge(), name);
+      default:
+        throw QueryRuntimeException("Expected a node or an edge to read a property from, got {}.", element.type());
+    }
   }
 
  private:
