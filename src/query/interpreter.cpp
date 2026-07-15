@@ -686,6 +686,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         break;
       case coordination::CreateRoleStatus::NOT_LEADER:
         throw QueryRuntimeException(GetNotLeaderRoleMessage());
+      case coordination::CreateRoleStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetLeaderNotFoundRoleMessage());
+      case coordination::CreateRoleStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedRoleMessage());
       case coordination::CreateRoleStatus::RAFT_LOG_ERROR:
         throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
     }
@@ -699,21 +703,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
       case coordination::DropRoleStatus::NOT_LEADER:
         throw QueryRuntimeException(GetNotLeaderRoleMessage());
+      case coordination::DropRoleStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetLeaderNotFoundRoleMessage());
+      case coordination::DropRoleStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedRoleMessage());
       case coordination::DropRoleStatus::RAFT_LOG_ERROR:
         throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
     }
   }
 
   std::vector<std::string> ShowRoles() override {
-    std::vector<coordination::CoordinatorRole> roles;
-    switch (coordinator_handler_.GetRoles(roles)) {
-      case coordination::GetRolesStatus::SUCCESS: {
-        return roles | rv::transform([](auto const &role) { return role.name; }) | ranges::to_vector;
-      }
-      case coordination::GetRolesStatus::NOT_LEADER:
-        throw QueryRuntimeException(GetNotLeaderRoleMessage());
-    }
-    return {};
+    // A follower serves the read from local replicated state when the leader is unreachable, so this always succeeds.
+    auto const roles = coordinator_handler_.GetRoles();
+    return roles | rv::transform([](auto const &role) { return role.name; }) | ranges::to_vector;
   }
 
   void GrantCoordinatorPrivilege(std::string_view const role_name, uint64_t const privileges) override {
@@ -724,6 +726,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
       case coordination::GrantPrivilegeStatus::NOT_LEADER:
         throw QueryRuntimeException(GetNotLeaderRoleMessage());
+      case coordination::GrantPrivilegeStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetLeaderNotFoundRoleMessage());
+      case coordination::GrantPrivilegeStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedRoleMessage());
       case coordination::GrantPrivilegeStatus::RAFT_LOG_ERROR:
         throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
     }
@@ -737,22 +743,23 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
       case coordination::RevokePrivilegeStatus::NOT_LEADER:
         throw QueryRuntimeException(GetNotLeaderRoleMessage());
+      case coordination::RevokePrivilegeStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetLeaderNotFoundRoleMessage());
+      case coordination::RevokePrivilegeStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedRoleMessage());
       case coordination::RevokePrivilegeStatus::RAFT_LOG_ERROR:
         throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
     }
   }
 
   uint64_t ShowRolePrivileges(std::string_view const role_name) override {
-    uint64_t privileges{0};
-    switch (coordinator_handler_.GetRolePrivileges(role_name, privileges)) {
-      case coordination::GetRolePrivilegesStatus::SUCCESS:
-        return privileges;
-      case coordination::GetRolePrivilegesStatus::NO_SUCH_ROLE:
-        throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
-      case coordination::GetRolePrivilegesStatus::NOT_LEADER:
-        throw QueryRuntimeException(GetNotLeaderRoleMessage());
+    // A follower serves the read from local replicated state when the leader is unreachable; nullopt means no such
+    // role.
+    auto const privileges = coordinator_handler_.GetRolePrivileges(role_name);
+    if (!privileges.has_value()) {
+      throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
     }
-    return privileges;
+    return *privileges;
   }
 
   std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() override {
@@ -1053,8 +1060,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
  private:
-  // Builds a not-leader error message pointing at the current leader when known. Role queries are served by the leader;
-  // follower forwarding is a later slice.
+  // Builds a not-leader error message pointing at the current leader when known. Role queries are forwarded to the
+  // leader; this is only surfaced if the local leader path is hit while not ready.
   std::string GetNotLeaderRoleMessage() const {
     constexpr std::string_view common_message = "Role queries can only be run on the leader coordinator!";
     if (auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData()) {
@@ -1067,6 +1074,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
         "are down.",
         common_message);
+  }
+
+  // A role/privilege query was forwarded but no leader could be found (e.g. an election is in progress).
+  static constexpr std::string_view GetLeaderNotFoundRoleMessage() {
+    return "Tried to forward the role query to the current leader but the leader couldn't be found! Try contacting "
+           "other coordinators as there might be leader election happening or other coordinators are down.";
+  }
+
+  // A role/privilege query was forwarded to the leader but the RPC failed. This also covers a mixed-version leader that
+  // has no handler for the role RPC during a rolling upgrade -- the query fails with an error rather than crashing.
+  static constexpr std::string_view GetLeaderFailedRoleMessage() {
+    return "Role query forwarded to the leader but it failed to process the request! Check the logs on the leader to "
+           "find out what happened. During a rolling upgrade this can mean the leader has not been upgraded yet.";
   }
 
   dbms::CoordinatorHandler coordinator_handler_;

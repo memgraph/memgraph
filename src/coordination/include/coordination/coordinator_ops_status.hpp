@@ -20,12 +20,42 @@ namespace memgraph::coordination {
 enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
 enum class SetCoordinatorSettingStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR, UNKNOWN_SETTING, INVALID_ARGUMENT };
 
-enum class CreateRoleStatus : uint8_t { SUCCESS = 0, ROLE_ALREADY_EXISTS, NOT_LEADER, RAFT_LOG_ERROR };
-enum class DropRoleStatus : uint8_t { SUCCESS = 0, NO_SUCH_ROLE, NOT_LEADER, RAFT_LOG_ERROR };
-enum class GetRolesStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
-enum class GrantPrivilegeStatus : uint8_t { SUCCESS = 0, NO_SUCH_ROLE, NOT_LEADER, RAFT_LOG_ERROR };
-enum class RevokePrivilegeStatus : uint8_t { SUCCESS = 0, NO_SUCH_ROLE, NOT_LEADER, RAFT_LOG_ERROR };
-enum class GetRolePrivilegesStatus : uint8_t { SUCCESS = 0, NO_SUCH_ROLE, NOT_LEADER };
+// Role/privilege ops forward to the leader (see CoordinatorInstance). SUCCESS/LEADER_FAILED/LEADER_NOT_FOUND make the
+// write enums satisfy the ForwardableStatus concept; the RPC round-trip preserves the leader's exact status so a
+// forwarded query reports the same outcome (e.g. ROLE_ALREADY_EXISTS) as a leader-local one. LEADER_FAILED also covers
+// a mixed-version leader that has no handler for the RPC (surfaced as an error, never a crash).
+enum class CreateRoleStatus : uint8_t {
+  SUCCESS = 0,
+  ROLE_ALREADY_EXISTS,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
+};
+enum class DropRoleStatus : uint8_t {
+  SUCCESS = 0,
+  NO_SUCH_ROLE,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
+};
+enum class GrantPrivilegeStatus : uint8_t {
+  SUCCESS = 0,
+  NO_SUCH_ROLE,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
+};
+enum class RevokePrivilegeStatus : uint8_t {
+  SUCCESS = 0,
+  NO_SUCH_ROLE,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
+};
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS = 0,
