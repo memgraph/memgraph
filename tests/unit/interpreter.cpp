@@ -1158,6 +1158,31 @@ TYPED_TEST(InterpreterTest, CallUseScopeBreadthFirstOverSubgraphRespectsMembersh
   EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "b");
 }
 
+// A named path (p=...) over a projection cannot be assembled - query::Path holds real accessors,
+// not virtual ones. This must raise a clear query error, never abort (DMG_ASSERT) or surface a
+// cryptic TypedValue type error. It is a v1 boundary (issue 50).
+TYPED_TEST(InterpreterTest, CallUseScopeNamedPathOverProjectionErrors) {
+  ASSERT_THROW(this->Interpret("WITH [virtualNode(1, 'N', {}), virtualNode(2, 'N', {})] AS nodes, "
+                               "[virtualEdge('R', 1, 2)] AS edges "
+                               "WITH virtualGraph(nodes, edges) AS g "
+                               "CALL { USE g MATCH p=(a)-[:R]->(b) RETURN p } "
+                               "RETURN p"),
+               memgraph::query::QueryRuntimeException);
+}
+
+// A named path over a subgraph works: a subgraph's elements are real accessors, so query::Path
+// assembles normally (issue 50 boundary is specific to projections).
+TYPED_TEST(InterpreterTest, CallUseScopeNamedPathOverSubgraphWorks) {
+  this->Interpret("CREATE (:A {name: 'a'})-[:R]->(:B {name: 'b'});");
+  auto stream = this->Interpret(
+      "MATCH q=(:A)-[:R]->(:B) "
+      "WITH project(q) AS sg "
+      "CALL { USE sg MATCH p=(x:A)-[:R]->(y) RETURN length(p) AS len } "
+      "RETURN len");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+}
+
 // degree/inDegree/outDegree over a projection node inside a USE scope count the
 // projection's edges, which differ from the node's real-graph degree.
 TYPED_TEST(InterpreterTest, CallUseScopeDegreeOverProjection) {

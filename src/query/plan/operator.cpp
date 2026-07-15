@@ -4386,7 +4386,13 @@ class ConstructNamedPathCursor : public Cursor {
       return true;
     }
 
-    DMG_ASSERT(start_vertex.IsVertex(), "First named path element must be a vertex");
+    // A named path holds real accessors (query::Path), so a projection's virtual nodes/edges cannot
+    // be assembled into one. Raise a clear v1 boundary error rather than fall through to the cryptic
+    // TypedValue type error (release) or the DMG_ASSERT abort (debug). Named paths over a subgraph
+    // work, since a subgraph's elements are real.
+    if (!start_vertex.IsVertex()) [[unlikely]] {
+      throw QueryRuntimeException("A named path is not supported over a projection in a USE scope.");
+    }
     query::Path path(start_vertex.ValueVertex(), pull_memory);
 
     // If the last path element symbol was for an edge list, then
