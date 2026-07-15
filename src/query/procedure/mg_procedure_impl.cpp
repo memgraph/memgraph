@@ -4154,26 +4154,10 @@ std::vector<memgraph::storage::PropertyId> TextEdgeIndexSearchedProperties(const
   return it == indices.text_edge_indices.end() ? std::vector<memgraph::storage::PropertyId>{} : it->properties;
 }
 
-// A specified-property query names its fields as `data.<property>:value`, combinable with AND/OR/NOT/().
-// Collect the referenced property set; the boolean structure is irrelevant because a hit's existence can
-// reveal any referenced field's content, so all of them must be readable. Unknown names are skipped; an
-// empty result signals the caller to fall back to the index's full property set.
 std::vector<memgraph::storage::PropertyId> QueriedTextProperties(const mgp_graph &graph, std::string_view query) {
-  constexpr std::string_view kFieldPrefix = "data.";
-  const auto is_ident = [](const char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
-  };
   std::vector<memgraph::storage::PropertyId> properties;
-  for (auto pos = query.find(kFieldPrefix); pos != std::string_view::npos; pos = query.find(kFieldPrefix, pos)) {
-    const auto name_start = pos + kFieldPrefix.size();
-    auto name_end = name_start;
-    while (name_end < query.size() && is_ident(query[name_end])) ++name_end;
-    pos = name_end;
-    // the trailing ':' marks a field reference and rules out a value that merely contains "data."
-    if (name_end == name_start || name_end >= query.size() || query[name_end] != ':') continue;
-    if (const auto property = graph.getImpl()->NameToPropertyIfExists(query.substr(name_start, name_end - name_start)))
-      properties.push_back(*property);
-  }
+  for (const auto field : memgraph::query::procedure::ReferencedTextQueryFields(query))
+    if (const auto property = graph.getImpl()->NameToPropertyIfExists(field)) properties.push_back(*property);
   return properties;
 }
 
