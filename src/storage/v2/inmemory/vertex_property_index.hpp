@@ -67,7 +67,7 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
   };
 
   struct IndicesContainer {
-    IndicesContainer(IndicesContainer const &other) : indices_(other.indices_) {}
+    IndicesContainer(IndicesContainer const &) = default;
 
     IndicesContainer(IndicesContainer &&) = default;
     IndicesContainer &operator=(IndicesContainer const &) = delete;
