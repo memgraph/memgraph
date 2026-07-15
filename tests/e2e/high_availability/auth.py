@@ -885,5 +885,191 @@ def test_roles_survive_full_cluster_restart(test_name):
     mg_sleep_and_assert(["admin", "readonly", "readwrite"], get_roles_from_leader)
 
 
+# ---------------------------------------------------------------------------
+# Follower forwarding + persistence (slice 05).
+#
+# Every role/privilege query works from any coordinator: run on a follower it
+# is transparently forwarded to the leader (writes committed via Raft, reads
+# reflecting committed state). The role set survives lagging-follower catch-up
+# and leader failover.
+# ---------------------------------------------------------------------------
+
+PORT_TO_NAME = {7690: "coordinator_1", 7691: "coordinator_2", 7692: "coordinator_3"}
+
+
+def find_follower_ports(leader_port):
+    """Bolt ports of the (up) coordinators that are not the current leader."""
+    return [port for port in COORD_PORTS if port != leader_port]
+
+
+def get_cursor(port):
+    return connect(host="localhost", port=port).cursor()
+
+
+def test_role_crud_forwarded_from_follower(test_name):
+    # CREATE/DROP/SHOW ROLE run on a follower are forwarded to the leader. Successful writes/reads produce the same
+    # result as on the leader; a rejected write only surfaces as a generic forwarding error, since the follower learns
+    # success/failure over RPC, not the leader's exact status (exact reasons are asserted in test_role_crud_on_leader).
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    follower_port = find_follower_ports(leader_port)[0]
+    follower_cursor = get_cursor(follower_port)
+    leader_cursor = get_cursor(leader_port)
+
+    # CREATE on a follower is forwarded and committed; both the follower and the leader observe it.
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE r1")
+    assert show_roles(follower_cursor) == ["r1"]
+    assert show_roles(leader_cursor) == ["r1"]
+
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE r2")
+    assert show_roles(follower_cursor) == ["r1", "r2"]
+
+    # A write the leader rejects (here, a duplicate role) surfaces on the follower as a generic forwarding error rather
+    # than the leader's exact "already exists" reason.
+    try:
+        execute_and_fetch_all(follower_cursor, "CREATE ROLE r1")
+        assert False, "Duplicate CREATE ROLE forwarded from a follower should error"
+    except Exception as e:
+        assert "failed to process the request" in str(e), f"Unexpected error: {e}"
+
+    # DROP on a follower is forwarded and committed.
+    execute_and_fetch_all(follower_cursor, "DROP ROLE r1")
+    assert show_roles(follower_cursor) == ["r2"]
+    assert show_roles(leader_cursor) == ["r2"]
+
+    # DROP of a missing role forwarded from a follower surfaces the same generic forwarding error.
+    try:
+        execute_and_fetch_all(follower_cursor, "DROP ROLE r1")
+        assert False, "DROP of a missing role forwarded from a follower should error"
+    except Exception as e:
+        assert "failed to process the request" in str(e), f"Unexpected error: {e}"
+
+
+def test_privilege_grant_revoke_show_forwarded_from_follower(test_name):
+    # GRANT/REVOKE and SHOW PRIVILEGES FOR ROLE run on a follower are forwarded to the leader.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    follower_port = find_follower_ports(leader_port)[0]
+    follower_cursor = get_cursor(follower_port)
+    leader_cursor = get_cursor(leader_port)
+
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE reader")
+
+    # A bare role shows no privilege (forwarded read).
+    assert show_privileges(follower_cursor, "reader") == []
+
+    # GRANT forwarded from a follower is reflected in SHOW PRIVILEGES FOR ROLE from both coordinators.
+    execute_and_fetch_all(follower_cursor, "GRANT COORDINATOR_READ TO reader")
+    assert show_privileges(follower_cursor, "reader") == ["COORDINATOR_READ"]
+    assert show_privileges(leader_cursor, "reader") == ["COORDINATOR_READ"]
+
+    # GRANT ALL PRIVILEGES forwarded from a follower grants both.
+    execute_and_fetch_all(follower_cursor, "GRANT ALL PRIVILEGES TO reader")
+    assert show_privileges(follower_cursor, "reader") == ["COORDINATOR_READ", "COORDINATOR_WRITE"]
+
+    # REVOKE forwarded from a follower clears a single privilege.
+    execute_and_fetch_all(follower_cursor, "REVOKE COORDINATOR_READ FROM reader")
+    assert show_privileges(follower_cursor, "reader") == ["COORDINATOR_WRITE"]
+
+    # REVOKE ALL PRIVILEGES forwarded from a follower removes both.
+    execute_and_fetch_all(follower_cursor, "REVOKE ALL PRIVILEGES FROM reader")
+    assert show_privileges(follower_cursor, "reader") == []
+
+    # GRANT on a missing role forwarded from a follower surfaces a generic forwarding error rather than the leader's
+    # exact "doesn't exist" reason.
+    try:
+        execute_and_fetch_all(follower_cursor, "GRANT COORDINATOR_READ TO missing_role")
+        assert False, "GRANT on a missing role forwarded from a follower should error"
+    except Exception as e:
+        assert "failed to process the request" in str(e), f"Unexpected error: {e}"
+
+
+def test_lagging_follower_catch_up(test_name):
+    # A coordinator that is down while roles/privileges change reconstructs the exact role set on rejoin.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    leader_cursor = get_cursor(leader_port)
+
+    # Seed some state while all three coordinators are up.
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE stable")
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE to_drop")
+    execute_and_fetch_all(leader_cursor, "GRANT COORDINATOR_READ TO stable")
+
+    # Take one follower down.
+    lagging_port = find_follower_ports(leader_port)[0]
+    lagging_name = PORT_TO_NAME[lagging_port]
+    interactive_mg_runner.kill(inner_instances_description, lagging_name)
+
+    # Mutate roles/privileges while the follower is down (committed by the leader + the remaining follower).
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE added_while_down")
+    execute_and_fetch_all(leader_cursor, "GRANT COORDINATOR_WRITE TO added_while_down")
+    execute_and_fetch_all(leader_cursor, "GRANT COORDINATOR_WRITE TO stable")
+    execute_and_fetch_all(leader_cursor, "DROP ROLE to_drop")
+
+    expected_roles = ["added_while_down", "stable"]
+
+    # Bring the lagging follower back. Clear its setup so restart does not re-run ADD COORDINATOR.
+    inner_instances_description[lagging_name]["setup_queries"] = []
+    interactive_mg_runner.start(inner_instances_description, lagging_name)
+
+    # Once it rejoins, the rejoined coordinator agrees on the exact role set (its Bolt server may take a moment to come
+    # up, so poll through a fresh connection).
+    def roles_from_rejoined():
+        try:
+            return show_roles(get_cursor(lagging_port))
+        except Exception:
+            return None
+
+    mg_sleep_and_assert(expected_roles, roles_from_rejoined)
+
+    # Each role's mask survived too.
+    rejoined_cursor = get_cursor(lagging_port)
+    assert show_privileges(rejoined_cursor, "stable") == ["COORDINATOR_READ", "COORDINATOR_WRITE"]
+    assert show_privileges(rejoined_cursor, "added_while_down") == ["COORDINATOR_WRITE"]
+
+
+def test_leader_failover_preserves_roles(test_name):
+    # After the leader is killed and a new leader elected, the role set and masks are preserved.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    leader_cursor = get_cursor(leader_port)
+
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE admin")
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE readonly")
+    execute_and_fetch_all(leader_cursor, "GRANT ALL PRIVILEGES TO admin")
+    execute_and_fetch_all(leader_cursor, "GRANT COORDINATOR_READ TO readonly")
+    assert show_roles(leader_cursor) == ["admin", "readonly"]
+
+    # Kill the current leader. Clear its setup so a later restart would not re-bootstrap; here we just take it down.
+    leader_name = PORT_TO_NAME[leader_port]
+    inner_instances_description[leader_name]["setup_queries"] = []
+    interactive_mg_runner.kill(inner_instances_description, leader_name)
+
+    # A new leader is elected among the two survivors and serves the committed role set locally.
+    def roles_from_new_leader():
+        port = try_find_leader_port()
+        if port is None or port == leader_port:
+            return None
+        try:
+            return show_roles(get_cursor(port))
+        except Exception:
+            return None
+
+    mg_sleep_and_assert(["admin", "readonly"], roles_from_new_leader)
+
+    new_leader_port = try_find_leader_port()
+    new_leader_cursor = get_cursor(new_leader_port)
+    assert show_privileges(new_leader_cursor, "admin") == ["COORDINATOR_READ", "COORDINATOR_WRITE"]
+    assert show_privileges(new_leader_cursor, "readonly") == ["COORDINATOR_READ"]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

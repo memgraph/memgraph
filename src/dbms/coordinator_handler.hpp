@@ -55,14 +55,13 @@ class CoordinatorHandler {
 
   auto DropRole(std::string_view role_name) const -> coordination::DropRoleStatus;
 
-  auto GetRoles(std::vector<coordination::CoordinatorRole> &roles) const -> coordination::GetRolesStatus;
+  auto GetRoles() const -> std::vector<coordination::CoordinatorRole>;
 
   auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> coordination::GrantPrivilegeStatus;
 
   auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> coordination::RevokePrivilegeStatus;
 
-  auto GetRolePrivileges(std::string_view role_name, uint64_t &privileges) const
-      -> coordination::GetRolePrivilegesStatus;
+  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<uint64_t>;
 
   auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
 

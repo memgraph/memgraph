@@ -13,6 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
@@ -191,6 +192,16 @@ inline void Load(coordination::CoordinatorInstanceConfig *obj, Reader *reader) {
   Load(&obj->coordinator_server, reader);
   Load(&obj->bolt_server, reader);
   Load(&obj->management_server, reader);
+}
+
+inline void Save(coordination::CoordinatorRole const &obj, Builder *builder) {
+  Save(obj.name, builder);
+  Save(obj.permissions, builder);
+}
+
+inline void Load(coordination::CoordinatorRole *obj, Reader *reader) {
+  Load(&obj->name, reader);
+  Load(&obj->permissions, reader);
 }
 
 inline void Save(coordination::DataInstanceConfig const &config, Builder *builder) {

@@ -18,6 +18,8 @@
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_connector.hpp"
@@ -95,13 +97,19 @@ class CoordinatorInstance {
 
   auto DropRole(std::string_view role_name) const -> DropRoleStatus;
 
-  auto GetRoles(std::vector<CoordinatorRole> &roles) const -> GetRolesStatus;
+  auto GetRoles() const -> std::vector<CoordinatorRole>;
 
   auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> GrantPrivilegeStatus;
 
   auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> RevokePrivilegeStatus;
 
-  auto GetRolePrivileges(std::string_view role_name, uint64_t &privileges) const -> GetRolePrivilegesStatus;
+  // Returns the role's privilege mask, or nullopt if the role doesn't exist.
+  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<uint64_t>;
+
+  // Leader-local reads backing the GetRoles*/GetRolePrivileges* forwarding RPCs. Return nullopt if this coordinator is
+  // not the ready leader; GetRolePrivilegesAsLeader returns {role_found, mask}.
+  auto GetRolesAsLeader() const -> std::optional<std::vector<CoordinatorRole>>;
+  auto GetRolePrivilegesAsLeader(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
 
   auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
   auto GetRoutingTableAsLeader(std::string_view db_name) const -> RoutingTable;

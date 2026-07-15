@@ -1150,7 +1150,11 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
 }
 
 auto CoordinatorInstance::CreateRole(std::string_view const role_name) const -> CreateRoleStatus {
-  // Follower forwarding is a later slice; for now the operation must run on the ready leader.
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res = ForwardToLeader<CreateRoleRpc, CreateRoleStatus>(std::string{role_name}); res.has_value()) {
+    return *res;
+  }
+
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return CreateRoleStatus::NOT_LEADER;
   }
@@ -1173,7 +1177,11 @@ auto CoordinatorInstance::CreateRole(std::string_view const role_name) const -> 
 }
 
 auto CoordinatorInstance::DropRole(std::string_view const role_name) const -> DropRoleStatus {
-  // Follower forwarding is a later slice; for now the operation must run on the ready leader.
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res = ForwardToLeader<DropRoleRpc, DropRoleStatus>(std::string{role_name}); res.has_value()) {
+    return *res;
+  }
+
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return DropRoleStatus::NOT_LEADER;
   }
@@ -1195,18 +1203,43 @@ auto CoordinatorInstance::DropRole(std::string_view const role_name) const -> Dr
   return DropRoleStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::GetRoles(std::vector<CoordinatorRole> &roles) const -> GetRolesStatus {
-  // SHOW ROLES is a strong read served by the leader; follower forwarding is a later slice.
+auto CoordinatorInstance::GetRolesAsLeader() const -> std::optional<std::vector<CoordinatorRole>> {
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
-    return GetRolesStatus::NOT_LEADER;
+    return std::nullopt;
   }
-  roles = raft_state_->GetRoles();
-  return GetRolesStatus::SUCCESS;
+  return raft_state_->GetRoles();
+}
+
+auto CoordinatorInstance::GetRoles() const -> std::vector<CoordinatorRole> {
+  // SHOW ROLES prefers a strong read from the leader; when the leader can't be reached a follower serves the read
+  // from its local replicated state, mirroring SHOW INSTANCES.
+  if (auto local = GetRolesAsLeader(); local.has_value()) {
+    return std::move(*local);
+  }
+
+  auto const leader_id = raft_state_->GetLeaderId();
+  // Skip forwarding if we are the (not-yet-ready) leader or no leader is elected; otherwise ask the leader.
+  if (leader_id != raft_state_->GetMyCoordinatorId() && leader_id != -1) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      if (auto res = leader->SendRpc<GetRolesRpc>(); res.has_value()) {
+        return std::move(*res);
+      }
+    }
+  }
+
+  spdlog::trace("Couldn't reach leader for SHOW ROLES; serving from local replicated state.");
+  return raft_state_->GetRoles();
 }
 
 auto CoordinatorInstance::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
     -> GrantPrivilegeStatus {
-  // Follower forwarding is a later slice; for now the operation must run on the ready leader.
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res =
+          ForwardToLeader<GrantPrivilegeRpc, GrantPrivilegeStatus>(std::pair{std::string{role_name}, privileges});
+      res.has_value()) {
+    return *res;
+  }
+
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return GrantPrivilegeStatus::NOT_LEADER;
   }
@@ -1230,7 +1263,13 @@ auto CoordinatorInstance::GrantPrivilege(std::string_view const role_name, uint6
 
 auto CoordinatorInstance::RevokePrivilege(std::string_view const role_name, uint64_t const privileges) const
     -> RevokePrivilegeStatus {
-  // Follower forwarding is a later slice; for now the operation must run on the ready leader.
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res =
+          ForwardToLeader<RevokePrivilegeRpc, RevokePrivilegeStatus>(std::pair{std::string{role_name}, privileges});
+      res.has_value()) {
+    return *res;
+  }
+
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return RevokePrivilegeStatus::NOT_LEADER;
   }
@@ -1252,19 +1291,43 @@ auto CoordinatorInstance::RevokePrivilege(std::string_view const role_name, uint
   return RevokePrivilegeStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::GetRolePrivileges(std::string_view const role_name, uint64_t &privileges) const
-    -> GetRolePrivilegesStatus {
-  // SHOW PRIVILEGES FOR is a strong read served by the leader; follower forwarding is a later slice.
+auto CoordinatorInstance::GetRolePrivilegesAsLeader(std::string_view const role_name) const
+    -> std::optional<std::pair<bool, uint64_t>> {
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
-    return GetRolePrivilegesStatus::NOT_LEADER;
+    return std::nullopt;
   }
   auto const roles = raft_state_->GetRoles();
   auto const it = std::ranges::find(roles, role_name, &CoordinatorRole::name);
   if (it == roles.end()) {
-    return GetRolePrivilegesStatus::NO_SUCH_ROLE;
+    return std::pair{false, uint64_t{0}};
   }
-  privileges = it->permissions;
-  return GetRolePrivilegesStatus::SUCCESS;
+  return std::pair{true, it->permissions};
+}
+
+auto CoordinatorInstance::GetRolePrivileges(std::string_view const role_name) const -> std::optional<uint64_t> {
+  // SHOW PRIVILEGES FOR ROLE prefers a strong read from the leader; when the leader can't be reached a follower serves
+  // the read from its local replicated state, mirroring SHOW INSTANCES. An empty optional means the role doesn't exist.
+  if (auto const local = GetRolePrivilegesAsLeader(role_name); local.has_value()) {
+    return local->first ? std::optional{local->second} : std::nullopt;
+  }
+
+  auto const leader_id = raft_state_->GetLeaderId();
+  // Skip forwarding if we are the (not-yet-ready) leader or no leader is elected; otherwise ask the leader.
+  if (leader_id != raft_state_->GetMyCoordinatorId() && leader_id != -1) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      if (auto const res = leader->SendRpc<GetRolePrivilegesRpc>(std::string{role_name}); res.has_value()) {
+        return res->first ? std::optional{res->second} : std::nullopt;
+      }
+    }
+  }
+
+  spdlog::trace("Couldn't reach leader for SHOW PRIVILEGES FOR ROLE; serving from local replicated state.");
+  auto const roles = raft_state_->GetRoles();
+  auto const it = std::ranges::find(roles, role_name, &CoordinatorRole::name);
+  if (it == roles.end()) {
+    return std::nullopt;
+  }
+  return it->permissions;
 }
 
 void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name, InstanceState const &instance_state) {

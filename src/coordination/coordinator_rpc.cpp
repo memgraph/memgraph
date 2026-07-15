@@ -473,6 +473,18 @@ SLK_EMPTY_MSG(coordination::StateCheckReqV1)
 SLK_EMPTY_MSG(coordination::StateCheckReqV2)
 SLK_EMPTY_MSG(coordination::StateCheckReq)
 SLK_SINGLE_ARG_MSG(coordination::StateCheckRes)
+SLK_SINGLE_ARG_MSG(coordination::CreateRoleReq)
+SLK_SINGLE_ARG_MSG(coordination::CreateRoleRes)
+SLK_SINGLE_ARG_MSG(coordination::DropRoleReq)
+SLK_SINGLE_ARG_MSG(coordination::DropRoleRes)
+SLK_EMPTY_MSG(coordination::GetRolesReq)
+SLK_SINGLE_ARG_MSG(coordination::GetRolesRes)
+SLK_SINGLE_ARG_MSG(coordination::GrantPrivilegeReq)
+SLK_SINGLE_ARG_MSG(coordination::GrantPrivilegeRes)
+SLK_SINGLE_ARG_MSG(coordination::RevokePrivilegeReq)
+SLK_SINGLE_ARG_MSG(coordination::RevokePrivilegeRes)
+SLK_SINGLE_ARG_MSG(coordination::GetRolePrivilegesReq)
+SLK_SINGLE_ARG_MSG(coordination::GetRolePrivilegesRes)
 }  // namespace slk
 
 }  // namespace memgraph
