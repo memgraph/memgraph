@@ -164,6 +164,22 @@ TEST_F(ToBoltTest, PropertyFGAOverlayOmitsDeniedOriginProperty) {
   EXPECT_FALSE(props.contains("ssn"));
 }
 
+TEST_F(ToBoltTest, PropertyFGAOverlayOriginLabelReadFailurePropagates) {
+  // When the origin's labels cannot be read (here: the origin vertex is deleted), the per-property FGA
+  // decision cannot be made. ToBoltVertex must propagate the storage error rather than silently drop
+  // or expose properties, matching how the query-side readers (eval, properties()) surface the same
+  // failure - the single OverlayReadAuthorization decision, reacted to per caller.
+  auto acc = storage->Access(memgraph::storage::WRITE);
+  auto vertex = acc->CreateVertex();
+  ASSERT_TRUE(vertex.AddLabel(acc->NameToLabel("Employee")).has_value());
+  ASSERT_TRUE(acc->DeleteVertex(&vertex).has_value());
+
+  memgraph::query::VirtualNode overlay({"Employee"}, {}, {}, std::optional<memgraph::query::VertexAccessor>{vertex});
+  StubPropertyFGAChecker checker(storage.get(), {{"Employee", "ssn"}});
+  auto result = memgraph::glue::ToBoltVertex(overlay, *storage, memgraph::storage::View::NEW, &checker);
+  EXPECT_FALSE(result.has_value());
+}
+
 TEST_F(ToBoltTest, PropertyFGAOverlayBoundOverrideExemptFromOriginDeny) {
   // An overlay-bound override is the author's computed value, not the origin's protected data, so it
   // is serialized even when its key name is denied on the origin's label.

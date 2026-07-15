@@ -118,4 +118,19 @@ TEST_F(OverlayReadAuthorizationTest, OverlayBoundOverrideExempt) {
   EXPECT_TRUE(auth->IsReadable(overlay, ssn));
 }
 
+TEST_F(OverlayReadAuthorizationTest, OriginLabelReadFailureIsSurfaced) {
+  auto acc = storage_->Access(storage::StorageAccessType::WRITE);
+  DbAccessor dba{acc.get()};
+  auto origin = InsertLabelled(dba, "Secret");
+  const tests::StubPropertyFGAChecker<DbAccessor> checker{&dba, {{"Secret", "ssn"}}};
+
+  // Deleting the origin makes reading its labels fail. For() must surface that error rather than
+  // silently deciding visibility, so each caller (eval fails closed, functions throw, Bolt propagates)
+  // reacts in its own way from one place - the drift this module was introduced to remove.
+  ASSERT_TRUE(dba.RemoveVertex(&origin).has_value());
+  VirtualNode overlay{{}, {}, VirtualNode::allocator_type{}, origin};
+  auto auth = OverlayReadAuthorization::For(overlay, View::NEW, &checker);
+  EXPECT_FALSE(auth.has_value());
+}
+
 }  // namespace memgraph::query::test
