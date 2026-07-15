@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "query/auth_checker.hpp"
-#include "query/frontend/ast/ast.hpp"
 #include "query/virtual_node.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/result.hpp"

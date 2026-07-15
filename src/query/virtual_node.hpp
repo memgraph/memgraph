@@ -83,20 +83,20 @@ class VirtualNode final {
 
   VirtualNode(label_list labels, property_map properties, allocator_type alloc = {},
               std::optional<VertexAccessor> origin = std::nullopt,
-              std::shared_ptr<const PropertyBinding> schema = nullptr)
+              std::shared_ptr<const PropertyBinding> binding = nullptr)
       : gid_(NextSyntheticGid()),
-        impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), std::move(origin), std::move(schema),
+        impl_(std::make_unique<Impl>(std::move(labels), std::move(properties), std::move(origin), std::move(binding),
                                      std::nullopt, alloc)) {}
 
   VirtualNode(const VirtualNode &other, allocator_type alloc)
       : gid_(other.gid_),
         impl_(std::make_unique<Impl>(other.impl_->labels, other.impl_->properties, other.impl_->origin,
-                                     other.impl_->schema, other.impl_->handle, alloc)) {}
+                                     other.impl_->binding, other.impl_->handle, alloc)) {}
 
   VirtualNode(VirtualNode &&other, allocator_type alloc)
       : gid_(other.gid_),
         impl_(std::make_unique<Impl>(std::move(other.impl_->labels), std::move(other.impl_->properties),
-                                     std::move(other.impl_->origin), std::move(other.impl_->schema),
+                                     std::move(other.impl_->origin), std::move(other.impl_->binding),
                                      other.impl_->handle, alloc)) {}
 
   VirtualNode(const VirtualNode &other) : VirtualNode(other, other.impl_->labels.get_allocator()) {}
@@ -134,27 +134,27 @@ class VirtualNode final {
 
   // True if this node references a projection-schema entry (set for overlay nodes from a derive()
   // whose schema is statically known). The reference is the schema table key carried on the wire.
-  [[nodiscard]] auto HasProjectionRef() const noexcept -> bool { return impl_->schema && impl_->schema->HasRef(); }
+  [[nodiscard]] auto HasProjectionRef() const noexcept -> bool { return impl_->binding && impl_->binding->HasRef(); }
 
   [[nodiscard]] auto ProjectionRef() const noexcept -> int64_t {
-    return impl_->schema ? impl_->schema->Ref() : kNoProjectionRef;
+    return impl_->binding ? impl_->binding->Ref() : kNoProjectionRef;
   }
 
   // A hidden key is invisible to reads and to function calls over the node, regardless of whether
-  // the origin or the overlay holds a value for it. A synthetic node (no schema) hides nothing.
+  // the origin or the overlay holds a value for it. A synthetic node (no binding) hides nothing.
   [[nodiscard]] auto IsHidden(storage::PropertyId key) const noexcept -> bool {
-    return impl_->schema && impl_->schema->IsHidden(key);
+    return impl_->binding && impl_->binding->IsHidden(key);
   }
 
   // An overlay-bound key reads from and writes to this node's overlay store. A key is overlay-bound
   // if it holds an overlay value here (a construction-time override, or a value set on the node) or
-  // the schema's propertyPolicy bound it 'overlay'; every other key on an overlay node is
+  // the binding's propertyPolicy bound it 'overlay'; every other key on an overlay node is
   // origin-bound. Read source and write target are coupled to one store per key, so this single
   // predicate decides both. A synthetic node has no origin, so its writes always hit the overlay
   // regardless of this predicate.
   [[nodiscard]] auto IsOverlayBound(storage::PropertyId key) const noexcept -> bool {
     return impl_->properties.find(key) != impl_->properties.end() ||
-           (impl_->schema && impl_->schema->IsOverlayBoundByPolicy(key));
+           (impl_->binding && impl_->binding->IsOverlayBoundByPolicy(key));
   }
 
   // Read, in the VertexAccessor shape: a single call site reads a property from either a real
@@ -250,19 +250,19 @@ class VirtualNode final {
     std::optional<VertexAccessor> origin;
     // The static per-projection binding + ref, shared across the projection's nodes; null for a
     // synthetic node (which hides nothing and binds every overlay-valued key).
-    std::shared_ptr<const PropertyBinding> schema;
+    std::shared_ptr<const PropertyBinding> binding;
     std::optional<int64_t> handle;
 
     Impl(const label_list &lbls, const property_map &props, const std::optional<VertexAccessor> &orig,
          std::shared_ptr<const PropertyBinding> sch, std::optional<int64_t> hndl, allocator_type alloc)
-        : labels(lbls, alloc), properties(props, alloc), origin(orig), schema(std::move(sch)), handle(hndl) {}
+        : labels(lbls, alloc), properties(props, alloc), origin(orig), binding(std::move(sch)), handle(hndl) {}
 
     Impl(label_list &&lbls, property_map &&props, std::optional<VertexAccessor> &&orig,
          std::shared_ptr<const PropertyBinding> sch, std::optional<int64_t> hndl, allocator_type alloc)
         : labels(std::move(lbls), alloc),
           properties(std::move(props), alloc),
           origin(std::move(orig)),
-          schema(std::move(sch)),
+          binding(std::move(sch)),
           handle(hndl) {}
   };
 

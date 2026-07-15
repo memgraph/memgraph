@@ -674,7 +674,9 @@ std::pair<int64_t, int64_t> AmbientInOutDegree(const TypedValue &arg, const Func
   // there is no view-kind branch here.
   const ScanVertex node = arg.IsVirtualNode() ? ScanVertex{arg.ValueVirtualNode()} : ScanVertex{arg.ValueVertex()};
   if (ctx.graph_view != nullptr) return ctx.graph_view->Degree(node, ctx.view);
-  // No ambient view bound (a real vertex evaluated outside a graph scope): fall back to real degree.
+  // No ambient view bound (evaluated outside a graph scope). A synthetic node has no ambient topology;
+  // a real vertex falls back to the real graph's per-vertex degree.
+  if (arg.IsVirtualNode()) return {0, 0};
   const auto &vertex = arg.ValueVertex();
   return {static_cast<int64_t>(UnwrapDegreeResult(vertex.InDegree(ctx.view))),
           static_cast<int64_t>(UnwrapDegreeResult(vertex.OutDegree(ctx.view)))};
