@@ -1210,29 +1210,25 @@ auto CoordinatorInstance::GetRolesAsLeader() const -> std::optional<std::vector<
   return raft_state_->GetRoles();
 }
 
-auto CoordinatorInstance::GetRoles(std::vector<CoordinatorRole> &roles) const -> GetRolesStatus {
-  // SHOW ROLES is a strong read served by the leader; a follower forwards the read.
+auto CoordinatorInstance::GetRoles() const -> std::vector<CoordinatorRole> {
+  // SHOW ROLES prefers a strong read from the leader; when the leader can't be reached a follower serves the read
+  // from its local replicated state, mirroring SHOW INSTANCES.
   if (auto local = GetRolesAsLeader(); local.has_value()) {
-    roles = std::move(*local);
-    return GetRolesStatus::SUCCESS;
+    return std::move(*local);
   }
 
   auto const leader_id = raft_state_->GetLeaderId();
-  // We are (becoming) leader but not yet ready to serve, or no leader is elected; treat as no reachable leader.
-  if (leader_id == raft_state_->GetMyCoordinatorId() || leader_id == -1) {
-    return GetRolesStatus::LEADER_NOT_FOUND;
+  // Skip forwarding if we are the (not-yet-ready) leader or no leader is elected; otherwise ask the leader.
+  if (leader_id != raft_state_->GetMyCoordinatorId() && leader_id != -1) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      if (auto res = leader->SendRpc<GetRolesRpc>(); res.has_value()) {
+        return std::move(*res);
+      }
+    }
   }
 
-  auto *leader = FindClientConnector(leader_id);
-  if (leader == nullptr) {
-    return GetRolesStatus::LEADER_NOT_FOUND;
-  }
-  auto res = leader->SendRpc<GetRolesRpc>();
-  if (!res.has_value()) {
-    return GetRolesStatus::LEADER_FAILED;
-  }
-  roles = std::move(*res);
-  return GetRolesStatus::SUCCESS;
+  spdlog::trace("Couldn't reach leader for SHOW ROLES; serving from local replicated state.");
+  return raft_state_->GetRoles();
 }
 
 auto CoordinatorInstance::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
@@ -1308,36 +1304,30 @@ auto CoordinatorInstance::GetRolePrivilegesAsLeader(std::string_view const role_
   return std::pair{true, it->permissions};
 }
 
-auto CoordinatorInstance::GetRolePrivileges(std::string_view const role_name, uint64_t &privileges) const
-    -> GetRolePrivilegesStatus {
-  // SHOW PRIVILEGES FOR is a strong read served by the leader; a follower forwards the read.
+auto CoordinatorInstance::GetRolePrivileges(std::string_view const role_name) const -> std::optional<uint64_t> {
+  // SHOW PRIVILEGES FOR ROLE prefers a strong read from the leader; when the leader can't be reached a follower serves
+  // the read from its local replicated state, mirroring SHOW INSTANCES. An empty optional means the role doesn't exist.
   if (auto const local = GetRolePrivilegesAsLeader(role_name); local.has_value()) {
-    if (!local->first) {
-      return GetRolePrivilegesStatus::NO_SUCH_ROLE;
-    }
-    privileges = local->second;
-    return GetRolePrivilegesStatus::SUCCESS;
+    return local->first ? std::optional{local->second} : std::nullopt;
   }
 
   auto const leader_id = raft_state_->GetLeaderId();
-  // We are (becoming) leader but not yet ready to serve, or no leader is elected; treat as no reachable leader.
-  if (leader_id == raft_state_->GetMyCoordinatorId() || leader_id == -1) {
-    return GetRolePrivilegesStatus::LEADER_NOT_FOUND;
+  // Skip forwarding if we are the (not-yet-ready) leader or no leader is elected; otherwise ask the leader.
+  if (leader_id != raft_state_->GetMyCoordinatorId() && leader_id != -1) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      if (auto const res = leader->SendRpc<GetRolePrivilegesRpc>(std::string{role_name}); res.has_value()) {
+        return res->first ? std::optional{res->second} : std::nullopt;
+      }
+    }
   }
 
-  auto *leader = FindClientConnector(leader_id);
-  if (leader == nullptr) {
-    return GetRolePrivilegesStatus::LEADER_NOT_FOUND;
+  spdlog::trace("Couldn't reach leader for SHOW PRIVILEGES FOR ROLE; serving from local replicated state.");
+  auto const roles = raft_state_->GetRoles();
+  auto const it = std::ranges::find(roles, role_name, &CoordinatorRole::name);
+  if (it == roles.end()) {
+    return std::nullopt;
   }
-  auto const res = leader->SendRpc<GetRolePrivilegesRpc>(std::string{role_name});
-  if (!res.has_value()) {
-    return GetRolePrivilegesStatus::LEADER_FAILED;
-  }
-  if (!res->first) {
-    return GetRolePrivilegesStatus::NO_SUCH_ROLE;
-  }
-  privileges = res->second;
-  return GetRolePrivilegesStatus::SUCCESS;
+  return it->permissions;
 }
 
 void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name, InstanceState const &instance_state) {

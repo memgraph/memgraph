@@ -713,19 +713,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   std::vector<std::string> ShowRoles() override {
-    std::vector<coordination::CoordinatorRole> roles;
-    switch (coordinator_handler_.GetRoles(roles)) {
-      case coordination::GetRolesStatus::SUCCESS: {
-        return roles | rv::transform([](auto const &role) { return role.name; }) | ranges::to_vector;
-      }
-      case coordination::GetRolesStatus::NOT_LEADER:
-        throw QueryRuntimeException(GetNotLeaderRoleMessage());
-      case coordination::GetRolesStatus::LEADER_NOT_FOUND:
-        throw QueryRuntimeException(GetLeaderNotFoundRoleMessage());
-      case coordination::GetRolesStatus::LEADER_FAILED:
-        throw QueryRuntimeException(GetLeaderFailedRoleMessage());
-    }
-    return {};
+    // A follower serves the read from local replicated state when the leader is unreachable, so this always succeeds.
+    auto const roles = coordinator_handler_.GetRoles();
+    return roles | rv::transform([](auto const &role) { return role.name; }) | ranges::to_vector;
   }
 
   void GrantCoordinatorPrivilege(std::string_view const role_name, uint64_t const privileges) override {
@@ -763,20 +753,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   uint64_t ShowRolePrivileges(std::string_view const role_name) override {
-    uint64_t privileges{0};
-    switch (coordinator_handler_.GetRolePrivileges(role_name, privileges)) {
-      case coordination::GetRolePrivilegesStatus::SUCCESS:
-        return privileges;
-      case coordination::GetRolePrivilegesStatus::NO_SUCH_ROLE:
-        throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
-      case coordination::GetRolePrivilegesStatus::NOT_LEADER:
-        throw QueryRuntimeException(GetNotLeaderRoleMessage());
-      case coordination::GetRolePrivilegesStatus::LEADER_NOT_FOUND:
-        throw QueryRuntimeException(GetLeaderNotFoundRoleMessage());
-      case coordination::GetRolePrivilegesStatus::LEADER_FAILED:
-        throw QueryRuntimeException(GetLeaderFailedRoleMessage());
+    // A follower serves the read from local replicated state when the leader is unreachable; nullopt means no such
+    // role.
+    auto const privileges = coordinator_handler_.GetRolePrivileges(role_name);
+    if (!privileges.has_value()) {
+      throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
     }
-    return privileges;
+    return *privileges;
   }
 
   std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() override {

@@ -40,7 +40,6 @@ enum class DropRoleStatus : uint8_t {
   LEADER_NOT_FOUND,
   LEADER_FAILED
 };
-enum class GetRolesStatus : uint8_t { SUCCESS = 0, NOT_LEADER, LEADER_NOT_FOUND, LEADER_FAILED };
 enum class GrantPrivilegeStatus : uint8_t {
   SUCCESS = 0,
   NO_SUCH_ROLE,
@@ -57,7 +56,6 @@ enum class RevokePrivilegeStatus : uint8_t {
   LEADER_NOT_FOUND,
   LEADER_FAILED
 };
-enum class GetRolePrivilegesStatus : uint8_t { SUCCESS = 0, NO_SUCH_ROLE, NOT_LEADER, LEADER_NOT_FOUND, LEADER_FAILED };
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS = 0,
