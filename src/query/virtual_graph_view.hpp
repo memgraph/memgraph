@@ -39,10 +39,9 @@ namespace memgraph::query {
 // InEdges below remain for the mgp procedure path.
 class VirtualGraphView final : public GraphView {
   VirtualGraph *graph_;
-  DbAccessor *names_;
 
  public:
-  VirtualGraphView(VirtualGraph *graph, DbAccessor *names) : graph_(graph), names_(names) {}
+  VirtualGraphView(VirtualGraph *graph, DbAccessor *names) : GraphView(names), graph_(graph) {}
 
   VirtualNodeRange Nodes() const { return VirtualNodeRange{graph_->nodes()}; }
 
@@ -72,17 +71,14 @@ class VirtualGraphView final : public GraphView {
     return FilterEdges(graph_->InEdges(node->Gid()), edge_types, existing_dest, /*neighbor_is_to=*/false);
   }
 
-  storage::LabelId NameToLabel(std::string_view name) override { return names_->NameToLabel(name); }
-
-  const std::string &LabelToName(storage::LabelId label) const override { return names_->LabelToName(label); }
-
-  storage::PropertyId NameToProperty(std::string_view name) override { return names_->NameToProperty(name); }
-
-  const std::string &PropertyToName(storage::PropertyId prop) const override { return names_->PropertyToName(prop); }
-
-  storage::EdgeTypeId NameToEdgeType(std::string_view name) override { return names_->NameToEdgeType(name); }
-
-  const std::string &EdgeTypeToName(storage::EdgeTypeId type) const override { return names_->EdgeTypeToName(type); }
+  // The projection's edge counts for a projection node; a real vertex is no projection node and has
+  // no edges here.
+  std::pair<int64_t, int64_t> Degree(const ScanVertex &from, storage::View /*view*/) override {
+    const auto *node = std::get_if<VirtualNode>(&from);
+    if (node == nullptr) return {0, 0};
+    return {static_cast<int64_t>(graph_->InEdges(node->Gid()).size()),
+            static_cast<int64_t>(graph_->OutEdges(node->Gid()).size())};
+  }
 
  private:
   // Keep the projection edges whose type is in edge_types (empty = any) and, when a

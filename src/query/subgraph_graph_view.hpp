@@ -34,10 +34,9 @@ namespace memgraph::query {
 // here for the expand path rather than on GraphView.
 class SubgraphGraphView final : public GraphView {
   Graph *graph_;
-  DbAccessor *names_;
 
  public:
-  SubgraphGraphView(Graph *graph, DbAccessor *names) : graph_(graph), names_(names) {}
+  SubgraphGraphView(Graph *graph, DbAccessor *names) : GraphView(names), graph_(graph) {}
 
   // True if the edge is a member of the subgraph. Expansion drops non-member
   // edges so a match stays within the subgraph.
@@ -63,17 +62,21 @@ class SubgraphGraphView final : public GraphView {
                                      : vertex.InEdges(view, edge_types, hops));
   }
 
-  storage::LabelId NameToLabel(std::string_view name) override { return names_->NameToLabel(name); }
-
-  const std::string &LabelToName(storage::LabelId label) const override { return names_->LabelToName(label); }
-
-  storage::PropertyId NameToProperty(std::string_view name) override { return names_->NameToProperty(name); }
-
-  const std::string &PropertyToName(storage::PropertyId prop) const override { return names_->PropertyToName(prop); }
-
-  storage::EdgeTypeId NameToEdgeType(std::string_view name) override { return names_->NameToEdgeType(name); }
-
-  const std::string &EdgeTypeToName(storage::EdgeTypeId type) const override { return names_->EdgeTypeToName(type); }
+  // The subgraph's member-filtered degree: every incident real edge is examined, only members counted.
+  // A synthetic node reaching a subgraph view is no member and reports {0, 0}.
+  std::pair<int64_t, int64_t> Degree(const ScanVertex &from, storage::View view) override {
+    const auto *vertex = std::get_if<VertexAccessor>(&from);
+    if (vertex == nullptr) return {0, 0};
+    const auto count_members = [&](storage::Result<EdgeVertexAccessorResult> &&result) -> int64_t {
+      auto edges = UnwrapEdges(std::move(result));
+      int64_t count = 0;
+      for (const auto &edge : edges.edges) {
+        if (ContainsEdge(edge)) ++count;
+      }
+      return count;
+    };
+    return {count_members(vertex->InEdges(view)), count_members(vertex->OutEdges(view))};
+  }
 
  private:
   // Real-vertex edges filtered to the subgraph's membership: expansion stays within

@@ -668,35 +668,14 @@ TypedValue IsEmpty(const TypedValue *args, int64_t nargs, const FunctionContext 
 // edges, and a real vertex on the identity view (or with no view bound) counts
 // the real graph's edges.
 std::pair<int64_t, int64_t> AmbientInOutDegree(const TypedValue &arg, const FunctionContext &ctx) {
-  if (arg.IsVirtualNode()) {
-    const auto gid = arg.ValueVirtualNode().Gid();
-    if (auto *projection = dynamic_cast<VirtualGraphView *>(ctx.graph_view)) {
-      return {static_cast<int64_t>(projection->InEdges(gid).size()),
-              static_cast<int64_t>(projection->OutEdges(gid).size())};
-    }
-    // A virtual node outside a projection scope (a literal virtualNode(), no
-    // VirtualGraphView bound) has no ambient topology.
-    return {0, 0};
-  }
+  // Degree is a topology question answered by the ambient view: the identity view uses the real graph's
+  // O(1) per-vertex degree, a subgraph counts only member edges, a projection counts its own edges, and
+  // a node of the wrong kind for the view reports {0, 0}. The per-view logic lives behind GraphView, so
+  // there is no view-kind branch here.
+  const ScanVertex node = arg.IsVirtualNode() ? ScanVertex{arg.ValueVirtualNode()} : ScanVertex{arg.ValueVertex()};
+  if (ctx.graph_view != nullptr) return ctx.graph_view->Degree(node, ctx.view);
+  // No ambient view bound (a real vertex evaluated outside a graph scope): fall back to real degree.
   const auto &vertex = arg.ValueVertex();
-  if (auto *subgraph = dynamic_cast<SubgraphGraphView *>(ctx.graph_view)) {
-    const auto count_members = [&](auto maybe_edges) -> int64_t {
-      if (!maybe_edges) throw QueryRuntimeException("Trying to get degree of a node that doesn't exist.");
-      int64_t count = 0;
-      for (const auto &edge : maybe_edges->edges) {
-        if (subgraph->ContainsEdge(edge)) ++count;
-      }
-      return count;
-    };
-    return {count_members(vertex.InEdges(ctx.view)), count_members(vertex.OutEdges(ctx.view))};
-  }
-  if (dynamic_cast<VirtualGraphView *>(ctx.graph_view) != nullptr) {
-    // A real vertex is not a node of a projection, so it has no edges in the
-    // ambient projection graph. Reached when a real vertex is imported into a
-    // CALL { USE <projection> ... } scope; the scope must not report the
-    // vertex's real-graph degree.
-    return {0, 0};
-  }
   return {static_cast<int64_t>(UnwrapDegreeResult(vertex.InDegree(ctx.view))),
           static_cast<int64_t>(UnwrapDegreeResult(vertex.OutDegree(ctx.view)))};
 }

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -202,6 +203,24 @@ inline EdgeVertexAccessorResult UnwrapEdges(storage::Result<EdgeVertexAccessorRe
   return std::move(*result);
 }
 
+// Maps a storage degree result onto the query-layer count, turning a storage error into the query
+// error the read path reports. Mirrors the read path's degree unwrap.
+inline size_t UnwrapDegree(storage::Result<size_t> &&result) {
+  if (!result) {
+    switch (result.error()) {
+      case storage::Error::DELETED_OBJECT:
+        throw QueryRuntimeException("Trying to get degree of a deleted node.");
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw QueryRuntimeException("Trying to get degree of a node that doesn't exist.");
+      case storage::Error::VERTEX_HAS_EDGES:
+      case storage::Error::SERIALIZATION_ERROR:
+      case storage::Error::PROPERTIES_DISABLED:
+        throw QueryRuntimeException("Unexpected error when getting node degree.");
+    }
+  }
+  return *result;
+}
+
 // The single graph abstraction the read operators run against: scan the vertices,
 // expand a node's edges, and map names to/from ids. Property reads stay on the
 // element (VertexAccessor / VirtualNode); topology - scan and expand - is here, so
@@ -212,7 +231,6 @@ inline EdgeVertexAccessorResult UnwrapEdges(storage::Result<EdgeVertexAccessorRe
 // and a `CALL { USE ... }` scope rebinds it for the block.
 class GraphView {
  public:
-  GraphView() = default;
   GraphView(const GraphView &) = default;
   GraphView(GraphView &&) = default;
   GraphView &operator=(const GraphView &) = default;
@@ -245,12 +263,32 @@ class GraphView {
                             const std::vector<storage::EdgeTypeId> &edge_types,
                             const std::optional<ScanVertex> &existing_dest, HopsLimit *hops) = 0;
 
-  virtual storage::LabelId NameToLabel(std::string_view name) = 0;
-  virtual const std::string &LabelToName(storage::LabelId label) const = 0;
-  virtual storage::PropertyId NameToProperty(std::string_view name) = 0;
-  virtual const std::string &PropertyToName(storage::PropertyId prop) const = 0;
-  virtual storage::EdgeTypeId NameToEdgeType(std::string_view name) = 0;
-  virtual const std::string &EdgeTypeToName(storage::EdgeTypeId type) const = 0;
+  // The (in, out) degree of a scanned node over this view: the real graph's fast per-vertex degree for
+  // the identity view, the member-filtered count for a subgraph, and the projection's edge counts for a
+  // projection. A node of the wrong kind for the view (a real vertex in a projection, or a synthetic
+  // node with no projection bound) has no topology here and reports {0, 0}.
+  virtual std::pair<int64_t, int64_t> Degree(const ScanVertex &from, storage::View view) = 0;
+
+  // Name<->id mapping is database-global, not view-specific: every view resolves names through the same
+  // DbAccessor, so these are shared non-virtual forwards, not per-adapter overrides.
+  storage::LabelId NameToLabel(std::string_view name) { return names_->NameToLabel(name); }
+
+  const std::string &LabelToName(storage::LabelId label) const { return names_->LabelToName(label); }
+
+  storage::PropertyId NameToProperty(std::string_view name) { return names_->NameToProperty(name); }
+
+  const std::string &PropertyToName(storage::PropertyId prop) const { return names_->PropertyToName(prop); }
+
+  storage::EdgeTypeId NameToEdgeType(std::string_view name) { return names_->NameToEdgeType(name); }
+
+  const std::string &EdgeTypeToName(storage::EdgeTypeId type) const { return names_->EdgeTypeToName(type); }
+
+ protected:
+  // The database-global name resolver every view shares. The identity view passes its own DbAccessor;
+  // a subgraph or projection passes the accessor it was built against.
+  explicit GraphView(DbAccessor *names) : names_(names) {}
+
+  DbAccessor *names_;
 };
 
 // The identity view: the real graph seen as a GraphView. Every call forwards to
@@ -260,7 +298,7 @@ class DbAccessorGraphView final : public GraphView {
   DbAccessor *dba_;
 
  public:
-  explicit DbAccessorGraphView(DbAccessor *dba) : dba_(dba) {}
+  explicit DbAccessorGraphView(DbAccessor *dba) : GraphView(dba), dba_(dba) {}
 
   VertexRange Vertices(storage::View view) override { return VertexRange{dba_->Vertices(view)}; }
 
@@ -282,17 +320,14 @@ class DbAccessorGraphView final : public GraphView {
     return EdgeRange{std::move(edges.edges), edges.expanded_count};
   }
 
-  storage::LabelId NameToLabel(std::string_view name) override { return dba_->NameToLabel(name); }
-
-  const std::string &LabelToName(storage::LabelId label) const override { return dba_->LabelToName(label); }
-
-  storage::PropertyId NameToProperty(std::string_view name) override { return dba_->NameToProperty(name); }
-
-  const std::string &PropertyToName(storage::PropertyId prop) const override { return dba_->PropertyToName(prop); }
-
-  storage::EdgeTypeId NameToEdgeType(std::string_view name) override { return dba_->NameToEdgeType(name); }
-
-  const std::string &EdgeTypeToName(storage::EdgeTypeId type) const override { return dba_->EdgeTypeToName(type); }
+  // The real graph's per-vertex degree (O(1) storage metadata). A synthetic node reaching the identity
+  // view has no real-graph topology and reports {0, 0}.
+  std::pair<int64_t, int64_t> Degree(const ScanVertex &from, storage::View view) override {
+    const auto *vertex = std::get_if<VertexAccessor>(&from);
+    if (vertex == nullptr) return {0, 0};
+    return {static_cast<int64_t>(UnwrapDegree(vertex->InDegree(view))),
+            static_cast<int64_t>(UnwrapDegree(vertex->OutDegree(view)))};
+  }
 };
 
 }  // namespace memgraph::query
