@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -108,6 +109,7 @@ class RuleLatch {
   /// (keep capacity) and match via symbol-granularity arming alone, since holding
   /// a large active set live only adds cache pressure for little pruning.
   void arm_from_touched(EGraph<Symbol, Analysis> const &egraph) {
+    assert(index_ != nullptr && "arm() before reset(): the latch has no arming index");
     egraph.touched_eclasses_into(closure_scratch_);  // canonical touched, hop 0 (reused buffer)
     min_hop_.clear();
     active_set_.clear();
