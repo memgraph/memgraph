@@ -21,6 +21,7 @@
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/match_storage.hpp"
 #include "planner/pattern/vm/compiled_matcher.hpp"
+#include "planner/pattern/vm/root_restriction.hpp"
 #include "planner/pattern/vm/tracer.hpp"
 
 import memgraph.planner.core.egraph;
@@ -153,12 +154,11 @@ class VMExecutor {
   /// @param index MatcherIndex with symbol index for candidate lookup
   /// @param arena MatchArena for storing match bindings
   /// @param results Output vector for matches (appended, not cleared)
-  /// @param active When non-null, restricts the root-symbol iteration to this
-  /// active set. Sound only for patterns where
-  /// RewriteRule::supports_active_root_restriction() holds (see there for why);
-  /// null matches all candidates.
+  /// @param roots A RootRestriction: MatchAll iterates every root-symbol
+  /// candidate; RestrictTo prunes to that set. Sound only for patterns where
+  /// RewriteRule::supports_active_root_restriction() holds (see there for why).
   void execute(CompiledMatcher<Symbol> const &pattern, MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
-               std::vector<PatternMatch> &results, boost::unordered_flat_set<EClassId> const *active = nullptr);
+               std::vector<PatternMatch> &results, RootRestriction roots = RootRestriction::MatchAll());
 
   /// Get execution stats (only available when DevMode=true)
   [[nodiscard]] auto stats() const -> VMStats const &
@@ -262,14 +262,15 @@ class VMExecutor {
 template <typename Symbol, typename Analysis, bool DevMode>
 void VMExecutor<Symbol, Analysis, DevMode>::execute(CompiledMatcher<Symbol> const &pattern,
                                                     MatcherIndex<Symbol, Analysis> &index, MatchArena &arena,
-                                                    std::vector<PatternMatch> &results,
-                                                    boost::unordered_flat_set<EClassId> const *active) {
+                                                    std::vector<PatternMatch> &results, RootRestriction roots) {
   // Pattern with no slots has nothing to bind - skip execution
   if (pattern.num_slots() == 0) return;
 
   // Store index for IterSymbolEClasses
   matcher_index_ = &index;
-  active_root_set_ = active;
+  // Collapse the typed restriction to the private nullptr = unrestricted form the
+  // iteration machinery uses; a RestrictTo(empty) correctly restricts to nothing.
+  active_root_set_ = roots.matches_all() ? nullptr : &roots.restricted_roots();
 
   state_.reset(pattern.state_config());
   if constexpr (DevMode) {

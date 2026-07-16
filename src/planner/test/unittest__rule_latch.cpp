@@ -73,7 +73,7 @@ TEST(RuleLatch, FirstArmArmsEveryRuleAndMatchesEveryCandidate) {
   latch.arm(eg);
 
   EXPECT_EQ(ArmedSet(latch), (boost::unordered_flat_set<std::size_t>{0, 1, 2}));
-  EXPECT_EQ(latch.active(), nullptr) << "first arm matches every candidate, so no active-set restriction";
+  EXPECT_TRUE(latch.active().matches_all()) << "first arm matches every candidate, so no active-set restriction";
 }
 
 TEST(RuleLatch, EmptyTouchedArmsOnlyAlwaysArmedRules) {
@@ -90,11 +90,11 @@ TEST(RuleLatch, EmptyTouchedArmsOnlyAlwaysArmedRules) {
   latch.arm(eg);  // nothing touched since
 
   EXPECT_EQ(ArmedSet(latch), (boost::unordered_flat_set<std::size_t>{1})) << "only the always-armed rule survives";
-  // A settled but non-empty graph is "sparse", so active() is non-null and EMPTY
-  // (restrict to nothing) - distinct from nullptr (match all). The always-armed
-  // rule still fires because a symbol-less root ignores the active set.
-  ASSERT_NE(latch.active(), nullptr);
-  EXPECT_TRUE(latch.active()->empty());
+  // A settled but non-empty graph is "sparse", so active() is RestrictTo the EMPTY
+  // set (restrict to nothing) - distinct from MatchAll. The always-armed rule still
+  // fires because a symbol-less root ignores the restriction.
+  ASSERT_FALSE(latch.active().matches_all());
+  EXPECT_TRUE(latch.active().restricted_roots().empty());
 }
 
 TEST(RuleLatch, TouchedSymbolArmsItsIndexedRulesAndKeepsSparseActiveSet) {
@@ -112,8 +112,8 @@ TEST(RuleLatch, TouchedSymbolArmsItsIndexedRulesAndKeepsSparseActiveSet) {
   latch.arm(eg);
 
   EXPECT_EQ(ArmedSet(latch), (boost::unordered_flat_set<std::size_t>{0})) << "only the Op::A-rooted rule arms";
-  ASSERT_NE(latch.active(), nullptr) << "a one-class change in a larger graph is sparse";
-  EXPECT_TRUE(latch.active()->contains(eg.find(fresh_a)));
+  ASSERT_FALSE(latch.active().matches_all()) << "a one-class change in a larger graph is sparse";
+  EXPECT_TRUE(latch.active().restricted_roots().contains(eg.find(fresh_a)));
 }
 
 TEST(RuleLatch, ParentClosureArmsAnAncestorRootedRuleToDepth) {
@@ -197,10 +197,11 @@ TEST(RuleLatch, RestrictionSliceStopsAtDirectParents) {
   eg.rebuild(pc);
   latch.arm(eg);
 
-  ASSERT_NE(latch.active(), nullptr) << "a one-class change in a larger graph is sparse";
-  EXPECT_TRUE(latch.active()->contains(eg.find(a)));
-  EXPECT_TRUE(latch.active()->contains(eg.find(fa)));
-  EXPECT_FALSE(latch.active()->contains(eg.find(gfa))) << "the 2-hop grandparent is not a depth-1 re-fire root";
+  ASSERT_FALSE(latch.active().matches_all()) << "a one-class change in a larger graph is sparse";
+  EXPECT_TRUE(latch.active().restricted_roots().contains(eg.find(a)));
+  EXPECT_TRUE(latch.active().restricted_roots().contains(eg.find(fa)));
+  EXPECT_FALSE(latch.active().restricted_roots().contains(eg.find(gfa)))
+      << "the 2-hop grandparent is not a depth-1 re-fire root";
 }
 
 TEST(RuleLatch, NonSparseChangeDropsTheActiveSet) {
@@ -215,7 +216,7 @@ TEST(RuleLatch, NonSparseChangeDropsTheActiveSet) {
   eg.emplace(Op::A, /*disambiguator=*/7);  // touched half the (now 2) classes
   latch.arm(eg);
 
-  EXPECT_EQ(latch.active(), nullptr) << "change is not a sparse slice, so match via arming alone";
+  EXPECT_TRUE(latch.active().matches_all()) << "change is not a sparse slice, so match via arming alone";
   EXPECT_TRUE(latch.armed()[0]) << "the touched Op::A still arms its rule";
 }
 
