@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 #include "test_support/types.hpp"
 
@@ -18,6 +19,15 @@ import memgraph.planner.core.egraph;
 namespace memgraph::planner::core {
 
 using namespace test;
+
+// The touched-set as an owned set; production drains it into a reused buffer via
+// touched_eclasses_into(), so this convenience lives with the tests that want a
+// value to query.
+auto TouchedEclasses(TestEGraph const &egraph) -> boost::unordered_flat_set<EClassId> {
+  boost::unordered_flat_set<EClassId> out;
+  egraph.touched_eclasses_into(out);
+  return out;
+}
 
 TEST(EGraph_Basic, EmptyEGraph) {
   auto const egraph = TestEGraph{};
@@ -199,7 +209,7 @@ TEST(EGraph_Touched, RecordsInsertsOnce) {
   auto b = egraph.emplace(Op::B).eclass_id;
   egraph.emplace(Op::A);  // hash-cons hit: did_insert=false, no new touch
 
-  auto const touched = egraph.touched_eclasses();
+  auto const touched = TouchedEclasses(egraph);
   EXPECT_EQ(touched.size(), 2U);
   EXPECT_TRUE(touched.contains(a));
   EXPECT_TRUE(touched.contains(b));
@@ -214,7 +224,7 @@ TEST(EGraph_Touched, RecordsMergeSurvivorCanonicalized) {
   auto const [merged, did_merge] = egraph.merge(a, b);
   ASSERT_TRUE(did_merge);
 
-  auto const touched = egraph.touched_eclasses();
+  auto const touched = TouchedEclasses(egraph);
   // The survivor, not the merged-away id: both a and b canonicalize to one class.
   EXPECT_EQ(touched.size(), 1U);
   EXPECT_TRUE(touched.contains(merged));
@@ -225,9 +235,9 @@ TEST(EGraph_Touched, RecordsMergeSurvivorCanonicalized) {
 TEST(EGraph_Touched, ClearResets) {
   TestEGraph egraph;
   egraph.emplace(Op::A);
-  EXPECT_FALSE(egraph.touched_eclasses().empty());
+  EXPECT_FALSE(TouchedEclasses(egraph).empty());
   egraph.clear_touched();
-  EXPECT_TRUE(egraph.touched_eclasses().empty());
+  EXPECT_TRUE(TouchedEclasses(egraph).empty());
 }
 
 TEST(EGraph_Touched, CapturesCascadeMergeDuringRebuild) {
@@ -246,7 +256,7 @@ TEST(EGraph_Touched, CapturesCascadeMergeDuringRebuild) {
   egraph.rebuild(ctx);     // F(a) ≡ F(b) merge happens here, in the cascade
 
   ASSERT_EQ(egraph.find(fa), egraph.find(fb)) << "the F classes must have cascade-merged";
-  auto const touched = egraph.touched_eclasses();
+  auto const touched = TouchedEclasses(egraph);
   EXPECT_TRUE(touched.contains(egraph.find(a))) << "the direct merge target";
   EXPECT_TRUE(touched.contains(egraph.find(fa))) << "the cascade merge target, produced inside rebuild";
 }
