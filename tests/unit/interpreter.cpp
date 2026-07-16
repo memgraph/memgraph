@@ -10,10 +10,12 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <filesystem>
 #include <map>
 #include <set>
+#include <thread>
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
@@ -137,6 +139,10 @@ class InterpreterTest : public ::testing::Test {
 
   auto Interpret(const std::string &query, const memgraph::storage::ExternalPropertyValue::map_t &params = {}) {
     return default_interpreter.Interpret(query, params);
+  }
+
+  auto AstCacheSize() {
+    return interpreter_context.ast_cache.WithLock([](auto &cache) { return cache.size(); });
   }
 };
 
@@ -1065,7 +1071,7 @@ TYPED_TEST(InterpreterTest, UniqueConstraintTest) {
 
 TYPED_TEST(InterpreterTest, ExplainQuery) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   auto stream = this->Interpret("EXPLAIN MATCH (n) RETURN *;");
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
@@ -1080,15 +1086,15 @@ TYPED_TEST(InterpreterTest, ExplainQuery) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ExplainQueryMultiplePulls) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   auto [stream, qid] = this->Prepare("EXPLAIN MATCH (n) RETURN *;");
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
@@ -1113,15 +1119,15 @@ TYPED_TEST(InterpreterTest, ExplainQueryMultiplePulls) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ExplainQueryInMulticommandTransaction) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   this->Interpret("BEGIN");
   auto stream = this->Interpret("EXPLAIN MATCH (n) RETURN *;");
   this->Interpret("COMMIT");
@@ -1138,15 +1144,15 @@ TYPED_TEST(InterpreterTest, ExplainQueryInMulticommandTransaction) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ExplainQueryWithParams) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   auto stream = this->Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;",
                                 {{"id", memgraph::storage::ExternalPropertyValue(42)}});
   ASSERT_EQ(stream.GetHeader().size(), 1U);
@@ -1162,16 +1168,16 @@ TYPED_TEST(InterpreterTest, ExplainQueryWithParams) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("MATCH (n) WHERE n.id = $id RETURN *;",
                   {{"id", memgraph::storage::ExternalPropertyValue("something else")}});
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ProfileQuery) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   auto stream = this->Interpret("PROFILE MATCH (n) RETURN *;");
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
@@ -1186,15 +1192,15 @@ TYPED_TEST(InterpreterTest, ProfileQuery) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ProfileQueryMultiplePulls) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   auto [stream, qid] = this->Prepare("PROFILE MATCH (n) RETURN *;");
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
@@ -1222,10 +1228,10 @@ TYPED_TEST(InterpreterTest, ProfileQueryMultiplePulls) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ProfileQueryInMulticommandTransaction) {
@@ -1236,7 +1242,7 @@ TYPED_TEST(InterpreterTest, ProfileQueryInMulticommandTransaction) {
 
 TYPED_TEST(InterpreterTest, ProfileQueryWithParams) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   auto stream = this->Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;",
                                 {{"id", memgraph::storage::ExternalPropertyValue(42)}});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
@@ -1252,16 +1258,16 @@ TYPED_TEST(InterpreterTest, ProfileQueryWithParams) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("MATCH (n) WHERE n.id = $id RETURN *;",
                   {{"id", memgraph::storage::ExternalPropertyValue("something else")}});
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ProfileQueryWithLiterals) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   auto stream = this->Interpret("PROFILE UNWIND range(1, 1000) AS x CREATE (:Node {id: x});", {});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
@@ -1276,10 +1282,10 @@ TYPED_TEST(InterpreterTest, ProfileQueryWithLiterals) {
   // We should have a plan cache for UNWIND ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for PROFILE ... and for inner UNWIND ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("UNWIND range(42, 4242) AS x CREATE (:Node {id: x});", {});
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, Transactions) {
@@ -1504,7 +1510,7 @@ TYPED_TEST(InterpreterTest, CacheableQueries) {
   {
     SCOPED_TRACE("Cacheable query");
     this->Interpret("RETURN 1");
-    EXPECT_EQ(this->interpreter_context.ast_cache.size(), 1U);
+    EXPECT_EQ(this->AstCacheSize(), 1U);
     EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   }
 
@@ -1513,7 +1519,7 @@ TYPED_TEST(InterpreterTest, CacheableQueries) {
     // Queries which are calling procedure should not be cached because the
     // result signature could be changed
     this->Interpret("CALL mg.load_all()");
-    EXPECT_EQ(this->interpreter_context.ast_cache.size(), 1U);
+    EXPECT_EQ(this->AstCacheSize(), 1U);
     EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   }
 }
@@ -2095,4 +2101,66 @@ TYPED_TEST(InterpreterTest, AnalyzeGraphDeduplicatesAscDescIndexes) {
     deleted_labels.insert(row[kLabelCol].ValueString());
   }
   EXPECT_EQ(deleted_labels, (std::set<std::string>{"LabelA", "LabelB"}));
+}
+
+TYPED_TEST(InterpreterTest, MixedSignListSharesCacheEntryAndKeepsValues) {
+  auto values = [](const auto &stream) {
+    std::vector<int64_t> out;
+    for (const auto &v : stream.GetResults()[0][0].ValueList()) out.push_back(v.ValueInt());
+    return out;
+  };
+  EXPECT_EQ(this->AstCacheSize(), 0U);
+  auto s1 = this->Interpret("RETURN [-1, 2, -3] AS x");
+  auto s2 = this->Interpret("RETURN [4, -5, 6] AS x");
+  EXPECT_EQ(values(s1), (std::vector<int64_t>{-1, 2, -3}));
+  EXPECT_EQ(values(s2), (std::vector<int64_t>{4, -5, 6}));
+  EXPECT_EQ(this->AstCacheSize(), 1U);
+}
+
+TYPED_TEST(InterpreterTest, ListWithSubtractionKeepsBinaryMinus) {
+  auto stream = this->Interpret("RETURN [1-2, 3] AS x");
+  const auto &list = stream.GetResults()[0][0].ValueList();
+  EXPECT_EQ(list[0].ValueInt(), -1);
+  EXPECT_EQ(list[1].ValueInt(), 3);
+}
+
+TEST(AstCacheBounded, EvictsBeyondMaxSize) {
+  constexpr std::size_t kMaxSize = 2;
+  memgraph::query::AstCache cache{kMaxSize};
+  memgraph::query::InterpreterConfig::Query const query_config{};
+  auto const cache_size = [&] { return cache.WithLock([](auto &c) { return c.size(); }); };
+
+  for (int i = 0; i < 10; ++i) {
+    auto const query = "RETURN 1 AS a" + std::to_string(i);
+    memgraph::query::ParseQuery(query, {}, &cache, query_config, "uuid", nullptr);
+    EXPECT_LE(cache_size(), kMaxSize) << "cache grew past its bound at iteration " << i;
+  }
+  EXPECT_EQ(cache_size(), kMaxSize);
+}
+
+TEST(AstCacheConcurrency, CorrectUnderEvictionContention) {
+  memgraph::query::AstCache cache{1};
+  memgraph::query::InterpreterConfig::Query const query_config{};
+  constexpr int kThreads = 8;
+  constexpr int kIters = 3000;
+  std::atomic<int> failures{0};
+
+  {
+    std::vector<std::jthread> threads;
+    for (int t = 0; t < kThreads; ++t) {
+      threads.emplace_back([&, t] {
+        for (int i = 0; i < kIters; ++i) {
+          int const value = t * kIters + i;  // disjoint per thread -> all distinct -> constant eviction
+          auto parsed =
+              memgraph::query::ParseQuery("RETURN " + std::to_string(value), {}, &cache, query_config, "uuid", nullptr);
+          // "RETURN <value>" strips to "RETURN 0" with the literal at token position 1.
+          if (parsed.query == nullptr || parsed.parameters.AtTokenPosition(1).ValueInt() != value) {
+            failures.fetch_add(1, std::memory_order_relaxed);
+          }
+        }
+      });
+    }
+  }
+  EXPECT_EQ(failures.load(), 0);
+  EXPECT_LE(cache.WithLock([](auto &c) { return c.size(); }), 1U);
 }

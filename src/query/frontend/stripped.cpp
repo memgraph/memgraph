@@ -11,7 +11,9 @@
 
 #include "query/frontend/stripped.hpp"
 
+#include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -99,6 +101,48 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
         break;
       }
     }
+  }
+
+  // a +/- after `[`, or after `,` inside brackets, can only be a unary sign:
+  // fold it into the number so sign variants of a list strip to the same text
+  // and share one AST cache entry
+  {
+    auto const is_space = [](auto const &token) { return token.first == Token::SPACE; };
+    auto const is_number = [](auto const &token) { return token.first == Token::INT || token.first == Token::REAL; };
+    auto const is_sign = [](auto const &token) {
+      return token.first == Token::SPECIAL && (token.second == "-" || token.second == "+");
+    };
+
+    std::vector<std::pair<Token, std::string>> folded;
+    folded.reserve(tokens.size());
+    int bracket_depth = 0;
+    bool at_list_element_start = false;
+    for (std::size_t i = 0; i < tokens.size(); ++i) {
+      auto const &token = tokens[i];
+      if (at_list_element_start && is_sign(token)) {
+        auto const number =
+            std::ranges::find_if_not(tokens.begin() + static_cast<std::ptrdiff_t>(i + 1), tokens.end(), is_space);
+        if (number != tokens.end() && is_number(*number)) {
+          folded.emplace_back(number->first, token.second + number->second);
+          i = static_cast<std::size_t>(number - tokens.begin());
+          at_list_element_start = false;
+          continue;
+        }
+      }
+      if (token.first == Token::SPECIAL) {
+        if (token.second == "[") {
+          ++bracket_depth;
+        } else if (token.second == "]" && bracket_depth > 0) {
+          --bracket_depth;
+        }
+      }
+      if (!is_space(token)) {
+        at_list_element_start =
+            token.first == Token::SPECIAL && (token.second == "[" || (token.second == "," && bracket_depth > 0));
+      }
+      folded.push_back(token);
+    }
+    tokens = std::move(folded);
   }
 
   std::vector<std::string> token_strings;

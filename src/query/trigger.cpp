@@ -167,7 +167,7 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 }  // namespace
 
 Trigger::Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
-                 TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                 TriggerEventType event_type, AstCache *query_cache, DbAccessor *db_accessor,
                  const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
                  std::string_view db_name, TriggerPrivilegeContext privilege_context,
                  parameters::Parameters const *server_parameters)
@@ -340,7 +340,7 @@ bool MigrateTriggerData(nlohmann::json &json_data, uint64_t version) {
 TriggerStore::TriggerStore(std::filesystem::path directory)
     : storage_{std::move(directory)}, before_commit_triggers_{}, after_commit_triggers_{} {}
 
-void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+void TriggerStore::RestoreTrigger(AstCache *query_cache, DbAccessor *db_accessor,
                                   const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
                                   std::string_view trigger_name, std::string_view trigger_data,
                                   std::string_view db_name, parameters::Parameters const *server_parameters) {
@@ -459,7 +459,7 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   spdlog::debug("Trigger loaded successfully!");
 }
 
-void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+void TriggerStore::RestoreTriggers(AstCache *query_cache, DbAccessor *db_accessor,
                                    const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
                                    std::string_view db_name, parameters::Parameters const *server_parameters) {
   MG_ASSERT(before_commit_triggers_.size() == 0 && after_commit_triggers_.size() == 0,
@@ -473,10 +473,10 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
 }
 
 void TriggerStore::AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
-                              TriggerEventType event_type, TriggerPhase phase,
-                              utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                              const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> creator,
-                              std::string_view db_name, TriggerPrivilegeContext privilege_context,
+                              TriggerEventType event_type, TriggerPhase phase, AstCache *query_cache,
+                              DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
+                              std::shared_ptr<QueryUserOrRole> creator, std::string_view db_name,
+                              TriggerPrivilegeContext privilege_context,
                               parameters::Parameters const *server_parameters) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
