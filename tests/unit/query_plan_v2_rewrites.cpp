@@ -560,5 +560,60 @@ TEST(IncrementalArmingAlternation, OnlyTheTwoChainRulesEverFire) {
   EXPECT_TRUE(folded->known_constant_value.has_value()) << "the chain folds to a single constant";
 }
 
+// Build a fresh e-graph, saturate DefaultRules under `mode` to a fixpoint, and
+// return its final shape. Asserts each run truly settles (the sharp oracle: a
+// final all-rules pass finds nothing).
+template <typename Build>
+auto SaturateToShape(Build const &build, planner::core::rewrite::ArmingMode mode)
+    -> std::pair<std::size_t, std::size_t> {
+  egraph eg;
+  build(eg);
+  planner::core::rewrite::Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
+  auto const result = rewriter.saturate(planner::core::rewrite::RewriteConfig::Unlimited(), mode);
+  EXPECT_TRUE(result.saturated());
+  EXPECT_EQ(rewriter.iterate_once(), 0U);  // sharp oracle: a true fixpoint
+  auto const &core = impl_of(eg).graph.core();
+  return {core.num_classes(), core.num_live_nodes()};
+}
+
+// The plan_v2 analogue of the generic IncrementalEqualsFull differential, over the
+// real DefaultRules rather than a single synthetic rule: incremental arming only
+// skips rules or prunes candidates, so it must reach the same final e-graph as
+// running every rule every pass. Without this the plan_v2 layer had no Full baseline
+// - correctness under the default (Incremental) rested on hand-authored counts.
+template <typename Build>
+void ExpectSameShapeUnderBothModes(Build const &build) {
+  using planner::core::rewrite::ArmingMode;
+  EXPECT_EQ(SaturateToShape(build, ArmingMode::Incremental), SaturateToShape(build, ArmingMode::Full))
+      << "arming mode changed the final e-graph shape over DefaultRules";
+}
+
+// A constant-fold chain: alternating Add/Mul over literals folds to one constant,
+// the saturation-heavy case incremental arming is built for.
+TEST(PlanV2IncrementalDifferential, ConstantFoldChainMatchesFull) {
+  ExpectSameShapeUnderBothModes([](egraph &eg) {
+    auto const two = eg.MakeLiteral(ExternalPropertyValue{int64_t{2}});
+    eclass cur = eg.MakeLiteral(ExternalPropertyValue{int64_t{1}});
+    for (int level = 0; level < 6; ++level) {
+      cur = (level % 2 == 0) ? eg.MakeAdd(cur, two) : eg.MakeMul(cur, two);
+    }
+  });
+}
+
+// Inline then fold: Identifier(x) inlines to the bound literal, then the enclosing
+// Add folds. The two rules compose across passes, so incremental re-arming must keep
+// pace with Full rather than stall after the inline.
+TEST(PlanV2IncrementalDifferential, InlineThenFoldMatchesFull) {
+  ExpectSameShapeUnderBothModes([](egraph &eg) {
+    auto const once = eg.MakeOnce();
+    auto const sym = eg.MakeSymbol(0, "x");
+    auto const one = eg.MakeLiteral(ExternalPropertyValue{int64_t{1}});
+    (void)eg.MakeBind(once, sym, one);
+    auto const ident = eg.MakeIdentifier(sym);
+    auto const two = eg.MakeLiteral(ExternalPropertyValue{int64_t{2}});
+    (void)eg.MakeAdd(ident, two);
+  });
+}
+
 }  // namespace
 }  // namespace memgraph::query::plan::v2
