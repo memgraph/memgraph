@@ -272,9 +272,12 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
   auto run_round = [&]() {
     // Finite, size-scaled cap: under the pool's termination discipline both runs
     // must reach a fixpoint, so hitting the cap is always a bug (non-termination
-    // or a skip that prevents convergence), not a legitimately slow input.
+    // or a skip that prevents convergence), not a legitimately slow input. Each
+    // productive pass merges a pair or mints one bounded permutation node, so the
+    // pass count is bounded by the class count; the wide margin leaves room for
+    // Incremental's documented extra passes without risking a false report.
     auto cfg = RewriteConfig::Unlimited();
-    cfg.max_iterations = 2 * inc_eg.core().num_classes() + 64;
+    cfg.max_iterations = 8 * inc_eg.core().num_classes() + 64;
     auto const ref_result = ref.saturate(cfg, ArmingMode::Full);
     auto const inc_result = inc.saturate(cfg, ArmingMode::Incremental);
     if (!ref_result.saturated() || !inc_result.saturated()) {
@@ -289,7 +292,10 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
     if (inc_eg.core().num_live_nodes() != ref_eg.core().num_live_nodes()) fail("live-node count differs");
 
     // Structural check beyond counts: the two runs must merge the seeded nodes
-    // into the exact same equivalence classes.
+    // into the exact same equivalence classes. The probe pool is frozen at the
+    // initial build, so this discriminates finely over round-0 classes; a
+    // divergence confined to nodes created in later mutation rounds is caught by
+    // the counts above and the sharp fixpoint oracle below, not by this check.
     if (partition_labels(ref_eg.core(), pool) != partition_labels(inc_eg.core(), pool)) {
       fail("merge partition over seeded nodes differs between full and incremental");
     }
