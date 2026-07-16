@@ -25,28 +25,39 @@ namespace memgraph::query {
 // point lookup already on this hot path.
 auto VertexAccessor::Labels(storage::View view) const -> decltype(impl_.Labels(view)) {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (branched-bit) -- mirror of InEdges/OutEdges' own fast path in this
-    // file. An un-COW'd, un-tombstoned MAIN-resident vertex's state is, by phase 1's invariant,
-    // identical to what ResolveVertex would resolve on the historical side: impl_ already IS that
-    // historical accessor, so read it directly and skip the diff-engine skiplist probe. Byte-
-    // identical to the slow path's return (same Vertex*, same view). SAFE: mutators never consult
-    // this bit (they always CowIfNeeded); a COW or tombstone flips branched()->true, disabling this
-    // fast path so the re-resolve / View::NEW tombstone guard below runs.
-    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
-      return impl_.Labels(view);
-    }
-    if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
-      return resolved->Labels(view);
-    }
-    // S2 FIX (view-gated tombstone guard): a resolve miss on a tombstoned gid is ambiguous by
-    // itself -- it also happens for subqueries.feature:424's incidental View::OLD re-resolution of
-    // an object that's alive in the pre-current-command state (main does NOT error there). What
-    // discriminates the two is the caller's own `view`: View::NEW is the query's current-command
-    // state, where a tombstoned object IS deleted -- matching main's MVCC read-after-delete-in-
-    // command error. View::OLD falls through to `impl_` unchanged (still the alive, pre-delete
-    // value), preserving the non-erroring OLD case.
-    if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
-      return std::unexpected{storage::Error::DELETED_OBJECT};
+    // Phase-2 read fast path (diff-resident + branched-bit) -- mirror of InEdges/OutEdges' own fast
+    // path in this file. A diff-engine-resident impl_ IS the branch's own COW/native copy already
+    // (COW copies props+labels), so re-resolving it by gid is a redundant FindVertex; its own
+    // diff-engine MVCC reflects same-txn writes AND deletes at the requested view. Only a
+    // MAIN-resident vertex whose branched() bit is set needs re-resolution to its diff copy
+    // (COW'd/tombstoned). Un-branched main vertices are historical-identical by phase-1 invariant.
+    // (perf 2026-07-16: the redundant re-resolve of diff-resident vertices was the dominant
+    // worst-churn branch-read cost.) SAFE: mutators never consult the branched() bit (they always
+    // CowIfNeeded); a COW or tombstone flips branched()->true, disabling the un-branched shortcut so
+    // the re-resolve / View::NEW tombstone guard below runs.
+    // INVARIANT (verified 2026-07-16, logic-verifier + skeptic): the diff-resident direct read is
+    // correct for a since-deleted vertex ONLY because impl_'s own storage-level MVCC returns
+    // DELETED_OBJECT at View::NEW (the delete flips the diff Vertex's deleted() bit synchronously) --
+    // it does NOT rely on the tombstone guard, which is now skipped for diff-resident. This holds as
+    // long as no caller invokes a property/label read on a `for_deleted_`-constructed diff-resident
+    // accessor (that flag bypasses the storage delete check): today unreachable (such accessors are
+    // only counted/existence-checked, and branch writes disable triggers). If branch triggers are
+    // ever added, re-audit this fast path (a for_deleted_ read here would return stale pre-delete data).
+    const bool needs_resolve = impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched();
+    if (needs_resolve) {
+      if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
+        return resolved->Labels(view);
+      }
+      // S2 FIX (view-gated tombstone guard): a resolve miss on a tombstoned gid is ambiguous by
+      // itself -- it also happens for subqueries.feature:424's incidental View::OLD re-resolution of
+      // an object that's alive in the pre-current-command state (main does NOT error there). What
+      // discriminates the two is the caller's own `view`: View::NEW is the query's current-command
+      // state, where a tombstoned object IS deleted -- matching main's MVCC read-after-delete-in-
+      // command error. View::OLD falls through to `impl_` unchanged (still the alive, pre-delete
+      // value), preserving the non-erroring OLD case.
+      if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
+        return std::unexpected{storage::Error::DELETED_OBJECT};
+      }
     }
   }
   return impl_.Labels(view);
@@ -54,22 +65,18 @@ auto VertexAccessor::Labels(storage::View view) const -> decltype(impl_.Labels(v
 
 storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::LabelId label) const {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (branched-bit) -- mirror of InEdges/OutEdges' own fast path in this
-    // file. An un-COW'd, un-tombstoned MAIN-resident vertex's state is, by phase 1's invariant,
-    // identical to what ResolveVertex would resolve on the historical side: impl_ already IS that
-    // historical accessor, so read it directly and skip the diff-engine skiplist probe. Byte-
-    // identical to the slow path's return (same Vertex*, same view). SAFE: mutators never consult
-    // this bit (they always CowIfNeeded); a COW or tombstone flips branched()->true, disabling this
-    // fast path so the re-resolve / View::NEW tombstone guard below runs.
-    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
-      return impl_.HasLabel(label, view);
-    }
-    if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
-      return resolved->HasLabel(label, view);
-    }
-    // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
-    if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
-      return std::unexpected{storage::Error::DELETED_OBJECT};
+    // Phase-2 read fast path (diff-resident + branched-bit) -- see Labels() above for the full
+    // rationale on why a diff-engine-resident impl_ never needs re-resolution, and only a
+    // MAIN-resident vertex with branched() set does.
+    const bool needs_resolve = impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched();
+    if (needs_resolve) {
+      if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
+        return resolved->HasLabel(label, view);
+      }
+      // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
+      if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
+        return std::unexpected{storage::Error::DELETED_OBJECT};
+      }
     }
   }
   return impl_.HasLabel(label, view);
@@ -77,22 +84,18 @@ storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::Labe
 
 auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Properties(view)) {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (branched-bit) -- mirror of InEdges/OutEdges' own fast path in this
-    // file. An un-COW'd, un-tombstoned MAIN-resident vertex's state is, by phase 1's invariant,
-    // identical to what ResolveVertex would resolve on the historical side: impl_ already IS that
-    // historical accessor, so read it directly and skip the diff-engine skiplist probe. Byte-
-    // identical to the slow path's return (same Vertex*, same view). SAFE: mutators never consult
-    // this bit (they always CowIfNeeded); a COW or tombstone flips branched()->true, disabling this
-    // fast path so the re-resolve / View::NEW tombstone guard below runs.
-    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
-      return impl_.Properties(view);
-    }
-    if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
-      return resolved->Properties(view);
-    }
-    // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
-    if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
-      return std::unexpected{storage::Error::DELETED_OBJECT};
+    // Phase-2 read fast path (diff-resident + branched-bit) -- see Labels() above for the full
+    // rationale on why a diff-engine-resident impl_ never needs re-resolution, and only a
+    // MAIN-resident vertex with branched() set does.
+    const bool needs_resolve = impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched();
+    if (needs_resolve) {
+      if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
+        return resolved->Properties(view);
+      }
+      // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
+      if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
+        return std::unexpected{storage::Error::DELETED_OBJECT};
+      }
     }
   }
   return impl_.Properties(view);
@@ -100,22 +103,18 @@ auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Prop
 
 storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::View view, storage::PropertyId key) const {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (branched-bit) -- mirror of InEdges/OutEdges' own fast path in this
-    // file. An un-COW'd, un-tombstoned MAIN-resident vertex's state is, by phase 1's invariant,
-    // identical to what ResolveVertex would resolve on the historical side: impl_ already IS that
-    // historical accessor, so read it directly and skip the diff-engine skiplist probe. Byte-
-    // identical to the slow path's return (same Vertex*, same view). SAFE: mutators never consult
-    // this bit (they always CowIfNeeded); a COW or tombstone flips branched()->true, disabling this
-    // fast path so the re-resolve / View::NEW tombstone guard below runs.
-    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
-      return impl_.GetProperty(key, view);
-    }
-    if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
-      return resolved->GetProperty(key, view);
-    }
-    // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
-    if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
-      return std::unexpected{storage::Error::DELETED_OBJECT};
+    // Phase-2 read fast path (diff-resident + branched-bit) -- see Labels() above for the full
+    // rationale on why a diff-engine-resident impl_ never needs re-resolution, and only a
+    // MAIN-resident vertex with branched() set does.
+    const bool needs_resolve = impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched();
+    if (needs_resolve) {
+      if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
+        return resolved->GetProperty(key, view);
+      }
+      // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
+      if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
+        return std::unexpected{storage::Error::DELETED_OBJECT};
+      }
     }
   }
   return impl_.GetProperty(key, view);
@@ -123,22 +122,18 @@ storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::Vie
 
 storage::Result<uint64_t> VertexAccessor::GetPropertySize(storage::PropertyId key, storage::View view) const {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (branched-bit) -- mirror of InEdges/OutEdges' own fast path in this
-    // file. An un-COW'd, un-tombstoned MAIN-resident vertex's state is, by phase 1's invariant,
-    // identical to what ResolveVertex would resolve on the historical side: impl_ already IS that
-    // historical accessor, so read it directly and skip the diff-engine skiplist probe. Byte-
-    // identical to the slow path's return (same Vertex*, same view). SAFE: mutators never consult
-    // this bit (they always CowIfNeeded); a COW or tombstone flips branched()->true, disabling this
-    // fast path so the re-resolve / View::NEW tombstone guard below runs.
-    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
-      return impl_.GetPropertySize(key, view);
-    }
-    if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
-      return resolved->GetPropertySize(key, view);
-    }
-    // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
-    if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
-      return std::unexpected{storage::Error::DELETED_OBJECT};
+    // Phase-2 read fast path (diff-resident + branched-bit) -- see Labels() above for the full
+    // rationale on why a diff-engine-resident impl_ never needs re-resolution, and only a
+    // MAIN-resident vertex with branched() set does.
+    const bool needs_resolve = impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched();
+    if (needs_resolve) {
+      if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
+        return resolved->GetPropertySize(key, view);
+      }
+      // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
+      if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
+        return std::unexpected{storage::Error::DELETED_OBJECT};
+      }
     }
   }
   return impl_.GetPropertySize(key, view);
