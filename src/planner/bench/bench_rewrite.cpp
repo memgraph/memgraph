@@ -38,7 +38,7 @@ BENCHMARK_DEFINE_F(SaturationFixture, Saturate)(benchmark::State &state) {
     state.PauseTiming();
     SetupGraphAndRewriter([this](TestEGraph &g) { BuildNegChains(g, num_chains_, chain_depth_); }, rules_);
     state.ResumeTiming();
-    auto result = rewriter_->saturate(RewriteConfig::Unlimited(), ArmingMode::Full);
+    auto result = rewriter_->saturate_full(RewriteConfig::Unlimited());
     benchmark::DoNotOptimize(result);
   }
   state.SetItemsProcessed(state.iterations() * num_chains_);
@@ -74,7 +74,7 @@ BENCHMARK_DEFINE_F(ManyRulesFixture, Saturate)(benchmark::State &state) {
   RewriteConfig config;
   config.max_iterations = 100;
   for (auto _ : state) {
-    auto result = rewriter_->saturate(config, ArmingMode::Full);
+    auto result = rewriter_->saturate_full(config);
     benchmark::DoNotOptimize(result);
   }
   state.SetItemsProcessed(state.iterations() * num_rules_);
@@ -109,7 +109,7 @@ BENCHMARK_DEFINE_F(SaturationLoopFixture, Overhead)(benchmark::State &state) {
   RewriteConfig config;
   config.max_iterations = static_cast<std::size_t>(max_iterations_);
   for (auto _ : state) {
-    auto result = rewriter_->saturate(config, ArmingMode::Full);
+    auto result = rewriter_->saturate_full(config);
     benchmark::DoNotOptimize(result);
   }
   state.SetItemsProcessed(state.iterations() * max_iterations_);
@@ -186,7 +186,7 @@ BENCHMARK_DEFINE_F(RealisticFixture, Saturate)(benchmark::State &state) {
         },
         rules_);
     state.ResumeTiming();
-    auto result = rewriter_->saturate(RewriteConfig::Default(), ArmingMode::Full);
+    auto result = rewriter_->saturate_full(RewriteConfig::Default());
     benchmark::DoNotOptimize(result);
   }
 }

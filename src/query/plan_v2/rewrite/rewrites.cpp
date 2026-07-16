@@ -33,7 +33,6 @@ using planner::core::pattern::dsl::Var;
 using planner::core::pattern::dsl::Wildcard;
 
 // Rewrite types
-using planner::core::rewrite::ArmingMode;
 using planner::core::rewrite::Rewriter;
 using planner::core::rewrite::RewriteRule;
 using planner::core::rewrite::RuleContext;
@@ -143,7 +142,7 @@ auto ApplyInlineRewrite(egraph &eg) -> std::size_t {
 }
 
 auto ApplyAllRewrites(egraph &eg, RewriteConfig const &config) -> RewriteResult {
-  return Rewriter(impl_of(eg).graph, DefaultRules()).saturate(config, ArmingMode::Incremental);
+  return Rewriter(impl_of(eg).graph, DefaultRules()).saturate_incremental(config);
 }
 
 }  // namespace memgraph::query::plan::v2

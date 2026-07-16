@@ -132,13 +132,16 @@ auto BuildNegChain(EGraph<Op, NoAnalysis> &eg, int depth) -> EClassId {
   return top;
 }
 
-// Run `build_and_saturate(mode)` under both arming modes; the returned final shape
-// (e-class + live-node counts) must match - incremental arming only skips rules or
-// prunes candidates, so it reaches the same fixpoint as full.
+// Run `build_and_saturate(run)` under both schedules - `run(rewriter, config)`
+// invokes the chosen one - and require the returned final shape (e-class +
+// live-node counts) to match: incremental arming only skips rules or prunes
+// candidates, so it reaches the same fixpoint as full.
 template <typename BuildAndSaturate>
 void ExpectSameShapeUnderBothModes(BuildAndSaturate build_and_saturate) {
-  EXPECT_EQ(build_and_saturate(ArmingMode::Incremental), build_and_saturate(ArmingMode::Full))
-      << "arming mode changed the final e-graph shape (e-class, live-node counts)";
+  auto run_incremental = [](TestRewriter &r, RewriteConfig const &cfg) { return r.saturate_incremental(cfg); };
+  auto run_full = [](TestRewriter &r, RewriteConfig const &cfg) { return r.saturate_full(cfg); };
+  EXPECT_EQ(build_and_saturate(run_incremental), build_and_saturate(run_full))
+      << "arming schedule changed the final e-graph shape (e-class, live-node counts)";
 }
 }  // namespace
 
@@ -146,12 +149,12 @@ TEST(IncrementalArming, IncrementalEqualsFull) {
   // Same fixpoint = same final shape (rewrite counts can differ by schedule).
   // Incremental only ever skips rules/prunes candidates, so its merges are a subset
   // of Full's; equal shape plus a true fixpoint (sharp oracle) pin them equal.
-  ExpectSameShapeUnderBothModes([](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed;
     auto &eg = typed.core();
     BuildNegChain(eg, 8);
     TestRewriter rewriter{typed, TestRuleSet::Build(make_double_neg_rule())};
-    auto const result = rewriter.saturate(RewriteConfig::Unlimited(), mode);
+    auto const result = run(rewriter, RewriteConfig::Unlimited());
     EXPECT_TRUE(result.saturated());
     EXPECT_EQ(rewriter.iterate_once(), 0U);  // sharp oracle: a true fixpoint
     return {eg.num_classes(), eg.num_live_nodes()};
@@ -164,13 +167,13 @@ TEST(IncrementalArming, IncrementalEqualsFullForMultiPatternRule) {
   // it must not apply here - Incremental must still find every pair Full does. The
   // Op::A padding keeps the post-pass change a sparse slice of the graph, so the
   // per-candidate active-set path is exercised rather than the whole-graph fallback.
-  ExpectSameShapeUnderBothModes([](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed;
     auto &eg = typed.core();
     for (int i = 0; i < 6; ++i) eg.emplace(Op::Var, static_cast<uint64_t>(i));
     for (int i = 0; i < 24; ++i) eg.emplace(Op::A, static_cast<uint64_t>(i));
     TestRewriter rewriter{typed, TestRuleSet::Build(make_merge_vars_rule())};
-    auto const result = rewriter.saturate(RewriteConfig::Unlimited(), mode);
+    auto const result = run(rewriter, RewriteConfig::Unlimited());
     EXPECT_TRUE(result.saturated());
     EXPECT_EQ(rewriter.iterate_once(), 0U);  // sharp oracle: a true fixpoint
     return {eg.num_classes(), eg.num_live_nodes()};
@@ -184,7 +187,7 @@ TEST(IncrementalArming, IncrementalEqualsFullForAlwaysArmedRule) {
   // F(x) into x for any x with an F parent. (Being multi-pattern, it never uses
   // the per-candidate active-set restriction; this pins arming and merge parity,
   // not that path.) The Op::A padding just enlarges the graph.
-  ExpectSameShapeUnderBothModes([](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed;
     auto &eg = typed.core();
     for (int i = 0; i < 24; ++i) eg.emplace(Op::A, static_cast<uint64_t>(i));
@@ -193,7 +196,7 @@ TEST(IncrementalArming, IncrementalEqualsFullForAlwaysArmedRule) {
     auto const fx = eg.emplace(Op::F, {x}).eclass_id;  // F(x) and F(y): the rule
     auto const fy = eg.emplace(Op::F, {y}).eclass_id;  // collapses both into x, y
     TestRewriter rewriter{typed, TestRuleSet::Build(make_always_armed_collapse_rule())};
-    auto const result = rewriter.saturate(RewriteConfig::Unlimited(), mode);
+    auto const result = run(rewriter, RewriteConfig::Unlimited());
     EXPECT_TRUE(result.saturated());
     EXPECT_EQ(rewriter.iterate_once(), 0U);  // sharp oracle: a true fixpoint
     EXPECT_EQ(eg.find(fx), eg.find(x)) << "always-armed rule did not merge F(x) into x";
@@ -207,11 +210,11 @@ TEST(IncrementalArming, ReSaturatingASettledGraphDoesNoWork) {
   auto &eg = typed_eg.core();
   BuildNegChain(eg, 8);
   TestRewriter rewriter{typed_eg, TestRuleSet::Build(make_double_neg_rule())};
-  rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
+  rewriter.saturate_incremental(RewriteConfig::Unlimited());
 
   // A settled graph has touched nothing, so re-saturating arms nothing and
   // returns in a single no-op pass - the incremental-saturation payoff.
-  auto const again = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
+  auto const again = rewriter.saturate_incremental(RewriteConfig::Unlimited());
   EXPECT_TRUE(again.saturated());
   EXPECT_EQ(again.iterations, 1U);
   EXPECT_EQ(again.rewrites_applied, 0U);
@@ -236,7 +239,7 @@ TEST(IncrementalArming, IncrementalEqualsFullWhenDeepEntryMatchGrowsFromUntouche
   // enters at the inner Neg (deepest symbol), not the root. Growing an outer Neg over
   // an untouched inner chain leaves the inner Neg (the entry) outside the active set,
   // so the rule matches all candidates instead of active-restricted ones.
-  ExpectSameShapeUnderBothModes([](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed_eg;
     auto &eg = typed_eg.core();
     // Padding keeps the post-growth change a sparse slice, so the per-candidate
@@ -246,11 +249,11 @@ TEST(IncrementalArming, IncrementalEqualsFullWhenDeepEntryMatchGrowsFromUntouche
     auto const inner = eg.emplace(Op::Neg, {x}).eclass_id;  // Neg(x); no Neg(Neg) yet
 
     TestRewriter rewriter{typed_eg, TestRuleSet::Build(make_double_neg_rule())};
-    rewriter.saturate(RewriteConfig::Unlimited(), mode);  // settles, drains touched-set
+    run(rewriter, RewriteConfig::Unlimited());  // settles, drains touched-set
 
     auto const outer = eg.emplace(Op::Neg, {inner}).eclass_id;  // grow Neg(Neg(x))
     rewriter.rebuild_index(std::array{outer});                  // index only the new class
-    rewriter.saturate(RewriteConfig::Unlimited(), mode);
+    run(rewriter, RewriteConfig::Unlimited());
 
     return {eg.num_classes(), eg.num_live_nodes()};
   });
@@ -261,18 +264,18 @@ TEST(IncrementalArming, IncrementalEqualsFullAcrossReSaturateForRootEntryRule) {
   // arms from the touched-set that survived the first. idempotent_f = F(?x,?x) is
   // root-entry, so it uses the per-candidate restriction - the grown match must
   // still be found, and Incremental must equal Full.
-  ExpectSameShapeUnderBothModes([](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed_eg;
     auto &eg = typed_eg.core();
     for (int i = 0; i < 24; ++i) eg.emplace(Op::A, static_cast<uint64_t>(i));
     auto const y = eg.emplace(Op::Var, 1).eclass_id;
 
     TestRewriter rewriter{typed_eg, TestRuleSet::Build(make_idempotent_f_rule())};
-    rewriter.saturate(RewriteConfig::Unlimited(), mode);  // no F yet
+    run(rewriter, RewriteConfig::Unlimited());  // no F yet
 
     auto const f = eg.emplace(Op::F, {y, y}).eclass_id;  // grow F(y,y) -> matches F(?x,?x)
     rewriter.rebuild_index(std::array{f});
-    rewriter.saturate(RewriteConfig::Unlimited(), mode);  // must merge f with y
+    run(rewriter, RewriteConfig::Unlimited());  // must merge f with y
 
     return {eg.num_classes(), eg.num_live_nodes()};
   });
@@ -283,26 +286,26 @@ TEST(IncrementalArming, ModeSwitchOnOneRewriterMatchesAllIncremental) {
   // saturate on the SAME rewriter arms from what Full changed. Checks that a
   // `middle` pass (Full or Incremental) between two growths reaches the same
   // fixpoint either way.
-  ExpectSameShapeUnderBothModes([](ArmingMode middle) -> std::pair<std::size_t, std::size_t> {
+  ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed_eg;
     auto &eg = typed_eg.core();
     auto top = BuildNegChain(eg, 6);
     TestRewriter rewriter{typed_eg, TestRuleSet::Build(make_double_neg_rule())};
-    rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);  // spend the initial arm-all
+    rewriter.saturate_incremental(RewriteConfig::Unlimited());  // spend the initial arm-all
 
     // Grow two Neg levels and fold them with `middle`. When middle is Full it
     // leaves the touched-set intact for the final Incremental arm below.
     top = eg.emplace(Op::Neg, {top}).eclass_id;
     top = eg.emplace(Op::Neg, {top}).eclass_id;
     rewriter.rebuild_index();
-    rewriter.saturate(RewriteConfig::Unlimited(), middle);
+    run(rewriter, RewriteConfig::Unlimited());
 
     // Grow again and finish on Incremental: the initial arm-all is spent, so this
     // arms from the surviving touched-set (middle's merges plus this growth).
     top = eg.emplace(Op::Neg, {top}).eclass_id;
     top = eg.emplace(Op::Neg, {top}).eclass_id;
     rewriter.rebuild_index();
-    auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
+    auto const result = rewriter.saturate_incremental(RewriteConfig::Unlimited());
 
     EXPECT_TRUE(result.saturated());
     EXPECT_EQ(rewriter.iterate_once(), 0U);  // sharp oracle: a true fixpoint
@@ -321,12 +324,12 @@ TEST(IncrementalArming, SetRulesUnderIncrementalRearmsForTheNewRules) {
 
   // First rule set matches nothing: settles in a no-op pass, spending the initial arm-all.
   rewriter.set_rules(TestRuleSet::Build(make_idempotent_f_rule()));  // F(?x,?x): no F present
-  auto const noop = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
+  auto const noop = rewriter.saturate_incremental(RewriteConfig::Unlimited());
   ASSERT_TRUE(noop.saturated());
   ASSERT_EQ(noop.rewrites_applied, 0U);
 
   rewriter.set_rules(TestRuleSet::Build(make_double_neg_rule()));  // now install a rule that matches
-  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
+  auto const result = rewriter.saturate_incremental(RewriteConfig::Unlimited());
 
   EXPECT_TRUE(result.saturated());
   EXPECT_GT(result.rewrites_applied, 0U) << "new rule never fired: set_rules did not re-arm";
@@ -350,14 +353,14 @@ TEST(IncrementalArming, IncrementalReRunsAlwaysArmedRuleOnSettledGraph) {
           .apply([&matches](TestRuleContext &, Match const &) { ++matches; });  // observes, never merges
   TestRewriter rewriter{typed_eg, TestRuleSet::Build(std::move(counting_rule))};
 
-  auto const first = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
+  auto const first = rewriter.saturate_incremental(RewriteConfig::Unlimited());
   ASSERT_TRUE(first.saturated());
   ASSERT_GT(matches, 0U) << "always-armed rule did not run on the initial classes";
 
   // Graph is settled and the touched-set drained; an always-armed rule must still
   // be armed on the re-saturate.
   matches = 0;
-  auto const again = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
+  auto const again = rewriter.saturate_incremental(RewriteConfig::Unlimited());
   EXPECT_TRUE(again.saturated());
   EXPECT_GT(matches, 0U) << "always-armed rule was not re-armed on a settled graph";
 }
