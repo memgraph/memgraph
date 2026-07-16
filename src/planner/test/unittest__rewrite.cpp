@@ -178,12 +178,12 @@ TEST(IncrementalArming, IncrementalEqualsFullForMultiPatternRule) {
 }
 
 TEST(IncrementalArming, IncrementalEqualsFullForAlwaysArmedRule) {
-  // A symbol-less-rooted rule is always armed - no changed symbol can gate it -
-  // so incremental must run it every pass and its merges must land exactly as
-  // under full. always_armed_collapse merges F(x) into x for any x with an F
-  // parent. The Op::A padding keeps the post-pass change a sparse slice, so the
-  // active-set path runs: the always-armed rule must fire even when the active
-  // set is restricted or empty, because a symbol-less root ignores it.
+  // always_armed_collapse has a symbol-less pattern root, so the arming index
+  // marks it always armed - no changed symbol can gate it - and incremental must
+  // run it every pass with its merges landing exactly as under full. It merges
+  // F(x) into x for any x with an F parent. (Being multi-pattern, it never uses
+  // the per-candidate active-set restriction; this pins arming and merge parity,
+  // not that path.) The Op::A padding just enlarges the graph.
   ExpectSameShapeUnderBothModes([](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
     TypedTestEGraph typed;
     auto &eg = typed.core();
