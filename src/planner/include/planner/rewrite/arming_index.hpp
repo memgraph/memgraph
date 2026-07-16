@@ -20,8 +20,6 @@
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
-#include "planner/rewrite/rule_set.hpp"
-
 namespace memgraph::planner::core::rewrite {
 
 /// Maps a changed symbol to the rules a pass should arm - the dual of the
@@ -86,16 +84,5 @@ class ArmingIndex {
   boost::unordered_flat_map<Symbol, std::vector<std::size_t>> by_symbol_;
   std::vector<std::size_t> always_armed_;
 };
-
-/// Build the arming index for a rule set from its rules' pattern roots.
-template <RewritableGraph Graph>
-auto BuildArmingIndex(RuleSet<Graph> const &rules) -> ArmingIndex<typename Graph::symbol_type> {
-  using Symbol = typename Graph::symbol_type;
-  std::vector<std::vector<std::optional<Symbol>>> per_rule_roots;
-  auto const rule_ptrs = rules.rules();
-  per_rule_roots.reserve(rule_ptrs.size());
-  for (auto const &rule : rule_ptrs) per_rule_roots.push_back(rule->pattern_root_symbols());
-  return ArmingIndex<Symbol>::from_root_symbols(per_rule_roots);
-}
 
 }  // namespace memgraph::planner::core::rewrite

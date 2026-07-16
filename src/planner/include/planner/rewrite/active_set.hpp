@@ -17,27 +17,9 @@
 
 #include <boost/unordered/unordered_flat_set.hpp>
 
-#include "planner/rewrite/rule_set.hpp"
-
 import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::rewrite {
-
-/// The parent-closure depth the active set must use: the deepest position any
-/// rule binds, which is the maximum pattern depth over the rule set. A change at
-/// a bind that deep reaches the pattern root in this many parent hops, so the
-/// active set must close to here for incremental arming to be sound. Derived from the
-/// patterns, never hardcoded - a deeper rule widens it automatically.
-template <RewritableGraph Graph>
-[[nodiscard]] auto MaxRuleSetPatternDepth(RuleSet<Graph> const &rules) -> std::size_t {
-  std::size_t max_depth = 0;
-  for (auto const &rule : rules.rules()) {
-    for (auto const &pattern : rule->patterns()) {
-      max_depth = std::max(max_depth, pattern.depth());
-    }
-  }
-  return max_depth;
-}
 
 /// Close the active set under parents to `depth` hops, in place. `active` enters
 /// holding the canonical touched e-classes and grows to their parent-closure.
