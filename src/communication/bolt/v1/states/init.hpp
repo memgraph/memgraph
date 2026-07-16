@@ -15,6 +15,7 @@
 #include <fmt/format.h>
 #include <optional>
 #include <set>
+#include <utility>
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/state.hpp"
@@ -82,21 +83,30 @@ std::optional<State> BasicAuthentication(TSession &session, memgraph::communicat
   return std::nullopt;
 }
 
-template <typename TSession>
-std::optional<State> SSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
+// Extracts the SSO scheme and identity provider response from the handshake data.
+// Returns std::nullopt (and logs a warning) if either field is missing or not a string.
+inline std::optional<std::pair<std::string, std::string>> ExtractSSOCredentials(
+    memgraph::communication::bolt::map_t &data) {
   auto cred_it = data.find("credentials");
   if (cred_it == data.end() || !cred_it->second.IsString()) {
-    spdlog::warn("The client didn’t supply the SSO token!");
-    return State::Close;
+    spdlog::warn("The client didn't supply the SSO token!");
+    return std::nullopt;
   }
   auto scheme_it = data.find("scheme");
   if (scheme_it == data.end() || !scheme_it->second.IsString()) {
     spdlog::warn("The client didn't supply a valid SSO scheme!");
+    return std::nullopt;
+  }
+  return std::make_pair(scheme_it->second.ValueString(), cred_it->second.ValueString());
+}
+
+template <typename TSession>
+std::optional<State> SSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
+  auto credentials = ExtractSSOCredentials(data);
+  if (!credentials) {
     return State::Close;
   }
-
-  auto scheme = scheme_it->second.ValueString();
-  auto identity_provider_response = cred_it->second.ValueString();
+  const auto &[scheme, identity_provider_response] = *credentials;
   const auto auth_res = session.SSOAuthenticate(scheme, identity_provider_response);
   if (!auth_res) {
     switch (auth_res.error()) {
@@ -111,18 +121,29 @@ std::optional<State> SSOAuthentication(TSession &session, memgraph::communicatio
   return std::nullopt;
 }
 
+#ifdef MG_ENTERPRISE
+template <typename TSession>
+std::optional<State> CoordinatorSSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
+  auto credentials = ExtractSSOCredentials(data);
+  if (!credentials) {
+    return State::Close;
+  }
+  const auto &[scheme, identity_provider_response] = *credentials;
+  const auto auth_res = session.CoordinatorSSOAuthenticate(scheme, identity_provider_response);
+  if (!auth_res) {
+    // Rejected: invalid token, a role the module returned that doesn't exist on the coordinator, or a missing
+    // enterprise license. HandleAuthFailure sends the failure message and throws to close the connection.
+    HandleAuthFailure(session);
+  }
+  return std::nullopt;
+}
+#endif
+
 template <typename TSession>
 std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
   // Get authentication data.
   // From neo4j driver v4.4, fields that have a default value are not sent.
   // In order to have back-compatibility, the missing fields will be added.
-#ifdef MG_ENTERPRISE
-  if (auto const &coordination_setup = flags::CoordinationSetupInstance(); coordination_setup.IsCoordinator()) {
-    spdlog::info("Ignoring auth on coordinators");
-    return std::nullopt;
-  }
-#endif
-
   auto &data = metadata.ValueMap();
   auto scheme_it = data.find("scheme");
   if (scheme_it == data.end() || !scheme_it->second.IsString()) {  // Special case auth=None
@@ -143,6 +164,27 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
   };
 
   const auto &schema = data["scheme"].ValueString();
+
+#ifdef MG_ENTERPRISE
+  if (auto const &coordination_setup = flags::CoordinationSetupInstance(); coordination_setup.IsCoordinator()) {
+    // Coordinator auth: basic/none is a passthrough (credentials ignored, session keeps full COORDINATOR_WRITE, no
+    // license required); an SSO scheme present in --auth-module-mappings runs the coordinator SSO path (which is
+    // enterprise-gated); any other/unknown scheme is rejected.
+    if (schema == "basic" || schema == "none") {
+      return std::nullopt;
+    }
+    if (scheme_in_module_mappings(schema)) {
+      return CoordinatorSSOAuthentication(session, data);
+    }
+    spdlog::warn(
+        "The \"{}\" authentication scheme isn't supported on coordinators: connect with basic auth or an SSO scheme "
+        "listed in the auth-module-mappings flag.",
+        schema);
+    HandleAuthFailure(session);
+    return State::Close;
+  }
+#endif
+
   if (schema == "basic" || schema == "none") {
     return BasicAuthentication(session, data);
   }
