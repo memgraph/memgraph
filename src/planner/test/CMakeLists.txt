@@ -12,6 +12,7 @@ add_unit_test(planner
         unittest__vm_matching.cpp
         unittest__rewrite.cpp
         unittest__rule_latch.cpp
+        unittest__pass_schedule.cpp
         unittest__vm_compiler.cpp
         unittest__vm_trace.cpp
         unittest__vm_state.cpp
