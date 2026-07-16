@@ -12,11 +12,11 @@
 #pragma once
 
 #include <cstddef>
+#include <vector>
 
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
-#include "planner/rewrite/active_set.hpp"
 #include "planner/rewrite/arming_index.hpp"
 
 import memgraph.planner.core.egraph;
@@ -58,7 +58,8 @@ class RuleLatch {
     full_arm_pending_ = true;
     armed_.clear();
     min_hop_.clear();
-    active_eclasses_.clear();
+    closure_scratch_.clear();
+    active_set_.clear();
     active_sparse_ = false;
   }
 
@@ -79,7 +80,7 @@ class RuleLatch {
   /// The active-set root restriction for the coming pass, or nullptr to match
   /// every candidate (see the class note on the null-vs-empty distinction).
   [[nodiscard]] auto active() const -> boost::unordered_flat_set<EClassId> const * {
-    return active_sparse_ ? &active_eclasses_ : nullptr;
+    return active_sparse_ ? &active_set_ : nullptr;
   }
 
  private:
@@ -87,26 +88,59 @@ class RuleLatch {
   void arm_all() {
     armed_.clear();
     for (std::size_t i = 0; i < num_rules_; ++i) armed_.insert(i);
-    active_eclasses_.clear();
+    active_set_.clear();
     active_sparse_ = false;  // match every candidate
   }
 
-  /// Later passes: take the e-classes the last pass touched, close under parents
-  /// to the max pattern depth while recording each symbol's shallowest hop, and
-  /// arm each pattern only when its depth reaches that hop. Keep the active set
-  /// for per-candidate matching only when it is a small slice of the graph;
-  /// otherwise drop it (keep capacity) and match via symbol-granularity arming
-  /// alone, since holding a large active set live only adds cache pressure for
-  /// little pruning.
+  /// Later passes: one parent-closure walk from the touched-set serves both
+  /// products. For arming, close under parents to the max pattern depth,
+  /// recording each symbol's shallowest hop, then arm each pattern only when its
+  /// depth reaches that hop (see collect_armed). For the active-set restriction,
+  /// keep only the touched classes and their direct parents (hop <= 1):
+  /// restriction applies solely to root-entry patterns, which are depth <= 1, so
+  /// a new match's root is always the change or a direct parent of it, never a
+  /// deeper closure class. The active set is captured as a by-product of the same
+  /// walk. Keep it only when it is a small slice of the graph; otherwise drop it
+  /// (keep capacity) and match via symbol-granularity arming alone, since holding
+  /// a large active set live only adds cache pressure for little pruning.
   void arm_from_touched(EGraph<Symbol, Analysis> const &egraph) {
-    egraph.touched_eclasses_into(active_eclasses_);  // canonical touched (reused buffer)
+    egraph.touched_eclasses_into(closure_scratch_);  // canonical touched, hop 0 (reused buffer)
     min_hop_.clear();
-    ComputeActiveSet(egraph, active_eclasses_, max_pattern_depth_, min_hop_);  // close under parents, in place
+    active_set_.clear();
+
+    frontier_.assign(closure_scratch_.begin(), closure_scratch_.end());
+    for (auto const eclass_id : frontier_) {
+      active_set_.insert(eclass_id);  // hop 0
+      project_symbols(egraph, eclass_id, 0);
+    }
+    for (std::size_t hop = 1; hop <= max_pattern_depth_ && !frontier_.empty(); ++hop) {
+      next_frontier_.clear();
+      for (auto const eclass_id : frontier_) {
+        for (auto const parent_enode : egraph.eclass(eclass_id).parents()) {
+          auto const parent = egraph.find(parent_enode);
+          if (!closure_scratch_.insert(parent).second) continue;  // first visit = shallowest hop
+          next_frontier_.push_back(parent);
+          if (hop == 1) active_set_.insert(parent);  // hop 1: direct parents complete the slice
+          project_symbols(egraph, parent, hop);
+        }
+      }
+      frontier_.swap(next_frontier_);
+    }
+
     armed_.clear();
     index_->collect_armed(min_hop_, armed_);
 
-    active_sparse_ = active_eclasses_.size() * 2 < egraph.num_classes();
-    if (!active_sparse_) active_eclasses_.clear();
+    active_sparse_ = active_set_.size() * 2 < egraph.num_classes();
+    if (!active_sparse_) active_set_.clear();
+  }
+
+  /// Record each of an e-class's e-node symbols at `hop`, keeping the shallowest
+  /// sighting. The walk visits each e-class once, at its shallowest hop, so a
+  /// later, deeper sighting of a symbol never overwrites an earlier one.
+  void project_symbols(EGraph<Symbol, Analysis> const &egraph, EClassId eclass_id, std::size_t hop) {
+    for (auto const enode_id : egraph.eclass(eclass_id).nodes()) {
+      min_hop_.try_emplace(egraph.get_enode(enode_id).symbol(), hop);
+    }
   }
 
   ArmingIndex<Symbol> const *index_ = nullptr;
@@ -114,7 +148,10 @@ class RuleLatch {
   std::size_t num_rules_ = 0;
   boost::unordered_flat_set<std::size_t> armed_;
   boost::unordered_flat_map<Symbol, std::size_t> min_hop_;
-  boost::unordered_flat_set<EClassId> active_eclasses_;
+  boost::unordered_flat_set<EClassId> closure_scratch_;  // BFS visited set; bounds the arming walk
+  boost::unordered_flat_set<EClassId> active_set_;       // touched + direct parents, returned by active()
+  std::vector<EClassId> frontier_;                       // BFS scratch, reused across passes
+  std::vector<EClassId> next_frontier_;
   bool active_sparse_ = false;
   bool full_arm_pending_ = true;
 };
