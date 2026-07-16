@@ -144,8 +144,12 @@ auto build_graph(uint8_t const *data, size_t size, std::vector<EClassId> &pool) 
   auto &eg = typed.core();
   ProcessingContext<FuzzSymbol> ctx;
   pool.clear();
-  pool.push_back(eg.emplace(FuzzSymbol::A, 0).eclass_id);
-  pool.push_back(eg.emplace(FuzzSymbol::A, 1).eclass_id);
+  // Distinct leaves so the partition oracle discriminates finely: a wrong merge
+  // is more likely to move some label when there are more starting classes.
+  for (auto const leaf : {FuzzSymbol::A, FuzzSymbol::B, FuzzSymbol::C, FuzzSymbol::D, FuzzSymbol::E}) {
+    pool.push_back(eg.emplace(leaf, 0).eclass_id);
+    pool.push_back(eg.emplace(leaf, 1).eclass_id);
+  }
 
   size_t cursor = 0;
   auto next = [&]() -> uint8_t { return cursor < size ? data[cursor++] : 0; };
@@ -153,7 +157,7 @@ auto build_graph(uint8_t const *data, size_t size, std::vector<EClassId> &pool) 
 
   // Bound the graph so the fuzzer stays fast.
   while (cursor < size && pool.size() < 512) {
-    switch (next() % 4) {
+    switch (next() % 5) {
       case 0:
         pool.push_back(eg.emplace(FuzzSymbol::Plus, {pick(), pick()}).eclass_id);
         break;
@@ -166,6 +170,16 @@ auto build_graph(uint8_t const *data, size_t size, std::vector<EClassId> &pool) 
       case 3:
         eg.merge(pick(), pick());  // create equalities so the rules can fire
         break;
+      case 4: {
+        // An F-tower: apply F 1..5 times onto a picked class. Uniform construction
+        // almost never chains F deep enough by chance, so the collapse-tower rule
+        // and the hop-2+ arming gate would otherwise be starved of matches.
+        auto id = pick();
+        auto const height = 1U + (next() % 5U);
+        for (unsigned i = 0; i < height; ++i) id = eg.emplace(FuzzSymbol::F, {id}).eclass_id;
+        pool.push_back(id);
+        break;
+      }
     }
   }
   if (eg.needs_rebuild()) eg.rebuild(ctx);
