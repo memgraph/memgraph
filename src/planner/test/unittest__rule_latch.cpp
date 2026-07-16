@@ -151,6 +151,33 @@ TEST(RuleLatch, ArmingGatesEachPatternByItsOwnDepth) {
   EXPECT_TRUE(latch.armed().contains(1)) << "the depth-2 rule reaches G at hop 2";
 }
 
+TEST(RuleLatch, RestrictionSliceStopsAtDirectParents) {
+  // a <- F(a) <- G(F(a)): touching `a` leaves `a` and its direct parent F(a) as
+  // candidate roots for a root-entry (depth-1) rule, never the 2-hop G(F(a)) -
+  // even though the arming closure walks that deep.
+  TestEGraph eg;
+  auto const a = eg.emplace(Op::A).eclass_id;
+  auto const fa = eg.emplace(Op::F, {a}).eclass_id;
+  auto const gfa = eg.emplace(Op::G, {fa}).eclass_id;
+  for (std::uint64_t i = 0; i < 6; ++i) eg.emplace(Op::C, i);  // padding: keeps the change sparse
+  auto const index = ArmingIndex<Op>::from_root_symbols(Roots{{Op::F}});
+
+  Latch latch;
+  latch.reset(index, /*max_pattern_depth=*/2, /*num_rules=*/1);
+  latch.arm(eg);  // arm-all, consume pending
+  eg.clear_touched();
+  auto const b = eg.emplace(Op::B).eclass_id;
+  eg.merge(a, b);  // touch the class holding `a`
+  TestProcessingContext pc;
+  eg.rebuild(pc);
+  latch.arm(eg);
+
+  ASSERT_NE(latch.active(), nullptr) << "a one-class change in a larger graph is sparse";
+  EXPECT_TRUE(latch.active()->contains(eg.find(a)));
+  EXPECT_TRUE(latch.active()->contains(eg.find(fa)));
+  EXPECT_FALSE(latch.active()->contains(eg.find(gfa))) << "the 2-hop grandparent is not a depth-1 re-fire root";
+}
+
 TEST(RuleLatch, NonSparseChangeDropsTheActiveSet) {
   TestEGraph eg;
   eg.emplace(Op::A);
