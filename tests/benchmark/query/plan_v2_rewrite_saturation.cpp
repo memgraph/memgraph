@@ -45,7 +45,6 @@
 
 namespace {
 
-using memgraph::planner::core::rewrite::ArmingMode;
 using memgraph::planner::core::rewrite::RewriteConfig;
 using memgraph::planner::core::rewrite::Rewriter;
 using memgraph::query::plan::v2::DefaultRules;
@@ -57,7 +56,7 @@ using memgraph::storage::ExternalPropertyValue;
 // Shared helpers.
 auto Lit(egraph &eg, int64_t v) -> eclass { return eg.MakeLiteral(ExternalPropertyValue{v}); }
 
-auto ModeFromArg(int64_t arg) -> ArmingMode { return arg == 0 ? ArmingMode::Full : ArmingMode::Incremental; }
+auto ArgIsIncremental(int64_t arg) -> bool { return arg != 0; }
 
 // Time only the saturation loop: the O(width) build and matcher-index
 // construction are identical across modes and would otherwise dilute the
@@ -66,13 +65,14 @@ auto ModeFromArg(int64_t arg) -> ArmingMode { return arg == 0 ? ArmingMode::Full
 template <typename BuildFn>
 void RunPausedBuildSaturate(benchmark::State &state, BuildFn build, int64_t driver_len) {
   auto const width = state.range(0);
-  auto const mode = ModeFromArg(state.range(1));
+  auto const incremental = ArgIsIncremental(state.range(1));
   for (auto _ : state) {
     state.PauseTiming();
     auto eg = build(width);
     Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
     state.ResumeTiming();
-    benchmark::DoNotOptimize(rewriter.saturate(RewriteConfig::Unlimited(), mode));
+    auto const cfg = RewriteConfig::Unlimited();
+    benchmark::DoNotOptimize(incremental ? rewriter.saturate_incremental(cfg) : rewriter.saturate_full(cfg));
   }
   state.SetItemsProcessed(state.iterations() * (width + driver_len));
 }
@@ -134,7 +134,7 @@ void BM_PlanV2_NoopSaturation(benchmark::State &state) {
 
   // Guard 1: reach a true fixpoint before timing (default limits could stop a
   // large graph short of saturation).
-  auto const result = rewriter.saturate(RewriteConfig::Unlimited(), ArmingMode::Full);
+  auto const result = rewriter.saturate_full(RewriteConfig::Unlimited());
   MG_ASSERT(result.saturated(),
             "setup saturation did not reach a fixpoint (stop_reason={})",
             static_cast<int>(result.stop_reason));
@@ -164,11 +164,12 @@ BENCHMARK(BM_PlanV2_NoopSaturation)->RangeMultiplier(2)->Range(1, 128)->Unit(ben
 // saving on the later passes (settled and irrelevant rules no longer re-run).
 void BM_PlanV2_Saturate(benchmark::State &state) {
   auto const units = state.range(0);
-  auto const mode = ModeFromArg(state.range(1));
+  auto const incremental = ArgIsIncremental(state.range(1));
   for (auto _ : state) {
     auto eg = BuildGraph(units);
     Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
-    benchmark::DoNotOptimize(rewriter.saturate(RewriteConfig::Unlimited(), mode));
+    benchmark::DoNotOptimize((incremental ? rewriter.saturate_incremental(RewriteConfig::Unlimited())
+                                          : rewriter.saturate_full(RewriteConfig::Unlimited())));
   }
   state.SetItemsProcessed(state.iterations() * units);
 }
@@ -181,12 +182,14 @@ BENCHMARK(BM_PlanV2_Saturate)->ArgsProduct({{1, 8, 64}, {0, 1}})->Unit(benchmark
 // sees an empty touched-set and returns at once.
 void BM_PlanV2_ReSaturate(benchmark::State &state) {
   auto const units = state.range(0);
-  auto const mode = ModeFromArg(state.range(1));
+  auto const incremental = ArgIsIncremental(state.range(1));
   auto eg = BuildGraph(units);
   Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
-  rewriter.saturate(RewriteConfig::Unlimited(), mode);  // settle once, outside timing
+  (incremental ? rewriter.saturate_incremental(RewriteConfig::Unlimited())
+               : rewriter.saturate_full(RewriteConfig::Unlimited()));  // settle once, outside timing
   for (auto _ : state) {
-    benchmark::DoNotOptimize(rewriter.saturate(RewriteConfig::Unlimited(), mode));
+    benchmark::DoNotOptimize((incremental ? rewriter.saturate_incremental(RewriteConfig::Unlimited())
+                                          : rewriter.saturate_full(RewriteConfig::Unlimited())));
   }
   state.SetItemsProcessed(state.iterations() * units);
 }

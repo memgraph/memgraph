@@ -542,8 +542,7 @@ TEST(IncrementalArmingAlternation, OnlyTheTwoChainRulesEverFire) {
   }
 
   planner::core::rewrite::Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
-  auto const result = rewriter.saturate(planner::core::rewrite::RewriteConfig::Unlimited(),
-                                        planner::core::rewrite::ArmingMode::Incremental);
+  auto const result = rewriter.saturate_incremental(planner::core::rewrite::RewriteConfig::Unlimited());
   ASSERT_TRUE(result.saturated());
 
   std::set<std::size_t> const fired_rules = [&] {
@@ -564,12 +563,12 @@ TEST(IncrementalArmingAlternation, OnlyTheTwoChainRulesEverFire) {
 // return its final shape. Asserts each run truly settles (the sharp oracle: a
 // final all-rules pass finds nothing).
 template <typename Build>
-auto SaturateToShape(Build const &build, planner::core::rewrite::ArmingMode mode)
-    -> std::pair<std::size_t, std::size_t> {
+auto SaturateToShape(Build const &build, bool incremental) -> std::pair<std::size_t, std::size_t> {
   egraph eg;
   build(eg);
   planner::core::rewrite::Rewriter rewriter{impl_of(eg).graph, DefaultRules()};
-  auto const result = rewriter.saturate(planner::core::rewrite::RewriteConfig::Unlimited(), mode);
+  auto const cfg = planner::core::rewrite::RewriteConfig::Unlimited();
+  auto const result = incremental ? rewriter.saturate_incremental(cfg) : rewriter.saturate_full(cfg);
   EXPECT_TRUE(result.saturated());
   EXPECT_EQ(rewriter.iterate_once(), 0U);  // sharp oracle: a true fixpoint
   auto const &core = impl_of(eg).graph.core();
@@ -583,9 +582,8 @@ auto SaturateToShape(Build const &build, planner::core::rewrite::ArmingMode mode
 // - correctness under the default (Incremental) rested on hand-authored counts.
 template <typename Build>
 void ExpectSameShapeUnderBothModes(Build const &build) {
-  using planner::core::rewrite::ArmingMode;
-  EXPECT_EQ(SaturateToShape(build, ArmingMode::Incremental), SaturateToShape(build, ArmingMode::Full))
-      << "arming mode changed the final e-graph shape over DefaultRules";
+  EXPECT_EQ(SaturateToShape(build, /*incremental=*/true), SaturateToShape(build, /*incremental=*/false))
+      << "arming schedule changed the final e-graph shape over DefaultRules";
 }
 
 // A constant-fold chain: alternating Add/Mul over literals folds to one constant,

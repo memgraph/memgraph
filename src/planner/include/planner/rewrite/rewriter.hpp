@@ -98,12 +98,6 @@ struct RewriteResult {
   [[nodiscard]] auto saturated() const -> bool { return stop_reason == StopReason::Saturated; }
 };
 
-/// How `saturate` schedules rules across passes.
-enum class ArmingMode : std::uint8_t {
-  Full,         ///< Every rule every pass. The reference behaviour and differential oracle.
-  Incremental,  ///< Run only the rules a pass could newly enable.
-};
-
 /// Reusable buffers for the rewrite process.
 template <RewritableGraph Graph>
 class RewriteContext {
@@ -283,13 +277,6 @@ class Rewriter {
   auto saturate_incremental(RewriteConfig const &config) -> RewriteResult {
     IncrementalSchedule<Symbol, Analysis> schedule{latch_};
     return saturate(config, schedule);
-  }
-
-  /// Runtime selector over the two schedules, for callers that pick a mode at
-  /// run time (a mode-parameterised benchmark, a differential harness). Compile-
-  /// time callers should prefer saturate_full / saturate_incremental directly.
-  auto saturate(RewriteConfig const &config, ArmingMode mode) -> RewriteResult {
-    return mode == ArmingMode::Incremental ? saturate_incremental(config) : saturate_full(config);
   }
 
   /**
