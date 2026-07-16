@@ -30,6 +30,13 @@
 // The rule pool includes a node-INSERTING rule (commutativity), so the
 // insert-during-rewrite path - touched-set insert + incremental matcher reindex -
 // is fuzzed, not just merges.
+//
+// Analysis is deliberately out of scope. Arming keys on symbol and parent-hop
+// only, and analysis moves only on merge (which touches), so analysis can only
+// make arming more conservative, never cause a skip - the trivial FuzzAnalysis
+// hides no divergence here. A rule whose enabling depends on analysis propagating
+// beyond structural parent-adjacency would break that argument and need its own
+// differential; no such rule exists.
 
 #include <cstdint>
 #include <cstdio>
