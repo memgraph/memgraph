@@ -276,6 +276,9 @@ auto LowerUnwind(query::Unwind &unwind, eclass pipe, LoweringCtx &ctx) -> eclass
 
 auto LowerCallSubquery(query::CallSubquery &cs, eclass pipe, LoweringCtx &ctx) -> eclass {
   // Minimum scope: non-importing CALL { ... } RETURN ...
+  // A USE scope rebinds the ambient graph to a projection; plan_v2 has no such
+  // awareness and would scan the real graph, so reject it before lowering.
+  if (cs.use_graph_ != nullptr) ThrowNotImplementedYet("USE scope (projection) in CALL subquery");
   if (cs.has_variable_scope_) ThrowNotImplementedYet("importing CALL with explicit scope clause");
   if (cs.all_variables_scoped_) ThrowNotImplementedYet("CALL with implicit star scope clause");
   DMG_ASSERT(cs.cypher_query_ != nullptr && cs.cypher_query_->single_query_ != nullptr,

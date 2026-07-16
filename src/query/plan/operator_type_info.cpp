@@ -168,6 +168,9 @@ constexpr utils::TypeInfo query::plan::Foreach::kType{
 constexpr utils::TypeInfo query::plan::Apply::kType{
     .id = utils::TypeId::APPLY, .name = "Apply", .superclass = &query::plan::LogicalOperator::kType};
 
+constexpr utils::TypeInfo query::plan::BindGraphView::kType{
+    .id = utils::TypeId::BIND_GRAPH_VIEW, .name = "BindGraphView", .superclass = &query::plan::LogicalOperator::kType};
+
 constexpr utils::TypeInfo query::plan::IndexedJoin::kType{
     .id = utils::TypeId::INDEXED_JOIN, .name = "IndexedJoin", .superclass = &query::plan::LogicalOperator::kType};
 

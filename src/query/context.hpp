@@ -19,6 +19,7 @@
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
+#include "query/synthetic_gid.hpp"
 #include "storage/v2/commit_args.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/counter.hpp"
@@ -39,6 +40,7 @@ namespace memgraph::query {
 
 class FineGrainedAuthChecker;
 class TriggerContextCollector;
+class GraphView;
 
 enum class TransactionStatus {
   IDLE,
@@ -72,6 +74,17 @@ struct EvaluationContext {
   /// modifies the values
   mutable std::unordered_map<std::string, int64_t> counters{};
   Scope scope{};
+  // The ambient graph the read operators scan and the topology functions resolve
+  // over. Every executor binds one before the plan runs - the real graph as the
+  // identity view (PullPlan, the trigger executor, the test MakeContext helper) -
+  // and a `CALL { USE ... }` scope rebinds a projection or subgraph view for the
+  // block. The read path assumes it is non-null during execution; the null default
+  // is only the pre-bind value.
+  GraphView *graph_view{nullptr};
+  // Query-local projection of synthetic Gids onto dense external ids. Shared (not deep-copied) so
+  // parallel workers agree on a virtual entity's external id; a fresh one per query gives the
+  // per-query reset that id()/virtual_id() expose.
+  std::shared_ptr<SyntheticIdMapper> synthetic_id_mapper{std::make_shared<SyntheticIdMapper>()};
 };
 
 std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string> &property_names, DbAccessor *dba);

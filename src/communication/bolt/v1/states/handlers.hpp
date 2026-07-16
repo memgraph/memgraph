@@ -192,6 +192,16 @@ State HandlePullDiscardV4(TSession &session, const State state, const Marker mar
 }
 }  // namespace details
 
+// Outcome of preparing a query for streaming, assembled into the RUN response header. `fields` names
+// the result columns; `qid` is the optional query id; `projection_schema` is a per-derive() schema
+// table keyed by the projection reference, empty when the query yields no projection. A
+// projection-aware client uses the table to resolve the reference carried on each overlay node.
+struct PreparedRunMetadata {
+  std::vector<std::string> fields;
+  std::optional<int> qid;
+  map_t projection_schema;
+};
+
 template <typename TSession>
 inline State HandleFailure(TSession &session, const std::exception &e) {
   spdlog::trace("Error message: {}", e.what());
@@ -213,17 +223,22 @@ template <typename TSession>
 State HandlePrepare(TSession &session) {
   try {
     // Interpret can throw.
-    const auto [header, qid] = session.InterpretPrepare();
+    auto [fields, qid, projection_schema] = session.InterpretPrepare();
     // Convert std::string to Value
     std::vector<Value> vec;
     map_t data;
-    vec.reserve(header.size());
-    for (auto &i : header) vec.emplace_back(std::move(i));
+    vec.reserve(fields.size());
+    for (auto &i : fields) vec.emplace_back(std::move(i));
     data.emplace("fields", std::move(vec));
     if (session.version_.major > 1) {
       if (qid) {
         data.emplace("qid", Value{*qid});
       }
+    }
+    // A projection-aware client reads this table to style projected nodes; generic clients ignore
+    // the unknown key. Omitted entirely when the query produced no projection.
+    if (!projection_schema.empty()) {
+      data.emplace("projection_schema", Value{std::move(projection_schema)});
     }
 
     // Send the header.

@@ -20,6 +20,7 @@
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/graph_view.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan_v2/frontend/egraph_converter.hpp"
@@ -248,6 +249,11 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
 
   ExecutionContext ctx;
   ctx.db_accessor = dba;
+  // The read operators run over the ambient graph view; bind the real graph as
+  // the identity view, as PullPlan does for ordinary queries. Owned here for the
+  // duration of this execution (the cursor is pulled below).
+  DbAccessorGraphView identity_view{dba};
+  ctx.evaluation_context.graph_view = &identity_view;
   ctx.symbol_table = plan.symbol_table();
   ctx.evaluation_context.timestamp = QueryTimestamp();
   ctx.evaluation_context.parameters = parsed_statements_.parameters;

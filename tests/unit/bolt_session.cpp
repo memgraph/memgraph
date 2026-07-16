@@ -69,12 +69,12 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     throw ClientError("client sent invalid query");
   }
 
-  std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare() {
+  memgraph::communication::bolt::PreparedRunMetadata InterpretPrepare() {
     if (query_ == kQueryReturn42 || query_ == kQueryEmpty || query_ == kQueryReturnMultiple) {
-      return {{"result_name"}, {}};
+      return {{"result_name"}, {}, {}};
     }
     if (query_ == kQueryShowTx) {
-      return {{"username", "transaction_id", "query", "status", "metadata"}, {}};
+      return {{"username", "transaction_id", "query", "status", "metadata"}, {}, {}};
     }
     throw ClientError("client sent invalid query");
   }

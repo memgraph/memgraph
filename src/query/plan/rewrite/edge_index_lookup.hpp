@@ -28,6 +28,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
+#include "query/plan/rewrite/index_substitution_rewriter.hpp"
 #include "query/plan/rewrite/order_by_elimination.hpp"
 #include "storage/v2/id_types.hpp"
 
@@ -36,7 +37,7 @@ namespace memgraph::query::plan {
 namespace impl {
 
 template <class TDbAccessor>
-class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
+class EdgeIndexRewriter final : public IndexSubstitutionRewriter {
  public:
   EdgeIndexRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db,
                     bool parallel_execution = false)
@@ -45,9 +46,9 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         db_(db),
         order_by_eliminator_(db, prev_ops_, parallel_execution) {}
 
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
-  using HierarchicalLogicalOperatorVisitor::PreVisit;
-  using HierarchicalLogicalOperatorVisitor::Visit;
+  using IndexSubstitutionRewriter::PostVisit;
+  using IndexSubstitutionRewriter::PreVisit;
+  using IndexSubstitutionRewriter::Visit;
 
   bool Visit(Once &) override { return true; }
 
@@ -730,7 +731,6 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   Filters filters_;
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
-  std::vector<LogicalOperator *> prev_ops_;
   OrderByEliminator<TDbAccessor> order_by_eliminator_;
   std::unordered_set<Symbol> additional_bound_symbols_;
 
@@ -1278,10 +1278,10 @@ template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithEdgeIndexRewriter(std::unique_ptr<LogicalOperator> root_op,
                                                               SymbolTable *symbol_table, AstStorage *ast_storage,
                                                               TDbAccessor *db, bool parallel_execution = false) {
-  impl::EdgeIndexRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, parallel_execution);
-  root_op->Accept(rewriter);
-  if (rewriter.new_root_) {
-    return rewriter.new_root_->Clone(ast_storage);
+  auto new_root = impl::RunIndexSubstitution<impl::EdgeIndexRewriter<TDbAccessor>>(
+      *root_op, symbol_table, ast_storage, db, parallel_execution);
+  if (new_root) {
+    return new_root->Clone(ast_storage);
   }
   return root_op;
 }

@@ -78,6 +78,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/graph_view.hpp"
 #include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
@@ -3153,7 +3154,8 @@ struct PullPlan {
                     std::optional<size_t> parallel_execution = std::nullopt,
                     std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
-  );
+                    ,
+                    std::shared_ptr<SyntheticIdMapper> synthetic_id_mapper = {});
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -3181,6 +3183,8 @@ struct PullPlan {
   // manually by using this flag.
   bool has_unsent_results_ = false;
   metrics::DatabaseMetricHandles *metric_handles_;
+  // The ambient graph view bound into ctx_: the real graph seen as a GraphView.
+  DbAccessorGraphView identity_graph_view_;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
@@ -3195,7 +3199,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    ,
                    std::optional<size_t> parallel_execution, std::shared_ptr<utils::UserResources> user_resource
 #endif
-                   )
+                   ,
+                   std::shared_ptr<SyntheticIdMapper> synthetic_id_mapper)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory, metric_handles)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -3205,9 +3210,13 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       user_resource_{std::move(user_resource)}
 #endif
       ,
-      metric_handles_(&metric_handles) {
+      metric_handles_(&metric_handles),
+      identity_graph_view_(dba) {
   ctx_.profile_execution_time = std::chrono::duration<double>(0.0);
   ctx_.metric_handles = &metric_handles;
+  // Share the interpreter's per-query mapper so id()/virtual_id() (evaluated here) and Bolt
+  // serialization externalize virtual ids through the same instance; else keep the default.
+  if (synthetic_id_mapper) ctx_.evaluation_context.synthetic_id_mapper = std::move(synthetic_id_mapper);
   if (hops_limit) {
 #ifdef MG_ENTERPRISE
     if (parallel_execution) {
@@ -3223,6 +3232,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.parallel_execution = parallel_execution;
 #endif
   ctx_.db_accessor = dba;
+  ctx_.evaluation_context.graph_view = &identity_graph_view_;
   ctx_.db_arena_pool = db_arena_pool;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
@@ -3395,6 +3405,13 @@ void Interpreter::ResetCachedFga() { cached_fga_->Reset(); }
 
 FineGrainedAuthChecker const *Interpreter::GetCachedFga() const { return cached_fga_->get(); }
 
+SyntheticIdMapper *Interpreter::GetSyntheticIdMapper() const { return synthetic_id_mapper_.get(); }
+
+std::shared_ptr<SyntheticIdMapper> Interpreter::RenewSyntheticIdMapper() {
+  synthetic_id_mapper_ = std::make_shared<SyntheticIdMapper>();
+  return synthetic_id_mapper_;
+}
+
 auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig const &config) -> TxTimeout {
   using double_seconds = std::chrono::duration<double>;
 
@@ -3547,6 +3564,109 @@ void CheckParallelExecution(std::optional<size_t> &parallel_execution, plan::Log
 }
 #endif
 
+// Walks a MapLiteral's entries looking for the one whose key name matches `key`; returns its value
+// expression, or nullptr if absent. Map keys are PropertyIx, so this is a linear scan by name.
+Expression *FindMapLiteralEntry(const MapLiteral &map, std::string_view key) {
+  for (const auto &[property, value] : map.elements_) {
+    if (property.name == key) return value;
+  }
+  return nullptr;
+}
+
+// Evaluates a derive() config value at prepare time, but only if it is statically resolvable - a
+// literal or a parameter-substituted literal. A value that needs runtime context (a bound variable, or
+// a function requiring a database accessor such as `type(r)`) is not statically known: the prepare-time
+// evaluator raises a QueryRuntimeException, which is caught here and reported as nullopt rather than
+// failing the query. The field it feeds is then omitted from the header schema; the executor still
+// resolves the value per row. A genuine error in a constant expression resurfaces at execution, where
+// the config is evaluated for real.
+std::optional<TypedValue> EvaluateIfStatic(Expression &expr, ExpressionVisitor<TypedValue> &evaluator) {
+  try {
+    return expr.Accept(evaluator);
+  } catch (const QueryRuntimeException &) {
+    return std::nullopt;
+  }
+}
+
+// Reads a derive()'s overlay key set and edge type out of its options. The options map keys are
+// structural (kept in the literal), but scalar values are stripped to parameters for plan caching,
+// so the edge type and the policy bindings are recovered by evaluating those constant expressions
+// against the query parameters. A key is overlay-bound either by an explicit 'overlay' propertyPolicy
+// binding or by appearing as a source/target property override - the same rules the executor applies
+// when it builds the overlay nodes, so the schema describes the nodes the client will receive.
+ProjectionSchemaEntry BuildProjectionSchemaEntry(int64_t ref, const MapLiteral &options,
+                                                 ExpressionVisitor<TypedValue> &evaluator) {
+  ProjectionSchemaEntry schema;
+  schema.ref = ref;
+
+  if (auto *edge_type = FindMapLiteralEntry(options, "virtualEdgeType")) {
+    if (auto value = EvaluateIfStatic(*edge_type, evaluator); value && value->IsString())
+      schema.edge_type = value->ValueString();
+  }
+
+  if (auto *policy = utils::Downcast<MapLiteral>(FindMapLiteralEntry(options, "propertyPolicy"))) {
+    for (const auto &[property, binding] : policy->elements_) {
+      if (auto value = EvaluateIfStatic(*binding, evaluator);
+          value && value->IsString() && value->ValueString() == "overlay") {
+        schema.overlay.push_back(property.name);
+      }
+    }
+  }
+
+  for (const auto *override_key : {"sourceNodeProperties", "targetNodeProperties"}) {
+    if (auto *overrides = utils::Downcast<MapLiteral>(FindMapLiteralEntry(options, override_key))) {
+      for (const auto &[property, value] : overrides->elements_) {
+        schema.overlay.push_back(property.name);
+      }
+    }
+  }
+
+  // A key can be named by both the policy and an override; the client wants each once.
+  std::ranges::sort(schema.overlay);
+  schema.overlay.erase(std::ranges::unique(schema.overlay).begin(), schema.overlay.end());
+
+  return schema;
+}
+
+// Collects one ProjectionSchemaEntry per derive() projection in the plan whose options are a static map
+// literal. A derive() is an Aggregation::Op::DERIVE element; its output symbol's plan position is
+// the schema reference the executor stamps onto the matching overlay nodes. A projection whose
+// options are not a literal is skipped here, matching the executor leaving its nodes untagged.
+class ProjectionSchemaExtractor final : public plan::HierarchicalLogicalOperatorVisitor {
+ public:
+  explicit ProjectionSchemaExtractor(ExpressionVisitor<TypedValue> &evaluator) : evaluator_(&evaluator) {}
+
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool Visit(plan::Once & /*unused*/) override { return true; }
+
+  bool PreVisit(plan::Aggregate &aggregate) override {
+    for (const auto &element : aggregate.aggregations_) {
+      if (element.op != Aggregation::Op::DERIVE) continue;
+      auto *options = utils::Downcast<MapLiteral>(element.arg2);
+      if (options == nullptr) continue;
+      schemas.push_back(BuildProjectionSchemaEntry(element.output_sym.position(), *options, *evaluator_));
+    }
+    return true;
+  }
+
+  std::vector<ProjectionSchemaEntry> schemas;
+
+ private:
+  ExpressionVisitor<TypedValue> *evaluator_;
+};
+
+std::vector<ProjectionSchemaEntry> ExtractProjectionSchemas(const plan::LogicalOperator &plan,
+                                                            ExpressionVisitor<TypedValue> &evaluator) {
+  ProjectionSchemaExtractor extractor{evaluator};
+  // The cached plan is shared and logically const at prepare time; the extractor only reads it, so
+  // the const_cast for the non-const Accept interface is safe (mirrors ProvidePlanHints).
+  const_cast<plan::LogicalOperator &>(plan).Accept(extractor);
+  return std::move(extractor.schemas);
+}
+
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
@@ -3656,6 +3776,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     header.push_back(
         utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
   }
+  auto projection_schemas = ExtractProjectionSchemas(plan->plan(), evaluator);
   // TODO: pass current DB into plan, in future current can change during pull
   auto *trigger_context_collector =
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
@@ -3682,7 +3803,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                               parallel_execution,
                                               user_resource
 #endif
-  );
+                                              ,
+                                              interpreter.RenewSyntheticIdMapper());
   return PreparedQuery{
       .header = std::move(header),
       .privileges = std::move(parsed_query.required_privileges),
@@ -3696,7 +3818,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       .rw_type = rw_type,
       .db = current_db.db_acc_->get()->name(),
       .priority = utils::Priority::LOW,  // Default to LOW priority for all Cypher queries
-      .slow_query_plan_renderer = std::move(slow_query_plan_renderer)};
+      .slow_query_plan_renderer = std::move(slow_query_plan_renderer),
+      .projection_schemas = std::move(projection_schemas)};
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notification> *notifications,
@@ -9828,7 +9951,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create(db_query_tracker));
     query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
-    return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
+    return {.headers = query_execution->prepared_query->header,
+            .privileges = query_execution->prepared_query->privileges,
+            .qid = qid,
+            .db = {},
+            .projection_schemas = {}};
   }
 
   MG_ASSERT(std::holds_alternative<ParseInfo>(parse_res), "Unkown ParseRes type");
@@ -10377,7 +10504,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     return {.headers = query_execution->prepared_query->header,
             .privileges = query_execution->prepared_query->privileges,
             .qid = qid,
-            .db = query_execution->prepared_query->db};
+            .db = query_execution->prepared_query->db,
+            .projection_schemas = query_execution->prepared_query->projection_schemas};
   } catch (const utils::BasicException &e) {
     memgraph::logging::EmitSessionTraceEvent("Failed query: {}", e.what());
     // query_execution holds the query string copy that survives Prepare* moving it out.

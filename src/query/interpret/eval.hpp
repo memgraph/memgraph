@@ -20,6 +20,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "query/common.hpp"
@@ -29,6 +30,8 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_edge.hpp"
+#include "query/virtual_node.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/point.hpp"
@@ -159,7 +162,8 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
                                  .memory = ctx_->memory,
                                  .timestamp = ctx_->timestamp,
                                  .counters = &ctx_->counters,
-                                 .view = storage::View::OLD};
+                                 .view = storage::View::OLD,
+                                 .synthetic_id_mapper = ctx_->synthetic_id_mapper.get()};
     TypedValue res(ctx_->memory);
     if (function.arguments_.size() <= 8) {
       utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
@@ -477,7 +481,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       lhs_ptr = &lhs;
     }
     auto index = list_indexing.expression2_->Accept(*this);
-    if (!lhs_ptr->IsList() && !lhs_ptr->IsMap() && !lhs_ptr->IsVertex() && !lhs_ptr->IsEdge() && !lhs_ptr->IsNull())
+    if (!lhs_ptr->IsList() && !lhs_ptr->IsMap() && !lhs_ptr->IsVertex() && !lhs_ptr->IsEdge() &&
+        !lhs_ptr->IsVirtualNode() && !lhs_ptr->IsVirtualEdge() && !lhs_ptr->IsNull())
       throw QueryRuntimeException(
           "Expected a list, a map, a node or an edge to index with '[]', got "
           "{}.",
@@ -505,15 +510,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return referenced ? TypedValue(found->second, ctx_->memory) : TypedValue(std::move(found->second), ctx_->memory);
     }
 
-    if (lhs_ptr->IsVertex()) {
+    if (lhs_ptr->IsVertex() || lhs_ptr->IsEdge() || lhs_ptr->IsVirtualNode() || lhs_ptr->IsVirtualEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
+      // A real and a projected element read through the same GetProperty; GetElementProperty hides the
+      // element-kind extraction so this call site does not branch on real-vs-virtual.
+      return {GetElementProperty(*lhs_ptr, index.ValueString()), GetNameIdMapper(), ctx_->memory};
     }
-
-    if (lhs_ptr->IsEdge()) {
-      if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
-    };
 
     // lhs is Null
     return TypedValue(ctx_->memory);
@@ -574,76 +576,27 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(LabelsTest &labels_test) override {
     auto expression_result = labels_test.expression_->Accept(*this);
+    // The AND/OR structure is one test over any labelled element; HasLabel(element,
+    // label) is the per-kind primitive (id-based over a real vertex, name-based
+    // over a projection node), so both kinds run the same test.
+    auto test = [&](const auto &element) -> TypedValue {
+      for (const auto &label : labels_test.labels_) {
+        if (!HasLabel(element, label)) return TypedValue(false, ctx_->memory);
+      }
+      for (const auto &or_labels_pattern : labels_test.or_labels_) {
+        if (!std::ranges::any_of(or_labels_pattern, [&](const LabelIx &label) { return HasLabel(element, label); })) {
+          return TypedValue(false, ctx_->memory);
+        }
+      }
+      return TypedValue(true, ctx_->memory);
+    };
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
-      case TypedValue::Type::Vertex: {
-        const auto &vertex = expression_result.ValueVertex();
-        for (const auto &label : labels_test.labels_) {
-          auto has_label = vertex.HasLabel(view_, GetLabel(label));
-          if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-            // This is a very nasty and temporary hack in order to make MERGE
-            // work. The old storage had the following logic when returning an
-            // `OLD` view: `return old ? old : new`. That means that if the
-            // `OLD` view didn't exist, it returned the NEW view. With this hack
-            // we simulate that behavior.
-            // TODO: Remove once MERGE is
-            // reimplemented.
-            has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
-          }
-          if (!has_label) {
-            switch (has_label.error()) {
-              case storage::Error::DELETED_OBJECT:
-                throw QueryRuntimeException("Trying to access labels on a deleted node.");
-              case storage::Error::NONEXISTENT_OBJECT:
-                throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
-              case storage::Error::SERIALIZATION_ERROR:
-              case storage::Error::VERTEX_HAS_EDGES:
-              case storage::Error::PROPERTIES_DISABLED:
-                throw QueryRuntimeException("Unexpected error when accessing labels.");
-            }
-          }
-          if (!*has_label) {
-            return TypedValue(false, ctx_->memory);
-          }
-        }
-        for (const auto &or_labels_pattern : labels_test.or_labels_) {
-          bool has_at_least_one_label = false;
-          for (const auto &label : or_labels_pattern) {
-            auto has_label = vertex.HasLabel(view_, GetLabel(label));
-            if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-              // This is a very nasty and temporary hack in order to make MERGE
-              // work. The old storage had the following logic when returning an
-              // `OLD` view: `return old ? old : new`. That means that if the
-              // `OLD` view didn't exist, it returned the NEW view. With this hack
-              // we simulate that behavior.
-              // TODO: Remove once MERGE is
-              // reimplemented.
-              has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
-            }
-            if (!has_label) {
-              switch (has_label.error()) {
-                case storage::Error::DELETED_OBJECT:
-                  throw QueryRuntimeException("Trying to access labels on a deleted node.");
-                case storage::Error::NONEXISTENT_OBJECT:
-                  throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
-                case storage::Error::SERIALIZATION_ERROR:
-                case storage::Error::VERTEX_HAS_EDGES:
-                case storage::Error::PROPERTIES_DISABLED:
-                  throw QueryRuntimeException("Unexpected error when accessing labels.");
-              }
-            }
-            if (*has_label) {
-              has_at_least_one_label = true;
-              break;
-            }
-          }
-          if (!has_at_least_one_label) {
-            return TypedValue(false, ctx_->memory);
-          }
-        }
-        return TypedValue(true, ctx_->memory);
-      }
+      case TypedValue::Type::Vertex:
+        return test(expression_result.ValueVertex());
+      case TypedValue::Type::VirtualNode:
+        return test(expression_result.ValueVirtualNode());
       default:
         throw QueryRuntimeException("Only nodes have labels.");
     }
@@ -754,11 +707,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                                  user_or_role_,
                                  triggering_user_,
 #ifdef MG_ENTERPRISE
-                                 auth_checker_
+                                 auth_checker_,
 #else
-                                 nullptr
+                                 nullptr,
 #endif
-    };
+                                 ctx_->graph_view,
+                                 ctx_->synthetic_id_mapper.get()};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
@@ -1078,9 +1032,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 #ifdef MG_ENTERPRISE
   bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const;
   bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const;
+
+  // An overlay node reads through to a real origin vertex, so reading an origin-backed property is
+  // subject to that origin's per-property READ permission (the same check a real vertex gets, over
+  // the origin's labels). A synthetic node has no origin and mints no real-graph data, so it is
+  // allowed.
+  bool IsPropertyAllowed(VirtualNode const &node, storage::PropertyId prop) const;
+
+  // A virtual edge is always synthetic (no real origin edge), so it carries no real-graph privileges.
+  bool IsPropertyAllowed(VirtualEdge const &, storage::PropertyId) const { return true; }
 #else
   template <typename T>
-    requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor>
+    requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor> || std::same_as<T, VirtualNode> ||
+             std::same_as<T, VirtualEdge>
   bool IsPropertyAllowed(T const &, storage::PropertyId) const {
     return true;
   }
@@ -1143,6 +1107,25 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *maybe_prop;
   }
 
+  // Reads a named property from a node- or edge-like TypedValue, hiding the real-vs-virtual element
+  // extraction behind one call. The read logic is the shared GetProperty template above; only which
+  // concrete accessor it is handed differs, so the element-kind switch lives here once rather than
+  // being repeated at each property call site. Callers guard that `element` is one of these kinds.
+  storage::PropertyValue GetElementProperty(const TypedValue &element, std::string_view name) {
+    switch (element.type()) {
+      case TypedValue::Type::Vertex:
+        return GetProperty(element.ValueVertex(), name);
+      case TypedValue::Type::VirtualNode:
+        return GetProperty(element.ValueVirtualNode(), name);
+      case TypedValue::Type::Edge:
+        return GetProperty(element.ValueEdge(), name);
+      case TypedValue::Type::VirtualEdge:
+        return GetProperty(element.ValueVirtualEdge(), name);
+      default:
+        throw QueryRuntimeException("Expected a node or an edge to read a property from, got {}.", element.type());
+    }
+  }
+
  private:
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
@@ -1180,6 +1163,41 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
+
+  // Per-kind label-membership test behind one call site, so LabelsTest does not
+  // branch on the element kind (mirrors GetProperty). A real vertex tests by id
+  // under the current view, with the MERGE OLD->NEW fallback and the storage-error
+  // mapping; a projection node carries its labels as names and exposes no index,
+  // so it is a name membership check.
+  bool HasLabel(const VertexAccessor &vertex, const LabelIx &label) {
+    auto has_label = vertex.HasLabel(view_, GetLabel(label));
+    if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
+      // This is a very nasty and temporary hack in order to make MERGE work. The
+      // old storage had the following logic when returning an `OLD` view:
+      // `return old ? old : new`. That means that if the `OLD` view didn't exist,
+      // it returned the NEW view. With this hack we simulate that behavior.
+      // TODO: Remove once MERGE is reimplemented.
+      has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
+    }
+    if (!has_label) {
+      switch (has_label.error()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to access labels on a deleted node.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Unexpected error when accessing labels.");
+      }
+    }
+    return *has_label;
+  }
+
+  bool HasLabel(const VirtualNode &node, const LabelIx &label) const {
+    return std::ranges::any_of(
+        node.Labels(), [&](const auto &held) { return std::string_view{held} == std::string_view{label.name}; });
+  }
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
 

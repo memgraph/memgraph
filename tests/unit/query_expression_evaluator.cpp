@@ -2376,6 +2376,32 @@ TYPED_TEST(FunctionTest, Keys) {
   ASSERT_THROW(this->EvaluateFunction("KEYS", 2), QueryRuntimeException);
 }
 
+TYPED_TEST(FunctionTest, Values) {
+  // values() must report its own name in errors, not 'keys' (its body was copy-pasted from Keys).
+  try {
+    this->EvaluateFunction("VALUES");  // 0 args -> FType arg-count error, which embeds the function name
+    FAIL() << "expected a QueryRuntimeException for a 0-arg values() call";
+  } catch (const QueryRuntimeException &e) {
+    const std::string msg = e.what();
+    EXPECT_NE(msg.find("values"), std::string::npos) << "error should name values(): " << msg;
+    EXPECT_EQ(msg.find("keys"), std::string::npos) << "error should not say keys: " << msg;
+  }
+
+  ASSERT_TRUE(this->EvaluateFunction("VALUES", TypedValue()).IsNull());
+  auto v1 = this->dba.InsertVertex();
+  ASSERT_TRUE(v1.SetProperty(this->dba.NameToProperty("height"), memgraph::storage::PropertyValue(5)).has_value());
+  ASSERT_TRUE(v1.SetProperty(this->dba.NameToProperty("age"), memgraph::storage::PropertyValue(10)).has_value());
+  this->dba.AdvanceCommand();
+
+  auto prop_values_to_int = [](TypedValue t) {
+    std::vector<int> values;
+    for (auto v : t.ValueList()) values.emplace_back(v.ValueInt());
+    return values;
+  };
+  ASSERT_THAT(prop_values_to_int(this->EvaluateFunction("VALUES", v1)), UnorderedElementsAre(5, 10));
+  ASSERT_THROW(this->EvaluateFunction("VALUES", 2), QueryRuntimeException);
+}
+
 TYPED_TEST(FunctionTest, Tail) {
   ASSERT_THROW(this->EvaluateFunction("TAIL"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("TAIL", TypedValue()).IsNull());
@@ -2592,19 +2618,192 @@ TYPED_TEST(FunctionTest, ElementId) {
   EXPECT_THROW(this->EvaluateFunction("ELEMENTID", va, *ea), QueryRuntimeException);
 }
 
+TYPED_TEST(FunctionTest, IdOnVirtualAndOverlayNodes) {
+  auto real = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+  const auto real_id = this->EvaluateFunction("ID", real).ValueInt();
+
+  // A synthetic node (no origin) reports a dense query-local external id, not its raw synthetic gid.
+  // It is the first virtual entity seen in this query, so it maps to -1, and repeat references and
+  // virtual_id() correlate to the same value.
+  VirtualNode synthetic({"L"}, {});
+  const auto external = this->EvaluateFunction("ID", synthetic).ValueInt();
+  EXPECT_EQ(external, -1);
+  EXPECT_EQ(this->EvaluateFunction("ID", synthetic).ValueInt(), external);
+  EXPECT_EQ(this->EvaluateFunction("VIRTUAL_ID", synthetic).ValueInt(), external);
+
+  // An overlay node reports its origin's real id, so id() is the entity's identity in the real graph.
+  VirtualNode overlay({"L"}, {}, {}, std::optional<VertexAccessor>{real});
+  EXPECT_EQ(this->EvaluateFunction("ID", overlay).ValueInt(), real_id);
+}
+
+TYPED_TEST(FunctionTest, VirtualId) {
+  auto real = this->dba.InsertVertex();
+  auto real_edge = this->dba.InsertEdge(&real, &real, this->dba.NameToEdgeType("edge"));
+  ASSERT_TRUE(real_edge.has_value());
+  this->dba.AdvanceCommand();
+
+  // A real vertex or edge has no overlay-local id.
+  EXPECT_TRUE(this->EvaluateFunction("VIRTUAL_ID", TypedValue()).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction("VIRTUAL_ID", real).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction("VIRTUAL_ID", *real_edge).IsNull());
+
+  // A synthetic node, an overlay node, and a virtual edge each get a distinct negative external id.
+  VirtualNode synthetic({"L"}, {});
+  VirtualNode overlay({"L"}, {}, {}, std::optional<VertexAccessor>{real});
+  auto from = std::make_shared<const VirtualNode>(VirtualNode({"L"}, {}));
+  auto to = std::make_shared<const VirtualNode>(VirtualNode({"L"}, {}));
+  VirtualEdge vedge(from, to, "T");
+
+  const auto synthetic_id = this->EvaluateFunction("VIRTUAL_ID", synthetic).ValueInt();
+  const auto overlay_id = this->EvaluateFunction("VIRTUAL_ID", overlay).ValueInt();
+  const auto edge_id = this->EvaluateFunction("VIRTUAL_ID", vedge).ValueInt();
+  EXPECT_LT(synthetic_id, 0);
+  EXPECT_LT(overlay_id, 0);
+  EXPECT_LT(edge_id, 0);
+  EXPECT_NE(synthetic_id, overlay_id);
+  EXPECT_NE(synthetic_id, edge_id);
+  EXPECT_NE(overlay_id, edge_id);
+
+  EXPECT_THROW(this->EvaluateFunction("VIRTUAL_ID"), QueryRuntimeException);
+  EXPECT_THROW(this->EvaluateFunction("VIRTUAL_ID", 0), QueryRuntimeException);
+}
+
 TYPED_TEST(FunctionTest, ElementIdVirtual) {
   auto vn1 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L1"}, {}));
   auto vn2 = std::make_shared<const memgraph::query::VirtualNode>(memgraph::query::VirtualNode({"L2"}, {}));
   auto ve = memgraph::query::VirtualEdge(vn1, vn2, "ET");
-  // Virtual elements return their own (synthetic) gids, consistent with id().
-  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(*vn1)).ValueString(),
-            std::to_string(vn1->CypherId()).c_str());
-  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(*vn2)).ValueString(),
-            std::to_string(vn2->CypherId()).c_str());
-  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(ve)).ValueString(),
-            std::to_string(ve.Gid().AsInt()).c_str());
-  EXPECT_EQ(this->EvaluateFunction("ID", TypedValue(*vn1)).ValueInt(), vn1->CypherId());
-  EXPECT_EQ(this->EvaluateFunction("ID", TypedValue(ve)).ValueInt(), ve.Gid().AsInt());
+  // Virtual elements expose their query-local external id; elementId() is its string form, consistent
+  // with id(), and distinct elements get distinct ids.
+  const auto vn1_id = this->EvaluateFunction("ID", TypedValue(*vn1)).ValueInt();
+  const auto ve_id = this->EvaluateFunction("ID", TypedValue(ve)).ValueInt();
+  EXPECT_LT(vn1_id, 0);
+  EXPECT_LT(ve_id, 0);
+  EXPECT_NE(vn1_id, ve_id);
+  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(*vn1)).ValueString(), std::to_string(vn1_id).c_str());
+  EXPECT_EQ(this->EvaluateFunction("ELEMENTID", TypedValue(ve)).ValueString(), std::to_string(ve_id).c_str());
+  EXPECT_NE(this->EvaluateFunction("ELEMENTID", TypedValue(*vn2)).ValueString(),
+            this->EvaluateFunction("ELEMENTID", TypedValue(*vn1)).ValueString());
+}
+
+TYPED_TEST(FunctionTest, PropertySizeOverVirtualElements) {
+  // A real element carrying a property is the transparency oracle: a virtual element with the same
+  // value reports the same encoded size, an overlay reads through to its origin, and a hidden or
+  // absent key contributes 0.
+  auto real = this->dba.InsertVertex();
+  const auto name_id = this->dba.NameToProperty("name");
+  this->dba.NameToProperty("other");  // registered in the mapper but never set on any element
+  ASSERT_TRUE(real.SetProperty(name_id, memgraph::storage::PropertyValue("hello")).has_value());
+  this->dba.AdvanceCommand();
+
+  const auto real_size = this->EvaluateFunction("PROPERTYSIZE", real, "name").ValueInt();
+  ASSERT_GT(real_size, 0);
+
+  // Synthetic node: the overlay value's size equals the real node's.
+  VirtualNode synthetic({"L"}, {{name_id, memgraph::storage::PropertyValue("hello")}});
+  EXPECT_EQ(this->EvaluateFunction("PROPERTYSIZE", synthetic, "name").ValueInt(), real_size);
+
+  // Overlay node with no overlay for the key: reads through to the origin, so it matches the real node.
+  VirtualNode overlay({"L"}, {}, {}, std::optional<VertexAccessor>{real});
+  EXPECT_EQ(this->EvaluateFunction("PROPERTYSIZE", overlay, "name").ValueInt(), real_size);
+
+  // Hidden key: invisible, contributes 0 even though the origin holds a value for it.
+  VirtualNode hidden(
+      {"L"},
+      {},
+      {},
+      std::optional<VertexAccessor>{real},
+      std::make_shared<const PropertyBinding>(PropertyBinding::key_set{name_id}, PropertyBinding::key_set{}));
+  EXPECT_EQ(this->EvaluateFunction("PROPERTYSIZE", hidden, "name").ValueInt(), 0);
+
+  // Key present in the mapper but absent on the node: 0.
+  EXPECT_EQ(this->EvaluateFunction("PROPERTYSIZE", synthetic, "other").ValueInt(), 0);
+
+  // Virtual edge: the overlay value's size matches a real edge carrying the same value.
+  auto v2 = this->dba.InsertVertex();
+  auto real_edge = this->dba.InsertEdge(&real, &v2, this->dba.NameToEdgeType("T"));
+  ASSERT_TRUE(real_edge.has_value());
+  ASSERT_TRUE(real_edge->SetProperty(name_id, memgraph::storage::PropertyValue("hello")).has_value());
+  this->dba.AdvanceCommand();
+  const auto real_edge_size = this->EvaluateFunction("PROPERTYSIZE", *real_edge, "name").ValueInt();
+  ASSERT_GT(real_edge_size, 0);
+
+  auto from = std::make_shared<const VirtualNode>(VirtualNode({"L"}, {}));
+  auto to = std::make_shared<const VirtualNode>(VirtualNode({"L"}, {}));
+  VirtualEdge vedge(from, to, "T");
+  vedge.SetProperty(name_id, memgraph::storage::PropertyValue("hello"));
+  EXPECT_EQ(this->EvaluateFunction("PROPERTYSIZE", TypedValue(vedge), "name").ValueInt(), real_edge_size);
+}
+
+TYPED_TEST(FunctionTest, KeysValuesPreserveStoredOrderOnRealElements) {
+  // keys()/values() over a real element iterate the stored PropertyId order (deterministic), not a
+  // hash order. Registering names in a known order fixes their PropertyId order (ids are assigned in
+  // first-seen order), independent of the order the properties are then set.
+  auto v = this->dba.InsertVertex();
+  const auto alpha = this->dba.NameToProperty("alpha");
+  const auto bravo = this->dba.NameToProperty("bravo");
+  const auto charlie = this->dba.NameToProperty("charlie");
+  ASSERT_TRUE(v.SetProperty(charlie, memgraph::storage::PropertyValue(3)).has_value());
+  ASSERT_TRUE(v.SetProperty(alpha, memgraph::storage::PropertyValue(1)).has_value());
+  ASSERT_TRUE(v.SetProperty(bravo, memgraph::storage::PropertyValue(2)).has_value());
+  this->dba.AdvanceCommand();
+
+  std::vector<std::string> keys;
+  for (const auto &k : this->EvaluateFunction("KEYS", v).ValueList()) keys.emplace_back(k.ValueString());
+  EXPECT_THAT(keys, testing::ElementsAre("alpha", "bravo", "charlie"));
+
+  std::vector<int> values;
+  for (const auto &val : this->EvaluateFunction("VALUES", v).ValueList()) values.emplace_back(val.ValueInt());
+  EXPECT_THAT(values, testing::ElementsAre(1, 2, 3));
+}
+
+TYPED_TEST(FunctionTest, OverlayPropertyReadHonoursCallerView) {
+  // The function view in this fixture is OLD. An overlay node's read-through must honour the
+  // caller's view, so properties()/values() over the overlay match the real node even when the
+  // origin has an uncommitted (NEW-only) change in the current command. Regression: the shared
+  // virtual read pinned View::NEW and leaked the uncommitted value.
+  auto real = this->dba.InsertVertex();
+  const auto p = this->dba.NameToProperty("p");
+  ASSERT_TRUE(real.SetProperty(p, memgraph::storage::PropertyValue(1)).has_value());
+  this->dba.AdvanceCommand();                                                         // p=1 committed to the command
+  ASSERT_TRUE(real.SetProperty(p, memgraph::storage::PropertyValue(2)).has_value());  // NEW=2, OLD=1, uncommitted
+
+  VirtualNode overlay({"L"}, {}, {}, std::optional<VertexAccessor>{real});
+
+  auto p_of_map = [](const TypedValue &props_map) {
+    for (const auto &kv : props_map.ValueMap())
+      if (std::string(kv.first) == "p") return kv.second.ValueInt();
+    return int64_t{-1};
+  };
+  auto only = [](const TypedValue &list) { return list.ValueList().at(0).ValueInt(); };
+
+  // The real node under OLD sees the pre-change value; the overlay read-through must agree.
+  ASSERT_EQ(p_of_map(this->EvaluateFunction("PROPERTIES", real)), 1);
+  EXPECT_EQ(p_of_map(this->EvaluateFunction("PROPERTIES", overlay)), 1);
+  ASSERT_EQ(only(this->EvaluateFunction("VALUES", real)), 1);
+  EXPECT_EQ(only(this->EvaluateFunction("VALUES", overlay)), 1);
+}
+
+TYPED_TEST(FunctionTest, VirtualOriginReadFailureNamesCallingFunction) {
+  // When an overlay node's origin can no longer be read, keys()/values()/properties() each name the
+  // calling function in the diagnostic (regression guard: the message used to hardcode "properties").
+  auto real = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+  VirtualNode overlay({"L"}, {}, {}, std::optional<VertexAccessor>{real});
+  ASSERT_TRUE(this->dba.RemoveVertex(&real).has_value());
+  this->dba.AdvanceCommand();  // origin now deleted in this command's OLD view
+
+  auto message_of = [&](const char *func) -> std::string {
+    try {
+      this->EvaluateFunction(func, overlay);
+      return "<no throw>";
+    } catch (const QueryRuntimeException &e) {
+      return e.what();
+    }
+  };
+  EXPECT_THAT(message_of("KEYS"), testing::HasSubstr("keys"));
+  EXPECT_THAT(message_of("VALUES"), testing::HasSubstr("values"));
+  EXPECT_THAT(message_of("PROPERTIES"), testing::HasSubstr("properties"));
 }
 
 TYPED_TEST(FunctionTest, ToStringNull) { EXPECT_TRUE(this->EvaluateFunction("TOSTRING", TypedValue()).IsNull()); }
