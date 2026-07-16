@@ -109,5 +109,78 @@ def test_convert_invalid():
         )
 
 
+def test_from_json_map_basic():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, 'RETURN convert.from_json_map(\'{"name": "GDS"}\') AS result;')[0][0]
+    assert result == {"name": "GDS"}
+
+
+def test_from_json_map_nested():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.from_json_map(\'{"a": 1, "b": [1, 2, {"c": true}], "d": null, "e": 1.5}\') AS result;',
+    )[0][0]
+    assert result == {"a": 1, "b": [1, 2, {"c": True}], "d": None, "e": 1.5}
+
+
+def test_from_json_map_null():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN convert.from_json_map(null) AS result;")[0][0]
+    assert result is None
+
+
+def test_from_json_map_array_fails():
+    cursor = connect().cursor()
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "RETURN convert.from_json_map('[1, 2, 3]') AS result;")
+
+
+def test_from_json_map_scalar_fails():
+    cursor = connect().cursor()
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "RETURN convert.from_json_map('5') AS result;")
+
+
+def test_to_map_from_map():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN convert.to_map({a: 1, b: 'x'}) AS result;")[0][0]
+    assert result == {"a": 1, "b": "x"}
+
+
+def test_to_map_from_node():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor, "CREATE (n:ToMapNode {id: 4, name: 'z'}) RETURN convert.to_map(n) AS result;"
+    )[0][0]
+    assert result == {"id": 4, "name": "z"}
+
+
+def test_to_map_from_relationship():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor, "CREATE (a)-[r:TO_MAP_REL {w: 2.5, k: 'v'}]->(b) RETURN convert.to_map(r) AS result;"
+    )[0][0]
+    assert result == {"w": 2.5, "k": "v"}
+
+
+def test_to_map_null():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN convert.to_map(null) AS result;")[0][0]
+    assert result is None
+
+
+def test_to_map_list_is_null():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN convert.to_map([1, 2, 3]) AS result;")[0][0]
+    assert result is None
+
+
+def test_to_map_scalar_is_null():
+    cursor = connect().cursor()
+    assert execute_and_fetch_all(cursor, "RETURN convert.to_map('hello') AS result;")[0][0] is None
+    assert execute_and_fetch_all(cursor, "RETURN convert.to_map(5) AS result;")[0][0] is None
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
