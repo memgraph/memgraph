@@ -19,7 +19,6 @@
 #include <utility>
 #include <vector>
 
-#include "planner/rewrite/active_set.hpp"
 #include "planner/rewrite/arming_index.hpp"
 #include "test_rewriter_fixture.hpp"
 #include "test_rules.hpp"
@@ -98,9 +97,9 @@ TEST(ArmingIndex, BuildsFromRealRuleSetInRuleIndexOrder) {
   EXPECT_TRUE(index.always_armed().empty());
 }
 
-// --- Active set: parent-closure to max pattern depth (Stage 3) ---
+// --- Rule set: max pattern depth drives the arming closure bound ---
 
-TEST(ActiveSet, MaxPatternDepthIsTheDeepestRulePattern) {
+TEST(RuleSet, MaxPatternDepthIsTheDeepestRulePattern) {
   auto const mixed = TestRuleSet::Builder{}
                          .add_rule(make_idempotent_f_rule())  // F(?x, ?x): depth 1
                          .add_rule(make_double_neg_rule())    // Neg(Neg(?x)): depth 2
@@ -113,34 +112,9 @@ TEST(ActiveSet, MaxPatternDepthIsTheDeepestRulePattern) {
   EXPECT_EQ(leaf.max_pattern_depth(), 0U);
 }
 
-TEST(ActiveSet, ParentClosureReachesAncestorsToDepthOnly) {
-  // a <- F(a) <- F(F(a)): a change to `a` should surface its ancestors up to
-  // the closure depth, and no further.
-  EGraph<Op, NoAnalysis> eg;
-  auto const a = eg.emplace(Op::A).eclass_id;
-  auto const fa = eg.emplace(Op::F, {a}).eclass_id;
-  auto const ffa = eg.emplace(Op::F, {fa}).eclass_id;
-
-  auto closure = [&](std::size_t depth) {
-    boost::unordered_flat_set<EClassId> active{eg.find(a)};
-    ComputeActiveSet(eg, active, depth);
-    return active;
-  };
-
-  auto const d0 = closure(0);
-  EXPECT_EQ(d0.size(), 1U);
-  EXPECT_TRUE(d0.contains(eg.find(a)));
-
-  auto const d1 = closure(1);
-  EXPECT_EQ(d1.size(), 2U);
-  EXPECT_TRUE(d1.contains(eg.find(a)));
-  EXPECT_TRUE(d1.contains(eg.find(fa)));
-  EXPECT_FALSE(d1.contains(eg.find(ffa))) << "grandparent must not appear at depth 1";
-
-  auto const d2 = closure(2);
-  EXPECT_EQ(d2.size(), 3U);
-  EXPECT_TRUE(d2.contains(eg.find(ffa)));
-}
+// The parent-closure geometry (a change surfaces its ancestors to the closure
+// depth and no further) is exercised through the scheduler's observable arming
+// and restriction behaviour in unittest__rule_latch.cpp.
 
 // --- Incremental mode: equals Full, and reaches a true fixpoint ---
 
