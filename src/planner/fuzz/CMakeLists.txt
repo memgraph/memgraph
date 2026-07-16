@@ -78,6 +78,18 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         COMMENT "Running incremental-arming differential fuzzer..."
     )
 
+    # Deterministic regression: replay the checked-in seed corpus once each and
+    # exit (no live fuzzing - that stays manual via run_fuzz_rewrite_incremental).
+    # A reintroduced skip or non-termination bug aborts here. Seeds are passed as
+    # file arguments (via the shell glob) so libFuzzer runs each once and exits; a
+    # directory argument would start a fuzzing session instead.
+    add_custom_target(replay_fuzz_rewrite_incremental
+        COMMAND sh -c "exec \"$<TARGET_FILE:fuzz_rewrite_incremental>\" \"${CMAKE_CURRENT_SOURCE_DIR}/corpus_seeds/rewrite_incremental\"/*"
+        DEPENDS fuzz_rewrite_incremental
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Replaying incremental-arming seed corpus (deterministic regression)..."
+    )
+
     # Clear corpus directories
     add_custom_target(clear_corpus_egraph
         COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_CURRENT_BINARY_DIR}/corpus_egraph/*
