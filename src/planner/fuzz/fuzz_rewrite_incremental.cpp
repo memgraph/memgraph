@@ -41,7 +41,6 @@ using memgraph::planner::core::fuzz::FuzzSymbol;
 using pattern::Match;
 using pattern::Pattern;
 using pattern::PatternVar;
-using pattern::dsl::Sym;
 using pattern::dsl::Var;
 using rewrite::ArmingMode;
 using rewrite::RewriteConfig;
@@ -59,42 +58,81 @@ using FuzzRule = RewriteRule<FuzzTypedEGraph>;  // the rewrite engine drives a T
   std::abort();
 }
 
-// Rules that merge and compose so saturation takes several passes:
-//   Plus(x, x) -> x, Mul(x, x) -> x  (binary, fire once children become equal)
-//   F(F(x))    -> x                  (nested unary, depth 2 - exercises
-//                                      parent-closure beyond one hop)
-//   Plus(x, y) -> Plus(y, x)         (commutativity: INSERTS a new e-node then
-//                                      merges - the insert-during-rewrite path)
 constexpr PatternVar kX{0};
 constexpr PatternVar kRoot{1};
 constexpr PatternVar kY{2};
+constexpr PatternVar kRoot2{3};  // second root of the multi-pattern rule
 
-auto make_rules() -> RuleSet<FuzzTypedEGraph> {
-  auto merge_root_x = [](RuleContext<FuzzTypedEGraph> &ctx, Match const &m) { ctx.merge(m[kRoot], m[kX]); };
+// A collapse-tower pattern F^depth(x) with the outermost F bound to kRoot and the
+// leaf bound to kX. Its depth is exactly `depth`, so selecting different depths
+// drives the arming gate (min_hop(S) <= d_P) at hops 1..depth. Merge-only, so
+// terminating: it fuses the tower root with its leaf and re-firing is a no-op.
+auto tower_pattern(std::size_t depth) -> Pattern<FuzzSymbol> {
+  Pattern<FuzzSymbol>::Builder pb;
+  auto node = pb.var(kX);
+  for (std::size_t i = 0; i + 1 < depth; ++i) node = pb.sym(FuzzSymbol::F, {node});
+  pb.sym(FuzzSymbol::F, {node}, kRoot);  // outermost binds the tower root
+  return std::move(pb).build();
+}
 
-  auto plus = FuzzRule::Builder{"plus_idem"}
-                  .pattern(Pattern<FuzzSymbol>::build(kRoot, FuzzSymbol::Plus, {Var{kX}, Var{kX}}))
-                  .apply(merge_root_x);
-  auto mul = FuzzRule::Builder{"mul_idem"}
-                 .pattern(Pattern<FuzzSymbol>::build(kRoot, FuzzSymbol::Mul, {Var{kX}, Var{kX}}))
-                 .apply(merge_root_x);
-  auto double_f = FuzzRule::Builder{"double_f"}
-                      .pattern(Pattern<FuzzSymbol>::build(kRoot, FuzzSymbol::F, {Sym(FuzzSymbol::F, Var{kX})}))
-                      .apply(merge_root_x);
-  // Commutativity mints Plus(y, x) (if absent) and merges it with the matched
-  // Plus(x, y). Terminating: the swap hash-conses and merges into one class, so
-  // re-firing is a no-op. This is the only rule here that creates e-nodes, so it
-  // is what exercises touched-set insert recording and the incremental matcher
-  // reindex for new classes.
-  auto commute_plus = FuzzRule::Builder{"plus_comm"}
-                          .pattern(Pattern<FuzzSymbol>::build(kRoot, FuzzSymbol::Plus, {Var{kX}, Var{kY}}))
-                          .apply([](RuleContext<FuzzTypedEGraph> &ctx, Match const &m) {
-                            // Mint Plus(y, x) through the typed Make so the new e-class is tracked
-                            // for the incremental matcher reindex (the path this fuzzer exercises).
-                            auto const swapped = ctx.Make<FuzzSymbol::Plus>(m[kY], m[kX]);
-                            ctx.merge(m[kRoot], swapped);
-                          });
-  return RuleSet<FuzzTypedEGraph>::Build(std::move(plus), std::move(mul), std::move(double_f), std::move(commute_plus));
+// The pool is fuzz-selected: `selection` bits choose which optional rules are
+// active, `tower_depth` (1..4) sizes the collapse tower. Every rule is either
+// merge-only or a permutation-Make (commutativity), so any selected subset
+// terminates - the property the differential relies on to reach a real fixpoint.
+//
+//   plus_idem/mul_idem  Plus(x,x)->x, Mul(x,x)->x   depth 1, merge-only
+//   plus_comm           Plus(x,y)->Plus(y,x)        depth 1, permutation-Make;
+//                       the only rule that mints an e-node, exercising touched-set
+//                       insert recording and the incremental matcher reindex
+//   collapse_tower      F^n(x)->x                   depth n, merge-only; the gate
+//   multi_root_idem     {Plus(a,a), Mul(a,a)}       one rule, two root symbols
+//                       joined on the shared leaf a, exercising the arming index's
+//                       multi-root path; merges the two roots
+//
+// noop_always_armed (?x -> merge(x,x)) is ALWAYS present. Its root is a bare
+// variable, so it is symbol-less and always armed - the one rule that exercises
+// the always-armed path and the "symbol-less rule fires under an empty active
+// set" branch every pass. A self-merge is not a rewrite and records no touch, so
+// it is a true no-op that never perturbs the oracle.
+auto make_rules(std::uint8_t selection, std::uint8_t tower_depth_raw) -> RuleSet<FuzzTypedEGraph> {
+  auto const merge_root_x = [](RuleContext<FuzzTypedEGraph> &ctx, Match const &m) { ctx.merge(m[kRoot], m[kX]); };
+
+  RuleSet<FuzzTypedEGraph>::Builder builder;
+
+  {
+    Pattern<FuzzSymbol>::Builder pb;
+    pb.var(kX);  // bare-variable root: symbol-less, hence always armed
+    builder.add_rule(FuzzRule::Builder{"noop_always_armed"}
+                         .pattern(std::move(pb).build())
+                         .apply([](RuleContext<FuzzTypedEGraph> &ctx, Match const &m) { ctx.merge(m[kX], m[kX]); }));
+  }
+
+  if (selection & 0x01U)
+    builder.add_rule(FuzzRule::Builder{"plus_idem"}
+                         .pattern(Pattern<FuzzSymbol>::build(kRoot, FuzzSymbol::Plus, {Var{kX}, Var{kX}}))
+                         .apply(merge_root_x));
+  if (selection & 0x02U)
+    builder.add_rule(FuzzRule::Builder{"mul_idem"}
+                         .pattern(Pattern<FuzzSymbol>::build(kRoot, FuzzSymbol::Mul, {Var{kX}, Var{kX}}))
+                         .apply(merge_root_x));
+  if (selection & 0x04U)
+    builder.add_rule(FuzzRule::Builder{"plus_comm"}
+                         .pattern(Pattern<FuzzSymbol>::build(kRoot, FuzzSymbol::Plus, {Var{kX}, Var{kY}}))
+                         .apply([](RuleContext<FuzzTypedEGraph> &ctx, Match const &m) {
+                           auto const swapped = ctx.Make<FuzzSymbol::Plus>(m[kY], m[kX]);
+                           ctx.merge(m[kRoot], swapped);
+                         }));
+  if (selection & 0x08U)
+    builder.add_rule(
+        FuzzRule::Builder{"collapse_tower"}.pattern(tower_pattern(1U + (tower_depth_raw % 4U))).apply(merge_root_x));
+  if (selection & 0x10U)
+    builder.add_rule(
+        FuzzRule::Builder{"multi_root_idem"}
+            .pattern(Pattern<FuzzSymbol>::build(kRoot, FuzzSymbol::Plus, {Var{kX}, Var{kX}}))
+            .pattern(Pattern<FuzzSymbol>::build(kRoot2, FuzzSymbol::Mul, {Var{kX}, Var{kX}}))
+            .apply([](RuleContext<FuzzTypedEGraph> &ctx, Match const &m) { ctx.merge(m[kRoot], m[kRoot2]); }));
+
+  return builder.build();
 }
 
 // Build a random e-graph from the fuzz bytes. Deterministic: the same bytes
@@ -152,17 +190,23 @@ auto partition_labels(FuzzGraph const &eg, std::vector<EClassId> const &pool) ->
 }  // namespace
 
 extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int {
-  auto const rules = make_rules();
+  // First two bytes pick the active rule subset and the collapse-tower depth; the
+  // remainder builds the graph. Both runs share the identical rules and graph.
+  std::uint8_t const selection = size > 0 ? data[0] : 0;
+  std::uint8_t const tower_depth = size > 1 ? data[1] : 0;
+  uint8_t const *graph_data = size > 2 ? data + 2 : data;
+  size_t const graph_size = size > 2 ? size - 2 : 0;
+  auto const rules = make_rules(selection, tower_depth);
 
   // Reference: every rule every pass.
   std::vector<EClassId> arm_all_pool;
-  auto arm_all_eg = build_graph(data, size, arm_all_pool);
+  auto arm_all_eg = build_graph(graph_data, graph_size, arm_all_pool);
   Rewriter arm_all{arm_all_eg, rules};
   arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::Full);
 
   // Optimisation: only the rules a pass could re-enable.
   std::vector<EClassId> incremental_pool;
-  auto incremental_eg = build_graph(data, size, incremental_pool);
+  auto incremental_eg = build_graph(graph_data, graph_size, incremental_pool);
   Rewriter incremental{incremental_eg, rules};
   incremental.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
 
