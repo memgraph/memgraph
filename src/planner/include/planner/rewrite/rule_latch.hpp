@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include <boost/unordered/unordered_flat_map.hpp>
@@ -56,7 +57,7 @@ class RuleLatch {
     max_pattern_depth_ = max_pattern_depth;
     num_rules_ = num_rules;
     full_arm_pending_ = true;
-    armed_.clear();
+    armed_.assign(num_rules, 0);
     min_hop_.clear();
     closure_scratch_.clear();
     active_set_.clear();
@@ -74,8 +75,9 @@ class RuleLatch {
     }
   }
 
-  /// The armed rule indices (positions in the rule set) for the coming pass.
-  [[nodiscard]] auto armed() const -> boost::unordered_flat_set<std::size_t> const & { return armed_; }
+  /// A dense predicate indexed by rule position: non-zero at `i` iff rule `i` is
+  /// armed for the coming pass. Sized to the rule count.
+  [[nodiscard]] auto armed() const -> std::vector<std::uint8_t> const & { return armed_; }
 
   /// The active-set root restriction for the coming pass, or nullptr to match
   /// every candidate (see the class note on the null-vs-empty distinction).
@@ -86,8 +88,7 @@ class RuleLatch {
  private:
   /// First pass (or post-reset): every rule runs and every candidate matches.
   void arm_all() {
-    armed_.clear();
-    for (std::size_t i = 0; i < num_rules_; ++i) armed_.insert(i);
+    armed_.assign(num_rules_, 1);
     active_set_.clear();
     active_sparse_ = false;  // match every candidate
   }
@@ -127,7 +128,7 @@ class RuleLatch {
       frontier_.swap(next_frontier_);
     }
 
-    armed_.clear();
+    armed_.assign(num_rules_, 0);
     index_->collect_armed(min_hop_, armed_);
 
     active_sparse_ = active_set_.size() * 2 < egraph.num_classes();
@@ -146,7 +147,7 @@ class RuleLatch {
   ArmingIndex<Symbol> const *index_ = nullptr;
   std::size_t max_pattern_depth_ = 0;
   std::size_t num_rules_ = 0;
-  boost::unordered_flat_set<std::size_t> armed_;
+  std::vector<std::uint8_t> armed_;  // dense predicate indexed by rule position
   boost::unordered_flat_map<Symbol, std::size_t> min_hop_;
   boost::unordered_flat_set<EClassId> closure_scratch_;  // BFS visited set; bounds the arming walk
   boost::unordered_flat_set<EClassId> active_set_;       // touched + direct parents, returned by active()

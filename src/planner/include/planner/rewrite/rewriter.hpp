@@ -316,8 +316,7 @@ class Rewriter {
    * @param per_rule_stats Vector to accumulate per-rule counts (must be sized to rules_.size())
    * @return Total number of rewrites applied across all rules
    */
-  auto apply_once_with_stats(std::vector<std::size_t> &per_rule_stats,
-                             boost::unordered_flat_set<std::size_t> const *armed = nullptr,
+  auto apply_once_with_stats(std::vector<std::size_t> &per_rule_stats, std::vector<std::uint8_t> const *armed = nullptr,
                              boost::unordered_flat_set<EClassId> const *active = nullptr) -> std::size_t {
     assert(!egraph_->needs_rebuild() && "E-graph must be clean at start of rewrite iteration");
 
@@ -326,7 +325,7 @@ class Rewriter {
 
     auto const &rules = rules_.rules();
     for (std::size_t idx = 0; idx < rules.size(); ++idx) {
-      if (armed != nullptr && !armed->contains(idx)) continue;  // incremental: skip un-armed rules
+      if (armed != nullptr && (*armed)[idx] == 0) continue;  // incremental: skip un-armed rules
       // Per-candidate root restriction only where sound; non-qualifying rules
       // match every candidate. See RewriteRule::supports_active_root_restriction().
       auto const *rule_active = rules[idx]->supports_active_root_restriction() ? active : nullptr;
