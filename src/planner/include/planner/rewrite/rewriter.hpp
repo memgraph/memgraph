@@ -169,10 +169,7 @@ class Rewriter {
    *
    * @param graph The graph to rewrite; must remain valid
    */
-  explicit Rewriter(Graph &graph)
-      : egraph_(&graph.core()), matcher_(graph.core()), vm_executor_(graph.core()), ctx_(graph) {
-    latch_.reset(rules_.arming_index(), rules_.max_pattern_depth(), rules_.size());
-  }
+  explicit Rewriter(Graph &graph) : Rewriter(graph, RuleSet<Graph>{}) {}
 
   /**
    * @brief Construct a rewriter with a shared rule set
@@ -189,7 +186,7 @@ class Rewriter {
         matcher_(graph.core()),
         vm_executor_(graph.core()),
         ctx_(graph) {
-    latch_.reset(rules_.arming_index(), rules_.max_pattern_depth(), rules_.size());
+    reseat_latch();
   }
 
   /**
@@ -199,31 +196,15 @@ class Rewriter {
    */
   void set_rules(RuleSet<Graph> rules) {
     rules_ = std::move(rules);
-    // New rules: re-seed the latch so the next incremental saturate arms all once.
-    latch_.reset(rules_.arming_index(), rules_.max_pattern_depth(), rules_.size());
+    reseat_latch();  // new rules: re-seed the latch so the next incremental saturate arms all once
   }
 
-  /**
-   * @brief Run equality saturation under a given pass schedule
-   *
-   * Applies rules repeatedly until one of:
-   * - Fixed point (no rule produces any rewrites)
-   * - Iteration limit reached
-   * - E-node limit exceeded
-   * - Timeout exceeded
-   *
-   * The loop is schedule-agnostic: the schedule owns the touched-set lifecycle
-   * and supplies each pass's armed predicate and active-set restriction (see
-   * PassSchedule). This is the seam FullSchedule and IncrementalSchedule sit at;
-   * the convenience entry points below funnel through it.
-   *
-   * After rewrites, the e-graph is rebuilt to restore invariants and the matcher
-   * index is refreshed.
-   *
-   * @param config Limits and timeout configuration
-   * @param schedule The pass schedule driving arming across passes
-   * @return Result containing statistics and stop reason
-   */
+  /// Run equality saturation under a given pass schedule, to fixpoint or a config
+  /// limit (iterations, e-node count, timeout). The loop is schedule-agnostic: the
+  /// schedule owns the touched-set lifecycle and supplies each pass's armed
+  /// predicate and root restriction. This is the seam FullSchedule and
+  /// IncrementalSchedule sit at; the convenience entry points below funnel through
+  /// it. The e-graph is rebuilt and the matcher index refreshed after each pass.
   template <PassSchedule<EGraph> Schedule>
   auto saturate(RewriteConfig const &config, Schedule &schedule) -> RewriteResult {
     RewriteResult result;
@@ -297,6 +278,10 @@ class Rewriter {
   }
 
  private:
+  /// Re-seed the latch from the current rule set's derived data. Called on
+  /// construction and whenever set_rules replaces the rules.
+  void reseat_latch() { latch_.reset(rules_.arming_index(), rules_.max_pattern_depth(), rules_.size()); }
+
   /**
    * @brief Apply all rules once and accumulate per-rule statistics
    *
