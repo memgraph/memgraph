@@ -161,7 +161,7 @@ void ReserveBranchNativeGidRange(storage::InMemoryStorage &diff_engine, storage:
 // between them can be created. No separate vertex-then-edge pass is needed.
 //
 // Scope: the operations CaptureBranchCommit ever actually produces (vertex/edge create, label
-// add, property set on either, and -- as of slice E-4 -- vertex/edge DELETE) are handled;
+// add/remove, property set on either, and -- as of slice E-4 -- vertex/edge DELETE) are handled;
 // WalTransactionStart/WalTransactionEnd are pure delimiters. Everything else is a silent no-op,
 // mirroring versioning::MergeBranch's own "everything else is out of scope" catch-all (merge.cpp).
 //
@@ -202,6 +202,17 @@ void ReplayChangelogIntoDiffEngine(storage::InMemoryStorage &diff_engine,
         auto ret = v->AddLabel(replay->NameToLabel(data.label));
         MG_ASSERT(ret.has_value(),
                   "BranchContext::BuildFromFork: replay-on-checkout failed to add a label to vertex {}.",
+                  data.gid.AsUint());
+      },
+      [&](sd::WalVertexRemoveLabel const &data) {
+        auto v = replay->FindVertex(data.gid, storage::View::NEW);
+        MG_ASSERT(v.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout could not find vertex {} to remove a label from "
+                  "-- the branch's own captured change-log should always create a vertex before mutating it.",
+                  data.gid.AsUint());
+        auto ret = v->RemoveLabel(replay->NameToLabel(data.label));
+        MG_ASSERT(ret.has_value(),
+                  "BranchContext::BuildFromFork: replay-on-checkout failed to remove a label from vertex {}.",
                   data.gid.AsUint());
       },
       [&](sd::WalVertexSetProperty const &data) {
@@ -637,6 +648,7 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
   for (const auto &delta : changelog) {
     std::visit(utils::Overloaded{[&](sd::WalVertexCreate const &data) { mark_if_main_vertex_gid(data.gid); },
                                  [&](sd::WalVertexAddLabel const &data) { mark_if_main_vertex_gid(data.gid); },
+                                 [&](sd::WalVertexRemoveLabel const &data) { mark_if_main_vertex_gid(data.gid); },
                                  [&](sd::WalVertexSetProperty const &data) { mark_if_main_vertex_gid(data.gid); },
                                  [&](sd::WalVertexDelete const &data) { mark_if_main_vertex_gid(data.gid); },
                                  [&](sd::WalEdgeCreate const &data) {

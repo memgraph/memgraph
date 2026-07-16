@@ -601,6 +601,95 @@ TEST_F(VersioningInterpreterTest, BranchReCheckoutReplaysPriorWrites) {
   }
 }
 
+// Bug fix (change-log replay dropped `REMOVE :Label`, data loss on re-checkout): companion
+// regression to BranchReCheckoutReplaysPriorWrites above, but for a label REMOVE instead of a
+// vertex CREATE. `ReplayChangelogIntoDiffEngine` (branch_engine.cpp) pattern-matches every
+// WalDeltaData variant CaptureBranchCommit can ever produce -- WalVertexCreate, WalVertexAddLabel,
+// WalVertexSetProperty, WalEdgeCreate, WalEdgeSetProperty, WalVertexDelete, WalEdgeDelete -- to
+// replay a branch's own prior writes into the freshly-rebuilt diff engine every time BuildFromFork
+// re-derives the BranchContext (e.g. on CHECKOUT away and back). It had NO case for
+// `WalVertexRemoveLabel`, so that variant silently fell through to the generic `[&](auto const &)
+// {}` catch-all no-op: the label removal was captured into the change-log just fine (proven by
+// versioning::MergeBranch, merge.cpp, which DOES have a WalVertexRemoveLabel case and applies the
+// removal to main correctly on MERGE) but was then silently DROPPED on replay -- so after tearing
+// down and rebuilding the BranchContext (CHECKOUT BRANCH 'main' then back to 'b'), the removed
+// label reappeared on the branch, even though the very same session had already observed it gone
+// pre-replay. Now fixed: ReplayChangelogIntoDiffEngine gained a WalVertexRemoveLabel case
+// (mirroring WalVertexAddLabel's) that calls VertexAccessor::RemoveLabel during replay.
+TEST_F(VersioningInterpreterTest, BranchRemoveLabelSurvivesRecheckoutReplay) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:Person:Employee {id: 1})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  faker.Interpret("MATCH (n {id: 1}) REMOVE n:Employee");
+
+  // In-session (no replay yet): this already worked pre-fix -- establishes the removal was
+  // genuinely applied to the branch's live diff-engine state, not merely attempted.
+  {
+    auto stream = faker.Interpret("MATCH (n {id: 1}) RETURN labels(n) AS l");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    const auto &label_list = stream.GetResults()[0][0].ValueList();
+    bool has_person = false;
+    bool has_employee = false;
+    for (const auto &label : label_list) {
+      const auto &name = label.ValueString();
+      if (name == "Person") has_person = true;
+      if (name == "Employee") has_employee = true;
+    }
+    EXPECT_TRUE(has_person) << "the untouched :Person label must survive the REMOVE";
+    EXPECT_FALSE(has_employee) << "in-session, before any replay, the REMOVE must already be visible";
+    EXPECT_EQ(label_list.size(), 1U) << "no stray labels beyond :Person";
+  }
+
+  // Force change-log replay: tear down and rebuild the BranchContext via BuildFromFork by
+  // checking out away from 'b' and back onto it.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+
+  // THE REGRESSION: pre-fix, this returned :Person AND :Employee -- the freshly-rebuilt diff
+  // engine replayed the change-log, silently skipped the WalVertexRemoveLabel entry, and the
+  // removed label reappeared.
+  {
+    auto stream = faker.Interpret("MATCH (n {id: 1}) RETURN labels(n) AS l");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    const auto &label_list = stream.GetResults()[0][0].ValueList();
+    bool has_person = false;
+    bool has_employee = false;
+    for (const auto &label : label_list) {
+      const auto &name = label.ValueString();
+      if (name == "Person") has_person = true;
+      if (name == "Employee") has_employee = true;
+    }
+    EXPECT_TRUE(has_person) << "the untouched :Person label must still be present after replay";
+    EXPECT_FALSE(has_employee)
+        << "the REMOVE'd :Employee label must NOT reappear after the change-log replay -- this is "
+           "the data-loss bug: ReplayChangelogIntoDiffEngine lacked a WalVertexRemoveLabel case";
+    EXPECT_EQ(label_list.size(), 1U) << "no stray labels beyond :Person after replay";
+  }
+
+  // The branch-local removal must not leak onto main -- R35 isolation, unaffected by this fix.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  {
+    auto stream = faker.Interpret("MATCH (n {id: 1}) RETURN labels(n) AS l");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    const auto &label_list = stream.GetResults()[0][0].ValueList();
+    bool has_person = false;
+    bool has_employee = false;
+    for (const auto &label : label_list) {
+      const auto &name = label.ValueString();
+      if (name == "Person") has_person = true;
+      if (name == "Employee") has_employee = true;
+    }
+    EXPECT_TRUE(has_person) << "main's vertex must still carry :Person";
+    EXPECT_TRUE(has_employee) << "main must be untouched by the branch's REMOVE -- isolation must hold both ways";
+    EXPECT_EQ(label_list.size(), 2U) << "main must still have both labels, exactly as originally created";
+  }
+}
+
 TEST_F(VersioningInterpreterTest, MergeNonExistentBranchRejected) {
   SatisfyGate();
   ASSERT_THROW(faker.Interpret("MERGE BRANCH 'nope'"), memgraph::query::QueryRuntimeException);
