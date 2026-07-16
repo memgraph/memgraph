@@ -109,6 +109,14 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::expected<void, communication::bolt::AuthFailure> SSOAuthenticate(const std::string &scheme,
                                                                         const std::string &identity_provider_response);
 
+#ifdef MG_ENTERPRISE
+  // Called during Init on a coordinator for an SSO scheme present in --auth-module-mappings. Runs the coordinator SSO
+  // authenticator (which validates the module's roles against the coordinator's committed role set) and, on success,
+  // sets the session's effective coordinator privilege mask. No user is stored on coordinators.
+  std::expected<void, communication::bolt::AuthFailure> CoordinatorSSOAuthenticate(
+      const std::string &scheme, const std::string &identity_provider_response);
+#endif
+
   void LogOff();
 
   static std::optional<std::string> GetServerNameForInit();

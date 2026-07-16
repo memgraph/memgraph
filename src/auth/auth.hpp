@@ -159,6 +159,21 @@ class Auth final {
   std::optional<UserOrRole> SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response);
 
   /**
+   * Runs the SSO auth module for a coordinator connection and returns the role names it reports on success.
+   *
+   * Unlike SSOAuthenticate, this performs NO validation against the auth kvstore (no GetRole lookup, no local-user
+   * collision check): coordinators keep no user/role records in the kvstore. The caller validates the returned role
+   * names against the Raft-replicated coordinator role set. Enterprise-license gated via HasAuthModulePrerequisites.
+   *
+   * @param scheme
+   * @param identity_provider_response
+   *
+   * @return the role names on a successful authentication, nullopt on any module/authentication/parse failure
+   */
+  std::optional<std::vector<std::string>> SSOGetRoleNames(const std::string &scheme,
+                                                          const std::string &identity_provider_response);
+
+  /**
    * Gets a user from the storage.
    *
    * @param username

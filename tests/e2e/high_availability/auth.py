@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import base64
 import concurrent
 import os
 import sys
@@ -18,7 +19,7 @@ import interactive_mg_runner
 import pytest
 from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
 from mg_utils import mg_sleep_and_assert
-from neo4j import GraphDatabase
+from neo4j import Auth, GraphDatabase
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -1069,6 +1070,213 @@ def test_leader_failover_preserves_roles(test_name):
     new_leader_cursor = get_cursor(new_leader_port)
     assert show_privileges(new_leader_cursor, "admin") == ["COORDINATOR_READ", "COORDINATOR_WRITE"]
     assert show_privileges(new_leader_cursor, "readonly") == ["COORDINATOR_READ"]
+
+
+# ---------------------------------------------------------------------------
+# SSO authentication through the real coordinator Bolt handshake (slice 06).
+#
+# A dummy auth module (coordinator_dummy_sso_module.py) is mapped to three SSO
+# schemes (oidc / saml / kerberos). Because the coordinator SSO path is
+# scheme-agnostic the three behave identically; each is driven through the real
+# Bolt handshake with the neo4j driver's custom-scheme Auth. The token encodes
+# the role names the "IdP" returns, so a test controls acceptance/rejection and
+# the resulting effective privilege by choosing the token + the coordinator's
+# committed roles.
+# ---------------------------------------------------------------------------
+
+AUTH_MODULE_PATH = os.path.normpath(os.path.join(interactive_mg_runner.SCRIPT_DIR, "coordinator_dummy_sso_module.py"))
+# The same dummy module backs all three schemes; the coordinator treats them identically.
+SSO_SCHEMES = ["oidc", "saml", "kerberos"]
+SSO_MAPPINGS = "--auth-module-mappings=" + ";".join(f"{scheme}:{AUTH_MODULE_PATH}" for scheme in SSO_SCHEMES)
+
+
+def get_coords_only_sso_description(test_name: str):
+    """Three coordinators, no data instances, each configured with the dummy SSO module for oidc/saml/kerberos."""
+    description = get_coords_only_description(test_name=test_name)
+    for coordinator in description.values():
+        coordinator["args"].append(SSO_MAPPINGS)
+    return description
+
+
+def _encode_token(token: str) -> str:
+    return base64.b64encode(token.encode("utf-8")).decode("utf-8")
+
+
+def sso_driver(port, scheme, token):
+    """A neo4j driver that authenticates to a coordinator with a custom SSO scheme + token over bolt://."""
+    auth = Auth(scheme=scheme, credentials=_encode_token(token), principal="")
+    return GraphDatabase.driver(f"bolt://localhost:{port}", auth=auth)
+
+
+def sso_run(port, scheme, token, query):
+    """Authenticate via SSO and run a single query, returning the rows. Raises if auth or the query is rejected."""
+    with sso_driver(port, scheme, token) as driver:
+        with driver.session() as session:
+            return list(session.run(query))
+
+
+def sso_connects(port, scheme, token):
+    """Whether an SSO connection is accepted at the Bolt handshake (independent of per-query privileges)."""
+    try:
+        with sso_driver(port, scheme, token) as driver:
+            driver.verify_connectivity()
+        return True
+    except Exception:
+        return False
+
+
+def sso_route_denied(port, scheme, token):
+    """Whether the coordinator denies the routing table (Bolt ROUTE) for this SSO session.
+
+    verify_connectivity() cannot be used to detect the denial: a neo4j routing driver swallows a ROUTE FAILURE during
+    discovery (Memgraph error codes are not "fatal during discovery"; that check only honours Neo.ClientError.Security.*
+    codes), fails over to the next router, and finally raises a generic ServiceUnavailable. That is indistinguishable
+    from a *permitted* ROUTE, because this coords-only cluster has no data instances, so the routing table lists routers
+    but no readers/writers and discovery fails for that unrelated reason too.
+
+    So drive a single ROUTE against the seed router via the pool's fetch_routing_info(), which surfaces the raw server
+    response instead of swallowing it: a privilege denial raises the server's "routing table" ClientError, whereas a
+    permitted ROUTE returns routing records (readers/writers are not required at this level).
+    """
+    auth = Auth(scheme=scheme, credentials=_encode_token(token), principal="")
+    driver = GraphDatabase.driver(f"neo4j://localhost:{port}", auth=auth)
+    try:
+        pool = driver._pool
+        # (address, database, imp_user, bookmarks, auth, acquisition_timeout); auth=None reuses the driver's SSO auth.
+        pool.fetch_routing_info(pool.address, None, None, None, None, None)
+        return False
+    except Exception as e:
+        return "routing table" in str(e)
+    finally:
+        driver.close()
+
+
+def create_role_with_privilege(cursor, role, grant=None):
+    execute_and_fetch_all(cursor, f"CREATE ROLE {role}")
+    if grant is not None:
+        execute_and_fetch_all(cursor, f"GRANT {grant} TO {role}")
+
+
+@pytest.mark.parametrize("scheme", SSO_SCHEMES)
+def test_sso_success_and_failures(test_name, scheme):
+    # OIDC/SAML/Kerberos each: success when the returned role exists (with a privilege), rejection on a bad token, and
+    # rejection on a role that doesn't exist on the coordinator. Kerberos in particular is exercised through the real
+    # coordinator Bolt handshake, not an isolated module import.
+    interactive_mg_runner.start_all(get_coords_only_sso_description(test_name=test_name), keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    admin_cursor = get_cursor(leader_port)
+    create_role_with_privilege(admin_cursor, "architect", grant="COORDINATOR_WRITE")
+
+    # Success: the module returns "architect", which exists and carries a privilege.
+    assert sorted(name for (name,) in sso_run(leader_port, scheme, "architect", "SHOW ROLES")) == ["architect"]
+
+    # Bad token: the module reports authentication failure -> the connection is rejected.
+    assert not sso_connects(leader_port, scheme, "bad_token")
+
+    # Missing role: the module authenticates but returns a role that doesn't exist on the coordinator -> rejected.
+    assert not sso_connects(leader_port, scheme, "ghost_role")
+
+
+def test_sso_multi_role(test_name):
+    # A multi-role identity is accepted only when every returned role exists; if any is missing the whole login fails.
+    interactive_mg_runner.start_all(get_coords_only_sso_description(test_name=test_name), keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    admin_cursor = get_cursor(leader_port)
+    create_role_with_privilege(admin_cursor, "architect", grant="COORDINATOR_WRITE")
+    create_role_with_privilege(admin_cursor, "reader", grant="COORDINATOR_READ")
+
+    # All roles exist -> accepted.
+    assert sso_connects(leader_port, "oidc", "architect,reader")
+
+    # One of the roles doesn't exist -> the whole multi-role login is rejected.
+    assert not sso_connects(leader_port, "oidc", "architect,ghost_role")
+
+
+def test_sso_role_provisioning(test_name):
+    # SSO login for a role is rejected before the role is created and succeeds after (role provisioning is observable).
+    interactive_mg_runner.start_all(get_coords_only_sso_description(test_name=test_name), keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    admin_cursor = get_cursor(leader_port)
+
+    # Before CREATE ROLE: the module returns "late_role", which does not exist -> rejected.
+    assert not sso_connects(leader_port, "oidc", "late_role")
+
+    # After CREATE ROLE (+ a privilege so the session can act): the same login now succeeds.
+    create_role_with_privilege(admin_cursor, "late_role", grant="COORDINATOR_READ")
+    assert sso_connects(leader_port, "oidc", "late_role")
+    assert sorted(name for (name,) in sso_run(leader_port, "oidc", "late_role", "SHOW ROLES")) == ["late_role"]
+
+
+def test_sso_privilege_enforcement(test_name):
+    # The privilege model bites via SSO: a COORDINATOR_READ session reads but cannot mutate; a COORDINATOR_WRITE
+    # session runs everything; a bare-role session is denied everything, including the routing table. Basic auth keeps
+    # full COORDINATOR_WRITE even with the SSO module configured.
+    interactive_mg_runner.start_all(get_coords_only_sso_description(test_name=test_name), keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    admin_cursor = get_cursor(leader_port)
+    create_role_with_privilege(admin_cursor, "reader", grant="COORDINATOR_READ")
+    create_role_with_privilege(admin_cursor, "writer", grant="COORDINATOR_WRITE")
+    create_role_with_privilege(admin_cursor, "bare", grant=None)
+
+    # READ-only session: read/introspection queries succeed.
+    assert len(sso_run(leader_port, "oidc", "reader", "SHOW INSTANCES")) >= 0
+    assert sorted(name for (name,) in sso_run(leader_port, "oidc", "reader", "SHOW ROLES")) == [
+        "bare",
+        "reader",
+        "writer",
+    ]
+    # ... but every mutating query is denied.
+    try:
+        sso_run(leader_port, "oidc", "reader", "CREATE ROLE from_reader")
+        assert False, "A COORDINATOR_READ session must not run a mutating query"
+    except Exception as e:
+        assert "required privilege" in str(e), f"Unexpected error: {e}"
+    # The read-only session may read the routing table (COORDINATOR_READ is enough).
+    assert not sso_route_denied(leader_port, "oidc", "reader")
+
+    # WRITE session: runs everything, including mutating role management.
+    sso_run(leader_port, "oidc", "writer", "CREATE ROLE from_writer")
+    assert "from_writer" in show_roles(admin_cursor)
+    assert not sso_route_denied(leader_port, "oidc", "writer")
+
+    # Bare-role session: authenticates (the role exists) but is denied everything, including the routing table.
+    assert sso_connects(leader_port, "oidc", "bare")
+    try:
+        sso_run(leader_port, "oidc", "bare", "SHOW ROLES")
+        assert False, "A bare-role session must be denied read/introspection queries"
+    except Exception as e:
+        assert "required privilege" in str(e), f"Unexpected error: {e}"
+    assert sso_route_denied(leader_port, "oidc", "bare")
+
+    # Basic auth retains full COORDINATOR_WRITE even with the SSO module configured.
+    basic_cursor = connect(host="localhost", port=leader_port, username="whoever", password="whatever").cursor()
+    execute_and_fetch_all(basic_cursor, "CREATE ROLE from_basic")
+    assert "from_basic" in show_roles(basic_cursor)
+
+
+def test_sso_unknown_scheme_rejected(test_name):
+    # A scheme that is not in --auth-module-mappings (and is not basic/none) is rejected on a coordinator.
+    interactive_mg_runner.start_all(get_coords_only_sso_description(test_name=test_name), keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    assert not sso_connects(leader_port, "not-a-configured-scheme", "architect")
+
+
+def test_sso_authenticates_through_follower(test_name):
+    # SSO can be performed against a follower coordinator: the role-existence lookup is forwarded to the leader, so the
+    # login is accepted regardless of which coordinator the client connected to.
+    interactive_mg_runner.start_all(get_coords_only_sso_description(test_name=test_name), keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    admin_cursor = get_cursor(leader_port)
+    create_role_with_privilege(admin_cursor, "reader", grant="COORDINATOR_READ")
+
+    follower_port = find_follower_ports(leader_port)[0]
+    assert sorted(name for (name,) in sso_run(follower_port, "saml", "reader", "SHOW ROLES")) == ["reader"]
 
 
 if __name__ == "__main__":

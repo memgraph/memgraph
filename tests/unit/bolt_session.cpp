@@ -137,6 +137,13 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     return {/* success */};
   }
 
+#ifdef MG_ENTERPRISE
+  std::expected<void, memgraph::communication::bolt::AuthFailure> CoordinatorSSOAuthenticate(
+      const std::string & /*scheme*/, const std::string & /*identity_provider_response*/) {
+    return {/* success */};
+  }
+#endif
+
   void LogOff() {}
 
 #ifdef MG_ENTERPRISE
