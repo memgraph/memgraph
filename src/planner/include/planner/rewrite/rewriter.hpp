@@ -25,9 +25,8 @@
 
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/vm/executor.hpp"
-#include "planner/rewrite/active_set.hpp"
-#include "planner/rewrite/arming_index.hpp"
 #include "planner/rewrite/rule.hpp"
+#include "planner/rewrite/rule_latch.hpp"
 #include "planner/rewrite/rule_set.hpp"
 
 import memgraph.planner.core.egraph;
@@ -176,7 +175,9 @@ class Rewriter {
    * @param graph The graph to rewrite; must remain valid
    */
   explicit Rewriter(Graph &graph)
-      : egraph_(&graph.core()), matcher_(graph.core()), vm_executor_(graph.core()), ctx_(graph) {}
+      : egraph_(&graph.core()), matcher_(graph.core()), vm_executor_(graph.core()), ctx_(graph) {
+    latch_.reset(rules_.arming_index(), rules_.max_pattern_depth(), rules_.size());
+  }
 
   /**
    * @brief Construct a rewriter with a shared rule set
@@ -192,7 +193,9 @@ class Rewriter {
         rules_(std::move(rules)),
         matcher_(graph.core()),
         vm_executor_(graph.core()),
-        ctx_(graph) {}
+        ctx_(graph) {
+    latch_.reset(rules_.arming_index(), rules_.max_pattern_depth(), rules_.size());
+  }
 
   /**
    * @brief Set or replace the rule set
@@ -201,7 +204,8 @@ class Rewriter {
    */
   void set_rules(RuleSet<Graph> rules) {
     rules_ = std::move(rules);
-    full_arm_pending_ = true;  // new rules: the next incremental saturate arms all once
+    // New rules: re-seed the latch so the next incremental saturate arms all once.
+    latch_.reset(rules_.arming_index(), rules_.max_pattern_depth(), rules_.size());
   }
 
   /**
@@ -231,21 +235,10 @@ class Rewriter {
     auto const start_time = std::chrono::steady_clock::now();
 
     // Incremental-mode scheduling: arm only the rules a pass could newly enable.
-    // The arming index and closure depth are cached (rebuilt only on set_rules).
-    active_sparse_ = false;  // first full-arm pass matches every candidate
+    // The latch's first arm() after a set_rules arms every rule; a later saturate
+    // on the same rewriter arms from the touched-set left by the prior one.
     if (mode == ArmingMode::Incremental) {
-      if (full_arm_pending_) {
-        // First incremental pass on this graph: every rule must run once. Arm all
-        // directly rather than scan the whole graph to rediscover that.
-        armed_.clear();
-        for (std::size_t i = 0; i < num_rules(); ++i) armed_.insert(i);
-        full_arm_pending_ = false;
-      } else {
-        // A later saturate on the same rewriter: arm only what changed since,
-        // plus any always-armed (variable-rooted) rules. An unchanged graph
-        // touches nothing, so only those always-armed rules (if any) are armed.
-        arm_from_touched();
-      }
+      latch_.arm(*egraph_);
     }
 
     for (std::size_t iter = 0; iter < config.max_iterations; ++iter) {
@@ -271,8 +264,7 @@ class Rewriter {
         rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule);
       } else {
         egraph_->clear_touched();  // capture only this pass's changes
-        rewrites_this_iter =
-            apply_once_with_stats(result.rewrites_per_rule, &armed_, active_sparse_ ? &active_eclasses_ : nullptr);
+        rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule, &latch_.armed(), latch_.active());
       }
       result.rewrites_applied += rewrites_this_iter;
 
@@ -284,7 +276,7 @@ class Rewriter {
 
       // Arm the rules the next pass could newly enable from what just changed.
       if (mode == ArmingMode::Incremental) {
-        arm_from_touched();
+        latch_.arm(*egraph_);
       }
     }
 
@@ -358,31 +350,6 @@ class Rewriter {
     return total_rewrites;
   }
 
-  /// Arm the rules the next pass could newly enable: take the e-classes the last
-  /// pass touched, close under parents to the max pattern depth, project to their
-  /// e-node symbols, and map those through the arming index. Fills armed_ and, when
-  /// the change is sparse, retains the active set in active_eclasses_ for
-  /// per-candidate matching. Reuses the member buffers across passes.
-  void arm_from_touched() {
-    egraph_->touched_eclasses_into(active_eclasses_);                          // canonical touched (reused buffer)
-    ComputeActiveSet(*egraph_, active_eclasses_, rules_.max_pattern_depth());  // close under parents, in place
-    active_symbols_.clear();
-    for (auto const eclass_id : active_eclasses_) {
-      for (auto const enode_id : egraph_->eclass(eclass_id).nodes()) {
-        active_symbols_.insert(egraph_->get_enode(enode_id).symbol());
-      }
-    }
-    armed_.clear();
-    rules_.arming_index().collect_armed(active_symbols_, armed_);
-
-    // Keep the active set for per-candidate matching only when it is a small
-    // slice of the graph; otherwise there is little to prune and holding it live
-    // only adds cache pressure, so drop the contents (keep capacity) and match
-    // via symbol-granularity arming alone.
-    active_sparse_ = active_eclasses_.size() * 2 < egraph_->num_classes();
-    if (!active_sparse_) active_eclasses_.clear();
-  }
-
  public:
   /**
    * @brief Get the number of rules in this rewriter
@@ -412,17 +379,10 @@ class Rewriter {
   ProcessingContext<Symbol> proc_ctx_;
   RewriteContext<Graph> ctx_;
 
-  // Incremental-mode scratch (Incremental mode only), reused across passes. The
-  // arming index and max pattern depth are read from rules_ (which owns them).
-  // full_arm_pending_ is true until this rewriter's first incremental pass, which
-  // arms every rule; afterwards arming is driven by the touched-set. active_eclasses_
-  // holds the active set for per-candidate matching when active_sparse_, otherwise it
-  // is empty and matching uses incremental arming alone.
-  boost::unordered_flat_set<Symbol> active_symbols_;
-  boost::unordered_flat_set<std::size_t> armed_;
-  boost::unordered_flat_set<EClassId> active_eclasses_;
-  bool active_sparse_ = false;
-  bool full_arm_pending_ = true;
+  // Incremental-mode scheduler (Incremental mode only): decides the armed rule set
+  // and active-set restriction each pass. Seeded from rules_ on construction and
+  // set_rules; a long-lived member so its scratch is reused across passes.
+  RuleLatch<Symbol, Analysis> latch_;
 };
 
 /// Deduce the graph type at the construction site, so callers write
