@@ -26,6 +26,7 @@
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/pattern.hpp"
 #include "planner/pattern/vm/compiler.hpp"
+#include "planner/pattern/vm/root_restriction.hpp"
 #include "planner/rewrite/rule_context.hpp"
 
 namespace memgraph::planner::core::rewrite {
@@ -39,6 +40,7 @@ using pattern::MatcherIndex;
 using pattern::Pattern;
 using pattern::PatternMatch;
 using pattern::SymbolWithChildren;
+using pattern::vm::RootRestriction;
 
 namespace detail {
 
@@ -148,17 +150,17 @@ class RewriteRule {
     return true;
   }
 
-  /// Populate match buffer using VM executor. `active`, when non-null, restricts
-  /// the (root) symbol iteration's candidates to that set (see VMExecutor::execute);
-  /// null matches every candidate. Only pass a non-null `active` when
+  /// Populate match buffer using VM executor. A RestrictTo `roots` prunes the
+  /// (root) symbol iteration to that set (see VMExecutor::execute); MatchAll (the
+  /// default) matches every candidate. Only pass a RestrictTo when
   /// supports_active_root_restriction() holds.
   template <typename VMExecutor>
   void match(MatcherIndex<Symbol, Analysis> &index, VMExecutor &vm_executor, MatcherContext &ctx,
-             boost::unordered_flat_set<EClassId> const *active = nullptr) const {
-    assert((active == nullptr || supports_active_root_restriction()) &&
+             RootRestriction roots = RootRestriction::MatchAll()) const {
+    assert((roots.matches_all() || supports_active_root_restriction()) &&
            "active-set restriction is sound only for root-entry single-pattern rules");
     ctx.clear();
-    vm_executor.execute(compiled_, index, ctx.match_ctx.arena(), ctx.match_buffer, active);
+    vm_executor.execute(compiled_, index, ctx.match_ctx.arena(), ctx.match_buffer, roots);
   }
 
   /// Apply matches from buffer to egraph. Returns number of rewrites.
