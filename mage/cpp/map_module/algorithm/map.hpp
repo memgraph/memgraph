@@ -47,8 +47,8 @@ constexpr std::string_view kArgumentsInputList = "pairs";
 
 /* merge constants */
 constexpr std::string_view kProcedureMerge = "merge";
-constexpr std::string_view kArgumentsInputMap1 = "first";
-constexpr std::string_view kArgumentsInputMap2 = "second";
+constexpr std::string_view kArgumentsInputMap1 = "map1";
+constexpr std::string_view kArgumentsInputMap2 = "map2";
 
 /* flatten constants */
 constexpr std::string_view kProcedureFlatten = "flatten";
@@ -85,8 +85,6 @@ void SetKey(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_mem
 
 void RemoveKey(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
-void RemoveRecursion(mgp::Map &result, bool recursive, std::string_view key);
-
 void FromPairs(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
 void Merge(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
@@ -100,8 +98,6 @@ void FromLists(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_
 void RemoveRecursionSet(mgp::Map &result, bool recursive, std::unordered_set<std::string> &set);
 
 void RemoveKeys(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
-
-void SetResult(mgp::Result &result, const mgp::Value &value);
 
 // Coerces a value to a Map: a Node/Relationship becomes its properties map, a Map is
 // returned as-is; any other type throws via ValueMap().

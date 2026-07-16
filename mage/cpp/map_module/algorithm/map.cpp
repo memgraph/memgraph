@@ -75,21 +75,16 @@ std::string Map::KeyToString(const mgp::Value &value) {
 }
 
 mgp::Map Map::ToMap(const mgp::Value &value) {
-  if (value.IsNode()) {
+  const auto build_map = [](const std::unordered_map<std::string, mgp::Value> &properties) {
     mgp::Map map{};
-    for (const auto &[key, property_value] : value.ValueNode().Properties()) {
+    for (const auto &[key, property_value] : properties) {
       map.Insert(key, property_value);
     }
     return map;
-  }
-  if (value.IsRelationship()) {
-    mgp::Map map{};
-    for (const auto &[key, property_value] : value.ValueRelationship().Properties()) {
-      map.Insert(key, property_value);
-    }
-    return map;
-  }
-  return mgp::Map(value.ValueMap());
+  };
+  if (value.IsNode()) return build_map(value.ValueNode().Properties());
+  if (value.IsRelationship()) return build_map(value.ValueRelationship().Properties());
+  return value.ValueMap();  // already returns a fresh Map by value
 }
 
 /*NOTE: FromNodes isn't 1:1 for graphQL, because first, we need to extend C and CPP API to iterate vertices using ctx
@@ -183,7 +178,7 @@ void Map::SetKey(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *re
     // coerced to its properties map.
     mgp::Map map = arguments[0].IsNull() ? mgp::Map() : ToMap(arguments[0]);
     if (!arguments[1].IsNull()) {
-      map.Update(std::string(arguments[1].ValueString()), arguments[2]);
+      map.Update(arguments[1].ValueString(), arguments[2]);
     }
     result.SetValue(std::move(map));
 
@@ -193,45 +188,18 @@ void Map::SetKey(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *re
   }
 }
 
-void Map::RemoveRecursion(mgp::Map &result, bool recursive, std::string_view key) {
-  // Collect mutations first: erasing/updating while iterating invalidates the map iterator.
-  std::vector<std::string> to_erase;
-  std::vector<std::pair<std::string, mgp::Value>> to_update;
-  for (const auto element : result) {
-    if (element.key == key) {
-      to_erase.emplace_back(element.key);
-      continue;
-    }
-    if (element.value.IsMap() && recursive) {
-      mgp::Map non_const_value_map = mgp::Map(element.value.ValueMap());
-      RemoveRecursion(non_const_value_map, recursive, key);
-      if (non_const_value_map.Empty()) {
-        to_erase.emplace_back(element.key);
-      } else {
-        to_update.emplace_back(element.key, mgp::Value(std::move(non_const_value_map)));
-      }
-    }
-  }
-  for (const auto &erase_key : to_erase) {
-    result.Erase(erase_key);
-  }
-  for (auto &[update_key, value] : to_update) {
-    result.Update(update_key, std::move(value));
-  }
-}
-
 void Map::RemoveKey(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
     const auto map = arguments[0].ValueMap();
-    const auto key = std::string(arguments[1].ValueString());
     const auto config = arguments[2].ValueMap();
     const auto recursive = (config.At("recursive").IsBool()) ? config.At("recursive").ValueBool() : false;
     mgp::Map map_removed = mgp::Map(map);
 
-    RemoveRecursion(map_removed, recursive, key);
+    std::unordered_set<std::string> keys{std::string(arguments[1].ValueString())};
+    RemoveRecursionSet(map_removed, recursive, keys);
 
     result.SetValue(std::move(map_removed));
 
@@ -277,9 +245,9 @@ void Map::Merge(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res
 
   try {
     const auto map1 = arguments[0].IsNull() ? mgp::Map() : ToMap(arguments[0]);
-    const auto map2 = arguments[1].IsNull() ? mgp::Map() : ToMap(arguments[1]);
+    auto map2 = arguments[1].IsNull() ? mgp::Map() : ToMap(arguments[1]);
 
-    mgp::Map merged_map = mgp::Map(map2);
+    mgp::Map merged_map = std::move(map2);
     for (const auto element : map1) {
       if (!merged_map.KeyExists(element.key)) {
         merged_map.Insert(element.key, element.value);
@@ -400,71 +368,6 @@ void Map::RemoveKeys(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result
   }
 }
 
-// mgp::Result::SetValue has no generic Value overload, so dispatch on the runtime type
-// (mirrors Collections::SetResult) with explicit null handling.
-void Map::SetResult(mgp::Result &result, const mgp::Value &value) {
-  switch (value.Type()) {
-    case mgp::Type::Null:
-      result.SetValue();
-      break;
-    case mgp::Type::Bool:
-      result.SetValue(value.ValueBool());
-      break;
-    case mgp::Type::Int:
-      result.SetValue(value.ValueInt());
-      break;
-    case mgp::Type::Double:
-      result.SetValue(value.ValueDouble());
-      break;
-    case mgp::Type::String:
-      result.SetValue(value.ValueString());
-      break;
-    case mgp::Type::List:
-      result.SetValue(value.ValueList());
-      break;
-    case mgp::Type::Map:
-      result.SetValue(value.ValueMap());
-      break;
-    case mgp::Type::Node:
-      result.SetValue(value.ValueNode());
-      break;
-    case mgp::Type::Relationship:
-      result.SetValue(value.ValueRelationship());
-      break;
-    case mgp::Type::Path:
-      result.SetValue(value.ValuePath());
-      break;
-    case mgp::Type::Date:
-      result.SetValue(value.ValueDate());
-      break;
-    case mgp::Type::LocalTime:
-      result.SetValue(value.ValueLocalTime());
-      break;
-    case mgp::Type::LocalDateTime:
-      result.SetValue(value.ValueLocalDateTime());
-      break;
-    case mgp::Type::Duration:
-      result.SetValue(value.ValueDuration());
-      break;
-    case mgp::Type::ZonedDateTime:
-      result.SetValue(value.ValueZonedDateTime());
-      break;
-    case mgp::Type::Point2d:
-      result.SetValue(value.ValuePoint2d());
-      break;
-    case mgp::Type::Point3d:
-      result.SetValue(value.ValuePoint3d());
-      break;
-    case mgp::Type::Enum:
-      result.SetValue(value.ValueEnum());
-      break;
-    default:
-      std::ostringstream oss;
-      oss << value.Type();
-      throw mgp::ValueException("map.get has no Result.SetValue for: " + oss.str());
-  }
-}
-
 void Map::Get(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -472,18 +375,18 @@ void Map::Get(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, 
 
   try {
     const auto map = ToMap(arguments[0]);
-    const auto key = std::string(arguments[1].ValueString());
+    const auto key = arguments[1].ValueString();
     const auto default_value = arguments[2];
     const auto fail = arguments[3].ValueBool();
 
     // Precedence: an existing key always wins (even when its value is null), then a
     // non-null default, then fail (throw) or a null result.
     if (map.KeyExists(key)) {
-      SetResult(result, map.At(key));
+      result.SetValue(map.At(key));
       return;
     }
     if (!default_value.IsNull()) {
-      SetResult(result, default_value);
+      result.SetValue(default_value);
       return;
     }
     if (fail) {

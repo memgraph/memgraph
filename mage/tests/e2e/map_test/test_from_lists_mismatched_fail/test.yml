@@ -2,4 +2,4 @@ query: >
   RETURN map.from_lists(["a", "b"], [1]) AS result;
 
 exception: >
-  Lists must be of same size
+  keys and values lists have to be not null and of same size
