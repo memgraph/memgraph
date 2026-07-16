@@ -42,6 +42,15 @@ TEST(ArmingIndex, RuleExposesEveryPatternRootSymbol) {
 
 auto AsVec(std::span<std::size_t const> s) -> std::vector<std::size_t> { return {s.begin(), s.end()}; }
 
+/// Project the rule indices out of an arming-index lookup, dropping the depths -
+/// these tests assert which rules a symbol indexes, not their arming radius.
+auto AsVec(std::span<ArmingIndex<Op>::ArmedRule const> s) -> std::vector<std::size_t> {
+  std::vector<std::size_t> out;
+  out.reserve(s.size());
+  for (auto const &entry : s) out.push_back(entry.rule_idx);
+  return out;
+}
+
 TEST(ArmingIndex, IndexesBySymbolAndAlwaysArmsSymbollessRoots) {
   // Rule 0 roots at {F}; rule 1 at {F, F2}; rule 2 has a symbol-less root.
   std::vector<std::vector<std::optional<Op>>> roots{{Op::F}, {Op::F, Op::F2}, {std::nullopt}};
@@ -58,8 +67,10 @@ TEST(ArmingIndex, CollectArmedUnionsAlwaysArmedWithActiveSymbols) {
   auto const index = ArmingIndex<Op>::from_root_symbols(roots);
 
   auto armed = [&](std::vector<Op> const &active) {
+    boost::unordered_flat_map<Op, std::size_t> min_hop;
+    for (auto const sym : active) min_hop.emplace(sym, 0);  // depths are kAllDepths, so any hop arms
     boost::unordered_flat_set<std::size_t> out;
-    index.collect_armed(active, out);
+    index.collect_armed(min_hop, out);
     return out;
   };
   // F activates rules 0 and 1; the symbol-less rule 2 is always armed.
