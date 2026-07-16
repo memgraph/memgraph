@@ -191,6 +191,66 @@ TEST(EGraph_DuplicateRemoval, CongruenceRemovesDuplicateENodes) {
   EXPECT_TRUE(egraph.ValidateCongruenceClosure());
 }
 
+// === Per-pass touched-set (foundation for incremental arming) ===
+
+TEST(EGraph_Touched, RecordsInsertsOnce) {
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::A).eclass_id;
+  auto b = egraph.emplace(Op::B).eclass_id;
+  egraph.emplace(Op::A);  // hash-cons hit: did_insert=false, no new touch
+
+  auto const touched = egraph.touched_eclasses();
+  EXPECT_EQ(touched.size(), 2U);
+  EXPECT_TRUE(touched.contains(a));
+  EXPECT_TRUE(touched.contains(b));
+}
+
+TEST(EGraph_Touched, RecordsMergeSurvivorCanonicalized) {
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::A).eclass_id;
+  auto b = egraph.emplace(Op::B).eclass_id;
+  egraph.clear_touched();  // forget the inserts; measure only the merge
+
+  auto const [merged, did_merge] = egraph.merge(a, b);
+  ASSERT_TRUE(did_merge);
+
+  auto const touched = egraph.touched_eclasses();
+  // The survivor, not the merged-away id: both a and b canonicalize to one class.
+  EXPECT_EQ(touched.size(), 1U);
+  EXPECT_TRUE(touched.contains(merged));
+  EXPECT_TRUE(touched.contains(egraph.find(a)));
+  EXPECT_TRUE(touched.contains(egraph.find(b)));
+}
+
+TEST(EGraph_Touched, ClearResets) {
+  TestEGraph egraph;
+  egraph.emplace(Op::A);
+  EXPECT_FALSE(egraph.touched_eclasses().empty());
+  egraph.clear_touched();
+  EXPECT_TRUE(egraph.touched_eclasses().empty());
+}
+
+TEST(EGraph_Touched, CapturesCascadeMergeDuringRebuild) {
+  // A child merge makes F(a) and F(b) congruent; rebuild merges them as a
+  // cascade. That cascade merge happens inside rebuild() yet must still land in
+  // the touched-set.
+  TestEGraph egraph;
+  TestProcessingContext ctx;
+  auto a = egraph.emplace(Op::A, 0).eclass_id;
+  auto b = egraph.emplace(Op::A, 1).eclass_id;
+  auto fa = egraph.emplace(Op::F, {a}).eclass_id;
+  auto fb = egraph.emplace(Op::F, {b}).eclass_id;
+
+  egraph.clear_touched();  // forget the inserts
+  egraph.merge(a, b);      // direct merge
+  egraph.rebuild(ctx);     // F(a) ≡ F(b) merge happens here, in the cascade
+
+  ASSERT_EQ(egraph.find(fa), egraph.find(fb)) << "the F classes must have cascade-merged";
+  auto const touched = egraph.touched_eclasses();
+  EXPECT_TRUE(touched.contains(egraph.find(a))) << "the direct merge target";
+  EXPECT_TRUE(touched.contains(egraph.find(fa))) << "the cascade merge target, produced inside rebuild";
+}
+
 TEST(EGraph_DuplicateRemoval, MultipleDuplicatesRemoved) {
   // When 3+ e-nodes canonicalize to the same form, all but one are removed.
   //
