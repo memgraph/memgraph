@@ -159,13 +159,6 @@ struct EGraphBase {
     for (auto id : touched_) out.insert(find(id));
   }
 
-  /// Allocating convenience over touched_eclasses_into().
-  [[nodiscard]] auto touched_eclasses() const -> boost::unordered_flat_set<EClassId> {
-    boost::unordered_flat_set<EClassId> out;
-    touched_eclasses_into(out);
-    return out;
-  }
-
   /// Forget the touched-set; the next pass starts from empty.
   void clear_touched() { touched_.clear(); }
 
@@ -173,7 +166,7 @@ struct EGraphBase {
   mutable UnionFind union_find_;
   boost::unordered_flat_set<EClassId> rebuild_worklist_;
   // Raw (pre-canonicalization) ids of e-classes changed since clear_touched();
-  // see touched_eclasses() for the read contract.
+  // see touched_eclasses_into() for the read contract.
   boost::unordered_flat_set<EClassId> touched_;
   size_t num_dead_nodes_ = 0;
 };
@@ -261,7 +254,6 @@ struct EGraph : private detail::EGraphBase {
   using EGraphBase::num_dead_nodes;
   using EGraphBase::num_live_nodes;
   using EGraphBase::num_nodes;
-  using EGraphBase::touched_eclasses;
   using EGraphBase::touched_eclasses_into;
   using EGraphBase::worklist_size;
 
