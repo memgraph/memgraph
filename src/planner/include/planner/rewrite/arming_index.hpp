@@ -13,7 +13,7 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <limits>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <vector>
@@ -23,10 +23,6 @@
 
 namespace memgraph::planner::core::rewrite {
 
-/// A depth that never gates arming: a pattern with this depth arms whenever its
-/// root symbol appears anywhere in the touched-set's parent-closure.
-inline constexpr std::size_t kAllDepths = std::numeric_limits<std::size_t>::max();
-
 /// One pattern's arming spec: its root symbol (`nullopt` = symbol-less, i.e.
 /// matches any e-class) and its depth `d_P` (root-to-deepest-leaf). A change
 /// arms this pattern only when its root symbol lies within `d_P` parent-hops of
@@ -34,7 +30,7 @@ inline constexpr std::size_t kAllDepths = std::numeric_limits<std::size_t>::max(
 template <typename Symbol>
 struct PatternArm {
   std::optional<Symbol> root;
-  std::size_t depth = kAllDepths;
+  std::size_t depth;
 };
 
 /// Maps a changed symbol to the rules a pass should arm - the dual of the
@@ -86,20 +82,6 @@ class ArmingIndex {
     return index;
   }
 
-  /// Convenience: index by root symbol alone, leaving every pattern un-gated by
-  /// depth (`kAllDepths`). For callers that do not track pattern depth.
-  static auto from_root_symbols(std::span<std::vector<std::optional<Symbol>> const> per_rule_roots) -> ArmingIndex {
-    std::vector<std::vector<PatternArm<Symbol>>> per_rule;
-    per_rule.reserve(per_rule_roots.size());
-    for (auto const &roots : per_rule_roots) {
-      std::vector<PatternArm<Symbol>> arms;
-      arms.reserve(roots.size());
-      for (auto const &root : roots) arms.push_back(PatternArm<Symbol>{.root = root, .depth = kAllDepths});
-      per_rule.push_back(std::move(arms));
-    }
-    return from_pattern_arms(per_rule);
-  }
-
   [[nodiscard]] auto always_armed() const -> std::span<std::size_t const> { return always_armed_; }
 
   /// Rules rooted at `sym`, each with its arming depth (empty span if none).
@@ -109,20 +91,21 @@ class ArmingIndex {
     return it->second;
   }
 
-  /// Fill `armed` given `min_hop` - the shallowest parent-hop at which each
-  /// symbol is reached from the pass's touched-set. Arms every always-armed
-  /// rule, plus every rule a reached symbol indexes whose pattern depth reaches
-  /// that hop (`min_hop(S) <= d_P`): a symbol at hop `h` can only re-enable a
-  /// pattern of depth `>= h`. De-duplicates a rule reachable through several
-  /// symbols. Inserts without clearing - the caller owns that.
+  /// Mark the armed rules in `armed`, a dense predicate indexed by rule position
+  /// that the caller has sized to the rule count and zeroed. `min_hop` gives the
+  /// shallowest parent-hop at which each symbol is reached from the pass's
+  /// touched-set. Arms every always-armed rule, plus every rule a reached symbol
+  /// indexes whose pattern depth reaches that hop (`min_hop(S) <= d_P`): a symbol
+  /// at hop `h` can only re-enable a pattern of depth `>= h`. A rule reachable
+  /// through several symbols is simply re-marked.
   void collect_armed(boost::unordered_flat_map<Symbol, std::size_t> const &min_hop,
-                     boost::unordered_flat_set<std::size_t> &armed) const {
-    armed.insert(always_armed_.begin(), always_armed_.end());
+                     std::vector<std::uint8_t> &armed) const {
+    for (auto const rule_idx : always_armed_) armed[rule_idx] = 1;
     for (auto const &[sym, hop] : min_hop) {
       auto const it = by_symbol_.find(sym);
       if (it == by_symbol_.end()) continue;
       for (auto const &entry : it->second) {
-        if (hop <= entry.depth) armed.insert(entry.rule_idx);
+        if (hop <= entry.depth) armed[entry.rule_idx] = 1;
       }
     }
   }
