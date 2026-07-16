@@ -289,6 +289,11 @@ startup_config_dict = {
     ),
     "query_cost_planner": ("true", "true", "Use the cost-estimating query planner."),
     "query_plan_cache_max_size": ("1000", "1000", "Maximum number of query plans to cache."),
+    "query_ast_cache_max_size": (
+        "1000",
+        "1000",
+        "Maximum number of parsed query ASTs to cache (0 disables the cache).",
+    ),
     "query_vertex_count_to_expand_existing": (
         "10",
         "10",
