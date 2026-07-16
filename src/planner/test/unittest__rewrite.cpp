@@ -177,6 +177,31 @@ TEST(IncrementalArming, IncrementalEqualsFullForMultiPatternRule) {
   });
 }
 
+TEST(IncrementalArming, IncrementalEqualsFullForAlwaysArmedRule) {
+  // A symbol-less-rooted rule is always armed - no changed symbol can gate it -
+  // so incremental must run it every pass and its merges must land exactly as
+  // under full. always_armed_collapse merges F(x) into x for any x with an F
+  // parent. The Op::A padding keeps the post-pass change a sparse slice, so the
+  // active-set path runs: the always-armed rule must fire even when the active
+  // set is restricted or empty, because a symbol-less root ignores it.
+  ExpectSameShapeUnderBothModes([](ArmingMode mode) -> std::pair<std::size_t, std::size_t> {
+    TypedTestEGraph typed;
+    auto &eg = typed.core();
+    for (int i = 0; i < 24; ++i) eg.emplace(Op::A, static_cast<uint64_t>(i));
+    auto const x = eg.emplace(Op::Var, 1).eclass_id;
+    auto const y = eg.emplace(Op::Var, 2).eclass_id;
+    auto const fx = eg.emplace(Op::F, {x}).eclass_id;  // F(x) and F(y): the rule
+    auto const fy = eg.emplace(Op::F, {y}).eclass_id;  // collapses both into x, y
+    TestRewriter rewriter{typed, TestRuleSet::Build(make_always_armed_collapse_rule())};
+    auto const result = rewriter.saturate(RewriteConfig::Unlimited(), mode);
+    EXPECT_TRUE(result.saturated());
+    EXPECT_EQ(rewriter.iterate_once(), 0U);  // sharp oracle: a true fixpoint
+    EXPECT_EQ(eg.find(fx), eg.find(x)) << "always-armed rule did not merge F(x) into x";
+    EXPECT_EQ(eg.find(fy), eg.find(y)) << "always-armed rule did not merge F(y) into y";
+    return {eg.num_classes(), eg.num_live_nodes()};
+  });
+}
+
 TEST(IncrementalArming, ReSaturatingASettledGraphDoesNoWork) {
   TypedTestEGraph typed_eg;
   auto &eg = typed_eg.core();
