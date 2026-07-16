@@ -1788,6 +1788,8 @@ class Result {
   inline void SetValue(const Point3d &point);
   /// @brief Sets an @ref Enum value to be returned.
   inline void SetValue(const Enum &enum_v);
+  /// @brief Sets an arbitrary @ref Value to be returned.
+  inline void SetValue(const Value &value);
 
   void SetErrorMessage(std::string_view error_msg) const;
 
@@ -5206,6 +5208,11 @@ inline void Result::SetValue(const Enum &enum_v) {
     mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
   }
   mgp::value_destroy(mgp_val);
+}
+
+inline void Result::SetValue(const Value &value) {
+  // func_result_set_value copies the value, so passing the wrapped pointer directly is safe.
+  mgp::MemHandlerCallback(func_result_set_value, result_, value.ptr());
 }
 
 inline void Result::SetErrorMessage(const std::string_view error_msg) const {
