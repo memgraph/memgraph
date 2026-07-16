@@ -385,7 +385,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::CoordinatorSSOA
     return locked_auth->SSOGetRoleNames(sso_scheme, response);
   };
 
-  CoordinatorSSOAuthenticator authenticator{std::move(module_runner), std::move(role_mask_provider)};
+  CoordinatorSSOAuthenticator const authenticator{std::move(module_runner), std::move(role_mask_provider)};
   auto const effective_mask = authenticator.Authenticate(scheme, identity_provider_response);
   if (!effective_mask) {
     return std::unexpected{communication::bolt::AuthFailure::kGeneric};

@@ -1128,15 +1128,22 @@ def sso_connects(port, scheme, token):
 def sso_route_denied(port, scheme, token):
     """Whether the coordinator denies the routing table (Bolt ROUTE) for this SSO session.
 
-    Uses a neo4j:// routing driver, which fetches the routing table via ROUTE during verify_connectivity(). Only a
-    coordinator privilege denial surfaces the "routing table" permission error; because this coords-only cluster has no
-    data instances the routing table lists routers but no readers/writers, so a *permitted* ROUTE still leaves
-    verify_connectivity() failing for an unrelated reason (no servers to route to) -- that is treated as "not denied".
+    verify_connectivity() cannot be used to detect the denial: a neo4j routing driver swallows a ROUTE FAILURE during
+    discovery (Memgraph error codes are not "fatal during discovery"; that check only honours Neo.ClientError.Security.*
+    codes), fails over to the next router, and finally raises a generic ServiceUnavailable. That is indistinguishable
+    from a *permitted* ROUTE, because this coords-only cluster has no data instances, so the routing table lists routers
+    but no readers/writers and discovery fails for that unrelated reason too.
+
+    So drive a single ROUTE against the seed router via the pool's fetch_routing_info(), which surfaces the raw server
+    response instead of swallowing it: a privilege denial raises the server's "routing table" ClientError, whereas a
+    permitted ROUTE returns routing records (readers/writers are not required at this level).
     """
     auth = Auth(scheme=scheme, credentials=_encode_token(token), principal="")
     driver = GraphDatabase.driver(f"neo4j://localhost:{port}", auth=auth)
     try:
-        driver.verify_connectivity()
+        pool = driver._pool
+        # (address, database, imp_user, bookmarks, auth, acquisition_timeout); auth=None reuses the driver's SSO auth.
+        pool.fetch_routing_info(pool.address, None, None, None, None, None)
         return False
     except Exception as e:
         return "routing table" in str(e)
