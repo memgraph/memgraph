@@ -307,7 +307,7 @@ class Rewriter {
    * @return Total number of rewrites applied across all rules
    */
   auto apply_once_with_stats(std::vector<std::size_t> &per_rule_stats, std::vector<std::uint8_t> const *armed = nullptr,
-                             boost::unordered_flat_set<EClassId> const *active = nullptr) -> std::size_t {
+                             RootRestriction active = RootRestriction::MatchAll()) -> std::size_t {
     assert(!egraph_->needs_rebuild() && "E-graph must be clean at start of rewrite iteration");
 
     ctx_.clear_new_eclasses();
@@ -316,10 +316,10 @@ class Rewriter {
     auto const &rules = rules_.rules();
     for (std::size_t idx = 0; idx < rules.size(); ++idx) {
       if (armed != nullptr && (*armed)[idx] == 0) continue;  // incremental: skip un-armed rules
-      // Per-candidate root restriction only where sound; non-qualifying rules
-      // match every candidate. See RewriteRule::supports_active_root_restriction().
-      auto const *rule_active = rules[idx]->supports_active_root_restriction() ? active : nullptr;
-      rules[idx]->match(matcher_, vm_executor_, ctx_.matcher_ctx(), rule_active);
+      // The root restriction is sound only for qualifying rules; others match
+      // every candidate. See RewriteRule::supports_active_root_restriction().
+      auto const rule_roots = rules[idx]->supports_active_root_restriction() ? active : RootRestriction::MatchAll();
+      rules[idx]->match(matcher_, vm_executor_, ctx_.matcher_ctx(), rule_roots);
       auto rewrites = rules[idx]->apply(ctx_.rule_ctx(), ctx_.matcher_ctx());
       per_rule_stats[idx] += rewrites;
       total_rewrites += rewrites;

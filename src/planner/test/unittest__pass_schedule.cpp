@@ -34,6 +34,7 @@ using rewrite::FullSchedule;
 using rewrite::IncrementalSchedule;
 using rewrite::PassSchedule;
 using rewrite::RewriteConfig;
+using rewrite::RootRestriction;
 
 namespace {
 
@@ -54,7 +55,7 @@ class SpySchedule {
 
   static auto armed() -> std::vector<std::uint8_t> const * { return nullptr; }
 
-  static auto active() -> boost::unordered_flat_set<EClassId> const * { return nullptr; }
+  static auto active() -> RootRestriction { return RootRestriction::MatchAll(); }
 
  private:
   std::vector<Hook> *log_;

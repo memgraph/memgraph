@@ -18,11 +18,14 @@
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
+#include "planner/pattern/vm/root_restriction.hpp"
 #include "planner/rewrite/arming_index.hpp"
 
 import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::rewrite {
+
+using pattern::vm::RootRestriction;
 
 /// The incremental-saturation scheduler: decides, each pass, which rules a pass
 /// could newly enable (the *armed* set) and - when the change is a sparse slice
@@ -41,11 +44,11 @@ namespace memgraph::planner::core::rewrite {
 ///   long-lived member (one per egraph), not reconstructed per arm().
 /// - It is scoped to a single egraph. active() holds that egraph's EClassIds, so
 ///   reuse across egraphs requires a reset() first.
-/// - active() returns nullptr to mean "match every candidate"; a non-null but
-///   EMPTY set means "restrict to nothing" (a settled, sparse graph), which is
-///   distinct. A rule whose pattern root is symbol-less ignores the active set
+/// - active() returns a RootRestriction: MatchAll means "match every candidate";
+///   RestrictTo({}) means "restrict to nothing" (a settled, sparse graph), which
+///   is distinct. A rule whose pattern root is symbol-less ignores the restriction
 ///   (the matcher consults it only while iterating a symbol root), so an
-///   always-armed rule still fires under an empty active set.
+///   always-armed rule still fires under an empty restriction.
 template <typename Symbol, typename Analysis>
 class RuleLatch {
  public:
@@ -79,10 +82,10 @@ class RuleLatch {
   /// armed for the coming pass. Sized to the rule count.
   [[nodiscard]] auto armed() const -> std::vector<std::uint8_t> const & { return armed_; }
 
-  /// The active-set root restriction for the coming pass, or nullptr to match
-  /// every candidate (see the class note on the null-vs-empty distinction).
-  [[nodiscard]] auto active() const -> boost::unordered_flat_set<EClassId> const * {
-    return active_sparse_ ? &active_set_ : nullptr;
+  /// The root restriction for the coming pass (see the class note on the MatchAll
+  /// vs RestrictTo({}) distinction).
+  [[nodiscard]] auto active() const -> RootRestriction {
+    return active_sparse_ ? RootRestriction::RestrictTo(active_set_) : RootRestriction::MatchAll();
   }
 
  private:

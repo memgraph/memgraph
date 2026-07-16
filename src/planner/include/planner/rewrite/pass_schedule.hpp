@@ -32,16 +32,16 @@ namespace memgraph::planner::core::rewrite {
 /// terminating (zero-rewrite) pass skips after_pass, since no pass follows it.
 ///
 /// armed() is a dense predicate indexed by rule position (nullptr = run every
-/// rule); active() restricts root iteration to a set (nullptr = match every
-/// candidate). The hooks take the e-graph by mutable reference because
-/// before_pass may drain its touched-set.
+/// rule); active() returns a RootRestriction the matcher applies to root-symbol
+/// iteration. The hooks take the e-graph by mutable reference because before_pass
+/// may drain its touched-set.
 template <typename S, typename EG>
 concept PassSchedule = requires(S s, EG &eg) {
   s.begin(eg);
   s.before_pass(eg);
   s.after_pass(eg);
   { s.armed() } -> std::convertible_to<std::vector<std::uint8_t> const *>;
-  { s.active() } -> std::convertible_to<boost::unordered_flat_set<EClassId> const *>;
+  { s.active() } -> std::convertible_to<RootRestriction>;
 };
 
 /// Every rule every pass: the reference schedule and differential oracle. Arms
@@ -60,7 +60,7 @@ struct FullSchedule {
 
   static auto armed() -> std::vector<std::uint8_t> const * { return nullptr; }
 
-  static auto active() -> boost::unordered_flat_set<EClassId> const * { return nullptr; }
+  static auto active() -> RootRestriction { return RootRestriction::MatchAll(); }
 };
 
 /// Only the rules a pass could newly enable: drives a borrowed RuleLatch. begin
@@ -81,7 +81,7 @@ class IncrementalSchedule {
 
   [[nodiscard]] auto armed() const -> std::vector<std::uint8_t> const * { return &latch_->armed(); }
 
-  [[nodiscard]] auto active() const -> boost::unordered_flat_set<EClassId> const * { return latch_->active(); }
+  [[nodiscard]] auto active() const -> RootRestriction { return latch_->active(); }
 
  private:
   RuleLatch<Symbol, Analysis> *latch_;
