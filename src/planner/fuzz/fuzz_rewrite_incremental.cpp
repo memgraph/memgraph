@@ -9,19 +9,27 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Differential fuzzer for incremental arming: a random e-graph is saturated twice
-// with the same rules, once in Full mode (every rule every pass - the
-// reference) and once in Incremental mode (the optimisation). The two must agree.
-// A divergence means incremental arming skipped a rule that should have run - the exact
-// failure incremental arming must never cause.
+// Differential fuzzer for incremental arming: two identical e-graphs are driven
+// through the same rounds, one saturated in Full mode (every rule every pass -
+// the reference) and one in Incremental mode (the optimisation). The two must
+// agree. A divergence means incremental arming skipped a rule that should have
+// run - the exact failure incremental arming must never cause.
 //
-// Coverage: the rule set includes both merge-only rules and a node-INSERTING
-// rule (commutativity), so the insert-during-rewrite path - touched-set insert +
-// incremental matcher reindex, the path production's constant-fold exercises - is
-// fuzzed, not just merges. The oracle checks e-class/live-node counts, the sharp
-// fixpoint oracle (iterate_once() == 0), and merge-PARTITION equivalence over the
-// seeded nodes (which nodes ended up equal must match between the two modes) - a
-// stronger structural check than counts alone.
+// Multi-round: after the initial build, each round mutates both graphs
+// identically and re-saturates on a PERSISTENT rewriter. The incremental
+// rewriter folds a round's mutations into the next arm() through its surviving
+// latch - the re-saturation path a single saturate never reaches, and the
+// capability latched arming exists to provide.
+//
+// Oracles per round: equal e-class/live-node counts; merge-PARTITION equivalence
+// over the seeded probe set (which nodes ended up equal must match, a stronger
+// check than counts); the sharp fixpoint oracle (a full pass on the incremental
+// result finds nothing); and convergence within a finite cap (both runs must
+// reach a fixpoint, so hitting the cap is a non-termination or skip bug).
+//
+// The rule pool includes a node-INSERTING rule (commutativity), so the
+// insert-during-rewrite path - touched-set insert + incremental matcher reindex -
+// is fuzzed, not just merges.
 
 #include <cstdint>
 #include <cstdio>
@@ -135,55 +143,80 @@ auto make_rules(std::uint8_t selection, std::uint8_t tower_depth_raw) -> RuleSet
   return builder.build();
 }
 
-// Build a random e-graph from the fuzz bytes. Deterministic: the same bytes
-// always produce the same graph, so the two saturations start identical. `pool`
-// is filled with the seeded e-class ids (the probe set for the partition check);
-// because construction is deterministic, both runs get identical pool ids.
-auto build_graph(uint8_t const *data, size_t size, std::vector<EClassId> &pool) -> FuzzTypedEGraph {
-  FuzzTypedEGraph typed;
-  auto &eg = typed.core();
-  ProcessingContext<FuzzSymbol> ctx;
+// Seed both graphs with the same distinct leaves. Distinct leaves so the
+// partition oracle discriminates finely: a wrong merge is likelier to move some
+// label when there are more starting classes. Both graphs assign ids identically
+// (same op sequence, no saturation yet), so a single shared `pool` indexes both.
+void seed_leaves(FuzzTypedEGraph &ref_eg, FuzzTypedEGraph &inc_eg, std::vector<EClassId> &pool) {
   pool.clear();
-  // Distinct leaves so the partition oracle discriminates finely: a wrong merge
-  // is more likely to move some label when there are more starting classes.
   for (auto const leaf : {FuzzSymbol::A, FuzzSymbol::B, FuzzSymbol::C, FuzzSymbol::D, FuzzSymbol::E}) {
-    pool.push_back(eg.emplace(leaf, 0).eclass_id);
-    pool.push_back(eg.emplace(leaf, 1).eclass_id);
+    for (std::uint64_t d = 0; d < 2; ++d) {
+      auto const id = ref_eg.core().emplace(leaf, d).eclass_id;
+      inc_eg.core().emplace(leaf, d);  // same id by construction
+      pool.push_back(id);
+    }
   }
+}
 
-  size_t cursor = 0;
+// Apply up to `budget` build opcodes to BOTH graphs in lockstep from the shared
+// byte cursor, reading each operand index once and using it for both graphs, so
+// the two receive the identical construction. `grow` adds new e-classes to the
+// pickable pool (true for the initial build); a mutation batch runs with grow
+// off, keeping the probe pool frozen and identical across the two graphs even
+// after their internal ids diverge under saturation.
+void apply_ops(FuzzTypedEGraph &ref_eg, FuzzTypedEGraph &inc_eg, std::vector<EClassId> &pool, uint8_t const *data,
+               size_t size, size_t &cursor, bool grow, size_t budget) {
+  auto &rc = ref_eg.core();
+  auto &ic = inc_eg.core();
   auto next = [&]() -> uint8_t { return cursor < size ? data[cursor++] : 0; };
-  auto pick = [&]() -> EClassId { return pool[next() % pool.size()]; };
+  auto idx = [&]() -> std::size_t { return next() % pool.size(); };
 
-  // Bound the graph so the fuzzer stays fast.
-  while (cursor < size && pool.size() < 512) {
+  for (size_t n = 0; n < budget && cursor < size && pool.size() < 512; ++n) {
     switch (next() % 5) {
-      case 0:
-        pool.push_back(eg.emplace(FuzzSymbol::Plus, {pick(), pick()}).eclass_id);
+      case 0: {
+        auto const i = idx(), j = idx();
+        auto const id = rc.emplace(FuzzSymbol::Plus, {pool[i], pool[j]}).eclass_id;
+        ic.emplace(FuzzSymbol::Plus, {pool[i], pool[j]});
+        if (grow) pool.push_back(id);
         break;
-      case 1:
-        pool.push_back(eg.emplace(FuzzSymbol::Mul, {pick(), pick()}).eclass_id);
+      }
+      case 1: {
+        auto const i = idx(), j = idx();
+        auto const id = rc.emplace(FuzzSymbol::Mul, {pool[i], pool[j]}).eclass_id;
+        ic.emplace(FuzzSymbol::Mul, {pool[i], pool[j]});
+        if (grow) pool.push_back(id);
         break;
-      case 2:
-        pool.push_back(eg.emplace(FuzzSymbol::F, {pick()}).eclass_id);
+      }
+      case 2: {
+        auto const i = idx();
+        auto const id = rc.emplace(FuzzSymbol::F, {pool[i]}).eclass_id;
+        ic.emplace(FuzzSymbol::F, {pool[i]});
+        if (grow) pool.push_back(id);
         break;
-      case 3:
-        eg.merge(pick(), pick());  // create equalities so the rules can fire
+      }
+      case 3: {
+        auto const i = idx(), j = idx();
+        rc.merge(pool[i], pool[j]);  // create equalities so the rules can fire
+        ic.merge(pool[i], pool[j]);
         break;
+      }
       case 4: {
         // An F-tower: apply F 1..5 times onto a picked class. Uniform construction
         // almost never chains F deep enough by chance, so the collapse-tower rule
         // and the hop-2+ arming gate would otherwise be starved of matches.
-        auto id = pick();
+        auto const i = idx();
         auto const height = 1U + (next() % 5U);
-        for (unsigned i = 0; i < height; ++i) id = eg.emplace(FuzzSymbol::F, {id}).eclass_id;
-        pool.push_back(id);
+        auto ref_id = pool[i];
+        auto inc_id = pool[i];
+        for (unsigned h = 0; h < height; ++h) {
+          ref_id = rc.emplace(FuzzSymbol::F, {ref_id}).eclass_id;
+          inc_id = ic.emplace(FuzzSymbol::F, {inc_id}).eclass_id;
+        }
+        if (grow) pool.push_back(ref_id);
         break;
       }
     }
   }
-  if (eg.needs_rebuild()) eg.rebuild(ctx);
-  return typed;
 }
 
 // The partition the probe set falls into under `eg`, normalized to a canonical
@@ -205,42 +238,74 @@ auto partition_labels(FuzzGraph const &eg, std::vector<EClassId> const &pool) ->
 
 extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int {
   // First two bytes pick the active rule subset and the collapse-tower depth; the
-  // remainder builds the graph. Both runs share the identical rules and graph.
+  // remainder drives the graph. Both graphs share the identical rules and ops.
   std::uint8_t const selection = size > 0 ? data[0] : 0;
   std::uint8_t const tower_depth = size > 1 ? data[1] : 0;
   uint8_t const *graph_data = size > 2 ? data + 2 : data;
   size_t const graph_size = size > 2 ? size - 2 : 0;
   auto const rules = make_rules(selection, tower_depth);
 
-  // Reference: every rule every pass.
-  std::vector<EClassId> arm_all_pool;
-  auto arm_all_eg = build_graph(graph_data, graph_size, arm_all_pool);
-  Rewriter arm_all{arm_all_eg, rules};
-  arm_all.saturate(RewriteConfig::Unlimited(), ArmingMode::Full);
+  FuzzTypedEGraph ref_eg;  // reference: every rule every pass
+  FuzzTypedEGraph inc_eg;  // optimisation: only the rules a pass could re-enable
+  std::vector<EClassId> pool;
+  ProcessingContext<FuzzSymbol> proc;
 
-  // Optimisation: only the rules a pass could re-enable.
-  std::vector<EClassId> incremental_pool;
-  auto incremental_eg = build_graph(graph_data, graph_size, incremental_pool);
-  Rewriter incremental{incremental_eg, rules};
-  incremental.saturate(RewriteConfig::Unlimited(), ArmingMode::Incremental);
+  size_t cursor = 0;
+  seed_leaves(ref_eg, inc_eg, pool);
+  apply_ops(ref_eg, inc_eg, pool, graph_data, graph_size, cursor, /*grow=*/true, /*budget=*/40);
+  if (ref_eg.core().needs_rebuild()) ref_eg.core().rebuild(proc);
+  if (inc_eg.core().needs_rebuild()) inc_eg.core().rebuild(proc);
 
-  // Same fixpoint = same final shape. Rewrite COUNTS can differ by schedule (a
-  // merge redundant in one order is a no-op in another), so compare the graph.
-  // Incremental only skips rules/prunes candidates, so its merges are a subset of
-  // Full's; equal counts plus the sharp fixpoint oracle below pin them equal.
-  if (incremental_eg.core().num_classes() != arm_all_eg.core().num_classes()) fail("e-class count differs");
-  if (incremental_eg.core().num_live_nodes() != arm_all_eg.core().num_live_nodes()) fail("live-node count differs");
+  // Persistent rewriters: the incremental one folds each round's mutations into
+  // the next arm() through the surviving latch - the path a single saturate never
+  // reaches. The reference re-saturates with Full, which ignores the latch.
+  Rewriter ref{ref_eg, rules};
+  Rewriter inc{inc_eg, rules};
 
-  // Structural check beyond counts: the two runs must merge the seeded nodes into
-  // the exact same equivalence classes. Catches a divergence that happened to
-  // preserve both counts.
-  if (partition_labels(arm_all_eg.core(), arm_all_pool) != partition_labels(incremental_eg.core(), incremental_pool)) {
-    fail("merge partition over seeded nodes differs between full and incremental");
+  auto run_round = [&]() {
+    // Finite, size-scaled cap: under the pool's termination discipline both runs
+    // must reach a fixpoint, so hitting the cap is always a bug (non-termination
+    // or a skip that prevents convergence), not a legitimately slow input.
+    auto cfg = RewriteConfig::Unlimited();
+    cfg.max_iterations = 2 * inc_eg.core().num_classes() + 64;
+    auto const ref_result = ref.saturate(cfg, ArmingMode::Full);
+    auto const inc_result = inc.saturate(cfg, ArmingMode::Incremental);
+    if (!ref_result.saturated() || !inc_result.saturated()) {
+      fail("did not converge within bound: termination discipline violated or a skip prevents fixpoint");
+    }
+
+    // Rewrite COUNTS can differ by schedule (a merge redundant in one order is a
+    // no-op in another), so compare the graph. Incremental only skips rules or
+    // prunes candidates, so its merges are a subset of Full's; equal counts plus
+    // the partition and the sharp fixpoint oracle below pin the two equal.
+    if (inc_eg.core().num_classes() != ref_eg.core().num_classes()) fail("e-class count differs");
+    if (inc_eg.core().num_live_nodes() != ref_eg.core().num_live_nodes()) fail("live-node count differs");
+
+    // Structural check beyond counts: the two runs must merge the seeded nodes
+    // into the exact same equivalence classes.
+    if (partition_labels(ref_eg.core(), pool) != partition_labels(inc_eg.core(), pool)) {
+      fail("merge partition over seeded nodes differs between full and incremental");
+    }
+
+    // Sharp oracle: one all-rules pass on the incremental result must find
+    // nothing, i.e. incremental arming did not stop short of the real fixpoint.
+    if (inc.iterate_once() != 0) fail("incremental result is not a true fixpoint");
+  };
+
+  run_round();  // initial build
+
+  // Re-saturation rounds: mutate both graphs identically, then re-saturate. This
+  // is where the persistent latch arms from a touched-set left by a prior pass -
+  // the branch's headline capability. A frozen pool keeps the two probe sets
+  // identical even as saturation renumbers each graph's classes differently.
+  for (int rounds = 0; cursor < graph_size && rounds < 8; ++rounds) {
+    apply_ops(ref_eg, inc_eg, pool, graph_data, graph_size, cursor, /*grow=*/false, /*budget=*/10);
+    if (ref_eg.core().needs_rebuild()) ref_eg.core().rebuild(proc);
+    if (inc_eg.core().needs_rebuild()) inc_eg.core().rebuild(proc);
+    ref.rebuild_index();  // the graphs were mutated outside the rewriter
+    inc.rebuild_index();
+    run_round();
   }
-
-  // Sharp oracle: one all-rules pass on the incremental result must find nothing,
-  // i.e. incremental arming did not stop short of the real fixpoint.
-  if (incremental.iterate_once() != 0) fail("incremental result is not a true fixpoint");
 
   return 0;
 }
