@@ -93,13 +93,23 @@ class RuleSet {
         .rules = std::move(rules), .arming_index = std::move(arming_index), .max_pattern_depth = max_pattern_depth});
   }
 
-  /// Index the rules by their patterns' root symbols. A symbol-less root makes a
-  /// rule always-armed; a rule rooted at a symbol is armed when that symbol changes.
+  /// Index the rules by their patterns' root symbols, each carrying that
+  /// pattern's depth. A symbol-less root makes a rule always-armed; a rule
+  /// rooted at a symbol is armed when that symbol changes within the pattern's
+  /// depth of the change.
   static auto MakeArmingIndex(std::span<RulePtr const> rules) -> ArmingIndex<Symbol> {
-    std::vector<std::vector<std::optional<Symbol>>> per_rule_roots;
-    per_rule_roots.reserve(rules.size());
-    for (auto const &rule : rules) per_rule_roots.push_back(rule->pattern_root_symbols());
-    return ArmingIndex<Symbol>::from_root_symbols(per_rule_roots);
+    std::vector<std::vector<PatternArm<Symbol>>> per_rule;
+    per_rule.reserve(rules.size());
+    for (auto const &rule : rules) {
+      auto const roots = rule->pattern_root_symbols();
+      auto const patterns = rule->patterns();
+      std::vector<PatternArm<Symbol>> arms;
+      arms.reserve(roots.size());
+      for (std::size_t i = 0; i < roots.size(); ++i)
+        arms.push_back(PatternArm<Symbol>{.root = roots[i], .depth = patterns[i].depth()});
+      per_rule.push_back(std::move(arms));
+    }
+    return ArmingIndex<Symbol>::from_pattern_arms(per_rule);
   }
 
   static auto MakeMaxPatternDepth(std::span<RulePtr const> rules) -> std::size_t {

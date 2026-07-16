@@ -29,11 +29,13 @@ namespace memgraph::planner::core {
 
 using namespace test;
 using rewrite::ArmingIndex;
+using rewrite::PatternArm;
 using rewrite::RuleLatch;
 
 namespace {
 using Latch = RuleLatch<Op, NoAnalysis>;
 using Roots = std::vector<std::vector<std::optional<Op>>>;
+using Arms = std::vector<std::vector<PatternArm<Op>>>;
 }  // namespace
 
 TEST(RuleLatch, FirstArmArmsEveryRuleAndMatchesEveryCandidate) {
@@ -119,6 +121,34 @@ TEST(RuleLatch, ParentClosureArmsAnAncestorRootedRuleToDepth) {
   to_depth_one.arm(too_shallow);
   to_depth_one.arm(too_shallow);
   EXPECT_FALSE(to_depth_one.armed().contains(0)) << "depth-1 closure stops at F(a); G is unreached";
+}
+
+TEST(RuleLatch, ArmingGatesEachPatternByItsOwnDepth) {
+  // a <- F(a) <- G(F(a)): a change at `a` reaches G at hop 2. A rule rooted at G
+  // arms only if its pattern depth reaches that hop, independent of any deeper
+  // rule in the set that widened the closure.
+  auto build = [](TestEGraph &eg) {
+    auto const a = eg.emplace(Op::A).eclass_id;
+    auto const fa = eg.emplace(Op::F, {a}).eclass_id;
+    eg.emplace(Op::G, {fa});
+    auto const b = eg.emplace(Op::B).eclass_id;
+    eg.clear_touched();
+    eg.merge(a, b);  // touch the class holding `a`
+    TestProcessingContext pc;
+    eg.rebuild(pc);
+  };
+  // Rule 0 roots at G with depth 1; rule 1 roots at G with depth 2.
+  auto const index = ArmingIndex<Op>::from_pattern_arms(Arms{{{Op::G, 1}}, {{Op::G, 2}}});
+
+  TestEGraph eg;
+  build(eg);
+  Latch latch;
+  latch.reset(index, /*max_pattern_depth=*/2, /*num_rules=*/2);
+  latch.arm(eg);  // arm-all, consume pending
+  latch.arm(eg);  // arm from the merge's touched-set
+
+  EXPECT_FALSE(latch.armed().contains(0)) << "G sits at hop 2, beyond the depth-1 rule's reach";
+  EXPECT_TRUE(latch.armed().contains(1)) << "the depth-2 rule reaches G at hop 2";
 }
 
 TEST(RuleLatch, NonSparseChangeDropsTheActiveSet) {
