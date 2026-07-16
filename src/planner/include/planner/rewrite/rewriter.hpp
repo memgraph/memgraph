@@ -25,6 +25,7 @@
 
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/vm/executor.hpp"
+#include "planner/rewrite/pass_schedule.hpp"
 #include "planner/rewrite/rule.hpp"
 #include "planner/rewrite/rule_latch.hpp"
 #include "planner/rewrite/rule_set.hpp"
@@ -152,7 +153,7 @@ class RewriteContext {
  *   // RuleSet copy is cheap (shared_ptr increment); the graph type is deduced
  *   Rewriter rewriter(graph, ruleset);
  *
- *   auto result = rewriter.saturate(RewriteConfig::Default(), ArmingMode::Incremental);
+ *   auto result = rewriter.saturate_incremental(RewriteConfig::Default());
  *   if (result.saturated()) {
  *     // Fixed point reached
  *   }
@@ -209,101 +210,103 @@ class Rewriter {
   }
 
   /**
-   * @brief Run equality saturation with the configured rules
+   * @brief Run equality saturation under a given pass schedule
    *
-   * Applies all rules repeatedly until one of:
+   * Applies rules repeatedly until one of:
    * - Fixed point (no rule produces any rewrites)
    * - Iteration limit reached
    * - E-node limit exceeded
    * - Timeout exceeded
    *
-   * After rewrites, the e-graph is rebuilt to restore invariants
-   * and the matcher index is refreshed.
+   * The loop is schedule-agnostic: the schedule owns the touched-set lifecycle
+   * and supplies each pass's armed predicate and active-set restriction (see
+   * PassSchedule). This is the seam FullSchedule and IncrementalSchedule sit at;
+   * the convenience entry points below funnel through it.
    *
-   * ArmingMode::Incremental runs only the rules a pass could newly enable. It reaches
-   * the same fixpoint as ArmingMode::Full given enough iterations, but may need a
-   * few more passes; if max_iterations stops it first the e-graph is valid but less
-   * saturated, never incorrect.
+   * After rewrites, the e-graph is rebuilt to restore invariants and the matcher
+   * index is refreshed.
    *
    * @param config Limits and timeout configuration
-   * @param mode How to schedule rules across passes (see ArmingMode)
+   * @param schedule The pass schedule driving arming across passes
    * @return Result containing statistics and stop reason
    */
-  auto saturate(RewriteConfig const &config, ArmingMode mode) -> RewriteResult {
+  template <PassSchedule<EGraph> Schedule>
+  auto saturate(RewriteConfig const &config, Schedule &schedule) -> RewriteResult {
     RewriteResult result;
     result.rewrites_per_rule.resize(num_rules(), 0);  // Initialize per-rule counters
     auto const start_time = std::chrono::steady_clock::now();
 
-    // Incremental-mode scheduling: arm only the rules a pass could newly enable.
-    // The latch's first arm() after a set_rules arms every rule; a later saturate
-    // on the same rewriter arms from the touched-set left by the prior one.
-    if (mode == ArmingMode::Incremental) {
-      latch_.arm(*egraph_);
-    }
+    schedule.begin(*egraph_);
 
     for (std::size_t iter = 0; iter < config.max_iterations; ++iter) {
       result.iterations = iter + 1;
 
-      // Check timeout
       auto const elapsed = std::chrono::steady_clock::now() - start_time;
       if (elapsed >= config.timeout) {
         result.stop_reason = RewriteResult::StopReason::Timeout;
         return result;
       }
-
-      // Check e-node limit
       if (egraph_->num_nodes() > config.max_enodes) {
         result.stop_reason = RewriteResult::StopReason::ENodeLimit;
         return result;
       }
 
-      std::size_t rewrites_this_iter = 0;
-      if (mode == ArmingMode::Full) {
-        // Full intentionally leaves the touched-set intact; its changes fold
-        // into the arm of a subsequent Incremental saturate (see iterate_once()).
-        rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule);
-      } else {
-        egraph_->clear_touched();  // capture only this pass's changes
-        rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule, &latch_.armed(), latch_.active());
-      }
+      schedule.before_pass(*egraph_);
+      auto const rewrites_this_iter =
+          apply_once_with_stats(result.rewrites_per_rule, schedule.armed(), schedule.active());
       result.rewrites_applied += rewrites_this_iter;
 
-      // Fixed point reached
       if (rewrites_this_iter == 0) {
         result.stop_reason = RewriteResult::StopReason::Saturated;
         return result;
       }
 
-      // Arm the rules the next pass could newly enable from what just changed.
-      if (mode == ArmingMode::Incremental) {
-        latch_.arm(*egraph_);
-      }
+      schedule.after_pass(*egraph_);
     }
 
-    // Reached iteration limit
     result.stop_reason = RewriteResult::StopReason::IterationLimit;
     return result;
   }
 
+  /// Saturate running every rule every pass - the reference behaviour and
+  /// differential oracle. Leaves the e-graph's touched-set intact.
+  auto saturate_full(RewriteConfig const &config) -> RewriteResult {
+    FullSchedule schedule;
+    return saturate(config, schedule);
+  }
+
+  /// Saturate running only the rules a pass could newly enable. Reaches the same
+  /// fixpoint as saturate_full given enough iterations, but may need a few more
+  /// passes; if max_iterations stops it first the e-graph is valid but less
+  /// saturated, never incorrect. Drives the persistent latch, so a later
+  /// saturate on the same rewriter arms from the touched-set left by the prior.
+  auto saturate_incremental(RewriteConfig const &config) -> RewriteResult {
+    IncrementalSchedule<Symbol, Analysis> schedule{latch_};
+    return saturate(config, schedule);
+  }
+
+  /// Runtime selector over the two schedules, for callers that pick a mode at
+  /// run time (a mode-parameterised benchmark, a differential harness). Compile-
+  /// time callers should prefer saturate_full / saturate_incremental directly.
+  auto saturate(RewriteConfig const &config, ArmingMode mode) -> RewriteResult {
+    return mode == ArmingMode::Incremental ? saturate_incremental(config) : saturate_full(config);
+  }
+
   /**
-   * @brief Apply all rules once (single iteration)
+   * @brief Apply every rule once (a single Full pass)
    *
-   * Useful for testing and debugging individual rewrite steps.
-   * Rebuilds the e-graph for congruence closure if needed.
-   * Does incremental matcher rebuild for any new e-classes created.
-   *
-   * Note: For per-rule statistics, use saturate() with max_iterations=1 and
-   * check result.rewrites_per_rule.
-   *
-   * Runs Full semantics (every rule, every candidate) and does not manage the
-   * touched-set, so any changes it makes are folded into the arm of a subsequent
-   * incremental saturate(). Used as the differential oracle at the end of a run.
+   * One pass under FullSchedule: every rule, every candidate, rebuilding the
+   * e-graph and refreshing the matcher index. FullSchedule leaves the touched-set
+   * intact, so a change made here folds into the arm of a subsequent incremental
+   * saturate - which is why this doubles as the differential oracle at the end of
+   * an incremental run.
    *
    * @return Total number of rewrites applied across all rules
    */
   auto iterate_once() -> std::size_t {
-    std::vector<std::size_t> unused_stats(num_rules(), 0);
-    return apply_once_with_stats(unused_stats);
+    auto config = RewriteConfig::Unlimited();
+    config.max_iterations = 1;
+    return saturate_full(config).rewrites_applied;
   }
 
  private:
