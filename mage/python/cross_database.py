@@ -17,12 +17,14 @@ import oracledb
 import psycopg2
 import pyarrow.flight as flight
 import pyodbc
+from bson import Decimal128, ObjectId
 from neo4j import GraphDatabase
 from neo4j.spatial import Point as Neo4jPoint
 from neo4j.time import Date as Neo4jDate
 from neo4j.time import DateTime as Neo4jDateTime
 from neo4j.time import Duration as Neo4jDuration
 from neo4j.time import Time as Neo4jTime
+from pymongo import MongoClient
 
 import requests
 
@@ -40,8 +42,11 @@ class Constants:
     PORT = "port"
     RESULT = "result"
     SESSION = "session"
+    URI = "uri"
     URI_SCHEME = "uri_scheme"
     USERNAME = "username"
+    AUTH_SOURCE = "auth_source"
+    MONGO_DEFAULT_PORT = 27017
     ALREADY_RUNNING_ERROR = (
         "Cross database module with these parameters is already running. "
         "Please wait for it to finish before starting a new one."
@@ -1252,3 +1257,241 @@ def cleanup_migrate_servicenow():
 
 
 mgp.add_batch_read_proc(servicenow, init_migrate_servicenow, cleanup_migrate_servicenow)
+
+
+# ---------------------------------------------------------------------------
+# MongoDB
+# ---------------------------------------------------------------------------
+
+mongodb_dict = {}
+
+
+def _convert_mongo_value(value: Any) -> Any:
+    """
+    Convert a MongoDB/BSON value to a Memgraph-compatible type.
+    Handles BSON-specific types (ObjectId, Decimal128) and nested documents.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, Decimal128):
+        return float(value.to_decimal())
+    if isinstance(value, Decimal):
+        return float(value)
+
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return base64.b64encode(value).decode("ascii")
+
+    if isinstance(value, dict):
+        return {key: _convert_mongo_value(val) for key, val in value.items()}
+
+    if isinstance(value, (list, tuple)):
+        return [_convert_mongo_value(item) for item in value]
+
+    return value
+
+
+def _convert_mongo_document(document: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: _convert_mongo_value(value) for key, value in document.items()}
+
+
+def _build_mongo_client(config: mgp.Map):
+    """
+    Build a MongoClient and resolve the target database from the config.
+
+    Connection is configured either via a full connection string under the
+    `uri` key, or via `host`/`port`/`username`/`password` (with optional
+    `auth_source`). The `database` key is required in both cases.
+    """
+    database_name = config.get(Constants.DATABASE)
+    if not database_name:
+        raise ValueError("MongoDB config must contain a 'database' key.")
+
+    uri = config.get(Constants.URI)
+    if uri:
+        client = MongoClient(uri)
+    else:
+        kwargs = {
+            Constants.HOST: config.get(Constants.HOST, "localhost"),
+            Constants.PORT: config.get(Constants.PORT, Constants.MONGO_DEFAULT_PORT),
+        }
+        username = config.get(Constants.USERNAME)
+        if username:
+            kwargs[Constants.USERNAME] = username
+            kwargs[Constants.PASSWORD] = config.get(Constants.PASSWORD)
+            auth_source = config.get(Constants.AUTH_SOURCE)
+            if auth_source:
+                kwargs["authSource"] = auth_source
+        client = MongoClient(**kwargs)
+
+    return client, client[database_name]
+
+
+def init_migrate_mongodb(
+    ctx: mgp.ProcCtx,
+    collection: str,
+    query_filter: mgp.Nullable[mgp.Map] = None,
+    config: mgp.Nullable[mgp.Map] = None,
+    config_path: str = "",
+):
+    global mongodb_dict
+
+    if query_filter:
+        _check_params_type(query_filter, (dict,))
+
+    config = dict(config) if config else {}
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, collection, config, query_filter)
+
+    if cache_key in mongodb_dict:
+        raise RuntimeError(Constants.ALREADY_RUNNING_ERROR)
+
+    client, database = _build_mongo_client(config)
+
+    cursor = database[collection].find(query_filter if query_filter else {})
+
+    mongodb_dict[cache_key] = {}
+    mongodb_dict[cache_key][Constants.CONNECTION] = client
+    mongodb_dict[cache_key][Constants.CURSOR] = iter(cursor)
+
+
+def mongodb(
+    ctx: mgp.ProcCtx,
+    collection: str,
+    query_filter: mgp.Nullable[mgp.Map] = None,
+    config: mgp.Nullable[mgp.Map] = None,
+    config_path: str = "",
+) -> mgp.Record(row=mgp.Map):
+    """
+    With cross_database.mongodb you can access MongoDB and find documents in a
+    collection. Each matching document is returned as a row. Config must
+    contain the `database` key. If config_path is passed, every key,value pair
+    from the JSON file overwrites values in config.
+
+    :param collection: MongoDB collection name
+    :param query_filter: Optionally, a MongoDB find filter (as a Map), e.g.
+                         {age: {"$gt": 30}}. If omitted, all documents are returned
+    :param config: Connection configuration parameters. Either `uri` (a full
+                   connection string) or `host`/`port`/`username`/`password`
+                   (with optional `auth_source`), plus the required `database`
+    :param config_path: Path to a JSON file containing configuration parameters
+    :return: The matching documents as a stream of rows
+    """
+    global mongodb_dict
+
+    config = dict(config) if config else {}
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    cache_key = _get_cache_key(ctx.graph.start_timestamp, collection, config, query_filter)
+    cursor = mongodb_dict[cache_key][Constants.CURSOR]
+
+    batch = []
+    for _ in range(Constants.BATCH_SIZE):
+        try:
+            document = next(cursor)
+            batch.append(mgp.Record(row=_convert_mongo_document(document)))
+        except StopIteration:
+            break
+
+    if not batch:
+        _cleanup_mongodb_by_key(cache_key)
+
+    return batch
+
+
+def _cleanup_mongodb_by_key(cache_key: str):
+    global mongodb_dict
+
+    if cache_key in mongodb_dict:
+        connection = mongodb_dict[cache_key].get(Constants.CONNECTION)
+        if connection:
+            connection.close()
+        mongodb_dict.pop(cache_key, None)
+
+
+def cleanup_migrate_mongodb():
+    """Cleanup function called by mgp framework (no parameters)."""
+    pass
+
+
+mgp.add_batch_read_proc(mongodb, init_migrate_mongodb, cleanup_migrate_mongodb)
+
+
+@mgp.read_proc
+def mongodb_count(
+    ctx: mgp.ProcCtx,
+    collection: str,
+    query_filter: mgp.Nullable[mgp.Map] = None,
+    config: mgp.Nullable[mgp.Map] = None,
+    config_path: str = "",
+) -> mgp.Record(count=int):
+    """
+    With cross_database.mongodb_count you can count documents in a MongoDB
+    collection, optionally matching a find filter.
+
+    :param collection: MongoDB collection name
+    :param query_filter: Optionally, a MongoDB find filter (as a Map) to count
+                         only matching documents. If omitted, all documents are counted
+    :param config: Connection configuration parameters (see cross_database.mongodb)
+    :param config_path: Path to a JSON file containing configuration parameters
+    :return: A single row with the document count
+    """
+    if query_filter:
+        _check_params_type(query_filter, (dict,))
+
+    config = dict(config) if config else {}
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    client, database = _build_mongo_client(config)
+    try:
+        count = database[collection].count_documents(query_filter if query_filter else {})
+    finally:
+        client.close()
+
+    return mgp.Record(count=count)
+
+
+@mgp.function
+def mongodb_find_one(
+    ctx: mgp.FuncCtx,
+    collection: str,
+    query_filter: mgp.Nullable[mgp.Map] = None,
+    config: mgp.Nullable[mgp.Map] = None,
+    config_path: str = "",
+) -> mgp.Nullable[mgp.Map]:
+    """
+    With cross_database.mongodb_find_one you can fetch a single document from a
+    MongoDB collection, optionally matching a find filter. Returns the first
+    matching document directly (so it can be used inline in a Cypher
+    expression), or null if nothing matches.
+
+    :param collection: MongoDB collection name
+    :param query_filter: Optionally, a MongoDB find filter (as a Map) to match
+                         against. If omitted, the first document is returned
+    :param config: Connection configuration parameters (see cross_database.mongodb)
+    :param config_path: Path to a JSON file containing configuration parameters
+    :return: The matching document (or null)
+    """
+    if query_filter:
+        _check_params_type(query_filter, (dict,))
+
+    config = dict(config) if config else {}
+    if len(config_path) > 0:
+        config = _combine_config(config=config, config_path=config_path)
+
+    client, database = _build_mongo_client(config)
+    try:
+        document = database[collection].find_one(query_filter if query_filter else {})
+    finally:
+        client.close()
+
+    return _convert_mongo_document(document) if document is not None else None

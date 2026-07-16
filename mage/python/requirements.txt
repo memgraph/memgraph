@@ -18,6 +18,7 @@ pandas==2.2.3
 platformdirs==4.3.6
 pyarrow==24.0.0
 psycopg2-binary==2.9.10
+pymongo==4.17.0
 pyodbc==5.2.0
 python-Levenshtein==0.26.1
 scikit-learn==1.5.2
