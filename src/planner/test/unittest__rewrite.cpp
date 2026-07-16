@@ -52,8 +52,9 @@ auto AsVec(std::span<ArmingIndex<Op>::ArmedRule const> s) -> std::vector<std::si
 
 TEST(ArmingIndex, IndexesBySymbolAndAlwaysArmsSymbollessRoots) {
   // Rule 0 roots at {F}; rule 1 at {F, F2}; rule 2 has a symbol-less root.
-  std::vector<std::vector<std::optional<Op>>> roots{{Op::F}, {Op::F, Op::F2}, {std::nullopt}};
-  auto const index = ArmingIndex<Op>::from_root_symbols(roots);
+  // Depths are irrelevant here; this test asserts which rules a symbol indexes.
+  std::vector<std::vector<PatternArm<Op>>> arms{{{Op::F, 1}}, {{Op::F, 1}, {Op::F2, 1}}, {{std::nullopt, 1}}};
+  auto const index = ArmingIndex<Op>::from_pattern_arms(arms);
 
   EXPECT_EQ(AsVec(index.rules_for_symbol(Op::F)), (std::vector<std::size_t>{0, 1}));
   EXPECT_EQ(AsVec(index.rules_for_symbol(Op::F2)), (std::vector<std::size_t>{1}));
@@ -62,14 +63,18 @@ TEST(ArmingIndex, IndexesBySymbolAndAlwaysArmsSymbollessRoots) {
 }
 
 TEST(ArmingIndex, CollectArmedUnionsAlwaysArmedWithActiveSymbols) {
-  std::vector<std::vector<std::optional<Op>>> roots{{Op::F}, {Op::F, Op::F2}, {std::nullopt}};
-  auto const index = ArmingIndex<Op>::from_root_symbols(roots);
+  std::vector<std::vector<PatternArm<Op>>> arms{{{Op::F, 1}}, {{Op::F, 1}, {Op::F2, 1}}, {{std::nullopt, 1}}};
+  auto const index = ArmingIndex<Op>::from_pattern_arms(arms);
 
   auto armed = [&](std::vector<Op> const &active) {
     boost::unordered_flat_map<Op, std::size_t> min_hop;
-    for (auto const sym : active) min_hop.emplace(sym, 0);  // depths are kAllDepths, so any hop arms
+    for (auto const sym : active) min_hop.emplace(sym, 0);  // hop 0 <= depth 1, so a present symbol arms
+    std::vector<std::uint8_t> bits(3, 0);                   // three rules in this index
+    index.collect_armed(min_hop, bits);
     boost::unordered_flat_set<std::size_t> out;
-    index.collect_armed(min_hop, out);
+    for (std::size_t i = 0; i < bits.size(); ++i) {
+      if (bits[i] != 0) out.insert(i);
+    }
     return out;
   };
   // F activates rules 0 and 1; the symbol-less rule 2 is always armed.
