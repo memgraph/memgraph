@@ -109,14 +109,17 @@ auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Prop
 
 storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::View view, storage::PropertyId key) const {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path -- see Labels() above for the full rationale (PROPERTY change filter).
+    // Phase-2 read fast path -- see Labels() above for the full rationale. FINE property filter: a
+    // point read of property `key` gates on MayHavePropertyFieldChange(gid, key), so it resolves ONLY
+    // when THIS property changed on the branch -- reading n.id skips the resolve when only n.age
+    // changed (the coarse per-gid property filter, used by Properties() below, cannot tell them apart).
     if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
       const auto gid = impl_.Gid();
       if (branch_ctx_->IsVertexTombstoned(gid)) {
         if (view == storage::View::NEW) return std::unexpected{storage::Error::DELETED_OBJECT};
         return impl_.GetProperty(key, view);
       }
-      if (branch_ctx_->MayHavePropertyChange(gid)) {
+      if (branch_ctx_->MayHavePropertyFieldChange(gid, key)) {
         if (auto resolved = branch_ctx_->ResolveVertex(gid, view)) {
           return resolved->GetProperty(key, view);
         }
@@ -128,14 +131,15 @@ storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::Vie
 
 storage::Result<uint64_t> VertexAccessor::GetPropertySize(storage::PropertyId key, storage::View view) const {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path -- see Labels() above for the full rationale (PROPERTY change filter).
+    // Phase-2 read fast path -- see GetProperty() above (same FINE per-property filter: a point read
+    // of `key` resolves only when THIS property changed on the branch).
     if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
       const auto gid = impl_.Gid();
       if (branch_ctx_->IsVertexTombstoned(gid)) {
         if (view == storage::View::NEW) return std::unexpected{storage::Error::DELETED_OBJECT};
         return impl_.GetPropertySize(key, view);
       }
-      if (branch_ctx_->MayHavePropertyChange(gid)) {
+      if (branch_ctx_->MayHavePropertyFieldChange(gid, key)) {
         if (auto resolved = branch_ctx_->ResolveVertex(gid, view)) {
           return resolved->GetPropertySize(key, view);
         }
@@ -164,6 +168,21 @@ void VertexAccessor::CowIfNeeded(versioning::BranchChangeKind kind) {
   // fire so the newly-changed kind is flagged. gid is stable across the COW. Monotonic + single
   // writer, so this insert happens-before any subsequent read on the same branch by program order.
   branch_ctx_->RecordVertexChange(impl_.Gid(), kind);
+}
+
+// Fine-grained property recording (INV-1 for the property_field filter). Called after CowIfNeeded by
+// the property mutators, with the specific pid(s) each touches, so a later GetProperty(pid) point
+// read can skip the resolve when THIS pid was never changed on the branch. gid is stable across COW.
+void VertexAccessor::RecordPropertyFieldChange(storage::PropertyId pid) {
+  branch_ctx_->RecordPropertyFieldChange(impl_.Gid(), pid);
+}
+
+void VertexAccessor::RecordPropertyFieldChanges(
+    const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  const auto gid = impl_.Gid();
+  for (const auto &[pid, _] : properties) {
+    branch_ctx_->RecordPropertyFieldChange(gid, pid);
+  }
 }
 
 // Graph Versioning v1, slice E-2a: in branch mode, InEdges/OutEdges must return the UNION of

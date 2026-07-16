@@ -110,9 +110,20 @@ class MonotonicGidFilter {
   std::unique_ptr<std::atomic<uint64_t>[]> words_;
 };
 
-// The three per-kind filters a branch maintains, plus the record/query surface BranchContext
+// The per-kind change filters a branch maintains, plus the record/query surface BranchContext
 // forwards to. One instance lives on each BranchContext (branch_engine.hpp), rebuilt fresh on every
 // checkout and re-seeded from the branch's change-log (BuildFromFork's replay re-walk).
+//
+// FOUR filters: coarse `label_`, `edge_`, `property_` (per-gid: "did this kind change on gid G?"),
+// plus a FINE `property_field_` keyed by (gid, property_id): "did THIS property change on gid G?".
+// The fine filter is what a point read `GetProperty(gid, pid)` gates on -- so `n.id` reads skip the
+// resolve when only `n.age` changed (the coarse `property_` filter can't tell `id` from `age` and
+// would resolve both). The coarse `property_` is still maintained, for the whole-property-map read
+// `Properties()` (which has no single pid to probe). INV-1 for the fine filter: EVERY property
+// mutation must record (gid, pid) for each affected pid -- SetProperty (one), Init/UpdateProperties
+// (the map's keys), ClearProperties (the cleared map's keys), and the replay re-walk
+// (WalVertexSetProperty's property, name-resolved). A miss is a stale read (a point read of a changed
+// property that skips its resolve), so all five sites are load-bearing.
 //
 // NO `any_change` CATCH-ALL (deviation from design section 4, deliberate): the design carried a 4th
 // `any_change` filter set on every mutation, as a backstop. It is omitted here because it is
@@ -132,12 +143,13 @@ class MonotonicGidFilter {
 // all-resolve behaviour, never toward incorrectness -- design section 11, risk 5).
 class BranchChangeFilters {
  public:
-  // 4096 words * 8 bytes = 32 KiB per filter, 96 KiB per branch. Holds ~8k changed gids at ~1%
-  // false-positive; ~20k at ~10% (still correct, just more resolves). Power of two (Locate's mask).
+  // 4096 words * 8 bytes = 32 KiB per filter, 128 KiB per branch (4 filters). Holds ~8k changed keys
+  // at ~1% false-positive; ~20k at ~10% (still correct, just more resolves). Power of two (mask).
   static constexpr size_t kFilterWords = 4096;
   static_assert((kFilterWords & (kFilterWords - 1)) == 0, "kFilterWords must be a power of two");
 
-  BranchChangeFilters() : property_(kFilterWords), label_(kFilterWords), edge_(kFilterWords) {}
+  BranchChangeFilters()
+      : property_(kFilterWords), label_(kFilterWords), edge_(kFilterWords), property_field_(kFilterWords) {}
 
   BranchChangeFilters(const BranchChangeFilters &) = delete;
   BranchChangeFilters &operator=(const BranchChangeFilters &) = delete;
@@ -147,6 +159,17 @@ class BranchChangeFilters {
 
   void RecordVertexChange(storage::Gid gid, BranchChangeKind kind) noexcept {
     (kind == BranchChangeKind::kLabel ? label_ : property_).Insert(gid);
+  }
+
+  // Fine-grained property change: records that property `pid` of `gid` may have changed. Keyed by a
+  // mix of (gid, pid) folded into the same Gid-keyed filter (a bloom false collision only wastes a
+  // resolve). Populated at every property mutation site alongside the coarse `property_`.
+  void RecordPropertyField(storage::Gid gid, storage::PropertyId pid) noexcept {
+    property_field_.Insert(storage::Gid::FromUint(CombineGidProp(gid, pid)));
+  }
+
+  [[nodiscard]] bool MayHavePropertyFieldChange(storage::Gid gid, storage::PropertyId pid) const noexcept {
+    return property_field_.MayContain(storage::Gid::FromUint(CombineGidProp(gid, pid)));
   }
 
   // Records that `endpoint_gid`'s adjacency (edge add/remove/property, or delete-cascade) may have
@@ -162,9 +185,18 @@ class BranchChangeFilters {
   [[nodiscard]] bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return edge_.MayContain(gid); }
 
  private:
+  // Folds (gid, pid) into one 64-bit key. pid is multiplied by an odd constant (bijective mod 2^64,
+  // decorrelating it from gid) then XORed in; the result stays high-entropy for Locate's Fibonacci
+  // hash. Distinct (gid, pid) pairs may collide (a bloom false positive => a wasted resolve, safe);
+  // the same pair always maps identically (Insert/MayContain agree).
+  [[nodiscard]] static uint64_t CombineGidProp(storage::Gid gid, storage::PropertyId pid) noexcept {
+    return gid.AsUint() ^ (static_cast<uint64_t>(pid.AsUint()) * 0xD1B54A32D192ED03ULL);
+  }
+
   MonotonicGidFilter property_;
   MonotonicGidFilter label_;
   MonotonicGidFilter edge_;
+  MonotonicGidFilter property_field_;
 };
 
 }  // namespace memgraph::versioning

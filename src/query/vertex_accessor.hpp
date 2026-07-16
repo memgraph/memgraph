@@ -107,12 +107,18 @@ class VertexAccessor final {
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const;
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
-    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kProperty);
+    if (branch_ctx_ != nullptr) {
+      CowIfNeeded(versioning::BranchChangeKind::kProperty);
+      RecordPropertyFieldChange(key);
+    }
     return impl_.SetProperty(key, value);
   }
 
   storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kProperty);
+    if (branch_ctx_ != nullptr) {
+      CowIfNeeded(versioning::BranchChangeKind::kProperty);
+      RecordPropertyFieldChanges(properties);
+    }
     return impl_.InitProperties(properties);
   }
 
@@ -130,7 +136,10 @@ class VertexAccessor final {
   // by-value temporary -- calling a non-const method on either is fine).
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kProperty);
+    if (branch_ctx_ != nullptr) {
+      CowIfNeeded(versioning::BranchChangeKind::kProperty);
+      RecordPropertyFieldChanges(properties);
+    }
     return impl_.UpdateProperties(properties);
   }
 
@@ -140,7 +149,11 @@ class VertexAccessor final {
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
     if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kProperty);
-    return impl_.ClearProperties();
+    auto result = impl_.ClearProperties();
+    // Fine-grained: ClearProperties removes ALL properties; the returned map enumerates exactly the
+    // pids that changed (to absent), so record each -- there is no single key to pass like SetProperty.
+    if (branch_ctx_ != nullptr && result.has_value()) RecordPropertyFieldChanges(*result);
+    return result;
   }
 
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
@@ -211,6 +224,14 @@ class VertexAccessor final {
   // once for one kind (say a property) can later be mutated in ANOTHER kind (a label) without a
   // second COW; the kind filter must observe every mutation to uphold INV-1 (see the .cpp).
   void CowIfNeeded(versioning::BranchChangeKind kind);
+
+  // Out-of-line (vertex_accessor.cpp): record this vertex's gid + the given property id(s) into the
+  // branch-side FINE property filter (branch_change_filter.hpp), so a later point read
+  // GetProperty(pid) can skip the resolve when THIS pid was never changed. Called from the property
+  // mutators above, after CowIfNeeded, with the specific pid(s) each one touches -- see INV-1 for the
+  // fine filter. Only ever called when branch_ctx_ != nullptr.
+  void RecordPropertyFieldChange(storage::PropertyId pid);
+  void RecordPropertyFieldChanges(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
 };
 
 static_assert(std::is_trivially_copyable<VertexAccessor>::value,

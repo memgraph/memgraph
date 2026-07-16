@@ -768,6 +768,51 @@ TEST_F(VersioningInterpreterTest, BranchChangeFilterCrossBranchIsolation) {
   }
 }
 
+// Fine-grained (gid, property_id) filter: a point read GetProperty(pid) gates on the fine filter
+// ALONE, so on the change-log replay path (re-checkout) that filter MUST be re-seeded from
+// WalVertexSetProperty, or a genuinely-changed property reaches a reader through main's copy and reads
+// stale fork-state. This is a correctness requirement (not just precision): reaching the changed
+// vertex via an EDGE TRAVERSAL lands on main's (main-resident, branched()) copy -- the exact case the
+// fine filter guards -- rather than the diff-resident copy a scan would yield. A missing replay-seed
+// returns the fork value here.
+TEST_F(VersioningInterpreterTest, BranchChangeFilterFinePropertySurvivesRecheckout) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (n:User {id: 1})-[:E]->(v:User {id: 2, age: 40, keep: 7})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  faker.Interpret("MATCH (v {id: 2}) SET v.age = 99");  // property change; v is COW'd, fine-seeded live
+
+  // In-session, via a traversal (reaches v through main's pointer -> fine filter consulted).
+  {
+    auto stream = faker.Interpret("MATCH (n {id: 1})-[:E]->(v) RETURN v.age AS age, v.keep AS keep");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 99) << "changed property must resolve to the new value";
+    EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 7)
+        << "an UNCHANGED property on the same vertex must read fork-state via the fine fast path";
+  }
+
+  // Force change-log replay (re-checkout), then read again VIA THE TRAVERSAL.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+  {
+    auto stream = faker.Interpret("MATCH (n {id: 1})-[:E]->(v) RETURN v.age AS age, v.keep AS keep");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 99)
+        << "post-recheckout the fine property_field filter must be re-seeded from WalVertexSetProperty, "
+           "else the changed property reads stale fork-state through main's copy";
+    EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 7) << "the unchanged property must still read fork-state";
+  }
+
+  // Isolation: main is untouched by the branch's property change.
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+  {
+    auto stream = faker.Interpret("MATCH (v {id: 2}) RETURN v.age AS age");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 40) << "main must not see the branch's property change";
+  }
+}
+
 TEST_F(VersioningInterpreterTest, MergeNonExistentBranchRejected) {
   SatisfyGate();
   ASSERT_THROW(faker.Interpret("MERGE BRANCH 'nope'"), memgraph::query::QueryRuntimeException);

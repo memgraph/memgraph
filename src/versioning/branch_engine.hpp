@@ -480,6 +480,17 @@ class BranchContext {
 
   void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { change_filters_.RecordEdgeChange(endpoint_gid); }
 
+  // Fine-grained per-property recording/query -- see BranchChangeFilters. Point property reads
+  // (VertexAccessor::GetProperty/GetPropertySize) gate on this; the whole-map read Properties() still
+  // uses the coarse MayHavePropertyChange below.
+  void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) noexcept {
+    change_filters_.RecordPropertyField(gid, pid);
+  }
+
+  bool MayHavePropertyFieldChange(storage::Gid gid, storage::PropertyId pid) const noexcept {
+    return change_filters_.MayHavePropertyFieldChange(gid, pid);
+  }
+
   bool MayHaveLabelChange(storage::Gid gid) const noexcept { return change_filters_.MayHaveLabelChange(gid); }
 
   bool MayHavePropertyChange(storage::Gid gid) const noexcept { return change_filters_.MayHavePropertyChange(gid); }

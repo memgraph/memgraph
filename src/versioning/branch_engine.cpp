@@ -666,6 +666,16 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
   auto record_edge_endpoint = [&branch_ctx](storage::Gid gid) {
     if (gid.AsUint() < kBranchNativeGidWatermark) branch_ctx->RecordEdgeChange(gid);
   };
+  // Fine property_field filter (INV-1 on the replay path -- REQUIRED for correctness, not just
+  // precision: GetProperty gates on the fine filter alone, so a genuine prior-session property change
+  // that is not re-seeded here would read as fork-state after a re-checkout). `data.property` is the
+  // property NAME (WalVertexSetProperty stores a string); resolve it through the shared NameIdMapper
+  // (diff_engine() shares main's, so the id matches). Same COW-copy over-flagging imprecision as the
+  // coarse filters -- safe (extra resolves), never a false negative.
+  auto record_property_field = [&branch_ctx](storage::Gid gid, const std::string &prop_name) {
+    if (gid.AsUint() < kBranchNativeGidWatermark)
+      branch_ctx->RecordPropertyFieldChange(gid, branch_ctx->diff_engine().NameToProperty(prop_name));
+  };
   for (const auto &delta : changelog) {
     std::visit(utils::Overloaded{[&](sd::WalVertexCreate const &data) { mark_if_main_vertex_gid(data.gid); },
                                  [&](sd::WalVertexAddLabel const &data) {
@@ -679,6 +689,7 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
                                  [&](sd::WalVertexSetProperty const &data) {
                                    mark_if_main_vertex_gid(data.gid);
                                    record_vertex_kind(data.gid, BranchChangeKind::kProperty);
+                                   record_property_field(data.gid, data.property);
                                  },
                                  [&](sd::WalVertexDelete const &data) { mark_if_main_vertex_gid(data.gid); },
                                  [&](sd::WalEdgeCreate const &data) {
