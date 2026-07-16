@@ -5,6 +5,8 @@ target_sources(mg-versioning
         FILE_SET HEADERS
         BASE_DIRS ..
         FILES
+        branch_change_filter.hpp
+        branch_change_kind.hpp
         branch_engine.hpp
         branch_log.hpp
         branch_overlay.hpp

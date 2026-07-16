@@ -29,6 +29,8 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
+#include "versioning/branch_change_filter.hpp"
+#include "versioning/branch_change_kind.hpp"
 #include "versioning/branch_log.hpp"
 
 namespace memgraph::versioning {
@@ -463,6 +465,27 @@ class BranchContext {
 
   bool IsEdgeTombstoned(storage::Gid gid) const { return tombstoned_edges_.contains(gid); }
 
+  // Graph Versioning v1 -- branch-side change filters (see branch_change_filter.hpp for the model
+  // and the INV-1 completeness invariant these must uphold). Population (write side): the vertex
+  // record calls fire from VertexAccessor::CowIfNeeded (query/vertex_accessor.cpp, once per
+  // mutation, kind known there); RecordEdgeChange fires from CowEdge (below, both endpoints of any
+  // COW'd/deleted edge) and DbAccessor::InsertEdge (both endpoints of a brand-new edge, which never
+  // reaches CowEdge). On re-checkout they are re-seeded from the change-log by BuildFromFork's own
+  // replay re-walk (branch_engine.cpp). Consultation (read side): VertexAccessor's value reads and
+  // the InEdges/OutEdges fast path (query/vertex_accessor.cpp) call MayHave* to skip the resolve
+  // when the relevant kind is definitely unchanged on this branch.
+  void RecordVertexChange(storage::Gid gid, BranchChangeKind kind) noexcept {
+    change_filters_.RecordVertexChange(gid, kind);
+  }
+
+  void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { change_filters_.RecordEdgeChange(endpoint_gid); }
+
+  bool MayHaveLabelChange(storage::Gid gid) const noexcept { return change_filters_.MayHaveLabelChange(gid); }
+
+  bool MayHavePropertyChange(storage::Gid gid) const noexcept { return change_filters_.MayHavePropertyChange(gid); }
+
+  bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return change_filters_.MayHaveEdgeChange(gid); }
+
  private:
   // MULTI-COMMIT fix (2026-07-12): takes the session's BranchLog CONSTRUCTION INGREDIENTS
   // (`branch_log_session_directory`/`branch_log_items`/`branch_log_mapper`) rather than an
@@ -528,6 +551,12 @@ class BranchContext {
   // populated by `TombstoneEdge` (query::DbAccessor::RemoveEdge/DetachDelete, after a live delete)
   // and by `ReplayChangelogIntoDiffEngine`'s own WalEdgeDelete handler.
   std::unordered_set<storage::Gid> tombstoned_edges_;
+
+  // Graph Versioning v1 -- branch-side per-kind change filters (see branch_change_filter.hpp).
+  // In-memory only, rebuilt fresh on every checkout (like `branched()` on main), re-seeded from the
+  // change-log by BuildFromFork. Monotonic + single-writer, so no lifetime/ownership concerns beyond
+  // BranchContext's own -- default-constructed at its fixed size (BranchChangeFilters::kFilterWords).
+  BranchChangeFilters change_filters_;
 
   // Durable-capture slice (design slices A+B+C), reshaped by the MULTI-COMMIT fix (2026-07-12):
   // this checkout SESSION's own per-session-unique subdirectory under the branch's root wal

@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "storage/v2/vertex_accessor.hpp"
+#include "versioning/branch_change_kind.hpp"
 
 namespace memgraph::versioning {
 class BranchContext;
@@ -84,12 +85,12 @@ class VertexAccessor final {
   auto Labels(storage::View view) const -> decltype(impl_.Labels(view));
 
   storage::Result<bool> AddLabel(storage::LabelId label) {
-    if (branch_ctx_ != nullptr) CowIfNeeded();
+    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kLabel);
     return impl_.AddLabel(label);
   }
 
   storage::Result<bool> RemoveLabel(storage::LabelId label) {
-    if (branch_ctx_ != nullptr) CowIfNeeded();
+    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kLabel);
     return impl_.RemoveLabel(label);
   }
 
@@ -106,12 +107,12 @@ class VertexAccessor final {
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const;
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
-    if (branch_ctx_ != nullptr) CowIfNeeded();
+    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kProperty);
     return impl_.SetProperty(key, value);
   }
 
   storage::Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-    if (branch_ctx_ != nullptr) CowIfNeeded();
+    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kProperty);
     return impl_.InitProperties(properties);
   }
 
@@ -129,7 +130,7 @@ class VertexAccessor final {
   // by-value temporary -- calling a non-const method on either is fine).
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
   UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-    if (branch_ctx_ != nullptr) CowIfNeeded();
+    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kProperty);
     return impl_.UpdateProperties(properties);
   }
 
@@ -138,7 +139,7 @@ class VertexAccessor final {
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
-    if (branch_ctx_ != nullptr) CowIfNeeded();
+    if (branch_ctx_ != nullptr) CowIfNeeded(versioning::BranchChangeKind::kProperty);
     return impl_.ClearProperties();
   }
 
@@ -204,7 +205,12 @@ class VertexAccessor final {
   // and a no-op the second time a given VertexAccessor value is mutated. Throws QueryRuntimeException
   // on an unsupported (Enum) property -- see BranchContext::CowError. Only ever called when
   // branch_ctx_ != nullptr (every call site above already checks).
-  void CowIfNeeded();
+  //
+  // `kind` records this mutation into the branch-side change filter (branch_change_filter.hpp),
+  // UNCONDITIONALLY on every call -- NOT gated on the COW actually happening -- since a vertex COW'd
+  // once for one kind (say a property) can later be mutated in ANOTHER kind (a label) without a
+  // second COW; the kind filter must observe every mutation to uphold INV-1 (see the .cpp).
+  void CowIfNeeded(versioning::BranchChangeKind kind);
 };
 
 static_assert(std::is_trivially_copyable<VertexAccessor>::value,

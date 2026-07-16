@@ -25,38 +25,44 @@ namespace memgraph::query {
 // point lookup already on this hot path.
 auto VertexAccessor::Labels(storage::View view) const -> decltype(impl_.Labels(view)) {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (diff-resident + branched-bit) -- mirror of InEdges/OutEdges' own fast
-    // path in this file. A diff-engine-resident impl_ IS the branch's own COW/native copy already
-    // (COW copies props+labels), so re-resolving it by gid is a redundant FindVertex; its own
-    // diff-engine MVCC reflects same-txn writes AND deletes at the requested view. Only a
-    // MAIN-resident vertex whose branched() bit is set needs re-resolution to its diff copy
-    // (COW'd/tombstoned). Un-branched main vertices are historical-identical by phase-1 invariant.
-    // (perf 2026-07-16: the redundant re-resolve of diff-resident vertices was the dominant
-    // worst-churn branch-read cost.) SAFE: mutators never consult the branched() bit (they always
-    // CowIfNeeded); a COW or tombstone flips branched()->true, disabling the un-branched shortcut so
-    // the re-resolve / View::NEW tombstone guard below runs.
-    // INVARIANT (verified 2026-07-16, logic-verifier + skeptic): the diff-resident direct read is
-    // correct for a since-deleted vertex ONLY because impl_'s own storage-level MVCC returns
-    // DELETED_OBJECT at View::NEW (the delete flips the diff Vertex's deleted() bit synchronously) --
-    // it does NOT rely on the tombstone guard, which is now skipped for diff-resident. This holds as
-    // long as no caller invokes a property/label read on a `for_deleted_`-constructed diff-resident
-    // accessor (that flag bypasses the storage delete check): today unreachable (such accessors are
-    // only counted/existence-checked, and branch writes disable triggers). If branch triggers are
-    // ever added, re-audit this fast path (a for_deleted_ read here would return stale pre-delete data).
-    const bool needs_resolve = impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched();
-    if (needs_resolve) {
-      if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
-        return resolved->Labels(view);
+    // Phase-2 read fast path (diff-resident + branched-bit + branch-side change filter). This is the
+    // canonical version; HasLabel/Properties/GetProperty/GetPropertySize below mirror it (swapping
+    // the value read and, for the property reads, the LABEL filter for the PROPERTY filter).
+    //
+    // (0) DIFF-RESIDENT short-circuit: a diff-engine-resident impl_ IS the branch's own COW/native
+    //     copy already (COW copies props+labels), so re-resolving it by gid is a redundant
+    //     FindVertex; its own diff-engine MVCC reflects same-txn writes AND deletes at the requested
+    //     view. Handled by the storage_ test below being false -> fall straight to impl_.Labels.
+    //     INVARIANT (verified 2026-07-16, logic-verifier + skeptic): the diff-resident direct read is
+    //     correct for a since-deleted vertex ONLY because impl_'s own storage-level MVCC returns
+    //     DELETED_OBJECT at View::NEW (the delete flips the diff Vertex's deleted() bit
+    //     synchronously). Holds as long as no caller reads a `for_deleted_`-constructed diff-resident
+    //     accessor (bypasses the storage delete check): today unreachable (such accessors are only
+    //     counted/existence-checked, and branch writes disable triggers). Re-audit if branch triggers
+    //     are ever added.
+    // (1) BRANCHED bit: gates the un-branched majority out for free (a relaxed load already in cache
+    //     from the traversal). Un-branched main vertices are fork-identical by phase-1 invariant.
+    // (2) TOMBSTONE gate (runs BEFORE the filter/resolve -- a deleted vertex must never read as a
+    //     live fork copy). S2 view-split: View::NEW is the query's current-command state where a
+    //     tombstoned object IS deleted (matches main's MVCC read-after-delete error); View::OLD falls
+    //     through to impl_ (alive pre-delete value), preserving subqueries.feature:424's non-erroring
+    //     OLD case. A tombstoned gid never resolves, so this must gate ahead of ResolveVertex.
+    // (3) CHANGE FILTER (branch_change_filter.hpp): if THIS branch recorded no LABEL change for this
+    //     gid, its labels equal fork-state -> read impl_ directly, skipping the ResolveVertex
+    //     (FindVertex) that dominated worst-churn branch reads. A clear bit is definitive (monotonic
+    //     filter, no false negatives); a set bit only maybe-changed -> resolve (a false positive
+    //     merely costs a resolve, never a stale read). SAFE across mutation: mutators CowIfNeeded()
+    //     which records the kind, so a real label change always sets this bit before the next read.
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
+      const auto gid = impl_.Gid();
+      if (branch_ctx_->IsVertexTombstoned(gid)) {
+        if (view == storage::View::NEW) return std::unexpected{storage::Error::DELETED_OBJECT};
+        return impl_.Labels(view);
       }
-      // S2 FIX (view-gated tombstone guard): a resolve miss on a tombstoned gid is ambiguous by
-      // itself -- it also happens for subqueries.feature:424's incidental View::OLD re-resolution of
-      // an object that's alive in the pre-current-command state (main does NOT error there). What
-      // discriminates the two is the caller's own `view`: View::NEW is the query's current-command
-      // state, where a tombstoned object IS deleted -- matching main's MVCC read-after-delete-in-
-      // command error. View::OLD falls through to `impl_` unchanged (still the alive, pre-delete
-      // value), preserving the non-erroring OLD case.
-      if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
-        return std::unexpected{storage::Error::DELETED_OBJECT};
+      if (branch_ctx_->MayHaveLabelChange(gid)) {
+        if (auto resolved = branch_ctx_->ResolveVertex(gid, view)) {
+          return resolved->Labels(view);
+        }
       }
     }
   }
@@ -65,17 +71,17 @@ auto VertexAccessor::Labels(storage::View view) const -> decltype(impl_.Labels(v
 
 storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::LabelId label) const {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (diff-resident + branched-bit) -- see Labels() above for the full
-    // rationale on why a diff-engine-resident impl_ never needs re-resolution, and only a
-    // MAIN-resident vertex with branched() set does.
-    const bool needs_resolve = impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched();
-    if (needs_resolve) {
-      if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
-        return resolved->HasLabel(label, view);
+    // Phase-2 read fast path -- see Labels() above for the full rationale (LABEL change filter).
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
+      const auto gid = impl_.Gid();
+      if (branch_ctx_->IsVertexTombstoned(gid)) {
+        if (view == storage::View::NEW) return std::unexpected{storage::Error::DELETED_OBJECT};
+        return impl_.HasLabel(label, view);
       }
-      // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
-      if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
-        return std::unexpected{storage::Error::DELETED_OBJECT};
+      if (branch_ctx_->MayHaveLabelChange(gid)) {
+        if (auto resolved = branch_ctx_->ResolveVertex(gid, view)) {
+          return resolved->HasLabel(label, view);
+        }
       }
     }
   }
@@ -84,17 +90,17 @@ storage::Result<bool> VertexAccessor::HasLabel(storage::View view, storage::Labe
 
 auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Properties(view)) {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (diff-resident + branched-bit) -- see Labels() above for the full
-    // rationale on why a diff-engine-resident impl_ never needs re-resolution, and only a
-    // MAIN-resident vertex with branched() set does.
-    const bool needs_resolve = impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched();
-    if (needs_resolve) {
-      if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
-        return resolved->Properties(view);
+    // Phase-2 read fast path -- see Labels() above for the full rationale (PROPERTY change filter).
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
+      const auto gid = impl_.Gid();
+      if (branch_ctx_->IsVertexTombstoned(gid)) {
+        if (view == storage::View::NEW) return std::unexpected{storage::Error::DELETED_OBJECT};
+        return impl_.Properties(view);
       }
-      // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
-      if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
-        return std::unexpected{storage::Error::DELETED_OBJECT};
+      if (branch_ctx_->MayHavePropertyChange(gid)) {
+        if (auto resolved = branch_ctx_->ResolveVertex(gid, view)) {
+          return resolved->Properties(view);
+        }
       }
     }
   }
@@ -103,17 +109,17 @@ auto VertexAccessor::Properties(storage::View view) const -> decltype(impl_.Prop
 
 storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::View view, storage::PropertyId key) const {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (diff-resident + branched-bit) -- see Labels() above for the full
-    // rationale on why a diff-engine-resident impl_ never needs re-resolution, and only a
-    // MAIN-resident vertex with branched() set does.
-    const bool needs_resolve = impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched();
-    if (needs_resolve) {
-      if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
-        return resolved->GetProperty(key, view);
+    // Phase-2 read fast path -- see Labels() above for the full rationale (PROPERTY change filter).
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
+      const auto gid = impl_.Gid();
+      if (branch_ctx_->IsVertexTombstoned(gid)) {
+        if (view == storage::View::NEW) return std::unexpected{storage::Error::DELETED_OBJECT};
+        return impl_.GetProperty(key, view);
       }
-      // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
-      if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
-        return std::unexpected{storage::Error::DELETED_OBJECT};
+      if (branch_ctx_->MayHavePropertyChange(gid)) {
+        if (auto resolved = branch_ctx_->ResolveVertex(gid, view)) {
+          return resolved->GetProperty(key, view);
+        }
       }
     }
   }
@@ -122,17 +128,17 @@ storage::Result<storage::PropertyValue> VertexAccessor::GetProperty(storage::Vie
 
 storage::Result<uint64_t> VertexAccessor::GetPropertySize(storage::PropertyId key, storage::View view) const {
   if (branch_ctx_ != nullptr) {
-    // Phase-2 read fast path (diff-resident + branched-bit) -- see Labels() above for the full
-    // rationale on why a diff-engine-resident impl_ never needs re-resolution, and only a
-    // MAIN-resident vertex with branched() set does.
-    const bool needs_resolve = impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched();
-    if (needs_resolve) {
-      if (auto resolved = branch_ctx_->ResolveVertex(impl_.Gid(), view)) {
-        return resolved->GetPropertySize(key, view);
+    // Phase-2 read fast path -- see Labels() above for the full rationale (PROPERTY change filter).
+    if (impl_.storage_ != &branch_ctx_->diff_engine() && impl_.vertex_->branched()) {
+      const auto gid = impl_.Gid();
+      if (branch_ctx_->IsVertexTombstoned(gid)) {
+        if (view == storage::View::NEW) return std::unexpected{storage::Error::DELETED_OBJECT};
+        return impl_.GetPropertySize(key, view);
       }
-      // S2 FIX (view-gated tombstone guard) -- see Labels() above for the full rationale.
-      if (view == storage::View::NEW && branch_ctx_->IsVertexTombstoned(impl_.Gid())) {
-        return std::unexpected{storage::Error::DELETED_OBJECT};
+      if (branch_ctx_->MayHavePropertyChange(gid)) {
+        if (auto resolved = branch_ctx_->ResolveVertex(gid, view)) {
+          return resolved->GetPropertySize(key, view);
+        }
       }
     }
   }
@@ -143,7 +149,7 @@ storage::Result<uint64_t> VertexAccessor::GetPropertySize(storage::PropertyId ke
 // call site (SetProperty/InitProperties/AddLabel/RemoveLabel/UpdateProperties/ClearProperties)
 // already checks branch_ctx_ != nullptr before calling this, so branch_ctx_ is guaranteed non-null
 // here.
-void VertexAccessor::CowIfNeeded() {
+void VertexAccessor::CowIfNeeded(versioning::BranchChangeKind kind) {
   // CowVertex reads the diff-engine accessor from branch_ctx_->current_diff_txn() itself (a single
   // per-query slot, branch_engine.hpp) rather than taking one as a parameter here.
   auto cowed = branch_ctx_->CowVertex(impl_.Gid());
@@ -151,6 +157,13 @@ void VertexAccessor::CowIfNeeded() {
     throw QueryRuntimeException(cowed.error().message);
   }
   impl_ = *cowed;
+  // Branch-side change filter (INV-1): record this mutation's KIND against the vertex's gid so a
+  // later read of that kind resolves, while reads of OTHER kinds on this same vertex can still skip
+  // the resolve. Recorded AFTER the (possibly no-op) COW and on EVERY mutation -- a vertex COW'd
+  // earlier for a different kind reaches here with the COW already done, but this insert must still
+  // fire so the newly-changed kind is flagged. gid is stable across the COW. Monotonic + single
+  // writer, so this insert happens-before any subsequent read on the same branch by program order.
+  branch_ctx_->RecordVertexChange(impl_.Gid(), kind);
 }
 
 // Graph Versioning v1, slice E-2a: in branch mode, InEdges/OutEdges must return the UNION of
@@ -188,7 +201,23 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
     // HandleExpansionsWithEdgeTypes/HandleExpansionsWithoutEdgeTypes (storage/v2/vertex_accessor.cpp),
     // which already charges one hop per incident edge BEFORE the edge_types filter -- byte-identical
     // accounting to the manual loop below, so this cannot regress the S3 hops-limit fix.
-    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+    // Edge-filter extension: also take the direct-from-main fast path when the vertex IS branched()
+    // but this branch recorded no EDGE (adjacency) change for it (branch_change_filter.hpp). Main's
+    // adjacency is never rewritten by a branch (COW copies props/labels, not adjacency -- R35), so a
+    // vertex branched() only for a property/label change still traverses its fork adjacency for free,
+    // skipping the dual-lookup ResolveEdges. A recorded edge change (add/remove/property/delete
+    // cascade flags both endpoints) forces the union path below. Monotonic filter => no false
+    // negative (a real adjacency change always sets the bit before the next read).
+    // TOMBSTONE SAFETY (why no IsVertexTombstoned check here, unlike the value reads): a deleted
+    // vertex is unreachable through traversal, so this method is never called on one. A detach-delete
+    // tombstones the vertex AND flags its edge bit (CowEdge on each incident edge marks both
+    // endpoints), so `!MayHaveEdgeChange` is false for it -> this fast path is skipped -> ResolveEdges
+    // (which filters `tombstoned_edges_`) runs; and every surviving neighbour's edge bit is flagged
+    // too, so no neighbour's expansion yields the deleted vertex. A plain (non-cascading) delete is
+    // only permitted for a vertex with zero incident edges, so its adjacency is empty either way. If a
+    // future partial-cascade delete mode is added, add an explicit tombstone check here.
+    if (impl_.storage_ != &branch_ctx_->diff_engine() &&
+        (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {
       auto maybe_result = impl_.InEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
       if (!maybe_result) return std::unexpected{maybe_result.error()};
 
@@ -258,7 +287,23 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::InEdges(storage::View 
     // type-filtered, hop-truncated list storage already produced -- `edge_types`/`hops_limit` are
     // still safe to hand straight to storage (no pointer-identity hazard for a type id or a hop
     // counter), so hop accounting is still storage's, not re-derived here.
-    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+    // Edge-filter extension: also take the direct-from-main fast path when the vertex IS branched()
+    // but this branch recorded no EDGE (adjacency) change for it (branch_change_filter.hpp). Main's
+    // adjacency is never rewritten by a branch (COW copies props/labels, not adjacency -- R35), so a
+    // vertex branched() only for a property/label change still traverses its fork adjacency for free,
+    // skipping the dual-lookup ResolveEdges. A recorded edge change (add/remove/property/delete
+    // cascade flags both endpoints) forces the union path below. Monotonic filter => no false
+    // negative (a real adjacency change always sets the bit before the next read).
+    // TOMBSTONE SAFETY (why no IsVertexTombstoned check here, unlike the value reads): a deleted
+    // vertex is unreachable through traversal, so this method is never called on one. A detach-delete
+    // tombstones the vertex AND flags its edge bit (CowEdge on each incident edge marks both
+    // endpoints), so `!MayHaveEdgeChange` is false for it -> this fast path is skipped -> ResolveEdges
+    // (which filters `tombstoned_edges_`) runs; and every surviving neighbour's edge bit is flagged
+    // too, so no neighbour's expansion yields the deleted vertex. A plain (non-cascading) delete is
+    // only permitted for a vertex with zero incident edges, so its adjacency is empty either way. If a
+    // future partial-cascade delete mode is added, add an explicit tombstone check here.
+    if (impl_.storage_ != &branch_ctx_->diff_engine() &&
+        (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {
       auto maybe_result = impl_.InEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
       if (!maybe_result) return std::unexpected{maybe_result.error()};
 
@@ -311,7 +356,23 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
                                                                    query::HopsLimit *hops_limit) const {
   if (branch_ctx_ != nullptr) {
     // Phase 2 fast path -- see InEdges' own doc-comment above (identical rationale, OUT direction).
-    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+    // Edge-filter extension: also take the direct-from-main fast path when the vertex IS branched()
+    // but this branch recorded no EDGE (adjacency) change for it (branch_change_filter.hpp). Main's
+    // adjacency is never rewritten by a branch (COW copies props/labels, not adjacency -- R35), so a
+    // vertex branched() only for a property/label change still traverses its fork adjacency for free,
+    // skipping the dual-lookup ResolveEdges. A recorded edge change (add/remove/property/delete
+    // cascade flags both endpoints) forces the union path below. Monotonic filter => no false
+    // negative (a real adjacency change always sets the bit before the next read).
+    // TOMBSTONE SAFETY (why no IsVertexTombstoned check here, unlike the value reads): a deleted
+    // vertex is unreachable through traversal, so this method is never called on one. A detach-delete
+    // tombstones the vertex AND flags its edge bit (CowEdge on each incident edge marks both
+    // endpoints), so `!MayHaveEdgeChange` is false for it -> this fast path is skipped -> ResolveEdges
+    // (which filters `tombstoned_edges_`) runs; and every surviving neighbour's edge bit is flagged
+    // too, so no neighbour's expansion yields the deleted vertex. A plain (non-cascading) delete is
+    // only permitted for a vertex with zero incident edges, so its adjacency is empty either way. If a
+    // future partial-cascade delete mode is added, add an explicit tombstone check here.
+    if (impl_.storage_ != &branch_ctx_->diff_engine() &&
+        (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {
       auto maybe_result = impl_.OutEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
       if (!maybe_result) return std::unexpected{maybe_result.error()};
 
@@ -365,7 +426,23 @@ storage::Result<EdgeVertexAccessorResult> VertexAccessor::OutEdges(storage::View
     // same "never hand `dest` to storage as a destination pointer" caveat, mirrored for OUT: the
     // client-side gid filter compares against `edge.ToVertex().Gid()`, the TO vertex for an OUT
     // edge, instead of FromVertex()).
-    if (impl_.storage_ != &branch_ctx_->diff_engine() && !impl_.vertex_->branched()) {
+    // Edge-filter extension: also take the direct-from-main fast path when the vertex IS branched()
+    // but this branch recorded no EDGE (adjacency) change for it (branch_change_filter.hpp). Main's
+    // adjacency is never rewritten by a branch (COW copies props/labels, not adjacency -- R35), so a
+    // vertex branched() only for a property/label change still traverses its fork adjacency for free,
+    // skipping the dual-lookup ResolveEdges. A recorded edge change (add/remove/property/delete
+    // cascade flags both endpoints) forces the union path below. Monotonic filter => no false
+    // negative (a real adjacency change always sets the bit before the next read).
+    // TOMBSTONE SAFETY (why no IsVertexTombstoned check here, unlike the value reads): a deleted
+    // vertex is unreachable through traversal, so this method is never called on one. A detach-delete
+    // tombstones the vertex AND flags its edge bit (CowEdge on each incident edge marks both
+    // endpoints), so `!MayHaveEdgeChange` is false for it -> this fast path is skipped -> ResolveEdges
+    // (which filters `tombstoned_edges_`) runs; and every surviving neighbour's edge bit is flagged
+    // too, so no neighbour's expansion yields the deleted vertex. A plain (non-cascading) delete is
+    // only permitted for a vertex with zero incident edges, so its adjacency is empty either way. If a
+    // future partial-cascade delete mode is added, add an explicit tombstone check here.
+    if (impl_.storage_ != &branch_ctx_->diff_engine() &&
+        (!impl_.vertex_->branched() || !branch_ctx_->MayHaveEdgeChange(impl_.Gid()))) {
       auto maybe_result = impl_.OutEdges(storage::View::OLD, edge_types, nullptr, hops_limit);
       if (!maybe_result) return std::unexpected{maybe_result.error()};
 

@@ -1474,6 +1474,15 @@ class DbAccessor final {
 
       auto maybe_edge = accessor_->CreateEdge(&*from_diff, &*to_diff, edge_type);
       if (!maybe_edge) return std::unexpected{maybe_edge.error()};
+
+      // Branch-side change filter (INV-1, edge kind): a brand-new edge changes BOTH endpoints'
+      // adjacency. This is the second disjoint edge choke point -- InsertEdge creates the edge
+      // natively via CreateEdge and never routes through CowEdge (which records the same two
+      // endpoints for property/delete edge changes), so the endpoints must be flagged here too
+      // (design section 6). Recorded AFTER the edge is created (record-after-write, mirroring
+      // CowEdge / CowIfNeeded). Both gids are stable across the COW above.
+      branch_ctx_->RecordEdgeChange(from->Gid());
+      branch_ctx_->RecordEdgeChange(to->Gid());
       return EdgeAccessor(*maybe_edge, branch_ctx_);
     }
 

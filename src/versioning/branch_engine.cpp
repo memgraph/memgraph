@@ -645,15 +645,53 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
   auto mark_if_main_vertex_gid = [&branch_ctx](storage::Gid gid) {
     if (gid.AsUint() < kBranchNativeGidWatermark) branch_ctx->MarkMainObjectBranched(gid);
   };
+  // Branch-side change-filter re-seeding (INV-1 on the replay path -- design section 6). The live
+  // write hooks (CowIfNeeded/CowEdge/InsertEdge) are BYPASSED on replay (it drives storage
+  // primitives directly), so the filters must be re-populated from the change-log here, the same
+  // single re-walk that re-derives `branched()`. Kind mapping follows the WAL record kind. Guarded
+  // by the same watermark as `branched()` -- branch-native gids are diff-resident and never consult
+  // the filters, so keeping them out avoids polluting the filter (raising false positives).
+  //
+  // KNOWN IMPRECISION (documented, correctness-safe): CowVertex copies fork labels+properties into
+  // the diff engine field-by-field, and CaptureBranchCommit records each copy as its own
+  // WalVertexAddLabel/WalVertexSetProperty. On replay we cannot tell a copied-during-COW record from
+  // a genuine change, so a vertex COW'd for one kind (e.g. a property SET) re-seeds the OTHER kind
+  // too. These are FALSE POSITIVES (extra resolves), never false negatives -- the resolve returns the
+  // correct value; only the perf benefit for prior-session changes is diluted after a re-checkout.
+  // In-session changes (the perf-critical path) are populated precisely by the live hooks. A future
+  // change-only capture would make replay precise with no change here (the WAL-kind mapping stays).
+  auto record_vertex_kind = [&branch_ctx](storage::Gid gid, BranchChangeKind kind) {
+    if (gid.AsUint() < kBranchNativeGidWatermark) branch_ctx->RecordVertexChange(gid, kind);
+  };
+  auto record_edge_endpoint = [&branch_ctx](storage::Gid gid) {
+    if (gid.AsUint() < kBranchNativeGidWatermark) branch_ctx->RecordEdgeChange(gid);
+  };
   for (const auto &delta : changelog) {
     std::visit(utils::Overloaded{[&](sd::WalVertexCreate const &data) { mark_if_main_vertex_gid(data.gid); },
-                                 [&](sd::WalVertexAddLabel const &data) { mark_if_main_vertex_gid(data.gid); },
-                                 [&](sd::WalVertexRemoveLabel const &data) { mark_if_main_vertex_gid(data.gid); },
-                                 [&](sd::WalVertexSetProperty const &data) { mark_if_main_vertex_gid(data.gid); },
+                                 [&](sd::WalVertexAddLabel const &data) {
+                                   mark_if_main_vertex_gid(data.gid);
+                                   record_vertex_kind(data.gid, BranchChangeKind::kLabel);
+                                 },
+                                 [&](sd::WalVertexRemoveLabel const &data) {
+                                   mark_if_main_vertex_gid(data.gid);
+                                   record_vertex_kind(data.gid, BranchChangeKind::kLabel);
+                                 },
+                                 [&](sd::WalVertexSetProperty const &data) {
+                                   mark_if_main_vertex_gid(data.gid);
+                                   record_vertex_kind(data.gid, BranchChangeKind::kProperty);
+                                 },
                                  [&](sd::WalVertexDelete const &data) { mark_if_main_vertex_gid(data.gid); },
                                  [&](sd::WalEdgeCreate const &data) {
+                                   // Every edge change (create, property SET, delete-cascade)
+                                   // recreates the edge at its gid in the diff engine, so every one
+                                   // emits a WalEdgeCreate carrying both endpoint gids -- this single
+                                   // case therefore re-seeds `any_edge_change` for ALL edge changes,
+                                   // with no false negatives (WalEdgeSetProperty/WalEdgeDelete carry
+                                   // only the edge gid, no endpoints, and need no separate handling).
                                    mark_if_main_vertex_gid(data.from_vertex);
                                    mark_if_main_vertex_gid(data.to_vertex);
+                                   record_edge_endpoint(data.from_vertex);
+                                   record_edge_endpoint(data.to_vertex);
                                  },
                                  [&](auto const &) {}},
                delta.data_);
@@ -882,6 +920,17 @@ std::expected<storage::EdgeAccessor, BranchContext::CowError> BranchContext::Cow
               "BranchContext::CowEdge: failed to set a property while COW'ing edge {}.",
               edge_gid.AsUint());
   }
+
+  // Branch-side change filter (INV-1, edge kind): this edge's adjacency has now changed on the branch
+  // (property set, or a pre-delete COW a DELETE will follow). Flag BOTH endpoint gids so an expansion
+  // from either side resolves instead of trusting main's unchanged adjacency (branch_change_filter.hpp).
+  // Recorded AFTER the diff-engine writes above (mirrors VertexAccessor::CowIfNeeded's record-after-
+  // write ordering), so the filter's release-store publishes those writes too. Reached only on the
+  // FIRST COW of this edge (the idempotent early-return above skips a re-COW) -- harmless, since the
+  // filter is monotonic. A brand-new (never-COW'd) edge takes the DbAccessor::InsertEdge path instead,
+  // which records the same two endpoints there.
+  RecordEdgeChange(from_gid);
+  RecordEdgeChange(to_gid);
 
   return *nv;
 }

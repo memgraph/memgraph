@@ -690,6 +690,84 @@ TEST_F(VersioningInterpreterTest, BranchRemoveLabelSurvivesRecheckoutReplay) {
   }
 }
 
+// Branch-side change filters (branch_change_filter.hpp): a read of a KIND the branch never changed
+// must return the fork-state value via the direct (no-resolve) fast path, while a read of a kind the
+// branch DID change must reflect the change. Exercises per-kind independence: a property SET must not
+// make label reads resolve, and a label ADD must not make property reads resolve -- yet both changed
+// values are still observed. (Correctness is invariant to whether the filter resolves or reads fork;
+// this test pins the observable VALUES, which must be identical either way.)
+TEST_F(VersioningInterpreterTest, BranchChangeFilterKindIsolation) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:User {id: 1, age: 40, name: 'a'})");
+  faker.Interpret("CREATE BRANCH 'b' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b'");
+
+  // Property-only change: the LABEL filter stays clear (label read must be fork-correct via the
+  // direct path), the PROPERTY filter is set (property read must reflect the new value).
+  faker.Interpret("MATCH (n {id: 1}) SET n.age = 99");
+  {
+    auto stream = faker.Interpret("MATCH (n {id: 1}) RETURN n.age AS age, labels(n) AS l, n.name AS name");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 99) << "the changed property must be observed";
+    const auto &labels = stream.GetResults()[0][1].ValueList();
+    ASSERT_EQ(labels.size(), 1U);
+    EXPECT_EQ(labels[0].ValueString(), "User") << "label filter clear -> fork label read directly, still correct";
+    EXPECT_EQ(stream.GetResults()[0][2].ValueString(), "a") << "an unchanged property must read fork-state";
+  }
+
+  // Label-only change on a different vertex: PROPERTY filter stays clear for it (property reads must
+  // be fork-correct via the direct path), the LABEL filter is set (label read reflects the add).
+  faker.Interpret("CREATE (:User {id: 2, age: 50})");  // branch-native, but read via a fresh match below
+  faker.Interpret("MATCH (n {id: 1}) SET n:VIP");
+  {
+    auto stream = faker.Interpret("MATCH (n {id: 1}) RETURN n.age AS age, ('VIP' IN labels(n)) AS vip");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 99) << "property read must stay correct after a label-only change";
+    EXPECT_TRUE(stream.GetResults()[0][1].ValueBool()) << "the added label must be observed";
+  }
+}
+
+// Branch-side change filters: cross-branch isolation and the fork-pin. The global branched() bit is
+// set by ANY branch and never cleared, so a vertex changed by branch b1 has branched()==true even
+// when read on branch b2 that never touched it. b2's OWN change filters are clear for that gid, so it
+// must read the FORK value via the direct path -- never b1's change (which lives in b1's private diff
+// engine) and never main's post-fork mutation (b2 is pinned at its own fork timestamp).
+TEST_F(VersioningInterpreterTest, BranchChangeFilterCrossBranchIsolation) {
+  SatisfyGate();
+
+  faker.Interpret("CREATE (:User {id: 1, age: 10})");
+  faker.Interpret("CREATE (:User {id: 2, age: 20})");
+
+  // b1 mutates id=1 (sets its global branched() bit) but is otherwise independent.
+  faker.Interpret("CREATE BRANCH 'b1' FROM 'main'");
+  faker.Interpret("CHECKOUT BRANCH 'b1'");
+  faker.Interpret("MATCH (n {id: 1}) SET n.age = 111, n:Changed");
+  faker.Interpret("CHECKOUT BRANCH 'main'");
+
+  // main mutates id=2 AFTER b2 will fork -- do it before forking so b2's fork-state has age=20, then
+  // change it on main to prove b2 stays pinned. (Order: fork b2 first, then mutate main.)
+  faker.Interpret("CREATE BRANCH 'b2' FROM 'main'");
+  faker.Interpret("MATCH (n {id: 2}) SET n.age = 222");  // main post-fork write; b2 must NOT see it
+  faker.Interpret("CHECKOUT BRANCH 'b2'");
+
+  {
+    // id=1: changed by b1 (branched() set globally), never touched by b2 -> b2 reads FORK (age=10,
+    // no :Changed). This is the cross-branch fast-exit the filter delivers.
+    auto stream = faker.Interpret("MATCH (n {id: 1}) RETURN n.age AS age, ('Changed' IN labels(n)) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 10) << "b2 must not see b1's property change (cross-branch leak)";
+    EXPECT_FALSE(stream.GetResults()[0][1].ValueBool()) << "b2 must not see b1's label change";
+  }
+  {
+    // id=2: mutated on main AFTER b2 forked -> b2 is fork-pinned, must read age=20 (its fork-state),
+    // not main's post-fork 222. b2 never touched id=2, so this is the direct fork-read path.
+    auto stream = faker.Interpret("MATCH (n {id: 2}) RETURN n.age AS age");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 20) << "b2 must read fork-state, not main's post-fork write (C1)";
+  }
+}
+
 TEST_F(VersioningInterpreterTest, MergeNonExistentBranchRejected) {
   SatisfyGate();
   ASSERT_THROW(faker.Interpret("MERGE BRANCH 'nope'"), memgraph::query::QueryRuntimeException);
