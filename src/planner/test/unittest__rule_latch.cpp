@@ -36,18 +36,43 @@ namespace {
 using Latch = RuleLatch<Op, NoAnalysis>;
 using Roots = std::vector<std::vector<std::optional<Op>>>;
 using Arms = std::vector<std::vector<PatternArm<Op>>>;
+
+/// Build per-rule arming specs from root symbols, all at one depth. These
+/// scenarios vary the closure depth through reset(), not the per-pattern depth,
+/// so one depth per index keeps the literals readable.
+auto RootArms(Roots const &roots, std::size_t depth) -> Arms {
+  Arms arms;
+  arms.reserve(roots.size());
+  for (auto const &rule_roots : roots) {
+    std::vector<PatternArm<Op>> rule;
+    rule.reserve(rule_roots.size());
+    for (auto const &root : rule_roots) rule.push_back(PatternArm<Op>{.root = root, .depth = depth});
+    arms.push_back(std::move(rule));
+  }
+  return arms;
+}
+
+/// The armed rule indices, recovered from the latch's dense armed predicate.
+auto ArmedSet(Latch const &latch) -> boost::unordered_flat_set<std::size_t> {
+  boost::unordered_flat_set<std::size_t> out;
+  auto const &armed = latch.armed();
+  for (std::size_t i = 0; i < armed.size(); ++i) {
+    if (armed[i] != 0) out.insert(i);
+  }
+  return out;
+}
 }  // namespace
 
 TEST(RuleLatch, FirstArmArmsEveryRuleAndMatchesEveryCandidate) {
   TestEGraph eg;
   eg.emplace(Op::A);
-  auto const index = ArmingIndex<Op>::from_root_symbols(Roots{{Op::A}, {Op::B}, {Op::C}});
+  auto const index = ArmingIndex<Op>::from_pattern_arms(RootArms(Roots{{Op::A}, {Op::B}, {Op::C}}, 0));
 
   Latch latch;
   latch.reset(index, /*max_pattern_depth=*/0, /*num_rules=*/3);
   latch.arm(eg);
 
-  EXPECT_EQ(latch.armed(), (boost::unordered_flat_set<std::size_t>{0, 1, 2}));
+  EXPECT_EQ(ArmedSet(latch), (boost::unordered_flat_set<std::size_t>{0, 1, 2}));
   EXPECT_EQ(latch.active(), nullptr) << "first arm matches every candidate, so no active-set restriction";
 }
 
@@ -56,7 +81,7 @@ TEST(RuleLatch, EmptyTouchedArmsOnlyAlwaysArmedRules) {
   eg.emplace(Op::A);
   eg.emplace(Op::B);
   // Rule 0 roots at Op::A; rule 1 has a symbol-less root, so it is always armed.
-  auto const index = ArmingIndex<Op>::from_root_symbols(Roots{{Op::A}, {std::nullopt}});
+  auto const index = ArmingIndex<Op>::from_pattern_arms(RootArms(Roots{{Op::A}, {std::nullopt}}, 0));
 
   Latch latch;
   latch.reset(index, /*max_pattern_depth=*/0, /*num_rules=*/2);
@@ -64,7 +89,7 @@ TEST(RuleLatch, EmptyTouchedArmsOnlyAlwaysArmedRules) {
   eg.clear_touched();
   latch.arm(eg);  // nothing touched since
 
-  EXPECT_EQ(latch.armed(), (boost::unordered_flat_set<std::size_t>{1})) << "only the always-armed rule survives";
+  EXPECT_EQ(ArmedSet(latch), (boost::unordered_flat_set<std::size_t>{1})) << "only the always-armed rule survives";
   // A settled but non-empty graph is "sparse", so active() is non-null and EMPTY
   // (restrict to nothing) - distinct from nullptr (match all). The always-armed
   // rule still fires because a symbol-less root ignores the active set.
@@ -77,7 +102,7 @@ TEST(RuleLatch, TouchedSymbolArmsItsIndexedRulesAndKeepsSparseActiveSet) {
   eg.emplace(Op::A);
   eg.emplace(Op::B);
   for (std::uint64_t i = 0; i < 4; ++i) eg.emplace(Op::C, i);  // padding: keeps the change sparse
-  auto const index = ArmingIndex<Op>::from_root_symbols(Roots{{Op::A}, {Op::B}});
+  auto const index = ArmingIndex<Op>::from_pattern_arms(RootArms(Roots{{Op::A}, {Op::B}}, 0));
 
   Latch latch;
   latch.reset(index, /*max_pattern_depth=*/0, /*num_rules=*/2);
@@ -86,7 +111,7 @@ TEST(RuleLatch, TouchedSymbolArmsItsIndexedRulesAndKeepsSparseActiveSet) {
   auto const fresh_a = eg.emplace(Op::A, /*disambiguator=*/99).eclass_id;  // touch one A-class
   latch.arm(eg);
 
-  EXPECT_EQ(latch.armed(), (boost::unordered_flat_set<std::size_t>{0})) << "only the Op::A-rooted rule arms";
+  EXPECT_EQ(ArmedSet(latch), (boost::unordered_flat_set<std::size_t>{0})) << "only the Op::A-rooted rule arms";
   ASSERT_NE(latch.active(), nullptr) << "a one-class change in a larger graph is sparse";
   EXPECT_TRUE(latch.active()->contains(eg.find(fresh_a)));
 }
@@ -104,7 +129,7 @@ TEST(RuleLatch, ParentClosureArmsAnAncestorRootedRuleToDepth) {
     TestProcessingContext pc;
     eg.rebuild(pc);
   };
-  auto const index = ArmingIndex<Op>::from_root_symbols(Roots{{Op::G}});
+  auto const index = ArmingIndex<Op>::from_pattern_arms(RootArms(Roots{{Op::G}}, 2));
 
   TestEGraph deep_enough;
   build(deep_enough);
@@ -112,7 +137,7 @@ TEST(RuleLatch, ParentClosureArmsAnAncestorRootedRuleToDepth) {
   to_depth_two.reset(index, /*max_pattern_depth=*/2, /*num_rules=*/1);
   to_depth_two.arm(deep_enough);  // arm-all, consume pending
   to_depth_two.arm(deep_enough);  // arm from the merge's touched-set
-  EXPECT_TRUE(to_depth_two.armed().contains(0)) << "depth-2 closure from `a` reaches G(F(a))";
+  EXPECT_TRUE(to_depth_two.armed()[0]) << "depth-2 closure from `a` reaches G(F(a))";
 
   TestEGraph too_shallow;
   build(too_shallow);
@@ -120,7 +145,7 @@ TEST(RuleLatch, ParentClosureArmsAnAncestorRootedRuleToDepth) {
   to_depth_one.reset(index, /*max_pattern_depth=*/1, /*num_rules=*/1);
   to_depth_one.arm(too_shallow);
   to_depth_one.arm(too_shallow);
-  EXPECT_FALSE(to_depth_one.armed().contains(0)) << "depth-1 closure stops at F(a); G is unreached";
+  EXPECT_FALSE(to_depth_one.armed()[0]) << "depth-1 closure stops at F(a); G is unreached";
 }
 
 TEST(RuleLatch, ArmingGatesEachPatternByItsOwnDepth) {
@@ -147,8 +172,8 @@ TEST(RuleLatch, ArmingGatesEachPatternByItsOwnDepth) {
   latch.arm(eg);  // arm-all, consume pending
   latch.arm(eg);  // arm from the merge's touched-set
 
-  EXPECT_FALSE(latch.armed().contains(0)) << "G sits at hop 2, beyond the depth-1 rule's reach";
-  EXPECT_TRUE(latch.armed().contains(1)) << "the depth-2 rule reaches G at hop 2";
+  EXPECT_FALSE(latch.armed()[0]) << "G sits at hop 2, beyond the depth-1 rule's reach";
+  EXPECT_TRUE(latch.armed()[1]) << "the depth-2 rule reaches G at hop 2";
 }
 
 TEST(RuleLatch, RestrictionSliceStopsAtDirectParents) {
@@ -160,7 +185,7 @@ TEST(RuleLatch, RestrictionSliceStopsAtDirectParents) {
   auto const fa = eg.emplace(Op::F, {a}).eclass_id;
   auto const gfa = eg.emplace(Op::G, {fa}).eclass_id;
   for (std::uint64_t i = 0; i < 6; ++i) eg.emplace(Op::C, i);  // padding: keeps the change sparse
-  auto const index = ArmingIndex<Op>::from_root_symbols(Roots{{Op::F}});
+  auto const index = ArmingIndex<Op>::from_pattern_arms(RootArms(Roots{{Op::F}}, 1));
 
   Latch latch;
   latch.reset(index, /*max_pattern_depth=*/2, /*num_rules=*/1);
@@ -181,7 +206,7 @@ TEST(RuleLatch, RestrictionSliceStopsAtDirectParents) {
 TEST(RuleLatch, NonSparseChangeDropsTheActiveSet) {
   TestEGraph eg;
   eg.emplace(Op::A);
-  auto const index = ArmingIndex<Op>::from_root_symbols(Roots{{Op::A}});
+  auto const index = ArmingIndex<Op>::from_pattern_arms(RootArms(Roots{{Op::A}}, 0));
 
   Latch latch;
   latch.reset(index, /*max_pattern_depth=*/0, /*num_rules=*/1);
@@ -191,24 +216,24 @@ TEST(RuleLatch, NonSparseChangeDropsTheActiveSet) {
   latch.arm(eg);
 
   EXPECT_EQ(latch.active(), nullptr) << "change is not a sparse slice, so match via arming alone";
-  EXPECT_TRUE(latch.armed().contains(0)) << "the touched Op::A still arms its rule";
+  EXPECT_TRUE(latch.armed()[0]) << "the touched Op::A still arms its rule";
 }
 
 TEST(RuleLatch, ResetReArmsEveryRule) {
   TestEGraph eg;
   eg.emplace(Op::A);
-  auto const index = ArmingIndex<Op>::from_root_symbols(Roots{{Op::A}, {Op::B}});
+  auto const index = ArmingIndex<Op>::from_pattern_arms(RootArms(Roots{{Op::A}, {Op::B}}, 0));
 
   Latch latch;
   latch.reset(index, /*max_pattern_depth=*/0, /*num_rules=*/2);
   latch.arm(eg);
   eg.clear_touched();
   latch.arm(eg);  // arm-from-touched: settled, arms nothing symbol-rooted
-  EXPECT_FALSE(latch.armed().contains(1));
+  EXPECT_FALSE(latch.armed()[1]);
 
   latch.reset(index, /*max_pattern_depth=*/0, /*num_rules=*/2);  // e.g. after set_rules
   latch.arm(eg);
-  EXPECT_EQ(latch.armed(), (boost::unordered_flat_set<std::size_t>{0, 1})) << "reset re-arms all on the next arm";
+  EXPECT_EQ(ArmedSet(latch), (boost::unordered_flat_set<std::size_t>{0, 1})) << "reset re-arms all on the next arm";
 }
 
 }  // namespace memgraph::planner::core
