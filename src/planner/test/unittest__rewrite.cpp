@@ -72,7 +72,7 @@ TEST(ArmingIndex, CollectArmedUnionsAlwaysArmedWithActiveSymbols) {
 TEST(ArmingIndex, DedupesARuleRootedAtOneSymbolTwice) {
   // merge_vars roots both its patterns at Op::Var; it must index once.
   auto const rules = TestRuleSet::Builder{}.add_rule(make_merge_vars_rule()).build();
-  auto const index = BuildArmingIndex(rules);
+  auto const &index = rules.arming_index();
   EXPECT_EQ(AsVec(index.rules_for_symbol(Op::Var)), (std::vector<std::size_t>{0}));
 }
 
@@ -81,7 +81,7 @@ TEST(ArmingIndex, BuildsFromRealRuleSetInRuleIndexOrder) {
                          .add_rule(make_idempotent_f_rule())  // index 0: {F}
                          .add_rule(make_chain_join_rule())    // index 1: {F, F2}
                          .build();
-  auto const index = BuildArmingIndex(rules);
+  auto const &index = rules.arming_index();
   EXPECT_EQ(AsVec(index.rules_for_symbol(Op::F)), (std::vector<std::size_t>{0, 1}));
   EXPECT_EQ(AsVec(index.rules_for_symbol(Op::F2)), (std::vector<std::size_t>{1}));
   EXPECT_TRUE(index.always_armed().empty());
@@ -94,12 +94,12 @@ TEST(ActiveSet, MaxPatternDepthIsTheDeepestRulePattern) {
                          .add_rule(make_idempotent_f_rule())  // F(?x, ?x): depth 1
                          .add_rule(make_double_neg_rule())    // Neg(Neg(?x)): depth 2
                          .build();
-  EXPECT_EQ(MaxRuleSetPatternDepth(mixed), 2U);
+  EXPECT_EQ(mixed.max_pattern_depth(), 2U);
 
   auto const leaf = TestRuleSet::Builder{}
                         .add_rule(make_merge_vars_rule())  // Var: depth 0
                         .build();
-  EXPECT_EQ(MaxRuleSetPatternDepth(leaf), 0U);
+  EXPECT_EQ(leaf.max_pattern_depth(), 0U);
 }
 
 TEST(ActiveSet, ParentClosureReachesAncestorsToDepthOnly) {
