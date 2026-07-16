@@ -57,7 +57,6 @@ using pattern::Match;
 using pattern::Pattern;
 using pattern::PatternVar;
 using pattern::dsl::Var;
-using rewrite::ArmingMode;
 using rewrite::RewriteConfig;
 using rewrite::Rewriter;
 using rewrite::RewriteRule;
@@ -278,8 +277,8 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
     // Incremental's documented extra passes without risking a false report.
     auto cfg = RewriteConfig::Unlimited();
     cfg.max_iterations = 8 * inc_eg.core().num_classes() + 64;
-    auto const ref_result = ref.saturate(cfg, ArmingMode::Full);
-    auto const inc_result = inc.saturate(cfg, ArmingMode::Incremental);
+    auto const ref_result = ref.saturate_full(cfg);
+    auto const inc_result = inc.saturate_incremental(cfg);
     if (!ref_result.saturated() || !inc_result.saturated()) {
       fail("did not converge within bound: termination discipline violated or a skip prevents fixpoint");
     }
