@@ -18,6 +18,9 @@ BFS = (
 # Traversal-DOMINATED query: 2-hop fan-out from a start, visits thousands of vertices per
 # query so per-query fixed cost (planning/bolt) is amortized -> clean per-vertex profile.
 DEEP = "MATCH (s:User {id:$from})-->()-->(n:User) RETURN count(n) AS c"
+# Heavy 3-hop expansion (mgbench expansion_3 shape): visits a large fraction of the graph, so at
+# high churn it maximizes the number of branched-vertex ResolveEdges calls -> isolates the residual.
+EXP3 = "MATCH (s:User {id:$from})-->()-->()-->(n:User) RETURN DISTINCT n.id"
 
 
 def main():
@@ -30,11 +33,12 @@ def main():
     ap.add_argument("--mode", choices=["main", "branch"], required=True)
     ap.add_argument("--pidfile", required=True)
     ap.add_argument("--duration", type=float, default=60.0)
-    ap.add_argument("--query", choices=["bfs", "deep"], default="bfs")
+    ap.add_argument("--query", choices=["bfs", "deep", "exp3"], default="bfs")
+    ap.add_argument("--churn", choices=["realistic", "worst"], default="realistic")
     args = ap.parse_args()
-    QUERY = BFS if args.query == "bfs" else DEEP
+    QUERY = {"bfs": BFS, "deep": DEEP, "exp3": EXP3}[args.query]
 
-    vb.select_churn("realistic")
+    vb.select_churn(args.churn)
     from neo4j import GraphDatabase
 
     subprocess.run(["rm", "-rf", args.data_dir], check=False)

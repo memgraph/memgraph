@@ -56,11 +56,11 @@ profile_cell() {
   echo ">> $tag  (mode=$mode query=$query port=$port)"
   rm -f "$pidf" "$dlog"
   ( cd "$HERE" && $PY driver.py --mg "$MG" --data-dir "$ddir" --index "$IDX" --data "$DATA" \
-       --port "$port" --mode "$mode" --query "$query" --pidfile "$pidf" --duration "$DUR" \
+       --port "$port" --mode "$mode" --query "$query" --churn "$CHURN" --pidfile "$pidf" --duration "$DUR" \
        > "$dlog" 2>&1 ) &
   local dpid=$!
   # wait for the workload loop to start
-  for _ in $(seq 1 60); do grep -q "looping" "$dlog" 2>/dev/null && break; sleep 1; done
+  for _ in $(seq 1 "${STARTUP_WAIT:-60}"); do grep -q "looping" "$dlog" 2>/dev/null && break; sleep 1; done
   if ! grep -q "looping" "$dlog"; then echo "!! driver failed to start:"; tail -20 "$dlog"; kill $dpid 2>/dev/null || true; return 1; fi
   local mgpid; mgpid=$(cat "$pidf")
   echo "   memgraph pid=$mgpid, warmup ${WARMUP}s ..."; sleep "$WARMUP"

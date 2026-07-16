@@ -97,7 +97,7 @@ QUERIES = [
     dict(name="aggregate_min_max_avg", kind="none", n=25, cypher="MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)"),
 ]
 
-NUM_VERTICES = 10000
+NUM_VERTICES = int(os.environ.get("NUM_VERTICES", "10000"))  # override for larger datasets
 
 # Churn profiles: 'worst' ≈ 25% of main touched (near worst case); 'realistic' ≈ 1-1.5%.
 CHURN_PROFILES = {
@@ -182,7 +182,7 @@ def load_dataset(driver, index_path, data_path):
             if not line or line == ";":
                 continue  # skip blanks + the lone section-separator ';'
             batch.append(line)
-            if len(batch) >= 2000:
+            if len(batch) >= int(os.environ.get("LOAD_BATCH", "2000")):
                 flush(batch)
                 cnt += len(batch)
                 batch = []
