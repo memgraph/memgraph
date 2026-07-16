@@ -1,4 +1,9 @@
-# Fuzzers and their associated tools for the planner
+# Fuzzers and their associated tools for the planner.
+#
+# Build these with -DASAN=ON. The targets add -fsanitize=fuzzer,address, so their
+# dependencies (mg::planner, absl) must be ASan-instrumented too - otherwise
+# absl's SwissTable layout differs across the ODR boundary and the matcher SEGVs
+# on a valid empty set. That is a build-config artifact, not a VM bug.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     find_package(fmt REQUIRED)
 
@@ -23,10 +28,18 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_link_options(fuzz_compiler_contracts PRIVATE -fsanitize=fuzzer,address)
     target_compile_definitions(fuzz_compiler_contracts PUBLIC ASSERT_FUZZ)
 
+    # Differential fuzzer: incremental saturation must equal full saturation
+    add_executable(fuzz_rewrite_incremental fuzz_rewrite_incremental.cpp)
+    target_link_libraries(fuzz_rewrite_incremental PRIVATE mg::planner fmt::fmt)
+    target_compile_options(fuzz_rewrite_incremental PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
+    target_link_options(fuzz_rewrite_incremental PRIVATE -fsanitize=fuzzer,address)
+    target_compile_definitions(fuzz_rewrite_incremental PUBLIC ASSERT_FUZZ)
+
     # Create corpus directories for each fuzzer
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_egraph)
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_pattern_vm)
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_compiler_contracts)
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/corpus_rewrite_incremental)
 
     # Corpus profiling: run single corpus file for perf analysis
     add_executable(corpus_profile corpus_profile.cpp)
@@ -56,6 +69,13 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         DEPENDS fuzz_compiler_contracts
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         COMMENT "Running compiler contracts fuzzer..."
+    )
+
+    add_custom_target(run_fuzz_rewrite_incremental
+        COMMAND $<TARGET_FILE:fuzz_rewrite_incremental> ${CMAKE_CURRENT_BINARY_DIR}/corpus_rewrite_incremental
+        DEPENDS fuzz_rewrite_incremental
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Running incremental-arming differential fuzzer..."
     )
 
     # Clear corpus directories
