@@ -18,6 +18,7 @@ namespace memgraph::planner::bench {
 
 namespace rewrite = core::rewrite;
 
+using rewrite::ArmingMode;
 using rewrite::Match;
 using rewrite::RewriteConfig;
 
