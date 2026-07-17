@@ -64,6 +64,7 @@ MEMGRAPH_BUILD_DEPS=(
     # install the module deps at package time.
     python3.12-devel python3.12 python3.12-pip # for query modules
     python3-devel # for build tooling that still targets the system python
+    patchelf # POST_BUILD step rewrites memgraph's DT_NEEDED for Python abi3 portability
     openssl-devel
     libseccomp-devel
     python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests

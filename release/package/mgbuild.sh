@@ -151,6 +151,8 @@ print_help () {
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
   echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
+  echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
+  echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
   echo -e "  --conan-username string       Specify conan username (default \"\")"
   echo -e "  --conan-password string       Specify conan password (default \"\")"
@@ -473,6 +475,83 @@ upload_conan_cache() {
   return $?
 }
 
+# Point the unversioned abi3 SONAME `libpython3.so` at an exact Python version's
+# versioned library inside the build container, so the memgraph binary (whose
+# DT_NEEDED was rewritten to `libpython3.so`) both builds and runs against that
+# version. Arg: <version> e.g. 3.12
+point_libpython3_so () {
+  local version="$1"
+  docker exec -u root "$build_container" bash -c '
+    v="'"$version"'"
+    target=$(ls /usr/lib/*/libpython${v}.so.1.0 /usr/lib/libpython${v}.so.1.0 2>/dev/null | head -n 1)
+    if [ -n "$target" ]; then
+      ln -sf "$(basename "$target")" "$(dirname "$target")/libpython3.so"
+      ldconfig || true
+      echo "Pointed libpython3.so -> $target"
+    else
+      echo "WARNING: libpython${v}.so.1.0 not found in the container" >&2
+    fi'
+}
+
+# Install an exact Python version from the deadsnakes PPA and point libpython3.so
+# at it. deadsnakes is Ubuntu-only; on other distros this warns and relies on the
+# container already providing the version (find_package fails loudly otherwise).
+# Arg: <version> e.g. 3.12
+install_python_from_deadsnakes () {
+  local version="$1"
+  if [[ "$os" != ubuntu* ]]; then
+    echo "WARNING: Python $version requested on non-Ubuntu OS '$os'; deadsnakes is Ubuntu-only, skipping install. The container must already provide Python $version." >&2
+    return 0
+  fi
+  echo "Installing Python $version from the deadsnakes PPA ..."
+  docker exec -u root "$build_container" bash -c "export DEBIAN_FRONTEND=noninteractive && \
+    apt-get update && \
+    apt-get install -y software-properties-common && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y python${version} python${version}-dev python${version}-venv"
+  point_libpython3_so "$version"
+}
+
+# Remove an exact Python version (interpreter, headers and shared library) so we
+# can prove the abi3 binary no longer depends on the version it was built with.
+# No-op on non-Ubuntu. Refuses to remove the container's system python3 (purging
+# it would cascade-remove python3 and the build/test tooling that depends on it);
+# in that case the version stays installed but libpython3.so is still repointed
+# by the caller, so the abi3 cross-version test remains valid. Arg: <version>
+remove_python_version () {
+  local version="$1"
+  [[ "$os" == ubuntu* ]] || return 0
+  docker exec -u root "$build_container" bash -c '
+    export DEBIAN_FRONTEND=noninteractive
+    v="'"$version"'"
+    default=$(python3 --version 2>/dev/null | cut -d" " -f2 | cut -d. -f1,2)
+    if [ "$v" = "$default" ]; then
+      echo "Refusing to remove Python $v: it is the container system python3 (build/test tooling depends on it). Keeping it installed; libpython3.so is still repointed for the abi3 test." >&2
+      exit 0
+    fi
+    echo "Removing Python $v from the container ..."
+    apt-get purge -y "python$v" "python$v-dev" "libpython$v" "libpython$v-dev" || true
+    ldconfig || true'
+}
+
+# Print, in bold orange for easy visual verification in CI, which libpython the
+# freshly built binary resolves to. After the abi3 rewrite DT_NEEDED reads
+# `libpython3.so`; resolve that symlink to the concrete versioned library.
+# Arg: <label> e.g. "build" or "runtime"
+report_libpython_link () {
+  local label="$1"
+  local mg_binary="$MGBUILD_ROOT_DIR/build/memgraph"
+  local info
+  info=$(docker exec -u mg "$build_container" bash -c '
+    bin="'"$mg_binary"'"
+    needed=$(patchelf --print-needed "$bin" 2>/dev/null | grep -i "^libpython" | head -n 1 || true)
+    resolved=$(ldd "$bin" 2>/dev/null | awk "/libpython/ {print \$3; exit}" || true)
+    real=$(readlink -f "$resolved" 2>/dev/null || true)
+    echo "DT_NEEDED=${needed:-<none>} -> ${real:-<unresolved>}"' 2>/dev/null || true)
+  printf '\033[1;38;5;208m%s\033[0m\n' "Memgraph libpython link (${label}): ${info:-<unknown>}"
+}
+
 
 build_memgraph () {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
@@ -499,6 +578,9 @@ build_memgraph () {
   local build_dependency=""
   local link_threads=0
   local split_debug=false
+  local python_build_version=""
+  local python_build_version_flag=""
+  local python_runtime_version=""
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -561,6 +643,15 @@ build_memgraph () {
         split_debug=true
         shift 1
       ;;
+      --python-build-version)
+        python_build_version="$2"
+        python_build_version_flag="-DMG_PYTHON_VERSION=$2"
+        shift 2
+      ;;
+      --python-runtime-version)
+        python_runtime_version="$2"
+        shift 2
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -600,6 +691,23 @@ build_memgraph () {
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
+
+  # Install the requested build-time Python (--python-build-version) from deadsnakes
+  # and point libpython3.so at it, so the build links against exactly that
+  # version. This overrides ensure_libpython3_so_symlink's "highest installed"
+  # default below (which no-ops once libpython3.so already exists).
+  if [[ -n "$python_build_version" ]]; then
+    install_python_from_deadsnakes "$python_build_version"
+  fi
+
+  # The abi3 DT_NEEDED rewrite (cmake/RewriteDtNeededAbi3.cmake) only fires when
+  # CMake's find_library(python3) locates the unversioned libpython3.so SONAME,
+  # and the rewritten binary must be loadable for the config/generate.py
+  # POST_BUILD step. RPM distros ship libpython3.so natively; Debian/Ubuntu ship
+  # only versioned libpython, so create the symlink here. Idempotent: a no-op
+  # where libpython3.so already exists. Run unconditionally because the dep step
+  # above is skipped when `check` passes against a pre-provisioned image.
+  docker exec -u root "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && ensure_libpython3_so_symlink"
 
   echo "Building targeted package..."
   # Fix issue with git marking directory as not safe
@@ -723,7 +831,7 @@ build_memgraph () {
 
   # Add additional CMake options if any are specified
   local additional_options=""
-  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag")
+  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_build_version_flag")
 
   for flag in "${flags[@]}"; do
     if [[ -n "$flag" ]]; then
@@ -755,6 +863,14 @@ build_memgraph () {
   if [[ "$os" == centos-9* ]]; then
     docker exec -u root "$build_container" bash -c "rpm -q python3.12-devel >/dev/null 2>&1 || dnf install -y python3.12 python3.12-devel python3.12-pip"
     additional_options="$additional_options -DMG_PYTHON_VERSION=3.12"
+    # Do NOT rewrite DT_NEEDED to the abi3 SONAME here. The abi3 rewrite defers
+    # to the host's libpython3.so, but on CentOS 9 that stub is the system
+    # Python 3.9 — below the 3.12 we deliberately pin for MAGE — so the rewrite
+    # would steer the 3.12-built binary onto a 3.9 runtime (an abi3 floor
+    # violation, hence the wrong-ABI query-module load failures). Keeping the
+    # versioned DT_NEEDED (libpython3.12.so.1.0) hard-pins to 3.12 and lets RPM
+    # auto-generate the correct python3.12 dependency.
+    additional_options="$additional_options -DMG_PYTHON_REWRITE_DT_NEEDED=OFF"
   fi
 
   if [[ -n "$additional_options" ]]; then
@@ -809,6 +925,22 @@ build_memgraph () {
 
   # Clean up virtual environment
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && deactivate"
+
+  # Report which libpython the freshly built binary links to (build version).
+  report_libpython_link "build"
+
+  # Optionally prove abi3 portability: remove the Python we built against and
+  # swap in a different one, so the test steps that run after this build load
+  # the binary against a libpython it was NOT built against. The container
+  # persists across workflow steps, so the new symlink is in effect for them.
+  if [[ -n "$python_runtime_version" ]]; then
+    echo "Swapping runtime Python: removing build version '${python_build_version:-<container default>}', installing '$python_runtime_version' ..."
+    if [[ -n "$python_build_version" ]]; then
+      remove_python_version "$python_build_version"
+    fi
+    install_python_from_deadsnakes "$python_runtime_version"
+    report_libpython_link "runtime"
+  fi
 }
 
 init_tests() {
@@ -1282,6 +1414,26 @@ copy_memgraph() {
     mkdir -p "$host_dir"
     docker cp "$build_container:$staging_dir/usr/local/lib/memgraph/." "$host_dir/"
 
+    # The abi3 binary's DT_NEEDED is the unversioned `libpython3.so`, but the
+    # install tree does not bundle libpython (it is a system dependency resolved
+    # on the deployment host). Consumers of this artifact run the binary from a
+    # bare, relocated tree with an `$ORIGIN` rpath (e.g. the Jepsen nodes, which
+    # have no libpython at all), so stage the build container's libpython next to
+    # the binary — as both the real versioned file and the `libpython3.so` SONAME
+    # symlink — so it travels with the binary and resolves via `$ORIGIN`.
+    local container_libpython
+    container_libpython=$(docker exec "$build_container" bash -c \
+      'readlink -f "$(ldconfig -p 2>/dev/null | grep -oE "/[^ ]*libpython3\.[0-9]+[a-z]*\.so\.1\.0" | head -1)" 2>/dev/null' || true)
+    if [[ -n "$container_libpython" ]]; then
+      local libpython_name
+      libpython_name=$(basename "$container_libpython")
+      docker cp "$build_container:$container_libpython" "$host_dir/$libpython_name"
+      ln -sf "$libpython_name" "$host_dir/libpython3.so"
+      echo "Staged libpython ($libpython_name + libpython3.so) alongside the binary in $host_dir."
+    else
+      echo "WARNING: could not locate libpython in $build_container; the relocated binary may fail to load libpython3.so." >&2
+    fi
+
     # Clean up staging directory
     docker exec -u mg "$build_container" bash -c "rm -rf $staging_dir"
 
@@ -1362,6 +1514,21 @@ copy_debug_symbols() {
 ##################### TESTS ######################
 ##################################################
 test_memgraph() {
+  # Extract --python-runtime-version (it may appear anywhere) and drop it from
+  # the positional args so each test case's own arg parser is unaffected. When
+  # set, query-module Python deps are installed for THAT interpreter: memgraph
+  # embeds the runtime-swapped libpython, so its sys.path is that version's site
+  # dirs, not the container default python3's.
+  local python_runtime_version=""
+  local _args=()
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --python-runtime-version) python_runtime_version="$2"; shift 2 ;;
+      *) _args+=("$1"); shift ;;
+    esac
+  done
+  set -- ${_args[@]+"${_args[@]}"}
+
   local test_name="$1"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_VENV="source ve3/bin/activate"
@@ -1735,14 +1902,20 @@ test_memgraph() {
     e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
       docker exec -u root $build_container bash -c "apt-get update && apt-get install -y lsof" # TODO(matt): install within mgbuild container
-      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
-      docker exec -u mg $build_container bash -c "pip install --break-system-packages --user networkx==2.5.1"
+      local pycmd="python${python_runtime_version:-3}"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user networkx==2.5.1"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE && ./run.sh"
     ;;
     query_modules_e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
-      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
-      docker exec -u mg $build_container bash -c "pip install --break-system-packages --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
+      if [[ "$python_runtime_version" == "3.13" || "$python_runtime_version" == "3.14" ]]; then
+        # We currently depend on an older version of scipy which only has binaries for up to Python 3.12
+        docker exec -u root $build_container bash -c "apt install -y gfortran"
+      fi
+      local pycmd="python${python_runtime_version:-3}"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests/query_modules && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 -m pytest ."
     ;;
     query_modules_unit)
@@ -2945,7 +3118,7 @@ case $command in
       node_version_flag="--build-arg NODE_VERSION=20"
       rapids_version_flag="--build-arg RAPIDS_VERSION=25.12"
       cuda_version_minor="13.1.0"
-      python_version_flag="--build-arg PY_VERSION=3.12"
+      python_build_version_flag="--build-arg PY_VERSION=3.12"
       while [[ "$#" -gt 0 ]]; do
         case "$1" in
             --git-ref)
@@ -2968,8 +3141,8 @@ case $command in
               cuda_version_minor=$2
               shift 2
             ;;
-            --python-version)
-              python_version_flag="--build-arg PY_VERSION=$2"
+            --python-build-version)
+              python_build_version_flag="--build-arg PY_VERSION=$2"
               shift 2
             ;;
             *)
@@ -2989,7 +3162,7 @@ case $command in
         cuda_version="${cuda_version_minor%%.*}"
         cuda_version_flag="--build-arg CUDA_VERSION=${cuda_version}"
         cuda_version_minor_flag="--build-arg CUDA_VERSION_MINOR=${cuda_version_minor}"
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $rapids_version_flag $cuda_version_flag $cuda_version_minor_flag $python_version_flag $build_container
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $rapids_version_flag $cuda_version_flag $cuda_version_minor_flag $python_build_version_flag $build_container
       elif [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag
       else

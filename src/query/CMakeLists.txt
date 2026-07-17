@@ -164,12 +164,49 @@ target_sources(mg-query-cppm
 )
 target_link_libraries(mg-query-cppm PUBLIC mg-aws mg::storage)
 
+if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
+    set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
+endif()
+
+# Build against the Python stable ABI (abi3) so the resulting binary works
+# against any libpython3 with version >= MG_PYTHON_STABLE_ABI_FLOOR.
+# Compile-time headers only need to exist for *some* compatible Python; the
+# runtime libpython is resolved via the version-less SONAME (libpython3.so).
+if("${MG_PYTHON_VERSION}" STREQUAL "")
+    find_package(Python3 3.10 REQUIRED COMPONENTS Development)
+else()
+    find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
+endif()
+
+# Hex form of the floor version: 3.10 = 0x030a0000.
+# 3.10 is the earliest floor where `Py_TYPE`, `Py_INCREF`, and `Py_DECREF` are
+# proper stable-ABI functions instead of macros that touch struct internals.
+set(MG_PYTHON_STABLE_ABI_FLOOR "0x030a0000" CACHE STRING
+    "Minimum Python version we promise to run on (Py_LIMITED_API value)")
+
+# Always link against the full versioned libpython (`Python3::Python`, e.g.
+# `libpython3.12.so`). It defines the complete symbol set, so the link
+# always resolves — unlike the bare unversioned `libpython3.so`, which on
+# some distros (notably RHEL/CentOS 10) is a stub that does NOT export the
+# stable-ABI symbols and breaks the link with `undefined symbol` errors.
+#
+# Runtime version-portability is achieved separately: a POST_BUILD step
+# (see cmake/RewriteDtNeededAbi3.cmake, invoked via mg_apply_python_abi3_rewrite
+# in src/CMakeLists.txt) rewrites the binary's DT_NEEDED from the versioned
+# SONAME the linker recorded (`libpython3.X.so.1.0`) to the unversioned abi3
+# SONAME `libpython3.so`. Combined with `Py_LIMITED_API` below, the binary
+# then loads against any libpython3 >= the floor at runtime.
+set(MG_PYTHON_LINK_TARGET Python3::Python)
+
+target_compile_definitions(mg-query PUBLIC
+    "Py_LIMITED_API=${MG_PYTHON_STABLE_ABI_FLOOR}")
+
 target_link_libraries(mg-query
     PUBLIC
     dl
     cppitertools::cppitertools
     range-v3::range-v3
-    Python3::Python
+    ${MG_PYTHON_LINK_TARGET}
     mg-integrations-pulsar
     mg-integrations-kafka
     mg::storage
@@ -194,16 +231,6 @@ target_link_libraries(mg-query
     ctre::ctre
     simdjson::simdjson
 )
-
-if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
-    set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
-endif()
-
-if("${MG_PYTHON_VERSION}" STREQUAL "")
-    find_package(Python3 3.5 REQUIRED COMPONENTS Development)
-else()
-    find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
-endif()
 
 # Generate Antlr openCypher parser
 set(opencypher_frontend ${CMAKE_CURRENT_SOURCE_DIR}/frontend/opencypher)

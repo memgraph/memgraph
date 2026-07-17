@@ -88,6 +88,30 @@ endif()
 
 mg_split_debug(memgraph INSTALL_DESTINATION lib/memgraph)
 
+# The abi3 DT_NEEDED rewrite is attached automatically to the memgraph binary
+# (and every other executable) by the add_executable() override in
+# cmake/functions.cmake; see cmake/RewriteDtNeededAbi3.cmake for the script that
+# invokes patchelf, and src/query/CMakeLists.txt for where `Py_LIMITED_API` is
+# set.
+#
+# Emit the once-per-build configure-time warnings so the developer knows why
+# the rewrite was skipped (the helper itself is silent on the skip).
+find_program(PATCHELF_EXECUTABLE patchelf)
+find_library(MG_LIBPYTHON3_SO python3)
+if(MG_PYTHON_REWRITE_DT_NEEDED AND NOT (PATCHELF_EXECUTABLE AND MG_LIBPYTHON3_SO))
+        if(NOT PATCHELF_EXECUTABLE)
+                message(WARNING "patchelf not found; skipping DT_NEEDED rewrite. "
+                                "Install patchelf to make memgraph binaries version-portable across Python minor versions.")
+        endif()
+        if(NOT MG_LIBPYTHON3_SO)
+                message(WARNING "libpython3.so (unversioned abi3 SONAME) not found; skipping DT_NEEDED rewrite. "
+                                "On Debian/Ubuntu, symlink it manually: "
+                                "`sudo ln -sf libpython3.XX.so.1.0 /usr/lib/x86_64-linux-gnu/libpython3.so` "
+                                "(or build via release/package/mgbuild.sh, which points it at the chosen "
+                                "--python-build-version). Without this, binaries keep a versioned libpython dependency.")
+        endif()
+endif()
+
 # Generate the configuration file under the build directory.
 add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_SOURCE_DIR}/config/generate.py

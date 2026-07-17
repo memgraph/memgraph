@@ -10450,32 +10450,17 @@ class ParallelBranchCursor : public Cursor {
         DMG_ASSERT(!context.auth_checker || context.auth_checker->IsThreadSafe(), "Auth checker is not thread safe");
         const auto &cursor = branch_cursors_[i];
         const auto metadata_i = i - 1;
-        if (context.frame_change_collector != nullptr) {
-          auto &collector =
-              branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
-          // Copy the cache structure (keys and invalidators) from the main collector so that
-          // cache invalidation works correctly when frame values change in this branch.
-          collector.CopyStructureFrom(*context.frame_change_collector);
-          context.frame_change_collector = &collector;
-        }
-        if (context.trigger_context_collector != nullptr) {
-          // Create an empty collector with same config for this branch (don't copy existing data)
-          // Main branch retains its own data, this branch will only receive new changes.
-          auto &collector = branch_trigger_collectors[metadata_i].emplace(
-              context.trigger_context_collector->CreateEmptyWithSameConfig());
-          context.trigger_context_collector = &collector;
-        }
 
-        // Set plan quotas for the hops limit (this is needed for parallel execution to avoid deadlock in case multiple
-        // shared quotas are used)
-        if (branch_plan_quotas_[i] && context.hops_limit.IsUsed() && context.hops_limit.shared_quota_) {
-          context.hops_limit.shared_quota_->SetPlanQuotas(branch_plan_quotas_[i]);
-        }
-
-        // TODO Try to not allocate since Scan will copy it. Problem if we return before Scan; will crash
-        Frame frame_local(static_cast<int64_t>(frame_size));
-
+        // Declared before the `try` so it runs on every exit path, and so it
+        // tears down AFTER the catch (which still needs a valid `context` to
+        // record the exception) — moving `context` out is the last thing it
+        // does. This cleanup is pure bookkeeping that must NEVER be failed by
+        // the query memory limit: it runs while the query still holds its
+        // (possibly at-limit) memory, so any allocation here could otherwise
+        // throw OutOfMemoryException out of this `noexcept` destructor and
+        // std::terminate the whole server. The blocker exempts it from the limit.
         auto on_exit = utils::OnScopeExit([&]() {
+          const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
           // Force state reset (life extended through the context)
           // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
           const_cast<std::optional<ScopedProfile> &>(profile).reset();
@@ -10492,7 +10477,38 @@ class ParallelBranchCursor : public Cursor {
           branch_contexts[metadata_i] = std::move(context);
         });
 
+        // Everything that can allocate runs inside the try: under a QUERY MEMORY
+        // LIMIT the OOMExceptionEnabler above is active, so a sibling branch that
+        // has already pushed usage near the limit can make even the per-branch
+        // setup (collectors, `frame_local`) throw OutOfMemoryException. This task
+        // runs on a worker thread, so an escaping exception would std::terminate
+        // the server instead of failing the query — capture every one here.
         try {
+          if (context.frame_change_collector != nullptr) {
+            auto &collector =
+                branch_frame_collectors[metadata_i].emplace(context.frame_change_collector->get_allocator());
+            // Copy the cache structure (keys and invalidators) from the main collector so that
+            // cache invalidation works correctly when frame values change in this branch.
+            collector.CopyStructureFrom(*context.frame_change_collector);
+            context.frame_change_collector = &collector;
+          }
+          if (context.trigger_context_collector != nullptr) {
+            // Create an empty collector with same config for this branch (don't copy existing data)
+            // Main branch retains its own data, this branch will only receive new changes.
+            auto &collector = branch_trigger_collectors[metadata_i].emplace(
+                context.trigger_context_collector->CreateEmptyWithSameConfig());
+            context.trigger_context_collector = &collector;
+          }
+
+          // Set plan quotas for the hops limit (this is needed for parallel execution to avoid deadlock in case
+          // multiple shared quotas are used)
+          if (branch_plan_quotas_[i] && context.hops_limit.IsUsed() && context.hops_limit.shared_quota_) {
+            context.hops_limit.shared_quota_->SetPlanQuotas(branch_plan_quotas_[i]);
+          }
+
+          // TODO Try to not allocate since Scan will copy it. Problem if we return before Scan; will crash
+          Frame frame_local(static_cast<int64_t>(frame_size));
+
           pre_pull_func(cursor.get());
           pull_result.fetch_add((int)cursor->Pull(frame_local, context));
           post_pull_func(cursor.get(), &frame_local);

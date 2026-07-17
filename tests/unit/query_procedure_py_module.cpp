@@ -464,6 +464,6 @@ int main(int argc, char **argv) {
     Py_END_ALLOW_THREADS;
   }
   // NOTE: Skip Py_Finalize() — see comment in memgraph.cpp (bpo-42969).
-  PyMem_RawFree(program_name);
+  (void)program_name;
   return test_result;
 }
