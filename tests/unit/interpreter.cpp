@@ -704,7 +704,7 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
   }
 }
 
-TYPED_TEST(InterpreterTest, DollarSignCanBeUsedAsNonLeadingCharInIdentifier) {
+TYPED_TEST(InterpreterTest, CurrencySymbolsAllowedInIdentifiers) {
   this->Interpret("CREATE (a:Label {i$: 3})");
   auto stream = this->Interpret("MATCH (a:Label) RETURN a.i$");
   ASSERT_EQ(stream.GetResults().size(), 1U);
