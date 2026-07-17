@@ -35,7 +35,10 @@ using memgraph::planner::test_support::DefaultResolver;
 
 enum struct symbol : std::uint8_t { A, B, ADD, LITERAL };
 
-struct analysis {};
+// Dummy analysis: carries no facts, its no-op merge satisfies the e-graph.
+struct analysis {
+  void merge(analysis const & /*other*/) {}
+};
 
 // Simple cost models using DefaultCostResult<double>.
 // All models use the unified signature: (enode, enode_id, span<CostResult>) -> CostResult.

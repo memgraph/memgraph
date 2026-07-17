@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "parameters/parameters.hpp"
 #include "plan/read_write_type_checker.hpp"
 #include "query/config.hpp"
@@ -20,6 +22,7 @@
 #include "query/parameters.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/lru_cache.hpp"
+#include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 #include "gflags/gflags.h"
@@ -28,6 +31,8 @@
 DECLARE_bool(query_cost_planner);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_int32(query_plan_cache_max_size);
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_int32(query_ast_cache_max_size);
 
 namespace memgraph::query {
 
@@ -94,20 +99,10 @@ struct CachedQuery {
   bool using_schema_assert{false};
 };
 
-struct QueryCacheEntry {
-  bool operator==(const QueryCacheEntry &other) const { return first == other.first; }
-
-  bool operator<(const QueryCacheEntry &other) const { return first < other.first; }
-
-  bool operator==(const uint64_t &other) const { return first == other; }
-
-  bool operator<(const uint64_t &other) const { return first < other; }
-
-  uint64_t first;
-  // TODO: Maybe store the query string here and use it as a key with the hash
-  // so that we eliminate the risk of hash collisions.
-  CachedQuery second;
-};
+// keyed by text, not hash, so a hash collision can't return another query's
+// AST. entries are shared_ptr so an LRU eviction can't free an AST mid-clone.
+using AstCache =
+    utils::Synchronized<utils::LRUCache<frontend::HashedString, std::shared_ptr<const CachedQuery>>, utils::RWSpinLock>;
 
 /**
  * A container for data related to the parsing of a query.
@@ -125,9 +120,9 @@ struct ParsedQuery {
   Parameters parameters;
 };
 
-ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
-                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config,
-                       std::string_view database_uuid, parameters::Parameters const *server_parameters);
+ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters, AstCache *cache,
+                       const InterpreterConfig::Query &query_config, std::string_view database_uuid,
+                       parameters::Parameters const *server_parameters);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:

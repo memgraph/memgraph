@@ -42,6 +42,7 @@ InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, mem
       parameters(parameters),
       dbms_handler(dbms_handler),
       config(std::move(interpreter_config)),
+      ast_cache{static_cast<std::size_t>(FLAGS_query_ast_cache_max_size)},
       repl_state(rs),
 #ifdef MG_ENTERPRISE
       coordinator_state_(coordinator_state),
