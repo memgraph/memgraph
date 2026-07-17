@@ -4537,7 +4537,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
 
 void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
                     const std::vector<memgraph::storage::TextSearchResult> &text_search_results,
-                    std::span<const memgraph::storage::PropertyId> searched,
+                    [[maybe_unused]] std::span<const memgraph::storage::PropertyId> searched,
                     const std::optional<std::string> &error_msg = std::nullopt) {
   if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving text search results failed during creation of a mgp_map");
@@ -4653,7 +4653,7 @@ void WrapTextIndexAggregation(mgp_memory *memory, mgp_map **result, const std::s
 
 void WrapTextEdgeSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
                                const std::vector<memgraph::storage::TextEdgeSearchResult> &text_edge_search_results,
-                               std::span<const memgraph::storage::PropertyId> searched,
+                               [[maybe_unused]] std::span<const memgraph::storage::PropertyId> searched,
                                const std::optional<std::string> &error_msg = std::nullopt) {
   if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving edge text search results failed during creation of a mgp_map");
