@@ -78,7 +78,12 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       }
       throw LexingException("Invalid query because of a wrong token.");
     }
-    tokens.emplace_back(token, original_.substr(i, len));
+    if (token == Token::PARAMETER) {
+      auto ws = MatchWhitespaceAndComments(i + 1);
+      tokens.emplace_back(token, "$" + original_.substr(i + 1 + ws, len - 1 - ws));
+    } else {
+      tokens.emplace_back(token, original_.substr(i, len));
+    }
     i += len;
 
     // If we notice execute, we possibly create a trigger which has defined statements.
