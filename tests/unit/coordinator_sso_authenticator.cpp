@@ -49,17 +49,19 @@ CoordinatorSSOAuthenticator::RoleMaskProvider RolesFrom(std::map<std::string, ui
 TEST(CoordinatorSSOAuthenticator, SingleRoleSuccessYieldsItsMask) {
   CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::vector<std::string>{"reader"}),
                                             RolesFrom({{"reader", kRead}})};
-  auto const mask = authenticator.Authenticate("oidc", "token");
-  ASSERT_TRUE(mask.has_value());
-  EXPECT_EQ(*mask, kRead);
+  auto const result = authenticator.Authenticate("oidc", "token");
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->effective_mask, kRead);
+  EXPECT_EQ(result->roles, (std::vector<std::string>{"reader"}));
 }
 
 TEST(CoordinatorSSOAuthenticator, MultiRoleYieldsUnionOfMasks) {
   CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::vector<std::string>{"reader", "writer"}),
                                             RolesFrom({{"reader", kRead}, {"writer", kWrite}})};
-  auto const mask = authenticator.Authenticate("saml", "token");
-  ASSERT_TRUE(mask.has_value());
-  EXPECT_EQ(*mask, kRead | kWrite);
+  auto const result = authenticator.Authenticate("saml", "token");
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->effective_mask, kRead | kWrite);
+  EXPECT_EQ(result->roles, (std::vector<std::string>{"reader", "writer"}));
 }
 
 TEST(CoordinatorSSOAuthenticator, InvalidTokenRejected) {
@@ -85,18 +87,19 @@ TEST(CoordinatorSSOAuthenticator, BareRoleAcceptedWithZeroMask) {
   // A role that exists but carries no grant authenticates with an all-denying (zero) effective mask.
   CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::vector<std::string>{"bare"}),
                                             RolesFrom({{"bare", 0}})};
-  auto const mask = authenticator.Authenticate("kerberos", "token");
-  ASSERT_TRUE(mask.has_value());
-  EXPECT_EQ(*mask, 0U);
+  auto const result = authenticator.Authenticate("kerberos", "token");
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->effective_mask, 0U);
+  EXPECT_EQ(result->roles, (std::vector<std::string>{"bare"}));
 }
 
 TEST(CoordinatorSSOAuthenticator, WriteRoleSatisfiesReadRequirement) {
   CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::vector<std::string>{"writer"}),
                                             RolesFrom({{"writer", kWrite}})};
-  auto const mask = authenticator.Authenticate("oidc", "token");
-  ASSERT_TRUE(mask.has_value());
-  EXPECT_TRUE(auth::CoordinatorMaskSatisfies(*mask, auth::Permission::COORDINATOR_READ));
-  EXPECT_TRUE(auth::CoordinatorMaskSatisfies(*mask, auth::Permission::COORDINATOR_WRITE));
+  auto const result = authenticator.Authenticate("oidc", "token");
+  ASSERT_TRUE(result.has_value());
+  EXPECT_TRUE(auth::CoordinatorMaskSatisfies(result->effective_mask, auth::Permission::COORDINATOR_READ));
+  EXPECT_TRUE(auth::CoordinatorMaskSatisfies(result->effective_mask, auth::Permission::COORDINATOR_WRITE));
 }
 
 #endif

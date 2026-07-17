@@ -40,14 +40,22 @@ class CoordinatorSSOAuthenticator {
   // Returns the coordinator role's privilege mask if `role_name` exists in the committed role set, nullopt otherwise.
   using RoleMaskProvider = std::function<std::optional<uint64_t>(std::string const &role_name)>;
 
+  // Outcome of a successful authentication: the session's effective privilege mask and the role names the session
+  // authenticated with (carried so SHOW CURRENT ROLE can report them).
+  struct AuthResult {
+    uint64_t effective_mask;
+    std::vector<std::string> roles;
+  };
+
   CoordinatorSSOAuthenticator(ModuleRunner module_runner, RoleMaskProvider role_mask_provider);
 
-  // Authenticates the SSO connection. Returns the session's effective privilege mask (the union of the matched roles'
-  // masks) on success, or nullopt on rejection. Rejection cases: the module fails / returns an invalid token, the
-  // module returns no roles, or any returned role does not exist in the committed role set. A returned role that
-  // exists but carries no grant contributes a zero mask, so a bare-role session authenticates with an all-denying
-  // (zero) effective mask.
-  std::optional<uint64_t> Authenticate(std::string const &scheme, std::string const &identity_provider_response) const;
+  // Authenticates the SSO connection. On success returns the session's effective privilege mask (the union of the
+  // matched roles' masks) together with the matched role names, or nullopt on rejection. Rejection cases: the module
+  // fails / returns an invalid token, the module returns no roles, or any returned role does not exist in the committed
+  // role set. A returned role that exists but carries no grant contributes a zero mask, so a bare-role session
+  // authenticates with an all-denying (zero) effective mask.
+  std::optional<AuthResult> Authenticate(std::string const &scheme,
+                                         std::string const &identity_provider_response) const;
 
  private:
   ModuleRunner module_runner_;

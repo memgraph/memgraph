@@ -333,6 +333,9 @@ class Interpreter final {
   // Consulted only on coordinators, where roles live in Raft rather than the auth kvstore. A basic-auth passthrough
   // session carries full WRITE; a restricted SSO session (later slice) carries a narrower mask. Zero denies everything.
   uint64_t coordinator_permissions_;
+  // Role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session). Reported
+  // by SHOW CURRENT ROLE; coordinator roles live in Raft, not the auth kvstore, so they can't be looked up on demand.
+  std::vector<std::string> coordinator_roles_;
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
@@ -518,6 +521,12 @@ class Interpreter final {
   // Sets the session's effective coordinator privilege mask (auth::Permission bits). Called at authentication time on
   // coordinators; a basic-auth passthrough session is granted full WRITE.
   void SetCoordinatorPrivileges(uint64_t privileges) { coordinator_permissions_ = privileges; }
+
+  // Sets the role names the session authenticated with on a coordinator (reported by SHOW CURRENT ROLE).
+  void SetCoordinatorRoles(std::vector<std::string> roles) { coordinator_roles_ = std::move(roles); }
+
+  // The role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session).
+  const std::vector<std::string> &GetCoordinatorRoles() const { return coordinator_roles_; }
 #else
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
 #endif

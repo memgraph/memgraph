@@ -249,6 +249,7 @@ inline bool IsCoordinatorPermittedAuthQuery(AuthQuery const &query) {
     case AuthQuery::Action::CREATE_ROLE:
     case AuthQuery::Action::DROP_ROLE:
     case AuthQuery::Action::SHOW_ROLES:
+    case AuthQuery::Action::SHOW_CURRENT_ROLE:
       return true;
     case AuthQuery::Action::GRANT_PRIVILEGE:
     case AuthQuery::Action::REVOKE_PRIVILEGE: {

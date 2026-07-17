@@ -386,15 +386,17 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::CoordinatorSSOA
   };
 
   CoordinatorSSOAuthenticator const authenticator{std::move(module_runner), std::move(role_mask_provider)};
-  auto const effective_mask = authenticator.Authenticate(scheme, identity_provider_response);
-  if (!effective_mask) {
+  auto auth_result = authenticator.Authenticate(scheme, identity_provider_response);
+  if (!auth_result) {
     return std::unexpected{communication::bolt::AuthFailure::kGeneric};
   }
 
   // The session carries the effective privilege mask; the coordinator privilege checks (query gate and ROUTE handler)
   // consult it rather than the auth kvstore. A bare-role session gets a zero mask and is thus denied everything,
-  // including the routing table, until an admin grants it a coordinator privilege.
-  interpreter_.SetCoordinatorPrivileges(*effective_mask);
+  // including the routing table, until an admin grants it a coordinator privilege. The matched role names are carried
+  // too so SHOW CURRENT ROLE can report the session's roles.
+  interpreter_.SetCoordinatorPrivileges(auth_result->effective_mask);
+  interpreter_.SetCoordinatorRoles(std::move(auth_result->roles));
   return {};
 }
 #endif
