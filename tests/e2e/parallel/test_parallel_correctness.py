@@ -336,6 +336,20 @@ class TestParallelIndices:
         finally:
             memgraph.execute_query("DROP GLOBAL EDGE INDEX ON :(val);")
 
+    def test_edge_type_property_index_null_value(self, memgraph):
+        """Parallel scan with null value on edge-type property index returns no results.
+        Uses head([]) instead of literal null so the planner selects the index scan."""
+        setup_thread_count_db(memgraph, thread_count=100)
+        memgraph.execute_query("UNWIND range(1, 100) AS i CREATE (:A)-[:REL {val: i}]->(:B)")
+        memgraph.execute_query("CREATE EDGE INDEX ON :REL(val);")
+        try:
+            verify_parallel_matches_serial(
+                memgraph,
+                "MATCH ()-[e:REL]->() WHERE e.val = head([]) RETURN count(e)",
+            )
+        finally:
+            memgraph.execute_query("DROP EDGE INDEX ON :REL(val);")
+
     def test_vertex_property_index_both_orders(self, memgraph):
         """Both ASC and DESC indices exist on same (label, prop) — parallel matches serial."""
         setup_thread_count_db(memgraph, thread_count=100)
