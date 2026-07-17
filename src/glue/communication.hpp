@@ -19,6 +19,8 @@
 
 namespace memgraph::query {
 class FineGrainedAuthChecker;
+class VirtualNode;
+class SyntheticIdMapper;
 }  // namespace memgraph::query
 
 namespace memgraph::storage {
@@ -38,6 +40,19 @@ namespace memgraph::glue {
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexAccessor &vertex,
                                                           const storage::Storage &db, storage::View view,
                                                           query::FineGrainedAuthChecker const *auth_checker);
+
+/// Overlay/synthetic node -> bolt::Vertex. An overlay node serializes at its origin's identity;
+/// origin-read-through properties are subject to the origin's per-property READ permission (over the
+/// origin's labels), while overlay-bound overrides and synthetic nodes (no origin) are always
+/// included - matching how a real vertex serializes.
+///
+/// @throw std::bad_alloc
+/// @param id_mapper the query's synthetic-id mapper, so a synthetic node serializes at the same
+///        query-local external id as `id()`; null falls back to the raw synthetic gid.
+storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db,
+                                                          storage::View view,
+                                                          query::FineGrainedAuthChecker const *auth_checker,
+                                                          query::SyntheticIdMapper *id_mapper = nullptr);
 
 /// @param storage::EdgeAccessor for converting to communication::bolt::Edge.
 /// @param storage::Storage for getting edge type and property names.
@@ -66,7 +81,10 @@ storage::Result<communication::bolt::map_t> ToBoltGraph(const query::Graph &grap
                                                         storage::View view,
                                                         query::FineGrainedAuthChecker const *auth_checker);
 
-communication::bolt::map_t ToBoltVirtualGraph(const query::VirtualGraph &vg, const storage::Storage &db);
+storage::Result<communication::bolt::map_t> ToBoltVirtualGraph(const query::VirtualGraph &vg,
+                                                               const storage::Storage &db, storage::View view,
+                                                               query::FineGrainedAuthChecker const *auth_checker,
+                                                               query::SyntheticIdMapper *id_mapper = nullptr);
 
 /// @param query::TypedValue for converting to communication::bolt::Value.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
@@ -75,7 +93,8 @@ communication::bolt::map_t ToBoltVirtualGraph(const query::VirtualGraph &vg, con
 /// @throw std::bad_alloc
 storage::Result<communication::bolt::Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db,
                                                         storage::View view,
-                                                        query::FineGrainedAuthChecker const *auth_checker);
+                                                        query::FineGrainedAuthChecker const *auth_checker,
+                                                        query::SyntheticIdMapper *id_mapper = nullptr);
 
 query::TypedValue ToTypedValue(const communication::bolt::Value &value, storage::Storage const *storage);
 

@@ -13,6 +13,7 @@
 
 #include "query/auth_checker.hpp"
 #include "query/graph.hpp"
+#include "query/overlay_authorization.hpp"
 #include "query/virtual_graph.hpp"
 
 #include <ranges>
@@ -467,18 +468,17 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
                 GetNameIdMapper(),
                 ctx_->memory};
       }
-    case TypedValue::Type::VirtualEdge: {
-      auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
-      auto prop_value = expression_result_ptr->ValueVirtualEdge().GetProperty(prop_id);
-      if (prop_value.IsNull()) return TypedValue(ctx_->memory);
-      return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
-    }
-    case TypedValue::Type::VirtualNode: {
-      auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
-      auto prop_value = expression_result_ptr->ValueVirtualNode().GetProperty(prop_id);
-      if (prop_value.IsNull()) return TypedValue(ctx_->memory);
-      return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
-    }
+    case TypedValue::Type::VirtualEdge:
+      // A projected edge reads through the same EdgeAccessor-shaped GetProperty as a real edge.
+      return {GetProperty(expression_result_ptr->ValueVirtualEdge(), property_lookup.property_),
+              GetNameIdMapper(),
+              ctx_->memory};
+    case TypedValue::Type::VirtualNode:
+      // A projected node reads through the same VertexAccessor-shaped GetProperty as a real vertex,
+      // so the read goes through the shared helper with no node-kind branch.
+      return {GetProperty(expression_result_ptr->ValueVirtualNode(), property_lookup.property_),
+              GetNameIdMapper(),
+              ctx_->memory};
     case TypedValue::Type::Map: {
       auto &map = expression_result_ptr->ValueMap();
       auto found = map.find(property_lookup.property_.name.c_str());
@@ -587,6 +587,13 @@ bool ExpressionEvaluator::CheckPropertyPermission(VertexAccessor const &accessor
 bool ExpressionEvaluator::CheckPropertyPermission(EdgeAccessor const &accessor, storage::PropertyId prop) const {
   DMG_ASSERT(auth_checker_);
   return auth_checker_->HasPropertyPermission(accessor.EdgeType(), prop, AuthQuery::PropertyPermissionType::READ);
+}
+
+bool ExpressionEvaluator::IsPropertyAllowed(VirtualNode const &node, storage::PropertyId prop) const {
+  auto auth = OverlayReadAuthorization::For(node, view_, auth_checker_);
+  // The read path fails closed: if the origin's labels cannot be read, the property is not exposed.
+  if (!auth) return false;
+  return auth->IsReadable(node, prop);
 }
 
 #endif

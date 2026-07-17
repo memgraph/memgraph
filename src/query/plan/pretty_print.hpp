@@ -123,6 +123,7 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Foreach & /*unused*/) override;
   bool PreVisit(Apply & /*unused*/) override;
   bool PreVisit(IndexedJoin & /*unused*/) override;
+  bool PreVisit(BindGraphView & /*unused*/) override;
 
   bool Visit(Once & /*unused*/) override;
 

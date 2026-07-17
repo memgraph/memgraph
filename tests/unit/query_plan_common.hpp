@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <deque>
 #include <iterator>
 #include <memory>
 #include <vector>
@@ -22,6 +23,7 @@
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/graph_view.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "storage/v2/id_types.hpp"
@@ -40,6 +42,15 @@ inline memgraph::metrics::DatabaseMetricHandles &TestMetricHandles() {
   return h;
 }
 
+// Binds the real graph as the ambient identity view, as PullPlan and the trigger
+// executor do in production, so the read operators always run through a bound
+// GraphView. ExecutionContext is copied to parallel workers and so cannot own the
+// view; the views live in this test-lifetime store (stable addresses) instead.
+inline void BindTestIdentityView(ExecutionContext &context, memgraph::query::DbAccessor *dba) {
+  static std::deque<DbAccessorGraphView> identity_views;
+  context.evaluation_context.graph_view = &identity_views.emplace_back(dba);
+}
+
 ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbol_table,
                              memgraph::query::DbAccessor *dba) {
   ExecutionContext context{.db_accessor = dba};
@@ -48,6 +59,7 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
   context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
   context.metric_handles = &TestMetricHandles();
+  BindTestIdentityView(context, dba);
   return context;
 }
 #ifdef MG_ENTERPRISE
@@ -61,6 +73,7 @@ ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, co
   context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
   context.auth_checker = auth_checker;
   context.metric_handles = &TestMetricHandles();
+  BindTestIdentityView(context, dba);
   return context;
 }
 #endif

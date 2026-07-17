@@ -39,6 +39,7 @@
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/rw_checker.hpp"
+#include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/parameters.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -7784,6 +7785,33 @@ TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {
   TestInvalidQuery<SyntaxException>("MATCH (n) CALL (n.prop) { RETURN 1 AS x } RETURN n", ast_generator);
 }
 
+TEST_P(CypherMainVisitorTest, CallSubqueryUseScope) {
+  auto &ast_generator = *GetParam();
+
+  auto symbol_table_of = [&](const std::string &query_string) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_string));
+    MG_ASSERT(query, "expected a cypher query");
+    return memgraph::query::MakeSymbolTable(query);
+  };
+
+  // A read-only USE scope passes semantic analysis.
+  EXPECT_NO_THROW(symbol_table_of("WITH 1 AS g CALL { USE g MATCH (n) RETURN n } RETURN n"));
+
+  // A write clause inside a USE scope is rejected.
+  EXPECT_THROW(symbol_table_of("WITH 1 AS g CALL { USE g CREATE (n) } RETURN 1"), SemanticException);
+  EXPECT_THROW(symbol_table_of("WITH 1 AS g, 2 AS n CALL (n) { USE g SET n.x = 1 } RETURN n"), SemanticException);
+  EXPECT_THROW(symbol_table_of("WITH 1 AS g, 2 AS n CALL (n) { USE g DELETE n } RETURN 1"), SemanticException);
+  EXPECT_THROW(symbol_table_of("WITH 1 AS g, 2 AS n CALL (n) { USE g REMOVE n.x } RETURN n"), SemanticException);
+
+  // A second level of USE nesting is rejected (v1 is single-level).
+  EXPECT_THROW(
+      symbol_table_of("WITH 1 AS g, 2 AS h CALL { USE g CALL { USE h MATCH (n) RETURN n } RETURN n } RETURN n"),
+      SemanticException);
+
+  // A plain nested subquery inside a USE scope is read-only too: its write is rejected.
+  EXPECT_THROW(symbol_table_of("WITH 1 AS g CALL { USE g CALL { CREATE (n) } RETURN 1 } RETURN 1"), SemanticException);
+}
+
 TEST_P(CypherMainVisitorTest, CallSubquery) {
   auto &ast_generator = *GetParam();
 
@@ -7797,7 +7825,26 @@ TEST_P(CypherMainVisitorTest, CallSubquery) {
 
     const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
     ASSERT_TRUE(match);
+    // An ordinary subquery binds no scope graph.
+    EXPECT_EQ(call_subquery->use_graph_, nullptr);
     CheckRWType(query, kRead);
+  }
+
+  {
+    // `CALL { USE <expr> ... }` binds the expression as the subquery's scope graph.
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) CALL { USE g MATCH (m) RETURN m } RETURN n, m"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+    ASSERT_TRUE(call_subquery);
+
+    const auto *use_graph = dynamic_cast<Identifier *>(call_subquery->use_graph_);
+    ASSERT_TRUE(use_graph);
+    EXPECT_EQ(use_graph->name_, "g");
+
+    const auto *subquery = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+    ASSERT_TRUE(subquery);
+    const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
   }
 
   {

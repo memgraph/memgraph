@@ -88,14 +88,16 @@ template <typename TEncoder>
 class TypedValueResultStream {
  public:
   TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage,
-                         memgraph::query::FineGrainedAuthChecker const *auth_checker)
-      : storage_{storage}, auth_checker_{auth_checker}, encoder_(encoder) {}
+                         memgraph::query::FineGrainedAuthChecker const *auth_checker,
+                         memgraph::query::SyntheticIdMapper *id_mapper)
+      : storage_{storage}, auth_checker_{auth_checker}, id_mapper_{id_mapper}, encoder_(encoder) {}
 
   void Result(const std::vector<memgraph::query::TypedValue> &values) {
     // Splitting the MessageRecord allows us to skip vector insertion and just directly encode the value
     encoder_->MessageRecordHeader(values.size());
     for (const auto &v : values) {
-      auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW, auth_checker_);
+      auto maybe_value =
+          memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW, auth_checker_, id_mapper_);
       if (!maybe_value) {
         switch (maybe_value.error()) {
           case memgraph::storage::Error::DELETED_OBJECT:
@@ -119,6 +121,7 @@ class TypedValueResultStream {
   // NOTE: Needed only for ToBoltValue conversions
   memgraph::storage::Storage *storage_;
   memgraph::query::FineGrainedAuthChecker const *auth_checker_;
+  memgraph::query::SyntheticIdMapper *id_mapper_;
   TEncoder *encoder_;
 };
 
@@ -388,7 +391,8 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
         communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
-    TypedValueResultStream<TEncoder> stream(&encoder_, storage, interpreter_.GetCachedFga());
+    TypedValueResultStream<TEncoder> stream(
+        &encoder_, storage, interpreter_.GetCachedFga(), interpreter_.GetSyntheticIdMapper());
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
@@ -440,7 +444,26 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
   }
 }
 
-std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrepare() {
+namespace {
+// Converts the query layer's projection schemas into the Bolt RUN-header table: a map keyed by each
+// projection's reference (rendered as a string, since Bolt map keys are strings) to a small,
+// extensible map describing that projection. Empty when the query produced no projection.
+bolt_map_t ToBoltProjectionSchemaEntry(const std::vector<memgraph::query::ProjectionSchemaEntry> &schemas) {
+  bolt_map_t table;
+  for (const auto &schema : schemas) {
+    std::vector<bolt_value_t> overlay;
+    overlay.reserve(schema.overlay.size());
+    for (const auto &key : schema.overlay) overlay.emplace_back(key);
+    bolt_map_t entry;
+    entry.emplace("overlay", std::move(overlay));
+    entry.emplace("edgeType", schema.edge_type);
+    table.emplace(std::to_string(schema.ref), std::move(entry));
+  }
+  return table;
+}
+}  // namespace
+
+memgraph::communication::bolt::PreparedRunMetadata SessionHL::InterpretPrepare() {
   if (!parsed_res_) {
     throw memgraph::communication::bolt::ClientError("Trying to prepare a query that was not parsed.");
   }
@@ -451,8 +474,9 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
     auto result =
         interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
     interpreter_.CheckAuthorized(result.privileges, result.db);
-
-    return {std::move(result.headers), result.qid};
+    return {.fields = std::move(result.headers),
+            .qid = result.qid,
+            .projection_schema = ToBoltProjectionSchemaEntry(result.projection_schemas)};
   } catch (const memgraph::query::QueryException &e) {
     RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {

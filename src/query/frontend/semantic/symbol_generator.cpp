@@ -240,6 +240,7 @@ bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
 // Clauses
 
 bool SymbolGenerator::PreVisit(Create &) {
+  RejectWriteInUseScope("CREATE");
   scopes_.back().in_create = true;
   return true;
 }
@@ -269,8 +270,28 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
   return true;
 }
 
+void SymbolGenerator::RejectWriteInUseScope(std::string_view clause) const {
+  if (scopes_.back().in_use_scope) {
+    throw SemanticException("{} is not allowed inside a USE scope: a USE scope is read-only.", clause);
+  }
+}
+
 bool SymbolGenerator::PreVisit(CallSubquery &call_sub) {
+  const bool outer_in_use_scope = scopes_.back().in_use_scope;
+
   Scope new_scope{.in_call_subquery = true};
+  // Inherited so a write nested anywhere in the block is still rejected.
+  new_scope.in_use_scope = outer_in_use_scope;
+
+  if (call_sub.use_graph_ != nullptr) {
+    if (outer_in_use_scope) {
+      throw SemanticException("A USE scope may not contain another USE: nesting is single-level.");
+    }
+    // The bound graph value is produced outside the block, so resolve the
+    // expression against the outer scope before entering the subquery scope.
+    call_sub.use_graph_->Accept(*this);
+    new_scope.in_use_scope = true;
+  }
 
   if (call_sub.has_variable_scope_) {
     // `CALL (...) { ... }`: resolve imports against the current outer scope
@@ -404,6 +425,7 @@ bool SymbolGenerator::PostVisit(Where &) {
 }
 
 bool SymbolGenerator::PreVisit(Merge &) {
+  RejectWriteInUseScope("MERGE");
   scopes_.back().in_merge = true;
   return true;
 }
@@ -443,6 +465,7 @@ bool SymbolGenerator::PostVisit(Match &) {
 }
 
 bool SymbolGenerator::PreVisit(Foreach &for_each) {
+  RejectWriteInUseScope("FOREACH");
   const auto &name = for_each.named_expression_->name_;
   scopes_.emplace_back(Scope());
   scopes_.back().in_foreach = true;
@@ -729,9 +752,15 @@ bool SymbolGenerator::PreVisit(NamedExpression &named_expression) {
 }
 
 bool SymbolGenerator::PreVisit(SetProperty & /*set_property*/) {
+  RejectWriteInUseScope("SET");
   auto &scope = scopes_.back();
   scope.in_set_property = true;
 
+  return true;
+}
+
+bool SymbolGenerator::PreVisit(SetProperties & /*set_properties*/) {
+  RejectWriteInUseScope("SET");
   return true;
 }
 
@@ -767,6 +796,11 @@ bool SymbolGenerator::PostVisit(SetProperty &set_property) {
   return true;
 }
 
+bool SymbolGenerator::PreVisit(RemoveProperty & /*remove_property*/) {
+  RejectWriteInUseScope("REMOVE");
+  return true;
+}
+
 bool SymbolGenerator::PostVisit(RemoveProperty &remove_property) {
   auto &scope = scopes_.back();
 
@@ -796,6 +830,7 @@ bool SymbolGenerator::PostVisit(RemoveProperty &remove_property) {
 }
 
 bool SymbolGenerator::PreVisit(SetLabels &set_labels) {
+  RejectWriteInUseScope("SET");
   auto &scope = scopes_.back();
   scope.in_set_labels = true;
   for (auto &label : set_labels.labels_) {
@@ -815,6 +850,7 @@ bool SymbolGenerator::PostVisit(SetLabels & /*set_labels*/) {
 }
 
 bool SymbolGenerator::PreVisit(RemoveLabels &remove_labels) {
+  RejectWriteInUseScope("REMOVE");
   auto &scope = scopes_.back();
   scope.in_remove_labels = true;
   for (auto &label : remove_labels.labels_) {
@@ -834,6 +870,7 @@ bool SymbolGenerator::PostVisit(RemoveLabels & /*remove_labels*/) {
 }
 
 bool SymbolGenerator::PreVisit(Delete & /*delete*/) {
+  RejectWriteInUseScope("DELETE");
   global_scope_.has_delete = true;
   return true;
 }

@@ -1,0 +1,96 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "query/db_accessor.hpp"
+#include "query/graph.hpp"
+#include "query/graph_view.hpp"
+#include "storage/v2/id_types.hpp"
+
+namespace memgraph::query {
+
+// A project() subgraph seen as a graph to scan: a scan yields its member real
+// vertices, and expansion filters a real vertex's edges to the subgraph's edge
+// membership. Topology is the membership sets held on Graph; names share the real
+// accessor's namespace, since a subgraph mints no ids of its own.
+//
+// It is a view layered over the real graph by membership: a scan over it yields a
+// member vertex as the common scan element, so the read operators run over a
+// subgraph the same way they run over the real graph. Edge membership is exposed
+// here for the expand path rather than on GraphView.
+class SubgraphGraphView final : public GraphView {
+  Graph *graph_;
+
+ public:
+  SubgraphGraphView(Graph *graph, DbAccessor *names) : GraphView(names), graph_(graph) {}
+
+  // True if the edge is a member of the subgraph. Expansion drops non-member
+  // edges so a match stays within the subgraph.
+  [[nodiscard]] bool ContainsEdge(const EdgeAccessor &edge) const { return graph_->edges().contains(edge); }
+
+  // The borrowed subgraph, for wrapping in a SubgraphDbAccessor when this view
+  // is the ambient graph of a procedure call.
+  [[nodiscard]] Graph *graph() const { return graph_; }
+
+  VertexRange Vertices(storage::View /*view*/) override { return VertexRange{VerticesIterable(&graph_->vertices())}; }
+
+  EdgeRange OutEdges(const ScanVertex &from, storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
+                     const std::optional<ScanVertex> &existing_dest, HopsLimit *hops) override {
+    const auto &vertex = std::get<VertexAccessor>(from);
+    return MemberEdges(existing_dest ? vertex.OutEdges(view, edge_types, std::get<VertexAccessor>(*existing_dest), hops)
+                                     : vertex.OutEdges(view, edge_types, hops));
+  }
+
+  EdgeRange InEdges(const ScanVertex &from, storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
+                    const std::optional<ScanVertex> &existing_dest, HopsLimit *hops) override {
+    const auto &vertex = std::get<VertexAccessor>(from);
+    return MemberEdges(existing_dest ? vertex.InEdges(view, edge_types, std::get<VertexAccessor>(*existing_dest), hops)
+                                     : vertex.InEdges(view, edge_types, hops));
+  }
+
+  // The subgraph's member-filtered degree: every incident real edge is examined, only members counted.
+  // A synthetic node reaching a subgraph view is no member and reports {0, 0}.
+  std::pair<int64_t, int64_t> Degree(const ScanVertex &from, storage::View view) override {
+    const auto *vertex = std::get_if<VertexAccessor>(&from);
+    if (vertex == nullptr) return {0, 0};
+    const auto count_members = [&](storage::Result<EdgeVertexAccessorResult> &&result) -> int64_t {
+      auto edges = UnwrapEdges(std::move(result));
+      int64_t count = 0;
+      for (const auto &edge : edges.edges) {
+        if (ContainsEdge(edge)) ++count;
+      }
+      return count;
+    };
+    return {count_members(vertex->InEdges(view)), count_members(vertex->OutEdges(view))};
+  }
+
+ private:
+  // Real-vertex edges filtered to the subgraph's membership: expansion stays within
+  // the subgraph. All traversed real edges count toward hops (expanded_count), even
+  // the non-member ones dropped from the range.
+  EdgeRange MemberEdges(storage::Result<EdgeVertexAccessorResult> &&result) const {
+    auto edges = UnwrapEdges(std::move(result));
+    std::vector<EdgeAccessor> kept;
+    kept.reserve(edges.edges.size());
+    for (auto &edge : edges.edges) {
+      if (ContainsEdge(edge)) kept.push_back(std::move(edge));
+    }
+    return EdgeRange{std::move(kept), edges.expanded_count};
+  }
+};
+
+}  // namespace memgraph::query

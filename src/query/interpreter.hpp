@@ -23,6 +23,7 @@
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/plan_v2/frontend/query_planner_context.hpp"
+#include "query/projection_schema.hpp"
 #include "query/stream.hpp"
 #include "query/trigger_context.hpp"
 #include "system/transaction.hpp"
@@ -218,6 +219,9 @@ struct PreparedQuery {
   // Lazily renders the EXPLAIN plan for the slow-query log; empty unless slow logging may
   // apply. Pull invokes it past the duration gate, while the plan's DbAccessor is alive.
   std::function<std::string()> slow_query_plan_renderer{};
+  // One entry per derive() projection whose schema is statically known; empty for queries with no
+  // projection. Extracted from the plan at prepare time so it can ship in the result header.
+  std::vector<ProjectionSchemaEntry> projection_schemas{};
 };
 
 /**
@@ -287,11 +291,18 @@ class Interpreter final {
   void ResetCachedFga();
   FineGrainedAuthChecker const *GetCachedFga() const;
 
+  // The current query's synthetic-id mapper - the same instance id()/virtual_id() use, so Bolt
+  // serialization externalizes virtual ids onto the identical query-local axis. Renewed per query
+  // (a new query restarts the external ids at -1).
+  SyntheticIdMapper *GetSyntheticIdMapper() const;
+  std::shared_ptr<SyntheticIdMapper> RenewSyntheticIdMapper();
+
   struct PrepareResult {
     std::vector<std::string> headers;
     std::vector<query::AuthQuery::Privilege> privileges;
     std::optional<int> qid;
     std::optional<std::string> db;
+    std::vector<ProjectionSchemaEntry> projection_schemas;
   };
 
 #ifdef MG_ENTERPRISE
@@ -314,6 +325,7 @@ class Interpreter final {
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
+  std::shared_ptr<SyntheticIdMapper> synthetic_id_mapper_{std::make_shared<SyntheticIdMapper>()};
   SessionInfo session_info_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;

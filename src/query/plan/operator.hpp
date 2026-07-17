@@ -14,6 +14,8 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -21,6 +23,7 @@
 
 #include "query/common.hpp"
 #include "query/frontend/semantic/symbol.hpp"
+#include "query/graph_view.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
@@ -45,6 +48,9 @@ class DbAccessor;
 class ExpressionEvaluator;
 class Frame;
 class SymbolTable;
+class VirtualNode;
+class VirtualEdge;
+class SubgraphGraphView;
 
 namespace plan {
 
@@ -189,6 +195,7 @@ class ScanParallelByEdgePropertyValue;
 class ScanParallelByEdgePropertyRange;
 class ScanChunk;
 class ScanChunkByEdge;
+class BindGraphView;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllById, ScanAllByEdge,
@@ -202,7 +209,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType,
     ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeTypePropertyValue,
     ScanParallelByEdgeTypePropertyRange, ScanParallelByEdgeProperty, ScanParallelByEdgePropertyValue,
-    ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge>;
+    ScanParallelByEdgePropertyRange, ScanChunk, ScanChunkByEdge, ParallelMerge, BindGraphView>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1069,21 +1076,18 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     ExpansionInfo GetExpansionInfo(Frame &);
 
    private:
-    using InEdgeT = std::vector<EdgeAccessor>;
-    using InEdgeIteratorT = decltype(std::declval<InEdgeT>().begin());
-    using OutEdgeT = std::vector<EdgeAccessor>;
-    using OutEdgeIteratorT = decltype(std::declval<OutEdgeT>().begin());
-
     const Expand &self_;
     const UniqueCursorPtr input_cursor_;
 
-    // The iterable over edges and the current edge iterator are referenced via
-    // optional because they can not be initialized in the constructor of
-    // this class. They are initialized once for each pull from the input.
-    std::optional<InEdgeT> in_edges_;
-    std::optional<InEdgeIteratorT> in_edges_it_;
-    std::optional<OutEdgeT> out_edges_;
-    std::optional<OutEdgeIteratorT> out_edges_it_;
+    // The edges to expand and the current position, per direction. Optional
+    // because they are (re)initialized once per pull from the input, not in the
+    // constructor. Each is obtained from the ambient GraphView, so it carries the
+    // real graph's edges (identity or subgraph view) or the projection's edges
+    // uniformly, and iteration yields a ScanEdge for either kind.
+    std::optional<EdgeRange> in_edges_;
+    std::optional<EdgeRange::Iterator> in_edges_it_;
+    std::optional<EdgeRange> out_edges_;
+    std::optional<EdgeRange::Iterator> out_edges_it_;
     ExpansionInfo expansion_info_;
     int64_t prev_input_degree_{-1};
     int64_t prev_existing_degree_{-1};
@@ -3047,6 +3051,39 @@ class Apply : public memgraph::query::plan::LogicalOperator {
     bool pull_input_{true};
     bool subquery_has_return_{true};
   };
+};
+
+/// Binds the ambient graph view for a `CALL { USE <expr> ... }` scope.
+///
+/// Wraps the subquery's plan. While pulling it, the bound graph expression is
+/// evaluated to a projection value and set as the execution context's ambient
+/// GraphView, so the read operators inside the scope run over the projection.
+/// The previous view is restored around each pull, so outside the scope the
+/// real graph is read.
+class BindGraphView : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  BindGraphView() = default;
+
+  BindGraphView(std::shared_ptr<LogicalOperator> input, Expression *use_graph);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  Expression *use_graph_{nullptr};
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
 /// Applies symbols from both join branches
