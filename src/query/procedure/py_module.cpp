@@ -1136,12 +1136,12 @@ py::Object MgpListToPyTupleFromPyObject(mgp_list *list, PyObject *py_graph) {
   }
   return MgpListToPyTuple(list, reinterpret_cast<PyGraph *>(py_graph));
 }
-}  // namespace
 
-static PyObject *MgpIsEnterpriseValid() {
+PyObject *MgpIsEnterpriseValid() {
   if (mgp_is_enterprise_valid()) Py_RETURN_TRUE;
   Py_RETURN_FALSE;
 }
+}  // namespace
 
 void PyCollectGarbage() {
   // NOTE: No need to call _Py_IsFinalizing(), we ensure
