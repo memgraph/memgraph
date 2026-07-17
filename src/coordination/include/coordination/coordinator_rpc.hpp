@@ -653,6 +653,14 @@ using GetRolePrivilegesRes = SingleArgMsg<utils::TypeId::COORD_GET_ROLE_PRIVILEG
                                           std::optional<std::pair<bool, uint64_t>>>;
 using GetRolePrivilegesRpc = rpc::RequestResponse<GetRolePrivilegesReq, GetRolePrivilegesRes>;
 
+// SetCoordinatorSetting carries (setting name, setting value). Follower coordinators forward the write to the leader so
+// the query works from any coordinator; the response mirrors the write-status bool convention above.
+using SetCoordinatorSettingReq = SingleArgMsg<utils::TypeId::COORD_SET_COORDINATOR_SETTING_REQ,
+                                              "SetCoordinatorSettingReq", 1, std::pair<std::string, std::string>>;
+using SetCoordinatorSettingRes =
+    SingleArgMsg<utils::TypeId::COORD_SET_COORDINATOR_SETTING_RES, "SetCoordinatorSettingRes", 1, bool>;
+using SetCoordinatorSettingRpc = rpc::RequestResponse<SetCoordinatorSettingReq, SetCoordinatorSettingRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -727,6 +735,7 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::GetRolesRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::GrantPrivilegeRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::RevokePrivilegeRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::GetRolePrivilegesRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::SetCoordinatorSettingRpc)
 
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReq)

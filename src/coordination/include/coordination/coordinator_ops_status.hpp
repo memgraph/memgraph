@@ -18,7 +18,18 @@
 namespace memgraph::coordination {
 
 enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
-enum class SetCoordinatorSettingStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR, UNKNOWN_SETTING, INVALID_ARGUMENT };
+// Forwarded to the leader (see CoordinatorInstance), like the role/privilege ops. SUCCESS/LEADER_FAILED/
+// LEADER_NOT_FOUND make the enum satisfy the ForwardableStatus concept; a follower maps a forwarding failure to
+// LEADER_FAILED (or LEADER_NOT_FOUND during an election) rather than crashing.
+enum class SetCoordinatorSettingStatus : uint8_t {
+  SUCCESS = 0,
+  RAFT_LOG_ERROR,
+  UNKNOWN_SETTING,
+  INVALID_ARGUMENT,
+  NOT_LEADER,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
+};
 
 // Role/privilege ops forward to the leader (see CoordinatorInstance). SUCCESS/LEADER_FAILED/LEADER_NOT_FOUND make the
 // write enums satisfy the ForwardableStatus concept; the RPC round-trip preserves the leader's exact status so a

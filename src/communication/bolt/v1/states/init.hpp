@@ -167,10 +167,20 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
 
 #ifdef MG_ENTERPRISE
   if (auto const &coordination_setup = flags::CoordinationSetupInstance(); coordination_setup.IsCoordinator()) {
-    // Coordinator auth: basic/none is a passthrough (credentials ignored, session keeps full COORDINATOR_WRITE, no
-    // license required); an SSO scheme present in --auth-module-mappings runs the coordinator SSO path (which is
-    // enterprise-gated); any other/unknown scheme is rejected.
+    // Coordinator auth: when no SSO module is configured, basic/none is a passthrough (credentials ignored, session
+    // keeps full COORDINATOR_WRITE, no license required). Once SSO is configured (--auth-module-mappings non-empty),
+    // basic/none is denied -- the credential-less passthrough would otherwise bypass the SSO privilege model. An SSO
+    // scheme present in --auth-module-mappings runs the coordinator SSO path (enterprise-gated); any other/unknown
+    // scheme is rejected.
+    const bool sso_configured = !FLAGS_auth_module_mappings.empty();
     if (schema == "basic" || schema == "none") {
+      if (sso_configured) {
+        spdlog::warn(
+            "Basic/none authentication is disabled on this coordinator because SSO is configured; connect with an SSO "
+            "scheme listed in the auth-module-mappings flag.");
+        HandleAuthFailure(session);
+        return State::Close;
+      }
       return std::nullopt;
     }
     if (scheme_in_module_mappings(schema)) {

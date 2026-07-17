@@ -233,6 +233,21 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
             res_builder);
       });
 
+  server.Register<SetCoordinatorSettingRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<SetCoordinatorSettingRpc,
+                                                                       SetCoordinatorSettingStatus>(
+            [&coordinator_instance](std::pair<std::string, std::string> const &arg) -> SetCoordinatorSettingStatus {
+              return coordinator_instance.SetCoordinatorSetting(arg.first, arg.second);
+            },
+            request_version,
+            req_reader,
+            res_builder);
+      });
+
   // Role/privilege reads forwarded from a follower. An unengaged optional means this coordinator is not the ready
   // leader, which the follower surfaces as a forwarding error.
   server.Register<GetRolesRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
