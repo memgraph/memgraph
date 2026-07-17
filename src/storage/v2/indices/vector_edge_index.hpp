@@ -283,7 +283,7 @@ class VectorEdgeIndex {
 
   /// @brief Adds a single edge to the index, converting its property to VectorIndexId.
   void AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
-                      std::optional<std::size_t> thread_id = std::nullopt);
+                      NameIdMapper *name_id_mapper, std::optional<std::size_t> thread_id = std::nullopt);
 
   /// @brief Removes an edge from a vector index.
   void RemoveEdgeFromIndex(Edge *edge, uint64_t index_id);

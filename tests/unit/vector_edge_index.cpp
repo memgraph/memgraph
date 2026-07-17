@@ -86,6 +86,24 @@ class VectorEdgeIndexTest : public testing::Test {
     return {from_vertex, to_vertex, edge};
   }
 
+  void CreateEdgeIndexNamed(std::string_view name, VectorMatchMode mode, std::uint16_t dimension,
+                            std::size_t capacity) {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto edge_type = unique_acc->NameToEdgeType(test_edge_type.data());
+    const auto property = unique_acc->NameToProperty(test_property.data());
+    auto ids = mode == VectorMatchMode::WILDCARD ? std::vector<EdgeTypeId>{} : std::vector<EdgeTypeId>{edge_type};
+    auto spec = VectorEdgeIndexSpec{.index_name = std::string{name},
+                                    .edge_type_filter = VectorEdgeTypeFilter{.mode = mode, .ids = std::move(ids)},
+                                    .property = property,
+                                    .metric_kind = metric,
+                                    .dimension = dimension,
+                                    .resize_coefficient = resize_coefficient,
+                                    .capacity = capacity,
+                                    .scalar_kind = scalar_kind};
+    EXPECT_FALSE(!unique_acc->CreateVectorEdgeIndex(spec).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
  private:
   memgraph::storage::Config config_;
 };
@@ -111,6 +129,23 @@ TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
   const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, std::vector<float>{1.0, 1.0});
   EXPECT_EQ(result.size(), 1);
   EXPECT_EQ(std::get<0>(result[0]).Gid(), edge.Gid());
+}
+
+TEST_F(VectorEdgeIndexTest, SecondIndexBackfillsAlreadyIndexedEdge) {
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(0.0)});
+    this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateEdgeIndexNamed("idx_typed", VectorMatchMode::SINGLE, 2, 10);
+  this->CreateEdgeIndexNamed("idx_wild", VectorMatchMode::WILDCARD, 2, 10);
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  const auto typed = acc->VectorIndexSearchOnEdges("idx_typed", 1, std::vector<float>{1.0, 0.0});
+  const auto wild = acc->VectorIndexSearchOnEdges("idx_wild", 1, std::vector<float>{1.0, 0.0});
+  EXPECT_EQ(typed.size(), 1);
+  EXPECT_EQ(wild.size(), 1);
 }
 
 TEST_F(VectorEdgeIndexTest, InvalidDimensionTest) {

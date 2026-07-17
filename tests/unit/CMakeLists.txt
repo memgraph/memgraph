@@ -313,6 +313,11 @@ add_unit_test(query_virtual_graph
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
 
+add_unit_test(query_procedure_text_search_query_fields
+    SOURCES query_procedure_text_search_query_fields.cpp
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+)
+
 
 # END query/procedure
 add_unit_test(query_profile

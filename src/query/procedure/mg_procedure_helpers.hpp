@@ -13,8 +13,10 @@
 
 #include <fmt/format.h>
 #include <memory>
+#include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "mg_procedure.h"
 #include "query/procedure/fmt.hpp"
@@ -67,4 +69,25 @@ template <typename Fun>
 
 [[nodiscard]] bool InsertResultOrSetError(mgp_result *result, mgp_result_record *record, const char *result_name,
                                           mgp_value *value);
+
+// Extracts the `data.<property>` fields a specified-property text query references. Boolean structure is
+// ignored on purpose: a hit can be produced by any referenced field, so all must be readable —
+// over-extraction only over-restricts, whereas missing a field would leak. Empty for a fieldless/blob
+// query (search_all/regex), on which the caller falls back to the index's full property set.
+inline std::vector<std::string_view> ReferencedTextQueryFields(std::string_view query) {
+  constexpr std::string_view kFieldPrefix = "data.";
+  const auto is_ident = [](const char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+  };
+  std::vector<std::string_view> fields;
+  for (auto pos = query.find(kFieldPrefix); pos != std::string_view::npos; pos = query.find(kFieldPrefix, pos)) {
+    const auto name_start = pos + kFieldPrefix.size();
+    auto name_end = name_start;
+    while (name_end < query.size() && is_ident(query[name_end])) ++name_end;
+    pos = name_end;
+    if (name_end == name_start || name_end >= query.size() || query[name_end] != ':') continue;
+    fields.push_back(query.substr(name_start, name_end - name_start));
+  }
+  return fields;
+}
 }  // namespace memgraph::query::procedure

@@ -149,6 +149,135 @@ property_fga_cluster: &property_fga_cluster
       setup_queries: *property_fga_setup_queries
       validation_queries: []
 
+# Users shared by both search fixtures (identical grants): user (label-restricted + global {*}),
+# user_prop (full read + {*}, DENY {title}/{label}), user_grant_only (label only, no property grant →
+# deny-by-default), admin (unrestricted). Each fixture aliases this, then adds its own special user,
+# graph, and indexes.
+_fga_common_users: &_fga_common_users
+  - "CREATE ROLE _dummy_role;"
+  - "CREATE USER admin IDENTIFIED BY 'test';"
+  - "CREATE USER user IDENTIFIED BY 'test';"
+  - "CREATE USER user_prop IDENTIFIED BY 'test';"
+  - "CREATE USER user_grant_only IDENTIFIED BY 'test';"
+  - "GRANT ALL PRIVILEGES TO admin;"
+  - "GRANT DATABASE * TO admin;"
+  - "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO admin;"
+  - "GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO admin;"
+  - "GRANT ALL PRIVILEGES TO user;"
+  - "GRANT DATABASE * TO user;"
+  - "GRANT ALL PRIVILEGES TO user_prop;"
+  - "GRANT DATABASE * TO user_prop;"
+  - "GRANT ALL PRIVILEGES TO user_grant_only;"
+  - "GRANT DATABASE * TO user_grant_only;"
+  # user: label-restricted (sees :Public + :LINKS_PUB + :MIXED, DENY :Document + :LINKS_DOC) + global {*}
+  - "GRANT READ ON NODES CONTAINING LABELS :Public TO user;"
+  - "DENY READ ON NODES CONTAINING LABELS :Document TO user;"
+  - "GRANT READ ON EDGES OF TYPE :LINKS_PUB TO user;"
+  - "DENY READ ON EDGES OF TYPE :LINKS_DOC TO user;"
+  - "GRANT READ ON EDGES OF TYPE :MIXED TO user;"
+  - "GRANT READ {*} ON NODES CONTAINING LABELS * TO user;"
+  - "GRANT READ {*} ON EDGES OF TYPE * TO user;"
+  # user_prop: full label read + {*}, DENY {title} on nodes and {label} on edges (non-embedding props)
+  - "GRANT READ ON NODES CONTAINING LABELS * TO user_prop;"
+  - "GRANT READ ON EDGES OF TYPE * TO user_prop;"
+  - "GRANT READ {*} ON NODES CONTAINING LABELS * TO user_prop;"
+  - "GRANT READ {*} ON EDGES OF TYPE * TO user_prop;"
+  - "DENY READ {title} ON NODES CONTAINING LABELS :Public TO user_prop;"
+  - "DENY READ {title} ON NODES CONTAINING LABELS :Document TO user_prop;"
+  - "DENY READ {label} ON EDGES OF TYPE :LINKS_PUB TO user_prop;"
+  - "DENY READ {label} ON EDGES OF TYPE :LINKS_DOC TO user_prop;"
+  # user_grant_only: label read on :Public + :LINKS_PUB, NO property grant (deny-by-default: reads no values)
+  - "GRANT READ ON NODES CONTAINING LABELS :Public TO user_grant_only;"
+  - "GRANT READ ON EDGES OF TYPE :LINKS_PUB TO user_grant_only;"
+
+# Text-search RBAC fixture: common users + user_prop_deny_cross + a title/label graph + text indexes.
+text_search_fga_setup_queries: &text_search_fga_setup_queries
+  - *_fga_common_users
+  # user_prop_deny_cross: full read + {*}, DENY {title} on :Public only — title readable on pure :Document
+  # but denied on the :Public:Document Hybrid (deny wins), for the multi-label per-row drop
+  - "CREATE USER user_prop_deny_cross IDENTIFIED BY 'test';"
+  - "GRANT ALL PRIVILEGES TO user_prop_deny_cross;"
+  - "GRANT DATABASE * TO user_prop_deny_cross;"
+  - "GRANT READ ON NODES CONTAINING LABELS * TO user_prop_deny_cross;"
+  - "GRANT READ {*} ON NODES CONTAINING LABELS * TO user_prop_deny_cross;"
+  - "DENY READ {title} ON NODES CONTAINING LABELS :Public TO user_prop_deny_cross;"
+  # graph: title on nodes, label on edges; pure Public/Document + a multi-label Hybrid + a MIXED cross-edge
+  - "CREATE (:Public {title: 'Welcome'});"
+  - "CREATE (:Public {title: 'Hello'});"
+  - "CREATE (:Document {title: 'Secret'});"
+  - "CREATE (:Document {title: 'Internal'});"
+  - "CREATE (:Public:Document {title: 'Hybrid'});"
+  # a Public node with a second string property (body) — exercises field-scoped search precision on the
+  # property-less pub_text index: a query over the readable body must surface it though title is denied
+  - "CREATE (:Public {title: 'Dual', body: 'Bodyword'});"
+  # a Public node with only body (no title) — exercises the row filter skipping a queried field the node
+  # lacks: an OR query naming the denied title and the readable body must still surface it via body
+  - "CREATE (:Public {body: 'Solo'});"
+  - "MATCH (a:Public {title:'Welcome'}), (b:Public {title:'Hello'}) CREATE (a)-[:LINKS_PUB {label:'Open'}]->(b);"
+  - "MATCH (a:Document {title:'Secret'}), (b:Document {title:'Internal'}) CREATE (a)-[:LINKS_DOC {label:'Confidential'}]->(b);"
+  - "CREATE (p:Public {title:'CrossSrc'}), (d:Document {title:'CrossDst'}) CREATE (p)-[:MIXED {label:'CrossOver'}]->(d);"
+  # two more LINKS_PUB edges for edge field-scoped search precision on the property-less pub_etext index:
+  # one with a readable note beside the denied label, one with only note (no label)
+  - "MATCH (a:Public {title:'Welcome'}), (b:Public {title:'Hello'}) CREATE (a)-[:LINKS_PUB {label:'DualEdge', note:'EdgeNote'}]->(b);"
+  - "MATCH (a:Public {title:'Welcome'}), (b:Public {title:'Hello'}) CREATE (a)-[:LINKS_PUB {note:'SoloEdge'}]->(b);"
+  # text indexes: property-less pub/doc + a specified :Document(title) + edge text indexes
+  - "CREATE TEXT INDEX pub_text ON :Public;"
+  - "CREATE TEXT INDEX doc_text ON :Document;"
+  - "CREATE TEXT INDEX doc_title_text ON :Document(title);"
+  - "CREATE TEXT EDGE INDEX pub_etext ON :LINKS_PUB;"
+  - "CREATE TEXT EDGE INDEX doc_etext ON :LINKS_DOC;"
+  - "CREATE TEXT EDGE INDEX mixed_etext ON :MIXED;"
+
+# Vector-search RBAC fixture: common users + user_prop_deny_indexed + an embedding graph + vector
+# indexes. Nodes/edges keep title/label alongside embedding — those are the non-indexed properties the
+# tests deny (user_prop DENY {title}/{label} → proves a deny on a non-embedding property doesn't block
+# vector search) and the identifiers the tests read back.
+vector_search_fga_setup_queries: &vector_search_fga_setup_queries
+  - *_fga_common_users
+  # user_prop_deny_indexed: full read + {*}, DENY {embedding} :Public — per-label deny on the indexed
+  # property; drops :Public hits on the WILDCARD index
+  - "CREATE USER user_prop_deny_indexed IDENTIFIED BY 'test';"
+  - "GRANT ALL PRIVILEGES TO user_prop_deny_indexed;"
+  - "GRANT DATABASE * TO user_prop_deny_indexed;"
+  - "GRANT READ ON NODES CONTAINING LABELS * TO user_prop_deny_indexed;"
+  - "GRANT READ ON EDGES OF TYPE * TO user_prop_deny_indexed;"
+  - "GRANT READ {*} ON NODES CONTAINING LABELS * TO user_prop_deny_indexed;"
+  - "GRANT READ {*} ON EDGES OF TYPE * TO user_prop_deny_indexed;"
+  - "DENY READ {embedding} ON NODES CONTAINING LABELS :Public TO user_prop_deny_indexed;"
+  # graph: embedding on nodes + edges (title/label retained as the deny targets / identifiers, see above)
+  - "CREATE (:Public {title: 'Welcome', embedding: [1.0, 0.0]});"
+  - "CREATE (:Public {title: 'Hello', embedding: [0.5, 0.5]});"
+  - "CREATE (:Document {title: 'Secret', embedding: [1.0, 0.0]});"
+  - "CREATE (:Document {title: 'Internal', embedding: [0.0, 1.0]});"
+  - "CREATE (:Public:Document {title: 'Hybrid', embedding: [1.0, 0.0]});"
+  - "MATCH (a:Public {title:'Welcome'}), (b:Public {title:'Hello'}) CREATE (a)-[:LINKS_PUB {label:'Open', embedding:[1.0, 0.0]}]->(b);"
+  - "MATCH (a:Document {title:'Secret'}), (b:Document {title:'Internal'}) CREATE (a)-[:LINKS_DOC {label:'Confidential', embedding:[1.0, 0.0]}]->(b);"
+  - "CREATE (p:Public {title:'CrossSrc', embedding:[1.0, 0.0]}), (d:Document {title:'CrossDst', embedding:[1.0, 0.0]}) CREATE (p)-[:MIXED {label:'CrossOver', embedding:[1.0, 0.0]}]->(d);"
+  # vertex + edge vector indexes on (embedding) + WILDCARD indexes (node and edge) over any label/type
+  - 'CREATE VECTOR INDEX pub_vec ON :Public(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
+  - 'CREATE VECTOR INDEX doc_vec ON :Document(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
+  - 'CREATE VECTOR EDGE INDEX pub_evec ON :LINKS_PUB(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
+  - 'CREATE VECTOR EDGE INDEX doc_evec ON :LINKS_DOC(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
+  - 'CREATE VECTOR EDGE INDEX mixed_evec ON :MIXED(embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
+  - 'CREATE VECTOR INDEX wild_vec ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
+  - 'CREATE VECTOR EDGE INDEX wild_evec ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10};'
+
+text_search_fga_cluster: &text_search_fga_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "text_search_fga.log"
+      setup_queries: *text_search_fga_setup_queries
+      validation_queries: []
+
+vector_search_fga_cluster: &vector_search_fga_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "vector_search_fga.log"
+      setup_queries: *vector_search_fga_setup_queries
+      validation_queries: []
+
 base_cluster: &base_cluster
   cluster:
     main:
@@ -205,3 +334,15 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/show_db.py"]
     <<: *show_databases_w_user
+
+  - name: "Text search RBAC"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["fine_grained_access/text_search_fga_tests.py"]
+    proc: "query_modules/"
+    <<: *text_search_fga_cluster
+
+  - name: "Vector search RBAC"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["fine_grained_access/vector_search_fga_tests.py"]
+    proc: "query_modules/"
+    <<: *vector_search_fga_cluster
