@@ -1138,7 +1138,7 @@ py::Object MgpListToPyTupleFromPyObject(mgp_list *list, PyObject *py_graph) {
 }
 }  // namespace
 
-PyObject *MgpIsEnterpriseValid() {
+static PyObject *MgpIsEnterpriseValid() {
   if (mgp_is_enterprise_valid()) Py_RETURN_TRUE;
   Py_RETURN_FALSE;
 }
