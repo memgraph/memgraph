@@ -657,6 +657,10 @@ def show_roles(cursor):
     return sorted(name for (name,) in execute_and_fetch_all(cursor, "SHOW ROLES"))
 
 
+def show_current_role(cursor):
+    return sorted(name for (name,) in execute_and_fetch_all(cursor, "SHOW CURRENT ROLE"))
+
+
 def show_privileges(cursor, role):
     return sorted(privilege for (privilege,) in execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR ROLE {role}"))
 
@@ -671,10 +675,13 @@ def test_basic_auth_passthrough(test_name):
     # Connect without credentials and run a coordinator query.
     no_auth_cursor = connect(host="localhost", port=leader_port).cursor()
     assert show_roles(no_auth_cursor) == []
+    # A basic-auth passthrough session carries no roles, so SHOW CURRENT ROLE reports a single null row.
+    assert show_current_role(no_auth_cursor) == [None]
 
     # Connect with arbitrary username/password: the credentials are ignored and the session works the same.
     basic_auth_cursor = connect(host="localhost", port=leader_port, username="whoever", password="whatever").cursor()
     assert show_roles(basic_auth_cursor) == []
+    assert show_current_role(basic_auth_cursor) == [None]
     # A basic-auth session can run role management.
     execute_and_fetch_all(basic_auth_cursor, "CREATE ROLE passthrough_role")
     assert show_roles(basic_auth_cursor) == ["passthrough_role"]
@@ -1337,6 +1344,29 @@ def test_sso_privilege_enforcement(test_name):
     except Exception as e:
         assert "required privilege" in str(e), f"Unexpected error: {e}"
     assert sso_route_denied(leader_port, "oidc", "bare")
+
+
+def test_sso_show_current_role(test_name):
+    # SHOW CURRENT ROLE reports the role(s) the SSO session authenticated with. It is self-service (reveals only the
+    # caller's own roles), so it needs no coordinator privilege: even a bare-role session can run it.
+    def bootstrap(cursor):
+        create_role_with_privilege(cursor, "reader", grant="COORDINATOR_READ")
+        create_role_with_privilege(cursor, "bare", grant=None)
+
+    start_sso_cluster(test_name, bootstrap)  # bootstraps the "architect" role (COORDINATOR_WRITE) too
+    leader_port = sso_wait_for_ready_leader_port()
+
+    # A single-role session sees exactly its role.
+    assert sorted(name for (name,) in sso_run(leader_port, "oidc", "reader", "SHOW CURRENT ROLE")) == ["reader"]
+
+    # A multi-role session sees every role it authenticated with.
+    assert sorted(name for (name,) in sso_run(leader_port, "oidc", "architect,reader", "SHOW CURRENT ROLE")) == [
+        "architect",
+        "reader",
+    ]
+
+    # A bare-role session (zero mask, denied every privileged query) can still inspect its own role.
+    assert sorted(name for (name,) in sso_run(leader_port, "oidc", "bare", "SHOW CURRENT ROLE")) == ["bare"]
 
 
 def test_basic_auth_denied_when_sso_configured(test_name):

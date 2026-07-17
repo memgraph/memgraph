@@ -23,9 +23,9 @@ CoordinatorSSOAuthenticator::CoordinatorSSOAuthenticator(ModuleRunner module_run
                                                          RoleMaskProvider role_mask_provider)
     : module_runner_(std::move(module_runner)), role_mask_provider_(std::move(role_mask_provider)) {}
 
-std::optional<uint64_t> CoordinatorSSOAuthenticator::Authenticate(std::string const &scheme,
-                                                                  std::string const &identity_provider_response) const {
-  auto const role_names = module_runner_(scheme, identity_provider_response);
+std::optional<CoordinatorSSOAuthenticator::AuthResult> CoordinatorSSOAuthenticator::Authenticate(
+    std::string const &scheme, std::string const &identity_provider_response) const {
+  auto role_names = module_runner_(scheme, identity_provider_response);
   // Invalid token / module failure / malformed response / no roles returned -> reject.
   if (!role_names || role_names->empty()) {
     return std::nullopt;
@@ -44,7 +44,7 @@ std::optional<uint64_t> CoordinatorSSOAuthenticator::Authenticate(std::string co
   }
 
   // The effective mask is the union of the matched roles' masks.
-  return auth::CoordinatorEffectiveMask(role_masks);
+  return AuthResult{.effective_mask = auth::CoordinatorEffectiveMask(role_masks), .roles = std::move(*role_names)};
 }
 
 }  // namespace memgraph::glue

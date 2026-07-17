@@ -338,6 +338,9 @@ TEST(CoordinatorAuthQueryGate, PermitsExactlyRoleAndCoordinatorPrivilegeQueries)
   EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::DROP_ROLE)));
   EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::SHOW_ROLES)));
 
+  // SHOW CURRENT ROLE is self-service (reports the session's own roles) and always permitted.
+  EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(*make(AuthQuery::Action::SHOW_CURRENT_ROLE)));
+
   // GRANT/REVOKE of coordinator READ/WRITE on a role (or unspecified target) is permitted.
   EXPECT_TRUE(IsCoordinatorPermittedAuthQuery(
       *make(AuthQuery::Action::GRANT_PRIVILEGE, {AuthQuery::Privilege::COORDINATOR_READ})));
@@ -392,7 +395,6 @@ TEST(CoordinatorAuthQueryGate, PermitsExactlyRoleAndCoordinatorPrivilegeQueries)
                             AuthQuery::Action::CHANGE_PASSWORD,
                             AuthQuery::Action::DROP_USER,
                             AuthQuery::Action::SHOW_CURRENT_USER,
-                            AuthQuery::Action::SHOW_CURRENT_ROLE,
                             AuthQuery::Action::SHOW_USERS,
                             AuthQuery::Action::SET_ROLE,
                             AuthQuery::Action::CLEAR_ROLE,
