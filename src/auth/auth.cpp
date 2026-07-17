@@ -618,7 +618,9 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
 
 std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
                                                 const std::string &identity_provider_response) {
+  spdlog::info("SSO login attempt using scheme '{}'.", scheme);
   if (!HasAuthModulePrerequisites(scheme)) {
+    spdlog::warn("SSO login failed for scheme '{}'.", scheme);
     return std::nullopt;
   }
 
@@ -626,14 +628,22 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   params["scheme"] = scheme;
   params["response"] = identity_provider_response;
 
-  return CallExternalModule(scheme, std::move(params));
+  auto user_or_role = CallExternalModule(scheme, std::move(params));
+  if (!user_or_role) {
+    spdlog::warn("SSO login failed for scheme '{}'.", scheme);
+    return std::nullopt;
+  }
+  spdlog::info("SSO login succeeded for scheme '{}'.", scheme);
+  return user_or_role;
 }
 
 std::optional<std::vector<std::string>> Auth::SSOGetRoleNames(const std::string &scheme,
                                                               const std::string &identity_provider_response) {
   // Same enterprise-license + configured-module gate as the data-instance SSO path: a missing license or an unmapped
   // scheme rejects (returns nullopt), so SSO on coordinators is enterprise-gated too.
+  spdlog::info("Coordinator SSO login attempt using scheme '{}'.", scheme);
   if (!HasAuthModulePrerequisites(scheme)) {
+    spdlog::warn("Coordinator SSO login failed for scheme '{}'.", scheme);
     return std::nullopt;
   }
 
@@ -647,7 +657,14 @@ std::optional<std::vector<std::string>> Auth::SSOGetRoleNames(const std::string 
   // caller against the Raft-replicated coordinator role set.
   spdlog::trace("Calling external auth module for coordinator SSO scheme '{}'.", scheme);
   auto ret = modules_.at(scheme).Call(std::move(params), FLAGS_auth_module_timeout_ms);
-  return ExtractAuthenticatedRoleNames(ret);
+  auto role_names = ExtractAuthenticatedRoleNames(ret);
+  if (!role_names) {
+    spdlog::warn("Coordinator SSO login failed for scheme '{}'.", scheme);
+    return std::nullopt;
+  }
+  spdlog::info(
+      "Coordinator SSO login succeeded for scheme '{}' with roles: {}.", scheme, utils::JoinVector(*role_names, ", "));
+  return role_names;
 }
 
 void Auth::LinkUser(User &user) const {
