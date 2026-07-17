@@ -485,6 +485,8 @@ SLK_SINGLE_ARG_MSG(coordination::RevokePrivilegeReq)
 SLK_SINGLE_ARG_MSG(coordination::RevokePrivilegeRes)
 SLK_SINGLE_ARG_MSG(coordination::GetRolePrivilegesReq)
 SLK_SINGLE_ARG_MSG(coordination::GetRolePrivilegesRes)
+SLK_SINGLE_ARG_MSG(coordination::SetCoordinatorSettingReq)
+SLK_SINGLE_ARG_MSG(coordination::SetCoordinatorSettingRes)
 }  // namespace slk
 
 }  // namespace memgraph

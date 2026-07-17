@@ -51,7 +51,11 @@ if __name__ == "__main__":
     input_stream = io.FileIO(1000, mode="r")
     output_stream = io.FileIO(1001, mode="w")
     while True:
-        params = json.loads(input_stream.readline().decode("ascii"))
+        line = input_stream.readline()
+        if not line:
+            # Memgraph closed the pipe on shutdown; exit quietly instead of failing to parse an empty line.
+            break
+        params = json.loads(line.decode("ascii"))
         call_id = params.pop(MEMGRAPH_CALL_ID_KEY, None)
         ret = authenticate(**params)
         if call_id is not None:
