@@ -4563,7 +4563,10 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
     auto *vertex_ptr = GetVertexByGid(graph, result.vertex_gid, memory);
     if (!vertex_ptr) continue;
 #ifdef MG_ENTERPRISE
-    if (!VertexSearchHitReadable(vertex_ptr->getImpl(), *graph, searched)) continue;
+    if (!VertexSearchHitReadable(vertex_ptr->getImpl(), *graph, searched)) {
+      mgp_vertex_destroy(vertex_ptr);
+      continue;
+    }
 #endif
     vertices_with_scores.emplace_back(vertex_ptr, result.score);
   }
@@ -4676,7 +4679,10 @@ void WrapTextEdgeSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **r
     auto *edge_ptr = GetEdgeByGid(graph, edge_gid, from_vertex_gid, memory);
     if (!edge_ptr) continue;
 #ifdef MG_ENTERPRISE
-    if (!EdgeSearchHitReadable(std::get<memgraph::query::EdgeAccessor>(edge_ptr->impl), *graph, searched)) continue;
+    if (!EdgeSearchHitReadable(std::get<memgraph::query::EdgeAccessor>(edge_ptr->impl), *graph, searched)) {
+      mgp_edge_destroy(edge_ptr);
+      continue;
+    }
 #endif
     edges_with_scores.emplace_back(edge_ptr, score);
   }
