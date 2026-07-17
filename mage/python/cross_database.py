@@ -10,7 +10,6 @@ from decimal import Decimal
 from typing import Any, Dict, List
 
 import boto3
-import duckdb as duckDB
 import mgp
 import mysql.connector as mysql_connector
 import oracledb
@@ -1098,6 +1097,11 @@ def init_migrate_duckdb(ctx: mgp.ProcCtx, query: str, setup_queries: mgp.Nullabl
     :param setup_queries: Optional list of setup queries to execute before the main query
     """
     global duckdb_dict
+
+    # Imported lazily: duckdb's C extension can fail to load inside Memgraph's
+    # embedded Python interpreter, and a top-level import would take the whole
+    # cross_database module (all other drivers included) down with it.
+    import duckdb as duckDB
 
     setup_queries_str = json.dumps(setup_queries, sort_keys=False) if setup_queries else ""
     cache_key = _get_cache_key(ctx.graph.start_timestamp, query, {}, setup_queries_str)
