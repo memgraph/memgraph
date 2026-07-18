@@ -25,3 +25,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["analytical_mode/analytical_data_instance.py"]
     <<: *analytical_mode_data_instance
+
+  - name: "Storage mode flip under concurrent load"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["analytical_mode/storage_mode_stress.py"]
+    <<: *analytical_mode_cluster

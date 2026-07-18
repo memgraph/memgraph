@@ -1,0 +1,130 @@
+# Copyright 2026 Memgraph Ltd.
+#
+# Use of this software is governed by the Business Source License
+# included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+# License, and you may not use this file except in compliance with the Business Source License.
+#
+# As of the Change Date specified in that file, in accordance with
+# the Business Source License, use of this software will be governed
+# by the Apache License, Version 2.0, included in the file
+# licenses/APL.txt.
+
+"""
+Stress regression test for the InMemoryStorage::SetStorageMode double-unlock fix
+(src/storage/v2/inmemory/storage.cpp).
+
+Background
+----------
+SetStorageMode(), after taking a UNIQUE accessor on `main_lock_` (via UniqueAccess()),
+used to hand FreeMemory() a *second* std::unique_lock built with std::adopt_lock over
+main_lock_ -- adopting a lock acquisition that unique_accessor's own guard already
+owned. Two std::unique_lock objects "owning" the same acquisition each unlock it once:
+CollectGarbage's OnScopeExit unlocked it first, and then unique_accessor's destructor
+unlocked it *again* -- a double-unlock that leaves `main_lock_`'s internal bookkeeping
+broken, silently defeating mutual exclusion between UNIQUE (storage mode change) and
+concurrent SHARED (ordinary read/write) accessors.
+
+The fix (src/storage/v2/storage.hpp Accessor::ReleaseUniqueGuard(),
+src/storage/v2/inmemory/storage.cpp SetStorageMode()) hands FreeMemory() the *same*
+std::unique_lock object via a move, so there is exactly one owner and exactly one
+unlock.
+
+This test is belt-and-suspenders: it does not target the exact double-unlock
+mechanism (that needs a lock-internals unit test), it just hammers the observable
+symptom -- flip storage mode in a loop from one connection while other connections
+run concurrent reads/writes, and confirm the server survives the whole run without
+crashing, hanging, or throwing unexpected errors. A correctly-synchronized
+implementation just serializes the UNIQUE/SHARED acquisitions (readers/writers block
+briefly during a mode flip); a broken one can crash, corrupt state, or deadlock.
+"""
+
+import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import mgclient
+import pytest
+from common import connect, execute_and_fetch_all
+
+DURATION_SECONDS = 5
+NUM_WRITERS = 4
+NUM_READERS = 4
+JOIN_TIMEOUT_SECONDS = 60
+
+
+def _flip_storage_mode(stop_event: threading.Event, errors: list) -> None:
+    connection = mgclient.connect(host="localhost", port=7687)
+    connection.autocommit = True
+    cursor = connection.cursor()
+    try:
+        while not stop_event.is_set():
+            execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_ANALYTICAL;")
+            execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL;")
+    except Exception as exc:  # noqa: BLE001 - any exception here is itself the failure signal
+        errors.append(("storage-mode-flipper", repr(exc)))
+    finally:
+        connection.close()
+
+
+def _hammer_writes(worker_id: int, stop_event: threading.Event, errors: list) -> None:
+    connection = mgclient.connect(host="localhost", port=7687)
+    connection.autocommit = True
+    cursor = connection.cursor()
+    try:
+        while not stop_event.is_set():
+            execute_and_fetch_all(cursor, f"CREATE (:StorageModeStress {{writer: {worker_id}}})")
+    except Exception as exc:  # noqa: BLE001
+        errors.append((f"writer-{worker_id}", repr(exc)))
+    finally:
+        connection.close()
+
+
+def _hammer_reads(worker_id: int, stop_event: threading.Event, errors: list) -> None:
+    connection = mgclient.connect(host="localhost", port=7687)
+    connection.autocommit = True
+    cursor = connection.cursor()
+    try:
+        while not stop_event.is_set():
+            execute_and_fetch_all(cursor, "MATCH (n:StorageModeStress) RETURN count(n)")
+    except Exception as exc:  # noqa: BLE001
+        errors.append((f"reader-{worker_id}", repr(exc)))
+    finally:
+        connection.close()
+
+
+def test_storage_mode_flip_under_concurrent_load(connect):
+    """Flip storage mode under concurrent read/write load; assert no crash/hang/error.
+
+    Needs the post-rebuild binary to be a meaningful proof of the fix (the pre-fix
+    binary may or may not manifest the double-unlock symptom within this bounded run --
+    it is a race, not a deterministic failure). A hang here (surfaced as a
+    concurrent.futures.TimeoutError from as_completed) is just as valid a failure signal
+    as a raised exception or a dead connection: broken mutual exclusion can manifest as
+    either.
+    """
+    stop_event = threading.Event()
+    errors: list = []
+
+    with ThreadPoolExecutor(max_workers=1 + NUM_WRITERS + NUM_READERS) as pool:
+        futures = [pool.submit(_flip_storage_mode, stop_event, errors)]
+        futures += [pool.submit(_hammer_writes, i, stop_event, errors) for i in range(NUM_WRITERS)]
+        futures += [pool.submit(_hammer_reads, i, stop_event, errors) for i in range(NUM_READERS)]
+
+        time.sleep(DURATION_SECONDS)
+        stop_event.set()
+
+        for future in as_completed(futures, timeout=JOIN_TIMEOUT_SECONDS):
+            future.result()  # re-raise anything a worker thread didn't catch itself
+
+    assert not errors, f"Concurrent storage-mode flips produced unexpected errors: {errors}"
+
+    # Final connectivity check: the server must still be alive and responsive.
+    cursor = connect.cursor()
+    execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL;")
+    result = execute_and_fetch_all(cursor, "RETURN 1")
+    assert result == [(1,)]
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-rA"]))
