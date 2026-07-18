@@ -2171,6 +2171,34 @@ enum mgp_error mgp_pull_one(struct mgp_execution_result *exec_result, struct mgp
 
 void mgp_execution_result_destroy(struct mgp_execution_result *exec_result);
 
+/// Storage access a query requires. Mirrors the engine's internal accessor kinds.
+enum mgp_storage_access_type {
+  MGP_STORAGE_ACCESS_TYPE_NO_ACCESS,  // Touches no storage (e.g. transaction control, auth)
+  MGP_STORAGE_ACCESS_TYPE_UNIQUE,     // Exclusive access (schema/DDL, e.g. index/constraint in analytical mode)
+  MGP_STORAGE_ACCESS_TYPE_WRITE,      // Writes to graph data
+  MGP_STORAGE_ACCESS_TYPE_READ,       // Reads graph data or metadata
+  MGP_STORAGE_ACCESS_TYPE_READ_ONLY,  // Waits for writers to drain (e.g. index/constraint in transactional mode)
+};
+
+/// Determine which storage access `query` would require, without executing it or
+/// acquiring any storage lock. Lets a query module reject or skip statements it cannot
+/// run inside its own transaction (a WRITE procedure can never obtain UNIQUE or
+/// READ_ONLY access from within, so such statements would otherwise stall until timeout).
+/// `params` supplies the query parameters (may be NULL for none); they don't affect the
+/// resulting access type but must be provided if the query references them, since the
+/// query is parsed to determine its kind.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory.
+/// Any parse error is reported as a non-NO_ERROR mgp_error.
+enum mgp_error mgp_query_storage_access_type(struct mgp_graph *graph, const char *query, struct mgp_map *params,
+                                             enum mgp_storage_access_type *result);
+
+/// Retrieve the error message of the most recent failed mg API call on the current thread.
+/// Lets a module surface the real error text, which the mgp_error codes alone don't carry (e.g. a
+/// failed mgp_execute_query / mgp_pull_one). `*result` is set to NULL if the last call succeeded.
+/// The returned string is owned by the engine and valid only until the next mg API call on this
+/// thread; copy it if it must outlive that. Never fails.
+enum mgp_error mgp_error_message(const char **result);
+
 /// @}
 
 #ifdef __cplusplus

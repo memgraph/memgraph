@@ -9817,6 +9817,24 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   std::optional<storage::StorageAccessType> accessor_type_;
 };
 
+storage::StorageAccessType Interpreter::DetermineQueryStorageAccessType(const std::string &query,
+                                                                        UserParameters_fn params_getter,
+                                                                        QueryExtras const &extras) {
+  auto parse_res = Parse(query, params_getter, extras);
+  // Transaction control queries (BEGIN/COMMIT/ROLLBACK) don't touch the storage access lock.
+  if (std::holds_alternative<TransactionQuery>(parse_res)) {
+    return storage::StorageAccessType::NO_ACCESS;
+  }
+  auto &parsed_query = std::get<ParseInfo>(parse_res).parsed_query;
+  auto storage_mode = current_db_.db_acc_
+                          ? std::optional<storage::StorageMode>{(*current_db_.db_acc_)->storage()->GetStorageMode()}
+                          : std::nullopt;
+  QueryTransactionRequirements requirements{
+      parsed_query.using_schema_assert, parsed_query.is_cypher_read, storage_mode};
+  parsed_query.query->Accept(requirements);
+  return requirements.accessor_type_.value_or(storage::StorageAccessType::NO_ACCESS);
+}
+
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
   std::optional<memory::DbArenaScope> db_arena_scope;

@@ -1903,11 +1903,27 @@ class ExecutionHeaders {
   mgp_execution_headers *headers_;
 };
 
+/// Storage access a query requires, as reported without executing it.
+enum class StorageAccessType : uint8_t {
+  NoAccess,
+  Unique,
+  Write,
+  Read,
+  ReadOnly,
+};
+
 class QueryExecution {
  public:
   QueryExecution(mgp_graph *graph);
   ExecutionResult ExecuteQuery(std::string_view query, Map params = Map()) const;
   ExecutionResult ExecuteQuery(std::string query, Map params = Map()) const;
+
+  /// @brief Returns the storage access `query` would require, without executing it or
+  /// acquiring any storage lock. Useful to reject/skip statements the current transaction
+  /// cannot host (e.g. schema/DDL statements report Unique or ReadOnly). `params` must be
+  /// supplied if the query references parameters (they don't change the access type, but the
+  /// query is parsed to determine it).
+  StorageAccessType QueryStorageAccessType(std::string_view query, Map params = Map()) const;
 
  private:
   mgp_graph *graph_;
@@ -5298,6 +5314,31 @@ inline ExecutionResult QueryExecution::ExecuteQuery(std::string_view query, mgp:
 
 inline ExecutionResult QueryExecution::ExecuteQuery(std::string query, mgp::Map params) const {
   return ExecutionResult(mgp::MemHandlerCallback(execute_query, graph_, query.data(), params.ptr_), graph_);
+}
+
+inline StorageAccessType QueryExecution::QueryStorageAccessType(std::string_view query, Map params) const {
+  switch (mgp::query_storage_access_type(graph_, std::string(query).c_str(), params.ptr_)) {
+    case MGP_STORAGE_ACCESS_TYPE_NO_ACCESS:
+      return StorageAccessType::NoAccess;
+    case MGP_STORAGE_ACCESS_TYPE_UNIQUE:
+      return StorageAccessType::Unique;
+    case MGP_STORAGE_ACCESS_TYPE_WRITE:
+      return StorageAccessType::Write;
+    case MGP_STORAGE_ACCESS_TYPE_READ:
+      return StorageAccessType::Read;
+    case MGP_STORAGE_ACCESS_TYPE_READ_ONLY:
+      return StorageAccessType::ReadOnly;
+  }
+  return StorageAccessType::NoAccess;
+}
+
+/// @brief Returns the error message of the most recent failed mg API call on the current thread, or
+/// an empty string if the last call succeeded. Useful to recover the real error text after an
+/// operation (e.g. QueryExecution::ExecuteQuery / ExecutionResult::PullOne) fails, since the thrown
+/// mgp exceptions carry only a generic message.
+inline std::string LastErrorMessage() {
+  const char *message = mgp::error_message();
+  return message == nullptr ? std::string{} : std::string{message};
 }
 
 inline ExecutionResult::ExecutionResult(mgp_execution_result *result, mgp_graph *graph)

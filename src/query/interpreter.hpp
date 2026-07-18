@@ -378,6 +378,19 @@ class Interpreter final {
   }
 
   /**
+   * Determine the storage access type a query would require, without executing it or
+   * acquiring any storage lock. The query is parsed and inspected via the same logic
+   * used by Prepare to pick a transaction accessor, so DDL/schema statements report
+   * UNIQUE or READ_ONLY. Lets callers (e.g. query modules) reject or skip statements
+   * they cannot run inside their own transaction, instead of stalling on the access.
+   *
+   * @throw query::QueryException on parse errors
+   */
+  storage::StorageAccessType DetermineQueryStorageAccessType(const std::string &query,
+                                                             UserParameters_fn params_getter = no_params_fn,
+                                                             QueryExtras const &extras = {});
+
+  /**
    * Checks if the user has the required privileges to execute the query.
    *
    * @throw query::QueryException

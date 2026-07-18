@@ -1134,4 +1134,14 @@ inline const char *execution_headers_at(mgp_execution_headers *headers, size_t i
 inline mgp_map *pull_one(mgp_execution_result *result, mgp_graph *graph, mgp_memory *memory) {
   return MgInvoke<mgp_map *>(mgp_pull_one, result, graph, memory);
 }
+
+inline mgp_storage_access_type query_storage_access_type(mgp_graph *graph, const char *query, mgp_map *params) {
+  return MgInvoke<mgp_storage_access_type>(mgp_query_storage_access_type, graph, query, params);
+}
+
+inline const char *error_message() {
+  const char *result = nullptr;
+  mgp_error_message(&result);
+  return result;
+}
 }  // namespace mgp

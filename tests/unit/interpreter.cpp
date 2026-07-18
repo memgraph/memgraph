@@ -174,6 +174,29 @@ TYPED_TEST(InterpreterTest, MultiplePulls) {
   }
 }
 
+// Determining a query's storage access type parses and inspects the query without
+// acquiring any storage lock. Query modules use this to reject/skip statements they
+// cannot host: reads/writes report READ/WRITE, while schema/DDL reports UNIQUE or
+// READ_ONLY (which a WRITE procedure can never obtain from within its transaction).
+TYPED_TEST(InterpreterTest, DetermineQueryStorageAccessType) {
+  using memgraph::storage::StorageAccessType;
+  auto &interpreter = this->default_interpreter.interpreter;
+
+  EXPECT_EQ(interpreter.DetermineQueryStorageAccessType("RETURN 1"), StorageAccessType::READ);
+  EXPECT_EQ(interpreter.DetermineQueryStorageAccessType("CREATE (n:Person)"), StorageAccessType::WRITE);
+
+  // Transaction control never touches the storage access lock.
+  EXPECT_EQ(interpreter.DetermineQueryStorageAccessType("BEGIN"), StorageAccessType::NO_ACCESS);
+
+  // Schema/DDL statements report an access a WRITE procedure cannot acquire. The exact
+  // kind is storage-mode dependent (UNIQUE for on-disk, READ_ONLY for in-memory transactional).
+  const auto ddl_expected = std::is_same_v<TypeParam, memgraph::storage::DiskStorage> ? StorageAccessType::UNIQUE
+                                                                                      : StorageAccessType::READ_ONLY;
+  EXPECT_EQ(interpreter.DetermineQueryStorageAccessType("CREATE INDEX ON :Person(name)"), ddl_expected);
+  EXPECT_EQ(interpreter.DetermineQueryStorageAccessType("CREATE CONSTRAINT ON (n:Person) ASSERT n.name IS UNIQUE"),
+            ddl_expected);
+}
+
 // Run query with different ast twice to see if query executes correctly when
 // ast is read from cache.
 TYPED_TEST(InterpreterTest, AstCache) {

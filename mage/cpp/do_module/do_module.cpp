@@ -16,6 +16,8 @@
 #include <fmt/core.h>
 #include <mgp.hpp>
 
+#include "execute_query_utils.hpp"
+
 constexpr std::string_view kProcedureCase = "case";
 constexpr std::string_view kArgumentConditionals = "conditionals";
 constexpr std::string_view kArgumentElseQuery = "else_query";
@@ -35,161 +37,9 @@ const std::vector<std::string_view> kGlobalOperations = {"CREATE INDEX ON",
                                                          "STORAGE MODE IN_MEMORY_TRANSACTIONAL",
                                                          "STORAGE MODE IN_MEMORY_ANALYTICAL"};
 
-struct ParamNames {
-  std::vector<std::string> node_names;
-  std::vector<std::string> relationship_names;
-  std::vector<std::string> primitive_names;
-};
-
-struct QueryResults {
-  mgp::ExecutionHeaders columns;
-  mgp::List results;
-};
-
 namespace {
-ParamNames ExtractParamNames(const mgp::Map &parameters) {
-  ParamNames res;
-  for (const auto &map_item : parameters) {
-    switch (map_item.value.Type()) {
-      case mgp::Type::Node:
-        res.node_names.emplace_back(map_item.key);
-        break;
-      case mgp::Type::Relationship:
-        res.relationship_names.emplace_back(map_item.key);
-        break;
-      default:
-        res.primitive_names.emplace_back(map_item.key);
-    }
-  }
-
-  return res;
-}
-
-std::string Join(std::vector<std::string> const &strings, std::string_view delimiter) {
-  if (strings.empty()) {
-    return "";
-  }
-
-  auto joined_strings_size = strings[0].size();
-  for (size_t i = 1; i < strings.size(); i++) {
-    joined_strings_size += strings[i].size();
-  }
-
-  std::string joined_strings;
-  joined_strings.reserve(joined_strings_size + (delimiter.size() * (strings.size() - 1)));
-
-  joined_strings += strings[0];
-  for (size_t i = 1; i < strings.size(); i++) {
-    joined_strings += delimiter;
-    joined_strings += strings[i];
-  }
-
-  return joined_strings;
-}
-
-std::string GetGraphFirstClassEntityAlias(const std::string &entity_name) {
-  return fmt::format("${0} AS __{0}_id", entity_name);
-}
-
-std::string GetPrimitiveEntityAlias(const std::string &primitive_name) {
-  return fmt::format("${0} AS {0}", primitive_name);
-}
-
-std::string ConstructWithStatement(const ParamNames &names) {
-  std::vector<std::string> with_entity_vector;
-  with_entity_vector.reserve(names.node_names.size() + names.relationship_names.size() + names.primitive_names.size());
-  for (const auto &node_name : names.node_names) {
-    with_entity_vector.emplace_back(GetGraphFirstClassEntityAlias(node_name));
-  }
-  for (const auto &rel_name : names.relationship_names) {
-    with_entity_vector.emplace_back(GetGraphFirstClassEntityAlias(rel_name));
-  }
-  for (const auto &prim_name : names.primitive_names) {
-    with_entity_vector.emplace_back(GetPrimitiveEntityAlias(prim_name));
-  }
-
-  return fmt::format("WITH {}", Join(with_entity_vector, ", "));
-}
-
-std::string ConstructMatchingNodeById(const std::string &node_name) {
-  return fmt::format("MATCH ({0}) WHERE ID({0}) = __{0}_id", node_name);
-}
-
-std::string ConstructMatchingRelationshipById(const std::string &rel_name) {
-  return fmt::format("MATCH ()-[{0}]->() WHERE ID({0}) = __{0}_id", rel_name);
-}
-
-std::string ConstructMatchGraphEntitiesById(const ParamNames &names) {
-  std::string match_string;
-  std::vector<std::string> match_by_id_vector;
-  match_by_id_vector.reserve(names.node_names.size() + names.relationship_names.size());
-  for (const auto &node_name : names.node_names) {
-    match_by_id_vector.emplace_back(ConstructMatchingNodeById(node_name));
-  }
-  for (const auto &rel_name : names.relationship_names) {
-    match_by_id_vector.emplace_back(ConstructMatchingRelationshipById(rel_name));
-  }
-
-  if (!match_by_id_vector.empty()) {
-    match_string = Join(match_by_id_vector, " ");
-  }
-
-  return match_string;
-}
-
-// NOLINTNEXTLINE(clang-analyzer-optin.cplusplus.UninitializedObject)
-std::string ConstructQueryPreffix(const ParamNames &names) {
-  if (names.node_names.empty() && names.relationship_names.empty() && names.primitive_names.empty()) {
-    return {};
-  }
-
-  auto with_variables = ConstructWithStatement(names);
-  auto match_string = ConstructMatchGraphEntitiesById(names);
-
-  return fmt::format("{} {}", with_variables,
-                     match_string);  // NOLINT(clang-analyzer-optin.cplusplus.UninitializedObject)
-}
-
-// NOLINTNEXTLINE(clang-diagnostic-unused-function)
-std::string ConstructPreffixQuery(const mgp::Map &parameters) {
-  const auto param_names = ExtractParamNames(parameters);
-  // NOLINTNEXTLINE(clang-analyzer-optin.cplusplus.UninitializedObject)
-  return ConstructQueryPreffix(param_names);
-}
-
-std::string ConstructFinalQuery(const std::string &running_query, const std::string &preffix_query) {
-  return fmt::format("{} {}", preffix_query, running_query);
-}
-
-QueryResults ExecuteQuery(const mgp::QueryExecution &query_execution, const std::string &query,
-                          const mgp::Map &query_parameters) {
-  auto param_names = ExtractParamNames(query_parameters);
-  auto preffix_query = ConstructQueryPreffix(param_names);
-  auto final_query = ConstructFinalQuery(query, preffix_query);
-
-  auto results = query_execution.ExecuteQuery(final_query, query_parameters);
-
-  auto headers = results.Headers();
-
-  mgp::List result_list;
-  while (const auto maybe_result = results.PullOne()) {
-    if ((*maybe_result).Size() == 0) {
-      break;
-    }
-
-    const auto &result = *maybe_result;
-    result_list.AppendExtend(mgp::Value(result.Values()));
-  }
-
-  return QueryResults{.columns = headers, .results = std::move(result_list)};
-}
-
-void InsertConditionalResults(const mgp::RecordFactory &record_factory, const QueryResults &query_results) {
-  for (const auto &result : query_results.results) {
-    auto record = record_factory.NewRecord();
-    record.Insert(std::string(kReturnValue).c_str(), mgp::Value(result.ValueMap()));
-  }
-}
+using execute_query_utils::ExecuteQuery;
+using execute_query_utils::InsertQueryResults;
 
 bool IsGlobalOperation(std::string_view query) {
   return std::ranges::any_of(kGlobalOperations,
@@ -215,7 +65,7 @@ void When(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_mem
 
     const auto query_execution = mgp::QueryExecution(memgraph_graph);
     const auto query_results = ExecuteQuery(query_execution, query_to_execute, params);
-    InsertConditionalResults(record_factory, query_results);
+    InsertQueryResults(record_factory, query_results, kReturnValue);
     return;
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -272,7 +122,7 @@ void Case(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_mem
 
     const auto query_execution = mgp::QueryExecution(memgraph_graph);
     const auto query_results = ExecuteQuery(query_execution, query_to_execute, params);
-    InsertConditionalResults(record_factory, query_results);
+    InsertQueryResults(record_factory, query_results, kReturnValue);
     return;
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -285,18 +135,26 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   try {
     const mgp::MemoryDispatcherGuard guard{memory};
 
-    mgp::AddProcedure(Case, kProcedureCase, mgp::ProcedureType::Read,
+    mgp::AddProcedure(Case,
+                      kProcedureCase,
+                      mgp::ProcedureType::Read,
                       {mgp::Parameter(kArgumentConditionals, {mgp::Type::List, mgp::Type::Any}),
                        mgp::Parameter(kArgumentElseQuery, mgp::Type::String),
                        mgp::Parameter(kArgumentParams, mgp::Type::Map, mgp::Value(mgp::Map()))},
-                      {mgp::Return(kReturnValue, mgp::Type::Map)}, module, memory);
+                      {mgp::Return(kReturnValue, mgp::Type::Map)},
+                      module,
+                      memory);
 
-    mgp::AddProcedure(
-        When, kProcedureWhen, mgp::ProcedureType::Read,
-        {mgp::Parameter(kArgumentCondition, mgp::Type::Bool), mgp::Parameter(kArgumentIfQuery, mgp::Type::String),
-         mgp::Parameter(kArgumentElseQuery, mgp::Type::String),
-         mgp::Parameter(kArgumentParams, mgp::Type::Map, mgp::Value(mgp::Map()))},
-        {mgp::Return(kReturnValue, mgp::Type::Map)}, module, memory);
+    mgp::AddProcedure(When,
+                      kProcedureWhen,
+                      mgp::ProcedureType::Read,
+                      {mgp::Parameter(kArgumentCondition, mgp::Type::Bool),
+                       mgp::Parameter(kArgumentIfQuery, mgp::Type::String),
+                       mgp::Parameter(kArgumentElseQuery, mgp::Type::String),
+                       mgp::Parameter(kArgumentParams, mgp::Type::Map, mgp::Value(mgp::Map()))},
+                      {mgp::Return(kReturnValue, mgp::Type::Map)},
+                      module,
+                      memory);
 
   } catch (const std::exception &e) {
     return 1;

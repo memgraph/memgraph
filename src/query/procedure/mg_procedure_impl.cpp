@@ -157,6 +157,17 @@ concept ReturnsType = std::same_as<std::invoke_result_t<TFunc>, TReturn>;
 template <typename TFunc>
 concept ReturnsVoid = ReturnsType<TFunc, void>;
 
+// Message of the most recent failed mg API call on the current thread. Retrievable via
+// mgp_error_message so modules can surface the real error text (mgp_error codes alone are lossy).
+// Cleared at the start of every WrapExceptions call; valid only until the next mg API call.
+thread_local std::string g_last_mgp_error_message;
+
+mgp_error RecordMgpError(std::string_view context, std::string_view message, mgp_error code) {
+  g_last_mgp_error_message.assign(message);
+  spdlog::error("{}: {}", context, message);
+  return code;
+}
+
 template <ReturnsVoid TFunc>
 void WrapExceptionsHelper(TFunc &&func) {
   std::forward<TFunc>(func)();
@@ -171,55 +182,48 @@ void WrapExceptionsHelper(TFunc &&func, TReturn *result) {
 template <typename TFunc, typename... Args>
 [[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&...args) noexcept {
   static_assert(sizeof...(args) <= 1, "WrapExceptions should have only one or zero parameter!");
+  g_last_mgp_error_message.clear();
   try {
     memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
     WrapExceptionsHelper(std::forward<TFunc>(func), std::forward<Args>(args)...);
-  } catch (const DeletedObjectException &neoe) {
-    spdlog::error("Deleted object error during mg API call: {}", neoe.what());
-    return mgp_error::MGP_ERROR_DELETED_OBJECT;
-  } catch (const KeyAlreadyExistsException &kaee) {
-    spdlog::error("Key already exists error during mg API call: {}", kaee.what());
-    return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS;
-  } catch (const InsufficientBufferException &ibe) {
-    spdlog::error("Insufficient buffer error during mg API call: {}", ibe.what());
-    return mgp_error::MGP_ERROR_INSUFFICIENT_BUFFER;
-  } catch (const ImmutableObjectException &ioe) {
-    spdlog::error("Immutable object error during mg API call: {}", ioe.what());
-    return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT;
-  } catch (const ValueConversionException &vce) {
-    spdlog::error("Value converion error during mg API call: {}", vce.what());
-    return mgp_error::MGP_ERROR_VALUE_CONVERSION;
-  } catch (const SerializationException &se) {
-    spdlog::error("Serialization error during mg API call: {}", se.what());
-    return mgp_error::MGP_ERROR_SERIALIZATION_ERROR;
-  } catch (const AuthorizationException &ae) {
-    spdlog::error("Authorization error during mg API call: {}", ae.what());
-    return mgp_error::MGP_ERROR_AUTHORIZATION_ERROR;
-  } catch (const std::bad_alloc &bae) {
-    spdlog::error("Memory allocation error during mg API call: {}", bae.what());
-    return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE;
-  } catch (const memgraph::utils::OutOfMemoryException &oome) {
+  } catch (const DeletedObjectException &e) {
+    return RecordMgpError("Deleted object error during mg API call", e.what(), mgp_error::MGP_ERROR_DELETED_OBJECT);
+  } catch (const KeyAlreadyExistsException &e) {
+    return RecordMgpError(
+        "Key already exists error during mg API call", e.what(), mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS);
+  } catch (const InsufficientBufferException &e) {
+    return RecordMgpError(
+        "Insufficient buffer error during mg API call", e.what(), mgp_error::MGP_ERROR_INSUFFICIENT_BUFFER);
+  } catch (const ImmutableObjectException &e) {
+    return RecordMgpError("Immutable object error during mg API call", e.what(), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+  } catch (const ValueConversionException &e) {
+    return RecordMgpError("Value converion error during mg API call", e.what(), mgp_error::MGP_ERROR_VALUE_CONVERSION);
+  } catch (const SerializationException &e) {
+    return RecordMgpError("Serialization error during mg API call", e.what(), mgp_error::MGP_ERROR_SERIALIZATION_ERROR);
+  } catch (const AuthorizationException &e) {
+    return RecordMgpError("Authorization error during mg API call", e.what(), mgp_error::MGP_ERROR_AUTHORIZATION_ERROR);
+  } catch (const std::bad_alloc &e) {
+    return RecordMgpError(
+        "Memory allocation error during mg API call", e.what(), mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE);
+  } catch (const memgraph::utils::OutOfMemoryException &e) {
     [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
-    spdlog::error("Memory limit exceeded during mg API call: {}", oome.what());
-    return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE;
-  } catch (const std::out_of_range &oore) {
-    spdlog::error("Out of range error during mg API call: {}", oore.what());
-    return mgp_error::MGP_ERROR_OUT_OF_RANGE;
-  } catch (const std::invalid_argument &iae) {
-    spdlog::error("Invalid argument error during mg API call: {}", iae.what());
-    return mgp_error::MGP_ERROR_INVALID_ARGUMENT;
-  } catch (const std::logic_error &lee) {
-    spdlog::error("Logic error during mg API call: {}", lee.what());
-    return mgp_error::MGP_ERROR_LOGIC_ERROR;
+    return RecordMgpError(
+        "Memory limit exceeded during mg API call", e.what(), mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE);
+  } catch (const std::out_of_range &e) {
+    return RecordMgpError("Out of range error during mg API call", e.what(), mgp_error::MGP_ERROR_OUT_OF_RANGE);
+  } catch (const std::invalid_argument &e) {
+    return RecordMgpError("Invalid argument error during mg API call", e.what(), mgp_error::MGP_ERROR_INVALID_ARGUMENT);
+  } catch (const std::logic_error &e) {
+    return RecordMgpError("Logic error during mg API call", e.what(), mgp_error::MGP_ERROR_LOGIC_ERROR);
   } catch (const memgraph::utils::temporal::InvalidArgumentException &e) {
-    spdlog::error("Invalid argument was sent to an mg API call for temporal types: {}", e.what());
-    return mgp_error::MGP_ERROR_INVALID_ARGUMENT;
+    return RecordMgpError("Invalid argument was sent to an mg API call for temporal types",
+                          e.what(),
+                          mgp_error::MGP_ERROR_INVALID_ARGUMENT);
   } catch (const std::exception &e) {
-    spdlog::error("Unexpected error during mg API call: {}", e.what());
-    return mgp_error::MGP_ERROR_UNKNOWN_ERROR;
+    return RecordMgpError("Unexpected error during mg API call", e.what(), mgp_error::MGP_ERROR_UNKNOWN_ERROR);
   } catch (...) {
-    spdlog::error("Unexpected error during mg API call");
-    return mgp_error::MGP_ERROR_UNKNOWN_ERROR;
+    return RecordMgpError(
+        "Unexpected error during mg API call", "Unknown exception!", mgp_error::MGP_ERROR_UNKNOWN_ERROR);
   }
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
@@ -5644,6 +5648,9 @@ mgp_error mgp_pull_one(mgp_execution_result *exec_result, mgp_graph *graph, mgp_
         try {
           exec_result->pImpl->interpreter->Pull(&stream, 1, {});
         } catch (const std::exception &e) {
+          // Pull's error is otherwise lost (a null result is indistinguishable from "no more rows");
+          // stash it so the caller can retrieve it via mgp_error_message.
+          g_last_mgp_error_message.assign(e.what());
           return nullptr;
         }
 
@@ -5660,4 +5667,45 @@ mgp_error mgp_pull_one(mgp_execution_result *exec_result, mgp_graph *graph, mgp_
         return NewRawMgpObject<mgp_map>(memory->impl, std::move(items));
       },
       result);
+}
+
+mgp_error mgp_query_storage_access_type(mgp_graph *graph, const char *query, mgp_map *params,
+                                        mgp_storage_access_type *result) {
+  return WrapExceptions(
+      [graph, query, params]() -> mgp_storage_access_type {
+        auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
+        // Fresh interpreter, parse only: no transaction is set up and no storage lock is taken.
+        auto interpreter = memgraph::query::Interpreter(&instance,
+                                                        instance.dbms_handler->Get(
+#ifdef MG_ENTERPRISE
+                                                            graph->getImpl()->DatabaseName()
+#endif
+                                                                ));
+        interpreter.SetUser(graph->ctx->user_or_role);
+        auto query_params_func =
+            [params](memgraph::storage::Storage const *) -> memgraph::storage::ExternalPropertyValue::map_t {
+          return params ? CreateQueryParams(params) : memgraph::storage::ExternalPropertyValue::map_t{};
+        };
+        switch (interpreter.DetermineQueryStorageAccessType(std::string(query), query_params_func)) {
+          case memgraph::storage::StorageAccessType::NO_ACCESS:
+            return MGP_STORAGE_ACCESS_TYPE_NO_ACCESS;
+          case memgraph::storage::StorageAccessType::UNIQUE:
+            return MGP_STORAGE_ACCESS_TYPE_UNIQUE;
+          case memgraph::storage::StorageAccessType::WRITE:
+            return MGP_STORAGE_ACCESS_TYPE_WRITE;
+          case memgraph::storage::StorageAccessType::READ:
+            return MGP_STORAGE_ACCESS_TYPE_READ;
+          case memgraph::storage::StorageAccessType::READ_ONLY:
+            return MGP_STORAGE_ACCESS_TYPE_READ_ONLY;
+        }
+        return MGP_STORAGE_ACCESS_TYPE_NO_ACCESS;
+      },
+      result);
+}
+
+mgp_error mgp_error_message(const char **result) {
+  // Deliberately does not go through WrapExceptions (which clears the last-error message).
+  // The returned pointer is valid until the next mg API call on this thread.
+  *result = g_last_mgp_error_message.empty() ? nullptr : g_last_mgp_error_message.c_str();
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }

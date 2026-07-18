@@ -34,6 +34,7 @@
   "apoc.create.setRelProperty": "create.set_rel_property",
   "apoc.create.setRelProperties": "create.set_rel_properties",
   "apoc.create.uuid": "uuid_generator.get",
+  "apoc.cypher.doIt": "cypher.doIt",
   "apoc.date.add": "date.add",
   "apoc.date.format": "date.format",
   "apoc.date.parse": "date.parse",
