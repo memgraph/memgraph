@@ -13,9 +13,11 @@
 
 #include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -33,6 +35,7 @@
 #include "utils/gatekeeper.hpp"
 #include "utils/priority_thread_pool.hpp"
 #include "utils/resource_monitoring.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -105,6 +108,27 @@ struct InterpreterContext {
 
   static std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,
                                                            std::string_view db_name);
+
+  /// Idle-in-transaction watchdog: periodic scan (driven by idle_transaction_scanner_) over
+  /// `interpreters` that finds explicit (BEGIN'd) transactions with no query currently executing
+  /// whose last activity is older than --query-idle-in-transaction-warn-sec /
+  /// --query-idle-in-transaction-abort-sec. Warn tracking always runs (log + metric); abort is
+  /// opt-in (threshold defaults to 0 = disabled) and, when it fires, reuses the exact same
+  /// transaction_status_ CAS path as TERMINATE TRANSACTIONS (TerminateTransactions() below) --
+  /// no new cross-thread abort mechanism is introduced.
+  void ScanIdleTransactions();
+
+  // Drives ScanIdleTransactions() at a fixed cadence. Owned here (not in storage/dbms) because
+  // this is the one place that already owns cross-session access to `interpreters`, the same way
+  // SHOW/TERMINATE TRANSACTIONS do.
+  utils::Scheduler idle_transaction_scanner_;
+
+  // Rate-limits the *log line* emitted per idle transaction id (the metric counter itself still
+  // bumps every scan tick). Keyed by transaction id; pruned each tick to drop ids that are no
+  // longer idle-in-transaction (committed/rolled back/dropped below threshold), so this never
+  // grows unbounded.
+  utils::Synchronized<std::unordered_map<uint64_t, std::chrono::steady_clock::time_point>, utils::SpinLock>
+      idle_warn_last_logged_;
 
   // TODO: Make this constructor private
   InterpreterContext(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,

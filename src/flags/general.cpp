@@ -255,6 +255,28 @@ DEFINE_string(query_callable_mappings_path, "",
               "pairs in a json file. With this option query module procedures that do not exist in memgraph can be "
               "mapped to ones that exist.");
 
+// Idle-in-transaction watchdog. An explicit BEGIN holds its storage accessor (and any
+// main_lock_ share/unique) until COMMIT/ROLLBACK/RESET/close; the per-query execution timeout
+// (--query-execution-timeout-sec) only fires while a query is actually running, so a session
+// that issues BEGIN and then goes idle can hold those resources forever. The background scan
+// (InterpreterContext::ScanIdleTransactions) always tracks + warns once idle time crosses the
+// warn threshold (set to 0 to disable warning); it only *aborts* -- via the same cross-thread
+// termination path TERMINATE TRANSACTIONS uses -- when the abort threshold is explicitly set
+// above 0. Default is 0 (disabled): no deployment starts auto-terminating idle sessions unless
+// an operator opts in.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_uint64(query_idle_in_transaction_warn_sec, 60,
+                        "Warn (and count in metrics) when an explicit (BEGIN'd) transaction has been idle -- no "
+                        "query currently executing -- for this many seconds. Set to 0 to disable.",
+                        FLAG_IN_RANGE(0, 30UL * 24 * 3600));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_uint64(query_idle_in_transaction_abort_sec, 0,
+                        "Abort an explicit (BEGIN'd) transaction that has been idle -- no query currently executing "
+                        "-- for this many seconds, using the same cross-thread termination path as TERMINATE "
+                        "TRANSACTIONS. 0 (default) disables aborting; only --query-idle-in-transaction-warn-sec "
+                        "tracking is ever on by default.",
+                        FLAG_IN_RANGE(0, 30UL * 24 * 3600));
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
