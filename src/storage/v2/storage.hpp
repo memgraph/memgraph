@@ -336,6 +336,37 @@ class Storage {
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level);
   std::unique_ptr<Accessor> ReadOnlyAccess();
 
+  /// Non-blocking counterpart to Access(): attempts to acquire main_lock_ in the requested mode
+  /// WITHOUT blocking. Returns std::nullopt (creating NO transaction, throwing NOTHING) if the
+  /// lock is not immediately available -- the caller must fall back to the blocking Access() (or
+  /// simply retry TryAccess() later) if it still wants the access.
+  ///
+  /// WRITE/READ probe via a plain non-blocking try_lock_shared: they never gate other acquirers,
+  /// so there is nothing to register as pending. READ_ONLY probes via a single-shot
+  /// utils::ReadOnlyPendingScope::try_acquire() so that a caller retrying TryAccess(READ_ONLY,
+  /// ...) in a loop gets the same priority-over-new-WRITE a blocking ReadOnlyAccess() call
+  /// already gets (see utils::ReadOnlyPendingScope's docs in resource_lock.hpp).
+  ///
+  /// Base implementation is a safe no-op stub: it always returns std::nullopt without ever
+  /// touching main_lock_, so storage engines that don't (yet) implement non-blocking access
+  /// (currently: DiskStorage) get correct, side-effect-free behaviour for free. InMemoryStorage
+  /// overrides this with the real non-blocking implementation.
+  virtual std::optional<std::unique_ptr<Accessor>> TryAccess(
+      StorageAccessType rw_type, std::optional<IsolationLevel> override_isolation_level = std::nullopt);
+
+  /// Non-blocking counterpart to UniqueAccess(). Uses a single-shot
+  /// utils::UniquePendingScope::try_acquire() so a caller retrying TryUniqueAccess() in a loop
+  /// gets writer-preference against new shared (READ/WRITE/READ_ONLY) acquirers, same as a
+  /// blocking UniqueAccess() call. See TryAccess() for the no-transaction-on-failure contract and
+  /// the safe-stub default (inherited as-is by DiskStorage).
+  virtual std::optional<std::unique_ptr<Accessor>> TryUniqueAccess(
+      std::optional<IsolationLevel> override_isolation_level = std::nullopt);
+
+  /// Non-blocking counterpart to ReadOnlyAccess(). See TryAccess() for the contract and the
+  /// safe-stub default (inherited as-is by DiskStorage).
+  virtual std::optional<std::unique_ptr<Accessor>> TryReadOnlyAccess(
+      std::optional<IsolationLevel> override_isolation_level = std::nullopt);
+
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
   std::expected<void, SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
@@ -506,6 +537,31 @@ class Accessor {
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+
+  // "Owning" variants of the three tags above: used by Storage::TryAccess/TryUniqueAccess/
+  // TryReadOnlyAccess (see storage.cpp) once a non-blocking probe against main_lock_ has ALREADY
+  // succeeded. Unlike the timeout-taking constructors above (which perform the acquisition
+  // themselves via CreateSharedGuard/CreateUniqueGuard), these take an already-locked guard by
+  // value/move and simply adopt it -- no locking is attempted here, so construction can never
+  // block or fail. This mirrors ReleaseUniqueGuard()'s hand-off model in reverse: there, an
+  // Accessor gives up an already-held guard to a caller; here, a caller that already holds a
+  // guard (obtained via a non-blocking try_lock/try_acquire) hands it INTO a new Accessor.
+  static constexpr struct SharedAccessOwning {
+  } shared_access_owning;
+
+  static constexpr struct UniqueAccessOwning {
+  } unique_access_owning;
+
+  static constexpr struct ReadOnlyAccessOwning {
+  } read_only_access_owning;
+
+  Accessor(SharedAccessOwning /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+           StorageAccessType rw_type, utils::SharedResourceLockGuard already_locked_guard);
+  Accessor(UniqueAccessOwning /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+           std::unique_lock<utils::ResourceLock> already_locked_guard);
+  Accessor(ReadOnlyAccessOwning /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+           utils::SharedResourceLockGuard already_locked_guard);
+
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;
   Accessor &operator=(Accessor &&other) = delete;
@@ -531,6 +587,23 @@ class Accessor {
       }
     }
     return NO_ACCESS;
+  }
+
+  /// Hands off ownership of this accessor's UNIQUE lock on `main_lock_` to the caller.
+  /// Only valid when this accessor currently holds the UNIQUE lock (i.e. it was constructed
+  /// via UniqueAccess()). After this call, `type()` reports NO_ACCESS and the accessor no
+  /// longer performs any unlock at destruction — the returned std::unique_lock becomes the
+  /// SOLE owner of the acquisition and the caller is responsible for its eventual unlock.
+  ///
+  /// This exists so call sites that need to pass the already-held UNIQUE lock into another
+  /// function (e.g. CollectGarbage/FreeMemory) do so by moving the *same* std::unique_lock
+  /// object, instead of constructing a second std::unique_lock with std::adopt_lock over the
+  /// same mutex. Two std::unique_lock objects adopting one acquisition both believe they own
+  /// it and will each unlock it once, producing a double-unlock when both are eventually
+  /// released/destroyed.
+  auto ReleaseUniqueGuard() -> std::unique_lock<utils::ResourceLock> {
+    MG_ASSERT(unique_guard_.owns_lock(), "ReleaseUniqueGuard requires the accessor to hold the UNIQUE lock");
+    return std::move(unique_guard_);
   }
 
   virtual VertexAccessor CreateVertex() = 0;

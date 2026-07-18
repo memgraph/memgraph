@@ -195,6 +195,22 @@ class InMemoryStorage final : public Storage {
                               StorageMode storage_mode,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
+    // "Owning" constructors used by InMemoryStorage::TryAccess/TryUniqueAccess/TryReadOnlyAccess
+    // once a non-blocking probe against main_lock_ has already succeeded (see
+    // Storage::Accessor's SharedAccessOwning/UniqueAccessOwning/ReadOnlyAccessOwning tags in
+    // storage.hpp for the full rationale). No locking happens in these constructors -- the guard
+    // is already held and is simply adopted/forwarded to the base Accessor.
+    explicit InMemoryAccessor(Storage::Accessor::SharedAccessOwning tag, InMemoryStorage *storage,
+                              IsolationLevel isolation_level, StorageMode storage_mode, StorageAccessType rw_type,
+                              utils::SharedResourceLockGuard already_locked_guard);
+    // Shared by UniqueAccessOwning (std::unique_lock<utils::ResourceLock>) and ReadOnlyAccessOwning
+    // (utils::SharedResourceLockGuard) -- disambiguated by the guard's type, same pattern as the
+    // generic `auto tag` overload above disambiguating on the timeout parameter's type.
+    explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
+                              StorageMode storage_mode, std::unique_lock<utils::ResourceLock> already_locked_guard);
+    explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
+                              StorageMode storage_mode, utils::SharedResourceLockGuard already_locked_guard);
+
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
 
     std::expected<void, ConstraintViolation> UniqueConstraintsViolation() const;
@@ -747,6 +763,18 @@ class InMemoryStorage final : public Storage {
   using Storage::ReadOnlyAccess;
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
                                            std::optional<std::chrono::milliseconds> timeout) override;
+
+  // Default arguments are not virtual/inherited: when TryAccess() etc. are called directly on a
+  // concrete InMemoryStorage expression (as opposed to through a Storage* / Storage& base
+  // reference), ordinary member lookup resolves to THIS class's own declaration, so the default
+  // has to be repeated here too (matching the base's std::nullopt) for e.g. `store.TryAccess(READ)`
+  // to compile without spelling out the isolation-level override.
+  std::optional<std::unique_ptr<Accessor>> TryAccess(
+      StorageAccessType rw_type, std::optional<IsolationLevel> override_isolation_level = std::nullopt) override;
+  std::optional<std::unique_ptr<Accessor>> TryUniqueAccess(
+      std::optional<IsolationLevel> override_isolation_level = std::nullopt) override;
+  std::optional<std::unique_ptr<Accessor>> TryReadOnlyAccess(
+      std::optional<IsolationLevel> override_isolation_level = std::nullopt) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) override;
 

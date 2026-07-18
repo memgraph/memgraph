@@ -18,6 +18,7 @@
 #include "disk_test_utils.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -2824,4 +2825,112 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterAbort) {
     ASSERT_EQ(counts[label2], 1);
     ASSERT_EQ(counts[label3], 0);
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Storage::TryAccess / TryUniqueAccess / TryReadOnlyAccess: non-blocking counterparts to
+// Access()/UniqueAccess()/ReadOnlyAccess(). InMemoryStorage provides the real (main_lock_-probing)
+// implementation, so these tests exercise it directly rather than going through the
+// InMemoryStorage/DiskStorage TYPED_TEST_SUITE above (DiskStorage currently inherits Storage's
+// safe no-op stub, which always returns std::nullopt regardless of contention -- there is nothing
+// meaningful to assert about "returns a valid accessor when free" for that stub).
+class StorageTryAccessTest : public ::testing::Test {
+ protected:
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+};
+
+TEST_F(StorageTryAccessTest, SucceedsAndReturnsUsableAccessorWhenFree) {
+  using namespace memgraph::storage;
+
+  auto acc = store.TryAccess(READ);
+  ASSERT_TRUE(acc.has_value());
+  ASSERT_NE(*acc, nullptr);
+  EXPECT_EQ((*acc)->type(), READ);
+  EXPECT_NO_THROW((*acc)->CreateVertex());
+  EXPECT_NO_THROW((*acc)->Abort());
+  acc.reset();  // destroy the accessor to release its main_lock_ share (Abort() alone does not)
+
+  auto write_acc = store.TryAccess(WRITE);
+  ASSERT_TRUE(write_acc.has_value());
+  EXPECT_EQ((*write_acc)->type(), WRITE);
+  EXPECT_NO_THROW((*write_acc)->Abort());
+  write_acc.reset();
+
+  auto unique_acc = store.TryUniqueAccess();
+  ASSERT_TRUE(unique_acc.has_value());
+  EXPECT_EQ((*unique_acc)->type(), UNIQUE);
+  EXPECT_NO_THROW((*unique_acc)->Abort());
+  unique_acc.reset();
+
+  auto ro_acc = store.TryReadOnlyAccess();
+  ASSERT_TRUE(ro_acc.has_value());
+  EXPECT_EQ((*ro_acc)->type(), READ_ONLY);
+  EXPECT_NO_THROW((*ro_acc)->Abort());
+}
+
+// UNIQUE held -> every non-blocking probe (of every kind) must report nullopt, must not throw,
+// and -- crucially -- must not have silently created (and then discarded) a transaction while
+// probing. We prove the "no transaction created" part by comparing Transaction::transaction_id
+// sequencing: InMemoryStorage's transaction id counter is strictly monotonic and only advances
+// when Storage::CreateTransaction() actually runs (which only happens once an Accessor is
+// constructed), so if any nullopt attempt below had spuriously created a transaction, the id
+// observed after releasing UNIQUE would jump by more than 1.
+TEST_F(StorageTryAccessTest, UniqueHeldBlocksNewSharedWithoutCreatingATransaction) {
+  using namespace memgraph::storage;
+
+  auto unique_acc = store.UniqueAccess();  // blocking call; trivially succeeds, nothing else held
+  ASSERT_NE(unique_acc, nullptr);
+  const uint64_t unique_id = unique_acc->GetTransaction()->transaction_id;
+
+  EXPECT_FALSE(store.TryAccess(READ).has_value());
+  EXPECT_FALSE(store.TryAccess(WRITE).has_value());
+  EXPECT_FALSE(store.TryReadOnlyAccess().has_value());
+  EXPECT_FALSE(store.TryUniqueAccess().has_value());
+
+  unique_acc->Abort();
+  unique_acc.reset();  // releases the UNIQUE hold on main_lock_
+
+  auto after = store.TryAccess(READ);
+  ASSERT_TRUE(after.has_value());
+  EXPECT_EQ((*after)->GetTransaction()->transaction_id, unique_id + 1)
+      << "a TryAccess/TryUniqueAccess/TryReadOnlyAccess nullopt path created a transaction it "
+         "should not have";
+  (*after)->Abort();
+}
+
+// Mirror of the above but the OTHER conflict direction: a held shared (READ) lock must block a
+// new TryUniqueAccess(), while still allowing further compatible shared acquisitions through.
+TEST_F(StorageTryAccessTest, SharedHeldBlocksNewUniqueButNotNewCompatibleShared) {
+  using namespace memgraph::storage;
+
+  auto read_acc = store.Access(READ);  // blocking call; trivially succeeds
+  ASSERT_NE(read_acc, nullptr);
+
+  EXPECT_FALSE(store.TryUniqueAccess().has_value());
+
+  // READ is not exclusive with itself/WRITE -- a second READ probe should still succeed.
+  auto another_read = store.TryAccess(READ);
+  ASSERT_TRUE(another_read.has_value());
+  EXPECT_NO_THROW((*another_read)->Abort());
+
+  read_acc->Abort();
+}
+
+// READ_ONLY held -> conflicts with WRITE (both directly and via TryAccess(WRITE)), matching the
+// existing WRITE vs READ_ONLY mutual exclusion enforced by ResourceLock.
+TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
+  using namespace memgraph::storage;
+
+  auto ro_acc = store.ReadOnlyAccess();  // blocking call; trivially succeeds
+  ASSERT_NE(ro_acc, nullptr);
+
+  EXPECT_FALSE(store.TryAccess(WRITE).has_value());
+
+  ro_acc->Abort();
+  ro_acc.reset();  // destroy the accessor to release its READ_ONLY main_lock_ share (Abort() alone does not)
+
+  auto write_acc = store.TryAccess(WRITE);
+  EXPECT_TRUE(write_acc.has_value());
+  if (write_acc) EXPECT_NO_THROW((*write_acc)->Abort());
 }
