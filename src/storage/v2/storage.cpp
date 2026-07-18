@@ -119,6 +119,15 @@ std::unique_ptr<Accessor> Storage::ReadOnlyAccess(std::optional<IsolationLevel> 
 
 std::unique_ptr<Accessor> Storage::ReadOnlyAccess() { return ReadOnlyAccess({}, std::nullopt); }
 
+// Safe no-op stub: a storage engine only gets real non-blocking access once it overrides this (see
+// InMemoryStorage::TryAccess). Never touching main_lock_ here means it is trivially correct for any
+// Storage subtype that doesn't override it (currently: DiskStorage) -- "would block" is always a
+// truthful answer for a probe that was never actually attempted.
+std::unique_ptr<Accessor> Storage::TryAccess(StorageAccessType /*rw_type*/,
+                                             std::optional<IsolationLevel> /*override_isolation_level*/) {
+  return nullptr;
+}
+
 Storage::Accessor::Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level,
                             utils::ResourceLockGuard guard)
     : storage_(storage),

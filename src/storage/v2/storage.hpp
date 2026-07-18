@@ -371,6 +371,31 @@ class Storage {
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level);
   std::unique_ptr<Accessor> ReadOnlyAccess();
 
+  /// Non-blocking counterpart to Access(), covering every mode including UNIQUE and READ_ONLY:
+  /// acquires an accessor in `rw_type` if main_lock_ admits it right now, returning nullptr if it
+  /// does not. Never blocks, never throws, and creates no transaction when it fails -- the caller
+  /// falls back to the blocking Access() or retries later.
+  ///
+  /// Admission, not just "is it free": a waiting UNIQUE gates the shared modes, so this reports
+  /// failure while one is pending even though nobody holds the lock. That yields to the waiter
+  /// rather than jumping ahead of it.
+  ///
+  /// One probe, so it grants no priority of its own: a caller looping on this is an ordinary
+  /// contender each time and can be starved by a stream of compatible holders. A caller that needs
+  /// to be preferred while it retries holds a utils::UniquePendingScope or ReadOnlyPendingScope
+  /// across the whole loop (see TryAccessWithPending, which the park path uses).
+  ///
+  /// Base is a safe stub returning nullptr without ever touching main_lock_, so engines with no
+  /// non-blocking probe (DiskStorage) behave correctly for free; InMemoryStorage overrides it.
+  virtual std::unique_ptr<Accessor> TryAccess(StorageAccessType rw_type,
+                                              std::optional<IsolationLevel> override_isolation_level = {});
+
+  /// Whether this engine supports the coro-prepare park-acquire path (a caller-held pending scope
+  /// kept across a retry campaign plus a real TryAccess). False by default: DiskStorage never
+  /// overrides TryAccess, so parking against it would just spin to the deadline -- park is
+  /// InMemory-only for v1. Overridden `true` in InMemoryStorage.
+  virtual bool SupportsParkAcquire() const { return false; }
+
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
   std::expected<void, SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
@@ -1270,7 +1295,7 @@ class Accessor {
  protected:
   Storage *storage_;
   /// One guard for all four ways to hold main_lock_. The mode is mutable state, not a property of
-  /// this type: a READ_ONLY hold downgrades to READ, and ReleaseUniqueGuard() leaves nothing held.
+  /// this type: a READ_ONLY hold downgrades to READ, and ReleaseGuard() leaves nothing held.
   utils::ResourceLockGuard guard_;
   /// IMPORTANT: constructed after the guard, both for destruction order and so that the mode and
   /// isolation level it captures are read under that guard.
