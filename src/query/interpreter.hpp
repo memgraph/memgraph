@@ -28,6 +28,7 @@
 #include "system/transaction.hpp"
 #include "utils/event_trigger.hpp"
 #include "utils/memory.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
 #include "utils/session_context.hpp"
 #include "utils/spin_lock.hpp"
@@ -255,6 +256,11 @@ struct CurrentDB {
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
+    // Without this, a session that pinned an explicit db (Bolt-level db-routing metadata, see
+    // RuntimeConfig::Configure()) would leave in_explicit_db_ == true even though db_acc_ is now
+    // empty, wrongly blocking `USE <db>` (see PrepareUseDatabaseQuery's in_explicit_db_ check) for
+    // whatever session/config comes next on this CurrentDB.
+    in_explicit_db_ = false;
   }
 
   std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
@@ -448,6 +454,20 @@ class Interpreter final {
    */
   void Abort();
 
+  /**
+   * Clear per-connection "sticky" state that must not leak across a pooled Bolt connection
+   * reuse (RESET) or a full LogOff/teardown.
+   *
+   * This is intentionally NOT folded into Abort(): Abort() is also invoked for ordinary
+   * ROLLBACK, CheckAuthorized() failures, and autocommit-abort paths (AbortCommand()), all of
+   * which happen mid-session -- clearing a USE'd db or the one-shot next-transaction isolation
+   * override there would incorrectly wipe out state set earlier in the very same logical
+   * session. Only call this from a RESET-specific or teardown path; today that is exactly
+   * SessionHL::Abort(), which is itself invoked only from the Bolt RESET handler and from
+   * SessionHL::LogOff() -- never from a mid-session rollback/error.
+   */
+  void ResetForConnectionReuse();
+
   struct TxVerifier {
     TxVerifier(TransactionStatus original_status, std::atomic<TransactionStatus> &transaction_status)
         : original_status_(original_status), transaction_status_(transaction_status) {}
@@ -487,6 +507,20 @@ class Interpreter final {
   // is used for start_time; steady_clock for elapsed_ms (immune to NTP / manual clock jumps).
   std::chrono::system_clock::time_point transaction_start_time_{};
   std::chrono::steady_clock::time_point transaction_start_steady_{};
+
+  // Idle-in-transaction watchdog support (InterpreterContext::ScanIdleTransactions).
+  // last_activity_steady_ns_ is stamped (steady_clock, nanosecond rep) every time this
+  // interpreter finishes a unit of work: transaction start (SetupInterpreterTransaction),
+  // Prepare(), or Pull(). query_in_progress_ is true strictly while a Prepare()/Pull() call is
+  // actually running on this interpreter's owning thread. Both are plain atomics with
+  // relaxed/acquire-release ordering local to themselves -- this is advisory monitoring data
+  // read by a background scan, not something other code depends on for correctness, so it does
+  // not need to ride the transaction_status_ VERIFYING protocol the way current_transaction_ and
+  // transaction_start_* do. The scan still reads in_explicit_transaction_ under
+  // TryAcquireForVerification() (same as ShowTransactionsUsingDBName), since that field itself
+  // is a plain bool with no atomicity of its own.
+  std::atomic<int64_t> last_activity_steady_ns_{0};
+  std::atomic<bool> query_in_progress_{false};
 
   void ResetUser();
 
@@ -644,6 +678,17 @@ class Interpreter final {
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
+  // Idle-in-transaction watchdog: mark this interpreter as actively working for the duration of
+  // Pull(), and stamp the last-activity clock on exit (success or exception) so a background scan
+  // (InterpreterContext::ScanIdleTransactions) never mistakes an in-flight pull for an idle gap
+  // between statements of an explicit (BEGIN'd) transaction.
+  query_in_progress_.store(true, std::memory_order_release);
+  const utils::OnScopeExit idle_watchdog_activity_guard([this] {
+    last_activity_steady_ns_.store(std::chrono::steady_clock::now().time_since_epoch().count(),
+                                   std::memory_order_relaxed);
+    query_in_progress_.store(false, std::memory_order_release);
+  });
+
   // Update the TLS arena index used to route allocations to the correct database arena.
   // The previous arena is restored on scope exit so pool threads are unaffected.
   std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;

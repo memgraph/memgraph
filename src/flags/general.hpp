@@ -139,6 +139,15 @@ DECLARE_string(query_modules_directory);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(query_callable_mappings_path);
 
+// Idle-in-transaction watchdog: an explicit (BEGIN'd) transaction that is holding its storage
+// accessor / main_lock_ share with no query currently executing. Warn-tracking is always on
+// (disable by setting the warn threshold to 0); the abort side is opt-in and defaults to
+// disabled (0) so no existing deployment starts auto-terminating sessions.
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(query_idle_in_transaction_warn_sec);
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(query_idle_in_transaction_abort_sec);
+
 namespace memgraph::flags {
 auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
 }  // namespace memgraph::flags

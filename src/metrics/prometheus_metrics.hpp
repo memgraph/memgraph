@@ -300,6 +300,12 @@ struct GlobalMetricHandles {
   prometheus::Counter *write_query;
   prometheus::Counter *read_write_query;
 
+  // Idle-in-transaction watchdog (global — instance-wide scan, not attributed to a single db).
+  // warnings: bumped every scan tick a transaction is found idle past the warn threshold.
+  // aborted: bumped once per transaction actually terminated past the abort threshold.
+  prometheus::Counter *idle_in_transaction_warnings;
+  prometheus::Counter *idle_in_transaction_aborted;
+
   // HighAvailability counters
   prometheus::Counter *successful_failovers;
   prometheus::Counter *raft_failed_failovers;
@@ -574,6 +580,10 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Histogram> &database_resume_latency_family_;
 
   // No separate global families needed — global no-db counters reuse the per-db families with no label
+
+  // Global metric families — idle-in-transaction watchdog
+  prometheus::Family<prometheus::Counter> &idle_in_transaction_warnings_family_;
+  prometheus::Family<prometheus::Counter> &idle_in_transaction_aborted_family_;
 
   // Global metric families — HA counters
   prometheus::Family<prometheus::Counter> &successful_failovers_family_;
