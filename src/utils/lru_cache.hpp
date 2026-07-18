@@ -19,7 +19,13 @@
 namespace memgraph::utils {
 
 /// A simple LRU cache implementation.
-/// It is not thread-safe.
+/// put()/get()/invalidate()/reset() mutate item_list (recency order) and are
+/// NOT thread-safe against each other or against themselves concurrently.
+/// peek() is the sole exception: it performs only a map lookup and a value
+/// copy, touching neither item_list nor item_map's structure, so it is safe
+/// to call concurrently with other peek() calls (e.g. many readers holding
+/// only a shared/read lock) as long as no put()/get()/invalidate() runs at
+/// the same time (those still require exclusive access).
 
 template <class TKey, class TVal, class TAlloc = std::allocator<std::pair<const TKey, TVal>>>
 class LRUCache {
@@ -43,6 +49,27 @@ class LRUCache {
       return std::nullopt;
     }
     item_list.splice(item_list.begin(), item_list, it->second);
+    return it->second->second;
+  }
+
+  /// Non-mutating lookup: returns the cached value (a copy) without moving
+  /// the entry to the front of item_list, i.e. WITHOUT bumping LRU recency.
+  /// Use this from concurrent readers that only need the value (e.g. a
+  /// plan-cache hit path) and cannot tolerate taking an exclusive lock just
+  /// to call get(). Tradeoff: entries looked up only via peek() age towards
+  /// eviction as if they were never accessed, so hot entries that are always
+  /// read via peek() (never put()/invalidated()) can be evicted "early" by
+  /// try_clean() even though they are still in active use. For a bounded
+  /// plan cache this is acceptable — eviction becomes approximate-LRU rather
+  /// than exact-LRU, but correctness is unaffected: a cache miss just costs a
+  /// re-plan, and the returned value is an independent copy (a shared_ptr
+  /// copy for the plan cache), so it stays valid regardless of what later
+  /// happens to the cache entry.
+  std::optional<TVal> peek(const TKey &key) const {
+    auto const it = item_map.find(key);
+    if (it == item_map.end()) {
+      return std::nullopt;
+    }
     return it->second->second;
   }
 

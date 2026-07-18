@@ -248,8 +248,17 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
   // Skip plan cache when using experimental v2 planner - plans may change as v2 evolves
   const bool use_plan_cache = plan_cache && !flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2);
   if (use_plan_cache) {
+    // Cache-hit lookup uses a shared (read) lock + LRUCache::peek() instead of an
+    // exclusive lock + get(). get() mutates item_list to splice the hit to the front
+    // for recency tracking, which would race under concurrent readers; peek() only
+    // does a map lookup and returns a copy of the shared_ptr, so many Prepare()s can
+    // hit the cache in parallel instead of serializing on every lookup. Tradeoff:
+    // reads no longer bump LRU recency, so eviction becomes approximate-LRU rather
+    // than exact-LRU (see LRUCache::peek() doc comment in utils/lru_cache.hpp).
+    // Correctness is unaffected: put()/invalidate() below still take the exclusive
+    // WithLock, and the value handed back is an independent shared_ptr copy.
     auto existing_plan =
-        plan_cache->WithLock([&](PlanCache_t &cache) { return cache.get(stripped_query.stripped_query()); });
+        plan_cache->WithReadLock([&](PlanCache_t const &cache) { return cache.peek(stripped_query.stripped_query()); });
     if (existing_plan) {
       // validate the index usage
       auto &ptr = existing_plan.value();
