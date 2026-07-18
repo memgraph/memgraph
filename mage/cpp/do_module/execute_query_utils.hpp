@@ -165,6 +165,28 @@ inline QueryResults ExecuteQuery(const mgp::QueryExecution &query_execution, con
   return QueryResults{.columns = headers, .results = std::move(result_list)};
 }
 
+// Runs a statement in the caller's (current) transaction. Graph-entity parameters are passed
+// through natively — the entity is the same live handle in the same snapshot — so no ID-rebind
+// prefix is generated (and none is needed).
+inline QueryResults ExecuteQueryInCurrentTransaction(const mgp::QueryExecution &query_execution,
+                                                     const std::string &query, const mgp::Map &query_parameters) {
+  auto results = query_execution.ExecuteQueryInCurrentTransaction(query, query_parameters);
+
+  auto headers = results.Headers();
+
+  mgp::List result_list;
+  while (const auto maybe_result = results.PullOne()) {
+    if ((*maybe_result).Size() == 0) {
+      break;
+    }
+
+    const auto &result = *maybe_result;
+    result_list.AppendExtend(mgp::Value(result.Values()));
+  }
+
+  return QueryResults{.columns = headers, .results = std::move(result_list)};
+}
+
 // Emits one record per result row, each row wrapped as a map under `return_name`.
 inline void InsertQueryResults(const mgp::RecordFactory &record_factory, const QueryResults &query_results,
                                std::string_view return_name) {

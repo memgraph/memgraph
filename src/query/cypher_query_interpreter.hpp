@@ -69,9 +69,14 @@ class LogicalPlan {
 
 using UserParameters = storage::ExternalPropertyValue::map_t;
 
+// Graph-entity parameters (node/relationship) keyed by parameter name. Kept separate from the
+// scalar UserParameters because graph entities are not valid property values. Populated only by
+// callers that can supply live entities (query modules running in the caller's transaction).
+using EntityParameters = std::unordered_map<std::string, EntityRef>;
+
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
-                            parameters::Parameters const *server_parameters, std::string_view database_uuid)
-    -> Parameters;
+                            parameters::Parameters const *server_parameters, std::string_view database_uuid,
+                            EntityParameters const *entity_parameters = nullptr) -> Parameters;
 
 class PlanWrapper {
  public:
@@ -122,7 +127,8 @@ struct ParsedQuery {
 
 ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters, AstCache *cache,
                        const InterpreterConfig::Query &query_config, std::string_view database_uuid,
-                       parameters::Parameters const *server_parameters);
+                       parameters::Parameters const *server_parameters,
+                       EntityParameters const *entity_parameters = nullptr);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:

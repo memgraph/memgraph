@@ -48,8 +48,8 @@ namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
-                            parameters::Parameters const *server_parameters, std::string_view database_uuid)
-    -> Parameters {
+                            parameters::Parameters const *server_parameters, std::string_view database_uuid,
+                            EntityParameters const *entity_parameters) -> Parameters {
   Parameters parameters{stripped_query.literals()};
 
   auto try_server_param = [&](int param_index, std::string_view param_key, std::string_view scope) -> bool {
@@ -63,6 +63,15 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
   };
 
   for (const auto &[param_index, param_key] : stripped_query.parameters()) {
+    // Graph-entity parameters live in a separate channel; they and scalar parameters are keyed by
+    // disjoint token positions.
+    if (entity_parameters) {
+      auto eit = entity_parameters->find(param_key);
+      if (eit != entity_parameters->end()) {
+        parameters.AddEntity(param_index, eit->second);
+        continue;
+      }
+    }
     auto it = user_parameters.find(param_key);
     if (it != user_parameters.end()) {
       parameters.Add(param_index, it->second);
@@ -77,7 +86,7 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
 
 ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const &user_parameters, AstCache *cache,
                        const InterpreterConfig::Query &query_config, std::string_view database_uuid,
-                       parameters::Parameters const *server_parameters) {
+                       parameters::Parameters const *server_parameters, EntityParameters const *entity_parameters) {
   // Drop leading whitespace so prefix-stripping consumers (EXPLAIN, PROFILE)
   // can rely on the query starting with its first significant character.
   std::string query_string{utils::LTrim(raw_query_string)};
@@ -90,7 +99,8 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
 
   // Get parameters (user + database-scoped then global server parameters when database_uuid provided).
   // Used for visitor resolution of dynamic labels/edge types and for execution.
-  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters, server_parameters, database_uuid);
+  auto query_parameters =
+      PrepareQueryParameters(stripped_query, user_parameters, server_parameters, database_uuid, entity_parameters);
 
   // Cache the query's AST if it isn't already.
   auto const &cache_key = stripped_query.stripped_query();

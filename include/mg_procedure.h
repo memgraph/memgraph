@@ -2163,6 +2163,15 @@ struct mgp_execution_result;
 enum mgp_error mgp_execute_query(struct mgp_graph *graph, struct mgp_memory *memory, const char *query,
                                  struct mgp_map *params, struct mgp_execution_result **result);
 
+/// Executes `query` inside the transaction already open on the calling procedure's graph, rather
+/// than in a fresh transaction. The nested statement observes and mutates the same snapshot as the
+/// caller, with the caller's user identity and access-control checks. Only valid from a write
+/// procedure (requires a writable graph). Non-Cypher statements and statements that would commit
+/// mid-execution (USING PERIODIC COMMIT / CALL ... IN TRANSACTIONS) are rejected.
+enum mgp_error mgp_execute_query_in_current_transaction(struct mgp_graph *graph, struct mgp_memory *memory,
+                                                        const char *query, struct mgp_map *params,
+                                                        struct mgp_execution_result **result);
+
 enum mgp_error mgp_fetch_execution_headers(struct mgp_execution_result *exec_result,
                                            struct mgp_execution_headers **result);
 

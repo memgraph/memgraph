@@ -409,9 +409,19 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
               context.bound_symbols.insert(sym);
               result_symbols.push_back(sym);
             }
-            // TODO: When we add support for write and eager procedures, we will
-            // need to plan this operator with Accumulate and pass in
-            // storage::View::NEW.
+            // A write procedure may mutate the same graph the outer input is still scanning.
+            // Drain the input first (Accumulate below the CallProcedure) so the outer scan sees
+            // a fixed set of rows and cannot pick up the procedure's own writes as phantoms.
+            // Downstream and cross-row reads intentionally stay live: context.is_write_query is
+            // deliberately NOT set here, so a later WITH/RETURN does not additionally batch the
+            // per-row procedure results. (The View::NEW half of the original TODO is handled in
+            // CallProcedureCursor::Pull.)
+            // Only when there is outer input to drain: a leading CALL (no preceding clause) has a
+            // null input_op and nothing to make eager.
+            if (call_proc->is_write_ && input_op) {
+              auto accumulated_symbols = input_op->ModifiedSymbols(*context.symbol_table);
+              input_op = std::make_unique<Accumulate>(std::move(input_op), accumulated_symbols, is_root_query);
+            }
             input_op = std::make_unique<plan::CallProcedure>(std::move(input_op),
                                                              call_proc->procedure_name_,
                                                              call_proc->arguments_,

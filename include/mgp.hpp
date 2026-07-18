@@ -1918,6 +1918,14 @@ class QueryExecution {
   ExecutionResult ExecuteQuery(std::string_view query, Map params = Map()) const;
   ExecutionResult ExecuteQuery(std::string query, Map params = Map()) const;
 
+  /// @brief Executes `query` inside the transaction already open on the calling procedure's graph,
+  /// rather than in a fresh transaction. The nested statement observes and mutates the same
+  /// snapshot as the caller, with the caller's identity and access-control checks. Only valid from
+  /// a write procedure. Non-Cypher statements and statements that would commit mid-execution
+  /// (USING PERIODIC COMMIT / CALL ... IN TRANSACTIONS) are rejected.
+  ExecutionResult ExecuteQueryInCurrentTransaction(std::string_view query, Map params = Map()) const;
+  ExecutionResult ExecuteQueryInCurrentTransaction(std::string query, Map params = Map()) const;
+
   /// @brief Returns the storage access `query` would require, without executing it or
   /// acquiring any storage lock. Useful to reject/skip statements the current transaction
   /// cannot host (e.g. schema/DDL statements report Unique or ReadOnly). `params` must be
@@ -5314,6 +5322,15 @@ inline ExecutionResult QueryExecution::ExecuteQuery(std::string_view query, mgp:
 
 inline ExecutionResult QueryExecution::ExecuteQuery(std::string query, mgp::Map params) const {
   return ExecutionResult(mgp::MemHandlerCallback(execute_query, graph_, query.data(), params.ptr_), graph_);
+}
+
+inline ExecutionResult QueryExecution::ExecuteQueryInCurrentTransaction(std::string_view query, mgp::Map params) const {
+  return ExecuteQueryInCurrentTransaction(std::string(query), params);
+}
+
+inline ExecutionResult QueryExecution::ExecuteQueryInCurrentTransaction(std::string query, mgp::Map params) const {
+  return ExecutionResult(
+      mgp::MemHandlerCallback(execute_query_in_current_transaction, graph_, query.data(), params.ptr_), graph_);
 }
 
 inline StorageAccessType QueryExecution::QueryStorageAccessType(std::string_view query, Map params) const {

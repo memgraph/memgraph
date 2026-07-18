@@ -615,6 +615,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
       return literal->value_;
     } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {
+      // A graph-entity parameter has no scalar property value; treat it as unknown at plan time.
+      if (parameters.IsEntity(param_lookup->token_position_)) return std::nullopt;
       return parameters.AtTokenPosition(param_lookup->token_position_);
     }
     return std::nullopt;

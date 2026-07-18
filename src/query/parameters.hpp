@@ -22,6 +22,15 @@
  */
 namespace memgraph::query {
 
+/// A reference to a graph entity (node/relationship) passed as a query parameter. Graph entities
+/// are not valid property values, so they cannot live in the scalar parameter store; they are
+/// kept separately and resolved to a live accessor by gid at evaluation time.
+struct EntityRef {
+  enum class Kind : uint8_t { kVertex, kEdge };
+  storage::Gid gid;
+  Kind kind;
+};
+
 struct Parameters {
  public:
   /**
@@ -50,8 +59,28 @@ struct Parameters {
 
   auto end() const { return storage_.end(); }
 
+  /**
+   * Adds a graph-entity parameter under a token position. Entity and scalar parameters occupy
+   * disjoint token positions (a parameter name is bound to exactly one channel), so a position is
+   * never present in both maps.
+   */
+  void AddEntity(int position, EntityRef ref) { entity_storage_.emplace(position, ref); }
+
+  /// Whether any graph-entity parameters are present (fast opt-out on the common scalar path).
+  bool HasEntityParams() const { return !entity_storage_.empty(); }
+
+  /// Whether the given token position holds a graph-entity parameter.
+  bool IsEntity(int position) const { return entity_storage_.contains(position); }
+
+  /// Returns the entity parameter at the given token position, or nullptr if none.
+  const EntityRef *FindEntity(int position) const {
+    const auto found = entity_storage_.find(position);
+    return found == entity_storage_.end() ? nullptr : &found->second;
+  }
+
  private:
   std::unordered_map<int, storage::ExternalPropertyValue> storage_;
+  std::unordered_map<int, EntityRef> entity_storage_;
 };
 
 }  // namespace memgraph::query

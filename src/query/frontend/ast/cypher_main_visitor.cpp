@@ -3077,6 +3077,9 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
     } else if (label_name->parameter()) {
       // If we have a parameter, we have to resolve it.
       const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
+      if (parameters_->IsEntity(param_lookup->token_position_)) {
+        throw SemanticException("A graph entity cannot be used as a dynamic node label.");
+      }
       const auto &param_property = parameters_->AtTokenPosition(param_lookup->token_position_);
 
       if (param_property.IsString()) {
@@ -3460,6 +3463,9 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(MemgraphCypher::Relation
     } else if (edge_type->parameter()) {
       // If we have a parameter, we have to resolve it.
       const auto *param_lookup = std::any_cast<ParameterLookup *>(edge_type->accept(this));
+      if (parameters_->IsEntity(param_lookup->token_position_)) {
+        throw SemanticException("A graph entity cannot be used as a dynamic relationship type.");
+      }
       const auto edge_type_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
       types.emplace_back(storage_->GetEdgeTypeIx(edge_type_name));
 

@@ -3706,6 +3706,41 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       .slow_query_plan_renderer = std::move(slow_query_plan_renderer)};
 }
 
+namespace {
+// Detects operators that commit the transaction mid-pull (PERIODIC COMMIT / CALL ... IN
+// TRANSACTIONS). Such a commit is fatal on a borrowed transaction — it would commit the
+// caller's transaction out from under the still-running outer cursor.
+class MidPullCommitDetector final : public plan::HierarchicalLogicalOperatorVisitor {
+ public:
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool Visit(plan::Once & /*unused*/) override { return true; }
+
+  bool PreVisit(plan::PeriodicCommit & /*unused*/) override {
+    found_ = true;
+    return false;
+  }
+
+  bool PreVisit(plan::PeriodicSubquery & /*unused*/) override {
+    found_ = true;
+    return false;
+  }
+
+  bool found_{false};
+};
+
+// Walks the whole plan (including nested subqueries) for a mid-pull commit.
+bool PlanCommitsMidPull(const plan::LogicalOperator &root) {
+  MidPullCommitDetector detector;
+  // Accept is non-const only because visitors may mutate; ours does not. Same pattern as
+  // ProvidePlanHints / PrettyPrint, which also take a const plan and const_cast to walk it.
+  const_cast<plan::LogicalOperator &>(root).Accept(detector);  // NOLINT(cppcoreguidelines-pro-type-const-cast)
+  return detector.found_;
+}
+}  // namespace
+
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notification> *notifications,
                                   InterpreterContext *interpreter_context, Interpreter &interpreter,
                                   CurrentDB &current_db) {
@@ -3969,6 +4004,125 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
 }
 
 }  // namespace
+
+struct BorrowedTransactionExecution::Impl {
+  plan::v2::QueryPlannerContext planner_context;
+  std::shared_ptr<PlanWrapper> plan;
+  std::vector<Symbol> output_symbols;
+  std::vector<std::string> header;
+  FrameChangeCollector frame_change_collector;
+  std::unique_ptr<PullPlan> pull_plan;
+  std::map<std::string, TypedValue> summary;
+  bool done{false};
+};
+
+BorrowedTransactionExecution::BorrowedTransactionExecution(InterpreterContext *interpreter_context, DbAccessor *dba,
+                                                           ExecutionContext const &caller_ctx, std::string const &query,
+                                                           UserParameters const &params,
+                                                           EntityParameters const &entity_params,
+                                                           utils::MemoryResource *execution_memory)
+    : impl_(std::make_unique<Impl>()) {
+  MG_ASSERT(interpreter_context, "Interpreter context must not be NULL");
+  MG_ASSERT(dba, "Borrowed DbAccessor must not be NULL");
+
+  // Resolve the owning database (for the plan cache and stripped-query uuid). Everything else
+  // needed to run the plan (metric handles, arena, protector, auth) is taken from the caller's
+  // live ExecutionContext so the nested statement shares the caller's identity and resources.
+  auto db_acc = interpreter_context->dbms_handler->Get(dba->DatabaseName());
+  std::string const database_uuid{db_acc->uuid()};
+
+  auto parsed_query = ParseQuery(query,
+                                 params,
+                                 &interpreter_context->ast_cache,
+                                 interpreter_context->config.query,
+                                 database_uuid,
+                                 interpreter_context->parameters,
+                                 &entity_params);
+
+  // Guard 1: only Cypher statements. Non-Cypher (AUTH/STREAM/EXPLAIN/CREATE TRIGGER/DUMP/...)
+  // parse to other AST nodes that would null-deref the Cypher planner below, and are not
+  // covered by the storage-access-type probe callers use.
+  auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+  if (!cypher_query) {
+    throw QueryException("Only Cypher queries can be executed in the current transaction.");
+  }
+
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+  const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
+  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->pre_query_directives_.hops_limit_);
+
+  auto *plan_cache = parsed_query.is_cacheable ? db_acc->plan_cache() : nullptr;
+  impl_->plan = CypherQueryToPlan(parsed_query.stripped_query,
+                                  std::move(parsed_query.ast_storage),
+                                  cypher_query,
+                                  parsed_query.parameters,
+                                  plan_cache,
+                                  dba,
+                                  impl_->planner_context);
+
+  // Guard 2: no mid-pull commit anywhere in the plan tree (any nesting depth).
+  if (PlanCommitsMidPull(impl_->plan->plan())) {
+    throw QueryException(
+        "USING PERIODIC COMMIT and CALL ... IN TRANSACTIONS are not supported when executing in the current "
+        "transaction.");
+  }
+
+  impl_->output_symbols = impl_->plan->plan().OutputSymbols(impl_->plan->symbol_table());
+  impl_->header.reserve(impl_->output_symbols.size());
+  for (const auto &symbol : impl_->output_symbols) {
+    impl_->header.push_back(
+        utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
+  }
+
+  PrepareCaching(impl_->plan->ast_storage(), &impl_->frame_change_collector);
+
+  // Borrow the caller's transaction: forward identity (user/role), fine-grained access-control
+  // checker, stopping context (transaction status / shutdown / timer), database protector,
+  // metric handles and arena from the caller's ExecutionContext. No trigger-context collector
+  // is passed — nested writes do not feed the outer transaction's trigger collector. Parallel
+  // execution is disabled for nested statements.
+  MG_ASSERT(caller_ctx.metric_handles, "Caller ExecutionContext must have metric handles");
+  impl_->pull_plan =
+      std::make_unique<PullPlan>(impl_->plan,
+                                 parsed_query.parameters,
+                                 /*is_profile_query=*/false,
+                                 dba,
+                                 interpreter_context,
+                                 execution_memory,
+                                 caller_ctx.user_or_role,
+                                 caller_ctx.stopping_context,
+                                 caller_ctx.protector ? caller_ctx.protector->clone() : nullptr,
+                                 *caller_ctx.metric_handles,
+                                 caller_ctx.auth_checker,
+                                 /*trigger_context_collector=*/nullptr,
+                                 memory_limit,
+                                 impl_->frame_change_collector.AnyCaches() ? &impl_->frame_change_collector : nullptr,
+                                 hops_limit,
+                                 interpreter_context->worker_pool,
+                                 caller_ctx.db_arena_pool
+#ifdef MG_ENTERPRISE
+                                 ,
+                                 /*parallel_execution=*/std::nullopt,
+                                 /*user_resource=*/std::shared_ptr<utils::UserResources>{}
+#endif
+      );
+}
+
+BorrowedTransactionExecution::~BorrowedTransactionExecution() = default;
+
+const std::vector<std::string> &BorrowedTransactionExecution::Headers() const { return impl_->header; }
+
+bool BorrowedTransactionExecution::Pull(AnyStream *stream, std::optional<int> n) {
+  if (impl_->done) return true;
+  // PullPlan::Pull returns an engaged optional only once the plan is fully drained; nullopt
+  // means "more rows remain, call again".
+  auto finished = impl_->pull_plan->Pull(stream, n, impl_->output_symbols, &impl_->summary);
+  if (finished.has_value()) impl_->done = true;
+  return impl_->done;
+}
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {

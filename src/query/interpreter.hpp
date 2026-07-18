@@ -273,6 +273,40 @@ struct CurrentDB {
 using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;
 constexpr auto no_params_fn = [](storage::Storage const *) -> UserParameters { return {}; };
 
+/// Executes a single Cypher statement inside a transaction that is already open and owned by
+/// the caller (e.g. a query-module procedure running inside the interpreter's transaction).
+/// The plan is driven directly against the borrowed @c DbAccessor with NO transaction
+/// lifecycle calls (no setup/commit/abort) — the caller retains sole ownership of the
+/// transaction. The caller's fine-grained-access-control checker, user, stopping context and
+/// database protector are forwarded, so the nested statement runs with the caller's identity
+/// and permissions in the same snapshot.
+///
+/// Statements that cannot safely share a borrowed transaction are rejected at construction:
+/// non-Cypher statements (they would null-deref the Cypher planner), and statements that would
+/// commit mid-pull (@c USING @c PERIODIC @c COMMIT or @c CALL ... @c IN @c TRANSACTIONS), which
+/// would commit the borrowed transaction out from under the caller.
+class BorrowedTransactionExecution final {
+ public:
+  BorrowedTransactionExecution(InterpreterContext *interpreter_context, DbAccessor *dba,
+                               ExecutionContext const &caller_ctx, std::string const &query,
+                               UserParameters const &params, EntityParameters const &entity_params,
+                               utils::MemoryResource *execution_memory);
+  ~BorrowedTransactionExecution();
+  BorrowedTransactionExecution(const BorrowedTransactionExecution &) = delete;
+  BorrowedTransactionExecution &operator=(const BorrowedTransactionExecution &) = delete;
+  BorrowedTransactionExecution(BorrowedTransactionExecution &&) = delete;
+  BorrowedTransactionExecution &operator=(BorrowedTransactionExecution &&) = delete;
+
+  const std::vector<std::string> &Headers() const;
+  /// Pulls up to @p n rows (all remaining if nullopt), streaming each into @p stream.
+  /// Returns true once the plan is fully drained.
+  bool Pull(AnyStream *stream, std::optional<int> n);
+
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
+
 class Interpreter final {
  public:
   explicit Interpreter(InterpreterContext *interpreter_context);

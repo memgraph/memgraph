@@ -5583,21 +5583,46 @@ memgraph::storage::ExternalPropertyValue::map_t CreateQueryParams(mgp_map *param
   return query_params;
 }
 
+// Splits a parameter map into scalar parameters and graph-entity parameters. Graph entities
+// (nodes/relationships) are not valid property values, so they are routed to a separate channel
+// keyed by name; the query engine resolves them to live accessors by gid in its transaction.
+void CreateQueryParamsWithEntities(mgp_map *params, memgraph::storage::ExternalPropertyValue::map_t &scalars,
+                                   memgraph::query::EntityParameters &entities) {
+  if (params == nullptr) return;
+  std::visit(
+      [&](const auto &items) {
+        for (const auto &[k, v] : items) {
+          switch (v.type) {
+            case MGP_VALUE_TYPE_VERTEX: {
+              const auto gid = std::visit([](const auto &a) { return a.Gid(); }, v.vertex_v->impl);
+              entities.emplace(std::string{k},
+                               memgraph::query::EntityRef{gid, memgraph::query::EntityRef::Kind::kVertex});
+              break;
+            }
+            case MGP_VALUE_TYPE_EDGE: {
+              const auto gid = std::visit([](const auto &a) { return a.Gid(); }, v.edge_v->impl);
+              entities.emplace(std::string{k},
+                               memgraph::query::EntityRef{gid, memgraph::query::EntityRef::Kind::kEdge});
+              break;
+            }
+            default:
+              scalars.emplace(k, ToExternalPropertyValue(v));
+          }
+        }
+      },
+      params->items);
+}
+
 struct mgp_execution_result::pImplMgpExecutionResult {
+  // Separate-transaction path: owns its own Interpreter (and hence its own transaction).
   std::unique_ptr<memgraph::query::Interpreter> interpreter;
+  // Caller's-transaction path: drives a plan against the caller's borrowed transaction.
+  std::unique_ptr<memgraph::query::BorrowedTransactionExecution> borrowed;
   std::unique_ptr<mgp_execution_headers> headers;
 };
 
-mgp_execution_result::mgp_execution_result(mgp_graph *graph, allocator_type alloc)
-    : pImpl(std::make_unique<pImplMgpExecutionResult>()), alloc(alloc) {
-  auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
-  pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(&instance,
-                                                                      instance.dbms_handler->Get(
-#ifdef MG_ENTERPRISE
-                                                                          graph->getImpl()->DatabaseName()
-#endif
-                                                                              ));
-}
+mgp_execution_result::mgp_execution_result(mgp_graph * /*graph*/, allocator_type alloc)
+    : pImpl(std::make_unique<pImplMgpExecutionResult>()), alloc(alloc) {}
 
 void mgp_execution_result_destroy(mgp_execution_result *exec_result) { DeleteRawMgpObject(exec_result); }
 
@@ -5615,6 +5640,12 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
 
         auto *result = NewRawMgpObject<mgp_execution_result>(memory->impl, graph);
+        result->pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(&instance,
+                                                                                    instance.dbms_handler->Get(
+#ifdef MG_ENTERPRISE
+                                                                                        graph->getImpl()->DatabaseName()
+#endif
+                                                                                            ));
         result->pImpl->interpreter->SetUser(graph->ctx->user_or_role);
 
         instance.interpreters.WithLock(
@@ -5636,6 +5667,39 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
       result);
 }
 
+mgp_error mgp_execute_query_in_current_transaction(mgp_graph *graph, mgp_memory *memory, const char *query,
+                                                   mgp_map *params, mgp_execution_result **result) {
+  return WrapExceptions(
+      [query, params, graph, memory]() -> mgp_execution_result * {
+        // The caller's transaction and execution context are reached through graph->ctx, which
+        // is only populated for a writable graph (i.e. inside a WRITE-mode procedure).
+        if (graph->ctx == nullptr) {
+          throw std::logic_error{
+              "Executing a query in the current transaction is only possible from a write procedure."};
+        }
+        auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
+
+        memgraph::storage::ExternalPropertyValue::map_t query_params;
+        memgraph::query::EntityParameters entity_params;
+        CreateQueryParamsWithEntities(params, query_params, entity_params);
+
+        auto *result = NewRawMgpObject<mgp_execution_result>(memory->impl, graph);
+        // Constructs, parses, guards and plans against the caller's borrowed transaction. Throws
+        // (recorded by WrapExceptions) on a non-Cypher statement or a mid-pull-commit statement.
+        result->pImpl->borrowed = std::make_unique<memgraph::query::BorrowedTransactionExecution>(
+            &instance, graph->getImpl(), *graph->ctx, std::string(query), query_params, entity_params, memory->impl);
+
+        memgraph::utils::pmr::vector<memgraph::utils::pmr::string> headers(memory->impl);
+        for (const auto &header : result->pImpl->borrowed->Headers()) {
+          headers.emplace_back(header);
+        }
+        result->pImpl->headers = std::make_unique<mgp_execution_headers>(std::move(headers));
+
+        return result;
+      },
+      result);
+}
+
 mgp_error mgp_fetch_execution_headers(mgp_execution_result *exec_result, mgp_execution_headers **result) {
   return WrapExceptions([exec_result]() { return exec_result->pImpl->headers.get(); }, result);
 }
@@ -5646,7 +5710,13 @@ mgp_error mgp_pull_one(mgp_execution_result *exec_result, mgp_graph *graph, mgp_
         MgProcedureResultStream stream(memory);
 
         try {
-          exec_result->pImpl->interpreter->Pull(&stream, 1, {});
+          if (exec_result->pImpl->borrowed) {
+            // Caller's-transaction path: drive the borrowed cursor directly.
+            memgraph::query::AnyStream any_stream{&stream, memory->impl};
+            exec_result->pImpl->borrowed->Pull(&any_stream, 1);
+          } else {
+            exec_result->pImpl->interpreter->Pull(&stream, 1, {});
+          }
         } catch (const std::exception &e) {
           // Pull's error is otherwise lost (a null result is indistinguishable from "no more rows");
           // stash it so the caller can retrieve it via mgp_error_message.

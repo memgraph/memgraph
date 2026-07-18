@@ -1115,6 +1115,11 @@ inline mgp_execution_result *execute_query(mgp_graph *graph, const char *query, 
   return MgInvoke<mgp_execution_result *>(mgp_execute_query, graph, memory, query, params);
 }
 
+inline mgp_execution_result *execute_query_in_current_transaction(mgp_graph *graph, const char *query, mgp_map *params,
+                                                                  mgp_memory *memory) {
+  return MgInvoke<mgp_execution_result *>(mgp_execute_query_in_current_transaction, graph, memory, query, params);
+}
+
 inline void execution_result_destroy(mgp_execution_result *execution_result) {
   mgp_execution_result_destroy(execution_result);
 }

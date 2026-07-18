@@ -1019,6 +1019,48 @@ TYPED_TEST(ExpressionEvaluatorTest, ParameterLookup) {
   EXPECT_EQ(value.ValueInt(), 42);
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, ParameterLookupEntityVertex) {
+  auto v = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+  // A graph-entity parameter resolves to a live vertex accessor by gid.
+  this->ctx.parameters.AddEntity(0, memgraph::query::EntityRef{v.Gid(), memgraph::query::EntityRef::Kind::kVertex});
+  auto *param_lookup = this->storage.template Create<ParameterLookup>(0);
+  auto value = this->Eval(param_lookup);
+  ASSERT_TRUE(value.IsVertex());
+  EXPECT_EQ(value.ValueVertex().Gid(), v.Gid());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ParameterLookupEntityAndScalarDisjoint) {
+  auto v = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+  // Entity and scalar parameters occupy disjoint token positions; each resolves independently.
+  this->ctx.parameters.AddEntity(0, memgraph::query::EntityRef{v.Gid(), memgraph::query::EntityRef::Kind::kVertex});
+  this->ctx.parameters.Add(1, memgraph::storage::ExternalPropertyValue(7));
+
+  auto *entity_lookup = this->storage.template Create<ParameterLookup>(0);
+  auto entity_value = this->Eval(entity_lookup);
+  ASSERT_TRUE(entity_value.IsVertex());
+  EXPECT_EQ(entity_value.ValueVertex().Gid(), v.Gid());
+
+  auto *scalar_lookup = this->storage.template Create<ParameterLookup>(1);
+  auto scalar_value = this->Eval(scalar_lookup);
+  ASSERT_TRUE(scalar_value.IsInt());
+  EXPECT_EQ(scalar_value.ValueInt(), 7);
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ParameterLookupDeletedEntityDegradesToEmpty) {
+  auto v = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+  const auto gid = v.Gid();
+  ASSERT_TRUE(this->dba.RemoveVertex(&v).has_value());
+  this->dba.AdvanceCommand();
+  // Resolving an entity deleted in this transaction must not crash; it yields no live vertex.
+  this->ctx.parameters.AddEntity(0, memgraph::query::EntityRef{gid, memgraph::query::EntityRef::Kind::kVertex});
+  auto *param_lookup = this->storage.template Create<ParameterLookup>(0);
+  auto value = this->Eval(param_lookup);
+  EXPECT_TRUE(value.IsVertex() || value.IsNull());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAll1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");

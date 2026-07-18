@@ -23,8 +23,9 @@ constexpr std::string_view kArgumentStatement = "statement";
 constexpr std::string_view kArgumentParams = "params";
 constexpr std::string_view kReturnValue = "value";
 
-// Runs a single writable Cypher statement in its own transaction and returns one
-// `value` map per result row. Node/relationship parameters are rebound by ID.
+// Runs a single writable Cypher statement in the caller's transaction and returns one
+// `value` map per result row. Node/relationship parameters are passed through natively — they
+// resolve to the same live handles in the caller's snapshot.
 void DoIt(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
 
@@ -37,11 +38,11 @@ void DoIt(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_mem
   try {
     const auto query_execution = mgp::QueryExecution(memgraph_graph);
 
-    // cypher.doIt runs the statement in a WRITE transaction. A statement requiring UNIQUE or
-    // READ_ONLY storage access (schema/DDL: index, constraint, enum, ...) can never obtain that
-    // access from within, so it would stall until the access timeout. Reject it up front instead.
-    // If the probe itself can't parse the statement, fall through so ExecuteQuery surfaces the
-    // real parse error rather than a lossy one.
+    // cypher.doIt runs the statement inside the caller's WRITE transaction. A statement requiring
+    // UNIQUE or READ_ONLY storage access (schema/DDL: index, constraint, enum, ...) can never
+    // obtain that access from within, so it would stall until the access timeout. Reject it up
+    // front instead. If the probe itself can't parse the statement, fall through so the executor
+    // surfaces the real parse error rather than a lossy one.
     bool is_schema_statement = false;
     try {
       const auto access_type = query_execution.QueryStorageAccessType(statement, params);
@@ -53,7 +54,8 @@ void DoIt(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_mem
       throw std::runtime_error(fmt::format("cypher.doIt cannot execute a schema-modifying statement: {}", statement));
     }
 
-    const auto query_results = execute_query_utils::ExecuteQuery(query_execution, statement, params);
+    const auto query_results =
+        execute_query_utils::ExecuteQueryInCurrentTransaction(query_execution, statement, params);
     execute_query_utils::InsertQueryResults(record_factory, query_results, kReturnValue);
   } catch (const std::exception &e) {
     // Prefer the engine's real error text (syntax/semantic/runtime); the caught mgp exception

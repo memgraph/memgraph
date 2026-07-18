@@ -131,6 +131,10 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
+    // Graph-entity parameters cannot appear in a constant/primitive context (memory limits, etc.).
+    if (ctx_->parameters.IsEntity(param_lookup.token_position_)) [[unlikely]] {
+      throw QueryRuntimeException("A graph entity cannot be used as a parameter in this context.");
+    }
     return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
   }
 
@@ -1050,6 +1054,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
+    // Graph-entity parameters are resolved to a live accessor by gid; scalars take the common path.
+    if (ctx_->parameters.HasEntityParams()) [[unlikely]] {
+      if (const auto *ref = ctx_->parameters.FindEntity(param_lookup.token_position_)) {
+        return ResolveEntityParameter(*ref);
+      }
+    }
     return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
   }
 
@@ -1182,6 +1192,31 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
+
+  // Resolves a graph-entity parameter to a live accessor by gid in the current transaction. A
+  // live entity resolves via View::NEW; an entity deleted in this transaction still resolves via
+  // View::OLD, so a property read on it throws DELETED_OBJECT, identity comparisons find no match,
+  // and returning it yields an empty entity reference. A fully absent entity yields Null.
+  TypedValue ResolveEntityParameter(const EntityRef &ref) {
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("Resolving a graph-entity parameter requires a database accessor.");
+    }
+    switch (ref.kind) {
+      case EntityRef::Kind::kVertex: {
+        auto vertex = dba_->FindVertex(ref.gid, storage::View::NEW);
+        if (!vertex) vertex = dba_->FindVertex(ref.gid, storage::View::OLD);
+        if (!vertex) return TypedValue(ctx_->memory);
+        return TypedValue(*vertex, ctx_->memory);
+      }
+      case EntityRef::Kind::kEdge: {
+        auto edge = dba_->FindEdge(ref.gid, storage::View::NEW);
+        if (!edge) edge = dba_->FindEdge(ref.gid, storage::View::OLD);
+        if (!edge) return TypedValue(ctx_->memory);
+        return TypedValue(*edge, ctx_->memory);
+      }
+    }
+    return TypedValue(ctx_->memory);
+  }
 
 #ifdef MG_ENTERPRISE
   bool CheckPropertyPermission(VertexAccessor const &accessor, storage::PropertyId prop) const;
