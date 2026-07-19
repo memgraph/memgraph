@@ -13,34 +13,38 @@
 
 #include <algorithm>
 #include <atomic>
-#include <coroutine>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
+#include <memory>
 #include <mutex>
 #include <vector>
+
+#include "utils/park_state.hpp"
 
 namespace memgraph::utils {
 
 /// Pool-agnostic event primitive a parked coroutine registers on, and that a lock-releaser
 /// notifies once the resource it was waiting on might be free (IP-1 §3 item 2:
 /// `utils/worker_resume_event.hpp`; see opencode-work/resource-lock-starvation/coro-prepare/
-/// ip1-design.md REVISION 1, sections B1/C3/C4, which are BINDING on this implementation).
+/// ip1-design.md REVISION 1 §§B1/C3/C4, REVISION 2's ParkState single-owner model, and REVISION 4
+/// R4.2/R4.3/R4.4 -- all BINDING on this implementation).
 ///
-/// This type owns no knowledge of `PriorityThreadPool`, tasks, or task-state -- the *how* of
-/// getting a parked coroutine handle back onto a worker is injected by the caller as a
-/// `reschedule` callback passed to `NotifyAll`. This keeps `WorkerResumeEvent` (and, in turn,
-/// anything that embeds it, e.g. `Storage`) independent of the pool implementation.
+/// This type owns no knowledge of `PriorityThreadPool`, tasks, coroutine frames, or task-state --
+/// each waiter is a `shared_ptr<ParkState>` (see park_state.hpp) whose `on_resume` closure already
+/// encapsulates however the caller wants "wake this waiter up" to happen (R4.2: in the real
+/// integration, a session-aware continuation; in tests, a plain recording closure). This keeps
+/// `WorkerResumeEvent` (and, in turn, anything that embeds it, e.g. `Storage`) independent of the
+/// pool implementation AND of the coroutine machinery built on top of it.
 ///
 /// ---------------------------------------------------------------------------------------------
 /// BINDING two-sided wakeup protocol (R1 §B1) -- read this before touching either side.
 /// ---------------------------------------------------------------------------------------------
 ///
-/// The original design's "skip NotifyAll when nobody is parked" fast path is only sound if BOTH
+/// The "skip NotifyAll when nobody is parked" fast path (`WaitersPending()`) is only sound if BOTH
 /// sides follow a strict "register before recheck" / "release before check" ordering. Do it any
 /// other way and a release can race a park such that the epoch bump is missed by the waiter AND
-/// the waiter's registration is missed by the releaser -- a lost wakeup that (since B2's deadline
-/// sweep only fires for waiters that actually made it into `waiters_`) can hang a query
+/// the waiter's registration is missed by the releaser -- a lost wakeup that (since the deadline
+/// sweep only fires for waiters that actually made it into a registry) can hang a query
 /// indefinitely instead of surfacing the ~1s `*AccessTimeout`.
 ///
 /// Waiter side (the coroutine about to park):
@@ -48,7 +52,7 @@ namespace memgraph::utils {
 ///      (e.g. `Storage::TryAccess`). This is the epoch that must still hold for a subsequent
 ///      park to be safe.
 ///   2. Probe the resource. If it is free, done -- no park needed.
-///   3. If still blocked, call `RegisterWaiter(handle, worker_id, epoch)`.
+///   3. If still blocked, build a `shared_ptr<ParkState>` and call `RegisterWaiter(ps, epoch)`.
 ///        - If it returns false, `epoch_` has already moved (a `NotifyAll` ran between step 1 and
 ///          step 3) -- the caller must NOT park; it must loop back and re-probe immediately,
 ///          because whatever released the resource may already be gone by the time we'd have
@@ -57,13 +61,15 @@ namespace memgraph::utils {
 ///          incremented, under `mutex_`, as part of the same critical section that pushed the
 ///          waiter -- so any releaser observing a nonzero `WaitersPending()` after this point is
 ///          guaranteed to also observe this waiter in `waiters_` once it takes `mutex_`).
-///   4. RE-PROBE the resource ONE MORE TIME. Registering a waiter does not itself close the
-///      race against a release that happened concretely between step 2 and step 3 (the resource
-///      could have been freed and re-acquired by someone else's release/acquire pair whose
-///      `NotifyAll` we might have just missed by a hair, or -- more importantly -- simply because
-///      the first probe result may already be stale). If this second probe now succeeds, call
-///      `RemoveWaiter(handle)` to un-park (unregister) before proceeding -- do NOT suspend.
-///   5. Only if the second probe still blocks does the coroutine actually suspend.
+///   4. RE-PROBE the resource ONE MORE TIME. Registering a waiter does not itself close the race
+///      against a release that happened concretely between step 2 and step 3. If this second
+///      probe now succeeds, the waiter is an "abandon path" participant (R4.3): it must call
+///      `ClaimPark` on its OWN `ParkState` and only proceed synchronously (without suspending) if
+///      it WINS that claim -- if it loses, some wake source already fired (or is about to) and the
+///      caller must treat that as a real park (its resumption is already in flight). Either way
+///      `RemoveWaiter(ps)` is a best-effort cleanup, never required for correctness (R4.3/R4.5).
+///   5. Only if the second probe still blocks (or the abandon-path claim above is lost) does the
+///      caller actually behave as parked.
 ///
 /// Releaser side (whoever just released a UNIQUE/READ_ONLY hold on the guarded resource):
 ///   1. Transition the lock/resource state to "released" first (e.g. unlock the mutex, publish
@@ -75,19 +81,18 @@ namespace memgraph::utils {
 ///      observes the released state and the waiter never needs to park (or, if a third party
 ///      raced in and re-acquired it, that party will eventually release and run this same
 ///      protocol again).
-///   3. If `WaitersPending() > 0`, call `NotifyAll(reschedule)` unconditionally (do not try to be
-///      cleverer about which specific waiters "need" the wakeup -- see C4 below).
+///   3. If `WaitersPending() > 0`, call `NotifyAll()` unconditionally (do not try to be cleverer
+///      about which specific waiters "need" the wakeup -- see C4 below).
 ///
-/// Why no wakeup is lost: a waiter can only be resumed by (a) `NotifyAll` picking it up out of
-/// `waiters_`, or (b) its own step-4 re-probe succeeding without ever parking. Every waiter that
-/// registers under a given `epoch` is captured entirely inside one critical section of `mutex_`
-/// (`RegisterWaiter`) and can only leave `waiters_` inside another critical section of `mutex_`
-/// (`RemoveWaiter` or `NotifyAll`). `NotifyAll` always bumps `epoch_` and moves the ENTIRE
+/// Why no wakeup is lost: a waiter can only be resumed by (a) `NotifyAll`/`Drain` claiming it out
+/// of `waiters_` and invoking `on_resume`, or (b) its own step-4/5 abandon-path claim winning
+/// without ever truly parking. Every waiter that registers under a given `epoch` is captured
+/// entirely inside one critical section of `mutex_` (`RegisterWaiter`) and can only leave
+/// `waiters_` inside another critical section of `mutex_` (`RemoveWaiter`, `NotifyAll`, or
+/// `Drain`). `NotifyAll`/`Drain` always bump `epoch_` (NotifyAll only) and move the ENTIRE
 /// `waiters_` vector out before releasing `mutex_` -- so a releaser that observes
 /// `WaitersPending() > 0` is racing, at worst, against a `RegisterWaiter` that hasn't yet taken
-/// the lock; that waiter's own subsequent re-probe (step 4) will see the released resource. There
-/// is no window in which a waiter is durably registered (visible via `WaitersPending()`) AND
-/// permanently skipped by every subsequent `NotifyAll`.
+/// the lock; that waiter's own subsequent re-probe (step 4) will see the released resource.
 ///
 /// ---------------------------------------------------------------------------------------------
 /// C3 (wake ordering) / C4 (single-owner resume) -- constraints this class exists to uphold:
@@ -95,23 +100,17 @@ namespace memgraph::utils {
 ///   - C3: `NotifyAll`'s `epoch_` bump models "a release happened"; callers MUST NOT invoke it
 ///     while still holding the resource's own internal lock (`main_lock_`/`ResourceLock`
 ///     internals) -- see the releaser-side ordering above. This class itself never blocks inside
-///     a callback: `mutex_` is released before `reschedule` is invoked for any waiter (see
-///     `NotifyAll`), so `reschedule` may safely re-enter this object (e.g. to `Epoch()`/probe
-///     again) without deadlocking.
-///   - C4: `NotifyAll` moves `waiters_` out from under `mutex_` and clears the member before
-///     releasing the lock. A concurrent second `NotifyAll` (or a shutdown drain built the same
-///     way) is guaranteed to see an empty `waiters_` and therefore reschedules nothing -- each
-///     registered waiter is handed to exactly one `reschedule` call, ever. There is deliberately
-///     no way to resume a handle twice through this class.
+///     `on_resume`: `mutex_` is released before any waiter's `on_resume` is invoked (see
+///     `NotifyAll`/`Drain`), so `on_resume` may safely re-enter this object (e.g. to
+///     `Epoch()`/probe again, or to register a fresh `ParkState` for a re-park) without
+///     deadlocking.
+///   - C4: `NotifyAll`/`Drain` move `waiters_` out from under `mutex_` and clear the member before
+///     releasing the lock. A concurrent second call is guaranteed to see an empty `waiters_` and
+///     therefore invoke nothing -- combined with `ClaimPark`'s single-owner exchange (shared with
+///     `DeadlineParkRegistry` and any abandon-path claim on the SAME `ParkState`), each registered
+///     waiter has `on_resume` invoked by exactly one wake source, ever, across the whole system.
 class WorkerResumeEvent {
  public:
-  /// A single parked coroutine: the handle to resume and the worker it was running on when it
-  /// parked (so `reschedule` can pin the resumption back onto that same worker if desired).
-  struct Waiter {
-    std::coroutine_handle<> handle;
-    size_t worker_id{0};
-  };
-
   WorkerResumeEvent() = default;
 
   WorkerResumeEvent(const WorkerResumeEvent &) = delete;
@@ -126,34 +125,37 @@ class WorkerResumeEvent {
   /// lost-wakeup race this class is designed to close.
   uint64_t Epoch() const { return epoch_.load(std::memory_order_acquire); }
 
-  /// Registers `h` (running on `worker_id`) as parked, PROVIDED the epoch has not moved since the
-  /// caller captured `expected_epoch`. Returns false (and does NOT enqueue) if `epoch_` has
-  /// already advanced -- the caller must not park and should re-probe instead.
+  /// Registers `ps` as parked, PROVIDED the epoch has not moved since the caller captured
+  /// `expected_epoch`. Returns false (and does NOT enqueue) if `epoch_` has already advanced -- the
+  /// caller must not park and should re-probe instead.
   ///
   /// The epoch check reads `epoch_` with relaxed order: correctness does not come from that
   /// atomic's own ordering but from `mutex_` itself -- every writer of `epoch_` (`NotifyAll`)
   /// takes the same `mutex_` around its `fetch_add`, so holding `mutex_` here already establishes
   /// happens-before against any prior epoch bump.
-  bool RegisterWaiter(std::coroutine_handle<> h, size_t worker_id, uint64_t expected_epoch) {
+  bool RegisterWaiter(std::shared_ptr<ParkState> ps, uint64_t expected_epoch) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (epoch_.load(std::memory_order_relaxed) != expected_epoch) {
       return false;
     }
-    waiters_.push_back(Waiter{.handle = h, .worker_id = worker_id});
+    waiters_.push_back(std::move(ps));
     waiters_pending_.fetch_add(1, std::memory_order_acq_rel);
     return true;
   }
 
-  /// Un-registers `h` if it is still present (i.e. no `NotifyAll` has picked it up yet). Used by
-  /// the waiter-side step-4 re-probe: if the resource turns out to be free right after
-  /// registering, the coroutine must un-park itself rather than suspend. Returns whether `h` was
-  /// actually found and removed; the pending counter is only decremented in that case, preserving
-  /// the invariant `waiters_pending_ == waiters_.size()` under `mutex_` (a blind unconditional
-  /// decrement here would let a concurrent `NotifyAll` -- which already accounted for this waiter
-  /// in its own bulk `fetch_sub` -- double-subtract and underflow the unsigned counter).
-  bool RemoveWaiter(std::coroutine_handle<> h) {
+  /// Best-effort removal of `ps` from the waiter list, used by the waiter-side step-4/5 re-probe
+  /// (R4.3) once it has ALREADY won `ClaimPark` on its own `ParkState` and therefore knows no wake
+  /// source will (or should) invoke `on_resume` for it. Correctness does NOT depend on this being
+  /// called promptly, or at all: `NotifyAll`/`Drain` re-check `ClaimPark` themselves before
+  /// invoking `on_resume`, so a claimed-but-not-yet-removed entry is simply pruned as a no-op the
+  /// next time this event wakes. This is purely a cleanup optimization to keep `waiters_` and
+  /// `waiters_pending_` accurate sooner. Returns whether `ps` was actually found and removed; the
+  /// pending counter is only decremented in that case (a blind unconditional decrement would let a
+  /// concurrent `NotifyAll`/`Drain` -- which already accounted for this waiter in its own bulk
+  /// `fetch_sub` -- double-subtract and underflow the unsigned counter).
+  bool RemoveWaiter(const std::shared_ptr<ParkState> &ps) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = std::find_if(waiters_.begin(), waiters_.end(), [&](const Waiter &w) { return w.handle == h; });
+    auto it = std::find(waiters_.begin(), waiters_.end(), ps);
     if (it == waiters_.end()) {
       return false;
     }
@@ -162,29 +164,26 @@ class WorkerResumeEvent {
     return true;
   }
 
-  /// Wakes every currently-registered waiter exactly once (C4: single-owner resume -- the move
-  /// out from under `mutex_` guarantees a racing second `NotifyAll`/drain sees an empty list) and
-  /// bumps `epoch_` so any waiter mid-registration with a now-stale epoch bails out of
-  /// `RegisterWaiter` and re-probes instead of parking.
+  /// Wakes every currently-registered waiter: for each one, attempts `ClaimPark` and, only on a
+  /// win, invokes `on_resume()`. A waiter already claimed by some other wake source (the deadline
+  /// sweep, a shutdown drain, or its own abandon-path claim, R4.3) simply loses the exchange here
+  /// and is dropped without invoking anything -- this is what makes single-ownership hold ACROSS
+  /// registries, not just within this event (R2/R4's whole point). Also bumps `epoch_` so any
+  /// waiter mid-registration with a now-stale epoch bails out of `RegisterWaiter` and re-probes
+  /// instead of parking.
   ///
-  /// CRITICAL (C3): `mutex_` is released BEFORE `reschedule` is invoked for any waiter. Never
-  /// hold `mutex_` across the callback -- `reschedule` may run arbitrary scheduler code (and, via
-  /// the resumed coroutine, may re-enter this object), so calling it under `mutex_` risks
-  /// deadlock/reentrancy hazards this class must not introduce.
-  void NotifyAll(const std::function<void(std::coroutine_handle<>, size_t)> &reschedule) {
-    std::vector<Waiter> local;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      epoch_.fetch_add(1, std::memory_order_acq_rel);
-      local = std::move(waiters_);
-      waiters_.clear();
-      waiters_pending_.fetch_sub(local.size(), std::memory_order_acq_rel);
-    }
-    // mutex_ is released here -- reschedule() runs entirely outside the lock (C3).
-    for (auto &waiter : local) {
-      reschedule(waiter.handle, waiter.worker_id);
-    }
-  }
+  /// CRITICAL (C3): `mutex_` is released BEFORE any `on_resume` is invoked. Never invoke a waiter's
+  /// `on_resume` while holding `mutex_` -- it may run arbitrary scheduler/session code (and, via a
+  /// re-park, may re-enter this object), so calling it under `mutex_` risks deadlock/reentrancy
+  /// hazards this class must not introduce.
+  void NotifyAll() { ResumeAll(/*bump_epoch=*/true); }
+
+  /// Shutdown drain (R4.4): claims and invokes `on_resume` for every currently-registered waiter,
+  /// exactly like `NotifyAll`, so a pool teardown resumes every parked frame at least once (the
+  /// frame's `on_resume` is expected to observe `IsShuttingDown()` and drive itself to a clean
+  /// bail rather than proceeding into any per-database work). Does not bump `epoch_` -- shutdown is
+  /// terminal, not a state transition waiters should re-probe against.
+  void Drain() { ResumeAll(/*bump_epoch=*/false); }
 
   /// Lock-free fast-path gate for releasers (R1 §B1 releaser step 2): if this is 0, there is
   /// nothing to wake and `NotifyAll` (and its mutex acquisition) can be skipped entirely. Sound
@@ -193,10 +192,33 @@ class WorkerResumeEvent {
   size_t WaitersPending() const { return waiters_pending_.load(std::memory_order_acquire); }
 
  private:
+  /// Shared body for `NotifyAll`/`Drain`: move every waiter out from under `mutex_`, release the
+  /// lock, then claim+invoke each one outside it (C3).
+  void ResumeAll(bool bump_epoch) {
+    std::vector<std::shared_ptr<ParkState>> local;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (bump_epoch) {
+        epoch_.fetch_add(1, std::memory_order_acq_rel);
+      }
+      local = std::move(waiters_);
+      waiters_.clear();
+      waiters_pending_.fetch_sub(local.size(), std::memory_order_acq_rel);
+    }
+    // mutex_ is released here -- on_resume() runs entirely outside the lock (C3).
+    for (auto &ps : local) {
+      if (ClaimPark(*ps)) {
+        ps->on_resume();
+      }
+      // Else: some other wake source (deadline sweep, shutdown drain, or the waiter's own
+      // abandon-path claim, R4.3) already won -- do not invoke on_resume, single-owner holds.
+    }
+  }
+
   std::mutex mutex_;
   std::atomic<uint64_t> epoch_{0};
   std::atomic<size_t> waiters_pending_{0};
-  std::vector<Waiter> waiters_;
+  std::vector<std::shared_ptr<ParkState>> waiters_;
 };
 
 }  // namespace memgraph::utils

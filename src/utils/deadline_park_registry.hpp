@@ -14,77 +14,30 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <coroutine>
 #include <cstddef>
 #include <memory>
 #include <mutex>
 #include <vector>
 
+#include "utils/park_state.hpp"
+
 namespace memgraph::utils {
 
 /// Deadline-sweep machinery for IP-1's B2 (see opencode-work/resource-lock-starvation/
-/// coro-prepare/ip1-design.md, REVISION 1 §B2 and REVISION 2's "ParkState single-owner model").
-/// This header is deliberately COROUTINE-AGNOSTIC in its logic: it only ever *holds* a
-/// `std::coroutine_handle<>` opaquely and hands it back to a caller-supplied `reschedule`
-/// callback -- it never resumes, destroys, or inspects the frame itself. That keeps this type
-/// unit-testable with `std::noop_coroutine()` (or any other handle) and independent of the
-/// `Task<T>`/awaitable machinery built on top of it.
+/// coro-prepare/ip1-design.md, REVISION 1 §B2, REVISION 2's "ParkState single-owner model", and
+/// REVISION 4 R4.4/R4.5). This header is deliberately COROUTINE-AGNOSTIC: `ParkState::on_resume`
+/// (see utils/park_state.hpp) is an opaque `std::function<void()>` this registry only ever
+/// invokes, never a coroutine handle it resumes/destroys/inspects itself. That keeps this type
+/// unit-testable with plain recording closures and independent of the `Task<T>`/awaitable
+/// machinery built on top of it.
 ///
-/// ---------------------------------------------------------------------------------------------
-/// Ownership model (R2): why ParkState is a heap `shared_ptr`, not a frame local or `weak_ptr`.
-/// ---------------------------------------------------------------------------------------------
-/// A parked coroutine can be woken by up to three independent sources: (i) the lock-release
-/// `WorkerResumeEvent::NotifyAll` path, (ii) this registry's deadline sweep, (iii) a pool shutdown
-/// drain. Exactly ONE of them may ever call `handle.resume()` on a given waiter; the others must
-/// detect "already taken" and touch nothing else. `ParkState::claimed` is the single-owner flag
-/// that arbitrates this -- but for it to be observable by a *losing* waker, it must remain valid
-/// storage even after the *winning* waker has resumed (and thereby possibly destroyed) the
-/// coroutine frame. If `ParkState` lived inside the coroutine frame (a frame local) or were only
-/// reachable via `weak_ptr` from the registry, a losing waker could race the frame's destruction
-/// and read a dangling/freed `claimed` flag.
-///
-/// The fix is to give `ParkState` its own heap allocation, independent of the frame, kept alive by
-/// `shared_ptr` refcounting from up to three simultaneous owners: the coroutine frame itself (one
-/// ref, so the frame can find its own `ParkState` on each re-probe), the `WorkerResumeEvent`
-/// waiter entry (one ref, for the lock-release wake path), and this registry's own entry (one
-/// ref, for the deadline-sweep wake path). `claimed` therefore stays valid for as long as ANY of
-/// those three owners is still holding a reference -- in particular, for as long as this registry
-/// has not yet pruned its own entry, even if the frame that once pointed to it is long gone. This
-/// is why `Register` takes a `shared_ptr` (not a `weak_ptr`): a `weak_ptr` would let the
-/// registry's ref lapse the instant every OTHER owner dropped theirs, which is exactly backwards
-/// -- we want the registry itself to be one of the things keeping `claimed` alive until it prunes
-/// the entry on its own schedule (a claimed-but-not-yet-pruned entry must still be readable by
-/// `Sweep` so it can be dropped cleanly instead of dereferencing freed memory).
-///
-/// Only the caller that wins the claim (see `ClaimPark`) may ever touch `handle` (read it, pass it
-/// to `reschedule`, resume it, or destroy it). A losing caller must not dereference `handle` at
-/// all -- it may only observe that `claimed` was already true and walk away.
-struct ParkState {
-  std::coroutine_handle<> handle;
-  size_t worker_id{0};
-  std::chrono::steady_clock::time_point deadline;
-  std::atomic<bool> claimed{false};
-};
-
-/// Attempts to claim `ps` for exactly one wake source. Returns true to EXACTLY ONE caller across
-/// all wake sources (the lock-release `NotifyAll` callback, `DeadlineParkRegistry::Sweep`, and any
-/// shutdown drain) that ever race on the same `ParkState` -- every other caller, whether racing
-/// concurrently or arriving after the fact, gets false. Only the caller that receives `true` may
-/// touch `ps.handle` (resume it, hand it to a reschedule callback, or destroy it); a caller that
-/// receives `false` must not read `ps.handle` and must simply stop.
-inline bool ClaimPark(ParkState &ps) { return !ps.claimed.exchange(true, std::memory_order_acq_rel); }
-
-/// Registry of parked waiters awaiting a resource, swept periodically by the pool's existing
-/// monitor (`sched_mon`) so an absolute deadline is honored without a dedicated timer thread (R1
-/// §B2). Entries are `shared_ptr<ParkState>` (see the ownership discussion above) so a claimed
-/// entry can be pruned here safely even though its coroutine frame may already be gone.
-///
-/// Thread-safety: `Register`/`Deregister`/`Sweep` may all be called concurrently from different
-/// threads (the pool worker registering a park, the monitor thread sweeping, another thread
-/// deregistering on the lock-release wake path). `Sweep` never invokes `reschedule` while holding
-/// the internal mutex -- `reschedule` may run arbitrary scheduler code (e.g. re-post the closure
-/// onto a worker), so calling it under the lock would risk deadlock/reentrancy exactly like
-/// `WorkerResumeEvent::NotifyAll` (see worker_resume_event.hpp's C3 discussion).
+/// Thread-safety: `Register`/`Deregister`/`Sweep`/`Drain` may all be called concurrently from
+/// different threads (the pool worker registering a park, the monitor thread sweeping, another
+/// thread deregistering on the lock-release wake path). Neither `Sweep` nor `Drain` ever invokes a
+/// waiter's `on_resume` while holding the internal mutex -- `on_resume` may run arbitrary
+/// scheduler/session code (e.g. re-post the closure onto a worker, or re-park), so calling it
+/// under the lock would risk deadlock/reentrancy exactly like `WorkerResumeEvent::NotifyAll` (see
+/// worker_resume_event.hpp's C3 discussion).
 class DeadlineParkRegistry {
  public:
   DeadlineParkRegistry() = default;
@@ -104,10 +57,12 @@ class DeadlineParkRegistry {
   }
 
   /// Best-effort removal of `ps` from the registry, used when a waiter resumes via a different
-  /// wake source (e.g. the lock-release path) and no longer needs deadline tracking. Correctness
-  /// does NOT depend on this being called promptly -- or at all -- for a given entry: if it is
-  /// still present when `Sweep` runs, `claimed == true` makes `Sweep` prune it without
-  /// rescheduling (see `Sweep`). This is purely a cleanup optimization to keep the registry small.
+  /// wake source (e.g. the lock-release path, or its own abandon-path claim per R4.3) and no
+  /// longer needs deadline tracking. Correctness does NOT depend on this being called promptly --
+  /// or at all -- for a given entry (R4.5): if it is still present when `Sweep` runs,
+  /// `claimed == true` makes `Sweep` prune it without invoking `on_resume` (see `Sweep`). This is
+  /// purely a cleanup optimization to keep the registry small; the hot re-park path may skip it
+  /// entirely and simply let a stale, already-claimed entry be pruned on the next sweep tick.
   void Deregister(const std::shared_ptr<ParkState> &ps) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = std::find(entries_.begin(), entries_.end(), ps);
@@ -117,26 +72,26 @@ class DeadlineParkRegistry {
     }
   }
 
-  /// Sweeps the registry once, resuming (via `reschedule`) every waiter whose deadline has passed
-  /// and that this call wins the claim on. `reschedule(worker_id, handle)` is expected to hand the
-  /// handle back onto its owning worker (e.g. `PriorityThreadPool::RescheduleTaskOnWorker`) to
-  /// resume it there; the resumed frame is expected to re-probe its resource, see the deadline has
-  /// passed, and throw its own timeout -- this function itself never inspects or resumes `handle`.
+  /// Sweeps the registry once, invoking `on_resume` for every waiter whose deadline has passed and
+  /// that this call wins the claim on. The invoked closure is expected to hand its frame back onto
+  /// its owning worker and re-probe its resource, see the deadline has passed, and throw its own
+  /// timeout -- this function itself never inspects, resumes, or reschedules anything beyond
+  /// calling `on_resume()`.
   ///
   /// Cheap when empty: the common case (nothing parked) is a single relaxed-ish atomic load with
   /// NO mutex acquisition and no allocation -- important since this runs on every tick of the
   /// pool's existing periodic monitor regardless of whether the deadline-park feature is in use.
   ///
-  /// Never holds `mutex_` across `reschedule` (see class doc comment).
-  template <class RescheduleFn>
-  void Sweep(std::chrono::steady_clock::time_point now, RescheduleFn &&reschedule) {
+  /// Never holds `mutex_` across `on_resume` (see class doc comment).
+  void Sweep(std::chrono::steady_clock::time_point now) {
     if (size_.load(std::memory_order_acquire) == 0) [[likely]] {
       return;  // Cheap-when-empty fast path: no lock, no work.
     }
 
     // Under the lock: partition out every entry that is either past its deadline or already
-    // claimed by some other wake source (dead weight we can prune here regardless of deadline),
-    // and remove those from the live list. Entries that are neither stay untouched.
+    // claimed by some other wake source (dead weight we can prune here regardless of deadline,
+    // R4.5's lazy-prune), and remove those from the live list. Entries that are neither stay
+    // untouched.
     std::vector<std::shared_ptr<ParkState>> due_or_dead;
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -153,16 +108,37 @@ class DeadlineParkRegistry {
     // Outside the lock: for each collected entry, try to claim it. `ClaimPark` alone correctly
     // implements BOTH desired behaviors:
     //   - an entry already claimed by another wake source (lock-release NotifyAll, a concurrent
-    //     Sweep, or shutdown) loses the exchange and is simply dropped here -- pruned, no
-    //     reschedule, and `handle` is never touched by this (losing) call;
-    //   - an entry that is due AND not yet claimed wins the exchange and is rescheduled exactly
-    //     once -- no other wake source can win it afterwards.
+    //     Sweep, a shutdown Drain, or the waiter's own abandon-path claim) loses the exchange and
+    //     is simply dropped here -- pruned, no invocation, and `on_resume` is never called by this
+    //     (losing) call;
+    //   - an entry that is due AND not yet claimed wins the exchange and has `on_resume` invoked
+    //     exactly once -- no other wake source can win it afterwards.
     for (auto &ps : due_or_dead) {
       if (now >= ps->deadline && ClaimPark(*ps)) {
-        reschedule(ps->worker_id, ps->handle);
+        ps->on_resume();
       }
-      // Else: pruned without rescheduling -- either it was already claimed, or (in the racing-
-      // Sweep case) another concurrent caller won the claim first.
+      // Else: pruned without invoking on_resume -- either it was already claimed, or (in the
+      // racing-Sweep case) another concurrent caller won the claim first.
+    }
+  }
+
+  /// Shutdown drain (R4.4): claims and invokes `on_resume` for EVERY currently-registered entry,
+  /// regardless of deadline, so a pool teardown resumes every parked frame at least once (the
+  /// frame's `on_resume` is expected to observe shutdown and drive itself to a clean bail). Never
+  /// holds `mutex_` across `on_resume` (see class doc comment).
+  void Drain() {
+    std::vector<std::shared_ptr<ParkState>> all;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      all = std::move(entries_);
+      entries_.clear();
+      size_.store(0, std::memory_order_release);
+    }
+    for (auto &ps : all) {
+      if (ClaimPark(*ps)) {
+        ps->on_resume();
+      }
+      // Else: already claimed by some other wake source -- single-owner holds, do nothing.
     }
   }
 
