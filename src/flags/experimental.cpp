@@ -101,6 +101,15 @@ DEFINE_VALIDATED_string(experimental_enabled, "", kEnabledHelp.c_str(),
 DEFINE_VALIDATED_string(experimental_config, "", kConfigHelp.c_str(),
                         { return memgraph::flags::ValidExperimentalConfig(value); });
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(experimental_coro_prepare_accessor_yield, false,
+            "EXPERIMENTAL: allow a contended UNIQUE/READ_ONLY storage accessor acquisition during "
+            "Prepare to park its pool worker (via a C++20 coroutine) instead of blocking, and retry "
+            "once the lock is released, instead of blocking for up to --storage-access-timeout-sec. "
+            "Default OFF leaves the existing synchronous acquire path unchanged. NOTE: as of this "
+            "flag's introduction only the storage-side release notification is gated by it -- the "
+            "query/session parking integration lands in a follow-up change.");
+
 namespace memgraph::flags {
 
 auto ExperimentsInstance() -> Experiments & {

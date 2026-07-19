@@ -287,6 +287,10 @@ int main(int argc, char **argv) {
     auto env_experimental = memgraph::flags::ReadExperimental(maybe_experimental);
     memgraph::flags::AppendExperimental(env_experimental);
   }
+  // Sync the cached-atomic snapshot of the standalone --experimental-coro-prepare-accessor-yield
+  // flag now that gflags::ParseCommandLineFlags has run (a static-init-time cache would instead
+  // observe the flag's default). See flags/run_time_configurable.hpp.
+  memgraph::flags::run_time::RefreshCoroPrepareAccessorYieldEnabled();
   // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
   // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();

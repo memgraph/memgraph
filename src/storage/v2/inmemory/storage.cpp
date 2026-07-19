@@ -2927,6 +2927,12 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // NOTE: A single call need not handle objects deleted under a different storage mode: SetStorageMode
   // runs GC before any transaction in the new mode can start.
 
+  // Wake any parked (coro-prepare) acquirer once GC's hold on main_lock_ is gone. Declared BEFORE
+  // main_lock_guard so it is destroyed AFTER it: the notify must land after the actual release
+  // (C3), never while the hold is still standing. GC's hold is released by RAII here, so there is
+  // no explicit unlock site to hang this off.
+  const utils::OnScopeExit notify_on_release{[this] { NotifyMainLockReleased(); }};
+
   using Guard = utils::ResourceLockGuard;
   auto const main_lock_guard = [&] -> Guard {
     // Adopt SetStorageMode's UNIQUE hold if it passed one; reacquiring would deadlock.
@@ -4675,6 +4681,41 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType 
   utils::ResourceLockGuard guard{main_lock_, ToGuardType(rw_type), std::try_to_lock};
   if (!guard.owns_lock()) return nullptr;
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(guard)});
+}
+
+std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccessWithPending(
+    StorageAccessType rw_type, std::optional<IsolationLevel> override_isolation_level, PendingHandle &pending) {
+  using enum StorageAccessType;
+  if (rw_type == NO_ACCESS) {
+    LOG_FATAL("Invalid storage accessor type!");
+  }
+
+  // UNIQUE and READ_ONLY are the two modes that gate others, so they probe through the CALLER's
+  // long-lived pending scope: that registration is what keeps their writer-preference alive across
+  // the whole retry campaign. READ/WRITE gate nobody (see ResourceLock::can_acquire), so they take
+  // the same plain non-blocking probe TryAccess() uses and never consult `pending`.
+  auto guard = [&]() -> std::optional<utils::ResourceLockGuard> {
+    if (rw_type == UNIQUE) {
+      auto *scope = pending.unique_scope();
+      DMG_ASSERT(scope != nullptr,
+                 "TryAccessWithPending(UNIQUE, ...) requires a PendingHandle built via "
+                 "MakePendingHandle(StorageAccessType::UNIQUE)");
+      return scope->try_acquire();
+    }
+    if (rw_type == READ_ONLY) {
+      auto *scope = pending.read_only_scope();
+      DMG_ASSERT(scope != nullptr,
+                 "TryAccessWithPending(READ_ONLY, ...) requires a PendingHandle built via "
+                 "MakePendingHandle(StorageAccessType::READ_ONLY)");
+      return scope->try_acquire();
+    }
+    utils::ResourceLockGuard shared{main_lock_, ToGuardType(rw_type), std::try_to_lock};
+    if (!shared.owns_lock()) return std::nullopt;
+    return shared;
+  }();
+
+  if (!guard) return nullptr;
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{this, override_isolation_level, std::move(*guard)});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(
