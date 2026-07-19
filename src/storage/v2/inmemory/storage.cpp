@@ -2976,8 +2976,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   utils::OnScopeExit lock_releaser{[&] {
     if (main_guard.owns_lock()) {
+      // UNIQUE release (either handed off by SetStorageMode via ReleaseUniqueGuard(), or acquired
+      // by the aggressive-mode try_lock() above) -- notify AFTER the actual unlock (C3), same
+      // ordering as Storage::Accessor::~Accessor()/SetIsolationLevel.
       main_guard.unlock();
+      NotifyMainLockReleased();
     } else {
+      // Plain shared (READ-style) acquisition: never gates another acquirer, so nobody to wake
+      // (IP-1 design §8) -- backstopped by the deadline sweep if this ever mattered.
       main_lock_.unlock_shared();
     }
   }};
@@ -4751,6 +4757,56 @@ std::optional<std::unique_ptr<Storage::Accessor>> InMemoryStorage::TryReadOnlyAc
                                                                 override_isolation_level.value_or(isolation_level_),
                                                                 storage_mode_,
                                                                 std::move(*guard)});
+}
+
+std::optional<std::unique_ptr<Storage::Accessor>> InMemoryStorage::TryAccessWithPending(
+    StorageAccessType rw_type, std::optional<IsolationLevel> override_isolation_level, PendingHandle &pending) {
+  using enum StorageAccessType;
+  if (rw_type == NO_ACCESS) {
+    LOG_FATAL("Invalid storage accessor type!");
+  }
+
+  if (rw_type == UNIQUE) {
+    auto *scope = pending.unique_scope();
+    DMG_ASSERT(scope != nullptr,
+               "TryAccessWithPending(UNIQUE, ...) requires a PendingHandle built via "
+               "MakePendingHandle(StorageAccessType::UNIQUE)");
+    auto guard = scope->try_acquire();
+    if (!guard) return std::nullopt;
+    return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access_owning,
+                                                                  this,
+                                                                  override_isolation_level.value_or(isolation_level_),
+                                                                  storage_mode_,
+                                                                  std::move(*guard)});
+  }
+
+  if (rw_type == READ_ONLY) {
+    auto *scope = pending.read_only_scope();
+    DMG_ASSERT(scope != nullptr,
+               "TryAccessWithPending(READ_ONLY, ...) requires a PendingHandle built via "
+               "MakePendingHandle(StorageAccessType::READ_ONLY)");
+    auto guard = scope->try_acquire();
+    if (!guard) return std::nullopt;
+    return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::read_only_access_owning,
+                                                                  this,
+                                                                  override_isolation_level.value_or(isolation_level_),
+                                                                  storage_mode_,
+                                                                  std::move(*guard)});
+  }
+
+  // WRITE/READ never gate other acquirers (see ResourceLock::lock_guard_condition), so -- exactly
+  // like TryAccess() above -- a plain non-blocking try_lock_shared is enough; `pending` is
+  // expected empty for these types and is simply not consulted.
+  const auto shared_type =
+      rw_type == WRITE ? utils::SharedResourceLockGuard::Type::WRITE : utils::SharedResourceLockGuard::Type::READ;
+  utils::SharedResourceLockGuard guard(main_lock_, shared_type, std::try_to_lock);
+  if (!guard.owns_lock()) return std::nullopt;
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access_owning,
+                                                                this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_,
+                                                                rw_type,
+                                                                std::move(guard)});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

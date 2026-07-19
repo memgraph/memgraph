@@ -43,6 +43,7 @@
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
+#include "utils/worker_resume_event.hpp"
 
 namespace memgraph::metrics {
 struct DatabaseMetricHandles;
@@ -367,10 +368,33 @@ class Storage {
   virtual std::optional<std::unique_ptr<Accessor>> TryReadOnlyAccess(
       std::optional<IsolationLevel> override_isolation_level = std::nullopt);
 
+  /// Whether this storage engine supports the coro-prepare park-acquire path (IP-1 design doc,
+  /// opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 4 §R4.6): a
+  /// caller-held pending scope (see InMemoryStorage::PendingHandle/TryAccessWithPending) kept
+  /// across an entire retry campaign, plus a real (non-stub) TryAccess* implementation to probe
+  /// against. Base default is false (DiskStorage never overrides TryAccess*, so parking against
+  /// it would spin against the always-nullopt stub until the deadline sweep fires every single
+  /// time -- the park benefit is InMemory-only for v1). Overridden `true` in InMemoryStorage.
+  virtual bool SupportsParkAcquire() const { return false; }
+
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
   std::expected<void, SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
   IsolationLevel GetIsolationLevel() const noexcept;
+
+  /// Per-Storage wake event for a parked (coro-prepare) waiter blocked on `main_lock_` (IP-1
+  /// design doc, opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3
+  /// §R3.1). Only UNIQUE/READ_ONLY release sites need to poke this -- see NotifyMainLockReleased().
+  utils::WorkerResumeEvent &main_lock_resume_event() { return main_lock_resume_event_; }
+
+  /// Wakes any coro-prepare waiter parked on `main_lock_resume_event()`, if the experimental flag
+  /// is on AND somebody is actually parked (R3.1/C5) -- cheap otherwise: one relaxed bool load
+  /// (flag off) or one relaxed size load (no waiters). Callers MUST invoke this AFTER the
+  /// UNIQUE/READ_ONLY guard has ACTUALLY released `main_lock_` (C3) -- never while still holding
+  /// it. Do NOT call this for a plain READ/WRITE release: those never gate another acquirer, so
+  /// there is nobody to wake (R3.1/§8) -- the common commit hot-path therefore pays only the
+  /// original-access-type check at the call site, not this function at all.
+  void NotifyMainLockReleased();
 
   virtual StorageInfo GetBaseInfo() = 0;
 
@@ -432,6 +456,12 @@ class Storage {
   // operations on storage that affect the global state, for example index
   // creation.
   mutable utils::ResourceLock main_lock_;
+
+  // Wake event for a coro-prepare waiter parked on main_lock_ (see main_lock_resume_event() /
+  // NotifyMainLockReleased() above; IP-1 design doc REVISION 3 §R3.1). Pool-agnostic by design
+  // (utils::WorkerResumeEvent has no knowledge of PriorityThreadPool/tasks/coroutines) -- each
+  // waiter's ParkState carries its own on_resume closure.
+  utils::WorkerResumeEvent main_lock_resume_event_;
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we
@@ -568,7 +598,15 @@ class Accessor {
 
   Accessor(Accessor &&other) noexcept;
 
-  virtual ~Accessor() = default;
+  // Defined out-of-line (storage.cpp): on a UNIQUE/READ_ONLY accessor, explicitly releases
+  // storage_guard_/unique_guard_ here (instead of relying on their implicit member-destruction,
+  // which runs AFTER this body) so that Storage::NotifyMainLockReleased() can be called strictly
+  // after main_lock_ has actually been released (C3) -- see storage.cpp for the full rationale
+  // (Transaction's destructor is default/trivial and does not depend on the lock being held, so
+  // releasing it here, before transaction_'s own implicit destruction runs, is safe). READ/WRITE
+  // accessors skip all of this (cheap original_access_type_ check) and fall through to the
+  // ordinary implicit guard release -- unchanged, zero extra cost on that hot path.
+  virtual ~Accessor();
 
   StorageAccessType original_access_type() const { return original_access_type_; }
 

@@ -5995,6 +5995,9 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
                   "associated triggers. Drop all triggers and retry.");
             }
 
+            // NOTE (IP-1 coro-prepare-accessor-yield, R3.1): deliberately not wired to
+            // NotifyMainLockReleased() -- a rare, non-hot-path in-memory-to-disk storage mode
+            // switch guard; backstopped by the ~1s deadline sweep (B2) if this ever mattered.
             std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
             if (auto vertex_cnt_approx = in.storage()->GetBaseInfo().vertex_count; vertex_cnt_approx > 0) {
               throw utils::BasicException(

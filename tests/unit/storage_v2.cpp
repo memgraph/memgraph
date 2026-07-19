@@ -16,6 +16,8 @@
 #include <limits>
 
 #include "disk_test_utils.hpp"
+#include "flags/experimental.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -24,6 +26,8 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/park_state.hpp"
+#include "utils/worker_resume_event.hpp"
 
 using testing::Types;
 using testing::UnorderedElementsAre;
@@ -2933,4 +2937,140 @@ TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
   auto write_acc = store.TryAccess(WRITE);
   EXPECT_TRUE(write_acc.has_value());
   if (write_acc) EXPECT_NO_THROW((*write_acc)->Abort());
+}
+
+// --- IP-1 coro-prepare-accessor-yield: storage-side wake hook ---
+// (opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3 §R3.1)
+//
+// Storage::NotifyMainLockReleased() must fire (claim + invoke on_resume) a waiter parked on
+// main_lock_resume_event() exactly when: the experimental flag is ON, AND the release was of a
+// UNIQUE or READ_ONLY guard. It must NOT fire on a plain READ/WRITE release, and must be a cheap,
+// safe no-op with the flag off or with nobody parked.
+class StorageMainLockWakeHookTest : public ::testing::Test {
+ protected:
+  StorageMainLockWakeHookTest() : saved_flag_(FLAGS_experimental_coro_prepare_accessor_yield) {}
+
+  ~StorageMainLockWakeHookTest() override {
+    // Restore so this test doesn't leak the flag into unrelated tests sharing the process.
+    FLAGS_experimental_coro_prepare_accessor_yield = saved_flag_;
+    memgraph::flags::run_time::RefreshCoroPrepareAccessorYieldEnabled();
+  }
+
+  static void SetFlag(bool enabled) {
+    FLAGS_experimental_coro_prepare_accessor_yield = enabled;
+    memgraph::flags::run_time::RefreshCoroPrepareAccessorYieldEnabled();
+  }
+
+  // Registers a recording waiter on `store`'s main_lock_resume_event() at the current epoch and
+  // returns its ParkState; `*fired` becomes true exactly when some wake source claims and invokes
+  // it.
+  auto RegisterRecordingWaiter(std::shared_ptr<bool> fired) -> std::shared_ptr<memgraph::utils::ParkState> {
+    auto &event = store.main_lock_resume_event();
+    auto ps = std::make_shared<memgraph::utils::ParkState>();
+    ps->on_resume = [fired] { *fired = true; };
+    const auto epoch = event.Epoch();
+    bool const registered = event.RegisterWaiter(ps, epoch);
+    EXPECT_TRUE(registered) << "epoch moved between Epoch() and RegisterWaiter() -- unexpected in a single-threaded "
+                               "test with GC disabled";
+    return ps;
+  }
+
+  // Periodic GC disabled: a background GC UNIQUE-release could otherwise call
+  // NotifyMainLockReleased() on its own and make these single-threaded assertions racy/flaky.
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::NONE},
+      .transaction = {.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+
+ private:
+  bool saved_flag_;
+};
+
+TEST_F(StorageMainLockWakeHookTest, UniqueReleaseFiresWhenFlagOnAndWaiterParked) {
+  using namespace memgraph::storage;
+  SetFlag(true);
+
+  auto fired = std::make_shared<bool>(false);
+  auto ps = RegisterRecordingWaiter(fired);
+  ASSERT_EQ(store.main_lock_resume_event().WaitersPending(), 1U);
+
+  {
+    auto unique_acc = store.UniqueAccess();
+    unique_acc->Abort();
+    EXPECT_FALSE(*fired) << "must not fire while main_lock_ is still held (Abort() alone does not release it)";
+  }
+  // unique_acc destroyed here -> Storage::Accessor::~Accessor() releases the UNIQUE guard and
+  // calls NotifyMainLockReleased().
+
+  EXPECT_TRUE(*fired);
+  EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 0U);
+  EXPECT_TRUE(ps->claimed.load());
+}
+
+TEST_F(StorageMainLockWakeHookTest, ReadOnlyReleaseFiresWhenFlagOnAndWaiterParked) {
+  using namespace memgraph::storage;
+  SetFlag(true);
+
+  auto fired = std::make_shared<bool>(false);
+  RegisterRecordingWaiter(fired);
+
+  {
+    auto ro_acc = store.ReadOnlyAccess();
+    ro_acc->Abort();
+    EXPECT_FALSE(*fired);
+  }
+
+  EXPECT_TRUE(*fired);
+}
+
+TEST_F(StorageMainLockWakeHookTest, DoesNotFireWhenFlagOff) {
+  using namespace memgraph::storage;
+  SetFlag(false);
+
+  auto fired = std::make_shared<bool>(false);
+  RegisterRecordingWaiter(fired);
+
+  {
+    auto unique_acc = store.UniqueAccess();
+    unique_acc->Abort();
+  }
+
+  EXPECT_FALSE(*fired);
+  // Flag-off returns before touching the event at all -- the waiter is still registered.
+  EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 1U);
+}
+
+TEST_F(StorageMainLockWakeHookTest, ReadWriteReleaseNeverFiresEvenWithFlagOnAndWaiterParked) {
+  using namespace memgraph::storage;
+  SetFlag(true);
+
+  auto fired = std::make_shared<bool>(false);
+  RegisterRecordingWaiter(fired);
+
+  {
+    auto write_acc = store.Access(WRITE);
+    write_acc->Abort();
+  }
+  EXPECT_FALSE(*fired);
+
+  {
+    auto read_acc = store.Access(READ);
+    read_acc->Abort();
+  }
+  EXPECT_FALSE(*fired);
+
+  EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 1U)
+      << "a READ/WRITE accessor release must never touch the wake event";
+}
+
+TEST_F(StorageMainLockWakeHookTest, NoWaitersIsACheapSafeNoOp) {
+  using namespace memgraph::storage;
+  SetFlag(true);
+
+  ASSERT_EQ(store.main_lock_resume_event().WaitersPending(), 0U);
+  EXPECT_NO_THROW(store.NotifyMainLockReleased());
+
+  // A real UNIQUE release with zero waiters registered must also be a harmless no-op.
+  auto unique_acc = store.UniqueAccess();
+  EXPECT_NO_THROW(unique_acc->Abort());
+  EXPECT_NO_THROW(unique_acc.reset());
 }

@@ -26,6 +26,7 @@
 
 #include "croncpp.h"
 #include "flags/coord_flag_env_handler.hpp"
+#include "flags/experimental.hpp"
 #include "flags/logging.hpp"
 #include "gflags/gflags.h"
 #include "license/license.hpp"
@@ -197,6 +198,10 @@ std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<bool> debug_query_plans_{false};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
+// Cache for --experimental-coro-prepare-accessor-yield (NOT Settings-store-backed -- see the
+// declaration in run_time_configurable.hpp for why). Refreshed by
+// RefreshCoroPrepareAccessorYieldEnabled().
+std::atomic<bool> coro_prepare_accessor_yield_enabled_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
 std::atomic<int64_t> log_min_duration_ms_{-1};
@@ -603,6 +608,12 @@ bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
 bool GetDebugQueryPlans() { return debug_query_plans_; }
 
 bool GetStorageGcAggressive() { return storage_gc_aggressive_; }
+
+bool CoroPrepareAccessorYieldEnabled() { return coro_prepare_accessor_yield_enabled_.load(std::memory_order_relaxed); }
+
+void RefreshCoroPrepareAccessorYieldEnabled() {
+  coro_prepare_accessor_yield_enabled_.store(FLAGS_experimental_coro_prepare_accessor_yield, std::memory_order_relaxed);
+}
 
 const std::chrono::time_zone *GetTimezone() { return timezone_; }
 

@@ -17,6 +17,7 @@
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
@@ -247,6 +248,41 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   other.commit_timestamp_.reset();
 }
 
+// NOTE: defined as `Accessor::~Accessor()`, not `Storage::Accessor::~Accessor()` -- unlike the
+// constructors above, a destructor cannot be qualified through Storage::Accessor's type-alias
+// name (-Wdtor-typedef); it must use the class's own name, and we're already inside
+// `namespace memgraph::storage` here so the unqualified name resolves to the real class.
+Accessor::~Accessor() {
+  // Cheap check on the common (READ/WRITE) commit path: original_access_type_ is a plain enum
+  // member, unaffected by guard/lock state, so this is safe to read even after a hand-off (see
+  // below) and costs nothing beyond the comparison. READ/WRITE accessors never gate another
+  // acquirer (IP-1 design §8), so they fall straight through to the ordinary implicit
+  // storage_guard_/unique_guard_ destruction below -- unchanged from before this feature existed.
+  if (original_access_type_ != UNIQUE && original_access_type_ != READ_ONLY) {
+    return;
+  }
+  // UNIQUE/READ_ONLY: explicitly release the guard HERE (rather than letting it release via
+  // implicit member destruction, which runs after this function body returns) so the
+  // NotifyMainLockReleased() call below is guaranteed to observe main_lock_ already released
+  // (C3 -- required for the epoch-based lost-wakeup protocol in WorkerResumeEvent). This is safe
+  // to do before transaction_'s own (later, implicit) destruction because Transaction::~Transaction
+  // is `= default` and touches no main_lock_-guarded state -- the real transaction teardown already
+  // ran via Abort()/FinalizeTransaction() in the derived accessor's destructor body, which executes
+  // before this base-class destructor even starts.
+  //
+  // Exactly one of unique_guard_/storage_guard_ can be owning here, depending on how this Accessor
+  // was constructed (UniqueAccess vs ReadOnlyAccess). If NEITHER owns the lock, ownership was
+  // handed off elsewhere (Accessor::ReleaseUniqueGuard(), used by SetStorageMode) and that other
+  // owner is responsible for its own release + notify -- nothing to do here.
+  if (unique_guard_.owns_lock()) {
+    unique_guard_.unlock();
+    storage_->NotifyMainLockReleased();
+  } else if (storage_guard_.owns_lock()) {
+    storage_guard_.unlock();
+    storage_->NotifyMainLockReleased();
+  }
+}
+
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
@@ -254,7 +290,24 @@ IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_le
 std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
   isolation_level_ = isolation_level;
+  // Explicit unlock (rather than letting main_guard release at function-scope end) so the notify
+  // below observes main_lock_ already released (C3), matching the Accessor destructor's approach.
+  main_guard.unlock();
+  NotifyMainLockReleased();
   return {};
+}
+
+void Storage::NotifyMainLockReleased() {
+  // Flag-off (or no waiters): exactly one relaxed load each, no mutex touched (R1 §B1/C5). This is
+  // the ENTIRE cost paid by the UNIQUE/READ_ONLY release sites below when the experimental feature
+  // is disabled or nobody happens to be parked -- READ/WRITE releases don't even call this
+  // function (see the Accessor destructor above).
+  if (!flags::run_time::CoroPrepareAccessorYieldEnabled()) {
+    return;
+  }
+  if (main_lock_resume_event_.WaitersPending() > 0) {
+    main_lock_resume_event_.NotifyAll();
+  }
 }
 
 std::vector<EdgeTypeId> Storage::ListAllPossiblyPresentEdgeTypes() const { return stored_edge_types_.vectorize(); }

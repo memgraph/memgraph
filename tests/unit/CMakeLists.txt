@@ -487,6 +487,11 @@ add_unit_test(deadline_park_registry
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(coro_accessor
+    SOURCES coro_accessor.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(utils_exceptions
     SOURCES utils_exceptions.cpp
     LINK_TARGETS mg-utils
