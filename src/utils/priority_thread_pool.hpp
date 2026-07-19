@@ -17,14 +17,29 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <thread>
 
+#include "utils/deadline_park_registry.hpp"
 #include "utils/logging.hpp"
 #include "utils/priorities.hpp"
 #include "utils/scheduler.hpp"
 
 namespace memgraph::utils {
+
+/// Thread-local worker-id publication for LP (mixed-work) pool workers ONLY. Published at the
+/// top of the worker's run loop (before it processes any task) and cleared when the worker
+/// exits its run loop. HP workers never publish (see Worker::operator() — the id space for HP
+/// workers is disjoint from `workers_`, and RescheduleTaskOnWorker indexes into `workers_`, so
+/// an HP worker publishing its own index would let a caller mistakenly pin a continuation to
+/// the wrong LP worker). Lets code running ON a pool worker discover which worker it is on, e.g.
+/// to pin a continuation for later resume via PriorityThreadPool::RescheduleTaskOnWorker.
+/// Returns std::nullopt off a pool worker thread (or on an HP worker thread).
+void SetCurrentWorker(size_t worker_id);
+std::optional<size_t> GetCurrentWorkerId();
+void ClearCurrentWorker();
+
 // Thread-safe mask that returns the position of first set bit
 class HotMask {
  public:
@@ -151,6 +166,27 @@ class PriorityThreadPool {
 
   uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
 
+  /// Returns true once the pool has been asked to stop (ShutDown()/dtor). Used by callers of
+  /// RescheduleTaskOnWorker (and, later, resume-on-shutdown paths) to detect that no further
+  /// forward progress will be scheduled and bail out cleanly instead of parking forever.
+  bool IsShuttingDown() const { return pool_stop_source_.stop_requested(); }
+
+  /**
+   * Reschedules a plain closure onto a specific mixed-work (LP) worker, PINNED so it can never
+   * be stolen by another worker and is never migrated by the periodic monitor (sched_mon). Use
+   * when a continuation must run on that exact worker (e.g. to respect worker-local state).
+   * worker_id must be in [0, GetNumMixedWorkers()).
+   */
+  void RescheduleTaskOnWorker(size_t worker_id, std::function<void()> closure);
+
+  /// Registry of parked waiters, swept once per tick by the existing periodic monitor (sched_mon)
+  /// so an absolute deadline is honored without a dedicated timer thread (IP-1 R1 §B2 / R2). The
+  /// registry itself is coroutine-agnostic (see utils/deadline_park_registry.hpp); callers
+  /// register a `ParkState` here when they park a waiter that must also observe a timeout.
+  /// Exposed so the later accessor-await machinery can Register/Deregister without adding a
+  /// coroutine dependency to this header.
+  DeadlineParkRegistry &park_registry() { return park_registry_; }
+
   // Single worker implementation
   class Worker {
    public:
@@ -165,11 +201,15 @@ class PriorityThreadPool {
     struct Work {
       TaskID id;                   // ID used to order (issued by the pool)
       mutable TaskSignature work;  // mutable so it can be moved from the queue
+      bool pinned{false};          // if true, task must run on THIS worker (never stolen/migrated)
 
       bool operator<(const Work &other) const { return id < other.id; }
     };
 
-    void push(TaskSignature new_task, TaskID id);
+    // pinned=false (default) is the pre-existing behavior, byte-identical: the task lands in the
+    // stealable work_ queue exactly as before. pinned=true routes to work_pinned_ instead (new,
+    // additive path — see PriorityThreadPool::RescheduleTaskOnWorker).
+    void push(TaskSignature new_task, TaskID id, bool pinned = false);
 
     void stop();
 
@@ -179,7 +219,8 @@ class PriorityThreadPool {
    private:
     mutable std::mutex mtx_;
     std::condition_variable cv_;
-    std::priority_queue<Work> work_;
+    std::priority_queue<Work> work_;         // Stealable + migratable by sched_mon
+    std::priority_queue<Work> work_pinned_;  // Never stolen, never migrated — same mutex as work_
 
     // Stats
     std::atomic_bool has_pending_work_{false};
@@ -201,6 +242,10 @@ class PriorityThreadPool {
 
   std::vector<std::jthread> pool_;  // All available threads (list so the elements are stable)
   utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging
+
+  // Deadline-sweep registry for parked waiters (IP-1 B2); swept once per monitor tick alongside
+  // the stuck-task migration above. See park_registry() accessor doc comment.
+  DeadlineParkRegistry park_registry_;
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker

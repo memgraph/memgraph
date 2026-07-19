@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <coroutine>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -37,6 +38,18 @@ constexpr uint16_t kMaxWorkers = memgraph::utils::HotMask::kMaxElements;
 }  // namespace
 
 namespace memgraph::utils {
+
+namespace {
+// LP-worker-only TLS (see the free-function declarations in priority_thread_pool.hpp for the
+// full lifetime/scope contract). Deliberately NOT populated for HP workers.
+thread_local std::optional<size_t> tls_current_worker_id;
+}  // namespace
+
+void SetCurrentWorker(size_t worker_id) { tls_current_worker_id = worker_id; }
+
+std::optional<size_t> GetCurrentWorkerId() { return tls_current_worker_id; }
+
+void ClearCurrentWorker() { tls_current_worker_id = std::nullopt; }
 
 struct TmpHotElement {
   uint8_t id;
@@ -128,10 +141,12 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
                         // worker stuck on a task; move task to a different queue
                         auto l = std::unique_lock{worker->mtx_, std::defer_lock};
                         if (!l.try_lock()) continue;  // Thread is busy...
-                        // Recheck under lock
+                        // Recheck under lock — only ever considers work_ (stealable/migratable);
+                        // work_pinned_ is invisible to sched_mon so a pinned task is never migrated.
                         if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
-                        // Update flag as soon as possible
-                        worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
+                        // Update flag as soon as possible (account for both queues)
+                        worker->has_pending_work_.store(worker->work_.size() + worker->work_pinned_.size() > 1,
+                                                        std::memory_order_release);
                         Worker::Work work{.id = worker->work_.top().id, .work = std::move(worker->work_.top().work)};
                         worker->work_.pop();
                         l.unlock();
@@ -153,6 +168,16 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
                         workers_[*tid]->push(std::move(work.work), work.id);
                       }
                     }
+                    // Additive: deadline sweep for parked waiters (IP-1 B2). A cheap no-op when
+                    // nothing is registered (see DeadlineParkRegistry::Sweep's empty fast path),
+                    // so this does not change existing monitor behavior when the feature is
+                    // unused. Resuming a claimed handle is just handing it back onto its owning
+                    // worker; the resumed frame re-probes and decides for itself what to do
+                    // (e.g. throw a timeout) -- this monitor has no coroutine knowledge at all.
+                    park_registry_.Sweep(std::chrono::steady_clock::now(),
+                                         [this](size_t worker_id, std::coroutine_handle<> handle) {
+                                           RescheduleTaskOnWorker(worker_id, [handle] { handle.resume(); });
+                                         });
                   });
 }
 
@@ -200,10 +225,34 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   // HP threads are going to steal this work if not executed in time
 }
 
-void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id) {
+// Reschedule a plain closure on a specific mixed-work (LP) worker, PINNED so it is immune to the
+// cross-worker steal loop (Phase 2A) and the periodic monitor (sched_mon) — both only ever look
+// at work_, never work_pinned_. Reuses that worker's currently-executing task id (last_task_) so
+// the pinned item sits at the same priority-queue position an in-place continuation would; falls
+// back to a fresh LOW id if the worker has not run anything yet (last_task_ == 0).
+void PriorityThreadPool::RescheduleTaskOnWorker(size_t worker_id, std::function<void()> closure) {
+  DMG_ASSERT(
+      worker_id < workers_.size(), "worker_id {} out of range (num mixed workers {})", worker_id, workers_.size());
+  if (pool_stop_source_.stop_requested()) [[unlikely]] {
+    // Pool is tearing down: nothing will service a queued item. Run inline rather than dropping
+    // the closure (avoids a silent hang for whatever forward progress depended on it).
+    closure();
+    return;
+  }
+  Worker *const w = workers_[worker_id].get();
+  TaskID id = w->last_task_.load(std::memory_order_acquire);
+  if (id == 0) {
+    // Worker has not executed anything yet; treat as a new LOW priority task.
+    id = --task_id_;
+  }
+  w->push([c = std::move(closure)](Priority /*priority*/) mutable { c(); }, id, /*pinned=*/true);
+}
+
+void PriorityThreadPool::Worker::push(TaskSignature new_task, TaskID id, bool pinned) {
   {
     auto l = std::unique_lock{mtx_};
-    work_.emplace(id, std::move(new_task));
+    Work w{.id = id, .work = std::move(new_task), .pinned = pinned};
+    (pinned ? work_pinned_ : work_).push(std::move(w));
   }
   has_pending_work_ = true;
   cv_.notify_one();
@@ -222,6 +271,12 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
                                             const std::vector<std::unique_ptr<Worker>> &workers_pool,
                                             HotMask &hot_threads) {
   utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
+
+  // Publish this worker's id for the duration of the run loop (LP workers only — see the
+  // free-function doc comment in the header for why HP workers must not publish).
+  if constexpr (ThreadPriority != Priority::HIGH) {
+    SetCurrentWorker(worker_id);
+  }
 
   // Both mixed and high priority worker only steal from mixed worker
   const auto other_workers = std::invoke([&workers_pool, self = this, worker_id]() -> std::vector<Worker *> {
@@ -246,11 +301,17 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   });
 
   std::optional<TaskSignature> task;
+  // Drains BOTH queues; pinned tasks take precedence (pinned first is an explicit, deliberate
+  // choice — see design doc — not a correctness requirement). Only this worker's own dequeue path
+  // (here) and push() ever touch work_pinned_; the steal loop (Phase 2A) and sched_mon touch only
+  // work_, so a pinned task can only ever run on the worker it was pinned to.
   auto pop_task = [&] {
-    has_pending_work_.store(work_.size() > 1, std::memory_order::release);
-    last_task_.store(work_.top().id, std::memory_order_release);
-    task = std::move(work_.top().work);
-    work_.pop();
+    const bool use_pinned = !work_pinned_.empty();
+    auto &q = use_pinned ? work_pinned_ : work_;
+    has_pending_work_.store(work_.size() + work_pinned_.size() > 1, std::memory_order::release);
+    last_task_.store(q.top().id, std::memory_order_release);
+    task = std::move(q.top().work);
+    q.pop();
   };
 
   while (run_.load(std::memory_order_acquire)) {
@@ -265,10 +326,10 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
       task.value()(ThreadPriority);
       task.reset();
     }
-    // Phase 1B - check if there is other scheduled work
+    // Phase 1B - check if there is other scheduled work (both queues)
     {
       auto l = std::unique_lock{mtx_};
-      if (!work_.empty()) {
+      if (!work_.empty() || !work_pinned_.empty()) {
         pop_task();
         continue;  // Spin to phase 1A
       }
@@ -279,7 +340,7 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
       hot_threads.Set(worker_id);
     }
 
-    // Phase 2A - try to steal work
+    // Phase 2A - try to steal work (steal only from work_; work_pinned_ is never stolen)
     for (auto *worker : other_workers) {
       if (has_pending_work_.load(std::memory_order_acquire)) break;  // This worker received work
 
@@ -287,7 +348,8 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
           worker->working_.load(std::memory_order_acquire)) {
         auto l2 = std::unique_lock{worker->mtx_, std::defer_lock};
         if (!l2.try_lock()) continue;  // Busy, skip
-        // Re-check under lock
+        // Re-check under lock — deliberately checks only work_ (stealable); work_pinned_ is
+        // invisible to the steal loop so a pinned task always runs on its target worker.
         if (worker->work_.empty()) continue;
         // HP threads can only steal HP work
         if constexpr (ThreadPriority == Priority::HIGH) {
@@ -295,8 +357,10 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
           if (worker->work_.top().id <= kMaxLowPriorityId) continue;
         }
 
-        // Update flag as soon as possible
-        worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
+        // Update flag as soon as possible (account for both queues so a remaining pinned task
+        // is not mistakenly reported as "no pending work")
+        worker->has_pending_work_.store(worker->work_.size() + worker->work_pinned_.size() > 1,
+                                        std::memory_order_release);
 
         // Move work to current thread
         last_task_.store(worker->work_.top().id, std::memory_order_release);
@@ -330,18 +394,24 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     if constexpr (ThreadPriority != Priority::HIGH) {
       hot_threads.Reset(worker_id);
     }
-    // Phase 4B - check if work available (sleep or spin)
+    // Phase 4B - check if work available (sleep or spin) — predicate checks both queues
     {
       auto l = std::unique_lock{mtx_};
       cv_.wait(l, [this, &pop_task] {
-        // Under lock, check if there is work waiting
-        if (!work_.empty()) {
+        // Under lock, check if there is work waiting in either queue
+        if (!work_.empty() || !work_pinned_.empty()) {
           pop_task();
           return true;  // Spin to phase 1A and execute task
         }
         return !run_;  // Return and shutdown
       });
     }
+  }
+
+  // Teardown: drop this worker's published identity so GetCurrentWorkerId() returns nullopt
+  // once the thread leaves its pool role.
+  if constexpr (ThreadPriority != Priority::HIGH) {
+    ClearCurrentWorker();
   }
 }
 

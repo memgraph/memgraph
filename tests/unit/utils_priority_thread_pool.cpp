@@ -12,6 +12,8 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <mutex>
+#include <optional>
 #include <thread>
 
 #include <utils/priority_thread_pool.hpp>
@@ -471,5 +473,127 @@ TEST(TaskCollection, LargeTaskSet) {
   ASSERT_EQ(counter.load(), num_tasks);
 
   pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// --- Unit 3a: pinned queue / RescheduleTaskOnWorker / worker-id TLS / IsShuttingDown ---
+
+TEST(PriorityThreadPool, CurrentWorkerIdTLS) {
+  using namespace memgraph;
+
+  // Off any pool worker thread (e.g. the test's own thread), must be nullopt.
+  ASSERT_FALSE(utils::GetCurrentWorkerId().has_value());
+
+  memgraph::utils::PriorityThreadPool pool{2, 1};
+
+  std::atomic<bool> observed_has_value{false};
+  std::atomic<bool> done{false};
+  pool.ScheduledAddTask(
+      [&](auto) {
+        observed_has_value = utils::GetCurrentWorkerId().has_value();
+        done = true;
+        done.notify_one();
+      },
+      utils::Priority::LOW);
+  done.wait(false);
+  ASSERT_TRUE(observed_has_value.load());
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+TEST(PriorityThreadPool, RescheduleTaskOnWorkerRunsOnTargetWorker) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{2, 1};
+
+  std::mutex m;
+  std::optional<size_t> observed_id;
+  std::atomic<bool> done{false};
+
+  // Target worker 1 explicitly (pool has 2 mixed-work workers: 0 and 1).
+  pool.RescheduleTaskOnWorker(1, [&] {
+    {
+      std::lock_guard<std::mutex> lock(m);
+      observed_id = utils::GetCurrentWorkerId();
+    }
+    done = true;
+    done.notify_one();
+  });
+
+  done.wait(false);
+  {
+    std::lock_guard<std::mutex> lock(m);
+    ASSERT_TRUE(observed_id.has_value());
+    ASSERT_EQ(*observed_id, 1U);
+  }
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+TEST(PriorityThreadPool, PinnedTaskNotStolenByIdleWorker) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{2, 1};
+
+  // Pin a blocking task onto worker 0 and confirm it actually starts there. While it blocks,
+  // worker 1 is idle and its steal loop repeatedly looks at worker 0 (has_pending_work_ &&
+  // working_) but must only ever find work_ (empty here) — work_pinned_ is invisible to it.
+  std::atomic<bool> block{true};
+  std::atomic<size_t> blocked_worker_id{999};
+  pool.RescheduleTaskOnWorker(0, [&] {
+    blocked_worker_id = *utils::GetCurrentWorkerId();
+    while (block.load()) {
+      block.wait(true);
+    }
+  });
+
+  while (blocked_worker_id.load() == 999) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_EQ(blocked_worker_id.load(), 0U);
+
+  // Let worker 1 settle into idle (hot-spin then sleep) before the pinned task is pushed.
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  std::mutex m;
+  std::optional<size_t> pinned_ran_on;
+  std::atomic<bool> pinned_done{false};
+  pool.RescheduleTaskOnWorker(0, [&] {
+    {
+      std::lock_guard<std::mutex> lock(m);
+      pinned_ran_on = utils::GetCurrentWorkerId();
+    }
+    pinned_done = true;
+    pinned_done.notify_one();
+  });
+
+  // Give worker 1's steal loop (and the periodic sched_mon migrator) repeated chances to
+  // (wrongly) grab the pinned task while worker 0 is still blocked.
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  ASSERT_FALSE(pinned_done.load()) << "pinned task must not run while its target worker is still busy";
+
+  // Unblock worker 0; it alone can now drain work_pinned_ and run the continuation.
+  block = false;
+  block.notify_one();
+
+  pinned_done.wait(false);
+  {
+    std::lock_guard<std::mutex> lock(m);
+    ASSERT_TRUE(pinned_ran_on.has_value());
+    ASSERT_EQ(*pinned_ran_on, 0U);
+  }
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+TEST(PriorityThreadPool, IsShuttingDownTransitions) {
+  using namespace memgraph;
+  memgraph::utils::PriorityThreadPool pool{1, 1};
+
+  ASSERT_FALSE(pool.IsShuttingDown());
+  pool.ShutDown();
+  ASSERT_TRUE(pool.IsShuttingDown());
+
   pool.AwaitShutdown();
 }
