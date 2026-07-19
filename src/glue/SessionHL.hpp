@@ -17,6 +17,7 @@
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
 #include "query/interpreter.hpp"
+#include "utils/coro_task.hpp"
 
 namespace memgraph::glue {
 using bolt_value_t = memgraph::communication::bolt::Value;
@@ -86,6 +87,23 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra);
 
   std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare();
+
+  /// Coroutine variant of InterpretPrepare() (Session-surgery Stage A). Mirrors InterpretPrepare()
+  /// exactly except it `co_await`s Interpreter::PrepareCoro() instead of calling the blocking
+  /// Interpreter::Prepare() -- see interpreter.hpp/.cpp for the accessor-acquire park mechanics.
+  ///
+  /// `parsed_res_` is moved out only INSIDE the coroutine body: since utils::Task<T> is lazily
+  /// started (it does not run until first driven/co_await'd/Run()), this means the parse result is
+  /// not actually consumed until whatever drives this Task starts doing so -- i.e. not before the
+  /// accessor acquire is genuinely under way, matching the IP-1 design doc's ip1-design.md
+  /// requirement ("moving parsed_res_ only INSIDE the coroutine").
+  ///
+  /// Stage A only: nothing yet drives/awaits this from the Bolt layer (that is Stage B -- a
+  /// HandlePrepareCoro and a coroutine-aware Execute_/DoWork driver). Calling and immediately
+  /// SyncWait()-ing this Task today would behave identically to InterpretPrepare(), just via the
+  /// coroutine machinery and (when the experimental flag is on) with the possibility of an internal
+  /// park during the accessor acquire.
+  utils::Task<std::pair<std::vector<std::string>, std::optional<int>>> InterpretPrepareCoro();
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
                                                                     const bolt_map_t &extra) {

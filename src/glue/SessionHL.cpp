@@ -471,6 +471,32 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
   }
 }
 
+// Coroutine variant of InterpretPrepare() (Session-surgery Stage A) -- see the doc comment on the
+// declaration (SessionHL.hpp) for the parsed_res_-consumption-timing rationale. Structurally identical
+// to InterpretPrepare() above; the only two differences are `co_await`ing Interpreter::PrepareCoro()
+// instead of calling Interpreter::Prepare(), and returning via `co_return` instead of `return`.
+utils::Task<std::pair<std::vector<std::string>, std::optional<int>>> SessionHL::InterpretPrepareCoro() {
+  if (!parsed_res_) {
+    throw memgraph::communication::bolt::ClientError("Trying to prepare a query that was not parsed.");
+  }
+
+  try {
+    auto parsed_res = *std::move(parsed_res_);
+    parsed_res_.reset();
+    auto result = co_await interpreter_.PrepareCoro(
+        std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
+    interpreter_.CheckAuthorized(result.privileges, result.db);
+
+    co_return std::pair{std::move(result.headers), result.qid};
+  } catch (const memgraph::query::QueryException &e) {
+    RewrapQueryException(e);
+  } catch (const memgraph::query::ReplicationException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  }
+}
+
 #ifdef MG_ENTERPRISE
 auto SessionHL::Route(bolt_map_t const & /*routing*/, std::vector<bolt_value_t> const & /*bookmarks*/,
                       std::optional<std::string> const &db, bolt_map_t const &

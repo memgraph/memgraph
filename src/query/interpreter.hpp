@@ -26,6 +26,7 @@
 #include "query/stream.hpp"
 #include "query/trigger_context.hpp"
 #include "system/transaction.hpp"
+#include "utils/coro_task.hpp"
 #include "utils/event_trigger.hpp"
 #include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -243,6 +244,12 @@ struct CurrentDB {
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
+  // Same bookkeeping as SetupDatabaseTransaction (arena scope, execution_db_accessor_, transaction_gauge_,
+  // trigger_context_collector_), but for an accessor that has ALREADY been acquired elsewhere -- e.g. by
+  // the parkable-Prepare coroutine (query::AcquireAccessorCoro, PrepareCoro Phase 2/3), which holds the
+  // lock by the time this is called. Deliberately skips the Access/UniqueAccess/ReadOnlyAccess call (and
+  // therefore never blocks) -- see opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md §R3.2.
+  void SetupDatabaseTransactionWith(std::unique_ptr<storage::Accessor> accessor, bool could_commit);
   void CleanupDBTransaction(bool abort);
 
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
@@ -366,6 +373,24 @@ class Interpreter final {
   Interpreter::ParseRes Parse(const std::string &query, UserParameters_fn params_getter, QueryExtras const &extras);
 
   Interpreter::PrepareResult Prepare(ParseRes parse_res, UserParameters_fn params_getter, QueryExtras const &extras);
+
+  /**
+   * Coroutine variant of Prepare() (Session-surgery Stage A, IP-1 design doc
+   * opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3 §R3.2).
+   *
+   * Same observable contract as Prepare() -- same PrepareResult, same exceptions, same ordering of
+   * user-visible side effects -- but the accessor-acquire step is a `co_await` that CAN suspend the
+   * coroutine (returning control to whoever is driving it) instead of blocking the calling thread,
+   * when the accessor is contended. See query::AcquireAccessorCoro (query/coro_accessor.hpp) for the
+   * park/retry mechanics; PrepareCoro itself only sequences the three phases (resolve requirements ->
+   * await the accessor -> finish planning) and never blocks/parks by itself.
+   *
+   * Stage A only builds this coroutine so it compiles and is unit-testable in isolation; nothing yet
+   * schedules/drives it from the Bolt layer (that is Stage B -- SessionHL::InterpretPrepareCoro /
+   * HandlePrepareCoro / the Execute_ PARKED state).
+   */
+  utils::Task<Interpreter::PrepareResult> PrepareCoro(ParseRes parse_res, UserParameters_fn params_getter,
+                                                      QueryExtras const &extras);
 
   /**
    * Prepare a query for execution.
@@ -673,6 +698,19 @@ class Interpreter final {
   void SetupInterpreterTransaction(const QueryExtras &extras);
   void SetupDatabaseTransaction(bool couldCommit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
+
+  // Shared Prepare()/PrepareCoro() tail (Session-surgery Stage A): the planning / plan-cache /
+  // PreparedQuery-dispatch code that runs identically, in the identical relative order, in both paths
+  // once a query's accessor (if any) is already set up -- see interpreter.cpp for the full rationale
+  // and exactly which lines this was extracted from (behavior-preserving extraction, not a rewrite).
+  PrepareResult PlanAndFinalize(ParsedQuery &parsed_query, UserParameters_fn const &params_getter,
+                                std::unique_ptr<QueryExecution> &query_execution, std::optional<int> qid,
+                                bool parallel_execution,
+                                std::optional<memgraph::system::Transaction> system_transaction);
+  // Shared Prepare()/PrepareCoro() catch-block body (utils::BasicException path): logs, increments
+  // failed-prepare metrics, and calls AbortCommand(query_execution_ptr). Always rethrows via `throw;`
+  // at the call site (this helper does not itself rethrow).
+  void HandlePrepareFailure(std::unique_ptr<QueryExecution> *query_execution_ptr, const utils::BasicException &e);
 };
 
 template <typename TStream>
