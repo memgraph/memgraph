@@ -475,7 +475,8 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
 // declaration (SessionHL.hpp) for the parsed_res_-consumption-timing rationale. Structurally identical
 // to InterpretPrepare() above; the only two differences are `co_await`ing Interpreter::PrepareCoro()
 // instead of calling Interpreter::Prepare(), and returning via `co_return` instead of `return`.
-utils::Task<std::pair<std::vector<std::string>, std::optional<int>>> SessionHL::InterpretPrepareCoro() {
+utils::Task<std::pair<std::vector<std::string>, std::optional<int>>> SessionHL::InterpretPrepareCoro(
+    std::function<void()> on_park_resumed) {
   if (!parsed_res_) {
     throw memgraph::communication::bolt::ClientError("Trying to prepare a query that was not parsed.");
   }
@@ -483,8 +484,10 @@ utils::Task<std::pair<std::vector<std::string>, std::optional<int>>> SessionHL::
   try {
     auto parsed_res = *std::move(parsed_res_);
     parsed_res_.reset();
-    auto result = co_await interpreter_.PrepareCoro(
-        std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
+    auto result = co_await interpreter_.PrepareCoro(std::move(parsed_res.parsed_query),
+                                                    std::move(parsed_res.get_params_pv),
+                                                    parsed_res.extra,
+                                                    std::move(on_park_resumed));
     interpreter_.CheckAuthorized(result.privileges, result.db);
 
     co_return std::pair{std::move(result.headers), result.qid};

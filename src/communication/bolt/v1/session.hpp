@@ -26,7 +26,9 @@
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
 #include "communication/metrics.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/session_context.hpp"
 #include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
@@ -84,7 +86,7 @@ class Session {
     requires requires(TImpl &impl) {
       { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
     }
-  bool Execute_(TImpl &impl) {
+  ExecuteResult Execute_(TImpl &impl) {
     // nullptr is the explicit no-op opt-out (test fakes, pre-auth).
     memgraph::logging::ScopedSessionLog log_guard(impl.GetLogContext());
     if (state_ == State::Handshake) [[unlikely]] {
@@ -95,12 +97,12 @@ class Session {
       // Receive the handshake.
       if (input_stream_.size() < kHandshakeSize) {
         spdlog::trace("Received partial handshake of size {}", input_stream_.size());
-        return false;  // no more data
+        return ExecuteResult::kNoMoreData;
       }
       state_ = StateHandshakeRun(impl);
       if (state_ == State::Close) [[unlikely]] {
         ClientFailureInvalidData();
-        return false;  // no more data
+        return ExecuteResult::kNoMoreData;
       }
       // Update the decoder's Bolt version (v5 has changed the undelying structure)
       decoder_.UpdateVersion(version_.major);
@@ -113,6 +115,21 @@ class Session {
     // Phase 1: parse and deduce priority
     // Phase 2: actually prepare interpreter for the query
     if (state_ == State::Parsed) {
+      // Session-surgery Stage B (IP-1 design doc R3.3/R4.7): a contended accessor acquire during
+      // Prepare CAN park -- but only doing so is ever safe/meaningful when (a) the experimental flag
+      // is on and (b) we are actually running on a PriorityThreadPool (LP) worker, i.e. reachable via
+      // communication::v2::Session::RunLoop under the PRIORITY_QUEUE_WITH_SIDECAR scheduler.
+      // GetCurrentWorkerId() is unset on the ASIO scheduler's OnReadAsio path (and in any unit test
+      // driving Execute_ directly, e.g. TestSession in bolt_session.cpp) -- there, this branch is
+      // never taken and behavior is BYTE-IDENTICAL to before this change: HandlePrepare runs
+      // synchronously below, exactly like today. Deliberately no TImpl-specific call here (no
+      // HandlePrepareCoro/InterpretPrepareCoro reference) so this template instantiates cleanly for
+      // ANY TImpl, including test doubles that never define a coroutine Prepare path at all -- only
+      // the caller that actually wants the coroutine chain (communication::v2::Session) references
+      // HandlePrepareCoro, and only for TImpl = SessionHL.
+      if (flags::run_time::CoroPrepareAccessorYieldEnabled() && utils::GetCurrentWorkerId().has_value()) {
+        return ExecuteResult::kNeedsCoroPrepare;  // state_ stays Parsed; caller drives HandlePrepareCoro
+      }
       state_ = HandlePrepare(impl);
       if (state_ == State::Close) [[unlikely]] {
         ClientFailureInvalidData();
@@ -154,7 +171,7 @@ class Session {
         // After Parsed, we do a Prepare (state::Result) and the Pull/Discard (state::Result)
         // Try to not break from Prepare till the end of the execution as this will lead to worse performance.
         // Last pull will set the state to State::Idle
-        return true;  // more data to process
+        return ExecuteResult::kMoreData;
       }
 
       if (state_ == State::Close) [[unlikely]] {
@@ -164,7 +181,7 @@ class Session {
         ClientFailureInvalidData();
       }
     }
-    return false;  // no more data
+    return ExecuteResult::kNoMoreData;
   }
 
   void HandleError() {

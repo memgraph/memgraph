@@ -165,6 +165,31 @@ class [[nodiscard]] Task {
     return handle_.promise().TakeValue();
   }
 
+  /// Starts (if not yet started) or resumes this Task exactly once, WITHOUT assuming it runs to
+  /// completion (Session-surgery Stage B: driving a top-level Task that may genuinely park mid-body,
+  /// see communication/v2/session.hpp's DrivePreparedRun / opencode-work/resource-lock-starvation/
+  /// coro-prepare/ip1-design.md R4.2). Unlike `Run()`/`SyncWait`, the caller MUST check `Done()`
+  /// afterwards before calling `TakeValue()` -- if the resumed chain suspended (parked) instead of
+  /// completing, the promise holds neither a value nor an exception yet.
+  void Resume() {
+    DMG_ASSERT(handle_ && !handle_.done(), "Resume() on an empty/moved-from/already-done Task.");
+    handle_.resume();
+  }
+
+  /// True once this Task's body has run to completion (co_returned or threw) -- i.e. it is safe to
+  /// call `TakeValue()`. False for an empty/moved-from Task as well (nothing to take), matching the
+  /// "nothing to do" reading callers of `Resume()`/`Done()` want.
+  bool Done() const noexcept { return !handle_ || handle_.done(); }
+
+  /// Reads out this (Done()) Task's result, or rethrows its exception. Precondition: `Done()`.
+  /// Companion to `Resume()`/`Done()` for callers driving a Task without assuming synchronous
+  /// completion (see the doc comment on `Resume()`); `Run()`/`SyncWait` remain the ergonomic choice
+  /// when synchronous completion IS assumed.
+  T TakeValue() {
+    DMG_ASSERT(handle_, "TakeValue() on an empty/moved-from Task.");
+    return handle_.promise().TakeValue();
+  }
+
  private:
   void Destroy() noexcept {
     if (handle_) {

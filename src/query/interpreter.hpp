@@ -385,12 +385,20 @@ class Interpreter final {
    * park/retry mechanics; PrepareCoro itself only sequences the three phases (resolve requirements ->
    * await the accessor -> finish planning) and never blocks/parks by itself.
    *
-   * Stage A only builds this coroutine so it compiles and is unit-testable in isolation; nothing yet
-   * schedules/drives it from the Bolt layer (that is Stage B -- SessionHL::InterpretPrepareCoro /
-   * HandlePrepareCoro / the Execute_ PARKED state).
+   * Stage A only builds this coroutine so it compiles and is unit-testable in isolation; Stage B
+   * (SessionHL::InterpretPrepareCoro / HandlePrepareCoro / the Bolt Execute_ PARKED state) is what
+   * actually schedules/drives it.
+   *
+   * `on_park_resumed` (Stage B, IP-1 design doc REVISION 4 §R4.2): forwarded verbatim to
+   * query::AcquireAccessorCoro, which threads it into the ParkState built if/when the accessor
+   * acquire genuinely parks. Invoked once per genuine cross-thread resume (never for a synchronous
+   * completion) by the pinned reschedule closure, after it resumes the parked handle -- see
+   * communication::v2::Session::DrivePreparedRun. Empty/default for any caller that never expects a
+   * park (tests, a plain SyncWait).
    */
   utils::Task<Interpreter::PrepareResult> PrepareCoro(ParseRes parse_res, UserParameters_fn params_getter,
-                                                      QueryExtras const &extras);
+                                                      QueryExtras const &extras,
+                                                      std::function<void()> on_park_resumed = {});
 
   /**
    * Prepare a query for execution.

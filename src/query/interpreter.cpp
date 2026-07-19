@@ -10551,7 +10551,8 @@ void Interpreter::HandlePrepareFailure(std::unique_ptr<QueryExecution> *query_ex
 // Stage A only builds this coroutine so it compiles and is unit-testable in isolation; nothing yet
 // drives/schedules it from the Bolt layer (Stage B).
 utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_res, UserParameters_fn params_getter,
-                                                                 QueryExtras const &extras) {
+                                                                 QueryExtras const &extras,
+                                                                 std::function<void()> on_park_resumed) {
   query_in_progress_.store(true, std::memory_order_release);
   const utils::OnScopeExit idle_watchdog_activity_guard([this] {
     last_activity_steady_ns_.store(std::chrono::steady_clock::now().time_since_epoch().count(),
@@ -10685,7 +10686,8 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
                                               resolved_iso,
                                               deadline,
                                               *interpreter_context_->worker_pool,
-                                              priority == utils::Priority::HIGH);
+                                              priority == utils::Priority::HIGH,
+                                              on_park_resumed);
       current_db_.SetupDatabaseTransactionWith(std::move(acc), could_commit);
     }
 

@@ -1,0 +1,22 @@
+coro_prepare_accessor_yield_cluster: &coro_prepare_accessor_yield_cluster
+  cluster:
+    main:
+      args:
+        [
+          "--bolt-port",
+          "7687",
+          "--log-level=TRACE",
+          "--bolt-num-workers=2",
+          "--storage-access-timeout-sec=2",
+          "--experimental-coro-prepare-accessor-yield=true",
+        ]
+      log_file: "coro_prepare_accessor_yield.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "CoroPrepareAccessorYield"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["coro_prepare_accessor_yield/coro_prepare_accessor_yield.py"]
+    <<: *coro_prepare_accessor_yield_cluster

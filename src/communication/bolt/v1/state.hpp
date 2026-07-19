@@ -61,4 +61,23 @@ enum class State : uint8_t {
    */
   Close,
 };
+
+/**
+ * Tri-state outcome of Session::Execute_ (Session-surgery Stage B, IP-1 design doc
+ * opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3 §R3.3 / REVISION 4
+ * §R4.7). `kNoMoreData`/`kMoreData` are exactly today's `false`/`true` (kept as an enum, not a bool,
+ * so the new third state can't be silently misread as either). `kNeedsCoroPrepare` is new: it means
+ * the RUN currently being processed (state_ == State::Parsed) needs to be driven via the coroutine
+ * Prepare chain (communication::bolt::HandlePrepareCoro) because that path can park a contended
+ * accessor acquire -- Execute_ deliberately does NOT invoke HandlePrepare synchronously in that case;
+ * the caller (communication::v2::Session::RunLoop) drives HandlePrepareCoro and reacts to whether it
+ * parked. Only ever returned when --experimental-coro-prepare-accessor-yield is on AND the caller is
+ * running on a PriorityThreadPool (LP) worker -- flag-off, or any other execution context (e.g. the
+ * ASIO scheduler's OnReadAsio loop, which never runs on a pool worker), never sees it.
+ */
+enum class ExecuteResult : uint8_t {
+  kNoMoreData,        // no more data to process; caller should arm a fresh read (today's `false`)
+  kMoreData,          // more data ready to process now; caller should call Execute_ again (today's `true`)
+  kNeedsCoroPrepare,  // state_ == Parsed and this Prepare must be driven via the coroutine chain
+};
 }  // namespace memgraph::communication::bolt

@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <functional>
+
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/session.hpp"
@@ -98,12 +100,13 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   /// accessor acquire is genuinely under way, matching the IP-1 design doc's ip1-design.md
   /// requirement ("moving parsed_res_ only INSIDE the coroutine").
   ///
-  /// Stage A only: nothing yet drives/awaits this from the Bolt layer (that is Stage B -- a
-  /// HandlePrepareCoro and a coroutine-aware Execute_/DoWork driver). Calling and immediately
-  /// SyncWait()-ing this Task today would behave identically to InterpretPrepare(), just via the
-  /// coroutine machinery and (when the experimental flag is on) with the possibility of an internal
-  /// park during the accessor acquire.
-  utils::Task<std::pair<std::vector<std::string>, std::optional<int>>> InterpretPrepareCoro();
+  /// `on_park_resumed` (Session-surgery Stage B, IP-1 R4.2): forwarded to Interpreter::PrepareCoro ->
+  /// query::AcquireAccessorCoro. Invoked (once per genuine cross-thread resume, never for a
+  /// synchronous completion) by the pinned reschedule closure right after it resumes the parked
+  /// handle -- see communication::v2::Session::DrivePreparedRun (the only real caller; empty/default
+  /// for tests and any other caller that never expects a park, e.g. a plain SyncWait).
+  utils::Task<std::pair<std::vector<std::string>, std::optional<int>>> InterpretPrepareCoro(
+      std::function<void()> on_park_resumed = {});
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
                                                                     const bolt_map_t &extra) {
@@ -141,7 +144,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   utils::Priority ApproximateQueryPriority() const;
 
-  inline bool Execute() { return Execute_(*this); }
+  inline communication::bolt::ExecuteResult Execute() { return Execute_(*this); }
 
   memgraph::logging::SessionLogContext *GetLogContext() noexcept { return interpreter_.GetLogContext(); }
 
