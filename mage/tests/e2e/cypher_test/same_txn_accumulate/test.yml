@@ -1,0 +1,13 @@
+# The nested statement runs in the caller's transaction, so each per-row call sees the (:Y)
+# nodes created by the previous rows' calls: the counts advance 1, 2, 3.
+query: >
+    MATCH (n:N)
+    CALL cypher.doIt("CREATE (:Y) WITH count(*) AS ignore MATCH (y:Y) RETURN count(y) AS c", {})
+    YIELD value
+    RETURN value.c AS c
+    ORDER BY c ASC;
+
+output:
+  - c: 1
+  - c: 2
+  - c: 3

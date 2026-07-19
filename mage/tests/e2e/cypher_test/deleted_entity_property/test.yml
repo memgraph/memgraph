@@ -1,0 +1,13 @@
+# An entity deleted earlier in the caller's transaction keeps deleted semantics when passed as a
+# parameter: reading a property off it throws (matching the behavior of accessing any deleted
+# object), rather than silently yielding null.
+query: >
+    MATCH (a:Person)
+    DETACH DELETE a
+    WITH a
+    CALL cypher.doIt("RETURN $n.age AS age", {n: a})
+    YIELD value
+    RETURN value.age AS age;
+
+exception: >
+    Trying to get a property from a deleted object.

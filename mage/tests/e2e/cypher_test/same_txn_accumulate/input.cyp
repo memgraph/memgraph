@@ -1,0 +1,4 @@
+MATCH (n) DETACH DELETE n;
+CREATE (:N);
+CREATE (:N);
+CREATE (:N);

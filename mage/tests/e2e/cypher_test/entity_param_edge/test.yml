@@ -1,0 +1,10 @@
+# A relationship passed as a parameter resolves to the same live edge in the caller's snapshot;
+# property access on it reads live.
+query: >
+    MATCH ()-[r:KNOWS]->()
+    CALL cypher.doIt("RETURN $r.since AS since", {r: r})
+    YIELD value
+    RETURN value.since AS since;
+
+output:
+  - since: 2020

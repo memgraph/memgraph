@@ -1146,7 +1146,8 @@ inline mgp_storage_access_type query_storage_access_type(mgp_graph *graph, const
 
 inline const char *error_message() {
   const char *result = nullptr;
-  mgp_error_message(&result);
+  // mgp_error_message never fails; discard its [[nodiscard]] return.
+  static_cast<void>(mgp_error_message(&result));
   return result;
 }
 }  // namespace mgp

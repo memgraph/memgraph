@@ -1,0 +1,11 @@
+# The outer input feeding the CALL is made eager (Accumulate below the write CallProcedure),
+# so the outer scan sees exactly the 3 pre-existing :N rows and does not pick up the
+# procedure's own (:X) writes as phantom rows.
+query: >
+    MATCH (n:N)
+    CALL cypher.doIt("CREATE (:X) RETURN 1 AS x", {})
+    YIELD value
+    RETURN count(*) AS cnt;
+
+output:
+  - cnt: 3

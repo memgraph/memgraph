@@ -768,6 +768,17 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid 
   return VertexAccessor::Create(&*it, storage_, &transaction_, view);
 }
 
+std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertexIncludingDeleted(Gid gid) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto acc = mem_storage->vertices_.access();
+  auto it = acc.find(gid);
+  if (it == acc.end()) return std::nullopt;
+  // Skip the visibility gate of VertexAccessor::Create: a vertex deleted in this transaction is
+  // still physically present, and the returned accessor (for_deleted_ = false) reports it as
+  // deleted on access.
+  return VertexAccessor{&*it, storage_, &transaction_};
+}
+
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges,
                                                 bool detach) {
@@ -2815,6 +2826,17 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   }
   const auto &[edge_ref, edge_type, from, to] = *maybe_edge_info;
   return EdgeAccessor::Create(edge_ref, edge_type, from, to, storage_, &transaction_, view);
+}
+
+std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdgeIncludingDeleted(Gid gid) {
+  const auto maybe_edge_info = static_cast<InMemoryStorage *>(storage_)->FindEdge(gid);
+  if (!maybe_edge_info) {
+    return std::nullopt;
+  }
+  const auto &[edge_ref, edge_type, from, to] = *maybe_edge_info;
+  // Skip the visibility gate of EdgeAccessor::Create: an edge deleted in this transaction is still
+  // physically present, and the returned accessor (for_deleted_ = false) reports it as deleted.
+  return EdgeAccessor{edge_ref, edge_type, from, to, storage_, &transaction_};
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) {

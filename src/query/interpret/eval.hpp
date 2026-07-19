@@ -1193,10 +1193,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
 
-  // Resolves a graph-entity parameter to a live accessor by gid in the current transaction. A
-  // live entity resolves via View::NEW; an entity deleted in this transaction still resolves via
-  // View::OLD, so a property read on it throws DELETED_OBJECT, identity comparisons find no match,
-  // and returning it yields an empty entity reference. A fully absent entity yields Null.
+  // Resolves a graph-entity parameter to an accessor by gid in the current transaction. A live
+  // entity resolves via View::NEW (or View::OLD when deleted in the current command). An entity
+  // deleted in an earlier command of this transaction resolves via the deleted-aware lookup, so it
+  // keeps deleted semantics: a property read on it throws, identity comparisons find no match, and
+  // returning it is rejected. A physically absent entity yields Null. (The deleted-aware lookup is
+  // only implemented for in-memory storage; on other storage modes a deleted entity yields Null.)
   TypedValue ResolveEntityParameter(const EntityRef &ref) {
     if (dba_ == nullptr) [[unlikely]] {
       throw QueryRuntimeException("Resolving a graph-entity parameter requires a database accessor.");
@@ -1205,12 +1207,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case EntityRef::Kind::kVertex: {
         auto vertex = dba_->FindVertex(ref.gid, storage::View::NEW);
         if (!vertex) vertex = dba_->FindVertex(ref.gid, storage::View::OLD);
+        if (!vertex) vertex = dba_->FindVertexIncludingDeleted(ref.gid);
         if (!vertex) return TypedValue(ctx_->memory);
         return TypedValue(*vertex, ctx_->memory);
       }
       case EntityRef::Kind::kEdge: {
         auto edge = dba_->FindEdge(ref.gid, storage::View::NEW);
         if (!edge) edge = dba_->FindEdge(ref.gid, storage::View::OLD);
+        if (!edge) edge = dba_->FindEdgeIncludingDeleted(ref.gid);
         if (!edge) return TypedValue(ctx_->memory);
         return TypedValue(*edge, ctx_->memory);
       }

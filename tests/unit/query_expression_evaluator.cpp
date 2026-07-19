@@ -1054,11 +1054,15 @@ TYPED_TEST(ExpressionEvaluatorTest, ParameterLookupDeletedEntityDegradesToEmpty)
   const auto gid = v.Gid();
   ASSERT_TRUE(this->dba.RemoveVertex(&v).has_value());
   this->dba.AdvanceCommand();
-  // Resolving an entity deleted in this transaction must not crash; it yields no live vertex.
+  // An entity deleted in a prior command is invisible under both View::NEW and View::OLD. On
+  // in-memory storage it then resolves via the deleted-aware lookup to a deleted accessor (so a
+  // property read throws and returning it is rejected); on on-disk storage the deleted-aware lookup
+  // is not implemented, so it degrades to Null. This suite runs on on-disk storage. In both cases
+  // resolution must not crash. (In-memory deleted-entity semantics are covered end-to-end.)
   this->ctx.parameters.AddEntity(0, memgraph::query::EntityRef{gid, memgraph::query::EntityRef::Kind::kVertex});
   auto *param_lookup = this->storage.template Create<ParameterLookup>(0);
   auto value = this->Eval(param_lookup);
-  EXPECT_TRUE(value.IsVertex() || value.IsNull());
+  EXPECT_TRUE(value.IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAll1) {

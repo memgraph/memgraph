@@ -227,6 +227,8 @@ class InMemoryStorage final : public Storage {
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
 
+    std::optional<VertexAccessor> FindVertexIncludingDeleted(Gid gid) override;
+
     VerticesIterable Vertices(View view) override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       const auto max_gid = Gid::FromUint(mem_storage->vertex_id_.load(std::memory_order_acquire));
@@ -247,6 +249,8 @@ class InMemoryStorage final : public Storage {
                                             size_t num_chunks, IndexOrder order) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
+
+    std::optional<EdgeAccessor> FindEdgeIncludingDeleted(Gid gid) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
 

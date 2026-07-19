@@ -1,0 +1,10 @@
+# Writes made by the nested statement are applied in the caller's transaction and are visible to
+# later clauses of the same nested statement. (Only a RETURN may follow a writeable procedure call,
+# so the write is verified inside the nested statement.)
+query: >
+    CALL cypher.doIt("CREATE (:Created), (:Created) WITH count(*) AS ignore MATCH (c:Created) RETURN count(c) AS c", {})
+    YIELD value
+    RETURN value.c AS cnt;
+
+output:
+  - cnt: 2

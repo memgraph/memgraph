@@ -1,0 +1,10 @@
+# A node passed as a parameter resolves to the same live handle in the caller's snapshot, so
+# identity comparison (m = $n) matches the same node.
+query: >
+    MATCH (a:Person)
+    CALL cypher.doIt("MATCH (m) WHERE m = $n RETURN m.name AS name", {n: a})
+    YIELD value
+    RETURN value.name AS name;
+
+output:
+  - name: "Alice"

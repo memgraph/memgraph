@@ -1,0 +1,9 @@
+# Non-Cypher statements (SHOW/EXPLAIN/CREATE TRIGGER/auth/stream/dump/...) parse to non-Cypher
+# AST nodes that the Cypher execution path cannot run, so they are rejected.
+query: >
+    CALL cypher.doIt("SHOW INDEX INFO", {})
+    YIELD value
+    RETURN value;
+
+exception: >
+    Only Cypher queries can be executed in the current transaction.

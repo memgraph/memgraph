@@ -1,0 +1,9 @@
+# A statement that would commit mid-execution would commit the borrowed transaction out from
+# under the still-running outer query, so it is rejected.
+query: >
+    CALL cypher.doIt("USING PERIODIC COMMIT 1 UNWIND [1, 2, 3] AS x CREATE (:Z {v: x})", {})
+    YIELD value
+    RETURN value;
+
+exception: >
+    USING PERIODIC COMMIT and CALL ... IN TRANSACTIONS are not supported when executing in the current transaction.

@@ -5671,11 +5671,12 @@ mgp_error mgp_execute_query_in_current_transaction(mgp_graph *graph, mgp_memory 
                                                    mgp_map *params, mgp_execution_result **result) {
   return WrapExceptions(
       [query, params, graph, memory]() -> mgp_execution_result * {
-        // The caller's transaction and execution context are reached through graph->ctx, which
-        // is only populated for a writable graph (i.e. inside a WRITE-mode procedure).
+        // The caller's transaction and execution context are reached through graph->ctx. ctx is
+        // populated for every procedure invoked via CALL; it is null only for magic functions,
+        // which cannot obtain an mgp_graph. Write-vs-read enforcement is done by AccessorCompliance
+        // inside BorrowedTransactionExecution — a write statement on a read accessor is rejected.
         if (graph->ctx == nullptr) {
-          throw std::logic_error{
-              "Executing a query in the current transaction is only possible from a write procedure."};
+          throw std::logic_error{"Executing a query in the current transaction is only possible from a procedure."};
         }
         auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
 
@@ -5683,9 +5684,10 @@ mgp_error mgp_execute_query_in_current_transaction(mgp_graph *graph, mgp_memory 
         memgraph::query::EntityParameters entity_params;
         CreateQueryParamsWithEntities(params, query_params, entity_params);
 
-        auto *result = NewRawMgpObject<mgp_execution_result>(memory->impl, graph);
-        // Constructs, parses, guards and plans against the caller's borrowed transaction. Throws
-        // (recorded by WrapExceptions) on a non-Cypher statement or a mid-pull-commit statement.
+        // RAII ownership until fully built: the BorrowedTransactionExecution constructor validates
+        // the statement and can throw (non-Cypher, parse error, mid-pull commit, or a write on a
+        // read accessor), which must not leak the result object.
+        auto result = NewMgpObject<mgp_execution_result>(memory, graph);
         result->pImpl->borrowed = std::make_unique<memgraph::query::BorrowedTransactionExecution>(
             &instance, graph->getImpl(), *graph->ctx, std::string(query), query_params, entity_params, memory->impl);
 
@@ -5695,7 +5697,7 @@ mgp_error mgp_execute_query_in_current_transaction(mgp_graph *graph, mgp_memory 
         }
         result->pImpl->headers = std::make_unique<mgp_execution_headers>(std::move(headers));
 
-        return result;
+        return result.release();
       },
       result);
 }
@@ -5751,10 +5753,18 @@ mgp_error mgp_query_storage_access_type(mgp_graph *graph, const char *query, mgp
                                                             graph->getImpl()->DatabaseName()
 #endif
                                                                 ));
+        // Parse requires a query user to be set (asserted in Interpreter::Parse), so forward the
+        // caller's identity. graph->ctx is always populated for a procedure (it is null only for
+        // magic functions, which cannot obtain an mgp_graph). Entity params are split out and
+        // dropped — the access type depends only on the query's structure, not on parameter values,
+        // and the scalar-only CreateQueryParams would otherwise throw on a node/relationship value.
         interpreter.SetUser(graph->ctx->user_or_role);
         auto query_params_func =
             [params](memgraph::storage::Storage const *) -> memgraph::storage::ExternalPropertyValue::map_t {
-          return params ? CreateQueryParams(params) : memgraph::storage::ExternalPropertyValue::map_t{};
+          memgraph::storage::ExternalPropertyValue::map_t scalars;
+          memgraph::query::EntityParameters entities;
+          CreateQueryParamsWithEntities(params, scalars, entities);
+          return scalars;
         };
         switch (interpreter.DetermineQueryStorageAccessType(std::string(query), query_params_func)) {
           case memgraph::storage::StorageAccessType::NO_ACCESS:

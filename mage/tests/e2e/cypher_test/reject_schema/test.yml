@@ -1,0 +1,10 @@
+# A write-mode procedure holds a write guard for the whole call and can never acquire the
+# UNIQUE / READ_ONLY access a schema statement needs, so it is rejected up front instead of
+# stalling to a lock timeout.
+query: >
+    CALL cypher.doIt("CREATE INDEX ON :Node(id)", {})
+    YIELD value
+    RETURN value;
+
+exception: >
+    cypher.doIt cannot execute a schema-modifying statement: CREATE INDEX ON :Node(id)

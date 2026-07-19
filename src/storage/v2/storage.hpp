@@ -537,6 +537,12 @@ class Accessor {
 
   virtual std::optional<VertexAccessor> FindVertex(Gid gid, View view) = 0;
 
+  /// Finds a vertex by gid ignoring visibility, returning an accessor even when the vertex was
+  /// deleted in this transaction (so property reads report DELETED_OBJECT and returning it is
+  /// rejected). Returns nullopt when the vertex is physically absent. Used to resolve graph-entity
+  /// query parameters faithfully. Only the in-memory accessors implement it; others return nullopt.
+  virtual std::optional<VertexAccessor> FindVertexIncludingDeleted(Gid /*gid*/) { return std::nullopt; }
+
   virtual VerticesIterable Vertices(View view) = 0;
 
   virtual VerticesIterable Vertices(LabelId label, View view) = 0;
@@ -558,6 +564,10 @@ class Accessor {
                                                   View view, size_t num_chunks, IndexOrder order = IndexOrder::ASC) = 0;
 
   virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
+
+  /// Finds an edge by gid ignoring visibility, returning an accessor even when the edge was deleted
+  /// in this transaction. See FindVertexIncludingDeleted. Only in-memory accessors implement it.
+  virtual std::optional<EdgeAccessor> FindEdgeIncludingDeleted(Gid /*gid*/) { return std::nullopt; }
 
   virtual std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) = 0;
 

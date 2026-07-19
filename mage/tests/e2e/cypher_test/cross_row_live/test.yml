@@ -1,0 +1,13 @@
+# Downstream / cross-row reads stay live (they are NOT eager-barriered): each per-row call
+# increments every :M, and RETURN n.v reads the value live per row, advancing 1, 2, 3.
+query: >
+    MATCH (n:M)
+    CALL cypher.doIt("MATCH (m:M) SET m.v = m.v + 1", {})
+    YIELD value
+    RETURN n.v AS v
+    ORDER BY v ASC;
+
+output:
+  - v: 1
+  - v: 2
+  - v: 3

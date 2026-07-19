@@ -1,0 +1,9 @@
+# Property access on a node parameter reads live from the caller's snapshot.
+query: >
+    MATCH (a:Person)
+    CALL cypher.doIt("RETURN $n.age AS age", {n: a})
+    YIELD value
+    RETURN value.age AS age;
+
+output:
+  - age: 30

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -182,6 +183,14 @@ inline QueryResults ExecuteQueryInCurrentTransaction(const mgp::QueryExecution &
 
     const auto &result = *maybe_result;
     result_list.AppendExtend(mgp::Value(result.Values()));
+  }
+
+  // A runtime error mid-pull is reported out-of-band: the pull cannot distinguish a null result
+  // from end-of-rows, so it stashes the message instead of throwing. Because this statement runs
+  // in the caller's transaction, swallowing the error would leave its partial writes live and
+  // report success. Surface it so the procedure fails and the caller's transaction is aborted.
+  if (const auto error = mgp::LastErrorMessage(); !error.empty()) {
+    throw std::runtime_error(error);
   }
 
   return QueryResults{.columns = headers, .results = std::move(result_list)};

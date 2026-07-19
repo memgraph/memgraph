@@ -406,8 +406,20 @@ class DbAccessor final {
     return std::nullopt;
   }
 
+  std::optional<VertexAccessor> FindVertexIncludingDeleted(storage::Gid gid) {
+    auto maybe_vertex = accessor_->FindVertexIncludingDeleted(gid);
+    if (maybe_vertex) return VertexAccessor(*maybe_vertex);
+    return std::nullopt;
+  }
+
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
     auto maybe_edge = accessor_->FindEdge(gid, view);
+    if (maybe_edge) return EdgeAccessor(*maybe_edge);
+    return std::nullopt;
+  }
+
+  std::optional<EdgeAccessor> FindEdgeIncludingDeleted(storage::Gid gid) {
+    auto maybe_edge = accessor_->FindEdgeIncludingDeleted(gid);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
     return std::nullopt;
   }

@@ -4028,7 +4028,11 @@ BorrowedTransactionExecution::BorrowedTransactionExecution(InterpreterContext *i
   // Resolve the owning database (for the plan cache and stripped-query uuid). Everything else
   // needed to run the plan (metric handles, arena, protector, auth) is taken from the caller's
   // live ExecutionContext so the nested statement shares the caller's identity and resources.
-  auto db_acc = interpreter_context->dbms_handler->Get(dba->DatabaseName());
+  auto db_acc = interpreter_context->dbms_handler->Get(
+#ifdef MG_ENTERPRISE
+      dba->DatabaseName()
+#endif
+  );
   std::string const database_uuid{db_acc->uuid()};
 
   auto parsed_query = ParseQuery(query,
@@ -4069,6 +4073,11 @@ BorrowedTransactionExecution::BorrowedTransactionExecution(InterpreterContext *i
         "USING PERIODIC COMMIT and CALL ... IN TRANSACTIONS are not supported when executing in the current "
         "transaction.");
   }
+
+  // Guard 3: a write statement can only run on a write accessor. The borrowed accessor's type is
+  // fixed by the caller's transaction, so a read-mode caller (e.g. a read procedure) cannot host a
+  // nested write. This is the same check the top-level query path applies.
+  AccessorCompliance(*impl_->plan, *dba);
 
   impl_->output_symbols = impl_->plan->plan().OutputSymbols(impl_->plan->symbol_table());
   impl_->header.reserve(impl_->output_symbols.size());
