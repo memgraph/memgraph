@@ -189,7 +189,25 @@ void PriorityThreadPool::AwaitShutdown() { pool_.clear(); }
 
 void PriorityThreadPool::ShutDown() {
   {
+    // Stop accepting new work first (ScheduledAddTask/RescheduleTaskOnWorker both check this).
     pool_stop_source_.request_stop();
+
+    // IP-1 R4.4 (opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md): drain any
+    // parked coroutine waiters BEFORE stopping the monitor/workers, so a teardown resumes every
+    // parked frame at least once instead of leaking it. Order matters here: once
+    // pool_stop_source_.request_stop() has run (above), RescheduleTaskOnWorker() -- which is what
+    // every ParkState::on_resume ultimately calls -- detects IsShuttingDown() and runs its closure
+    // INLINE, on this (draining) thread, instead of posting it to a worker queue that would never
+    // be serviced once workers are stopped. The resumed coroutine chain is expected to observe
+    // IsShuttingDown() itself (query::AcquireAccessorCoro's post-resume check) and bail out cleanly
+    // (throw -> unwind -> release its accessor -> the owning session's parked_prepare_ is cleared)
+    // rather than proceed into any further per-database work. Draining here, before the monitor and
+    // workers stop, also means this does NOT need workers to still be running -- the resume is
+    // driven synchronously on this thread either way -- but doing it first keeps the shutdown
+    // sequence in the order the design doc specifies: drain parked -> stop accepting new work
+    // (already done above) -> stop monitor -> stop workers -> destroy pool.
+    park_registry_.Drain();
+
     // Stop monitoring thread before workers
     monitoring_.Stop();
     // Mixed work workers
