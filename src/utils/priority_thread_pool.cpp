@@ -13,7 +13,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <coroutine>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -171,13 +170,12 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
                     // Additive: deadline sweep for parked waiters (IP-1 B2). A cheap no-op when
                     // nothing is registered (see DeadlineParkRegistry::Sweep's empty fast path),
                     // so this does not change existing monitor behavior when the feature is
-                    // unused. Resuming a claimed handle is just handing it back onto its owning
-                    // worker; the resumed frame re-probes and decides for itself what to do
-                    // (e.g. throw a timeout) -- this monitor has no coroutine knowledge at all.
-                    park_registry_.Sweep(std::chrono::steady_clock::now(),
-                                         [this](size_t worker_id, std::coroutine_handle<> handle) {
-                                           RescheduleTaskOnWorker(worker_id, [handle] { handle.resume(); });
-                                         });
+                    // unused. The registry now invokes each claimed waiter's on_resume itself
+                    // (utils/park_state.hpp) -- the pool no longer supplies a reschedule lambda,
+                    // and has no coroutine knowledge at all: on_resume is whatever the caller that
+                    // registered the ParkState wants it to be (e.g. pinning back onto its owning
+                    // worker via RescheduleTaskOnWorker, in the real integration).
+                    park_registry_.Sweep(std::chrono::steady_clock::now());
                   });
 }
 
