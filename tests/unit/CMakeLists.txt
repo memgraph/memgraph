@@ -472,6 +472,21 @@ add_unit_test(utils_epoch_tracker
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(coro_task
+    SOURCES coro_task.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(worker_resume_event
+    SOURCES worker_resume_event.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(deadline_park_registry
+    SOURCES deadline_park_registry.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_exceptions
     SOURCES utils_exceptions.cpp
     LINK_TARGETS mg-utils
