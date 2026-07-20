@@ -435,7 +435,18 @@ class UniquePendingScope {
 
   ~UniquePendingScope() {
     if (lock_ == nullptr) return;  // ownership already transferred out by a successful try_acquire()
-    if (lock_->unique_pending_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    // Decrement the pending counter *under mtx*, mirroring ResourceLock::lock()'s failure path.
+    // A shared acquirer tests `unique_pending_ == 0` inside cv.wait's predicate while holding mtx;
+    // if we mutated the counter off-mtx, our fetch_sub + notify_all could land in the window
+    // between that thread's predicate check and its enqueue on the cv, losing the wake and hanging
+    // it forever. Mutating under the waiter's mutex serializes against that check. Release mtx
+    // before notifying (never notify_all while holding mtx).
+    bool was_last_waiter = false;
+    {
+      auto guard = std::unique_lock{lock_->mtx};
+      was_last_waiter = lock_->unique_pending_.fetch_sub(1, std::memory_order_acq_rel) == 1;
+    }
+    if (was_last_waiter) {
       // We were the last pending UNIQUE waiter and never acquired -- wake shared acquirers that
       // were gated purely on unique_pending_ == 0 so they can re-check now (same notify this
       // counter's blocking counterpart, ResourceLock::lock(), performs on its failure path).
@@ -498,7 +509,15 @@ class ReadOnlyPendingScope {
 
   ~ReadOnlyPendingScope() {
     if (lock_ == nullptr) return;  // ownership already transferred out by a successful try_acquire()
-    if (lock_->ro_pending_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    // Decrement *under mtx* -- see ~UniquePendingScope for the lost-wakeup rationale (here the
+    // gated waiter is a blocking lock_shared<WRITE>() testing `ro_pending_count == 0`). Release
+    // before notifying.
+    bool was_last_waiter = false;
+    {
+      auto guard = std::unique_lock{lock_->mtx};
+      was_last_waiter = lock_->ro_pending_count.fetch_sub(1, std::memory_order_acq_rel) == 1;
+    }
+    if (was_last_waiter) {
       lock_->cv.notify_all();
     }
   }

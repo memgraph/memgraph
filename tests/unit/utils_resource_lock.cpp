@@ -794,6 +794,59 @@ TEST_F(ResourceLockTest, UniquePendingScopeGatesNewSharedAcquisitionUntilDestroy
   guard_w0.unlock();
 }
 
+// Test 4c-ii: destroying a still-pending UniquePendingScope must WAKE a thread that is genuinely
+// blocked in lock_shared() (parked in cv.wait), not merely clear the gate for a later non-blocking
+// try_lock_shared() (which 4c above already covers). This exercises the destructor's notify path
+// against a real waiter. NOTE: this deterministically guards that the wake happens *at all* (e.g. a
+// future refactor that drops the notify_all, or fails to publish the counter under mtx, would hang
+// here and fail via the bounded wait_for). It does not by itself reproduce the narrow notify-races-
+// enqueue window that motivated mutating unique_pending_ under mtx -- that window is not
+// deterministically reproducible in a unit test; correctness there rests on the mtx discipline
+// (same as ResourceLock::lock()'s failure path) plus the fuzz test below.
+TEST_F(ResourceLockTest, UniquePendingScopeDestructionWakesBlockedSharedReader) {
+  using namespace std::chrono_literals;
+  // Hold WRITE so state == SHARED (never UNLOCKED): the scope can never acquire and stays pending,
+  // and a READ acquirer is compatible with the held WRITE once the unique_pending_ gate clears.
+  auto guard_w0 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE);
+
+  auto scope = std::optional<UniquePendingScope>{std::in_place, lock};  // unique_pending_ == 1
+  ASSERT_FALSE(scope->try_acquire().has_value());
+
+  std::atomic<bool> reader_acquired{false};
+  auto reader = std::async(std::launch::async, [&] {
+    // Blocks: predicate is (state != UNIQUE && unique_pending_ == 0); unique_pending_ == 1 here,
+    // so this parks in cv.wait until the scope below is destroyed.
+    lock.lock_shared<ResourceLock::LockReq::READ>();
+    reader_acquired.store(true, std::memory_order_release);
+    lock.unlock_shared<ResourceLock::LockReq::READ>();
+  });
+
+  // Give the reader ample time to reach cv.wait, then confirm it is actually still blocked (the gate
+  // is holding it, not a scheduling delay).
+  std::this_thread::sleep_for(50ms);
+  ASSERT_FALSE(reader_acquired.load(std::memory_order_acquire));
+
+  scope.reset();  // ~UniquePendingScope: unique_pending_ 1 -> 0 under mtx, then notify_all -> wake
+
+  // Bounded so a lost/absent wake fails the test (~5s) instead of hanging the suite forever.
+  const auto status = reader.wait_for(5s);
+  EXPECT_EQ(status, std::future_status::ready)
+      << "reader blocked in lock_shared() was not woken by ~UniquePendingScope (lost/absent wakeup)";
+  if (status != std::future_status::ready) {
+    // Rescue the still-parked reader so the std::future destructor does not block forever: releasing
+    // the WRITE guard notifies_all (unlock_should_notify<WRITE>), which wakes it (unique_pending_ is
+    // already 0). Do this ONLY on the failure path -- doing it before the assertion would wake the
+    // reader regardless of the scope's own notify and destroy the test's discriminating power.
+    guard_w0.unlock();
+    reader.wait();
+    return;
+  }
+  reader.get();
+  EXPECT_TRUE(reader_acquired.load(std::memory_order_acquire));
+
+  guard_w0.unlock();
+}
+
 // Test 4d: mutual-exclusion invariant fuzzer (same style as ConcurrentMutualExclusionInvariantsFuzz
 // above), extended with UniquePendingScope / ReadOnlyPendingScope try_acquire() attempts mixed in
 // alongside the existing blocking/try entry points, to give TSan and the invariant checker a shot
