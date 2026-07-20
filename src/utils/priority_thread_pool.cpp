@@ -189,23 +189,28 @@ void PriorityThreadPool::AwaitShutdown() { pool_.clear(); }
 
 void PriorityThreadPool::ShutDown() {
   {
-    // Stop accepting new work first (ScheduledAddTask/RescheduleTaskOnWorker both check this).
+    // Mark shutting down first: ScheduledAddTask refuses new work once this is set, and
+    // IsShuttingDown() (read by, e.g., query::AcquireAccessorCoro's post-resume check and
+    // query::detail::AcquireAwaitable's own shutdown self-claim, see coro_accessor.hpp) starts
+    // observing true from here on. RescheduleTaskOnWorker itself no longer branches on this flag
+    // at all (IP-1 F1 fix, opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md
+    // REVISION 5 -- see its doc comment) -- it always posts pinned, shutdown or not.
     pool_stop_source_.request_stop();
 
-    // IP-1 R4.4 (opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md): drain any
-    // parked coroutine waiters BEFORE stopping the monitor/workers, so a teardown resumes every
-    // parked frame at least once instead of leaking it. Order matters here: once
-    // pool_stop_source_.request_stop() has run (above), RescheduleTaskOnWorker() -- which is what
-    // every ParkState::on_resume ultimately calls -- detects IsShuttingDown() and runs its closure
-    // INLINE, on this (draining) thread, instead of posting it to a worker queue that would never
-    // be serviced once workers are stopped. The resumed coroutine chain is expected to observe
-    // IsShuttingDown() itself (query::AcquireAccessorCoro's post-resume check) and bail out cleanly
-    // (throw -> unwind -> release its accessor -> the owning session's parked_prepare_ is cleared)
-    // rather than proceed into any further per-database work. Draining here, before the monitor and
-    // workers stop, also means this does NOT need workers to still be running -- the resume is
-    // driven synchronously on this thread either way -- but doing it first keeps the shutdown
-    // sequence in the order the design doc specifies: drain parked -> stop accepting new work
-    // (already done above) -> stop monitor -> stop workers -> destroy pool.
+    // IP-1 R4.4 / F1 fix: drain every parked coroutine waiter WHILE THE WORKERS ARE STILL
+    // RUNNING -- this is now load-bearing, not merely an ordering nicety. Draining claims each
+    // registered ParkState and invokes its on_resume, which pins a resume back onto the parked
+    // coroutine's OWNING worker via RescheduleTaskOnWorker (always posted, never inline, per the
+    // F1 fix above) -- that worker, still executing its ordinary run loop at this point (stop()
+    // below has not run yet for ANY worker), services the posted resume exactly like any other
+    // pinned task, on its own thread, never concurrently with whatever this (draining) thread does
+    // next. The resumed coroutine chain observes IsShuttingDown() (query::AcquireAccessorCoro's
+    // post-resume check) and bails out cleanly (throw -> unwind -> release its accessor -> the
+    // owning session's parked_prepare_ is cleared) rather than proceeding into any further
+    // per-database work. Shutdown sequence: mark shutting down (above) -> drain parked (here,
+    // workers still looping) -> stop monitor -> stop workers (each finishes its pinned queue,
+    // including any resume posted late in this window, before actually exiting -- see the drain
+    // loop at the end of Worker::operator()) -> AwaitShutdown() joins -> destroy pool.
     park_registry_.Drain();
 
     // Stop monitoring thread before workers
@@ -249,12 +254,22 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
 void PriorityThreadPool::RescheduleTaskOnWorker(size_t worker_id, std::function<void()> closure) {
   DMG_ASSERT(
       worker_id < workers_.size(), "worker_id {} out of range (num mixed workers {})", worker_id, workers_.size());
-  if (pool_stop_source_.stop_requested()) [[unlikely]] {
-    // Pool is tearing down: nothing will service a queued item. Run inline rather than dropping
-    // the closure (avoids a silent hang for whatever forward progress depended on it).
-    closure();
-    return;
-  }
+  // IP-1 F1 fix (opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 5,
+  // shutdown-window UAF): NEVER resume inline on the caller's thread, shutdown or not. A coroutine
+  // parking on THIS worker (the common case: its own await_suspend, still executing ON worker_id)
+  // keeps touching frame-resident state strictly AFTER publishing its `ParkState` into the
+  // registries (the B1 register-before-recheck re-probe, the shutdown self-claim -- see
+  // query::detail::AcquireAwaitable::await_suspend) -- that is only safe because a same-worker
+  // PINNED resume cannot possibly run until worker_id itself returns from await_suspend and
+  // re-enters its run loop. The old shutdown fast path violated exactly that invariant: it let
+  // whichever thread happened to be draining/sweeping/notifying resume (and potentially destroy)
+  // the coroutine frame WHILE the parking thread was still inside await_suspend -- a cross-thread
+  // use-after-free. Always posting pinned, even during shutdown, is safe because
+  // PriorityThreadPool::ShutDown() only reaches this path (via park_registry_.Drain()) BEFORE it
+  // stops any worker -- the target worker is still running its ordinary loop and will service this
+  // pinned item exactly like any other. Worker::operator()'s run loop additionally drains
+  // work_pinned_ before it fully exits, as a backstop for a resume posted in the brief window
+  // after stop() has been requested but before the worker thread has actually returned.
   Worker *const w = workers_[worker_id].get();
   TaskID id = w->last_task_.load(std::memory_order_acquire);
   if (id == 0) {
@@ -422,6 +437,33 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
         return !run_;  // Return and shutdown
       });
     }
+  }
+
+  // IP-1 F1 fix (opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 5):
+  // the loop above can exit (run_ observed false at the top of `while`) in the very same instant
+  // the cv_.wait predicate already popped a task into `task` -- popping and the run_ check are not
+  // atomic with each other -- so `task`, if set here, must still run rather than be silently
+  // dropped. Then drain any remaining PINNED work: RescheduleTaskOnWorker (see its doc comment)
+  // now always posts instead of ever resuming inline, so a bail-resume for a coroutine parked on
+  // exactly this worker can still be posted here, in the window between stop() being requested and
+  // this thread actually returning (e.g. a lock-release NotifyAll racing the tail of
+  // PriorityThreadPool::ShutDown()). Draining ONLY work_pinned_ -- never the stealable work_ queue,
+  // which may hold ordinary application work that must NOT start once this worker is torn down --
+  // guarantees no parked coroutine frame is left registered-but-never-resumed (a permanent leak)
+  // once this function returns.
+  if (task) {
+    task.value()(ThreadPriority);
+    task.reset();
+  }
+  for (;;) {
+    TaskSignature drained_task;
+    {
+      auto l = std::unique_lock{mtx_};
+      if (work_pinned_.empty()) break;
+      drained_task = std::move(work_pinned_.top().work);
+      work_pinned_.pop();
+    }
+    drained_task(ThreadPriority);
   }
 
   // Teardown: drop this worker's published identity so GetCurrentWorkerId() returns nullopt
