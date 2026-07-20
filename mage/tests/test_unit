@@ -11,11 +11,11 @@ PY_DIRECTORY = f"{WORK_DIRECTORY}/python"
 #################################################
 #            Unit Test C++ modules              #
 #################################################
-# MAGE is built as part of the root CMake tree (./build.sh --mage); its unit
+# MAGE is built as part of the root CMake tree (./build.sh --mage on); its unit
 # tests are registered with the mage__ prefix in the root build directory.
 BUILD_DIRECTORY = f"{REPO_ROOT}/build"
 if not os.path.exists(BUILD_DIRECTORY):
-    print("No build directory! Build with `./build.sh --mage` from the repo root.")
+    print("No build directory! Build with `./build.sh --mage on` from the repo root.")
     exit(1)
 
 # Run ctest

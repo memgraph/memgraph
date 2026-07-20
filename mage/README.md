@@ -243,7 +243,7 @@ To learn more about development with MAGE and Docker, visit the
   - uuid-dev
 
 
-MAGE is built as part of the main Memgraph CMake tree by passing `--mage` to
+MAGE is built as part of the main Memgraph CMake tree by passing `--mage on` to
 `build.sh` (which maps to `-DMG_BUILD_MAGE=ON`).
 
 Before you start, clone the repository:
@@ -267,7 +267,7 @@ Now you can build Memgraph together with all MAGE query modules (C++, Python
 and Rust):
 
 ```bash
-./build.sh --mage
+./build.sh --mage on
 ```
 
 All modules are collected in `build/mage/dist`. For local development point
