@@ -13,7 +13,9 @@
 #include <mgp.hpp>
 #include <optional>
 #include <set>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -24,6 +26,7 @@ constexpr const std::string_view kParameterString = "string";
 constexpr const std::string_view kFunctionFromJsonMap = "from_json_map";
 constexpr const std::string_view kFunctionToMap = "to_map";
 constexpr const std::string_view kParameterMap = "map";
+constexpr const std::string_view kParameterPath = "path";
 
 // Forward declarations
 std::optional<mgp::Value> ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memory);
@@ -111,8 +114,94 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
   }
 }
 
-// Parses a JSON object string into a Cypher map. A null argument yields null; a
-// JSON value that is not an object is rejected.
+// Translates a subset of path syntax into an RFC 6901 JSON pointer string.
+// Supported: an optional leading '$', '.key' dot steps, "['key']"/'["key"]'
+// quoted steps, and '[index]' numeric steps. An empty path (or a lone '$')
+// selects the whole document. Unsupported constructs (wildcards, filters,
+// recursive descent, slices) throw.
+std::string JsonPathToPointer(std::string_view path) {
+  std::string pointer;
+  const auto append_key = [&pointer](std::string_view key) {
+    pointer.push_back('/');
+    for (const char c : key) {  // RFC 6901 escaping
+      if (c == '~') {
+        pointer += "~0";
+      } else if (c == '/') {
+        pointer += "~1";
+      } else {
+        pointer.push_back(c);
+      }
+    }
+  };
+
+  size_t i = 0;
+  const size_t n = path.size();
+  if (i < n && path[i] == '$') {
+    ++i;
+  }
+  while (i < n) {
+    if (path[i] == '.') {
+      ++i;
+      if (i < n && path[i] == '.') {
+        throw std::invalid_argument("Recursive descent ('..') is not supported in a path expression.");
+      }
+      const size_t start = i;
+      while (i < n && path[i] != '.' && path[i] != '[') {
+        ++i;
+      }
+      const auto key = path.substr(start, i - start);
+      if (key.empty() || key == "*") {
+        throw std::invalid_argument("Wildcards and empty steps are not supported in a path expression.");
+      }
+      append_key(key);
+    } else if (path[i] == '[') {
+      ++i;
+      if (i < n && (path[i] == '\'' || path[i] == '"')) {
+        const char quote = path[i++];
+        const size_t start = i;
+        while (i < n && path[i] != quote) {
+          ++i;
+        }
+        if (i >= n) {
+          throw std::invalid_argument("Unterminated quoted step in a path expression.");
+        }
+        const auto key = path.substr(start, i - start);
+        ++i;  // closing quote
+        if (i >= n || path[i] != ']') {
+          throw std::invalid_argument("Malformed bracket step in a path expression.");
+        }
+        ++i;  // ']'
+        append_key(key);
+      } else {
+        const size_t start = i;
+        while (i < n && path[i] != ']') {
+          ++i;
+        }
+        if (i >= n) {
+          throw std::invalid_argument("Malformed bracket step in a path expression.");
+        }
+        const auto index = path.substr(start, i - start);
+        ++i;  // ']'
+        if (index.empty() || index.find_first_not_of("0123456789") != std::string_view::npos) {
+          throw std::invalid_argument("Only numeric array indices are supported in a path expression.");
+        }
+        append_key(index);
+      }
+    } else {  // leading bare key, e.g. "a.b" written without a '$' prefix
+      const size_t start = i;
+      while (i < n && path[i] != '.' && path[i] != '[') {
+        ++i;
+      }
+      append_key(path.substr(start, i - start));
+    }
+  }
+  return pointer;
+}
+
+// Parses a JSON object string into a Cypher map. A null string yields null. An
+// optional path selects a nested part of the document first: an unresolved path
+// yields null, a JSON null yields null, and a selection that is not an object is
+// rejected.
 void from_json_map(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);
   auto func_result = mgp::Result(res);
@@ -124,13 +213,31 @@ void from_json_map(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, 
       return;
     }
 
-    const auto json_object = nlohmann::json::parse(argument.ValueString());
-    if (!json_object.is_object()) {
-      func_result.SetErrorMessage("The provided string does not represent a JSON object.");
+    const auto root = nlohmann::json::parse(argument.ValueString());
+
+    const auto &path_arg = arguments[1];
+    const auto pointer_str = path_arg.IsNull() ? std::string{} : JsonPathToPointer(path_arg.ValueString());
+
+    const nlohmann::json *selected = &root;
+    if (!pointer_str.empty()) {
+      const auto pointer = nlohmann::json::json_pointer(pointer_str);
+      if (!root.contains(pointer)) {
+        func_result.SetValue();  // unresolved path -> null
+        return;
+      }
+      selected = &root.at(pointer);
+    }
+
+    if (selected->is_null()) {
+      func_result.SetValue();
+      return;
+    }
+    if (!selected->is_object()) {
+      func_result.SetErrorMessage("The selected value does not represent a JSON object.");
       return;
     }
 
-    const auto map_value = ParseJsonToMgpMap(json_object, memory);
+    const auto map_value = ParseJsonToMgpMap(*selected, memory);
     func_result.SetValue(map_value.ValueMap());
   } catch (const std::exception &e) {
     func_result.SetErrorMessage(e.what());
@@ -179,6 +286,10 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     auto *from_json_map_func =
         mgp::module_add_function(module, std::string(kFunctionFromJsonMap).c_str(), from_json_map);
     mgp::func_add_arg(from_json_map_func, std::string(kParameterMap).c_str(), mgp::type_nullable(mgp::type_string()));
+    auto *default_path = mgp::value_make_string("", memory);
+    mgp::func_add_opt_arg(
+        from_json_map_func, std::string(kParameterPath).c_str(), mgp::type_nullable(mgp::type_string()), default_path);
+    mgp::value_destroy(default_path);
 
     auto *to_map_func = mgp::module_add_function(module, std::string(kFunctionToMap).c_str(), to_map);
     mgp::func_add_arg(to_map_func, std::string(kParameterMap).c_str(), mgp::type_nullable(mgp::type_any()));

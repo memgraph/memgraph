@@ -142,6 +142,80 @@ def test_from_json_map_scalar_fails():
         execute_and_fetch_all(cursor, "RETURN convert.from_json_map('5') AS result;")
 
 
+def test_from_json_map_path_object():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.from_json_map(\'{"a": 1, "b": {"c": 2, "d": [10, 20]}}\', \'$.b\') AS result;',
+    )[0][0]
+    assert result == {"c": 2, "d": [10, 20]}
+
+
+def test_from_json_map_path_bracket():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.from_json_map(\'{"a": 1, "b": {"c": 2}}\', "$[\'b\']") AS result;',
+    )[0][0]
+    assert result == {"c": 2}
+
+
+def test_from_json_map_path_array_index():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.from_json_map(\'{"e": [{"x": 1}, {"x": 2}]}\', \'$.e[0]\') AS result;',
+    )[0][0]
+    assert result == {"x": 1}
+
+
+def test_from_json_map_array_root_with_path():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN convert.from_json_map('[{\"x\": 1}]', '$[0]') AS result;")[0][0]
+    assert result == {"x": 1}
+
+
+def test_from_json_map_path_root_and_empty():
+    cursor = connect().cursor()
+    doc = '{"a": 1, "b": {"c": 2}}'
+    expected = {"a": 1, "b": {"c": 2}}
+    assert execute_and_fetch_all(cursor, f"RETURN convert.from_json_map('{doc}', '$') AS result;")[0][0] == expected
+    assert execute_and_fetch_all(cursor, f"RETURN convert.from_json_map('{doc}', '') AS result;")[0][0] == expected
+    assert execute_and_fetch_all(cursor, f"RETURN convert.from_json_map('{doc}', null) AS result;")[0][0] == expected
+
+
+def test_from_json_map_path_missing_is_null():
+    cursor = connect().cursor()
+    doc = '{"e": [{"x": 1}]}'
+    assert execute_and_fetch_all(cursor, f"RETURN convert.from_json_map('{doc}', '$.zzz') AS result;")[0][0] is None
+    assert execute_and_fetch_all(cursor, f"RETURN convert.from_json_map('{doc}', '$.zzz.yyy') AS result;")[0][0] is None
+    assert execute_and_fetch_all(cursor, f"RETURN convert.from_json_map('{doc}', '$.e[9]') AS result;")[0][0] is None
+
+
+def test_from_json_map_path_json_null_leaf_is_null():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN convert.from_json_map('{\"a\": null}', '$.a') AS result;")[0][0]
+    assert result is None
+
+
+def test_from_json_map_path_non_object_fails():
+    cursor = connect().cursor()
+    doc = '{"b": {"c": 2, "d": [10, 20]}}'
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, f"RETURN convert.from_json_map('{doc}', '$.b.c') AS result;")
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, f"RETURN convert.from_json_map('{doc}', '$.b.d') AS result;")
+
+
+def test_from_json_map_path_unsupported_fails():
+    cursor = connect().cursor()
+    doc = '{"e": [{"x": 1}, {"x": 2}]}'
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, f"RETURN convert.from_json_map('{doc}', '$.e[*].x') AS result;")
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, f"RETURN convert.from_json_map('{doc}', '$..x') AS result;")
+
+
 def test_to_map_from_map():
     cursor = connect().cursor()
     result = execute_and_fetch_all(cursor, "RETURN convert.to_map({a: 1, b: 'x'}) AS result;")[0][0]
