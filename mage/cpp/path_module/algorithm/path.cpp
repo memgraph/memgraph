@@ -488,6 +488,11 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
 }
 
 void Path::PathSubgraph::TryInsertNode(const mgp::Node &node, int64_t hop_count, LabelBools &label_bools) {
+  // Nodes closer than minHops are still traversed but must not be returned.
+  if (!path_data_.helper_.PathSizeOk(hop_count)) {
+    return;
+  }
+
   if (path_data_.helper_.IsNotStartOrFiltersStartNode(hop_count == 0)) {
     if (path_data_.helper_.AreLabelsValid(label_bools)) {
       to_be_returned_nodes_.AppendExtend(mgp::Value(node));
