@@ -9,13 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Unicode handling in this module intentionally relies on the standard library
-// rather than a full Unicode library. As a consequence, text.compare_cleaned's
-// normalization is limited to ASCII: it keeps only ASCII letters and digits,
-// lowercased, and drops everything else (accents, punctuation, whitespace, and
-// non-ASCII scripts). So "café" cleans to "caf" and is NOT equal to "cafe".
-// ASCII-only comparisons are exact.
-
 #include "text.hpp"
 
 #include <fmt/args.h>
@@ -37,9 +30,12 @@ std::unordered_map<std::string, std::regex>
 // Mutex needs to be mutable for thread synchronization
 std::mutex global_regex_cache_mutex;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-// Normalizes a string for lenient comparison by keeping only ASCII letters and
-// digits, lowercased. See the note at the top of this file for the limitations
-// of this ASCII-based approach.
+// Unicode handling in this module intentionally relies on the standard library
+// rather than a full Unicode library. As a consequence, text.compare_cleaned's
+// normalization is limited to ASCII: it keeps only ASCII letters and digits,
+// lowercased, and drops everything else (accents, punctuation, whitespace, and
+// non-ASCII scripts). So "café" cleans to "caf" and is NOT equal to "cafe".
+// ASCII-only comparisons are exact.
 std::string CleanForCompare(std::string_view input) {
   std::string cleaned;
   for (const unsigned char character : input) {
