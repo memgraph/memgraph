@@ -310,10 +310,7 @@ void Text::CompareCleaned(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_r
       return;
     }
 
-    const auto text1 = std::string(arguments[0].ValueString());
-    const auto text2 = std::string(arguments[1].ValueString());
-
-    result_obj.SetValue(CleanForCompare(text1) == CleanForCompare(text2));
+    result_obj.SetValue(CleanForCompare(arguments[0].ValueString()) == CleanForCompare(arguments[1].ValueString()));
   } catch (const std::exception &e) {
     result_obj.SetErrorMessage(e.what());
   }
