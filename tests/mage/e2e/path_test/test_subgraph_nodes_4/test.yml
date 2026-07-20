@@ -1,0 +1,17 @@
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {relationshipFilter: ['CONNECTED_TO>'], minHops: 1, maxHops: 1})
+  YIELD nodes
+  RETURN nodes ORDER BY id(nodes) ASC;
+
+output:
+      - nodes:
+          labels:
+            - Node
+          properties:
+            name: B
+      - nodes:
+          labels:
+            - Node
+          properties:
+            name: C
