@@ -1305,7 +1305,7 @@ def test_sso_role_provisioning(test_name):
 
 def test_sso_privilege_enforcement(test_name):
     # The privilege model bites via SSO: a COORDINATOR_READ session reads but cannot mutate; a COORDINATOR_WRITE
-    # session runs everything; a bare-role session is denied everything, including the routing table.
+    # session runs everything; a bare-role session (no read/write privilege) is refused at login.
     def bootstrap(cursor):
         create_role_with_privilege(cursor, "reader", grant="COORDINATOR_READ")
         create_role_with_privilege(cursor, "writer", grant="COORDINATOR_WRITE")
@@ -1336,27 +1336,22 @@ def test_sso_privilege_enforcement(test_name):
     assert "from_writer" in [name for (name,) in sso_run(leader_port, "oidc", ADMIN_TOKEN, "SHOW ROLES")]
     assert not sso_route_denied(leader_port, "oidc", "writer")
 
-    # Bare-role session: authenticates (the role exists) but is denied everything, including the routing table.
-    assert sso_connects(leader_port, "oidc", "bare")
-    try:
-        sso_run(leader_port, "oidc", "bare", "SHOW ROLES")
-        assert False, "A bare-role session must be denied read/introspection queries"
-    except Exception as e:
-        assert "required privilege" in str(e), f"Unexpected error: {e}"
-    assert sso_route_denied(leader_port, "oidc", "bare")
+    # Bare-role session: a role with neither COORDINATOR_READ nor COORDINATOR_WRITE could not run any coordinator query
+    # (not even the routing table), so the login itself is rejected rather than admitting a session denied everything.
+    assert not sso_connects(leader_port, "oidc", "bare")
 
 
 def test_sso_show_current_role(test_name):
     # SHOW CURRENT ROLE reports the role(s) the SSO session authenticated with. It is self-service (reveals only the
-    # caller's own roles), so it needs no coordinator privilege: even a bare-role session can run it.
+    # caller's own roles), so it needs no privilege beyond what login already requires: a COORDINATOR_READ-only session
+    # can run it without COORDINATOR_WRITE.
     def bootstrap(cursor):
         create_role_with_privilege(cursor, "reader", grant="COORDINATOR_READ")
-        create_role_with_privilege(cursor, "bare", grant=None)
 
     start_sso_cluster(test_name, bootstrap)  # bootstraps the "architect" role (COORDINATOR_WRITE) too
     leader_port = sso_wait_for_ready_leader_port()
 
-    # A single-role session sees exactly its role.
+    # A single-role (READ-only) session sees exactly its role.
     assert sorted(name for (name,) in sso_run(leader_port, "oidc", "reader", "SHOW CURRENT ROLE")) == ["reader"]
 
     # A multi-role session sees every role it authenticated with.
@@ -1364,9 +1359,6 @@ def test_sso_show_current_role(test_name):
         "architect",
         "reader",
     ]
-
-    # A bare-role session (zero mask, denied every privileged query) can still inspect its own role.
-    assert sorted(name for (name,) in sso_run(leader_port, "oidc", "bare", "SHOW CURRENT ROLE")) == ["bare"]
 
 
 def test_basic_auth_denied_when_sso_configured(test_name):

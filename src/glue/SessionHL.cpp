@@ -392,9 +392,9 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::CoordinatorSSOA
   }
 
   // The session carries the effective privilege mask; the coordinator privilege checks (query gate and ROUTE handler)
-  // consult it rather than the auth kvstore. A bare-role session gets a zero mask and is thus denied everything,
-  // including the routing table, until an admin grants it a coordinator privilege. The matched role names are carried
-  // too so SHOW CURRENT ROLE can report the session's roles.
+  // consult it rather than the auth kvstore. Authentication already rejects any identity without COORDINATOR_READ or
+  // COORDINATOR_WRITE, so a surviving session can run at least read queries. The matched role names are carried too so
+  // SHOW CURRENT ROLE can report the session's roles.
   interpreter_.SetCoordinatorPrivileges(auth_result->effective_mask);
   interpreter_.SetCoordinatorRoles(std::move(auth_result->roles));
   return {};
