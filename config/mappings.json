@@ -102,6 +102,7 @@
   "apoc.refactor.renameType": "refactor.rename_type",
   "apoc.refactor.to": "refactor.to",
   "apoc.temporal.format": "temporal.format",
+  "apoc.text.compareCleaned": "text.compare_cleaned",
   "apoc.text.format": "text.format",
   "apoc.text.indexOf": "text.indexOf",
   "apoc.text.join": "text.join",

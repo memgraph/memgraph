@@ -1,0 +1,4 @@
+query: >
+  RETURN text.compare_cleaned('über','uber') AS result;
+output:
+  - result: false

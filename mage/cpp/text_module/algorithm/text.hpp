@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -50,6 +50,10 @@ constexpr std::string_view kIndexOfLookup = "lookup";
 constexpr std::string_view kIndexOfFrom = "from";
 constexpr std::string_view kIndexOfTo = "to";
 constexpr std::string_view kResultIndexOf = "output";
+/* compareCleaned constants */
+constexpr std::string_view kProcedureCompareCleaned = "compare_cleaned";
+constexpr std::string_view kCompareCleanedText1 = "text1";
+constexpr std::string_view kCompareCleanedText2 = "text2";
 
 void Join(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void Format(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
@@ -58,4 +62,5 @@ void Replace(mgp_list *args, mgp_func_context *ctx, mgp_func_result *result, mgp
 void RegReplace(mgp_list *args, mgp_func_context *ctx, mgp_func_result *result, mgp_memory *memory);
 void Distance(mgp_list *args, mgp_func_context *ctx, mgp_func_result *result, mgp_memory *memory);
 void IndexOf(mgp_list *args, mgp_func_context *ctx, mgp_func_result *result, mgp_memory *memory);
+void CompareCleaned(mgp_list *args, mgp_func_context *ctx, mgp_func_result *result, mgp_memory *memory);
 }  // namespace Text

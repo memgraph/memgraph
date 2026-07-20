@@ -17,40 +17,70 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   try {
     const mgp::MemoryDispatcherGuard guard{memory};
 
-    mgp::AddFunction(Text::Distance, Text::kProcedureDistance,
+    mgp::AddFunction(Text::Distance,
+                     Text::kProcedureDistance,
                      {mgp::Parameter(Text::kText1, mgp::Type::String), mgp::Parameter(Text::kText2, mgp::Type::String)},
-                     module, memory);
+                     module,
+                     memory);
 
-    AddProcedure(Text::Format, Text::kProcedureFormat, mgp::ProcedureType::Read,
+    AddProcedure(Text::Format,
+                 Text::kProcedureFormat,
+                 mgp::ProcedureType::Read,
                  {mgp::Parameter(Text::kStringToFormat, mgp::Type::String),
                   mgp::Parameter(Text::kParameters, {mgp::Type::List, mgp::Type::Any})},
-                 {mgp::Return(Text::kResultFormat, mgp::Type::String)}, module, memory);
+                 {mgp::Return(Text::kResultFormat, mgp::Type::String)},
+                 module,
+                 memory);
 
-    mgp::AddFunction(
-        Text::IndexOf, Text::kProcedureIndexOf,
-        {mgp::Parameter(Text::kIndexOfText, mgp::Type::String), mgp::Parameter(Text::kIndexOfLookup, mgp::Type::String),
-         mgp::Parameter(Text::kIndexOfFrom, mgp::Type::Int, int64_t(0)),
-         mgp::Parameter(Text::kIndexOfTo, mgp::Type::Int, int64_t(-1))},
-        module, memory);
+    mgp::AddFunction(Text::IndexOf,
+                     Text::kProcedureIndexOf,
+                     {mgp::Parameter(Text::kIndexOfText, mgp::Type::String),
+                      mgp::Parameter(Text::kIndexOfLookup, mgp::Type::String),
+                      mgp::Parameter(Text::kIndexOfFrom, mgp::Type::Int, int64_t(0)),
+                      mgp::Parameter(Text::kIndexOfTo, mgp::Type::Int, int64_t(-1))},
+                     module,
+                     memory);
 
-    AddProcedure(Text::Join, Text::kProcedureJoin, mgp::ProcedureType::Read,
+    AddProcedure(Text::Join,
+                 Text::kProcedureJoin,
+                 mgp::ProcedureType::Read,
                  {mgp::Parameter(Text::kJoinArg1, {mgp::Type::List, mgp::Type::String}),
                   mgp::Parameter(Text::kJoinArg2, mgp::Type::String)},
-                 {mgp::Return(Text::kResultJoin, mgp::Type::String)}, module, memory);
+                 {mgp::Return(Text::kResultJoin, mgp::Type::String)},
+                 module,
+                 memory);
 
-    AddProcedure(Text::RegexGroups, Text::kProcedureRegexGroups, mgp::ProcedureType::Read,
+    AddProcedure(Text::RegexGroups,
+                 Text::kProcedureRegexGroups,
+                 mgp::ProcedureType::Read,
                  {mgp::Parameter(Text::kInput, mgp::Type::String), mgp::Parameter(Text::kRegex, mgp::Type::String)},
-                 {mgp::Return(Text::kResultRegexGroups, {mgp::Type::List, mgp::Type::Any})}, module, memory);
+                 {mgp::Return(Text::kResultRegexGroups, {mgp::Type::List, mgp::Type::Any})},
+                 module,
+                 memory);
 
-    mgp::AddFunction(Text::RegReplace, Text::kProcedureRegReplace,
-                     {mgp::Parameter(Text::kText, mgp::Type::String), mgp::Parameter(Text::kRegex, mgp::Type::String),
+    mgp::AddFunction(Text::RegReplace,
+                     Text::kProcedureRegReplace,
+                     {mgp::Parameter(Text::kText, mgp::Type::String),
+                      mgp::Parameter(Text::kRegex, mgp::Type::String),
                       mgp::Parameter(Text::kReplacement, mgp::Type::String)},
-                     module, memory);
+                     module,
+                     memory);
 
-    mgp::AddFunction(Text::Replace, Text::kProcedureReplace,
-                     {mgp::Parameter(Text::kText, mgp::Type::String), mgp::Parameter(Text::kRegex, mgp::Type::String),
+    mgp::AddFunction(Text::Replace,
+                     Text::kProcedureReplace,
+                     {mgp::Parameter(Text::kText, mgp::Type::String),
+                      mgp::Parameter(Text::kRegex, mgp::Type::String),
                       mgp::Parameter(Text::kReplacement, mgp::Type::String)},
-                     module, memory);
+                     module,
+                     memory);
+
+    {
+      // Arguments are nullable so a NULL input yields false instead of being rejected.
+      auto *func =
+          mgp::module_add_function(module, std::string(Text::kProcedureCompareCleaned).c_str(), Text::CompareCleaned);
+      mgp::func_add_arg(func, std::string(Text::kCompareCleanedText1).c_str(), mgp::type_nullable(mgp::type_string()));
+      mgp::func_add_arg(func, std::string(Text::kCompareCleanedText2).c_str(), mgp::type_nullable(mgp::type_string()));
+    }
   } catch (const std::exception &e) {
     return 1;
   }

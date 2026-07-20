@@ -9,16 +9,26 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// Unicode handling in this module intentionally relies on the standard library
+// rather than a full Unicode library. As a consequence, text.compare_cleaned's
+// normalization is limited to ASCII: it keeps only ASCII letters and digits,
+// lowercased, and drops everything else (accents, punctuation, whitespace, and
+// non-ASCII scripts). So "café" cleans to "caf" and is NOT equal to "cafe".
+// ASCII-only comparisons are exact.
+
 #include "text.hpp"
 
 #include <fmt/args.h>
 #include <fmt/format.h>
 #include <utf8.h>
 #include <algorithm>
+#include <cctype>
 #include <compare>
 #include <mutex>
 #include <regex>
+#include <stdexcept>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -27,6 +37,19 @@ std::unordered_map<std::string, std::regex>
     global_regex_cache;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 // Mutex needs to be mutable for thread synchronization
 std::mutex global_regex_cache_mutex;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+// Normalizes a string for lenient comparison by keeping only ASCII letters and
+// digits, lowercased. See the note at the top of this file for the limitations
+// of this ASCII-based approach.
+std::string CleanForCompare(std::string_view input) {
+  std::string cleaned;
+  for (const unsigned char character : input) {
+    if (character < 128 && std::isalnum(character) != 0) {
+      cleaned.push_back(static_cast<char>(std::tolower(character)));
+    }
+  }
+  return cleaned;
+}
 }  // namespace
 
 void Text::Join(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
@@ -72,8 +95,8 @@ void Text::Format(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *re
 
     fmt::dynamic_format_arg_store<fmt::format_context> storage;
     // NOLINTNEXTLINE(modernize-use-ranges, boost-use-ranges)
-    std::for_each(params.begin(), params.end(),
-                  [&storage](const mgp::Value &value) { storage.push_back(value.ToString()); });
+    std::for_each(
+        params.begin(), params.end(), [&storage](const mgp::Value &value) { storage.push_back(value.ToString()); });
 
     const std::string result = fmt::vformat(text, storage);
 
@@ -270,6 +293,27 @@ void Text::IndexOf(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *
       }
     }
     result_obj.SetValue(static_cast<int64_t>(result_index));
+  } catch (const std::exception &e) {
+    result_obj.SetErrorMessage(e.what());
+  }
+}
+
+void Text::CompareCleaned(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  mgp::Result result_obj(result);
+
+  try {
+    // A missing value can never be equal to another cleaned string.
+    if (arguments[0].IsNull() || arguments[1].IsNull()) {
+      result_obj.SetValue(false);
+      return;
+    }
+
+    const auto text1 = std::string(arguments[0].ValueString());
+    const auto text2 = std::string(arguments[1].ValueString());
+
+    result_obj.SetValue(CleanForCompare(text1) == CleanForCompare(text2));
   } catch (const std::exception &e) {
     result_obj.SetErrorMessage(e.what());
   }
