@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.union(null, null) AS result;
+
+output:
+  - result: null

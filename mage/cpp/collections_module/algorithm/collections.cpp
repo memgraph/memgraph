@@ -73,6 +73,10 @@ void Collections::SumLongs(mgp_list *args, mgp_func_context *ctx, mgp_func_resul
   auto result = mgp::Result(res);
 
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue();
+      return;
+    }
     int64_t sum{0};
     const auto list{arguments[0].ValueList()};
 
@@ -99,6 +103,10 @@ void Collections::Avg(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
   auto result = mgp::Result(res);
 
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue();
+      return;
+    }
     double average{0};
     const auto list{arguments[0].ValueList()};
 
@@ -127,6 +135,10 @@ void Collections::ContainsAll(mgp_list *args, mgp_func_context *ctx, mgp_func_re
   auto result = mgp::Result(res);
 
   try {
+    if (arguments[0].IsNull() || arguments[1].IsNull()) {
+      result.SetValue(false);
+      return;
+    }
     const auto list1{arguments[0].ValueList()};
     std::unordered_set<mgp::Value> set(list1.begin(), list1.end());
 
@@ -149,6 +161,10 @@ void Collections::Intersection(mgp_list *args, mgp_func_context *ctx, mgp_func_r
   auto result = mgp::Result(res);
 
   try {
+    if (arguments[0].IsNull() || arguments[1].IsNull()) {
+      result.SetValue(mgp::List());
+      return;
+    }
     const auto list1{arguments[0].ValueList()};
     std::unordered_set<mgp::Value> set1(list1.begin(), list1.end());
 
@@ -181,6 +197,14 @@ void Collections::RemoveAll(mgp_list *args, mgp_func_context *ctx, mgp_func_resu
   auto result = mgp::Result(res);
 
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue();
+      return;
+    }
+    if (arguments[1].IsNull()) {
+      result.SetValue(arguments[0].ValueList());
+      return;
+    }
     const auto input_list = arguments[0].ValueList();
     const auto to_remove_list = arguments[1].ValueList();
 
@@ -215,6 +239,10 @@ void Collections::Sum(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue();
+      return;
+    }
     double sum{0};
     const auto list = arguments[0].ValueList();
 
@@ -239,6 +267,19 @@ void Collections::Union(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
+    if (arguments[0].IsNull()) {
+      if (arguments[1].IsNull()) {
+        result.SetValue();
+      } else {
+        result.SetValue(arguments[1].ValueList());
+      }
+      return;
+    }
+    if (arguments[1].IsNull()) {
+      result.SetValue(arguments[0].ValueList());
+      return;
+    }
+
     const auto list1 = arguments[0].ValueList();
     const auto list2 = arguments[1].ValueList();
 
@@ -285,6 +326,10 @@ void Collections::Sort(mgp_list *args, mgp_func_context *ctx, mgp_func_result *r
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue(mgp::List());
+      return;
+    }
     const auto list = arguments[0].ValueList();
     std::vector<mgp::Value> sorted;
 
@@ -308,6 +353,10 @@ void Collections::ContainsSorted(mgp_list *args, mgp_func_context *ctx, mgp_func
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue(false);
+      return;
+    }
     bool contains{false};
     const auto list = arguments[0].ValueList();
     const auto element = arguments[1];
@@ -343,6 +392,10 @@ void Collections::Max(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue();
+      return;
+    }
     const auto list = arguments[0].ValueList();
 
     if (list.Empty()) {
@@ -372,6 +425,9 @@ void Collections::Split(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
+    if (arguments[0].IsNull()) {
+      return;
+    }
     const auto inputList = arguments[0].ValueList();
     const auto delimiter = arguments[1];
 
@@ -411,6 +467,10 @@ void Collections::Pairs(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue();
+      return;
+    }
     mgp::List pairsList = mgp::List();
 
     const auto inputList = arguments[0].ValueList();
@@ -443,6 +503,10 @@ void Collections::Contains(mgp_list *args, mgp_func_context *ctx, mgp_func_resul
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue(false);
+      return;
+    }
     const mgp::List &list = arguments[0].ValueList();
     const mgp::Value &value = arguments[1];
 
@@ -472,6 +536,19 @@ void Collections::UnionAll(mgp_list *args, mgp_func_context *ctx, mgp_func_resul
   auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
+    if (arguments[0].IsNull()) {
+      if (arguments[1].IsNull()) {
+        result.SetValue();
+      } else {
+        result.SetValue(arguments[1].ValueList());
+      }
+      return;
+    }
+    if (arguments[1].IsNull()) {
+      result.SetValue(arguments[0].ValueList());
+      return;
+    }
+
     mgp::List list1 = arguments[0].ValueList();
     mgp::List list2 = arguments[1].ValueList();
 
@@ -492,6 +569,10 @@ void Collections::Min(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue();
+      return;
+    }
     const mgp::List &list = arguments[0].ValueList();
     if (list.Empty()) {
       throw mgp::ValueException("Empty input list");
@@ -531,6 +612,10 @@ void Collections::ToSet(mgp_list *args, mgp_func_context *ctx, mgp_func_result *
   auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue();
+      return;
+    }
     const mgp::List list = arguments[0].ValueList();
     const std::unordered_set<mgp::Value> set(list.begin(), list.end());
 
@@ -552,6 +637,9 @@ void Collections::Partition(mgp_list *args, mgp_graph *memgraph_graph, mgp_resul
   auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
+    if (arguments[0].IsNull()) {
+      return;
+    }
     const mgp::List input_list = arguments[0].ValueList();
     const int64_t partition_size = arguments[1].ValueInt();
 
@@ -615,6 +703,11 @@ void Collections::Flatten(mgp_list *args, mgp_func_context *ctx, mgp_func_result
       throw mgp::ValueException("The procedure expects 1 argument, got " + std::to_string(arguments.Size()));
     }
 
+    if (arguments[0].IsNull()) {
+      result.SetValue(mgp::List());
+      return;
+    }
+
     const auto &input = arguments[0];
     if (!input.IsList()) {
       throw mgp::ValueException("The argument must be a list");
@@ -641,6 +734,10 @@ void Collections::FrequenciesAsMap(mgp_list *args, mgp_func_context *ctx, mgp_fu
   auto result = mgp::Result(res);
 
   try {
+    if (arguments[0].IsNull()) {
+      result.SetValue(mgp::Map());
+      return;
+    }
     auto const input_list = arguments[0].ValueList();
     std::unordered_map<mgp::Value, int64_t> frequency_map;
 
