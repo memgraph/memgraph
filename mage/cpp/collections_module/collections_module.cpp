@@ -103,6 +103,8 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
       auto *proc = mgp::module_add_read_procedure(
           module, std::string(Collections::kProcedurePartition).c_str(), Collections::Partition);
       mgp::proc_add_arg(proc, std::string(Collections::kArgumentListPartition).c_str(), nullable_list());
+      // size is intentionally non-nullable: a NULL size is rejected during argument
+      // validation, matching the compatibility layer which also errors on a null size.
       mgp::proc_add_arg(proc, std::string(Collections::kArgumentSizePartition).c_str(), mgp::type_int());
       mgp::proc_add_result(
           proc, std::string(Collections::kReturnValuePartition).c_str(), mgp::type_list(mgp::type_any()));

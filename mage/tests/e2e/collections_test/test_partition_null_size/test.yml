@@ -1,0 +1,5 @@
+query: >
+  CALL collections.partition([1, 2], null) YIELD result RETURN result;
+
+exception: >
+  must be of type INTEGER
