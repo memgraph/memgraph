@@ -240,27 +240,21 @@ def run_responsiveness_scenario() -> typing.Tuple[float, typing.Dict[int, dict]]
 
         # Release H; the contenders (and the holder's own release thread) must wrap up -- one way
         # or another -- well inside a generous join timeout. NOTE: we deliberately do NOT assert
-        # that the contenders *succeed* here. Investigation (see below) found that with every LP
-        # worker AND the HP thread saturated, a WRITE-vs-READ_ONLY conflict like this one
-        # currently rides out the full --storage-access-timeout-sec in BOTH flag states before
-        # resolving, for two unrelated reasons:
+        # that the contenders *succeed* here -- the two flag states resolve the contention very
+        # differently:
         #   * flag OFF: H's own COMMIT is itself a task on the *same* saturated worker pool as the
         #     contenders' blocking try_lock_shared_for calls -- with every worker (LP and HP)
         #     already pinned, H's COMMIT can't be dispatched until one frees, which (under
-        #     blocking) only happens when a contender's own timeout fires. This is an emergent,
-        #     expected property of deliberately saturating the whole pool (exactly what the task
-        #     requires), not a bug.
-        #   * flag ON: `Storage::Accessor::~Accessor()` (storage.cpp:255-263) only calls
-        #     `NotifyMainLockReleased()` for UNIQUE/READ_ONLY releases, never for WRITE (or READ)
-        #     -- see the early `if (original_access_type_ != UNIQUE && original_access_type_ !=
-        #     READ_ONLY) return;`. The parked coro-acquire path never waits on ResourceLock's own
-        #     condition variable (that's the whole point of parking); its only early-wake signal
-        #     is `main_lock_resume_event_`/`NotifyMainLockReleased()` (storage.cpp:300-311). Since
-        #     H's WRITE release never calls it, a READ_ONLY waiter parked behind a WRITE holder
-        #     has no early-wake source at all and just rides DeadlineParkRegistry's deadline-only
-        #     sweep to the full timeout -- a real notify-gap bug in the feature under test,
-        #     independently verified against the source, and orthogonal to what THIS assertion
-        #     (worker responsiveness for unrelated queries) checks.
+        #     blocking) only happens when a contender's own timeout fires. So the contenders ride
+        #     out ~--storage-access-timeout-sec. This is an emergent, expected property of
+        #     deliberately saturating the whole pool (exactly what the task requires), not a bug.
+        #   * flag ON: the contenders PARK (freeing their workers), so H's COMMIT dispatches
+        #     promptly, and H's WRITE release then wakes the parked READ_ONLY contenders early via
+        #     `Storage::Accessor::~Accessor()` -> `NotifyMainLockReleased()` (F5 fix: EVERY release
+        #     mode notifies now, not just UNIQUE/READ_ONLY). Observed: contenders resolve at ~the
+        #     hold duration, well before the timeout. (Before F5, a READ_ONLY waiter parked behind
+        #     a WRITE holder had no early-wake source and rode DeadlineParkRegistry's deadline-only
+        #     sweep to the full timeout -- now fixed.)
         # Either way, what we assert is only that nothing hangs -- the pool must never wedge. The
         # timeout is scaled by NUM_CONTENDERS: a contender that lands queued behind another
         # (rather than dispatched directly to a free thread) can chain a full extra
