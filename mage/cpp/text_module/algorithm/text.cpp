@@ -34,8 +34,11 @@ std::mutex global_regex_cache_mutex;  // NOLINT(cppcoreguidelines-avoid-non-cons
 // rather than a full Unicode library. As a consequence, text.compare_cleaned's
 // normalization is limited to ASCII: it keeps only ASCII letters and digits,
 // lowercased, and drops everything else (accents, punctuation, whitespace, and
-// non-ASCII scripts). So "café" cleans to "caf" and is NOT equal to "cafe".
-// ASCII-only comparisons are exact.
+// non-ASCII scripts). No Unicode normalization (NFC/NFD) is performed, so the
+// result depends on the input's byte form: precomposed "café" (é as one code
+// point) cleans to "caf" and is NOT equal to "cafe", whereas a decomposed
+// "café" (ASCII 'e' plus a combining accent) keeps the 'e' and cleans to
+// "cafe". ASCII-only comparisons are exact.
 std::string CleanForCompare(std::string_view input) {
   std::string cleaned;
   for (const unsigned char character : input) {
