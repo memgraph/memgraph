@@ -1,0 +1,5 @@
+# ASCII-only cleaning drops the non-ASCII 'ü' entirely, leaving "ber" == "ber".
+query: >
+  RETURN text.compare_cleaned('über','ber') AS result;
+output:
+  - result: true

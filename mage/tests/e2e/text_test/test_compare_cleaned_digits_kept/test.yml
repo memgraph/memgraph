@@ -1,0 +1,4 @@
+query: >
+  RETURN text.compare_cleaned('12.34','1234') AS result;
+output:
+  - result: true
