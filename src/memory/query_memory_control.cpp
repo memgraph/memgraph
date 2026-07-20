@@ -126,6 +126,10 @@ void StartTrackingUserResource(utils::UserResources *resource) { SetUserTracker(
 
 void StopTrackingUserResource() { SetUserTracker(nullptr); }
 
+utils::QueryMemoryTracker *CurrentThreadQueryTracker() { return GetQueryTracker(); }
+
+utils::UserResources *CurrentThreadUserResource() { return GetUserTracker(); }
+
 bool IsQueryTracked() {
   if constexpr (kUseJemalloc) {
     // GC is running, no way to control what gets deleted, just ignore this allocation.

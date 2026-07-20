@@ -1056,9 +1056,11 @@ TYPED_TEST(ExpressionEvaluatorTest, ParameterLookupDeletedEntityDegradesToEmpty)
   this->dba.AdvanceCommand();
   // An entity deleted in a prior command is invisible under both View::NEW and View::OLD. On
   // in-memory storage it then resolves via the deleted-aware lookup to a deleted accessor (so a
-  // property read throws and returning it is rejected); on on-disk storage the deleted-aware lookup
-  // is not implemented, so it degrades to Null. This suite runs on on-disk storage. In both cases
-  // resolution must not crash. (In-memory deleted-entity semantics are covered end-to-end.)
+  // property read throws); on on-disk storage the deleted-aware lookup is not implemented, so it
+  // degrades to Null. This suite runs on on-disk storage, so Null is expected here; the point is
+  // that resolving a deleted-entity parameter must not crash. (Passing a same-transaction-deleted
+  // entity to cypher.doIt is not reachable through a normal query — a write procedure cannot follow
+  // an update clause and only RETURN may follow it — so this path is exercised only at this layer.)
   this->ctx.parameters.AddEntity(0, memgraph::query::EntityRef{gid, memgraph::query::EntityRef::Kind::kVertex});
   auto *param_lookup = this->storage.template Create<ParameterLookup>(0);
   auto value = this->Eval(param_lookup);

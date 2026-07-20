@@ -52,6 +52,26 @@ class QueryMemoryTracker {
   // Set query limit
   void SetQueryLimit(size_t);
 
+  // Snapshot of the transaction tracker's hard-limit state, so a nested execution running on a
+  // borrowed transaction can restore the caller's limit after it (mis)sets it.
+  struct LimitSnapshot {
+    int64_t hard_limit;
+    int64_t maximum_hard_limit;
+  };
+
+  LimitSnapshot CaptureLimit() const {
+    return {transaction_tracker_.HardLimit(), transaction_tracker_.MaximumHardLimit()};
+  }
+
+  void RestoreLimit(LimitSnapshot snapshot) {
+    if (snapshot.hard_limit == 0 && snapshot.maximum_hard_limit == 0) {
+      transaction_tracker_.ResetLimit();
+      return;
+    }
+    transaction_tracker_.SetMaximumHardLimit(snapshot.maximum_hard_limit);
+    transaction_tracker_.SetHardLimit(snapshot.hard_limit);
+  }
+
   // Currently tracked memory
   int64_t Amount() const;
 

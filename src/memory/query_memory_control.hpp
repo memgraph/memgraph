@@ -46,6 +46,12 @@ void StopTrackingCurrentThread();
 void StartTrackingUserResource(utils::UserResources *resource);
 void StopTrackingUserResource();
 
+// Returns the query/user tracker currently active on this thread (nullptr if none, or always in
+// non-jemalloc builds). Used to snapshot and restore this thread's tracking around a nested
+// execution that runs on a borrowed transaction and would otherwise clear the caller's tracking.
+utils::QueryMemoryTracker *CurrentThreadQueryTracker();
+utils::UserResources *CurrentThreadUserResource();
+
 // Is query's memory tracked
 bool IsQueryTracked();
 

@@ -1194,11 +1194,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
 
   // Resolves a graph-entity parameter to an accessor by gid in the current transaction. A live
-  // entity resolves via View::NEW (or View::OLD when deleted in the current command). An entity
-  // deleted in an earlier command of this transaction resolves via the deleted-aware lookup, so it
+  // entity resolves via View::NEW (or View::OLD when deleted in the current command). A vertex
+  // deleted in an earlier command of this transaction resolves via the deleted-aware lookup and
   // keeps deleted semantics: a property read on it throws, identity comparisons find no match, and
-  // returning it is rejected. A physically absent entity yields Null. (The deleted-aware lookup is
-  // only implemented for in-memory storage; on other storage modes a deleted entity yields Null.)
+  // returning it throws at the result boundary ("Returning a deleted object as a result."). A
+  // physically absent entity yields Null. Asymmetry: a deleted edge cannot be re-resolved (it is
+  // physically unlinked on delete), so a deleted-edge parameter degrades to Null. (The deleted-aware
+  // lookup is in-memory only; on other storage modes a deleted vertex also degrades to Null.)
   TypedValue ResolveEntityParameter(const EntityRef &ref) {
     if (dba_ == nullptr) [[unlikely]] {
       throw QueryRuntimeException("Resolving a graph-entity parameter requires a database accessor.");

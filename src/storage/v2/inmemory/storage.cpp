@@ -2829,13 +2829,17 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdgeIncludingDeleted(Gid gid) {
+  // NOTE: an edge deleted earlier in this transaction is unlinked from its endpoints' edge lists,
+  // so FindEdge (which locates edges by scanning those lists) returns nullopt for it — a deleted
+  // edge cannot be re-resolved here and the parameter degrades to Null. This lookup therefore only
+  // adds value for edges still reachable via the endpoints (i.e. it never actually recovers a
+  // same-transaction-deleted edge); the vertex counterpart, which indexes by gid directly, does.
   const auto maybe_edge_info = static_cast<InMemoryStorage *>(storage_)->FindEdge(gid);
   if (!maybe_edge_info) {
     return std::nullopt;
   }
   const auto &[edge_ref, edge_type, from, to] = *maybe_edge_info;
-  // Skip the visibility gate of EdgeAccessor::Create: an edge deleted in this transaction is still
-  // physically present, and the returned accessor (for_deleted_ = false) reports it as deleted.
+  // Skip the visibility gate of EdgeAccessor::Create so a for_deleted_ = false accessor is returned.
   return EdgeAccessor{edge_ref, edge_type, from, to, storage_, &transaction_};
 }
 

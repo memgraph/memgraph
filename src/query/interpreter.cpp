@@ -4013,8 +4013,45 @@ struct BorrowedTransactionExecution::Impl {
   FrameChangeCollector frame_change_collector;
   std::unique_ptr<PullPlan> pull_plan;
   std::map<std::string, TypedValue> summary;
+  DbAccessor *dba{};
   bool done{false};
 };
+
+namespace {
+// Guards the caller's transaction memory tracker and this thread's tracking pointers across a
+// nested PullPlan::Pull. The nested pull runs on the caller's borrowed transaction, and
+// PullPlan::Pull unconditionally rewrites the query limit (to the nested statement's limit, or
+// unlimited) and clears this thread's tracking on scope exit. Without this guard an outer
+// QUERY MEMORY LIMIT / per-user resource limit would stay corrupted for the remainder of the
+// caller's query after the nested call returns.
+class BorrowedTrackerGuard {
+ public:
+  explicit BorrowedTrackerGuard(utils::QueryMemoryTracker &tracker)
+      : tracker_{tracker},
+        limit_{tracker.CaptureLimit()},
+        query_tracker_{memgraph::memory::CurrentThreadQueryTracker()},
+        user_resource_{memgraph::memory::CurrentThreadUserResource()} {}
+
+  ~BorrowedTrackerGuard() {
+    tracker_.RestoreLimit(limit_);
+    // Re-establish this thread's tracking as it was before the nested pull (passing nullptr is
+    // equivalent to StopTracking, so a not-previously-tracked caller stays untracked).
+    memgraph::memory::StartTrackingCurrentThread(query_tracker_);
+    memgraph::memory::StartTrackingUserResource(user_resource_);
+  }
+
+  BorrowedTrackerGuard(const BorrowedTrackerGuard &) = delete;
+  BorrowedTrackerGuard &operator=(const BorrowedTrackerGuard &) = delete;
+  BorrowedTrackerGuard(BorrowedTrackerGuard &&) = delete;
+  BorrowedTrackerGuard &operator=(BorrowedTrackerGuard &&) = delete;
+
+ private:
+  utils::QueryMemoryTracker &tracker_;
+  utils::QueryMemoryTracker::LimitSnapshot limit_;
+  utils::QueryMemoryTracker *query_tracker_;
+  utils::UserResources *user_resource_;
+};
+}  // namespace
 
 BorrowedTransactionExecution::BorrowedTransactionExecution(InterpreterContext *interpreter_context, DbAccessor *dba,
                                                            ExecutionContext const &caller_ctx, std::string const &query,
@@ -4024,6 +4061,7 @@ BorrowedTransactionExecution::BorrowedTransactionExecution(InterpreterContext *i
     : impl_(std::make_unique<Impl>()) {
   MG_ASSERT(interpreter_context, "Interpreter context must not be NULL");
   MG_ASSERT(dba, "Borrowed DbAccessor must not be NULL");
+  impl_->dba = dba;
 
   // Resolve the owning database (for the plan cache and stripped-query uuid). Everything else
   // needed to run the plan (metric handles, arena, protector, auth) is taken from the caller's
@@ -4055,7 +4093,18 @@ BorrowedTransactionExecution::BorrowedTransactionExecution(InterpreterContext *i
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-  const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
+  auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
+  // Bound the nested statement by the caller's per-query memory limit: it runs on the caller's
+  // transaction tracker, so without this PullPlan::Pull would reset that tracker's limit and let the
+  // nested statement allocate past the outer QUERY MEMORY LIMIT (only the instance-wide limit would
+  // still apply). Inherit the caller's remaining budget (tightened by the nested statement's own
+  // limit, if any). A caller with no limit (hard_limit == 0) leaves the nested statement unbounded.
+  if (const auto caller_limit = dba->GetTransactionMemoryTracker().CaptureLimit(); caller_limit.hard_limit > 0) {
+    const auto used = dba->GetTransactionMemoryTracker().Amount();
+    const auto remaining =
+        static_cast<size_t>(caller_limit.hard_limit > used ? caller_limit.hard_limit - used : int64_t{1});
+    memory_limit = memory_limit ? std::min(*memory_limit, remaining) : remaining;
+  }
   const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->pre_query_directives_.hops_limit_);
 
   auto *plan_cache = parsed_query.is_cacheable ? db_acc->plan_cache() : nullptr;
@@ -4126,6 +4175,10 @@ const std::vector<std::string> &BorrowedTransactionExecution::Headers() const { 
 
 bool BorrowedTransactionExecution::Pull(AnyStream *stream, std::optional<int> n) {
   if (impl_->done) return true;
+  // Snapshot and restore the caller's memory tracker limit and this thread's tracking around the
+  // nested pull: it runs on the borrowed transaction's shared tracker, which PullPlan::Pull would
+  // otherwise leave reset to the nested statement's (usually absent) limit with tracking stopped.
+  BorrowedTrackerGuard tracker_guard{impl_->dba->GetTransactionMemoryTracker()};
   // PullPlan::Pull returns an engaged optional only once the plan is fully drained; nullopt
   // means "more rows remain, call again".
   auto finished = impl_->pull_plan->Pull(stream, n, impl_->output_symbols, &impl_->summary);

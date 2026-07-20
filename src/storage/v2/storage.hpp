@@ -565,8 +565,10 @@ class Accessor {
 
   virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 
-  /// Finds an edge by gid ignoring visibility, returning an accessor even when the edge was deleted
-  /// in this transaction. See FindVertexIncludingDeleted. Only in-memory accessors implement it.
+  /// Finds an edge by gid ignoring visibility. Unlike FindVertexIncludingDeleted, an edge deleted
+  /// earlier in this transaction is physically unlinked from its endpoints' edge lists, so it can no
+  /// longer be located by gid and this returns nullopt (the deleted-edge parameter then degrades to
+  /// Null rather than keeping deleted semantics). Only in-memory accessors implement it.
   virtual std::optional<EdgeAccessor> FindEdgeIncludingDeleted(Gid /*gid*/) { return std::nullopt; }
 
   virtual std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) = 0;

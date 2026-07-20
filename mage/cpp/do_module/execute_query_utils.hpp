@@ -185,6 +185,13 @@ inline QueryResults ExecuteQueryInCurrentTransaction(const mgp::QueryExecution &
     result_list.AppendExtend(mgp::Value(result.Values()));
   }
 
+  // A statement with no output columns (e.g. a bare `CREATE`/`SET` with no RETURN) still ran once;
+  // emit a single empty-map row so it yields one `value` per call rather than dropping the outer
+  // input row through the YIELD.
+  if (headers.Size() == 0) {
+    result_list.AppendExtend(mgp::Value(mgp::Map()));
+  }
+
   // A runtime error mid-pull is reported out-of-band: the pull cannot distinguish a null result
   // from end-of-rows, so it stashes the message instead of throwing. Because this statement runs
   // in the caller's transaction, swallowing the error would leave its partial writes live and
