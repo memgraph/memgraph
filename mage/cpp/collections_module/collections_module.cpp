@@ -27,8 +27,6 @@ mgp_type *ListOfAny() { return mgp::type_nullable(mgp::type_list(mgp::type_any()
 
 mgp_type *NullableAny() { return mgp::type_nullable(mgp::type_any()); }
 
-const char *CStr(std::string_view sv) { return sv.data(); }
-
 }  // namespace
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
@@ -41,107 +39,108 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     // Numeric/ordering functions: whole list may be NULL, but a NULL element is rejected during
     // validation (LIST? OF ANY) so the body never has to compare against NULL.
     {
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureSumLongs), Collections::SumLongs);
-      mgp::func_add_arg(func, CStr(Collections::kSumLongsArg1), ListOfAny());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureSumLongs.data(), Collections::SumLongs);
+      mgp::func_add_arg(func, Collections::kSumLongsArg1.data(), ListOfAny());
     }
     {
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureAvg), Collections::Avg);
-      mgp::func_add_arg(func, CStr(Collections::kAvgArg1), ListOfAny());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureAvg.data(), Collections::Avg);
+      mgp::func_add_arg(func, Collections::kAvgArg1.data(), ListOfAny());
     }
     {
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureSum), Collections::Sum);
-      mgp::func_add_arg(func, CStr(Collections::kInputList), ListOfAny());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureSum.data(), Collections::Sum);
+      mgp::func_add_arg(func, Collections::kInputList.data(), ListOfAny());
     }
     {
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureSort), Collections::Sort);
-      mgp::func_add_arg(func, CStr(Collections::kArgumentSort), ListOfAny());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureSort.data(), Collections::Sort);
+      mgp::func_add_arg(func, Collections::kArgumentSort.data(), ListOfAny());
     }
     {
       // contains_sorted: keep the whole list nullable (contains_sorted(null, x) -> false) but reject a
       // NULL element and a NULL search value at the type layer (both would NPE in the compatibility layer).
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureCS), Collections::ContainsSorted);
-      mgp::func_add_arg(func, CStr(Collections::kArgumentInputList), ListOfAny());
-      mgp::func_add_arg(func, CStr(Collections::kArgumentElement), mgp::type_any());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureCS.data(), Collections::ContainsSorted);
+      mgp::func_add_arg(func, Collections::kArgumentInputList.data(), ListOfAny());
+      mgp::func_add_arg(func, Collections::kArgumentElement.data(), mgp::type_any());
     }
 
     // Functions that handle NULL elements explicitly (LIST? OF ANY?).
     {
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureContainsAll), Collections::ContainsAll);
-      mgp::func_add_arg(func, CStr(Collections::kContainsAllArg1), ListOfNullable());
-      mgp::func_add_arg(func, CStr(Collections::kContainsAllArg2), ListOfNullable());
+      auto *func =
+          mgp::module_add_function(module, Collections::kProcedureContainsAll.data(), Collections::ContainsAll);
+      mgp::func_add_arg(func, Collections::kContainsAllArg1.data(), ListOfNullable());
+      mgp::func_add_arg(func, Collections::kContainsAllArg2.data(), ListOfNullable());
     }
     {
       auto *func =
-          mgp::module_add_function(module, CStr(Collections::kProcedureIntersection), Collections::Intersection);
-      mgp::func_add_arg(func, CStr(Collections::kIntersectionArg1), ListOfNullable());
-      mgp::func_add_arg(func, CStr(Collections::kIntersectionArg2), ListOfNullable());
+          mgp::module_add_function(module, Collections::kProcedureIntersection.data(), Collections::Intersection);
+      mgp::func_add_arg(func, Collections::kIntersectionArg1.data(), ListOfNullable());
+      mgp::func_add_arg(func, Collections::kIntersectionArg2.data(), ListOfNullable());
     }
     {
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureRemoveAll), Collections::RemoveAll);
-      mgp::func_add_arg(func, CStr(Collections::kArgumentsInputList), ListOfNullable());
-      mgp::func_add_arg(func, CStr(Collections::kArgumentsRemoveList), ListOfNullable());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureRemoveAll.data(), Collections::RemoveAll);
+      mgp::func_add_arg(func, Collections::kArgumentsInputList.data(), ListOfNullable());
+      mgp::func_add_arg(func, Collections::kArgumentsRemoveList.data(), ListOfNullable());
     }
     {
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureUnion), Collections::Union);
-      mgp::func_add_arg(func, CStr(Collections::kArgumentsInputList1), ListOfNullable());
-      mgp::func_add_arg(func, CStr(Collections::kArgumentsInputList2), ListOfNullable());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureUnion.data(), Collections::Union);
+      mgp::func_add_arg(func, Collections::kArgumentsInputList1.data(), ListOfNullable());
+      mgp::func_add_arg(func, Collections::kArgumentsInputList2.data(), ListOfNullable());
     }
     {
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureUnionAll), Collections::UnionAll);
-      mgp::func_add_arg(func, CStr(Collections::kArgumentList1UnionAll), ListOfNullable());
-      mgp::func_add_arg(func, CStr(Collections::kArgumentList2UnionAll), ListOfNullable());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureUnionAll.data(), Collections::UnionAll);
+      mgp::func_add_arg(func, Collections::kArgumentList1UnionAll.data(), ListOfNullable());
+      mgp::func_add_arg(func, Collections::kArgumentList2UnionAll.data(), ListOfNullable());
     }
     {
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureMax), Collections::Max);
-      mgp::func_add_arg(func, CStr(Collections::kArgumentMax), ListOfNullable());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureMax.data(), Collections::Max);
+      mgp::func_add_arg(func, Collections::kArgumentMax.data(), ListOfNullable());
     }
     {
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureMin), Collections::Min);
-      mgp::func_add_arg(func, CStr(Collections::kArgumentListMin), ListOfNullable());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureMin.data(), Collections::Min);
+      mgp::func_add_arg(func, Collections::kArgumentListMin.data(), ListOfNullable());
     }
     {
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureToSet), Collections::ToSet);
-      mgp::func_add_arg(func, CStr(Collections::kArgumentListToSet), ListOfNullable());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureToSet.data(), Collections::ToSet);
+      mgp::func_add_arg(func, Collections::kArgumentListToSet.data(), ListOfNullable());
     }
     {
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedurePairs), Collections::Pairs);
-      mgp::func_add_arg(func, CStr(Collections::kArgumentPairs), ListOfNullable());
+      auto *func = mgp::module_add_function(module, Collections::kProcedurePairs.data(), Collections::Pairs);
+      mgp::func_add_arg(func, Collections::kArgumentPairs.data(), ListOfNullable());
     }
     {
       // contains: the list handles NULL elements and the search value may be NULL (contains(list, null) -> false).
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureContains), Collections::Contains);
-      mgp::func_add_arg(func, CStr(Collections::kArgumentListContains), ListOfNullable());
-      mgp::func_add_arg(func, CStr(Collections::kArgumentValueContains), NullableAny());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureContains.data(), Collections::Contains);
+      mgp::func_add_arg(func, Collections::kArgumentListContains.data(), ListOfNullable());
+      mgp::func_add_arg(func, Collections::kArgumentValueContains.data(), NullableAny());
     }
     {
       auto *func = mgp::module_add_function(
-          module, CStr(Collections::kProcedureFrequenciesAsMap), Collections::FrequenciesAsMap);
-      mgp::func_add_arg(func, CStr(Collections::kArgumentListFrequenciesAsMap), ListOfNullable());
+          module, Collections::kProcedureFrequenciesAsMap.data(), Collections::FrequenciesAsMap);
+      mgp::func_add_arg(func, Collections::kArgumentListFrequenciesAsMap.data(), ListOfNullable());
     }
     {
       // flatten keeps its optional empty-list default while also accepting an explicit NULL and NULL elements.
       auto flatten_default = mgp::Value(mgp::List{});
-      auto *func = mgp::module_add_function(module, CStr(Collections::kProcedureFlatten), Collections::Flatten);
-      mgp::func_add_opt_arg(func, CStr(Collections::kArgumentListFlatten), ListOfNullable(), flatten_default.ptr());
+      auto *func = mgp::module_add_function(module, Collections::kProcedureFlatten.data(), Collections::Flatten);
+      mgp::func_add_opt_arg(func, Collections::kArgumentListFlatten.data(), ListOfNullable(), flatten_default.ptr());
     }
 
     // Read procedures.
     {
       // split: a NULL input list yields no rows; the delimiter may be NULL (a NULL delimiter never matches).
-      auto *proc = mgp::module_add_read_procedure(module, CStr(Collections::kProcedureSplit), Collections::Split);
-      mgp::proc_add_arg(proc, CStr(Collections::kArgumentInputList), ListOfNullable());
-      mgp::proc_add_arg(proc, CStr(Collections::kArgumentDelimiter), NullableAny());
-      mgp::proc_add_result(proc, CStr(Collections::kReturnSplit), mgp::type_list(mgp::type_nullable(mgp::type_any())));
+      auto *proc = mgp::module_add_read_procedure(module, Collections::kProcedureSplit.data(), Collections::Split);
+      mgp::proc_add_arg(proc, Collections::kArgumentInputList.data(), ListOfNullable());
+      mgp::proc_add_arg(proc, Collections::kArgumentDelimiter.data(), NullableAny());
+      mgp::proc_add_result(proc, Collections::kReturnSplit.data(), mgp::type_list(mgp::type_nullable(mgp::type_any())));
     }
     {
       // partition: a NULL input list yields no rows; size is intentionally non-nullable, matching the
       // compatibility layer which also errors on a null size.
       auto *proc =
-          mgp::module_add_read_procedure(module, CStr(Collections::kProcedurePartition), Collections::Partition);
-      mgp::proc_add_arg(proc, CStr(Collections::kArgumentListPartition), ListOfNullable());
-      mgp::proc_add_arg(proc, CStr(Collections::kArgumentSizePartition), mgp::type_int());
+          mgp::module_add_read_procedure(module, Collections::kProcedurePartition.data(), Collections::Partition);
+      mgp::proc_add_arg(proc, Collections::kArgumentListPartition.data(), ListOfNullable());
+      mgp::proc_add_arg(proc, Collections::kArgumentSizePartition.data(), mgp::type_int());
       mgp::proc_add_result(
-          proc, CStr(Collections::kReturnValuePartition), mgp::type_list(mgp::type_nullable(mgp::type_any())));
+          proc, Collections::kReturnValuePartition.data(), mgp::type_list(mgp::type_nullable(mgp::type_any())));
     }
 
   } catch (const std::exception &e) {
