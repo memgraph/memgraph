@@ -26,7 +26,6 @@
 #include <compare>
 #include <mutex>
 #include <regex>
-#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 #include <vector>
