@@ -58,7 +58,7 @@ tar xzvfm /toolchain.tar.gz -C /opt
 
 # TODO(matt): this dev-container flow needs a fuller pass for the monorepo
 # layout (MAGE now lives in memgraph/memgraph under mage/ and is built with
-# `./build.sh --mage`); the /mage container path convention predates it.
+# `./build.sh --mage on`); the /mage container path convention predates it.
 echo "Cloning Memgraph repo commit/tag: $MEMGRAPH_REF"
 cd /root
 git clone https://github.com/memgraph/memgraph.git --recurse-submodules mage
@@ -103,7 +103,7 @@ su - memgraph -c 'curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolcha
 
 # build everything again (because it isn't copied into the prod image);
 # MAGE modules end up in /mage/build/mage/dist
-build_cmd="source /opt/toolchain-v${toolchain_version}/activate && cd /mage && ./build.sh --mage --build-type ${BUILD_TYPE}"
+build_cmd="source /opt/toolchain-v${toolchain_version}/activate && cd /mage && ./build.sh --mage on --build-type ${BUILD_TYPE}"
 su - memgraph -c "bash -c '$build_cmd'"
 
 
