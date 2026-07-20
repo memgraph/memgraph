@@ -118,17 +118,23 @@ struct InterpreterContext {
   /// no new cross-thread abort mechanism is introduced.
   void ScanIdleTransactions();
 
-  // Drives ScanIdleTransactions() at a fixed cadence. Owned here (not in storage/dbms) because
-  // this is the one place that already owns cross-session access to `interpreters`, the same way
-  // SHOW/TERMINATE TRANSACTIONS do.
-  utils::Scheduler idle_transaction_scanner_;
-
   // Rate-limits the *log line* emitted per idle transaction id (the metric counter itself still
   // bumps every scan tick). Keyed by transaction id; pruned each tick to drop ids that are no
   // longer idle-in-transaction (committed/rolled back/dropped below threshold), so this never
   // grows unbounded.
   utils::Synchronized<std::unordered_map<uint64_t, std::chrono::steady_clock::time_point>, utils::SpinLock>
       idle_warn_last_logged_;
+
+  // Drives ScanIdleTransactions() at a fixed cadence. Owned here (not in storage/dbms) because
+  // this is the one place that already owns cross-session access to `interpreters`, the same way
+  // SHOW/TERMINATE TRANSACTIONS do.
+  //
+  // MUST be the last-declared data member: ~Scheduler() request-stops and joins the scan thread,
+  // and members are destroyed in reverse declaration order. Declaring it last guarantees the scan
+  // thread is joined before every member ScanIdleTransactions() touches (`interpreters`,
+  // `idle_warn_last_logged_`) is destroyed -- otherwise a final scan tick would use-after-free
+  // those members during teardown. Keep it here; do not move it earlier.
+  utils::Scheduler idle_transaction_scanner_;
 
   // TODO: Make this constructor private
   InterpreterContext(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
