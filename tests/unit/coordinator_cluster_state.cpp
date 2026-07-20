@@ -317,3 +317,53 @@ TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
   ASSERT_EQ(deserialized_cluster_state.GetInstanceDownTimeoutSec(), 5);
   ASSERT_EQ(deserialized_cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{1});
 }
+
+TEST_F(CoordinatorClusterStateTest, DedupCoordinatorsOnDoAction) {
+  CoordinatorClusterState cluster_state;
+
+  // Duplicate id 1 with a different bolt server, as created by older versions which allowed re-adding an
+  // existing coordinator.
+  std::vector<CoordinatorInstanceContext> coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7699"},
+  };
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = std::move(coord_instances)};
+  cluster_state.DoAction(delta_state);
+
+  auto const coord_instances_res = cluster_state.GetCoordinatorInstancesContext();
+  ASSERT_EQ(coord_instances_res.size(), 2);
+  ASSERT_EQ(coord_instances_res[0].id, 1);
+  ASSERT_EQ(coord_instances_res[0].bolt_server, "127.0.0.1:7690");
+  ASSERT_EQ(coord_instances_res[1].id, 2);
+  ASSERT_EQ(coord_instances_res[1].bolt_server, "127.0.0.1:7691");
+}
+
+TEST_F(CoordinatorClusterStateTest, DedupCoordinatorsOnDeserialize) {
+  std::vector<DataInstanceContext> data_instances;
+  auto const uuid = UUID{};
+
+  std::vector coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7699"},
+  };
+
+  auto json = nlohmann::json{{memgraph::coordination::kDataInstances.data(), data_instances},
+                             {memgraph::coordination::kMainUUID.data(), uuid},
+                             {memgraph::coordination::kCoordinatorInstances.data(), coord_instances}};
+
+  auto const log = json.dump();
+  ptr<buffer> data = buffer::alloc(sizeof(uint32_t) + log.size());
+  nuraft::buffer_serializer bs(data);
+  bs.put_str(log);
+
+  auto deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
+  std::vector const expected_coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+  ASSERT_EQ(deserialized_cluster_state.GetCoordinatorInstancesContext(), expected_coord_instances);
+}

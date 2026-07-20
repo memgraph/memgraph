@@ -28,6 +28,22 @@
 
 namespace memgraph::coordination {
 
+namespace {
+// Older versions allowed re-adding an already existing coordinator id, so persisted state can contain duplicate
+// entries. All id-based lookups and updates always operated on the first occurrence, so keep it and drop the rest.
+auto DedupCoordinatorInstances(std::vector<CoordinatorInstanceContext> instances)
+    -> std::vector<CoordinatorInstanceContext> {
+  std::vector<CoordinatorInstanceContext> result;
+  result.reserve(instances.size());
+  for (auto &instance : instances) {
+    if (!std::ranges::contains(result, instance.id, &CoordinatorInstanceContext::id)) {
+      result.push_back(std::move(instance));
+    }
+  }
+  return result;
+}
+}  // namespace
+
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other) {
   auto lock = std::lock_guard{other.app_lock_};
   // NOLINTBEGIN
@@ -129,7 +145,7 @@ auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state)
     data_instances_ = std::move(*delta_state.data_instances_);
   }
   if (delta_state.coordinator_instances_.has_value()) {
-    coordinator_instances_ = std::move(*delta_state.coordinator_instances_);
+    coordinator_instances_ = DedupCoordinatorInstances(std::move(*delta_state.coordinator_instances_));
   }
   if (delta_state.current_main_uuid_.has_value()) {
     current_main_uuid_ = *delta_state.current_main_uuid_;
@@ -251,7 +267,7 @@ auto CoordinatorClusterState::GetGlobalReadOnly() const -> bool {
 
 void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
   auto lock = std::lock_guard{app_lock_};
-  coordinator_instances_ = std::move(coordinator_instances);
+  coordinator_instances_ = DedupCoordinatorInstances(std::move(coordinator_instances));
 }
 
 void CoordinatorClusterState::SetDataInstances(std::vector<DataInstanceContext> data_instances) {
