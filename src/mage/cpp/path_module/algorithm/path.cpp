@@ -73,7 +73,7 @@ Path::PathHelper::PathHelper(const mgp::Map &config) {
   FilterLabelBoolStatus();
 
   value = config.At("filterStartNode");
-  config_.filter_start_node = value.IsNull() ? true : value.ValueBool();
+  config_.filter_start_node = value.IsNull() ? false : value.ValueBool();
 
   value = config.At("beginSequenceAtStart");
   config_.begin_sequence_at_start = value.IsNull() ? true : value.ValueBool();
@@ -495,7 +495,13 @@ void Path::PathSubgraph::TryInsertNode(const mgp::Node &node, int64_t hop_count,
     return;
   }
 
-  to_be_returned_nodes_.AppendExtend(mgp::Value(node));
+  // Unfiltered start node: its own labels are exempt, so it behaves like a plain whitelisted node.
+  // It is returned only in whitelist / no-filter mode, never forced into an end/termination result set.
+  LabelBools exempt_start;
+  exempt_start.whitelisted = true;
+  if (path_data_.helper_.AreLabelsValid(exempt_start)) {
+    to_be_returned_nodes_.AppendExtend(mgp::Value(node));
+  }
 }
 
 mgp::List Path::PathSubgraph::BFS() {
