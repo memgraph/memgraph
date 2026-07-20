@@ -823,13 +823,12 @@ void Collections::Duplicates(mgp_list *args, mgp_func_context *ctx, mgp_func_res
     }
 
     const auto list = arguments[0].ValueList();
-    std::unordered_set<mgp::Value> seen;
-    std::unordered_set<mgp::Value> duplicated;
+    std::unordered_map<mgp::Value, int64_t> counts;
 
     mgp::List duplicates;
     for (const auto &element : list) {
-      if (!seen.insert(element).second && duplicated.insert(element).second) {
-        // Second occurrence: report the value once.
+      if (++counts[element] == 2) {
+        // Report each repeated value once, at its second occurrence.
         duplicates.AppendExtend(element);
       }
     }
