@@ -253,27 +253,33 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
 // name (-Wdtor-typedef); it must use the class's own name, and we're already inside
 // `namespace memgraph::storage` here so the unqualified name resolves to the real class.
 Accessor::~Accessor() {
-  // Cheap check on the common (READ/WRITE) commit path: original_access_type_ is a plain enum
-  // member, unaffected by guard/lock state, so this is safe to read even after a hand-off (see
-  // below) and costs nothing beyond the comparison. READ/WRITE accessors never gate another
-  // acquirer (IP-1 design §8), so they fall straight through to the ordinary implicit
-  // storage_guard_/unique_guard_ destruction below -- unchanged from before this feature existed.
-  if (original_access_type_ != UNIQUE && original_access_type_ != READ_ONLY) {
-    return;
-  }
-  // UNIQUE/READ_ONLY: explicitly release the guard HERE (rather than letting it release via
-  // implicit member destruction, which runs after this function body returns) so the
-  // NotifyMainLockReleased() call below is guaranteed to observe main_lock_ already released
-  // (C3 -- required for the epoch-based lost-wakeup protocol in WorkerResumeEvent). This is safe
-  // to do before transaction_'s own (later, implicit) destruction because Transaction::~Transaction
-  // is `= default` and touches no main_lock_-guarded state -- the real transaction teardown already
+  // F5 fix (IP-1 design doc REVISION 3 §R3.1 was wrong here): notify on EVERY release mode, not
+  // just UNIQUE/READ_ONLY. main_lock_'s conflict matrix is UNIQUE excludes all; READ_ONLY excludes
+  // WRITE (coexists with READ); READ/WRITE coexist with each other and with themselves. That means
+  // a parked READ_ONLY/UNIQUE waiter can be unblocked by the LAST conflicting WRITE (or READ, for
+  // a parked UNIQUE) holder releasing -- not only by another UNIQUE/READ_ONLY release. Skipping
+  // WRITE/READ release notification (the original rule) meant a parked query behind ongoing writes
+  // was never woken when those writes drained; it slept until its deadline and only then
+  // re-probed. Explicitly release the guard HERE (rather than letting it release via implicit
+  // member destruction, which runs after this function body returns) so the
+  // NotifyMainLockReleased() call below is guaranteed to observe main_lock_ already released (C3
+  // -- required for the epoch-based lost-wakeup protocol in WorkerResumeEvent). This is safe to do
+  // before transaction_'s own (later, implicit) destruction because Transaction::~Transaction is
+  // `= default` and touches no main_lock_-guarded state -- the real transaction teardown already
   // ran via Abort()/FinalizeTransaction() in the derived accessor's destructor body, which executes
   // before this base-class destructor even starts.
   //
+  // NotifyMainLockReleased() itself stays cheap on the common path: flag-off is one relaxed bool
+  // load, flag-on-but-nobody-parked is one additional relaxed size load (C5) -- calling it
+  // unconditionally here (including for every WRITE/READ commit) costs nothing extra there. Only a
+  // genuinely parked waiter causes the bounded (and correctness-necessary) extra wake-and-reprobe
+  // churn documented on NotifyMainLockReleased() -- worst case it re-parks until the true
+  // unblocking release, which is strictly better than riding to the ~1s deadline.
+  //
   // Exactly one of unique_guard_/storage_guard_ can be owning here, depending on how this Accessor
-  // was constructed (UniqueAccess vs ReadOnlyAccess). If NEITHER owns the lock, ownership was
-  // handed off elsewhere (Accessor::ReleaseUniqueGuard(), used by SetStorageMode) and that other
-  // owner is responsible for its own release + notify -- nothing to do here.
+  // was constructed. If NEITHER owns the lock, ownership was handed off elsewhere
+  // (Accessor::ReleaseUniqueGuard(), used by SetStorageMode) and that other owner is responsible
+  // for its own release + notify -- nothing to do here.
   if (unique_guard_.owns_lock()) {
     unique_guard_.unlock();
     storage_->NotifyMainLockReleased();
@@ -299,9 +305,11 @@ std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(
 
 void Storage::NotifyMainLockReleased() {
   // Flag-off (or no waiters): exactly one relaxed load each, no mutex touched (R1 §B1/C5). This is
-  // the ENTIRE cost paid by the UNIQUE/READ_ONLY release sites below when the experimental feature
-  // is disabled or nobody happens to be parked -- READ/WRITE releases don't even call this
-  // function (see the Accessor destructor above).
+  // the ENTIRE cost paid by every release site that calls this function -- including plain
+  // READ/WRITE releases (F5 fix: those DO need to poke this, since releasing the last conflicting
+  // WRITE/READ holder can be exactly what unblocks a parked READ_ONLY/UNIQUE waiter; see the
+  // Accessor destructor's comment above) -- when the experimental feature is disabled or nobody
+  // happens to be parked.
   if (!flags::run_time::CoroPrepareAccessorYieldEnabled()) {
     return;
   }

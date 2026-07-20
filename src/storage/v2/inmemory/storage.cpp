@@ -2982,9 +2982,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       main_guard.unlock();
       NotifyMainLockReleased();
     } else {
-      // Plain shared (READ-style) acquisition: never gates another acquirer, so nobody to wake
-      // (IP-1 design §8) -- backstopped by the deadline sweep if this ever mattered.
+      // Plain shared (WRITE-mode-tagged, see the lock_shared() call above) acquisition. F5 fix:
+      // this CAN unblock a parked READ_ONLY/UNIQUE waiter (a pending UNIQUE needs r_count==0 too,
+      // and a pending READ_ONLY needs w_count==0) so it must notify AFTER the actual unlock (C3),
+      // exactly like the UNIQUE branch above -- the old "nobody to wake" reasoning was the same bug
+      // fixed in Storage::Accessor::~Accessor().
       main_lock_.unlock_shared();
+      NotifyMainLockReleased();
     }
   }};
 

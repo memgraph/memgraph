@@ -384,16 +384,25 @@ class Storage {
 
   /// Per-Storage wake event for a parked (coro-prepare) waiter blocked on `main_lock_` (IP-1
   /// design doc, opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3
-  /// §R3.1). Only UNIQUE/READ_ONLY release sites need to poke this -- see NotifyMainLockReleased().
+  /// §R3.1, corrected by the F5 fix below). ALL release sites -- UNIQUE, READ_ONLY, WRITE, and
+  /// READ alike -- must poke this; see NotifyMainLockReleased().
   utils::WorkerResumeEvent &main_lock_resume_event() { return main_lock_resume_event_; }
 
   /// Wakes any coro-prepare waiter parked on `main_lock_resume_event()`, if the experimental flag
   /// is on AND somebody is actually parked (R3.1/C5) -- cheap otherwise: one relaxed bool load
-  /// (flag off) or one relaxed size load (no waiters). Callers MUST invoke this AFTER the
-  /// UNIQUE/READ_ONLY guard has ACTUALLY released `main_lock_` (C3) -- never while still holding
-  /// it. Do NOT call this for a plain READ/WRITE release: those never gate another acquirer, so
-  /// there is nobody to wake (R3.1/§8) -- the common commit hot-path therefore pays only the
-  /// original-access-type check at the call site, not this function at all.
+  /// (flag off) or one relaxed size load (no waiters). Callers MUST invoke this AFTER the guard has
+  /// ACTUALLY released `main_lock_` (C3) -- never while still holding it.
+  ///
+  /// F5 fix: call this for EVERY release mode, including plain READ/WRITE, not only UNIQUE/
+  /// READ_ONLY. main_lock_'s conflict matrix (utils::ResourceLock) is: UNIQUE excludes all;
+  /// READ_ONLY excludes WRITE (coexists with READ); READ/WRITE coexist with each other. So a
+  /// parked READ_ONLY/UNIQUE waiter is unblocked precisely when the LAST conflicting WRITE (or
+  /// READ, for UNIQUE) holder releases -- not only by another UNIQUE/READ_ONLY release. The
+  /// original "READ/WRITE never gate another acquirer" reasoning conflated "never blocks a NEW
+  /// READ/WRITE acquirer" (true) with "release can never unblock a WAITING acquirer of a different
+  /// mode" (false). The relaxed-load gate above keeps this cheap on every hot commit path
+  /// regardless of mode; only a genuinely parked waiter pays the (bounded, correctness-necessary)
+  /// extra wake-and-reprobe cost.
   void NotifyMainLockReleased();
 
   virtual StorageInfo GetBaseInfo() = 0;
@@ -445,6 +454,38 @@ class Storage {
     stop_source.request_stop();
 
     ttl_.Shutdown();
+
+    // Shutdown-latency/deadlock fix (IP-1 coro-prepare-accessor-yield, opencode-work/
+    // resource-lock-starvation/coro-prepare/ip1-design.md REVISION 4 §R4.4): drain any coro-prepare
+    // waiter still registered on THIS storage's main_lock_resume_event_.
+    //
+    // PriorityThreadPool::ShutDown() already drains its OWN DeadlineParkRegistry (priority_thread_
+    // pool.cpp), which claims+resumes every parked ParkState so the waiting connection completes or
+    // bails (observes IsShuttingDown()) almost immediately -- that part works. But a genuine park
+    // dual-registers the SAME shared_ptr<ParkState> in TWO registries (see
+    // query::detail::AcquireAwaitable::await_suspend, query/coro_accessor.hpp): the pool's
+    // DeadlineParkRegistry (deadline sweep backstop) AND this per-Storage main_lock_resume_event_
+    // (lock-release wake). Only the pool-side registry was ever drained anywhere in production code
+    // -- WorkerResumeEvent::Drain() existed (utils/worker_resume_event.hpp) but had NO caller. Left
+    // undrained, the entry in main_lock_resume_event_'s waiters_ list keeps its shared_ptr<ParkState>
+    // alive forever, and that ParkState's on_resume closure transitively keeps alive whatever it
+    // captured (the parked connection's Session, and therefore its DatabaseAccess/
+    // Gatekeeper<Database>::Accessor) -- a real leak, not just a slow path. That leaked accessor
+    // keeps Gatekeeper<Database>::count_ above zero forever, and ~Gatekeeper() blocks in
+    // cv_.wait_for(lock, 5min, count_==0) -- turning "a query was parked at some point against this
+    // database" into a process-wide shutdown hang (observed as the 17.3s+ -- in practice unbounded,
+    // only ever cut short externally -- shutdown latency this fix addresses).
+    //
+    // Draining here is safe and correct regardless of ordering relative to the pool's own drain:
+    // WorkerResumeEvent::Drain() unconditionally moves every entry out of waiters_ (releasing this
+    // registry's reference) and only invokes on_resume() for an entry it still WINS the single-owner
+    // ClaimPark on -- an entry already claimed by the pool's drain (the expected common case, since
+    // PriorityThreadPool::ShutDown() runs first in the memgraph.cpp shutdown sequence, well before
+    // this function is reached via dbms_handler->ForEach(StopAllBackgroundTasks)) simply loses that
+    // claim and is pruned without a second (dangling/UAF-risking) resume attempt. Cheap: this runs
+    // once per database at shutdown/drop time, never on a hot path, so no flag gate is needed (unlike
+    // NotifyMainLockReleased's per-release cost).
+    main_lock_resume_event_.Drain();
   }
 
   // TODO: make non-public

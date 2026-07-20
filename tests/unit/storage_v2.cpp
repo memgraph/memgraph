@@ -3039,27 +3039,49 @@ TEST_F(StorageMainLockWakeHookTest, DoesNotFireWhenFlagOff) {
   EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 1U);
 }
 
-TEST_F(StorageMainLockWakeHookTest, ReadWriteReleaseNeverFiresEvenWithFlagOnAndWaiterParked) {
+// F5 (IP-1 design doc REVISION 5): a parked READ_ONLY/UNIQUE waiter is unblocked precisely when
+// the LAST conflicting holder releases -- and that holder is very often a WRITE (a READ_ONLY acquire
+// is blocked by outstanding WRITEs) or, for a parked UNIQUE, any READ. So a WRITE/READ release MUST
+// now fire the wake when a waiter is parked. (Before F5 these releases were skipped, so a parked
+// query behind ongoing writes slept until its deadline instead of resuming when the writes drained.)
+TEST_F(StorageMainLockWakeHookTest, WriteReleaseFiresWhenFlagOnAndWaiterParked) {
   using namespace memgraph::storage;
   SetFlag(true);
 
   auto fired = std::make_shared<bool>(false);
-  RegisterRecordingWaiter(fired);
+  auto ps = RegisterRecordingWaiter(fired);
+  ASSERT_EQ(store.main_lock_resume_event().WaitersPending(), 1U);
 
   {
     auto write_acc = store.Access(WRITE);
     write_acc->Abort();
+    EXPECT_FALSE(*fired) << "must not fire while the WRITE accessor still holds main_lock_";
   }
-  EXPECT_FALSE(*fired);
+  // write_acc destroyed here -> ~Accessor() releases the guard and calls NotifyMainLockReleased();
+  // with a parked waiter and the flag on, that must wake it (F5).
+
+  EXPECT_TRUE(*fired) << "a WRITE release must wake a parked READ_ONLY/UNIQUE waiter (F5)";
+  EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 0U);
+  EXPECT_TRUE(ps->claimed.load());
+}
+
+TEST_F(StorageMainLockWakeHookTest, ReadReleaseFiresWhenFlagOnAndWaiterParked) {
+  using namespace memgraph::storage;
+  SetFlag(true);
+
+  auto fired = std::make_shared<bool>(false);
+  auto ps = RegisterRecordingWaiter(fired);
+  ASSERT_EQ(store.main_lock_resume_event().WaitersPending(), 1U);
 
   {
     auto read_acc = store.Access(READ);
     read_acc->Abort();
+    EXPECT_FALSE(*fired) << "must not fire while the READ accessor still holds main_lock_";
   }
-  EXPECT_FALSE(*fired);
 
-  EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 1U)
-      << "a READ/WRITE accessor release must never touch the wake event";
+  EXPECT_TRUE(*fired) << "a READ release must wake a parked UNIQUE waiter (F5)";
+  EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 0U);
+  EXPECT_TRUE(ps->claimed.load());
 }
 
 TEST_F(StorageMainLockWakeHookTest, NoWaitersIsACheapSafeNoOp) {
