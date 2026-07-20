@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.frequencies_as_map([1, null, null]) AS result;
+
+output:
+  - result: {"1": 1, "NO_VALUE": 2}

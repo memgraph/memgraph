@@ -30,7 +30,8 @@ def test_flatten_e2e():
         RETURN collections_module.flatten(input_list) as result
         """
     )
-    assert next(result)["result"] == [1, 2, 3, 4]
+    # Null elements are preserved (COLLECT(null) yields [], so the only null is the nested one).
+    assert next(result)["result"] == [1, 2, None, 3, 4]
 
     # Test empty lists
     result = memgraph.execute_and_fetch(

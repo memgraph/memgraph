@@ -97,7 +97,9 @@ void Collections::ContainsAll(mgp_list *args, mgp_func_context *ctx, mgp_func_re
 
     std::unordered_set<mgp::Value> values(list2.begin(), list2.end());
 
-    result.SetValue(std::ranges::all_of(values, [&set](const auto &x) { return set.contains(x); }));
+    // A NULL search element never counts as contained (NULL = NULL is not true under query
+    // semantics), so any NULL in the second list makes the result false.
+    result.SetValue(std::ranges::all_of(values, [&set](const auto &x) { return !x.IsNull() && set.contains(x); }));
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());
@@ -353,10 +355,13 @@ void Collections::Max(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
       throw mgp::ValueException("Empty input list.");
     }
 
-    mgp::Value max = mgp::Value(list[0]);
-
+    // NULL elements are skipped (they carry no ordering); a max over only NULLs yields NULL.
+    mgp::Value max{};
     for (const auto value : list) {
-      if (max < value) {  // this will throw an error in case values can't be compared
+      if (value.IsNull()) {
+        continue;
+      }
+      if (max.IsNull() || max < value) {  // `<` throws if the values can't be compared
         max = value;
       }
     }
@@ -390,7 +395,9 @@ void Collections::Split(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
 
     mgp::List part = mgp::List();
     for (const auto value : inputList) {
-      if (value != delimiter) {
+      // A NULL delimiter matches nothing (NULL = NULL is not true under query semantics), so the
+      // whole list is kept as a single part; NULL list elements are preserved verbatim.
+      if (delimiter.IsNull() || value != delimiter) {
         part.AppendExtend(value);
         continue;
       }
@@ -463,6 +470,13 @@ void Collections::Contains(mgp_list *args, mgp_func_context *ctx, mgp_func_resul
 
     bool contains_value{false};
 
+    // A NULL search value never matches (NULL = NULL is not true under query semantics), so even a
+    // list that contains NULL elements returns false.
+    if (value.IsNull()) {
+      result.SetValue(contains_value);
+      return;
+    }
+
     if (list.Empty()) {
       result.SetValue(contains_value);
       return;
@@ -528,22 +542,32 @@ void Collections::Min(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
     if (list.Empty()) {
       throw mgp::ValueException("Empty input list");
     }
-    const mgp::Type &type = list[0].Type();
 
-    if (type == mgp::Type::Map || type == mgp::Type::Path || type == mgp::Type::List) {
-      std::ostringstream oss;
-      oss << type;
-      const std::string s = oss.str();
-      throw mgp::ValueException("Unsuppported type for this operation, receieved type: " + s);
-    }
-
-    const bool isListNumeric = list[0].IsNumeric();
-    mgp::Value min{list[0]};
+    // NULL elements are skipped; the reference type is taken from the first non-null element and a
+    // min over only NULLs yields NULL.
+    mgp::Value min{};
+    mgp::Type type{mgp::Type::Null};
+    bool is_numeric{false};
+    bool seeded{false};
     for (size_t i = 0; i < list.Size(); i++) {
-      if (list[i].Type() != type && !(isListNumeric && list[i].IsNumeric())) {
+      if (list[i].IsNull()) {
+        continue;
+      }
+      if (!seeded) {
+        type = list[i].Type();
+        if (type == mgp::Type::Map || type == mgp::Type::Path || type == mgp::Type::List) {
+          std::ostringstream oss;
+          oss << type;
+          throw mgp::ValueException("Unsuppported type for this operation, receieved type: " + oss.str());
+        }
+        is_numeric = list[i].IsNumeric();
+        min = list[i];
+        seeded = true;
+        continue;
+      }
+      if (list[i].Type() != type && !(is_numeric && list[i].IsNumeric())) {
         throw mgp::ValueException("All elements must be of the same type!");
       }
-
       if (list[i] < min) {
         min = list[i];
       }
@@ -624,13 +648,8 @@ void Collections::Partition(mgp_list *args, mgp_graph *memgraph_graph, mgp_resul
 
 namespace {
 
-// Helper function to recursively flatten a list
+// Helper function to recursively flatten a list. NULL elements are preserved verbatim.
 void FlattenHelper(const mgp::Value &value, mgp::List &result) {
-  if (value.IsNull()) {
-    // Skip null values
-    return;
-  }
-
   if (value.IsList()) {
     auto list = value.ValueList();
     for (const auto &item : list) {
@@ -667,7 +686,7 @@ void Collections::Flatten(mgp_list *args, mgp_func_context *ctx, mgp_func_result
     // Create result list
     mgp::List flattened;
 
-    // Directly flatten the input (handles null and lists recursively)
+    // Directly flatten the input (recurses into nested lists, keeps null and scalar elements)
     FlattenHelper(input, flattened);
 
     result.SetValue(flattened);
@@ -698,7 +717,8 @@ void Collections::FrequenciesAsMap(mgp_list *args, mgp_func_context *ctx, mgp_fu
 
     mgp::Map result_map;
     for (auto &&[element, count] : frequency_map) {
-      auto const key = element.ToString();
+      // NULL elements are grouped under the literal string key "NO_VALUE".
+      auto const key = element.IsNull() ? std::string("NO_VALUE") : element.ToString();
       result_map.Insert(key, mgp::Value(count));
     }
 
