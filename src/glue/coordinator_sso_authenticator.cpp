@@ -44,7 +44,13 @@ std::optional<CoordinatorSSOAuthenticator::AuthResult> CoordinatorSSOAuthenticat
   }
 
   // The effective mask is the union of the matched roles' masks.
-  return AuthResult{.effective_mask = auth::CoordinatorEffectiveMask(role_masks), .roles = std::move(*role_names)};
+  auto const effective_mask = auth::CoordinatorEffectiveMask(role_masks);
+  // A session that would hold neither COORDINATOR_READ nor COORDINATOR_WRITE cannot run any coordinator query, so
+  // reject the login rather than admitting a session that is denied everything.
+  if (!auth::CoordinatorMaskSatisfies(effective_mask, auth::Permission::COORDINATOR_READ)) {
+    return std::nullopt;
+  }
+  return AuthResult{.effective_mask = effective_mask, .roles = std::move(*role_names)};
 }
 
 }  // namespace memgraph::glue

@@ -83,14 +83,19 @@ TEST(CoordinatorSSOAuthenticator, MissingRoleRejectsWholeLogin) {
   EXPECT_FALSE(authenticator.Authenticate("kerberos", "token").has_value());
 }
 
-TEST(CoordinatorSSOAuthenticator, BareRoleAcceptedWithZeroMask) {
-  // A role that exists but carries no grant authenticates with an all-denying (zero) effective mask.
+TEST(CoordinatorSSOAuthenticator, BareRoleRejected) {
+  // A role that exists but carries no grant would yield a zero (all-denying) mask; since such a session could not run
+  // any coordinator query, the login is rejected outright.
   CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::vector<std::string>{"bare"}),
                                             RolesFrom({{"bare", 0}})};
-  auto const result = authenticator.Authenticate("kerberos", "token");
-  ASSERT_TRUE(result.has_value());
-  EXPECT_EQ(result->effective_mask, 0U);
-  EXPECT_EQ(result->roles, (std::vector<std::string>{"bare"}));
+  EXPECT_FALSE(authenticator.Authenticate("kerberos", "token").has_value());
+}
+
+TEST(CoordinatorSSOAuthenticator, MultiRoleAllBareRejected) {
+  // Even across multiple roles, if the union grants neither COORDINATOR_READ nor COORDINATOR_WRITE the login fails.
+  CoordinatorSSOAuthenticator authenticator{ModuleReturning(std::vector<std::string>{"bare1", "bare2"}),
+                                            RolesFrom({{"bare1", 0}, {"bare2", 0}})};
+  EXPECT_FALSE(authenticator.Authenticate("oidc", "token").has_value());
 }
 
 TEST(CoordinatorSSOAuthenticator, WriteRoleSatisfiesReadRequirement) {
