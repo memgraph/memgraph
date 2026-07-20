@@ -150,14 +150,14 @@ void Map::FromValues(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result
     while (iterator != values.end()) {
       const auto key_value = *iterator;
       ++iterator;
-      const auto value = *iterator;
-      ++iterator;
 
-      // Skip pairs whose key is null.
+      // Skip pairs whose key is null (the value is still consumed).
       if (key_value.IsNull()) {
+        ++iterator;
         continue;
       }
-      map.Update(KeyToString(key_value), value);
+      map.Update(KeyToString(key_value), *iterator);
+      ++iterator;
     }
 
     result.SetValue(std::move(map));
