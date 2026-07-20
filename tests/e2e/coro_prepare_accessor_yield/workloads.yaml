@@ -1,16 +1,37 @@
-coro_prepare_accessor_yield_cluster: &coro_prepare_accessor_yield_cluster
+bolt_port: &bolt_port "7687"
+
+# Small pool + bounded timeout so the responsiveness contrast (parking vs. blocking) is large
+# and deterministic. See common.py for the full mechanism writeup.
+coro_prepare_accessor_yield_on_cluster: &coro_prepare_accessor_yield_on_cluster
   cluster:
     main:
       args:
         [
           "--bolt-port",
-          "7687",
+          *bolt_port,
           "--log-level=TRACE",
           "--bolt-num-workers=2",
-          "--storage-access-timeout-sec=2",
+          "--storage-access-timeout-sec=6",
           "--experimental-coro-prepare-accessor-yield=true",
         ]
       log_file: "coro_prepare_accessor_yield.log"
+      setup_queries: []
+      validation_queries: []
+
+# Control cluster: identical args except the flag is ABSENT (default false) -- see
+# coro_prepare_accessor_yield_flag_off_control.py for why this contrast matters.
+coro_prepare_accessor_yield_off_cluster: &coro_prepare_accessor_yield_off_cluster
+  cluster:
+    main:
+      args:
+        [
+          "--bolt-port",
+          *bolt_port,
+          "--log-level=TRACE",
+          "--bolt-num-workers=2",
+          "--storage-access-timeout-sec=6",
+        ]
+      log_file: "coro_prepare_accessor_yield_flag_off_control.log"
       setup_queries: []
       validation_queries: []
 
@@ -19,4 +40,9 @@ workloads:
   - name: "CoroPrepareAccessorYield"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["coro_prepare_accessor_yield/coro_prepare_accessor_yield.py"]
-    <<: *coro_prepare_accessor_yield_cluster
+    <<: *coro_prepare_accessor_yield_on_cluster
+
+  - name: "CoroPrepareAccessorYieldFlagOffControl"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["coro_prepare_accessor_yield/coro_prepare_accessor_yield_flag_off_control.py"]
+    <<: *coro_prepare_accessor_yield_off_cluster
