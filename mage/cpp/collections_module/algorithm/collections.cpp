@@ -17,55 +17,6 @@
 #include <unordered_set>
 #include <vector>
 
-void Collections::SetResult(mgp::Result &result, const mgp::Value &value) {
-  switch (value.Type()) {
-    case mgp::Type::Bool:
-      result.SetValue(value.ValueBool());
-      break;
-    case mgp::Type::Int:
-      result.SetValue(value.ValueInt());
-      break;
-    case mgp::Type::Double:
-      result.SetValue(value.ValueDouble());
-      break;
-    case mgp::Type::String:
-      result.SetValue(value.ValueString());
-      break;
-    case mgp::Type::List:
-      result.SetValue(value.ValueList());
-      break;
-    case mgp::Type::Map:
-      result.SetValue(value.ValueMap());
-      break;
-    case mgp::Type::Node:
-      result.SetValue(value.ValueNode());
-      break;
-    case mgp::Type::Relationship:
-      result.SetValue(value.ValueRelationship());
-      break;
-    case mgp::Type::Path:
-      result.SetValue(value.ValuePath());
-      break;
-    case mgp::Type::Date:
-      result.SetValue(value.ValueDate());
-      break;
-    case mgp::Type::LocalTime:
-      result.SetValue(value.ValueLocalTime());
-      break;
-    case mgp::Type::LocalDateTime:
-      result.SetValue(value.ValueLocalDateTime());
-      break;
-    case mgp::Type::Duration:
-      result.SetValue(value.ValueDuration());
-      break;
-
-    default:
-      std::ostringstream oss;
-      oss << value.Type();
-      throw mgp::ValueException("No Result.SetValue for: " + oss.str());
-  }
-}
-
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::SumLongs(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
@@ -410,7 +361,7 @@ void Collections::Max(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
       }
     }
 
-    SetResult(result, max);
+    result.SetValue(max);
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());
@@ -598,7 +549,7 @@ void Collections::Min(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
       }
     }
 
-    SetResult(result, min);
+    result.SetValue(min);
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());

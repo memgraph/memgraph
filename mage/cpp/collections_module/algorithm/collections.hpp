@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -104,8 +104,6 @@ constexpr std::string_view kArgumentListFlatten = "list";
 /* frequencies_as_map constants */
 constexpr std::string_view kProcedureFrequenciesAsMap = "frequencies_as_map";
 constexpr std::string_view kArgumentListFrequenciesAsMap = "coll";
-
-void SetResult(mgp::Result &result, const mgp::Value &value);
 
 void SumLongs(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
