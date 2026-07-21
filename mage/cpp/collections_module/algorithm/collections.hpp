@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,100 +12,110 @@
 #pragma once
 
 #include <mgp.hpp>
-#include <sstream>
 #include <string>
-#include <string_view>
 
 namespace Collections {
 
 /* sum_longs constants */
-constexpr const std::string_view kProcedureSumLongs = "sum_longs";
-constexpr const std::string_view kSumLongsArg1 = "numbers";
+constexpr const char *kProcedureSumLongs = "sum_longs";
+constexpr const char *kSumLongsArg1 = "numbers";
 
 /* avg constants */
-constexpr const std::string_view kProcedureAvg = "avg";
-constexpr const std::string_view kAvgArg1 = "numbers";
+constexpr const char *kProcedureAvg = "avg";
+constexpr const char *kAvgArg1 = "numbers";
 
 /* contains_all constants */
-constexpr const std::string_view kProcedureContainsAll = "contains_all";
-constexpr const std::string_view kContainsAllArg1 = "coll";
-constexpr const std::string_view kContainsAllArg2 = "values";
+constexpr const char *kProcedureContainsAll = "contains_all";
+constexpr const char *kContainsAllArg1 = "coll";
+constexpr const char *kContainsAllArg2 = "values";
 
 /* intersection constants */
-constexpr const std::string_view kProcedureIntersection = "intersection";
-constexpr const std::string_view kIntersectionArg1 = "first";
-constexpr const std::string_view kIntersectionArg2 = "second";
+constexpr const char *kProcedureIntersection = "intersection";
+constexpr const char *kIntersectionArg1 = "first";
+constexpr const char *kIntersectionArg2 = "second";
 
 /* remove_all constants */
-constexpr std::string_view kProcedureRemoveAll = "remove_all";
-constexpr std::string_view kArgumentsInputList = "first";
-constexpr std::string_view kArgumentsRemoveList = "second";
+constexpr const char *kProcedureRemoveAll = "remove_all";
+constexpr const char *kArgumentsInputList = "first";
+constexpr const char *kArgumentsRemoveList = "second";
 
 /* sum constants */
-constexpr std::string_view kProcedureSum = "sum";
-constexpr std::string_view kInputList = "numbers";
+constexpr const char *kProcedureSum = "sum";
+constexpr const char *kInputList = "numbers";
 
 /* union constants */
-constexpr std::string_view kProcedureUnion = "union";
-constexpr std::string_view kArgumentsInputList1 = "first";
-constexpr std::string_view kArgumentsInputList2 = "second";
+constexpr const char *kProcedureUnion = "union";
+constexpr const char *kArgumentsInputList1 = "first";
+constexpr const char *kArgumentsInputList2 = "second";
 
 /* sort constants */
-constexpr std::string_view kProcedureSort = "sort";
-constexpr std::string_view kArgumentSort = "coll";
+constexpr const char *kProcedureSort = "sort";
+constexpr const char *kArgumentSort = "coll";
 
 /* contains constants */
-constexpr std::string_view kProcedureCS = "contains_sorted";
-constexpr std::string_view kArgumentInputList = "coll";
-constexpr std::string_view kArgumentElement = "value";
+constexpr const char *kProcedureCS = "contains_sorted";
+constexpr const char *kArgumentInputList = "coll";
+constexpr const char *kArgumentElement = "value";
 
 /* max constants */
-constexpr std::string_view kProcedureMax = "max";
-constexpr std::string_view kArgumentMax = "values";
+constexpr const char *kProcedureMax = "max";
+constexpr const char *kArgumentMax = "values";
 
 /* split constants */
-constexpr std::string_view kProcedureSplit = "split";
-constexpr std::string_view kReturnSplit = "splitted";
-constexpr std::string_view kArgumentDelimiter = "delimiter";
-constexpr std::string_view kResultSplit = "splitted";
+constexpr const char *kProcedureSplit = "split";
+constexpr const char *kReturnSplit = "splitted";
+constexpr const char *kArgumentDelimiter = "delimiter";
+constexpr const char *kResultSplit = "splitted";
 
 /* pairs constants */
-constexpr std::string_view kProcedurePairs = "pairs";
-constexpr std::string_view kArgumentPairs = "list";
+constexpr const char *kProcedurePairs = "pairs";
+constexpr const char *kArgumentPairs = "list";
 
 /* contains constants */
-constexpr std::string_view kProcedureContains = "contains";
-constexpr std::string_view kArgumentListContains = "coll";
-constexpr std::string_view kArgumentValueContains = "value";
+constexpr const char *kProcedureContains = "contains";
+constexpr const char *kArgumentListContains = "coll";
+constexpr const char *kArgumentValueContains = "value";
 
 /* union_all constants */
-constexpr std::string_view kProcedureUnionAll = "union_all";
-constexpr std::string_view kArgumentList1UnionAll = "first";
-constexpr std::string_view kArgumentList2UnionAll = "second";
+constexpr const char *kProcedureUnionAll = "union_all";
+constexpr const char *kArgumentList1UnionAll = "first";
+constexpr const char *kArgumentList2UnionAll = "second";
 
 /* min constants */
-constexpr std::string_view kProcedureMin = "min";
-constexpr std::string_view kArgumentListMin = "values";
+constexpr const char *kProcedureMin = "min";
+constexpr const char *kArgumentListMin = "values";
 
 /* to_set constants */
-constexpr std::string_view kProcedureToSet = "to_set";
-constexpr std::string_view kArgumentListToSet = "values";
+constexpr const char *kProcedureToSet = "to_set";
+constexpr const char *kArgumentListToSet = "values";
 
 /* partition constants */
-constexpr std::string_view kReturnValuePartition = "result";
-constexpr std::string_view kProcedurePartition = "partition";
-constexpr std::string_view kArgumentListPartition = "list";
-constexpr std::string_view kArgumentSizePartition = "partition_size";
+constexpr const char *kReturnValuePartition = "result";
+constexpr const char *kProcedurePartition = "partition";
+constexpr const char *kArgumentListPartition = "list";
+constexpr const char *kArgumentSizePartition = "partition_size";
 
 /* flatten constants */
-constexpr std::string_view kProcedureFlatten = "flatten";
-constexpr std::string_view kArgumentListFlatten = "list";
+constexpr const char *kProcedureFlatten = "flatten";
+constexpr const char *kArgumentListFlatten = "list";
+
+/* disjunction constants */
+constexpr const char *kProcedureDisjunction = "disjunction";
+constexpr const char *kDisjunctionArg1 = "list1";
+constexpr const char *kDisjunctionArg2 = "list2";
+
+/* subtract constants */
+constexpr const char *kProcedureSubtract = "subtract";
+constexpr const char *kSubtractArg1 = "list1";
+constexpr const char *kSubtractArg2 = "list2";
+
+/* duplicates constants */
+constexpr const char *kProcedureDuplicates = "duplicates";
+constexpr const char *kDuplicatesArg1 = "coll";
 
 /* frequencies_as_map constants */
-constexpr std::string_view kProcedureFrequenciesAsMap = "frequencies_as_map";
-constexpr std::string_view kArgumentListFrequenciesAsMap = "coll";
-
-void SetResult(mgp::Result &result, const mgp::Value &value);
+constexpr const char *kProcedureFrequenciesAsMap = "frequencies_as_map";
+constexpr const char *kArgumentListFrequenciesAsMap = "coll";
 
 void SumLongs(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
@@ -144,5 +154,11 @@ void Partition(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
 void Flatten(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
 void FrequenciesAsMap(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
+
+void Disjunction(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
+
+void Subtract(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
+
+void Duplicates(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
 }  // namespace Collections

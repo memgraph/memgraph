@@ -109,6 +109,13 @@ FetchContent_Declare(fmt
 )
 FetchContent_MakeAvailable(fmt)
 
+# Treat fmt as a system dependency: its headers are then included with
+# -isystem for every module that links fmt::fmt, so the compiler and
+# clang-tidy do not emit diagnostics from inside fmt's own headers.
+get_target_property(FMT_INCLUDE_DIRS fmt INTERFACE_INCLUDE_DIRECTORIES)
+set_target_properties(fmt PROPERTIES
+  INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${FMT_INCLUDE_DIRS}")
+
 function(add_query_module target_name version src)
   add_library(${target_name} SHARED ${src})
   set_target_properties(${target_name} PROPERTIES SOVERSION "${version}")
