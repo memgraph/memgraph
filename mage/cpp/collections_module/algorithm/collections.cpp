@@ -389,7 +389,7 @@ void Collections::Split(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
 
     if (inputList.Empty()) {
       auto record = record_factory.NewRecord();
-      record.Insert(std::string(Collections::kResultSplit).c_str(), inputList);
+      record.Insert(Collections::kResultSplit, inputList);
       return;
     }
 
@@ -405,14 +405,14 @@ void Collections::Split(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
         continue;
       }
       auto record = record_factory.NewRecord();
-      record.Insert(std::string(Collections::kResultSplit).c_str(), part);
+      record.Insert(Collections::kResultSplit, part);
       part = mgp::List();
     }
     if (part.Empty()) {
       return;
     }
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(Collections::kResultSplit).c_str(), part);
+    record.Insert(Collections::kResultSplit, part);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
     return;
@@ -627,14 +627,14 @@ void Collections::Partition(mgp_list *args, mgp_graph *memgraph_graph, mgp_resul
 
       if (current_size == partition_size) {
         auto record = record_factory.NewRecord();
-        record.Insert(std::string(kReturnValuePartition).c_str(), temp);
+        record.Insert(kReturnValuePartition, temp);
         current_size = 0;
       }
     }
 
     if (current_size != partition_size && current_size != 0) {
       auto record = record_factory.NewRecord();
-      record.Insert(std::string(kReturnValuePartition).c_str(), temp);
+      record.Insert(kReturnValuePartition, temp);
     }
 
   } catch (const std::exception &e) {
