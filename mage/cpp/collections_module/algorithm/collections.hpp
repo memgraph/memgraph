@@ -12,7 +12,6 @@
 #pragma once
 
 #include <mgp.hpp>
-#include <sstream>
 #include <string>
 #include <string_view>
 
