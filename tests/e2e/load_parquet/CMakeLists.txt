@@ -17,5 +17,6 @@ copy_load_parquet_e2e_files(nodes_numeric.parquet)
 copy_load_parquet_e2e_files(nodes_temporal.parquet)
 copy_load_parquet_e2e_files(nodes_collections.parquet)
 copy_load_parquet_e2e_files(nodes_collections_simple.parquet)
+copy_load_parquet_e2e_files(time_overflow.parquet)
 
 copy_e2e_files(load_parquet workloads.yaml)

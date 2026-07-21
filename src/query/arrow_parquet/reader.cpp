@@ -22,6 +22,7 @@ module;
 #include "utils/temporal.hpp"
 
 #include <chrono>
+#include <exception>
 #include <string_view>
 #include <thread>
 
@@ -521,6 +522,9 @@ struct ParquetReader::impl {
   utils::pmr::vector<Row> rows_;
   utils::DataQueue<utils::pmr::vector<Row>> work_queue_;
   Header header_;
+  // Set by the prefetcher thread if a batch fails to be read/converted, read by the consumer once the queue drains.
+  // Declared before prefetcher_thread_ so it outlives the thread (destroyed after the thread is joined).
+  std::exception_ptr prefetch_error_;
   std::jthread prefetcher_thread_;  // should get destroyed before all other variables that it uses as a reference
   uint64_t row_in_batch_{0};
   uint64_t current_batch_size_{0};
@@ -537,36 +541,49 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
       work_queue_(2),
       header_(std::move(header)),
       prefetcher_thread_{[this](std::stop_token stop_token) {
-        while (!stop_token.stop_requested()) {
-          auto const batch_ref = row_it_.Next();
-          // No more data
-          if (batch_ref.empty()) {
-            work_queue_.finish();
-            break;
-          }
-
-          auto const num_rows = batch_ref[0]->length();
-          utils::pmr::vector<Row> queued_batch(resource_);
-          queued_batch.reserve(num_rows);
-          for (auto i = 0; i < num_rows; ++i) {
-            // temporary needs to be created
-            // NOLINTNEXTLINE
-            queued_batch.emplace_back(Row{resource_});
-          }
-
-          std::vector<std::function<TypedValue(int64_t)>> converters;
-          converters.reserve(num_columns_);
-          for (int j = 0U; j < num_columns_; j++) {
-            converters.push_back(CreateColumnConverter(batch_ref[j], resource_));
-          }
-
-          for (int j = 0U; j < num_columns_; j++) {
-            auto const &converter = converters[j];
-            for (int64_t i = 0; i < num_rows; i++) {
-              queued_batch[i].emplace(header_[j], converter(i));  // RVO should kick in here
+        // Any exception thrown while reading a batch or converting a value (e.g. an out-of-range temporal value that
+        // fails LocalTime/LocalDateTime/Duration validation) must not escape this thread's top-level function - that
+        // would call std::terminate and crash the whole process. Capture it and hand it to the consumer instead, which
+        // rethrows it from GetNextRow so it surfaces as a regular query error.
+        try {
+          while (!stop_token.stop_requested()) {
+            auto const batch_ref = row_it_.Next();
+            // No more data
+            if (batch_ref.empty()) {
+              work_queue_.finish();
+              break;
             }
+
+            auto const num_rows = batch_ref[0]->length();
+            utils::pmr::vector<Row> queued_batch(resource_);
+            queued_batch.reserve(num_rows);
+            for (auto i = 0; i < num_rows; ++i) {
+              // temporary needs to be created
+              // NOLINTNEXTLINE
+              queued_batch.emplace_back(Row{resource_});
+            }
+
+            std::vector<std::function<TypedValue(int64_t)>> converters;
+            converters.reserve(num_columns_);
+            for (int j = 0U; j < num_columns_; j++) {
+              converters.push_back(CreateColumnConverter(batch_ref[j], resource_));
+            }
+
+            for (int j = 0U; j < num_columns_; j++) {
+              auto const &converter = converters[j];
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i].emplace(header_[j], converter(i));  // RVO should kick in here
+              }
+            }
+            work_queue_.push(std::move(queued_batch));
           }
-          work_queue_.push(std::move(queued_batch));
+        } catch (const std::exception &e) {
+          prefetch_error_ =
+              std::make_exception_ptr(QueryRuntimeException("Error while loading PARQUET file: {}", e.what()));
+          work_queue_.finish();
+        } catch (...) {
+          prefetch_error_ = std::current_exception();
+          work_queue_.finish();
         }
       }}
 
@@ -587,6 +604,12 @@ ParquetReader::impl::~impl() {
 auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   if (row_in_batch_ >= current_batch_size_) {
     if (!work_queue_.pop(rows_)) {
+      // The queue is drained. If the prefetcher aborted with an error, surface it on the consumer thread so it becomes
+      // a query error rather than a process crash. (finish() happens-before this pop() returning false, so the write to
+      // prefetch_error_ that precedes finish() is visible here without extra synchronization.)
+      if (prefetch_error_) {
+        std::rethrow_exception(prefetch_error_);
+      }
       return false;
     }
     row_in_batch_ = 0;

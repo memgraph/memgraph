@@ -206,5 +206,22 @@ def test_small_file_nodes_with_limit():
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
+def test_out_of_range_temporal_does_not_crash():
+    # Regression test: 'time_overflow.parquet' has a TIME64[us] column whose second value is 24h (86400000000 us),
+    # which is out of LocalTime's [0h, 24h) range. Converting it throws temporal::InvalidArgumentException inside the
+    # reader's background prefetcher thread. That exception used to escape the thread's top-level function and call
+    # std::terminate, crashing the whole server. It must instead surface as a regular query error, and the server must
+    # keep serving.
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = f"LOAD PARQUET FROM '{get_file_path('time_overflow.parquet')}' AS row RETURN row.col_time64_us;"
+    with pytest.raises(Exception) as exc_info:
+        execute_and_fetch_all(cursor, load_query)
+    assert "Error while loading PARQUET file" in str(exc_info.value)
+
+    # The server must still be alive (it did not std::terminate): a fresh connection can run a query.
+    liveness_cursor = connect(host="localhost", port=7687).cursor()
+    assert execute_and_fetch_all(liveness_cursor, "RETURN 1 AS ok;")[0][0] == 1
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
