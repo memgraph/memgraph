@@ -14,7 +14,6 @@
 #include <charconv>
 #include <cmath>
 #include <list>
-#include <sstream>
 #include <vector>
 
 #include "map.hpp"
@@ -70,9 +69,7 @@ std::string Map::KeyToString(const mgp::Value &value) {
   if (value.IsDouble()) {
     return DoubleToKey(value.ValueDouble());
   }
-  std::ostringstream oss;
-  oss << value;
-  return oss.str();
+  return value.ToString();
 }
 
 mgp::Map Map::ToMap(const mgp::Value &value) {
