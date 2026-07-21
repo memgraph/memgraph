@@ -1100,8 +1100,23 @@ TEST_P(CypherMainVisitorTest, MagicFunction) {
   ASSERT_EQ(return_clause->body_.named_expressions.size(), 1);
   auto *function = dynamic_cast<Function *>(return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(function);
-  ASSERT_TRUE(function->function_);
+  ASSERT_TRUE(function->IsUserDefined());
+  ASSERT_FALSE(function->function_);
+  ASSERT_GE(function->user_function_id_, 0);
   CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, MagicFunctionCacheable) {
+  AddFunc(*mock_module, "get", {});
+  ParsingContext context;
+  AstStorage storage;
+  Parameters parameters;
+  CypherMainVisitor visitor(context, &storage, &parameters);
+  ::frontend::opencypher::Parser parser("RETURN mock_module.get()");
+  visitor.visit(parser.tree());
+  EXPECT_TRUE(visitor.GetQueryInfo().is_cacheable);
+  ASSERT_EQ(storage.user_functions_.size(), 1U);
+  EXPECT_EQ(storage.user_functions_[0], "mock_module.get");
 }
 
 TEST_P(CypherMainVisitorTest, StringLiteralDoubleQuotes) {

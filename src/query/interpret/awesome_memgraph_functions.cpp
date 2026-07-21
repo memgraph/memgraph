@@ -2226,6 +2226,31 @@ auto NameToFunction(const std::string &function_name) -> std::variant<std::monos
   return std::monostate{};
 }
 
+auto ResolveUserFunction(const std::string &name) -> user_func {
+  auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, name);
+  if (!maybe_found) {
+    throw QueryRuntimeException("Function '{}' doesn't exist.", name);
+  }
+  auto module_ptr = std::move((*maybe_found).first);
+  const auto *func = (*maybe_found).second;
+  return std::make_pair(UserFunction(*func, name), std::move(module_ptr));
+}
+
+auto ResolveUserFunctions(const std::vector<std::string> &names) -> std::shared_ptr<ResolvedUserFunctions> {
+  if (names.empty()) {
+    return nullptr;
+  }
+  auto resolved = std::make_shared<ResolvedUserFunctions>();
+  resolved->callables.reserve(names.size());
+  resolved->modules.reserve(names.size());
+  for (const auto &name : names) {
+    auto [callable, module_ptr] = ResolveUserFunction(name);
+    resolved->callables.push_back(std::move(callable));
+    resolved->modules.push_back(std::move(module_ptr));
+  }
+  return resolved;
+}
+
 bool IsFunctionPure(std::string_view function_name) {
   // Lookup in builtin functions
   auto upper_case = utils::ToUpperCase(function_name);

@@ -43,6 +43,21 @@ FUNC4_PATH = os.path.join(
     "new_test_functions_dir/new_test_subfunctions.py",
 )
 
+RELOAD_FUNC_MODULE_PATH = os.path.join(os.path.dirname(__file__), "procedures", "reload_func_module.py")
+
+
+def write_combine_function(op: str):
+    with open(RELOAD_FUNC_MODULE_PATH, "w") as func_file:
+        func_file.write(
+            f"""import mgp
+
+
+@mgp.function
+def combine(ctx: mgp.FuncCtx, a: mgp.Number, b: mgp.Number):
+    return a {op} b
+"""
+        )
+
 
 def preprocess_functions(path1: str, path2: str):
     with open(path1, "w") as func1_file:
@@ -190,6 +205,30 @@ def test_mg_load_all_reload_submodule(switch):
         # Revert to the original state for the consistency
         postprocess_functions(FUNC1_PATH, FUNC2_PATH)
     execute_and_fetch_all(cursor, "CALL mg.load_all();")
+
+
+@pytest.mark.parametrize("switch", [False, True])
+def test_mg_load_reload_magic_function(switch):
+    """A query using a magic function is cacheable; reloading the module must not be blocked by the cached
+    plan, and the next execution must run the reloaded implementation."""
+    cursor = connect().cursor()
+    if switch:
+        create_multi_db(cursor)
+        switch_db(cursor)
+    write_combine_function("+")
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+    try:
+        # populate the plan cache with a magic-function query
+        assert execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")[0][0] == 5
+        assert execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")[0][0] == 5
+        # swap the implementation; reload must succeed even though the query is cached
+        write_combine_function("*")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+        # the cached query must re-resolve and run the new implementation
+        assert execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")[0][0] == 6
+    finally:
+        write_combine_function("+")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
 
 
 if __name__ == "__main__":

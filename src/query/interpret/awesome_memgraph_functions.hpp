@@ -12,8 +12,10 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "query/procedure/module_fwd.hpp"
 #include "storage/v2/view.hpp"
@@ -55,6 +57,18 @@ struct func_info {
 };
 
 using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
+
+struct ResolvedUserFunctions {
+  std::vector<func_impl> callables;
+  std::vector<std::shared_ptr<procedure::Module>> modules;  // keep backing modules loaded during execution
+};
+
+/// Resolve user-defined function names against the module registry, holding a reference to each backing module for the
+/// caller's lifetime. Throws QueryRuntimeException if a function is no longer available (e.g. after a module reload).
+auto ResolveUserFunctions(const std::vector<std::string> &names) -> std::shared_ptr<ResolvedUserFunctions>;
+
+/// Resolve a single user-defined function on demand. Throws QueryRuntimeException if it doesn't exist.
+auto ResolveUserFunction(const std::string &name) -> user_func;
 
 /// Return the function implementation with the given name.
 ///

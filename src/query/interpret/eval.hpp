@@ -27,6 +27,7 @@
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
@@ -42,6 +43,22 @@ class VirtualNode;
 class VirtualEdge;
 
 class FineGrainedAuthChecker;
+
+// Picks the callable for a Function node: builtins are baked into the AST; user-defined functions come from the
+// per-execution table, or are resolved on demand with `keep_alive` holding the backing module for the call.
+inline const func_impl *SelectFunctionImpl(const Function &function, const EvaluationContext &ctx,
+                                           user_func &keep_alive) {
+  if (!function.is_user_defined_) {
+    return &function.function_;
+  }
+  const auto &resolved = ctx.resolved_user_functions;
+  if (resolved && function.user_function_id_ >= 0 &&
+      static_cast<size_t>(function.user_function_id_) < resolved->callables.size()) {
+    return &resolved->callables[function.user_function_id_];
+  }
+  keep_alive = ResolveUserFunction(function.function_name_);
+  return &keep_alive.first;
+}
 
 class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *> {
  public:
@@ -161,6 +178,8 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
                                  .counters = &ctx_->counters,
                                  .view = storage::View::OLD};
     TypedValue res(ctx_->memory);
+    user_func on_demand;
+    const func_impl *impl = SelectFunctionImpl(function, *ctx_, on_demand);
     if (function.arguments_.size() <= 8) {
       utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
       auto constructed_count = 0;
@@ -173,14 +192,14 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
         std::construct_at(&(*arguments.as())[i], function.arguments_[i]->Accept(*this));
         ++constructed_count;
       }
-      res = function.function_(arguments.as()->data(), static_cast<int64_t>(function.arguments_.size()), function_ctx);
+      res = (*impl)(arguments.as()->data(), static_cast<int64_t>(function.arguments_.size()), function_ctx);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      res = function.function_(arguments.data(), static_cast<int64_t>(arguments.size()), function_ctx);
+      res = (*impl)(arguments.data(), static_cast<int64_t>(arguments.size()), function_ctx);
     }
     return res;
   }
@@ -761,6 +780,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     };
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
+    user_func on_demand;
+    const func_impl *impl = SelectFunctionImpl(function, *ctx_, on_demand);
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
@@ -775,14 +796,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         ++constructed_count;
       }
 
-      res = function.function_(arguments.as()->data(), function.arguments_.size(), function_ctx);
+      res = (*impl)(arguments.as()->data(), function.arguments_.size(), function_ctx);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      res = function.function_(arguments.data(), arguments.size(), function_ctx);
+      res = (*impl)(arguments.data(), arguments.size(), function_ctx);
     }
     MG_ASSERT(res.get_allocator().resource() == ctx_->memory);
     if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
