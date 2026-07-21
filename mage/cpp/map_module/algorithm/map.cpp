@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <charconv>
 #include <cmath>
 #include <list>
@@ -390,15 +391,12 @@ void Map::Get(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, 
       return;
     }
     if (fail) {
-      std::ostringstream oss;
-      oss << "Key " << key << " is not of one of the existing keys [";
-      bool first = true;
+      std::vector<std::string_view> keys;
       for (const auto element : map) {
-        oss << (first ? "" : ", ") << element.key;
-        first = false;
+        keys.push_back(element.key);
       }
-      oss << "]";
-      throw mgp::ValueException(oss.str());
+      throw mgp::ValueException(
+          fmt::format("Key {} is not of one of the existing keys [{}]", key, fmt::join(keys, ", ")));
     }
     result.SetValue();
 
