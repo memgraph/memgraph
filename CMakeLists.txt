@@ -556,9 +556,6 @@ if (MG_BUILD_MEMGRAPH)
   include_directories(src)
   add_subdirectory(src)
 
-  # Release configuration
-  add_subdirectory(release)
-
   if (MG_ENABLE_TESTING)
     add_subdirectory(tests)
   endif()
@@ -571,6 +568,11 @@ endif()
 if(MG_BUILD_MAGE)
   add_subdirectory(mage)
 endif()
+
+# Release/packaging configuration (CPack). Always included — the component
+# set it packages follows MG_BUILD_MEMGRAPH / MG_BUILD_MAGE, so MAGE-only
+# builds can still produce the memgraph-mage packages.
+add_subdirectory(release)
 
 if (MG_BUILD_MEMGRAPH)
   # Legacy target: prefer `ninja codegen` (CMake 3.31+ built-in, uses CODEGEN flag).

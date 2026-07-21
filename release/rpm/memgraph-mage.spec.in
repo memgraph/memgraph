@@ -1,0 +1,101 @@
+# -*- rpm-spec -*-
+#
+# Hand-written CPack RPM specfile for the "mage" component (the CPack
+# counterpart of the retired tools/ci/mage-build/package/rpm spec).
+#
+# The query-module .so files ship exactly as the build produced them. With
+# MG_SPLIT_DEBUG they are already stripped and accompanied by .debug sidecars
+# (shipped by the mage_debuginfo component), so suppress rpmbuild's own strip
+# / debuginfo extraction — otherwise brp-strip would re-strip the .so files
+# or eat the pre-extracted DWARF.
+%define __strip /bin/true
+%global __os_install_post %{nil}
+%global _build_id_links none
+%global debug_package %{nil}
+
+BuildRoot:      %_topdir/@CPACK_PACKAGE_FILE_NAME@@CPACK_RPM_PACKAGE_COMPONENT_PART_PATH@
+Summary:        @CPACK_RPM_PACKAGE_SUMMARY@
+Name:           @CPACK_RPM_PACKAGE_NAME@
+Version:        @CPACK_RPM_PACKAGE_VERSION@
+Release:        @CPACK_RPM_PACKAGE_RELEASE@
+License:        @CPACK_RPM_PACKAGE_LICENSE@
+Vendor:         @CPACK_RPM_PACKAGE_VENDOR@
+
+@TMP_RPM_URL@
+@TMP_RPM_REQUIRES@
+@TMP_RPM_AUTOPROV@
+@TMP_RPM_AUTOREQ@
+@TMP_RPM_AUTOREQPROV@
+@TMP_RPM_BUILDARCH@
+
+# On CentOS Stream 9 memgraph embeds python 3.12 (built with
+# MG_PYTHON_VERSION=3.12) rather than the distro-default 3.9, so the query
+# modules and the %post pip install need the 3.12 interpreter + pip.
+# python3.12-pip pulls python3.12, but both are named for clarity.
+%if 0%{?rhel} == 9
+Requires:       python3.12, python3.12-pip
+%endif
+
+%define _rpmdir %_topdir/RPMS
+%define _srcrpmdir %_topdir/SRPMS
+@FILE_NAME_DEFINE@
+%define _unpackaged_files_terminate_build 0
+@TMP_RPM_SPEC_INSTALL_POST@
+@CPACK_RPM_COMPRESSION_TYPE_TMP@
+
+%description
+@CPACK_RPM_PACKAGE_DESCRIPTION@
+
+# Shortcut spec: CPack stages the files into BuildRoot; we just rehome them.
+%prep
+mv $RPM_BUILD_ROOT %_topdir/tmpBBroot
+
+%install
+if [ -e $RPM_BUILD_ROOT ]; then
+  rm -rf $RPM_BUILD_ROOT
+fi
+mv %_topdir/tmpBBroot $RPM_BUILD_ROOT
+
+%clean
+
+%post
+# Mirror of the deb postinst's `configure` step.
+CUDA=@CPACK_MAGE_CUDA@
+ARCH=@CPACK_MAGE_PKG_ARCH@
+# install_python_requirements.sh fetches torch/PyG/DGL wheels from the network.
+# During an offline install the wheels are already on disk and the call fails,
+# but the deps are present, so tolerate failure when MEMGRAPH_OFFLINE_INSTALL=1
+# (set by the .run installer). For a normal dnf/rpm install the failure stays
+# hard so a genuine network/pip error doesn't silently leave MAGE broken.
+#
+# Use runuser, not su: su's PAM stack pulls in system-auth/postlogin, which on
+# minimal images (e.g. centos-10) isn't configured yet when this %post runs in
+# the same dnf transaction (authselect's scriptlet runs after ours), giving
+# "su: cannot open session: Permission denied". runuser's PAM config is minimal
+# (pam_rootok, pam_systemd optional) so it works regardless. -l gives memgraph's
+# login env (HOME=/var/lib/memgraph) so pip --user lands where memgraph reads it.
+if ! runuser -l memgraph -c "/usr/lib/memgraph/install_python_requirements.sh --deb-package --cuda $CUDA --arch $ARCH"; then
+    if [ "${MEMGRAPH_OFFLINE_INSTALL:-}" = "1" ]; then
+        echo "WARNING: install_python_requirements.sh exited non-zero." >&2
+        echo "         Tolerated because MEMGRAPH_OFFLINE_INSTALL=1 — the python deps" >&2
+        echo "         were installed by the offline installer's wheel pass." >&2
+    else
+        echo "ERROR: install_python_requirements.sh failed." >&2
+        echo "       Check network connectivity and pip configuration, then retry." >&2
+        exit 1
+    fi
+fi
+# Only restart memgraph if systemd is actually running (absent in containers,
+# chroots, and minimal images); otherwise `systemctl` fails the scriptlet.
+if [ -d /run/systemd/system ]; then
+    systemctl restart memgraph.service
+fi
+exit 0
+
+%files
+%defattr(@TMP_DEFAULT_FILE_PERMISSIONS@,@TMP_DEFAULT_USER@,@TMP_DEFAULT_GROUP@,@TMP_DEFAULT_DIR_PERMISSIONS@)
+@CPACK_RPM_INSTALL_FILES@
+@CPACK_RPM_USER_INSTALL_FILES@
+
+%changelog
+@CPACK_RPM_SPEC_CHANGELOG@

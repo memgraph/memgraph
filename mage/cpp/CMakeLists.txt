@@ -60,10 +60,21 @@ add_compile_options(
     "$<$<COMPILE_LANGUAGE:CXX>:${OpenMP_CXX_FLAGS}>")
 add_link_options(${OpenMP_CXX_FLAGS})
 
-# Modules that link OpenMP need the toolchain's libomp.so at load time.
+# Modules that link OpenMP need the toolchain's libomp.so at load time. In
+# the build tree that's an rpath into the toolchain; installed modules get
+# INSTALL_RPATH $ORIGIN/.. (set in mage_add_query_module) and the mage
+# package bundles the toolchain's libomp.so under lib/memgraph — mirroring
+# how memgraph bundles its toolchain libstdc++. A distro libomp can't be
+# used instead: its packaging is LLVM-version-tied and its soname
+# (libomp.so.5 on deb distros) doesn't match the toolchain's `libomp.so`.
 if(OpenMP_omp_LIBRARY)
     get_filename_component(_mage_omp_dir "${OpenMP_omp_LIBRARY}" DIRECTORY)
     list(APPEND CMAKE_BUILD_RPATH "${_mage_omp_dir}")
+    file(REAL_PATH "${OpenMP_omp_LIBRARY}" _mage_omp_real)
+    install(FILES ${_mage_omp_real}
+        DESTINATION lib/memgraph
+        RENAME libomp.so
+        COMPONENT mage)
 endif()
 
 include(ExternalProject)
@@ -118,9 +129,13 @@ function(add_query_module target_name version src)
 # global-function collision.
 function(mage_add_query_module target_name version src)
     add_library(${target_name} SHARED ${src})
+    # INSTALL_RPATH: installed modules live in <prefix>/lib/memgraph/
+    # query_modules, so $ORIGIN/.. resolves to lib/memgraph where the mage
+    # package bundles libomp.so (and memgraph its libstdc++).
     set_target_properties(${target_name} PROPERTIES
         SOVERSION "${version}"
-        LIBRARY_OUTPUT_DIRECTORY "${MG_MAGE_DIST_DIR}")
+        LIBRARY_OUTPUT_DIRECTORY "${MG_MAGE_DIST_DIR}"
+        INSTALL_RPATH "\$ORIGIN/..")
     target_link_libraries(${target_name} PRIVATE mg_utility)
     install(TARGETS ${target_name}
         LIBRARY DESTINATION ${MG_MAGE_INSTALL_DIR} COMPONENT mage
