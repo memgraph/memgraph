@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.intersection([1, 2], null) AS result;
+
+output:
+  - result: []

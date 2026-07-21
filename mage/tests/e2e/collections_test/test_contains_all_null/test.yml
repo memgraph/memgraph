@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.contains_all(null, [1]) AS result;
+
+output:
+  - result: false
