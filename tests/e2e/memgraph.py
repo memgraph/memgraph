@@ -173,18 +173,34 @@ class MemgraphInstanceRunner:
     def execute_setup_queries(self, setup_queries=List):
         """
         Executes setup queries. The element inside `setup_queries` can be a string or a list. Connection is closed at the end and cannot be
-        reused.
+        reused. Failures of individual setup queries are ignored since on a restart the queries were already applied.
         """
         conn = self.get_connection(self.username or "", self.password or "")
         conn.autocommit = True
         cursor = conn.cursor()
 
+        def execute_ignore_failure(cursor, query):
+            try:
+                cursor.execute(query)
+                return cursor
+            except Exception as e:
+                log.warning(f"Ignoring failed setup query '{query}': {e}")
+                # The connection may be left in a bad state after a failed query, use a fresh one.
+                nonlocal conn
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                conn = self.get_connection(self.username or "", self.password or "")
+                conn.autocommit = True
+                return conn.cursor()
+
         for query_coll in setup_queries:
             if isinstance(query_coll, str):
-                cursor.execute(query_coll)
+                cursor = execute_ignore_failure(cursor, query_coll)
             elif isinstance(query_coll, list):
                 for query in query_coll:
-                    cursor.execute(query)
+                    cursor = execute_ignore_failure(cursor, query)
 
         cursor.close()
         conn.close()
