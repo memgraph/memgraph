@@ -363,6 +363,29 @@ inline bool graph_has_text_index(mgp_graph *graph, const char *index_name) {
   return MgInvoke<int>(mgp_graph_has_text_index, graph, index_name);
 }
 
+// label-property index
+
+inline bool graph_has_label_property_index(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_graph_has_label_property_index, graph, label, property);
+}
+
+inline mgp_label_property_range *label_property_range_make(mgp_memory *memory) {
+  return MgInvoke<mgp_label_property_range *>(mgp_label_property_range_make, memory);
+}
+
+inline void label_property_range_destroy(mgp_label_property_range *range) { mgp_label_property_range_destroy(range); }
+
+inline void label_property_range_add_property(mgp_label_property_range *range, const char *property, mgp_value *lower,
+                                              mgp_bound_type lower_type, mgp_value *upper, mgp_bound_type upper_type) {
+  MgInvokeVoid(mgp_label_property_range_add_property, range, property, lower, lower_type, upper, upper_type);
+}
+
+inline mgp_vertices_iterator *graph_vertices_by_label_property_range(mgp_graph *graph, const char *label,
+                                                                     mgp_label_property_range *range,
+                                                                     mgp_memory *memory) {
+  return MgInvoke<mgp_vertices_iterator *>(mgp_graph_vertices_by_label_property_range, graph, label, range, memory);
+}
+
 inline mgp_map *graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
                                         text_search_mode search_mode, std::size_t limit, std::uint8_t fuzzy_distance,
                                         bool fuzzy_prefix, bool fuzzy_transpositions, mgp_memory *memory) {

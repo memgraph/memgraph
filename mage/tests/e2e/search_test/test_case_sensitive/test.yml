@@ -1,0 +1,6 @@
+query: >
+  CALL search.node({Person: 'name'}, '=', 'alice') YIELD node
+  RETURN node ORDER BY node.name;
+
+output:
+  - node: {"labels": ["Person"], "properties": {"name": "alice"}}

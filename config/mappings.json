@@ -105,6 +105,8 @@
   "apoc.refactor.rename.typeProperty": "refactor.rename_type_property",
   "apoc.refactor.renameType": "refactor.rename_type",
   "apoc.refactor.to": "refactor.to",
+  "apoc.search.node": "search.node",
+  "apoc.search.nodeAll": "search.node_all",
   "apoc.temporal.format": "temporal.format",
   "apoc.text.compareCleaned": "text.compare_cleaned",
   "apoc.text.format": "text.format",
