@@ -223,5 +223,22 @@ def test_out_of_range_temporal_does_not_crash():
     assert execute_and_fetch_all(liveness_cursor, "RETURN 1 AS ok;")[0][0] == 1
 
 
+# One fixture per unit->microseconds multiply, since the reader converts a batch column-by-column and throws on the
+# first bad column: 'ms' exercises the TIMESTAMP[ms] x1000 path, 's' the DURATION[s] x1000000 path. Each file's second
+# value overflows int64 when scaled to microseconds.
+@pytest.mark.parametrize("fixture", ["temporal_overflow_ms.parquet", "temporal_overflow_s.parquet"])
+def test_temporal_unit_overflow_errors_cleanly(fixture):
+    # Regression test: the unit->microseconds conversion used to overflow silently (signed overflow UB) and store a
+    # bogus value; it must instead raise a clear error, and the server must keep serving.
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = f"LOAD PARQUET FROM '{get_file_path(fixture)}' AS row RETURN row;"
+    with pytest.raises(Exception) as exc_info:
+        execute_and_fetch_all(cursor, load_query)
+    assert "does not fit into the supported microsecond range" in str(exc_info.value)
+
+    liveness_cursor = connect(host="localhost", port=7687).cursor()
+    assert execute_and_fetch_all(liveness_cursor, "RETURN 1 AS ok;")[0][0] == 1
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
