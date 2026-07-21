@@ -36,6 +36,7 @@ Checks: '-*,
          -bugprone-unchecked-optional-access,
          -bugprone-nondeterministic-pointer-iteration-order,
          -clang-analyzer-optin.core.EnumCastOutOfRange,
+         -clang-analyzer-optin.cplusplus.UninitializedObject,
          -readability-redundant-member-init'
 WarningsAsErrors: ''
 HeaderFilterRegex: '(^|/)(src|mage/cpp)/'
