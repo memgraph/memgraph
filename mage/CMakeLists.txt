@@ -31,6 +31,23 @@ mg_add_stamped_custom_target(mage_grappolo_license ALL
 install(DIRECTORY ${_grappolo_license_dir}
         DESTINATION ${MG_MAGE_INSTALL_DIR} COMPONENT mage)
 
+# Python dependency manifest + installer, consumed by the mage package's
+# post-install scriptlet (deb postinst / rpm %post run
+# install_python_requirements.sh against mage-requirements.txt). GPU builds
+# ship the requirements-gpu manifest instead.
+if(MG_ENABLE_CUGRAPH)
+    set(_mage_requirements ${CMAKE_CURRENT_SOURCE_DIR}/python/requirements-gpu.txt)
+else()
+    set(_mage_requirements ${CMAKE_CURRENT_SOURCE_DIR}/python/requirements.txt)
+endif()
+install(FILES ${_mage_requirements}
+        DESTINATION lib/memgraph
+        RENAME mage-requirements.txt
+        COMPONENT mage)
+install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/install_python_requirements.sh
+        DESTINATION lib/memgraph
+        COMPONENT mage)
+
 # Aggregate target: `ninja mage` builds every MAGE artifact.
 get_property(_mage_module_targets GLOBAL PROPERTY MG_MAGE_MODULE_TARGETS)
 add_custom_target(mage DEPENDS
