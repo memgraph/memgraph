@@ -1,0 +1,4 @@
+workloads:
+  - name: "Reset session isolation leak"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["reset_session_isolation/reset_leak_tests.py"]
