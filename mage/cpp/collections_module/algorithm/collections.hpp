@@ -100,18 +100,18 @@ constexpr const char *kProcedureFlatten = "flatten";
 constexpr const char *kArgumentListFlatten = "list";
 
 /* disjunction constants */
-constexpr std::string_view kProcedureDisjunction = "disjunction";
-constexpr std::string_view kDisjunctionArg1 = "list1";
-constexpr std::string_view kDisjunctionArg2 = "list2";
+constexpr const char *kProcedureDisjunction = "disjunction";
+constexpr const char *kDisjunctionArg1 = "list1";
+constexpr const char *kDisjunctionArg2 = "list2";
 
 /* subtract constants */
-constexpr std::string_view kProcedureSubtract = "subtract";
-constexpr std::string_view kSubtractArg1 = "list1";
-constexpr std::string_view kSubtractArg2 = "list2";
+constexpr const char *kProcedureSubtract = "subtract";
+constexpr const char *kSubtractArg1 = "list1";
+constexpr const char *kSubtractArg2 = "list2";
 
 /* duplicates constants */
-constexpr std::string_view kProcedureDuplicates = "duplicates";
-constexpr std::string_view kDuplicatesArg1 = "coll";
+constexpr const char *kProcedureDuplicates = "duplicates";
+constexpr const char *kDuplicatesArg1 = "coll";
 
 /* frequencies_as_map constants */
 constexpr const char *kProcedureFrequenciesAsMap = "frequencies_as_map";
