@@ -99,8 +99,8 @@ void RemoveRecursionSet(mgp::Map &result, bool recursive, std::unordered_set<std
 
 void RemoveKeys(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
-// Coerces a value to a Map: a Node/Relationship becomes its properties map, a Map is
-// returned as-is; any other type throws via ValueMap().
+// Coerces a value to a Map: a Node/Relationship yields its properties map, a Map is
+// returned as-is; other types throw.
 mgp::Map ToMap(const mgp::Value &value);
 
 // Stringifies a value for use as a map key; doubles use the shortest round-tripping form.

@@ -22,7 +22,6 @@ std::string Map::KeyToString(const mgp::Value &value) {
   if (!value.IsDouble()) {
     return value.ToString();
   }
-  // Shortest round-tripping representation of the double (e.g. 2.0 -> "2", 0.1 -> "0.1").
   return fmt::format("{}", value.ValueDouble());
 }
 
@@ -258,7 +257,6 @@ void Map::FromLists(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result 
     if (expected_list_size != list2.Size()) {
       throw mgp::ValueException("keys and values lists have to be not null and of same size");
     }
-    // Empty lists yield an empty map.
     mgp::Map result = mgp::Map();
     for (size_t i = 0; i < expected_list_size; i++) {
       result.Update(list1[i].ValueString(), list2[i]);
