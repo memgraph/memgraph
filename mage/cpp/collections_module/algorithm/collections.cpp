@@ -725,3 +725,118 @@ void Collections::FrequenciesAsMap(mgp_list *args, mgp_func_context *ctx, mgp_fu
     result.SetErrorMessage(e.what());
   }
 }
+
+// NOLINTNEXTLINE(misc-unused-parameters)
+void Collections::Disjunction(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  auto result = mgp::Result(res);
+  try {
+    // A null list resolves to the other list (both null -> null).
+    if (arguments[0].IsNull()) {
+      if (arguments[1].IsNull()) {
+        result.SetValue();
+      } else {
+        result.SetValue(arguments[1].ValueList());
+      }
+      return;
+    }
+    if (arguments[1].IsNull()) {
+      result.SetValue(arguments[0].ValueList());
+      return;
+    }
+
+    const auto list1 = arguments[0].ValueList();
+    const auto list2 = arguments[1].ValueList();
+    const std::unordered_set<mgp::Value> set1(list1.begin(), list1.end());
+    const std::unordered_set<mgp::Value> set2(list2.begin(), list2.end());
+
+    // Symmetric difference: elements present in exactly one of the two sets.
+    mgp::List disjunction;
+    for (const auto &element : set1) {
+      if (!set2.contains(element)) {
+        disjunction.AppendExtend(element);
+      }
+    }
+    for (const auto &element : set2) {
+      if (!set1.contains(element)) {
+        disjunction.AppendExtend(element);
+      }
+    }
+
+    result.SetValue(std::move(disjunction));
+
+  } catch (const std::exception &e) {
+    result.SetErrorMessage(e.what());
+    return;
+  }
+}
+
+// NOLINTNEXTLINE(misc-unused-parameters)
+void Collections::Subtract(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  auto result = mgp::Result(res);
+  try {
+    // Null first list -> null; null second list -> first list returned unchanged.
+    if (arguments[0].IsNull()) {
+      result.SetValue();
+      return;
+    }
+    if (arguments[1].IsNull()) {
+      result.SetValue(arguments[0].ValueList());
+      return;
+    }
+
+    const auto list1 = arguments[0].ValueList();
+    const auto list2 = arguments[1].ValueList();
+    const std::unordered_set<mgp::Value> set1(list1.begin(), list1.end());
+    const std::unordered_set<mgp::Value> set2(list2.begin(), list2.end());
+
+    // First list as a set, with every element of the second list removed.
+    mgp::List difference;
+    for (const auto &element : set1) {
+      if (!set2.contains(element)) {
+        difference.AppendExtend(element);
+      }
+    }
+
+    result.SetValue(std::move(difference));
+
+  } catch (const std::exception &e) {
+    result.SetErrorMessage(e.what());
+    return;
+  }
+}
+
+// NOLINTNEXTLINE(misc-unused-parameters)
+void Collections::Duplicates(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  auto result = mgp::Result(res);
+  try {
+    // A null list yields an empty list (the loop below already yields an empty
+    // list for a 0- or 1-element input, so no size check is needed).
+    if (arguments[0].IsNull()) {
+      result.SetValue(mgp::List());
+      return;
+    }
+
+    const auto list = arguments[0].ValueList();
+    std::unordered_map<mgp::Value, int64_t> counts;
+
+    mgp::List duplicates;
+    for (const auto &element : list) {
+      if (++counts[element] == 2) {
+        // Report each repeated value once, at its second occurrence.
+        duplicates.AppendExtend(element);
+      }
+    }
+
+    result.SetValue(std::move(duplicates));
+
+  } catch (const std::exception &e) {
+    result.SetErrorMessage(e.what());
+    return;
+  }
+}

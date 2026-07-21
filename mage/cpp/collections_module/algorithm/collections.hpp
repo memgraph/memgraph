@@ -99,6 +99,20 @@ constexpr const char *kArgumentSizePartition = "partition_size";
 constexpr const char *kProcedureFlatten = "flatten";
 constexpr const char *kArgumentListFlatten = "list";
 
+/* disjunction constants */
+constexpr const char *kProcedureDisjunction = "disjunction";
+constexpr const char *kDisjunctionArg1 = "list1";
+constexpr const char *kDisjunctionArg2 = "list2";
+
+/* subtract constants */
+constexpr const char *kProcedureSubtract = "subtract";
+constexpr const char *kSubtractArg1 = "list1";
+constexpr const char *kSubtractArg2 = "list2";
+
+/* duplicates constants */
+constexpr const char *kProcedureDuplicates = "duplicates";
+constexpr const char *kDuplicatesArg1 = "coll";
+
 /* frequencies_as_map constants */
 constexpr const char *kProcedureFrequenciesAsMap = "frequencies_as_map";
 constexpr const char *kArgumentListFrequenciesAsMap = "coll";
@@ -140,5 +154,11 @@ void Partition(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
 void Flatten(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
 void FrequenciesAsMap(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
+
+void Disjunction(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
+
+void Subtract(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
+
+void Duplicates(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
 }  // namespace Collections
