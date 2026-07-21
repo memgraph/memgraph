@@ -10,14 +10,21 @@
 // licenses/APL.txt.
 
 #include "collections.hpp"
-#include <fmt/format.h>
-#include <fmt/ostream.h>
 #include <algorithm>
 #include <list>
 #include <ranges>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+namespace {
+std::string TypeName(mgp::Type type) {
+  std::ostringstream oss;
+  oss << type;
+  return oss.str();
+}
+}  // namespace
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 void Collections::SumLongs(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
@@ -35,8 +42,7 @@ void Collections::SumLongs(mgp_list *args, mgp_func_context *ctx, mgp_func_resul
 
     for (const auto list_item : list) {
       if (!list_item.IsNumeric()) {
-        throw mgp::ValueException(
-            fmt::format("Unsupported type for this operation, received type: {}", fmt::streamed(list_item.Type())));
+        throw mgp::ValueException("Unsupported type for this operation, received type: " + TypeName(list_item.Type()));
       }
       sum += static_cast<int64_t>(list_item.ValueNumeric());
     }
@@ -64,8 +70,7 @@ void Collections::Avg(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
 
     for (const auto list_item : list) {
       if (!list_item.IsNumeric()) {
-        throw mgp::ValueException(
-            fmt::format("Unsupported type for this operation, received type: {}", fmt::streamed(list_item.Type())));
+        throw mgp::ValueException("Unsupported type for this operation, received type: " + TypeName(list_item.Type()));
       }
       average += list_item.ValueNumeric();
     }
@@ -555,8 +560,7 @@ void Collections::Min(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
       if (min.IsNull()) {  // first non-null element seeds the reference type
         type = list[i].Type();
         if (type == mgp::Type::Map || type == mgp::Type::Path || type == mgp::Type::List) {
-          throw mgp::ValueException(
-              fmt::format("Unsupported type for this operation, received type: {}", fmt::streamed(type)));
+          throw mgp::ValueException("Unsupported type for this operation, received type: " + TypeName(type));
         }
         is_numeric = list[i].IsNumeric();
         min = list[i];
