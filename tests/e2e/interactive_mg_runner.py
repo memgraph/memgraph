@@ -398,7 +398,7 @@ def start_wrapper(instances, instance_name, procdir="", gdb_port=None):
     e.g. 'coordinator_1,coordinator_2'. Multiple instances are started in parallel.
     """
     if instance_name == "all":
-        start_all(instances, procdir, gdb_port=gdb_port)
+        start_all(instances, procdir, gdb_port=gdb_port, ignore_setup_failures=True)
         return
 
     instance_names = parse_instance_names(instance_name)
@@ -406,10 +406,10 @@ def start_wrapper(instances, instance_name, procdir="", gdb_port=None):
     for unknown_name in set(instance_names) - set(known_names):
         log.error(f"{unknown_name} is not an active instance name")
 
-    if len(known_names) == 1:
-        start(instances, known_names[0], procdir, gdb_port=gdb_port)
-    elif known_names:
-        start_all_keep_others({name: instances[name] for name in known_names}, procdir, gdb_port=gdb_port)
+    if known_names:
+        start_all_keep_others(
+            {name: instances[name] for name in known_names}, procdir, gdb_port=gdb_port, ignore_setup_failures=True
+        )
 
 
 def start(instances, instance_name, procdir="", gdb_port=None, run_setup_queries=True):
@@ -460,20 +460,22 @@ def start(instances, instance_name, procdir="", gdb_port=None, run_setup_queries
     return started
 
 
-def start_all(context, procdir="", keep_directories=True, gdb_port=None):
+def start_all(context, procdir="", keep_directories=True, gdb_port=None, ignore_setup_failures=False):
     """
     Start all instances by first stopping all instances and then starting all instances from the `context` in parallel.
     If gdb_port is set, only the first instance will be started under gdbserver.
     """
     stop_all(keep_directories)
-    start_all_keep_others(context, procdir, gdb_port=gdb_port)
+    start_all_keep_others(context, procdir, gdb_port=gdb_port, ignore_setup_failures=ignore_setup_failures)
 
 
-def start_all_keep_others(context, procdir="", gdb_port=None):
+def start_all_keep_others(context, procdir="", gdb_port=None, ignore_setup_failures=False):
     """
     Start all instances from the context in parallel but don't stop currently running instances.
     Instances must be started in parallel because e.g. coordinators cannot finish their startup until a quorum of them
     is reachable. Setup queries are executed sequentially in context order only after all instances are up.
+    When `ignore_setup_failures` is set, individual setup query failures are logged and skipped, e.g. when restarting
+    instances on which the queries were already applied.
     """
     if not context:
         return
@@ -490,7 +492,7 @@ def start_all_keep_others(context, procdir="", gdb_port=None):
             continue
         setup_queries = value.get("setup_queries", [])
         if setup_queries:
-            MEMGRAPH_INSTANCES[key].execute_setup_queries(setup_queries)
+            MEMGRAPH_INSTANCES[key].execute_setup_queries(setup_queries, ignore_failures=ignore_setup_failures)
             log.info(f"Executed setup queries for instance with name {key}.")
 
 
