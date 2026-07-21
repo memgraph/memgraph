@@ -34,8 +34,21 @@ function(mage_add_rust_module crate_dir lib_name)
         OUTPUT ${_dist}
         # Scrub C/C++ flags so the root's clang-specific options don't leak
         # into bindgen/cc invocations (mgcxx precedent).
+        #
+        # Pin bindgen (rsmgp-sys build.rs) to the toolchain's clang. Build
+        # containers ship a bare system libclang without its builtin headers
+        # and no clang executable on PATH, so bindgen's clang-sys otherwise
+        # fails with "'stddef.h' file not found":
+        #   - CLANG_PATH: the executable bindgen probes for builtin include
+        #     paths (the load-bearing one),
+        #   - LIBCLANG_PATH: the matching libclang for parsing,
+        #   - LD_LIBRARY_PATH: lets that libclang dlopen its own runtime
+        #     (same value the toolchain's `activate` exports).
         COMMAND ${CMAKE_COMMAND} -E env
                 --unset=CFLAGS --unset=CXXFLAGS
+                CLANG_PATH=${MG_TOOLCHAIN_ROOT}/bin/clang
+                LIBCLANG_PATH=${MG_TOOLCHAIN_ROOT}/lib
+                LD_LIBRARY_PATH=${MG_TOOLCHAIN_ROOT}/lib:${MG_TOOLCHAIN_ROOT}/lib64
                 CARGO_TARGET_DIR=${_target_dir}
                 CARGO_NET_GIT_FETCH_WITH_CLI=true
                 cargo build ${MG_MAGE_CARGO_FLAGS}
