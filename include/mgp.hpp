@@ -2447,6 +2447,7 @@ inline GraphNodes Graph::NodesByLabelPropertyRange(std::string_view label, std::
     return inclusive ? mgp_bound_type::MGP_BOUND_TYPE_INCLUSIVE : mgp_bound_type::MGP_BOUND_TYPE_EXCLUSIVE;
   };
   auto *range = mgp::MemHandlerCallback(label_property_range_make);
+  mgp_vertices_iterator *nodes_it = nullptr;
   try {
     mgp::label_property_range_add_property(range,
                                            property.data(),
@@ -2454,16 +2455,16 @@ inline GraphNodes Graph::NodesByLabelPropertyRange(std::string_view label, std::
                                            bound_type(lower_inclusive),
                                            upper ? upper->ptr() : nullptr,
                                            bound_type(upper_inclusive));
-    auto *nodes_it = mgp::MemHandlerCallback(graph_vertices_by_label_property_range, graph_, label.data(), range);
-    mgp::label_property_range_destroy(range);
-    if (nodes_it == nullptr) {
-      throw mg_exception::NotEnoughMemoryException();
-    }
-    return GraphNodes(nodes_it);
+    nodes_it = mgp::MemHandlerCallback(graph_vertices_by_label_property_range, graph_, label.data(), range);
   } catch (...) {
     mgp::label_property_range_destroy(range);
     throw;
   }
+  mgp::label_property_range_destroy(range);
+  if (nodes_it == nullptr) {
+    throw mg_exception::NotEnoughMemoryException();
+  }
+  return GraphNodes(nodes_it);
 }
 
 inline GraphRelationships Graph::Relationships() const { return GraphRelationships(graph_); }

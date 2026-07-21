@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <optional>
 #include <regex>
 #include <stdexcept>
@@ -26,7 +27,7 @@ namespace Search {
 namespace {
 
 // Comparison operator, mirroring the set accepted by the equivalent name-mapped procedure.
-enum class Op {
+enum class Op : std::uint8_t {
   kExact,
   kNotEqual,
   kLess,
@@ -49,9 +50,8 @@ std::string NormalizeOperator(std::string_view raw) {
   if (begin == std::string_view::npos) return "";
   const auto end = raw.find_last_not_of(kWhitespace);
   std::string normalized{raw.substr(begin, end - begin + 1)};
-  std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) {
-    return static_cast<char>(std::tolower(c));
-  });
+  std::ranges::transform(
+      normalized, normalized.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return normalized;
 }
 
@@ -95,7 +95,8 @@ bool IsIndexable(Op op) {
 // The single source of truth for a match, shared by the index fast path and the scan fallback.
 // A property matches only when it is a string (except `<>`, which also matches any present non-string,
 // as cross-type inequality holds); a property the node lacks never matches.
-bool Matches(const mgp::Value &property, Op op, std::string_view value) {
+// `regex` is the precompiled pattern for `=~` (compiled once per call, not per node); null for other ops.
+bool Matches(const mgp::Value &property, Op op, std::string_view value, const std::regex *regex) {
   if (property.IsNull()) return false;  // property absent on this node
   const bool is_string = property.IsString();
   const std::string_view s = is_string ? property.ValueString() : std::string_view{};
@@ -119,7 +120,7 @@ bool Matches(const mgp::Value &property, Op op, std::string_view value) {
     case Op::kContains:
       return is_string && s.find(value) != std::string_view::npos;
     case Op::kRegex:
-      return is_string && std::regex_match(std::string{s}, std::regex{std::string{value}});
+      return is_string && std::regex_match(s.begin(), s.end(), *regex);
   }
   return false;
 }
@@ -139,7 +140,7 @@ std::optional<std::string> PrefixSuccessor(std::string_view prefix) {
 // predicate remains the source of truth; for `=`/`starts with` the range is already tight.
 template <typename Emit>
 void FastPath(const mgp::Graph &graph, std::string_view label, const std::string &property, Op op,
-              std::string_view value, Emit &&emit) {
+              std::string_view value, const std::regex *regex, Emit &&emit) {
   std::optional<mgp::Value> lower;
   std::optional<mgp::Value> upper;
   bool lower_inclusive = false;
@@ -176,15 +177,15 @@ void FastPath(const mgp::Graph &graph, std::string_view label, const std::string
   const mgp::Value *upper_ptr = upper ? &*upper : nullptr;
   for (const auto node :
        graph.NodesByLabelPropertyRange(label, property, lower_ptr, lower_inclusive, upper_ptr, upper_inclusive)) {
-    if (Matches(node.GetProperty(property), op, value)) emit(node);
+    if (Matches(node.GetProperty(property), op, value, regex)) emit(node);
   }
 }
 
 template <typename Emit>
 void ScanPath(const mgp::Graph &graph, std::string_view label, const std::string &property, Op op,
-              std::string_view value, Emit &&emit) {
+              std::string_view value, const std::regex *regex, Emit &&emit) {
   for (const auto node : graph.Nodes()) {
-    if (node.HasLabel(label) && Matches(node.GetProperty(property), op, value)) emit(node);
+    if (node.HasLabel(label) && Matches(node.GetProperty(property), op, value, regex)) emit(node);
   }
 }
 
@@ -307,7 +308,7 @@ class JsonMapParser {
 
 LabelProperties ParseLabelPropertyMap(const mgp::Value &argument) {
   if (argument.IsNull()) {
-    throw mgp::ValueException("label_property_map cannot be null. Example: {Person: [\"name\"], Company: \"name\"}");
+    throw mgp::ValueException(R"(label_property_map cannot be null. Example: {Person: ["name"], Company: "name"})");
   }
   if (argument.IsString()) return JsonMapParser(argument.ValueString()).Parse();
   if (!argument.IsMap()) {
@@ -333,7 +334,7 @@ LabelProperties ParseLabelPropertyMap(const mgp::Value &argument) {
 
 // Shared driver for both procedures. `deduplicate` distinguishes `node` (by node id) from `node_all`.
 void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory, bool deduplicate) {
-  mgp::MemoryDispatcherGuard guard{memory};
+  const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -343,19 +344,26 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
     if (arguments[2].IsNull()) return;  // a null value matches nothing (checked after operator validation)
     const std::string_view value = arguments[2].ValueString();
 
+    // Compile the `=~` pattern once per call rather than once per scanned node.
+    std::optional<std::regex> regex;
+    if (op == Op::kRegex) regex.emplace(value.begin(), value.end());
+    const std::regex *const regex_ptr = regex ? &*regex : nullptr;
+
+    const bool indexable = IsIndexable(op);
+
     std::unordered_set<int64_t> seen;
     const auto emit = [&](const mgp::Node &node) {
       if (deduplicate && !seen.insert(node.Id().AsInt()).second) return;
       auto record = record_factory.NewRecord();
-      record.Insert(std::string{kResultNode}.c_str(), node);
+      record.Insert(kResultNode, node);
     };
 
     for (const auto &[label, properties] : label_properties) {
       for (const auto &property : properties) {
-        if (IsIndexable(op) && graph.HasLabelPropertyIndex(label, property)) {
-          FastPath(graph, label, property, op, value, emit);
+        if (indexable && graph.HasLabelPropertyIndex(label, property)) {
+          FastPath(graph, label, property, op, value, regex_ptr, emit);
         } else {
-          ScanPath(graph, label, property, op, value, emit);
+          ScanPath(graph, label, property, op, value, regex_ptr, emit);
         }
       }
     }

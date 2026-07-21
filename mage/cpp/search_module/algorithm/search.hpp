@@ -15,15 +15,15 @@
 
 namespace Search {
 
-constexpr std::string_view kProcedureNode = "node";
-constexpr std::string_view kProcedureNodeAll = "node_all";
+constexpr const char *kProcedureNode = "node";
+constexpr const char *kProcedureNodeAll = "node_all";
 
-constexpr std::string_view kReturnNode = "node";
-constexpr std::string_view kResultNode = "node";
+constexpr const char *kReturnNode = "node";
+constexpr const char *kResultNode = "node";
 
-constexpr std::string_view kArgumentLabelPropertyMap = "label_property_map";
-constexpr std::string_view kArgumentOperator = "operator";
-constexpr std::string_view kArgumentValue = "value";
+constexpr const char *kArgumentLabelPropertyMap = "label_property_map";
+constexpr const char *kArgumentOperator = "operator";
+constexpr const char *kArgumentValue = "value";
 
 // A node is emitted once per property it matches. `node` deduplicates by node id; `node_all` does not.
 void Node(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);

@@ -5043,6 +5043,12 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, memgraph::storage
   auto vertices = std::visit(
       memgraph::utils::Overloaded{
           [&](memgraph::query::DbAccessor *impl) {
+            // Guard the index-only fast path: storage's index lookup only DMG_ASSERTs the index exists
+            // (a no-op in Release), so without a ready index it would be UB. Fail cleanly instead.
+            if (!impl->LabelPropertyIndexReady(label, properties)) {
+              throw std::logic_error{
+                  "label-property index range scan requires a ready index over the given label and property"};
+            }
             return impl->Vertices(graph->view, label, properties, property_ranges);
           },
           [](memgraph::query::SubgraphDbAccessor *) -> memgraph::query::VerticesIterable {

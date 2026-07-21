@@ -17,15 +17,12 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   try {
     const mgp::MemoryDispatcherGuard guard{memory};
 
-    // Registered with the low-level API rather than mgp::AddProcedure because `value` must be nullable
-    // (a null value yields no rows, matching the name-mapped procedure); the high-level Parameter/Type::Any
-    // cannot express a nullable argument.
-    const auto register_procedure = [module](std::string_view name, mgp_proc_cb callback) {
-      auto *proc = mgp::module_add_read_procedure(module, name.data(), callback);
-      mgp::proc_add_arg(proc, Search::kArgumentLabelPropertyMap.data(), mgp::type_any());
-      mgp::proc_add_arg(proc, Search::kArgumentOperator.data(), mgp::type_string());
-      mgp::proc_add_arg(proc, Search::kArgumentValue.data(), mgp::type_nullable(mgp::type_string()));
-      mgp::proc_add_result(proc, Search::kReturnNode.data(), mgp::type_node());
+    const auto register_procedure = [module](const char *name, mgp_proc_cb callback) {
+      auto *proc = mgp::module_add_read_procedure(module, name, callback);
+      mgp::proc_add_arg(proc, Search::kArgumentLabelPropertyMap, mgp::type_any());
+      mgp::proc_add_arg(proc, Search::kArgumentOperator, mgp::type_string());
+      mgp::proc_add_arg(proc, Search::kArgumentValue, mgp::type_nullable(mgp::type_string()));
+      mgp::proc_add_result(proc, Search::kReturnNode, mgp::type_node());
     };
 
     register_procedure(Search::kProcedureNode, Search::Node);
