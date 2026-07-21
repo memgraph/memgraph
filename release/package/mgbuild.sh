@@ -151,6 +151,7 @@ print_help () {
   echo -e "  --disable-testing             Build without tests (faster build for packaging)"
   echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
+  echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
   echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
   echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
@@ -180,10 +181,10 @@ print_help () {
   echo -e "  --package-flavour string        Docker package flavour: 'prod' or 'debug' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling."
 
   echo -e "\npackage-mage-deb / package-mage-rpm options:"
-  echo -e "  --version string              Memgraph version embedded in the package (required)"
+  echo -e "  --version string              DEPRECATED, ignored — the version is derived from the build tree (get_version.py)"
   echo -e "  --malloc                      Variant flag — affects the output filename only"
-  echo -e "  --cuda                        CUDA variant (uses requirements-gpu.txt; implied by global --cugraph)"
-  echo -e "                                Arch and build-type come from the global --arch / --build-type flags."
+  echo -e "  --cuda                        Variant flag — affects the output filename only (implied by global --cugraph; the GPU requirements ship when the build used --cugraph)"
+  echo -e "                                Packages come from the container's unified build (build-mage or build-memgraph --mage on|only)."
 
   echo -e "\npackage-mage-docker options:"
   echo -e "  --docker-repository-name str  Docker repository name (default \"memgraph/memgraph-mage\")"
@@ -578,6 +579,7 @@ build_memgraph () {
   local build_dependency=""
   local link_threads=0
   local split_debug=false
+  local mage_mode="off"
   local python_build_version=""
   local python_build_version_flag=""
   local python_runtime_version=""
@@ -642,6 +644,16 @@ build_memgraph () {
       --split-debug)
         split_debug=true
         shift 1
+      ;;
+      --mage)
+        # Mirrors build.sh: off (default), on (MAGE alongside memgraph),
+        # only (just MAGE — trims the conan graph via the mage_only option).
+        mage_mode=$2
+        if [[ "$mage_mode" != "off" && "$mage_mode" != "on" && "$mage_mode" != "only" ]]; then
+          echo "Error: --mage must be 'off', 'on', or 'only' (got '$mage_mode')"
+          exit 1
+        fi
+        shift 2
       ;;
       --python-build-version)
         python_build_version="$2"
@@ -793,6 +805,14 @@ build_memgraph () {
 
   local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_v7 $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
 
+  # MAGE-only: trim the conan graph; the generated toolchain then also sets
+  # MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON (see conanfile.py). The inner
+  # single quotes survive into the container's bash -c, keeping the '&'
+  # (conan's consumer-package pattern) from being parsed by the shell.
+  if [[ "$mage_mode" == "only" ]]; then
+    CONAN_PROFILE_ARGS="$CONAN_PROFILE_ARGS -o '&:mage_only=True'"
+  fi
+
   CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN"
   if [[ -n "$build_dependency" ]]; then
     echo "Installing build dependency: $build_dependency"
@@ -838,6 +858,15 @@ build_memgraph () {
       additional_options="$additional_options $flag"
     fi
   done
+
+  if [[ "$mage_mode" != "off" ]]; then
+    additional_options="$additional_options -DMG_BUILD_MAGE=ON"
+    # cuGraph GPU modules; CI's cugraph containers carry a prebuilt cuGraph
+    # in /opt/conda (the old tools/ci/mage-build/build.sh convention).
+    if [[ "$cugraph" == "true" ]]; then
+      additional_options="$additional_options -DMG_ENABLE_CUGRAPH=ON -DMG_CUGRAPH_ROOT=/opt/conda"
+    fi
+  fi
 
   # Cap link concurrency via Ninja job pools, leaving compile parallelism untouched.
   if [[ "$link_threads" -gt 0 ]]; then
@@ -886,7 +915,10 @@ build_memgraph () {
       docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET --target $target -- -j"'$(nproc)'
     }
     # Force build that generate the header files needed by analysis (ie. clang-tidy)
-    build_target generated_code
+    # (memgraph-only target; MAGE-only builds have nothing to pre-generate)
+    if [[ "$mage_mode" != "only" ]]; then
+      build_target generated_code
+    fi
     return
   fi
 
@@ -954,30 +986,38 @@ init_tests() {
 package_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
-  local package_command=""
+  local format=""
+  local lint_command=""
 
   if [[ "$os" == "centos-10" ]]; then
       # install much newer rpmlint than what ships with centos-10
       docker exec -u root "$build_container" bash -c "dnf remove -y rpmlint --noautoremove"
       docker exec -u root "$build_container" bash -c "pip install rpmlint==2.8.0 --user"
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake"
+      format="rpm"
   elif [[ "$os" =~ ^"fedora".* ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph-[0-9]*.rpm"
+      format="rpm"
+      lint_command="rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph-[0-9]*.rpm"
   elif [[ "$os" == "rocky-10" ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_rocky' memgraph-[0-9]*.rpm"
+      format="rpm"
+      lint_command="rpmlint --file='../../release/rpm/rpmlintrc_rocky' memgraph-[0-9]*.rpm"
   elif [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"amzn".* ]] || [[ "$os" =~ ^"rocky".* ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph-[0-9]*.rpm"
+      format="rpm"
+      lint_command="rpmlint --file='../../release/rpm/rpmlintrc' memgraph-[0-9]*.rpm"
+  elif [[ "$os" =~ ^"debian".* ]]; then
+      docker exec -u root "$build_container" bash -c "apt --allow-releaseinfo-change -y update"
+      format="deb"
+  elif [[ "$os" =~ ^"ubuntu".* ]]; then
+      docker exec -u root "$build_container" bash -c "apt update"
+      format="deb"
+  else
+      echo -e "${RED_BOLD}Error: package_memgraph: unsupported os '$os'${RESET}" >&2
+      exit 1
   fi
 
-  if [[ "$os" =~ ^"debian".* ]]; then
-      docker exec -u root "$build_container" bash -c "apt --allow-releaseinfo-change -y update"
-      package_command=" cpack -G DEB --config ../CPackConfig.cmake "
+  docker exec -u root "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && ./package.sh memgraph $format"
+  if [[ -n "$lint_command" ]]; then
+    docker exec -u root "$build_container" bash -c "cd $container_output_dir && $lint_command"
   fi
-  if [[ "$os" =~ ^"ubuntu".* ]]; then
-      docker exec -u root "$build_container" bash -c "apt update"
-      package_command=" cpack -G DEB --config ../CPackConfig.cmake "
-  fi
-  docker exec -u root "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
   if [[ "$os" == "centos-10" ]]; then
     docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph-[0-9]*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
   fi
@@ -1996,186 +2036,117 @@ copy_heaptrack() {
   docker cp $build_container:/tmp/heaptrack/ $dest_dir
 }
 
+# Thin wrapper over build_memgraph: MAGE builds in the unified CMake tree
+# (MG_BUILD_MAGE), so a MAGE-only CI build is just `--mage only`. The rust
+# toolchain comes from build_memgraph's ACTIVATE_CARGO (same one mgcxx uses)
+# and the compiler is the toolchain clang, like every other build. The old
+# tarball hand-off (mage.tar.gz) is gone — package-mage-deb/rpm package
+# straight from the build tree via package.sh.
 build_mage() {
-  echo -e "${GREEN_BOLD}Building MAGE${RESET}"
-  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  local rust_version=$DEFAULT_RUST_VERSION
-  local config_only=false
-  local split_debug=false
+  echo -e "${GREEN_BOLD}Building MAGE (MAGE-only unified build)${RESET}"
+  local passthrough=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --rust-version)
-        rust_version=$2
+        echo -e "${YELLOW_BOLD}Warning: --rust-version is ignored; the unified build uses the mgbuild image's rust ($DEFAULT_RUST_VERSION)${RESET}"
         shift 2
       ;;
       --config-only)
-        config_only=true
+        passthrough+=("--cmake-only")
         shift 1
       ;;
       --split-debug)
-        split_debug=true
+        passthrough+=("--split-debug")
         shift 1
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
       ;;
     esac
   done
 
-  if [[ "$split_debug" = true && "$build_type" != "RelWithDebInfo" && "$build_type" != "Debug" ]]; then
-    echo "Error: --split-debug requires --build-type RelWithDebInfo or Debug (got '$build_type')"
-    exit 1
+  build_memgraph --mage only "${passthrough[@]}"
+}
+
+# Shared implementation for package-mage-deb / package-mage-rpm. Packages
+# come straight out of the unified build tree via package.sh (CPack
+# components mage/mage_debuginfo) — no more tarball staging or
+# dpkg-buildpackage/rpmbuild descriptor rendering. The package version is
+# derived from the build tree (get_version.py), so --version is ignored.
+# The -malloc/-cuda/-cugraph flavour spellings only ever renamed the
+# artifact; that rename now happens here, after copying to the host.
+_package_mage() {
+  local format=$1
+  shift 1
+
+  local malloc=false
+  local cuda=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version)
+        echo -e "${YELLOW_BOLD}Warning: --version is ignored; the package version comes from the build tree${RESET}"
+        shift 2
+      ;;
+      --malloc)
+        malloc=true
+        shift 1
+      ;;
+      --cuda)
+        cuda=true
+        shift 1
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ "$cugraph" = true ]]; then
+    cuda=true
   fi
 
-  # check if the repo has already been copied
-  if ! docker exec -u mg $build_container ls /home/mg/memgraph > /dev/null 2>&1; then
-    echo -e "${YELLOW_BOLD}Copying repo into container${RESET}"
-    docker exec -i -u mg $build_container mkdir -p /home/mg/memgraph
-    docker cp . $build_container:/home/mg/memgraph
-    docker exec -i -u root $build_container bash -c "chown -R mg:mg /home/mg/memgraph"
-  else
-    echo -e "${YELLOW_BOLD}Repo already copied into container${RESET}"
-  fi
-
-  echo -e "${GREEN_BOLD}Building MAGE in container${RESET}"
-  build_args=(
-    --build-type $build_type
-    --rust-version $rust_version
-  )
-  if [[ "$config_only" = true ]]; then
-    build_args+=("--config-only")
+  local suffix=""
+  if [[ "$malloc" = true ]]; then
+    suffix="${suffix}-malloc"
   fi
   if [[ "$cugraph" = true ]]; then
-    build_args+=("--cugraph")
-  fi
-  if [[ "$split_debug" = true ]]; then
-    build_args+=("--split-debug")
-  fi
-
-  # Pin the C/C++ compiler to the toolchain's gcc/g++. The toolchain's
-  # `activate` only prepends its bin dir to PATH and adds -isystem flags; it
-  # does not set CC/CXX, and it ships gcc/g++ (no `c++` symlink). So CMake's
-  # default compiler search falls through to the system /usr/bin/c++ — fine on
-  # Ubuntu (GCC 13, has <format>) but broken on RPM distros like centos-9 (GCC
-  # 11, no <format>, so mgp.hpp's #include <format> fails). MAGE's C++ flags
-  # (e.g. -fvect-cost-model) are GCC-specific, so we use the toolchain gcc, not
-  # its clang. CC/CXX propagate into build.sh's `python3 setup` → cmake, which
-  # honours them on a fresh configure (CI containers start clean).
-  local toolchain_root="/opt/toolchain-${toolchain_version}"
-  local export_mage_compiler="export CC=${toolchain_root}/bin/gcc CXX=${toolchain_root}/bin/g++"
-  docker exec -i $build_container bash -c "$ACTIVATE_TOOLCHAIN && $export_mage_compiler && cd /home/mg/memgraph/mage && ../tools/ci/mage-build/build.sh ${build_args[*]}"
-  if [[ "$config_only" = true ]]; then
-    echo -e "${GREEN_BOLD}Configuration done successfully${RESET}"
-    exit 0
+    suffix="${suffix}-cugraph"
+  elif [[ "$cuda" = true ]]; then
+    suffix="${suffix}-cuda"
   fi
 
-  echo -e "${GREEN_BOLD}Compressing query modules${RESET}"
-  docker exec -i $build_container bash -c "cd /home/mg/memgraph/mage && ../tools/ci/mage-build/compress-query-modules.sh"
-
-  echo -e "${GREEN_BOLD}Copying compressed query modules to host${RESET}"
-  docker cp $build_container:/home/mg/mage.tar.gz ./mage/mage.tar.gz
-
-  if docker exec -i $build_container test -f /home/mg/mage-debug.tar.gz; then
-    docker cp $build_container:/home/mg/mage-debug.tar.gz ./mage/mage-debug.tar.gz
-  else
-    rm -f ./mage/mage-debug.tar.gz
+  echo -e "${GREEN_BOLD}Packaging MAGE ${format^^} package${RESET}"
+  if [[ "$format" == "rpm" ]]; then
+    docker exec -i -u root $build_container bash -c "command -v rpmbuild >/dev/null 2>&1 || (dnf install -y rpm-build || yum install -y rpm-build)"
   fi
+
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  docker exec -i -u root $build_container bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && ./package.sh mage $format"
+
+  mkdir -pv output
+  for path in $(docker exec -i -u root $build_container bash -c "ls $MGBUILD_ROOT_DIR/build/output/memgraph-mage*.$format"); do
+    docker cp $build_container:$path output/
+    local name
+    name=$(basename "$path")
+    if [[ -n "$suffix" ]]; then
+      local new_name="${name%.$format}${suffix}.$format"
+      mv "output/$name" "output/$new_name"
+      name=$new_name
+    fi
+    echo "Package: output/$name"
+  done
 }
 
 package_mage_deb() {
-
-  local version=""
-  local malloc=false
-  local cuda=false
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --version)
-        version=$2
-        shift 2
-      ;;
-      --malloc)
-        malloc=true
-        shift 1
-      ;;
-      --cuda)
-        cuda=true
-        shift 1
-      ;;
-      *)
-        echo "Error: Unknown flag '$1'"
-        print_help
-        exit 1
-      ;;
-    esac
-  done
-
-  if [[ "$cugraph" = true ]]; then
-    cuda=true
-  fi
-
-  echo -e "${GREEN_BOLD}Packaging MAGE DEB package${RESET}"
-  docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y debhelper"
-
-  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-deb.sh '${arch}64' $build_type $version $malloc $cuda $cugraph"
-
-  mkdir -pv output
-  for path in $(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.deb"); do
-    docker cp $build_container:$path output/
-    echo "Package: $path"
-  done
+  _package_mage deb "$@"
 }
 
 package_mage_rpm() {
-
-  local version=""
-  local malloc=false
-  local cuda=false
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --version)
-        version=$2
-        shift 2
-      ;;
-      --malloc)
-        malloc=true
-        shift 1
-      ;;
-      --cuda)
-        cuda=true
-        shift 1
-      ;;
-      *)
-        echo "Error: Unknown flag '$1'"
-        print_help
-        exit 1
-      ;;
-    esac
-  done
-
-  if [[ "$cugraph" = true ]]; then
-    cuda=true
-  fi
-
-  # RPM uses different arch spellings than dpkg. rpm_arch is the package
-  # BuildArch (x86_64/aarch64); pkg_arch (amd64/arm64) is what the postinst
-  # forwards to install_python_requirements.sh, matching the DEB path.
-  local rpm_arch pkg_arch
-  case "$arch" in
-    amd) rpm_arch="x86_64";  pkg_arch="amd64" ;;
-    arm) rpm_arch="aarch64"; pkg_arch="arm64" ;;
-    *)
-      echo -e "${RED_BOLD}Error: package_mage_rpm: unsupported arch '$arch' (expected amd or arm)${RESET}" >&2
-      exit 1
-    ;;
-  esac
-
-  echo -e "${GREEN_BOLD}Packaging MAGE RPM package${RESET}"
-  docker exec -i -u root $build_container bash -c "command -v rpmbuild >/dev/null 2>&1 || (dnf install -y rpm-build || yum install -y rpm-build)"
-
-  docker exec -i -u mg $build_container bash -c "cd /home/mg/memgraph/tools/ci/mage-build/package && ./build-rpm.sh '${rpm_arch}' '${pkg_arch}' $build_type $version $malloc $cuda $cugraph '${os}'"
-
-  mkdir -pv output
-  for path in $(docker exec -i -u mg $build_container bash -c "ls /home/mg/memgraph/tools/ci/mage-build/package/memgraph-mage*.rpm"); do
-    docker cp $build_container:$path output/
-    echo "Package: $path"
-  done
+  _package_mage rpm "$@"
 }
 
 
