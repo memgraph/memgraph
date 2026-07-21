@@ -18,6 +18,14 @@
 
 const auto number_of_elements_in_pair = 2;
 
+std::string Map::KeyToString(const mgp::Value &value) {
+  if (!value.IsDouble()) {
+    return value.ToString();
+  }
+  // Shortest round-tripping representation of the double (e.g. 2.0 -> "2", 0.1 -> "0.1").
+  return fmt::format("{}", value.ValueDouble());
+}
+
 mgp::Map Map::ToMap(const mgp::Value &value) {
   const auto build_map = [](const std::unordered_map<std::string, mgp::Value> &properties) {
     mgp::Map map{};
@@ -47,7 +55,7 @@ void Map::FromNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
     for (const auto node : all_nodes) {
       if (!node.HasLabel(label) || !node.Properties().contains(std::string(property))) continue;
 
-      const auto key = node.GetProperty(std::string(property)).ToString();
+      const auto key = KeyToString(node.GetProperty(std::string(property)));
 
       mgp::Map map{};
       map.Update("identity", mgp::Value(node.Id().AsInt()));
@@ -100,7 +108,7 @@ void Map::FromValues(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result
         ++iterator;
         continue;
       }
-      map.Update(key_value.ToString(), *iterator);
+      map.Update(KeyToString(key_value), *iterator);
       ++iterator;
     }
 

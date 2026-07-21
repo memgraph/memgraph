@@ -2,4 +2,4 @@ query: >
   RETURN map.from_values([2.0, "b"]) AS map;
 
 output:
-  - map: {"2.000000": "b"}
+  - map: {"2": "b"}
