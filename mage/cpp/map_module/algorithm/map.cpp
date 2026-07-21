@@ -11,66 +11,12 @@
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
-#include <charconv>
-#include <cmath>
 #include <list>
 #include <vector>
 
 #include "map.hpp"
 
 const auto number_of_elements_in_pair = 2;
-
-namespace {
-// Formats a double as the shortest round-tripping decimal, always keeping a fractional
-// part and switching to scientific notation outside the [1e-3, 1e7) range (e.g. 2.0 ->
-// "2.0", 0.1 -> "0.1", 1e10 -> "1.0E10").
-std::string DoubleToKey(double value) {
-  if (std::isnan(value)) return "NaN";
-  if (std::isinf(value)) return value < 0 ? "-Infinity" : "Infinity";
-
-  char buffer[40];
-  const auto conv = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::scientific);
-  const std::string scientific(buffer, conv.ptr);  // e.g. "-1.5e+02", "2e+00", "1e-01"
-
-  size_t pos = 0;
-  std::string sign;
-  if (scientific[pos] == '-') {
-    sign = "-";
-    ++pos;
-  }
-  const size_t e_pos = scientific.find('e', pos);
-  std::string digits;
-  for (size_t i = pos; i < e_pos; ++i) {
-    if (scientific[i] != '.') digits += scientific[i];
-  }
-  const int exponent = std::stoi(scientific.substr(e_pos + 1));
-
-  std::string mantissa;
-  if (exponent >= -3 && exponent < 7) {
-    if (exponent >= 0) {
-      const size_t int_digits = static_cast<size_t>(exponent) + 1;
-      if (int_digits >= digits.size()) {
-        mantissa = digits + std::string(int_digits - digits.size(), '0') + ".0";
-      } else {
-        mantissa = digits.substr(0, int_digits) + "." + digits.substr(int_digits);
-      }
-    } else {
-      mantissa = "0." + std::string(static_cast<size_t>(-exponent) - 1, '0') + digits;
-    }
-  } else {
-    const std::string fraction = digits.size() > 1 ? digits.substr(1) : "0";
-    mantissa = digits.substr(0, 1) + "." + fraction + "E" + std::to_string(exponent);
-  }
-  return sign + mantissa;
-}
-}  // namespace
-
-std::string Map::KeyToString(const mgp::Value &value) {
-  if (value.IsDouble()) {
-    return DoubleToKey(value.ValueDouble());
-  }
-  return value.ToString();
-}
 
 mgp::Map Map::ToMap(const mgp::Value &value) {
   const auto build_map = [](const std::unordered_map<std::string, mgp::Value> &properties) {
@@ -101,7 +47,7 @@ void Map::FromNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
     for (const auto node : all_nodes) {
       if (!node.HasLabel(label) || !node.Properties().contains(std::string(property))) continue;
 
-      const auto key = KeyToString(node.GetProperty(std::string(property)));
+      const auto key = node.GetProperty(std::string(property)).ToString();
 
       mgp::Map map{};
       map.Update("identity", mgp::Value(node.Id().AsInt()));
@@ -154,7 +100,7 @@ void Map::FromValues(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result
         ++iterator;
         continue;
       }
-      map.Update(KeyToString(key_value), *iterator);
+      map.Update(key_value.ToString(), *iterator);
       ++iterator;
     }
 

@@ -103,10 +103,6 @@ void RemoveKeys(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
 // returned as-is; any other type throws via ValueMap().
 mgp::Map ToMap(const mgp::Value &value);
 
-// Stringifies a value for use as a map key. Doubles use the shortest round-tripping
-// decimal with a mandatory fractional part (e.g. 2.0 -> "2.0", 1.0e10 -> "1.0E10").
-std::string KeyToString(const mgp::Value &value);
-
 void Get(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 
 void MergeList(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
