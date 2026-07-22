@@ -99,7 +99,6 @@ if(MG_ENABLE_TESTING AND NOT MG_ENABLE_CUGRAPH)
     set(MG_MAGE_BUILD_TESTS ON)
 endif()
 
-<<<<<<< HEAD
 # Treat fmt as a system dependency: its headers are then included with
 # -isystem for every module that links fmt::fmt, so the compiler and
 # clang-tidy do not emit diagnostics from inside fmt's own headers.
@@ -107,23 +106,6 @@ get_target_property(FMT_INCLUDE_DIRS fmt INTERFACE_INCLUDE_DIRECTORIES)
 set_target_properties(fmt PROPERTIES
   INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${FMT_INCLUDE_DIRS}")
 
-FetchContent_Declare(nlohmann_json
-  GIT_REPOSITORY https://github.com/nlohmann/json.git
-  GIT_TAG v3.11.3
-)
-FetchContent_MakeAvailable(nlohmann_json)
-
-# Treat nlohmann_json as a system dependency (same rationale as fmt above).
-get_target_property(NLOHMANN_JSON_INCLUDE_DIRS nlohmann_json INTERFACE_INCLUDE_DIRECTORIES)
-set_target_properties(nlohmann_json PROPERTIES
-  INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${NLOHMANN_JSON_INCLUDE_DIRS}")
-
-function(add_query_module target_name version src)
-  add_library(${target_name} SHARED ${src})
-  set_target_properties(${target_name} PROPERTIES SOVERSION "${version}")
-  target_link_libraries(${target_name} PRIVATE mg_utility)
-  mg_split_debug(${target_name})
-=======
 # NOTE: query_modules/CMakeLists.txt defines a similar add_query_module()
 # for memgraph's own modules; this one is mage_-prefixed to avoid the
 # global-function collision.
@@ -144,7 +126,6 @@ function(mage_add_query_module target_name version src)
         INSTALL_DESTINATION ${MG_MAGE_INSTALL_DIR}
         COMPONENT mage_debuginfo)
     set_property(GLOBAL APPEND PROPERTY MG_MAGE_MODULE_TARGETS ${target_name})
->>>>>>> 575fc4364 (refactor MAGE build)
 endfunction()
 
 # Available query modules.
