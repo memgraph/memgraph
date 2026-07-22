@@ -1,0 +1,8 @@
+# Every string starts with the empty string, so an empty value matches all string-typed properties.
+query: >
+  CALL search.node({E: 'p'}, 'starts with', '') YIELD node
+  RETURN node ORDER BY node.p;
+
+output:
+  - node: {"labels": ["E"], "properties": {"p": ""}}
+  - node: {"labels": ["E"], "properties": {"p": "abc"}}

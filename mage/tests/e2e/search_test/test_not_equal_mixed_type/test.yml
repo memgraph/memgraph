@@ -1,0 +1,8 @@
+# `<>` also matches non-string properties (cross-type inequality is true); only the string '30' is excluded.
+query: >
+  CALL search.node({D: 'p'}, '<>', '30') YIELD node
+  RETURN node.p AS p ORDER BY toString(p);
+
+output:
+  - p: 30
+  - p: true
