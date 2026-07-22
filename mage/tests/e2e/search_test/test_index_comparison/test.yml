@@ -5,3 +5,4 @@ query: >
 output:
   - node: {"labels": ["Person"], "properties": {"name": "Bob"}}
   - node: {"labels": ["Person"], "properties": {"name": "Bobby"}}
+  - node: {"labels": ["Person"], "properties": {"name": "Carol"}}
