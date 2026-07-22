@@ -114,10 +114,13 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
   fi
 
-# Copy modules
+# Copy modules: extract the memgraph-mage package payload (query modules,
+# bundled toolchain libomp, python requirements manifest) WITHOUT running its
+# maintainer scripts — the postinst pip-installs the query-module python
+# deps, which this image gets from the python-base stage instead.
 RUN mkdir -p /usr/lib/memgraph/query_modules/
-RUN --mount=type=bind,source="./mage.tar.gz",target=/mage.tar.gz,ro \
-  tar -xzvf /mage.tar.gz -C /usr/lib/memgraph/
+RUN --mount=type=bind,source="./memgraph-mage.deb",target=/memgraph-mage.deb,ro \
+  dpkg-deb -x /memgraph-mage.deb /
 
 # copy script to convert to dev container
 COPY make-dev-container.sh /make-dev-container.sh
@@ -143,14 +146,13 @@ USER root
 RUN --mount=type=bind,source="./memgraph-debuginfo.deb",target=/memgraph-debuginfo.deb,ro \
   dpkg -i /memgraph-debuginfo.deb
 
-# Extract MAGE .debug sidecars next to their .so files. mage-debug.tar.gz
-# is always produced by compress-query-modules.sh — a near-empty tarball
-# (just the query_modules dir entry) when there are no sidecars, so this
-# extract is a no-op in that case. (type=bind requires the file to exist;
-# type=secret would support required=false but bind is the right kind for
-# build-context artefacts.)
-RUN --mount=type=bind,source="./mage-debug.tar.gz",target=/mage-debug.tar.gz,ro \
-  tar -xzvf /mage-debug.tar.gz -C /usr/lib/memgraph/
+# Extract the MAGE .debug sidecars next to their .so files. Payload-only
+# extraction for the same reason as memgraph-mage.deb above (and the
+# debuginfo package has no maintainer scripts anyway). The package always
+# exists for this stage: the debug image flavour requires a RelWithDebInfo
+# build, which CI packages with --split-debug.
+RUN --mount=type=bind,source="./memgraph-mage-debuginfo.deb",target=/memgraph-mage-debuginfo.deb,ro \
+  dpkg-deb -x /memgraph-mage-debuginfo.deb /
 
 COPY --chown=memgraph:memgraph ./ /mage/
 RUN --mount=type=bind,source="./heaptrack",target=/heaptrack,ro \
