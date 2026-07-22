@@ -136,11 +136,17 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
     if (arguments[2].IsNull()) return;  // a null value matches nothing (checked after operator validation)
     const std::string_view value = arguments[2].ValueString();
 
+    const mgp::Graph graph{memgraph_graph};
     std::unordered_set<int64_t> seen;
-    const auto emit = [&](const mgp::Node &node) {
-      if (deduplicate && !seen.insert(node.Id().AsInt()).second) return;
+    // The sub-query returns node ids, not nodes: a node accessor from the sub-query is bound to that
+    // sub-query's transaction, which is destroyed when its result is freed. Re-resolve every id against the
+    // caller's graph so the emitted node lives in a transaction that outlives result consumption.
+    const auto emit = [&](int64_t node_id) {
+      if (deduplicate && !seen.insert(node_id).second) return;
+      const auto id = mgp::Id::FromInt(node_id);
+      if (!graph.ContainsNode(id)) return;  // skip nodes not visible in the caller's snapshot
       auto record = record_factory.NewRecord();
-      record.Insert(kResultNode, node);
+      record.Insert(kResultNode, graph.GetNodeById(id));
     };
 
     const mgp::QueryExecution query_execution{memgraph_graph};
@@ -152,7 +158,7 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
         query += EscapeIdentifier(property);
         query += "` ";
         query += comparison;
-        query += " $value RETURN n";
+        query += " $value RETURN id(n) AS node_id";
 
         mgp::Map params;
         params.Insert("value", mgp::Value(value));
@@ -160,7 +166,7 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
         auto results = query_execution.ExecuteQuery(query, params);
         while (const auto row = results.PullOne()) {
           if (row->Size() == 0) break;
-          emit(row->At("n").ValueNode());
+          emit(row->At("node_id").ValueInt());
         }
       }
     }

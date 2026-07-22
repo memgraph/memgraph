@@ -22,7 +22,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
       mgp::proc_add_arg(proc, Search::kArgumentLabelPropertyMap, mgp::type_any());
       mgp::proc_add_arg(proc, Search::kArgumentOperator, mgp::type_string());
       mgp::proc_add_arg(proc, Search::kArgumentValue, mgp::type_nullable(mgp::type_string()));
-      mgp::proc_add_result(proc, Search::kReturnNode, mgp::type_node());
+      mgp::proc_add_result(proc, Search::kResultNode, mgp::type_node());
     };
 
     register_procedure(Search::kProcedureNode, Search::Node);

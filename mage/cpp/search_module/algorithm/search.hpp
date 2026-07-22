@@ -18,7 +18,6 @@ namespace Search {
 constexpr const char *kProcedureNode = "node";
 constexpr const char *kProcedureNodeAll = "node_all";
 
-constexpr const char *kReturnNode = "node";
 constexpr const char *kResultNode = "node";
 
 constexpr const char *kArgumentLabelPropertyMap = "label_property_map";
