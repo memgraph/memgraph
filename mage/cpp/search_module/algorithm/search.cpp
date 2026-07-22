@@ -69,8 +69,7 @@ std::string EscapeIdentifier(std::string_view name) {
   return escaped;
 }
 
-// Parse the label-property map's JSON-string form: an object whose values are a string or an array of
-// strings (e.g. {"Person":"name","Movie":["title","tagline"]}).
+// Parse the JSON-string map form: an object whose values are a string or an array of strings.
 LabelProperties ParseJsonLabelPropertyMap(std::string_view text) {
   nlohmann::json json;
   try {
@@ -123,9 +122,7 @@ LabelProperties ParseLabelPropertyMap(const mgp::Value &argument) {
   return result;
 }
 
-// Shared driver for both procedures. `deduplicate` distinguishes `node` (by node id) from `node_all`.
-// Each (label, property) pair is turned into a query and executed via the interpreter, which selects the
-// index. A property list per label is a disjunction; matches across properties are unioned.
+// Shared driver. `deduplicate` distinguishes `node` (dedup by id) from `node_all`; one sub-query per pair.
 void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory, bool deduplicate) {
   const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
@@ -138,9 +135,8 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
 
     const mgp::Graph graph{memgraph_graph};
     std::unordered_set<int64_t> seen;
-    // The sub-query returns node ids, not nodes: a node accessor from the sub-query is bound to that
-    // sub-query's transaction, which is destroyed when its result is freed. Re-resolve every id against the
-    // caller's graph so the emitted node lives in a transaction that outlives result consumption.
+    // A sub-query node accessor is bound to the sub-query's transaction, freed with its result. Re-resolve
+    // each id against the caller's graph so the emitted node outlives that transaction.
     const auto emit = [&](int64_t node_id) {
       if (deduplicate && !seen.insert(node_id).second) return;
       const auto id = mgp::Id::FromInt(node_id);
@@ -149,9 +145,8 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
       record.Insert(kResultNode, graph.GetNodeById(id));
     };
 
-    // STARTS WITH / ENDS WITH / CONTAINS throw on a non-string property instead of yielding no match like the
-    // comparison operators do. Guard them so a non-string property simply does not match, mirroring APOC
-    // (which matches only string-typed properties for these operators).
+    // STARTS WITH / ENDS WITH / CONTAINS throw on a non-string property (the comparison operators just don't
+    // match). Guard them so a non-string property yields no match, mirroring APOC.
     const bool string_only = comparison == "STARTS WITH" || comparison == "ENDS WITH" || comparison == "CONTAINS";
 
     // TODO(ivan): run these sub-queries inside the caller's transaction instead of a fresh one, so the search
@@ -160,8 +155,7 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
     for (const auto &[label, properties] : label_properties) {
       for (const auto &property : properties) {
         const std::string node_property = "n.`" + EscapeIdentifier(property) + "`";
-        // A CASE keeps the throwing operator off non-string values: `IfOperator` evaluates only the selected
-        // branch, so the operator is reached only when the property is a string.
+        // CASE guards the operator: IfOperator evaluates only the taken branch, so a non-string never reaches it.
         std::string predicate = node_property + " " + comparison + " $value";
         if (string_only) {
           predicate = "CASE WHEN valueType(" + node_property + ") = 'STRING' THEN " + predicate + " ELSE false END";
