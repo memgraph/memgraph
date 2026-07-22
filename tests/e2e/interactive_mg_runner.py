@@ -29,9 +29,9 @@
 import concurrent.futures
 import logging
 import os
+import readline
 import secrets
 import sys
-import termios
 import time
 from argparse import ArgumentParser
 from inspect import signature
@@ -73,7 +73,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 
 HISTORY_MAX_SIZE = 1000
 HISTORY_FILE = os.path.expanduser("~/.interactive_mg_runner_history")
-ACTION_HISTORY = []
 history_loaded = False
 
 
@@ -82,118 +81,33 @@ def load_history():
     if history_loaded:
         return
     history_loaded = True
+    readline.set_history_length(HISTORY_MAX_SIZE)
     try:
-        with open(HISTORY_FILE, "r") as f:
-            entries = [line.rstrip("\n") for line in f if line.strip()]
+        readline.read_history_file(HISTORY_FILE)
     except OSError:
-        return
-    ACTION_HISTORY.extend(entries[-HISTORY_MAX_SIZE:])
+        pass
 
 
 def save_history():
     try:
-        with open(HISTORY_FILE, "w") as f:
-            f.writelines(entry + "\n" for entry in ACTION_HISTORY)
+        readline.write_history_file(HISTORY_FILE)
     except OSError as e:
         log.warning(f"Could not save action history to {HISTORY_FILE}: {e}")
 
 
-def add_to_history(line):
-    if not line.strip():
-        return
-    if ACTION_HISTORY and ACTION_HISTORY[-1] == line:
-        return
-    ACTION_HISTORY.append(line)
-    if len(ACTION_HISTORY) > HISTORY_MAX_SIZE:
-        del ACTION_HISTORY[: len(ACTION_HISTORY) - HISTORY_MAX_SIZE]
-    save_history()
-
-
 def read_action_line(prompt="ACTION> "):
     load_history()
-    sys.stdout.write(prompt)
-    sys.stdout.flush()
-
-    fd = sys.stdin.fileno()
-    old_attrs = termios.tcgetattr(fd)
-    new_attrs = termios.tcgetattr(fd)
-
-    # Turn off ECHO and ICANON (so keys don't print themselves and we read byte-by-byte)
-    new_attrs[3] &= ~(termios.ECHO | termios.ICANON)
-    termios.tcsetattr(fd, termios.TCSADRAIN, new_attrs)
-
     try:
-        buf = []
-        # Index into ACTION_HISTORY while scrolling; len(ACTION_HISTORY) means "current (not yet submitted) line".
-        history_index = len(ACTION_HISTORY)
-        pending_line = ""
-
-        def redraw():
-            sys.stdout.write("\r\x1b[K" + prompt + "".join(buf))
-            sys.stdout.flush()
-
-        while True:
-            ch = os.read(fd, 1)
-            if not ch:
-                continue
-            c = ch.decode("utf-8", "ignore")
-
-            # Enter
-            if c in ("\n", "\r"):
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-                line = "".join(buf)
-                add_to_history(line)
-                return line
-
-            # Backspace (DEL)
-            if c == "\x7f":
-                if buf:
-                    buf.pop()
-                    sys.stdout.write("\b \b")
-                    sys.stdout.flush()
-                continue
-
-            # ESC sequences (arrows, Home/End, etc.)
-            if c == "\x1b":
-                # Typical CSI: ESC [ ... final
-                nxt = os.read(fd, 1).decode("utf-8", "ignore")
-                if nxt == "[":
-                    # Read until final byte of CSI sequence (@ A–Z a–z ~)
-                    seq = ""
-                    while True:
-                        d = os.read(fd, 1).decode("utf-8", "ignore")
-                        if not d:
-                            break
-                        seq += d
-                        if d.isalpha() or d in "@~":
-                            break
-                    # Up: recall older history entry
-                    if seq == "A" and history_index > 0:
-                        if history_index == len(ACTION_HISTORY):
-                            pending_line = "".join(buf)
-                        history_index -= 1
-                        buf = list(ACTION_HISTORY[history_index])
-                        redraw()
-                    # Down: recall newer history entry or restore the pending line
-                    elif seq == "B" and history_index < len(ACTION_HISTORY):
-                        history_index += 1
-                        if history_index < len(ACTION_HISTORY):
-                            buf = list(ACTION_HISTORY[history_index])
-                        else:
-                            buf = list(pending_line)
-                        redraw()
-                # Ignore all other sequences (don’t echo)
-                continue
-
-            # Regular printable characters
-            if c.isprintable():
-                buf.append(c)
-                sys.stdout.write(c)
-                sys.stdout.flush()
-            # ignore everything else silently
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+        line = input(prompt)
+    except EOFError:
+        sys.stdout.write("\n")
+        sys.exit(0)
+    # Drop consecutive duplicates, which readline adds unconditionally.
+    length = readline.get_current_history_length()
+    if length >= 2 and readline.get_history_item(length) == readline.get_history_item(length - 1):
+        readline.remove_history_item(length - 1)
+    save_history()
+    return line
 
 
 def clear_screen():
