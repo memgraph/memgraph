@@ -23,9 +23,9 @@ import memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::rewrite {
 
-/// The per-pass scheduling contract the saturation loop drives, so the loop is
-/// mode-agnostic. A schedule owns the touched-set lifecycle and hands the loop
-/// its two per-rule inputs.
+/// The per-pass driver the saturation loop drives, so the loop is mode-agnostic.
+/// A driver owns the touched-set lifecycle and hands the loop its two per-rule
+/// inputs.
 ///
 /// Hook order within one saturate(): begin() once, then per pass
 /// before_pass() -> [rules run, reading armed()/active()] -> after_pass(). The
@@ -36,7 +36,7 @@ namespace memgraph::planner::core::rewrite {
 /// iteration. The hooks take the e-graph by mutable reference because before_pass
 /// may drain its touched-set.
 template <typename S, typename EG>
-concept PassSchedule = requires(S s, EG &eg) {
+concept PassDriver = requires(S s, EG &eg) {
   s.begin(eg);
   s.before_pass(eg);
   s.after_pass(eg);
@@ -44,11 +44,11 @@ concept PassSchedule = requires(S s, EG &eg) {
   { s.active() } -> std::convertible_to<RootRestriction>;
 };
 
-/// Every rule every pass: the reference schedule and differential oracle. Arms
+/// Every rule every pass: the reference driver and differential oracle. Arms
 /// nothing (armed() is nullptr, so the loop runs all rules) and never touches
 /// the e-graph's touched-set, so a Full saturate's changes survive to seed a
 /// later incremental saturate's first arm.
-struct FullSchedule {
+struct FullDriver {
   template <typename EG>
   void begin(EG & /*egraph*/) {}
 
@@ -67,11 +67,11 @@ struct FullSchedule {
 /// and after_pass arm from the e-graph's touched-set (begin off the entry state,
 /// after_pass off the pass's own changes); before_pass drains the touched-set so
 /// each pass captures only what it changed. The latch is owned by the Rewriter
-/// and outlives this per-call schedule.
+/// and outlives this per-call driver.
 template <typename Symbol, typename Analysis>
-class IncrementalSchedule {
+class IncrementalDriver {
  public:
-  explicit IncrementalSchedule(RuleLatch<Symbol, Analysis> &latch) : latch_(&latch) {}
+  explicit IncrementalDriver(RuleLatch<Symbol, Analysis> &latch) : latch_(&latch) {}
 
   void begin(EGraph<Symbol, Analysis> &egraph) { latch_->arm(egraph); }
 

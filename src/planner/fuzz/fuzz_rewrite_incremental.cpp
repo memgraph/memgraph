@@ -283,7 +283,7 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
       fail("did not converge within bound: termination discipline violated or a skip prevents fixpoint");
     }
 
-    // Rewrite COUNTS can differ by schedule (a merge redundant in one order is a
+    // Rewrite COUNTS can differ by driver (a merge redundant in one order is a
     // no-op in another), so compare the graph. Incremental only skips rules or
     // prunes candidates, so its merges are a subset of Full's; equal counts plus
     // the partition and the sharp fixpoint oracle below pin the two equal.

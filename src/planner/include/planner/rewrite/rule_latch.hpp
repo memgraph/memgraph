@@ -28,9 +28,10 @@ namespace memgraph::planner::core::rewrite {
 
 using pattern::vm::RootRestriction;
 
-/// The incremental-saturation scheduler: decides, each pass, which rules a pass
-/// could newly enable (the *armed* set) and - when the change is a sparse slice
-/// of the graph - which e-classes a rule's matcher may restrict its root
+/// The incremental-saturation arming engine (driven by IncrementalDriver):
+/// decides, each pass, which rules a pass could newly enable (the *armed* set)
+/// and - when the change is a sparse slice of the graph - which e-classes a
+/// rule's matcher may restrict its root
 /// iteration to (the *active* set). It never runs the matcher; arming is a
 /// symbol-to-hop lookup proportional to what changed.
 ///

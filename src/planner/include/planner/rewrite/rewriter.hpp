@@ -25,7 +25,7 @@
 
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/vm/executor.hpp"
-#include "planner/rewrite/pass_schedule.hpp"
+#include "planner/rewrite/pass_driver.hpp"
 #include "planner/rewrite/rule.hpp"
 #include "planner/rewrite/rule_latch.hpp"
 #include "planner/rewrite/rule_set.hpp"
@@ -199,19 +199,19 @@ class Rewriter {
     reseat_latch();  // new rules: re-seed the latch so the next incremental saturate arms all once
   }
 
-  /// Run equality saturation under a given pass schedule, to fixpoint or a config
-  /// limit (iterations, e-node count, timeout). The loop is schedule-agnostic: the
-  /// schedule owns the touched-set lifecycle and supplies each pass's armed
-  /// predicate and root restriction. This is the seam FullSchedule and
-  /// IncrementalSchedule sit at; the convenience entry points below funnel through
+  /// Run equality saturation under a given pass driver, to fixpoint or a config
+  /// limit (iterations, e-node count, timeout). The loop is driver-agnostic: the
+  /// driver owns the touched-set lifecycle and supplies each pass's armed
+  /// predicate and root restriction. This is the seam FullDriver and
+  /// IncrementalDriver sit at; the convenience entry points below funnel through
   /// it. The e-graph is rebuilt and the matcher index refreshed after each pass.
-  template <PassSchedule<EGraph> Schedule>
-  auto saturate(RewriteConfig const &config, Schedule &schedule) -> RewriteResult {
+  template <PassDriver<EGraph> Driver>
+  auto saturate(RewriteConfig const &config, Driver &driver) -> RewriteResult {
     RewriteResult result;
     result.rewrites_per_rule.resize(num_rules(), 0);  // Initialize per-rule counters
     auto const start_time = std::chrono::steady_clock::now();
 
-    schedule.begin(*egraph_);
+    driver.begin(*egraph_);
 
     for (std::size_t iter = 0; iter < config.max_iterations; ++iter) {
       result.iterations = iter + 1;
@@ -226,9 +226,8 @@ class Rewriter {
         return result;
       }
 
-      schedule.before_pass(*egraph_);
-      auto const rewrites_this_iter =
-          apply_once_with_stats(result.rewrites_per_rule, schedule.armed(), schedule.active());
+      driver.before_pass(*egraph_);
+      auto const rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule, driver.armed(), driver.active());
       result.rewrites_applied += rewrites_this_iter;
 
       if (rewrites_this_iter == 0) {
@@ -236,7 +235,7 @@ class Rewriter {
         return result;
       }
 
-      schedule.after_pass(*egraph_);
+      driver.after_pass(*egraph_);
     }
 
     result.stop_reason = RewriteResult::StopReason::IterationLimit;
@@ -246,8 +245,8 @@ class Rewriter {
   /// Saturate running every rule every pass - the reference behaviour and
   /// differential oracle. Leaves the e-graph's touched-set intact.
   auto saturate_full(RewriteConfig const &config) -> RewriteResult {
-    FullSchedule schedule;
-    return saturate(config, schedule);
+    FullDriver driver;
+    return saturate(config, driver);
   }
 
   /// Saturate running only the rules a pass could newly enable. Reaches the same
@@ -256,15 +255,15 @@ class Rewriter {
   /// saturated, never incorrect. Drives the persistent latch, so a later
   /// saturate on the same rewriter arms from the touched-set left by the prior.
   auto saturate_incremental(RewriteConfig const &config) -> RewriteResult {
-    IncrementalSchedule<Symbol, Analysis> schedule{latch_};
-    return saturate(config, schedule);
+    IncrementalDriver<Symbol, Analysis> driver{latch_};
+    return saturate(config, driver);
   }
 
   /**
    * @brief Apply every rule once (a single Full pass)
    *
-   * One pass under FullSchedule: every rule, every candidate, rebuilding the
-   * e-graph and refreshing the matcher index. FullSchedule leaves the touched-set
+   * One pass under FullDriver: every rule, every candidate, rebuilding the
+   * e-graph and refreshing the matcher index. FullDriver leaves the touched-set
    * intact, so a change made here folds into the arm of a subsequent incremental
    * saturate - which is why this doubles as the differential oracle at the end of
    * an incremental run.
@@ -353,8 +352,8 @@ class Rewriter {
   ProcessingContext<Symbol> proc_ctx_;
   RewriteContext<Graph> ctx_;
 
-  // Incremental-mode scheduler (Incremental mode only): decides the armed rule set
-  // and active-set restriction each pass. Seeded from rules_ on construction and
+  // The arming engine IncrementalDriver drives: decides the armed rule set and
+  // active-set restriction each pass. Seeded from rules_ on construction and
   // set_rules; a long-lived member so its scratch is reused across passes.
   RuleLatch<Symbol, Analysis> latch_;
 };
