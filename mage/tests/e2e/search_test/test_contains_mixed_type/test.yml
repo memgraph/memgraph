@@ -1,7 +1,7 @@
 # `contains` matches only string properties; the integer 30 is skipped, not raised on.
 query: >
   CALL search.node({T: 'p'}, 'contains', '3') YIELD node
-  RETURN node.p AS p ORDER BY p;
+  RETURN node.p AS p;
 
 output:
   - p: '30-ish'

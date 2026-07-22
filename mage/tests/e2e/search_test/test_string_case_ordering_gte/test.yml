@@ -1,0 +1,8 @@
+# Codepoint ordering again: lowercase names (a=97, z=122) are >= 'a'; uppercase (A=65, Z=90) sort before it.
+query: >
+  CALL search.node({W: 'name'}, '>=', 'a') YIELD node
+  RETURN node ORDER BY node.name;
+
+output:
+  - node: {"labels": ["W"], "properties": {"name": "apple"}}
+  - node: {"labels": ["W"], "properties": {"name": "zebra"}}

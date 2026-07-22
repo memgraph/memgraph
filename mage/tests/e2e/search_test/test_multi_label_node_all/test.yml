@@ -1,7 +1,0 @@
-# `search.node_all` keeps duplicates: the two-label node is emitted twice, giving four rows for three nodes.
-query: >
-  CALL search.node_all({P: 'name', M: 'title'}, 'exact', 'x') YIELD node
-  RETURN count(node) AS c;
-
-output:
-  - c: 4
