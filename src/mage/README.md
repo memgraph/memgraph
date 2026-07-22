@@ -364,13 +364,16 @@ YIELD node, rank;
 
 ## Testing MAGE
 
-To test that everything is built, loaded, and working correctly, a python script
-can be run. Make sure that the Memgraph instance with **MAGE** is up and
-running.
+To test that everything is built, loaded, and working correctly, run the
+commands below (the same invocations CI uses). For the end-to-end tests, make
+sure that the Memgraph instance with **MAGE** is up and running.
 
 ```
-# Running unit tests for C++ and Python (from mage/)
-python3 tests/test_unit
+# Running C++ unit tests (from the repo root; needs a `./build.sh --mage on` build)
+ctest --test-dir build -R mage__ -j$(nproc)
+
+# Running Python unit tests
+cd src/mage/python && python3 -m pytest .
 
 # Running end-to-end tests (from the repo root)
 cd tests/mage && python3 test_e2e
