@@ -57,6 +57,8 @@ struct ExpressionRange {
 
   static auto Equal(Expression *value) -> ExpressionRange;
   static auto RegexMatch() -> ExpressionRange;
+  /// STARTS WITH prefix seek: the range [value, PrefixSuccessor(value)).
+  static auto Prefix(Expression *value) -> ExpressionRange;
   static auto Range(std::optional<utils::Bound<Expression *>> lower, std::optional<utils::Bound<Expression *>> upper)
       -> ExpressionRange;
   static auto IsNotNull() -> ExpressionRange;

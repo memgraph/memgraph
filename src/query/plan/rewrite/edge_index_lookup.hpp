@@ -838,6 +838,13 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
           continue;
         }
 
+        // Exclude PREFIX: an edge index would misread it as an equality scan (wrong results); edge STARTS
+        // WITH falls back to ScanAllByEdgeType + Filter.
+        // TODO(edge-prefix-seek): support a real edge prefix seek via ScanAllByEdgeTypePropertyRange.
+        if (filter.property_filter->type_ == PropertyFilter::Type::PREFIX) {
+          continue;
+        }
+
         // Edge indexes are single-property; a nested lookup like `e.a.b` has a
         // multi-element path that no edge index covers, so it must stay a Filter
         // rather than be misread as a filter on the outer key.
@@ -866,6 +873,11 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
+      // Exclude PREFIX: see GetCandidateIndicesFromFilter.
+      if (filter.property_filter->type_ == PropertyFilter::Type::PREFIX) {
+        continue;
+      }
+
       // Skip nested lookups: a single-property edge index cannot cover a multi-element path.
       if (filter.property_filter->property_ids_.path.size() != 1) {
         continue;
@@ -889,6 +901,11 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         // looking up or aren't bound. We cannot scan by such expressions. For
         // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
         // cannot scan `n` by property index.
+        continue;
+      }
+
+      // Exclude PREFIX: see GetCandidateIndicesFromFilter.
+      if (filter.property_filter->type_ == PropertyFilter::Type::PREFIX) {
         continue;
       }
 

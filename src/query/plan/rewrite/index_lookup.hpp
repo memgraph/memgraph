@@ -1258,6 +1258,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
               return 20.0;  // cheapest, just a raw scan of the index skip list
             case EQUAL:
               return 10.0;
+            case PREFIX:
+              return 8.0;  // tighter than a bounded RANGE, broader than EQUAL
             case RANGE: {
               if (fi.property_filter->lower_bound_ && fi.property_filter->upper_bound_) {
                 return 7.0;
@@ -1598,6 +1600,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
         case PropertyFilter::Type::REGEX_MATCH: {
           return ExpressionRange::RegexMatch();
+        }
+        case PropertyFilter::Type::PREFIX: {
+          return ExpressionRange::Prefix(filter.property_filter->value_);
         }
         case PropertyFilter::Type::RANGE: {
           return ExpressionRange::Range(filter.property_filter->lower_bound_, filter.property_filter->upper_bound_);

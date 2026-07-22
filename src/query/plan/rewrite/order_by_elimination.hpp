@@ -297,6 +297,8 @@ class OrderByEliminator {
                 ++ob_ptr;
               } else if (i < s->expression_ranges_.size() &&
                          s->expression_ranges_[i].type_ == PropertyFilter::Type::EQUAL) {
+                // Note: PREFIX isn't skippable here (spans multiple values); a PREFIX on the ORDER BY column
+                // itself is order-preserving and already accepted by the match path above.
                 continue;
               } else {
                 return false;

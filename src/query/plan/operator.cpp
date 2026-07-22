@@ -77,6 +77,7 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/string.hpp"
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
 #include "utils/timer.hpp"
@@ -136,6 +137,11 @@ auto ExpressionRange::Equal(Expression *value) -> ExpressionRange {
 
 auto ExpressionRange::RegexMatch() -> ExpressionRange { return {Type::REGEX_MATCH, std::nullopt, std::nullopt}; }
 
+auto ExpressionRange::Prefix(Expression *value) -> ExpressionRange {
+  // Prefix stored as inclusive lower bound; upper bound derived from PrefixSuccessor at evaluation.
+  return {Type::PREFIX, utils::MakeBoundInclusive(value), std::nullopt};
+}
+
 auto ExpressionRange::Range(std::optional<utils::Bound<Expression *>> lower,
                             std::optional<utils::Bound<Expression *>> upper) -> ExpressionRange {
   return {Type::RANGE, std::move(lower), std::move(upper)};
@@ -181,6 +187,21 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
       // bound will be limitted to the same type as the other bound
       return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
+    }
+
+    case Type::PREFIX: {
+      // [prefix, PrefixSuccessor(prefix)); a null/non-string term matches nothing (invalid range).
+      auto const typed_value = lower_->value()->Accept(evaluator);
+      if (typed_value.type() != TypedValue::Type::String) {
+        auto null_bound = utils::MakeBoundInclusive(storage::PropertyValue());
+        return storage::PropertyValueRange::Invalid(null_bound, null_bound);
+      }
+      auto const &prefix = typed_value.ValueString();
+      auto lower_bound = utils::MakeBoundInclusive(storage::PropertyValue(std::string(prefix)));
+      auto const successor = utils::PrefixSuccessor(prefix);
+      auto upper_bound = successor ? std::make_optional(utils::MakeBoundExclusive(storage::PropertyValue(*successor)))
+                                   : storage::UpperBoundForType(storage::PropertyValueType::String);
+      return storage::PropertyValueRange::Bounded(std::move(lower_bound), std::move(upper_bound));
     }
 
     case Type::IS_NOT_NULL: {
@@ -251,6 +272,20 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
       // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
       // bound will be limitted to the same type as the other bound
       return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
+    }
+
+    case Type::PREFIX: {
+      // Costing only: nullopt (generic estimate) when the prefix is unknown or non-string at plan time.
+      auto intermediate_value = ConstExternalPropertyValue(lower_->value(), params);
+      if (!intermediate_value) return std::nullopt;
+      auto const property_value = storage::ToPropertyValue(*intermediate_value, name_id_mapper);
+      if (!property_value.IsString()) return std::nullopt;
+      auto const &prefix = property_value.ValueString();
+      auto lower_bound = utils::MakeBoundInclusive(storage::PropertyValue(prefix));
+      auto const successor = utils::PrefixSuccessor(prefix);
+      auto upper_bound = successor ? std::make_optional(utils::MakeBoundExclusive(storage::PropertyValue(*successor)))
+                                   : storage::UpperBoundForType(storage::PropertyValueType::String);
+      return storage::PropertyValueRange::Bounded(std::move(lower_bound), std::move(upper_bound));
     }
 
     case Type::IS_NOT_NULL: {

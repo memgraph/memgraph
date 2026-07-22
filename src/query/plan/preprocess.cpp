@@ -995,9 +995,12 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     }
   } else if (utils::Downcast<Exists>(expr)) {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Pattern));
-  } else if (utils::Downcast<Function>(expr)) {
+  } else if (auto *func = utils::Downcast<Function>(expr)) {
+    // n.prop STARTS WITH value -> PREFIX range. endsWith/contains aren't prefix-expressible (fall through).
+    bool is_prefix_filter = utils::ToUpperCase(func->function_name_) == "STARTSWITH" && func->arguments_.size() == 2 &&
+                            try_add_prop_filter(func->arguments_[0], func->arguments_[1], PropertyFilter::Type::PREFIX);
     // WHERE point.withinbbox()
-    if (!add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
+    if (!is_prefix_filter && !add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *or_operator = utils::Downcast<OrOperator>(expr)) {
