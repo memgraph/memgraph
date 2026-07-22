@@ -99,12 +99,11 @@ if(MG_ENABLE_TESTING AND NOT MG_ENABLE_CUGRAPH)
     set(MG_MAGE_BUILD_TESTS ON)
 endif()
 
-# Treat fmt as a system dependency: its headers are then included with
-# -isystem for every module that links fmt::fmt, so the compiler and
-# clang-tidy do not emit diagnostics from inside fmt's own headers.
-get_target_property(FMT_INCLUDE_DIRS fmt INTERFACE_INCLUDE_DIRECTORIES)
-set_target_properties(fmt PROPERTIES
-  INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${FMT_INCLUDE_DIRS}")
+# NOTE: fmt's headers are already -isystem for consumers: the Conan-provided
+# fmt::fmt is an IMPORTED target, and CMake treats imported targets' interface
+# include dirs as SYSTEM by default. (The old standalone build needed an
+# explicit INTERFACE_SYSTEM_INCLUDE_DIRECTORIES override because its
+# FetchContent fmt was an in-tree, non-imported target.)
 
 # NOTE: query_modules/CMakeLists.txt defines a similar add_query_module()
 # for memgraph's own modules; this one is mage_-prefixed to avoid the
