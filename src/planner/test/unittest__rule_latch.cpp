@@ -18,7 +18,7 @@
 #include "planner/rewrite/rule_latch.hpp"
 #include "test_support/types.hpp"
 
-// The rule latch is the incremental-saturation scheduler in isolation: given an
+// The rule latch is the incremental-saturation arming engine in isolation: given an
 // arming index, a max pattern depth, and an e-graph with a touched-set, it
 // decides which rules to arm and (when the change is sparse) which e-classes a
 // matcher may restrict to. These tests drive it directly - no Rewriter, no
