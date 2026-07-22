@@ -39,7 +39,6 @@ std::string NormalizeOperator(std::string_view raw) {
   return normalized;
 }
 
-// Map the accepted operator to its query spelling. `exact` becomes `=`. Throws on an unknown operator.
 std::string ComparisonOperator(std::string_view raw) {
   const std::string op = NormalizeOperator(raw);
   if (op == "=" || op == "exact") return "=";
@@ -58,7 +57,6 @@ std::string ComparisonOperator(std::string_view raw) {
       ">, >=].");
 }
 
-// Escape a backtick-quoted identifier: a backtick inside is doubled.
 std::string EscapeIdentifier(std::string_view name) {
   std::string escaped;
   escaped.reserve(name.size());
@@ -69,7 +67,6 @@ std::string EscapeIdentifier(std::string_view name) {
   return escaped;
 }
 
-// Parse the JSON-string map form: an object whose values are a string or an array of strings.
 LabelProperties ParseJsonLabelPropertyMap(std::string_view text) {
   nlohmann::json json;
   try {
@@ -146,11 +143,11 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
     };
 
     // STARTS WITH / ENDS WITH / CONTAINS throw on a non-string property (the comparison operators just don't
-    // match). Guard them so a non-string property yields no match, mirroring APOC.
+    // match); guard them so a non-string property yields no match instead.
     const bool string_only = comparison == "STARTS WITH" || comparison == "ENDS WITH" || comparison == "CONTAINS";
 
     // TODO(ivan): run these sub-queries inside the caller's transaction instead of a fresh one, so the search
-    // observes the caller's uncommitted writes (and a single snapshot) exactly as APOC does.
+    // observes the caller's uncommitted writes and a single snapshot.
     const mgp::QueryExecution query_execution{memgraph_graph};
     for (const auto &[label, properties] : label_properties) {
       for (const auto &property : properties) {
