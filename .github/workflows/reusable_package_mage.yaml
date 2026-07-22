@@ -451,7 +451,7 @@ jobs:
           --arch $ARCH \
           --cugraph $CUGRAPH \
           copy-heaptrack \
-          --dest-dir "$(pwd)/mage"
+          --dest-dir "$(pwd)/release/package/mage"
 
       - name: "Build OpenSSL"
         if: ${{ inputs.build_docker_image != 'none' }}

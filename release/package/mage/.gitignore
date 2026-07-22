@@ -4,6 +4,7 @@ memgraph*.deb
 memgraph*.rpm
 openssl/
 wheels/
+heaptrack/
 ci.sources
 requirements.txt
 requirements-gpu.txt
