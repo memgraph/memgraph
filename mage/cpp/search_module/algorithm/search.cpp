@@ -13,34 +13,14 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstdint>
-#include <optional>
-#include <regex>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include <nlohmann/json.hpp>
-
 namespace Search {
 namespace {
-
-// Comparison operator, mirroring the set accepted by the equivalent name-mapped procedure.
-enum class Op : std::uint8_t {
-  kExact,
-  kNotEqual,
-  kLess,
-  kLessEqual,
-  kGreater,
-  kGreaterEqual,
-  kStartsWith,
-  kEndsWith,
-  kContains,
-  kRegex
-};
 
 // One label and the properties searched for it. A property list is a disjunction (matches are unioned).
 using LabelProperties = std::vector<std::pair<std::string, std::vector<std::string>>>;
@@ -57,174 +37,158 @@ std::string NormalizeOperator(std::string_view raw) {
   return normalized;
 }
 
-Op ParseOperator(std::string_view raw) {
+// Map the accepted operator to its query spelling. `exact` becomes `=`. Throws on an unknown operator.
+std::string ComparisonOperator(std::string_view raw) {
   const std::string op = NormalizeOperator(raw);
-  if (op == "=" || op == "exact") return Op::kExact;
-  if (op == "<>") return Op::kNotEqual;
-  if (op == "<") return Op::kLess;
-  if (op == "<=") return Op::kLessEqual;
-  if (op == ">") return Op::kGreater;
-  if (op == ">=") return Op::kGreaterEqual;
-  if (op == "starts with") return Op::kStartsWith;
-  if (op == "ends with") return Op::kEndsWith;
-  if (op == "contains") return Op::kContains;
-  if (op == "=~") return Op::kRegex;
+  if (op == "=" || op == "exact") return "=";
+  if (op == "<>") return "<>";
+  if (op == "<") return "<";
+  if (op == "<=") return "<=";
+  if (op == ">") return ">";
+  if (op == ">=") return ">=";
+  if (op == "starts with") return "STARTS WITH";
+  if (op == "ends with") return "ENDS WITH";
+  if (op == "contains") return "CONTAINS";
+  if (op == "=~") return "=~";
   throw mgp::ValueException(
       "operator `" + op +
       "` invalid, it must be one of (case insensitive): [<=, =~, contains, <>, ends with, starts with, exact, <, =, "
       ">, >=].");
 }
 
-// Only operators whose match set is a single contiguous run in the string type segment can use the index.
-bool IsIndexable(Op op) {
-  switch (op) {
-    case Op::kExact:
-    case Op::kLess:
-    case Op::kLessEqual:
-    case Op::kGreater:
-    case Op::kGreaterEqual:
-    case Op::kStartsWith:
-      return true;
-    // TODO: support via text index
-    case Op::kNotEqual:
-    case Op::kEndsWith:
-    case Op::kContains:
-    case Op::kRegex:
-      return false;
+// Escape a backtick-quoted identifier: a backtick inside is doubled.
+std::string EscapeIdentifier(std::string_view name) {
+  std::string escaped;
+  escaped.reserve(name.size());
+  for (const char c : name) {
+    escaped.push_back(c);
+    if (c == '`') escaped.push_back('`');
   }
-  return false;
+  return escaped;
 }
 
-// The single source of truth for a match, shared by the index fast path and the scan fallback.
-// A property matches only when it is a string (except `<>`, which also matches any present non-string,
-// as cross-type inequality holds); a property the node lacks never matches.
-// `regex` is the precompiled pattern for `=~` (compiled once per call, not per node); null for other ops.
-bool Matches(const mgp::Value &property, Op op, std::string_view value, const std::regex *regex) {
-  if (property.IsNull()) return false;  // property absent on this node
-  const bool is_string = property.IsString();
-  const std::string_view s = is_string ? property.ValueString() : std::string_view{};
-  switch (op) {
-    case Op::kExact:
-      return is_string && s == value;
-    case Op::kNotEqual:
-      return !(is_string && s == value);
-    case Op::kLess:
-      return is_string && s < value;
-    case Op::kLessEqual:
-      return is_string && s <= value;
-    case Op::kGreater:
-      return is_string && s > value;
-    case Op::kGreaterEqual:
-      return is_string && s >= value;
-    case Op::kStartsWith:
-      return is_string && s.starts_with(value);
-    case Op::kEndsWith:
-      return is_string && s.ends_with(value);
-    case Op::kContains:
-      return is_string && s.find(value) != std::string_view::npos;
-    case Op::kRegex:
-      return is_string && std::regex_match(s.begin(), s.end(), *regex);
-  }
-  return false;
-}
+// --- Minimal JSON parser for the label-property map string form: an object whose values are a string
+// or an array of strings (e.g. {"Person":"name","Movie":["title","tagline"]}). ---
+class JsonMapParser {
+ public:
+  explicit JsonMapParser(std::string_view text) : text_(text) {}
 
-// Smallest string strictly greater than every string with prefix `prefix` (the prefix "plus one").
-// nullopt means no such bound exists (prefix is all 0xFF, or empty) — the upper side stays unbounded.
-std::optional<std::string> PrefixSuccessor(std::string_view prefix) {
-  std::string successor{prefix};
-  while (!successor.empty() && static_cast<unsigned char>(successor.back()) == 0xFF) successor.pop_back();
-  if (successor.empty()) return std::nullopt;
-  successor.back() = static_cast<char>(static_cast<unsigned char>(successor.back()) + 1);
-  return successor;
-}
-
-// Iterate the label-property index for `op`/`value`, re-checking each hit against the shared predicate.
-// The index range is a superset (open operators can't express the string type-segment boundary), so the
-// predicate remains the source of truth; for `=`/`starts with` the range is already tight.
-template <typename Emit>
-void FastPath(const mgp::Graph &graph, std::string_view label, const std::string &property, Op op,
-              std::string_view value, const std::regex *regex, Emit &&emit) {
-  std::optional<mgp::Value> lower;
-  std::optional<mgp::Value> upper;
-  bool lower_inclusive = false;
-  bool upper_inclusive = false;
-  switch (op) {
-    case Op::kExact:
-      lower.emplace(value);
-      upper.emplace(value);
-      lower_inclusive = upper_inclusive = true;
-      break;
-    case Op::kLess:
-      upper.emplace(value);
-      break;
-    case Op::kLessEqual:
-      upper.emplace(value);
-      upper_inclusive = true;
-      break;
-    case Op::kGreater:
-      lower.emplace(value);
-      break;
-    case Op::kGreaterEqual:
-      lower.emplace(value);
-      lower_inclusive = true;
-      break;
-    case Op::kStartsWith:
-      lower.emplace(value);
-      lower_inclusive = true;
-      if (auto successor = PrefixSuccessor(value)) upper.emplace(*successor);
-      break;
-    default:
-      return;  // never reached: non-indexable operators use the scan path
-  }
-  const mgp::Value *lower_ptr = lower ? &*lower : nullptr;
-  const mgp::Value *upper_ptr = upper ? &*upper : nullptr;
-  for (const auto node :
-       graph.NodesByLabelPropertyRange(label, property, lower_ptr, lower_inclusive, upper_ptr, upper_inclusive)) {
-    if (Matches(node.GetProperty(property), op, value, regex)) emit(node);
-  }
-}
-
-template <typename Emit>
-void ScanPath(const mgp::Graph &graph, std::string_view label, const std::string &property, Op op,
-              std::string_view value, const std::regex *regex, Emit &&emit) {
-  for (const auto node : graph.Nodes()) {
-    if (node.HasLabel(label) && Matches(node.GetProperty(property), op, value, regex)) emit(node);
-  }
-}
-
-// Parse the label-property map's JSON-string form: an object whose values are a string or an array of
-// strings (e.g. {"Person":"name","Movie":["title","tagline"]}).
-LabelProperties ParseJsonLabelPropertyMap(std::string_view text) {
-  nlohmann::json json;
-  try {
-    json = nlohmann::json::parse(text);
-  } catch (const nlohmann::json::parse_error &e) {
-    throw mgp::ValueException(std::string{"label_property_map: malformed JSON: "} + e.what());
-  }
-  if (!json.is_object()) throw mgp::ValueException("label_property_map JSON must be an object");
-  LabelProperties result;
-  for (const auto &[label, value] : json.items()) {
-    std::vector<std::string> properties;
-    if (value.is_string()) {
-      properties.emplace_back(value.get<std::string>());
-    } else if (value.is_array()) {
-      for (const auto &element : value) {
-        if (!element.is_string()) throw mgp::ValueException("label_property_map values must be strings");
-        properties.emplace_back(element.get<std::string>());
-      }
-    } else {
-      throw mgp::ValueException("label_property_map values must be a string or a list of strings");
+  LabelProperties Parse() {
+    LabelProperties result;
+    SkipWhitespace();
+    Expect('{');
+    SkipWhitespace();
+    if (Peek() == '}') {
+      Advance();
+      return result;  // empty object
     }
-    result.emplace_back(label, std::move(properties));
+    while (true) {
+      SkipWhitespace();
+      std::string label = ParseString();
+      SkipWhitespace();
+      Expect(':');
+      SkipWhitespace();
+      std::vector<std::string> properties;
+      if (Peek() == '[') {
+        Advance();
+        SkipWhitespace();
+        if (Peek() != ']') {
+          while (true) {
+            SkipWhitespace();
+            properties.push_back(ParseString());
+            SkipWhitespace();
+            if (Peek() == ',') {
+              Advance();
+              continue;
+            }
+            break;
+          }
+        }
+        SkipWhitespace();
+        Expect(']');
+      } else {
+        properties.push_back(ParseString());
+      }
+      result.emplace_back(std::move(label), std::move(properties));
+      SkipWhitespace();
+      if (Peek() == ',') {
+        Advance();
+        continue;
+      }
+      break;
+    }
+    SkipWhitespace();
+    Expect('}');
+    return result;
   }
-  return result;
-}
+
+ private:
+  char Peek() const {
+    if (pos_ >= text_.size()) throw mgp::ValueException("label_property_map: malformed JSON (unexpected end)");
+    return text_[pos_];
+  }
+
+  void Advance() { ++pos_; }
+
+  void SkipWhitespace() {
+    while (pos_ < text_.size() && std::isspace(static_cast<unsigned char>(text_[pos_]))) ++pos_;
+  }
+
+  void Expect(char c) {
+    if (Peek() != c) throw mgp::ValueException("label_property_map: malformed JSON");
+    Advance();
+  }
+
+  std::string ParseString() {
+    Expect('"');
+    std::string out;
+    while (true) {
+      if (pos_ >= text_.size()) throw mgp::ValueException("label_property_map: malformed JSON (unterminated string)");
+      const char c = text_[pos_++];
+      if (c == '"') break;
+      if (c == '\\') {
+        if (pos_ >= text_.size()) throw mgp::ValueException("label_property_map: malformed JSON (bad escape)");
+        const char esc = text_[pos_++];
+        switch (esc) {
+          case '"':
+          case '\\':
+          case '/':
+            out.push_back(esc);
+            break;
+          case 'n':
+            out.push_back('\n');
+            break;
+          case 't':
+            out.push_back('\t');
+            break;
+          case 'r':
+            out.push_back('\r');
+            break;
+          case 'b':
+            out.push_back('\b');
+            break;
+          case 'f':
+            out.push_back('\f');
+            break;
+          default:
+            throw mgp::ValueException("label_property_map: unsupported JSON escape");
+        }
+      } else {
+        out.push_back(c);
+      }
+    }
+    return out;
+  }
+
+  std::string_view text_;
+  size_t pos_ = 0;
+};
 
 LabelProperties ParseLabelPropertyMap(const mgp::Value &argument) {
   if (argument.IsNull()) {
     throw mgp::ValueException(R"(label_property_map cannot be null. Example: {Person: ["name"], Company: "name"})");
   }
-  if (argument.IsString()) return ParseJsonLabelPropertyMap(argument.ValueString());
+  if (argument.IsString()) return JsonMapParser(argument.ValueString()).Parse();
   if (!argument.IsMap()) {
     throw mgp::ValueException("label_property_map must be a map or a JSON string");
   }
@@ -247,23 +211,17 @@ LabelProperties ParseLabelPropertyMap(const mgp::Value &argument) {
 }
 
 // Shared driver for both procedures. `deduplicate` distinguishes `node` (by node id) from `node_all`.
+// Each (label, property) pair is turned into a query and executed via the interpreter, which selects the
+// index. A property list per label is a disjunction; matches across properties are unioned.
 void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory, bool deduplicate) {
   const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    const mgp::Graph graph{memgraph_graph};
     const auto label_properties = ParseLabelPropertyMap(arguments[0]);
-    const Op op = ParseOperator(arguments[1].ValueString());
+    const std::string comparison = ComparisonOperator(arguments[1].ValueString());
     if (arguments[2].IsNull()) return;  // a null value matches nothing (checked after operator validation)
     const std::string_view value = arguments[2].ValueString();
-
-    // Compile the `=~` pattern once per call rather than once per scanned node.
-    std::optional<std::regex> regex;
-    if (op == Op::kRegex) regex.emplace(value.begin(), value.end());
-    const std::regex *const regex_ptr = regex ? &*regex : nullptr;
-
-    const bool indexable = IsIndexable(op);
 
     std::unordered_set<int64_t> seen;
     const auto emit = [&](const mgp::Node &node) {
@@ -272,12 +230,24 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
       record.Insert(kResultNode, node);
     };
 
+    const mgp::QueryExecution query_execution{memgraph_graph};
     for (const auto &[label, properties] : label_properties) {
       for (const auto &property : properties) {
-        if (indexable && graph.HasLabelPropertyIndex(label, property)) {
-          FastPath(graph, label, property, op, value, regex_ptr, emit);
-        } else {
-          ScanPath(graph, label, property, op, value, regex_ptr, emit);
+        std::string query = "MATCH (n:`";
+        query += EscapeIdentifier(label);
+        query += "`) WHERE n.`";
+        query += EscapeIdentifier(property);
+        query += "` ";
+        query += comparison;
+        query += " $value RETURN n";
+
+        mgp::Map params;
+        params.Insert("value", mgp::Value(value));
+
+        auto results = query_execution.ExecuteQuery(query, params);
+        while (const auto row = results.PullOne()) {
+          if (row->Size() == 0) break;
+          emit(row->At("n").ValueNode());
         }
       }
     }
