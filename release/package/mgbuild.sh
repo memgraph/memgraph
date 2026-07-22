@@ -1960,7 +1960,7 @@ test_memgraph() {
     ;;
     query_modules_unit)
       docker exec -u mg $build_container bash -c "source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && pip install -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
-      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tests/query_modules && export PYTHONPATH=$MGBUILD_ROOT_DIR/mage/python:\$PYTHONPATH && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 unit_runner.py"
+      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tests/query_modules && export PYTHONPATH=$MGBUILD_ROOT_DIR/src/mage/python:\$PYTHONPATH && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 unit_runner.py"
     ;;
     smoke)
       shift 1
@@ -2237,6 +2237,9 @@ package_mage_docker() {
   # copy scripts to mage directory so they can be used in the docker build
   cp $PROJECT_ROOT/src/auth/reference_modules/requirements.txt $PROJECT_ROOT/mage/auth-module-requirements.txt
   cp $PROJECT_ROOT/release/docker/run_with_gdb.sh $PROJECT_ROOT/mage/run_with_gdb.sh
+  # python requirements live in src/mage/python/, outside the docker context
+  cp $PROJECT_ROOT/src/mage/python/requirements.txt $PROJECT_ROOT/mage/requirements.txt
+  cp $PROJECT_ROOT/src/mage/python/requirements-gpu.txt $PROJECT_ROOT/mage/requirements-gpu.txt
 
   # Stage the memgraph-mage deb(s) built by package-mage-deb into the docker
   # context under fixed names (the Dockerfiles extract their payload instead
@@ -2433,11 +2436,11 @@ test_mage() {
       echo -e "${GREEN_BOLD}Running tests in container: $build_container${RESET}"
 
       echo -e "${GREEN_BOLD}Running Rust tests${RESET}"
-      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cd \$HOME/memgraph/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
+      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cd \$HOME/memgraph/src/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
 
       echo -e "${GREEN_BOLD}Running C++ tests${RESET}"
       # MAGE unit tests are registered in the root build tree with the
-      # mage__ prefix (the standalone mage/cpp/build no longer exists).
+      # mage__ prefix (the standalone src/mage/cpp/build no longer exists).
       docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/build && ctest -R mage__ --output-on-failure -j\$(nproc)"
 
       echo -e "${GREEN_BOLD}Running Python tests${RESET}"
@@ -2446,7 +2449,7 @@ test_mage() {
       else
         requirements_file="requirements.txt"
       fi
-      docker cp mage/python/$requirements_file $build_container:/tmp/$requirements_file
+      docker cp src/mage/python/$requirements_file $build_container:/tmp/$requirements_file
       docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
       # MAGE's deps are cp312 and memgraph embeds python 3.12, so the python
       # test phase must run under 3.12. CentOS Stream 9 defaults python3 to 3.9,
@@ -2459,8 +2462,8 @@ test_mage() {
       fi
       docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/ && \
         PYTHON=$pybin ./install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
-        $pybin -m pip install -r \$HOME/memgraph/mage/python/tests/requirements.txt --break-system-packages"
-      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/python/ && $pybin -m pytest ."
+        $pybin -m pip install -r \$HOME/memgraph/src/mage/python/tests/requirements.txt --break-system-packages"
+      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/src/mage/python/ && $pybin -m pytest ."
     ;;
     e2e)
       shift 1

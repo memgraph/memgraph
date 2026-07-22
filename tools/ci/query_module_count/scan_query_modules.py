@@ -855,9 +855,9 @@ def build_output(target: str) -> dict[str, Any]:
 
     if target in {"mage", "all"}:
         mage_paths = [
-            REPO_ROOT / "mage/python",
-            REPO_ROOT / "mage/cpp",
-            REPO_ROOT / "mage/rust",
+            REPO_ROOT / "src/mage/python",
+            REPO_ROOT / "src/mage/cpp",
+            REPO_ROOT / "src/mage/rust",
         ]
         output["mage"] = {
             "roots": [relative_path(path) for path in mage_paths if path.exists()],

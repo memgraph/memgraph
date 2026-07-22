@@ -152,9 +152,9 @@ cp -v "$MAGE_DEB" "$STAGING/bundle/debs/"
 # pip-installs from the .run's bundled requirements file. To keep the version
 # pins consistent, we mirror the deb's choice here: CUDA build → -gpu file.
 if [[ "$CUDA" == "true" ]]; then
-  MAGE_REQ_SRC="$PROJECT_ROOT/mage/python/requirements-gpu.txt"
+  MAGE_REQ_SRC="$PROJECT_ROOT/src/mage/python/requirements-gpu.txt"
 else
-  MAGE_REQ_SRC="$PROJECT_ROOT/mage/python/requirements.txt"
+  MAGE_REQ_SRC="$PROJECT_ROOT/src/mage/python/requirements.txt"
 fi
 
 cp -v "$MAGE_REQ_SRC" "$STAGING/bundle/requirements/mage-requirements.txt"

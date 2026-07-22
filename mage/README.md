@@ -256,8 +256,8 @@ Run the following command to install Rust and Python dependencies:
 ```bash
 curl https://sh.rustup.rs -sSf | sh -s -- -y \
 && export PATH="/root/.cargo/bin:${PATH}" \
-&& python3 -m  pip install -r mage/python/requirements.txt \
-&& python3 -m  pip install -r mage/python/tests/requirements.txt \
+&& python3 -m  pip install -r src/mage/python/requirements.txt \
+&& python3 -m  pip install -r src/mage/python/tests/requirements.txt \
 && python3 -m  pip install torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-1.12.0+cu102.html \
 ```
 
@@ -283,7 +283,7 @@ cmake --install build --component mage --prefix /usr
 and want the `.debug` sidecars installed alongside the modules.)
 
 > If you previously built MAGE standalone with the old `mage/setup` script,
-> remove any stale `mage/cpp/build` and `mage/dist` directories.
+> remove any stale `src/mage/cpp/build` and `mage/dist` directories.
 
 
 > Note that query modules are loaded into Memgraph on startup so if your

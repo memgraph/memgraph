@@ -28,7 +28,9 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
 
-COPY python/requirements-gpu.txt /tmp/requirements-gpu.txt
+# requirements files are staged into the build context by
+# package_mage_docker (they live in src/mage/python/, outside this context).
+COPY requirements-gpu.txt /tmp/requirements-gpu.txt
 COPY auth-module-requirements.txt /tmp/auth_module-requirements.txt
 
 USER memgraph
