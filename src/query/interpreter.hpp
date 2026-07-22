@@ -329,9 +329,9 @@ class Interpreter final {
   std::shared_ptr<QueryUserOrRole>
       user_or_role_{};  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
-  // Effective coordinator privilege mask (union of the session's matched roles' masks; auth::Permission bits).
-  // Consulted only on coordinators, where roles live in Raft rather than the auth kvstore. A basic-auth passthrough
-  // session carries full WRITE; a restricted SSO session (later slice) carries a narrower mask. Zero denies everything.
+  // Coordinator privilege mask captured at login (auth::Permission bits). Consulted directly only for role-less
+  // (basic-auth passthrough) sessions, which carry full WRITE; sessions with coordinator roles recompute their mask
+  // per check via EffectiveCoordinatorPermissions. Zero denies everything.
   uint64_t coordinator_permissions_;
   // Role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session). Reported
   // by SHOW CURRENT ROLE; coordinator roles live in Raft, not the auth kvstore, so they can't be looked up on demand.
@@ -527,6 +527,11 @@ class Interpreter final {
 
   // The role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session).
   const std::vector<std::string> &GetCoordinatorRoles() const { return coordinator_roles_; }
+
+  // The session's effective coordinator privilege mask. A role-less (basic-auth passthrough) session uses the mask
+  // fixed at login; an SSO session recomputes it from its role names against the leader's committed role set on
+  // every check, so REVOKE/DROP ROLE downgrades long-lived sessions without a reconnect.
+  uint64_t EffectiveCoordinatorPermissions() const;
 #else
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
 #endif

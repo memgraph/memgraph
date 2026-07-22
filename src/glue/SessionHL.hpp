@@ -115,6 +115,11 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   // sets the session's effective coordinator privilege mask. No user is stored on coordinators.
   std::expected<void, communication::bolt::AuthFailure> CoordinatorSSOAuthenticate(
       const std::string &scheme, const std::string &identity_provider_response);
+
+  // Called during Init on a coordinator for basic/none auth when no SSO module is configured: credentials are ignored
+  // and the session carries the full coordinator privilege mask. Set explicitly so a LOGOFF -> LOGON passthrough
+  // re-authentication restores the privileges LogOff cleared.
+  void CoordinatorPassthroughAuthenticate();
 #endif
 
   void LogOff();

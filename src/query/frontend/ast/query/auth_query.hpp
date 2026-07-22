@@ -275,7 +275,9 @@ inline bool IsCoordinatorPermittedAuthQuery(AuthQuery const &query) {
       return true;
     }
     case AuthQuery::Action::SHOW_PRIVILEGES:
-      return query.entity_type_ != AuthQuery::UserOrRoleType::USER;
+      // The ON MAIN|CURRENT|DATABASE clause targets a database; coordinators have none.
+      return query.entity_type_ != AuthQuery::UserOrRoleType::USER &&
+             query.database_specification_ == AuthQuery::DatabaseSpecification::NONE;
     default:
       return false;
   }
