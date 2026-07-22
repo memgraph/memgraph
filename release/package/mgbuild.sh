@@ -1994,11 +1994,11 @@ test_memgraph() {
         exit $status
       }
       trap cleanup EXIT INT TERM
-      cd "$PROJECT_ROOT/mage/tests/smoke-release-testing"
+      cd "$PROJECT_ROOT/tests/smoke"
       ./init_workflow.bash
       python3 -m venv env
       source env/bin/activate
-      pip install -r "$PROJECT_ROOT/mage/tests/smoke-release-testing/requirements.txt"
+      pip install -r "$PROJECT_ROOT/tests/smoke/requirements.txt"
       ./test_single.bash "memgraph"
     ;;
     *)
@@ -2646,11 +2646,11 @@ test_mage() {
         exit $status
       }
       trap cleanup EXIT INT TERM
-      cd "$PROJECT_ROOT/mage/tests/smoke-release-testing"
+      cd "$PROJECT_ROOT/tests/smoke"
       ./init_workflow.bash
       python3 -m venv env
       source env/bin/activate
-      pip install -r "$PROJECT_ROOT/mage/tests/smoke-release-testing/requirements.txt"
+      pip install -r "$PROJECT_ROOT/tests/smoke/requirements.txt"
       ./test_single.bash "mage"
     ;;
     *)
