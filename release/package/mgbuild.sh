@@ -2237,6 +2237,28 @@ package_mage_docker() {
   # copy scripts to mage directory so they can be used in the docker build
   cp $PROJECT_ROOT/src/auth/reference_modules/requirements.txt $PROJECT_ROOT/mage/auth-module-requirements.txt
   cp $PROJECT_ROOT/release/docker/run_with_gdb.sh $PROJECT_ROOT/mage/run_with_gdb.sh
+
+  # Stage the memgraph-mage deb(s) built by package-mage-deb into the docker
+  # context under fixed names (the Dockerfiles extract their payload instead
+  # of the old mage.tar.gz hand-off). Globs tolerate the -malloc/-cuda/
+  # -cugraph filename suffixes.
+  local mage_deb
+  mage_deb=$(ls -1 $PROJECT_ROOT/output/memgraph-mage_*.deb 2>/dev/null | head -n 1)
+  if [[ -z "$mage_deb" ]]; then
+    echo -e "${RED_BOLD}Error: no memgraph-mage deb in $PROJECT_ROOT/output — run package-mage-deb first${RESET}" >&2
+    exit 1
+  fi
+  cp -v "$mage_deb" $PROJECT_ROOT/mage/memgraph-mage.deb
+  if [[ "$docker_target" == "relwithdebinfo" ]]; then
+    local mage_debuginfo_deb
+    mage_debuginfo_deb=$(ls -1 $PROJECT_ROOT/output/memgraph-mage-debuginfo_*.deb 2>/dev/null | head -n 1)
+    if [[ -z "$mage_debuginfo_deb" ]]; then
+      echo -e "${RED_BOLD}Error: no memgraph-mage-debuginfo deb in $PROJECT_ROOT/output — package a --split-debug build first${RESET}" >&2
+      exit 1
+    fi
+    cp -v "$mage_debuginfo_deb" $PROJECT_ROOT/mage/memgraph-mage-debuginfo.deb
+  fi
+
   cd $PROJECT_ROOT/mage
 
   build_args=(
