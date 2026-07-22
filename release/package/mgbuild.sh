@@ -2403,14 +2403,20 @@ test_mage() {
       done
 
       local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+      # Same rust selection as build_memgraph's ACTIVATE_CARGO: the images'
+      # default rustc is too old for bindgen 0.71's generated bindings
+      # (`unsafe extern` blocks need >= 1.82).
+      local ACTIVATE_CARGO="source \$HOME/.cargo/env && rustup toolchain install $DEFAULT_RUST_VERSION && export RUSTUP_TOOLCHAIN=$DEFAULT_RUST_VERSION"
 
       echo -e "${GREEN_BOLD}Running tests in container: $build_container${RESET}"
 
       echo -e "${GREEN_BOLD}Running Rust tests${RESET}"
-      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && source \$HOME/.cargo/env && cd \$HOME/memgraph/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
+      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cd \$HOME/memgraph/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
 
       echo -e "${GREEN_BOLD}Running C++ tests${RESET}"
-      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd \$HOME/memgraph/mage/cpp/build/ && ctest --output-on-failure -j\$(nproc)"
+      # MAGE unit tests are registered in the root build tree with the
+      # mage__ prefix (the standalone mage/cpp/build no longer exists).
+      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/build && ctest -R mage__ --output-on-failure -j\$(nproc)"
 
       echo -e "${GREEN_BOLD}Running Python tests${RESET}"
       if [[ "$cuda" == true ]]; then
