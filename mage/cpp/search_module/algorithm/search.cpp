@@ -149,23 +149,31 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
       record.Insert(kResultNode, graph.GetNodeById(id));
     };
 
+    // STARTS WITH / ENDS WITH / CONTAINS throw on a non-string property instead of yielding no match like the
+    // comparison operators do. Guard them so a non-string property simply does not match, mirroring APOC
+    // (which matches only string-typed properties for these operators).
+    const bool string_only = comparison == "STARTS WITH" || comparison == "ENDS WITH" || comparison == "CONTAINS";
+
+    // TODO(ivan): run these sub-queries inside the caller's transaction instead of a fresh one, so the search
+    // observes the caller's uncommitted writes (and a single snapshot) exactly as APOC does.
     const mgp::QueryExecution query_execution{memgraph_graph};
     for (const auto &[label, properties] : label_properties) {
       for (const auto &property : properties) {
-        std::string query = "MATCH (n:`";
-        query += EscapeIdentifier(label);
-        query += "`) WHERE n.`";
-        query += EscapeIdentifier(property);
-        query += "` ";
-        query += comparison;
-        query += " $value RETURN id(n) AS node_id";
+        const std::string node_property = "n.`" + EscapeIdentifier(property) + "`";
+        // A CASE keeps the throwing operator off non-string values: `IfOperator` evaluates only the selected
+        // branch, so the operator is reached only when the property is a string.
+        std::string predicate = node_property + " " + comparison + " $value";
+        if (string_only) {
+          predicate = "CASE WHEN valueType(" + node_property + ") = 'STRING' THEN " + predicate + " ELSE false END";
+        }
+        const std::string query =
+            "MATCH (n:`" + EscapeIdentifier(label) + "`) WHERE " + predicate + " RETURN id(n) AS node_id";
 
         mgp::Map params;
         params.Insert("value", mgp::Value(value));
 
         auto results = query_execution.ExecuteQuery(query, params);
         while (const auto row = results.PullOne()) {
-          if (row->Size() == 0) break;
           emit(row->At("node_id").ValueInt());
         }
       }
