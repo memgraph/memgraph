@@ -15,24 +15,24 @@
 #include <gtest/gtest.h>
 #include <boost/unordered/unordered_flat_set.hpp>
 
-#include "planner/rewrite/pass_schedule.hpp"
+#include "planner/rewrite/pass_driver.hpp"
 #include "test_rewriter_fixture.hpp"
 #include "test_rules.hpp"
 
-// The pass-schedule seam viewed from the loop's side: the saturation loop is
-// schedule-agnostic and drives begin -> (before_pass -> after_pass)* in a fixed
-// order. These tests inject a recording schedule to pin that order - in
+// The pass-driver seam viewed from the loop's side: the saturation loop is
+// driver-agnostic and drives begin -> (before_pass -> after_pass)* in a fixed
+// order. These tests inject a recording driver to pin that order - in
 // particular that the terminating zero-rewrite pass runs before_pass but never
 // after_pass. RuleLatch's own behaviour (what arming decides) is tested below
-// the seam in unittest__rule_latch.cpp; here the schedule arms nothing, so the
+// the seam in unittest__rule_latch.cpp; here the driver arms nothing, so the
 // hook sequence is a pure observation of the loop.
 
 namespace memgraph::planner::core {
 
 using namespace test;
-using rewrite::FullSchedule;
-using rewrite::IncrementalSchedule;
-using rewrite::PassSchedule;
+using rewrite::FullDriver;
+using rewrite::IncrementalDriver;
+using rewrite::PassDriver;
 using rewrite::RewriteConfig;
 using rewrite::RootRestriction;
 
@@ -43,9 +43,9 @@ enum class Hook : std::uint8_t { Begin, BeforePass, AfterPass };
 
 /// Records the loop's hook calls and otherwise behaves as Full (arms nothing,
 /// restricts nothing), so a run's hook sequence is independent of any arming.
-class SpySchedule {
+class SpyDriver {
  public:
-  explicit SpySchedule(std::vector<Hook> &log) : log_(&log) {}
+  explicit SpyDriver(std::vector<Hook> &log) : log_(&log) {}
 
   void begin(TestEGraph & /*egraph*/) { log_->push_back(Hook::Begin); }
 
@@ -61,13 +61,13 @@ class SpySchedule {
   std::vector<Hook> *log_;
 };
 
-static_assert(PassSchedule<SpySchedule, TestEGraph>);
-static_assert(PassSchedule<FullSchedule, TestEGraph>);
-static_assert(PassSchedule<IncrementalSchedule<Op, NoAnalysis>, TestEGraph>);
+static_assert(PassDriver<SpyDriver, TestEGraph>);
+static_assert(PassDriver<FullDriver, TestEGraph>);
+static_assert(PassDriver<IncrementalDriver<Op, NoAnalysis>, TestEGraph>);
 
 }  // namespace
 
-TEST_F(Rewrite, SpySchedule_HookOrderPinsTheLifecycle) {
+TEST_F(Rewrite, SpyDriver_HookOrderPinsTheLifecycle) {
   // Neg(Neg(x)) collapses in one pass, then the next pass finds nothing: begin
   // once, one productive before_pass -> after_pass, and a trailing before_pass
   // for the fixpoint pass with no after_pass following it.
@@ -77,7 +77,7 @@ TEST_F(Rewrite, SpySchedule_HookOrderPinsTheLifecycle) {
   rebuild_index();
 
   std::vector<Hook> log;
-  SpySchedule spy{log};
+  SpyDriver spy{log};
   auto const result = rewriter().saturate(RewriteConfig::Unlimited(), spy);
 
   EXPECT_EQ(egraph.find(x), egraph.find(neg_neg_x));
@@ -86,7 +86,7 @@ TEST_F(Rewrite, SpySchedule_HookOrderPinsTheLifecycle) {
   EXPECT_EQ(log, (std::vector<Hook>{Hook::Begin, Hook::BeforePass, Hook::AfterPass, Hook::BeforePass}));
 }
 
-TEST_F(Rewrite, SpySchedule_ImmediateFixpointSkipsAfterPass) {
+TEST_F(Rewrite, SpyDriver_ImmediateFixpointSkipsAfterPass) {
   // No Neg(Neg(...)) to match, so the first pass is already a fixpoint: begin
   // plus exactly one before_pass, and never an after_pass.
   use_rules(make_double_neg_rule());
@@ -94,7 +94,7 @@ TEST_F(Rewrite, SpySchedule_ImmediateFixpointSkipsAfterPass) {
   rebuild_index();
 
   std::vector<Hook> log;
-  SpySchedule spy{log};
+  SpyDriver spy{log};
   auto const result = rewriter().saturate(RewriteConfig::Unlimited(), spy);
 
   EXPECT_TRUE(result.saturated());

@@ -118,7 +118,7 @@ TEST(RuleSet, MaxPatternDepthIsTheDeepestRulePattern) {
 }
 
 // The parent-closure geometry (a change surfaces its ancestors to the closure
-// depth and no further) is exercised through the scheduler's observable arming
+// depth and no further) is exercised through the arming engine's observable arming
 // and restriction behaviour in unittest__rule_latch.cpp.
 
 // --- Incremental mode: equals Full, and reaches a true fixpoint ---
@@ -132,7 +132,7 @@ auto BuildNegChain(EGraph<Op, NoAnalysis> &eg, int depth) -> EClassId {
   return top;
 }
 
-// Run `build_and_saturate(run)` under both schedules - `run(rewriter, config)`
+// Run `build_and_saturate(run)` under both drivers - `run(rewriter, config)`
 // invokes the chosen one - and require the returned final shape (e-class +
 // live-node counts) to match: incremental arming only skips rules or prunes
 // candidates, so it reaches the same fixpoint as full.
@@ -141,12 +141,12 @@ void ExpectSameShapeUnderBothModes(BuildAndSaturate build_and_saturate) {
   auto run_incremental = [](TestRewriter &r, RewriteConfig const &cfg) { return r.saturate_incremental(cfg); };
   auto run_full = [](TestRewriter &r, RewriteConfig const &cfg) { return r.saturate_full(cfg); };
   EXPECT_EQ(build_and_saturate(run_incremental), build_and_saturate(run_full))
-      << "arming schedule changed the final e-graph shape (e-class, live-node counts)";
+      << "the arming driver changed the final e-graph shape (e-class, live-node counts)";
 }
 }  // namespace
 
 TEST(IncrementalArming, IncrementalEqualsFull) {
-  // Same fixpoint = same final shape (rewrite counts can differ by schedule).
+  // Same fixpoint = same final shape (rewrite counts can differ by driver).
   // Incremental only ever skips rules/prunes candidates, so its merges are a subset
   // of Full's; equal shape plus a true fixpoint (sharp oracle) pin them equal.
   ExpectSameShapeUnderBothModes([](auto run) -> std::pair<std::size_t, std::size_t> {
