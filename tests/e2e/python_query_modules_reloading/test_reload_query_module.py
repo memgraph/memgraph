@@ -10,7 +10,7 @@
 # licenses/APL.txt.
 
 
-import os  # To be removed
+import os
 import sys
 
 import mgclient
