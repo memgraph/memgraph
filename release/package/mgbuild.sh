@@ -2396,7 +2396,7 @@ test_mage() {
     fi
     python3 -m venv env
     source env/bin/activate
-    pip install -r python/tests/requirements.txt --break-system-packages
+    pip install -r $PROJECT_ROOT/src/mage/python/tests/requirements.txt --break-system-packages
   }
 
   case "$1" in
