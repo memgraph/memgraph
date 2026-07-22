@@ -47,7 +47,7 @@ install(FILES ${_mage_requirements}
         DESTINATION lib/memgraph
         RENAME mage-requirements.txt
         COMPONENT mage)
-install(PROGRAMS ${CMAKE_SOURCE_DIR}/mage/install_python_requirements.sh
+install(PROGRAMS ${CMAKE_SOURCE_DIR}/release/package/mage/install_python_requirements.sh
         DESTINATION lib/memgraph
         COMPONENT mage)
 

@@ -2,7 +2,7 @@
 # packages. This is NOT a production image and is never published — it exists
 # only so the smoke-test framework (which drives a Docker image) can exercise
 # the memgraph + memgraph-mage RPMs on an rpm-based distro. The build context
-# is the mage/ directory, mirroring Dockerfile.release.
+# is the release/package/mage/ directory, mirroring Dockerfile.release.
 #
 # Generic across rpm distros via build args:
 #   BASE_IMAGE  - the distro base image (e.g. quay.io/centos/centos:stream9,

@@ -41,13 +41,12 @@ class Memgraph(ConanFile):
         "licenses/*",
         "config/*",
         "import/*",
-        # MAGE sources live under src/mage (covered by "src/*" above); this
-        # is the one runtime script the mage install component pulls from
-        # the mage/ support directory.
+        # MAGE sources live under src/mage (covered by "src/*") and its
+        # packaging support under release/package/mage (covered by
+        # "release/*").
         # NOTE: mgcxx/* is also referenced by the root CMake but missing
         # here — pre-existing gap, `conan create` packaging is documented
         # non-functional in package() below.
-        "mage/install_python_requirements.sh",
     )
 
     default_options = {

@@ -227,7 +227,7 @@ print_help () {
   echo -e "  --memgraph-deb PATH           Path to the memgraph .deb (required)"
   echo -e "  --mage-deb PATH               Path to the memgraph-mage .deb (required)"
   echo -e "  --output PATH                 Output path for the .run file (default: ./memgraph-mage-offline-<version>-<arch><variant>.run)"
-  echo -e "  --wheels-dir PATH             Directory of pre-built host wheels to bundle (default: \"\$PROJECT_ROOT/mage/wheels\")"
+  echo -e "  --wheels-dir PATH             Directory of pre-built host wheels to bundle (default: \"\$PROJECT_ROOT/release/package/mage/wheels\")"
   echo -e "  --malloc                      Variant flag — affects the output filename only"
   echo -e "  --cuda                        Bundle CUDA-flavoured Python wheels (requires --arch amd)"
   echo -e "  --cuda-version X.Y            CUDA version for the S3 wheel path (default \"13.0\")"
@@ -2235,11 +2235,11 @@ package_mage_docker() {
   fi
 
   # copy scripts to mage directory so they can be used in the docker build
-  cp $PROJECT_ROOT/src/auth/reference_modules/requirements.txt $PROJECT_ROOT/mage/auth-module-requirements.txt
-  cp $PROJECT_ROOT/release/docker/run_with_gdb.sh $PROJECT_ROOT/mage/run_with_gdb.sh
+  cp $PROJECT_ROOT/src/auth/reference_modules/requirements.txt $PROJECT_ROOT/release/package/mage/auth-module-requirements.txt
+  cp $PROJECT_ROOT/release/docker/run_with_gdb.sh $PROJECT_ROOT/release/package/mage/run_with_gdb.sh
   # python requirements live in src/mage/python/, outside the docker context
-  cp $PROJECT_ROOT/src/mage/python/requirements.txt $PROJECT_ROOT/mage/requirements.txt
-  cp $PROJECT_ROOT/src/mage/python/requirements-gpu.txt $PROJECT_ROOT/mage/requirements-gpu.txt
+  cp $PROJECT_ROOT/src/mage/python/requirements.txt $PROJECT_ROOT/release/package/mage/requirements.txt
+  cp $PROJECT_ROOT/src/mage/python/requirements-gpu.txt $PROJECT_ROOT/release/package/mage/requirements-gpu.txt
 
   # Stage the memgraph-mage deb(s) built by package-mage-deb into the docker
   # context under fixed names (the Dockerfiles extract their payload instead
@@ -2251,7 +2251,7 @@ package_mage_docker() {
     echo -e "${RED_BOLD}Error: no memgraph-mage deb in $PROJECT_ROOT/output — run package-mage-deb first${RESET}" >&2
     exit 1
   fi
-  cp -v "$mage_deb" $PROJECT_ROOT/mage/memgraph-mage.deb
+  cp -v "$mage_deb" $PROJECT_ROOT/release/package/mage/memgraph-mage.deb
   if [[ "$docker_target" == "relwithdebinfo" ]]; then
     local mage_debuginfo_deb
     mage_debuginfo_deb=$(ls -1 $PROJECT_ROOT/output/memgraph-mage-debuginfo_*.deb 2>/dev/null | head -n 1)
@@ -2259,10 +2259,10 @@ package_mage_docker() {
       echo -e "${RED_BOLD}Error: no memgraph-mage-debuginfo deb in $PROJECT_ROOT/output — package a --split-debug build first${RESET}" >&2
       exit 1
     fi
-    cp -v "$mage_debuginfo_deb" $PROJECT_ROOT/mage/memgraph-mage-debuginfo.deb
+    cp -v "$mage_debuginfo_deb" $PROJECT_ROOT/release/package/mage/memgraph-mage-debuginfo.deb
   fi
 
-  cd $PROJECT_ROOT/mage
+  cd $PROJECT_ROOT/release/package/mage
 
   build_args=(
     --target $docker_target
@@ -2279,7 +2279,7 @@ package_mage_docker() {
 
   # copy custom mirror for CI
   if [[ "$custom_mirror" = "true" ]]; then
-    cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $PROJECT_ROOT/mage/ci.sources
+    cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $PROJECT_ROOT/release/package/mage/ci.sources
     build_args+=(--secret id=ubuntu_sources,src=ci.sources)
   fi
 
@@ -2301,7 +2301,7 @@ package_mage_offline_installer() {
   local memgraph_deb=""
   local mage_deb=""
   local output=""
-  local wheels_dir="$PROJECT_ROOT/mage/wheels"
+  local wheels_dir="$PROJECT_ROOT/release/package/mage/wheels"
   local malloc=false
   local cuda=false
   local cuda_version="13.0"
@@ -2460,7 +2460,7 @@ test_mage() {
         pybin="python3.12"
         docker exec -i -u root $build_container bash -c "rpm -q python3.12-pip >/dev/null 2>&1 || dnf install -y python3.12 python3.12-pip python3.12-devel"
       fi
-      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/mage/ && \
+      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/release/package/mage/ && \
         PYTHON=$pybin ./install_python_requirements.sh --ci --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
         $pybin -m pip install -r \$HOME/memgraph/src/mage/python/tests/requirements.txt --break-system-packages"
       docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/src/mage/python/ && $pybin -m pytest ."
@@ -2670,13 +2670,13 @@ build_pymgclient() {
   fi
   docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/tools/ci && ./build-pymgclient.sh"
   package_name=$(docker exec -i -u mg $build_container bash -c "ls \$HOME/memgraph/tools/ci/pymgclient/dist/")
-  docker cp $build_container:/home/mg/memgraph/tools/ci/pymgclient/dist/$package_name mage/wheels/
+  docker cp $build_container:/home/mg/memgraph/tools/ci/pymgclient/dist/$package_name release/package/mage/wheels/
   echo -e "${GREEN_BOLD}Package: ${RED_BOLD}$package_name${RESET}"
 }
 
 build_gssapi() {
   echo -e "${GREEN_BOLD}Packaging gssapi${RESET}"
-  local dest_dir="$PROJECT_ROOT/mage/wheels"
+  local dest_dir="$PROJECT_ROOT/release/package/mage/wheels"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
