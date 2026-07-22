@@ -845,7 +845,7 @@ jobs:
       - name: "Run End-to-end correctness tests (debug)"
         if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
         env:
-          PYTHONPATH: "$PWD/tests/e2e"
+          PYTHONPATH: "$PWD/tests/mage/e2e"
           TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
           MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
           MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
@@ -869,7 +869,7 @@ jobs:
       - name: "Run End-to-end migration tests (debug)"
         if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
         env:
-          PYTHONPATH: "$PWD/e2e"
+          PYTHONPATH: "$PWD/tests/mage/e2e"
           TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
           MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
           MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
@@ -951,7 +951,7 @@ jobs:
       - name: "Run End-to-end correctness tests (prod)"
         if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         env:
-          PYTHONPATH: "$PWD/tests/e2e"
+          PYTHONPATH: "$PWD/tests/mage/e2e"
           TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
           MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
           MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
@@ -975,7 +975,7 @@ jobs:
       - name: "Run End-to-end migration tests (prod)"
         if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') }}
         env:
-          PYTHONPATH: "$PWD/e2e"
+          PYTHONPATH: "$PWD/tests/mage/e2e"
           TARGET_DOCKER_NETWORK: "${{ env.MEMGRAPH_NETWORK }}"
           MEMGRAPH_METRICS_TARGETS: "${{ env.MAGE_CONTAINER }}:9091"
           MEMGRAPH_LOG_WS_TARGETS: "${{ env.MAGE_CONTAINER }}:7444"
