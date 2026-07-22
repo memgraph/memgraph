@@ -812,15 +812,23 @@ def add_counts(result: dict[str, Any]) -> None:
     }
 
 
-def scan_paths(paths: list[Path]) -> dict[str, Any]:
-    """Scan the requested roots and aggregate all discovered registrations."""
+def scan_paths(paths: list[Path], exclude: list[Path] | None = None) -> dict[str, Any]:
+    """Scan the requested roots and aggregate all discovered registrations.
+
+    Paths under any of the `exclude` roots are skipped — used to keep MAGE
+    (src/mage) out of the memgraph scan, whose `src` root would otherwise
+    swallow it and double-count every MAGE registration.
+    """
     result = new_result_block()
+    exclude = exclude or []
 
     for base in paths:
         if not base.exists():
             continue
         for path in sorted(base.rglob("*")):
             if not path.is_file():
+                continue
+            if any(path.is_relative_to(excluded) for excluded in exclude):
                 continue
             if path.suffix == ".py":
                 parse_python_file(path, result)
@@ -850,7 +858,8 @@ def build_output(target: str) -> dict[str, Any]:
         ]
         output["memgraph"] = {
             "roots": [relative_path(path) for path in memgraph_paths if path.exists()],
-            **scan_paths(memgraph_paths),
+            # src/mage lives inside src but belongs to the MAGE scan below.
+            **scan_paths(memgraph_paths, exclude=[REPO_ROOT / "src/mage"]),
         }
 
     if target in {"mage", "all"}:
