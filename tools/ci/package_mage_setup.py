@@ -62,7 +62,7 @@ def _build_docker_image(distro: str, cugraph: str) -> str:
     # something to run against. Only ubuntu-24.04 publishes a MAGE image; rpm
     # distros build none (smoke-tested via the rpm smoke image) and cugraph can't
     # be smoke/e2e-tested in CI (GPU), so it gets no image either.
-    return "debug" if (distro == "ubuntu-24.04" and cugraph != "true") else "none"
+    return "debug" if (distro.startswith("ubuntu-24.04") and cugraph != "true") else "none"
 
 
 class PackageMageSetup:
