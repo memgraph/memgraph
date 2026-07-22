@@ -566,7 +566,7 @@ if (MG_BUILD_MEMGRAPH)
 endif()
 
 if(MG_BUILD_MAGE)
-  add_subdirectory(mage)
+  add_subdirectory(src/mage)
 endif()
 
 # Release/packaging configuration (CPack). Always included — the component

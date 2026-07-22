@@ -6,7 +6,7 @@ import subprocess
 
 WORK_DIRECTORY = os.getcwd()
 REPO_ROOT = os.path.dirname(WORK_DIRECTORY)
-PY_DIRECTORY = f"{WORK_DIRECTORY}/python"
+PY_DIRECTORY = f"{REPO_ROOT}/src/mage/python"
 
 #################################################
 #            Unit Test C++ modules              #
