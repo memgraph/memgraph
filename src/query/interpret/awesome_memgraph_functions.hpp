@@ -59,15 +59,11 @@ struct func_info {
 using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
 
 struct ResolvedUserFunctions {
-  std::vector<func_impl> callables;
-  std::vector<std::shared_ptr<procedure::Module>> modules;  // keep backing modules loaded during execution
+  std::vector<user_func> functions;
 };
 
-/// Resolve user-defined function names against the module registry, holding a reference to each backing module for the
-/// caller's lifetime. Throws QueryRuntimeException if a function is no longer available (e.g. after a module reload).
 auto ResolveUserFunctions(const std::vector<std::string> &names) -> std::shared_ptr<ResolvedUserFunctions>;
 
-/// Resolve a single user-defined function on demand. Throws QueryRuntimeException if it doesn't exist.
 auto ResolveUserFunction(const std::string &name) -> user_func;
 
 /// Return the function implementation with the given name.

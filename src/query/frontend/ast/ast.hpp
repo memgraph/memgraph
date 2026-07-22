@@ -30,7 +30,6 @@
 #include "query/frontend/ast/query/where.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
-#include "query/procedure/module_fwd.hpp"
 #include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
@@ -1283,9 +1282,9 @@ class Function : public Expression {
 
   std::vector<memgraph::query::Expression *> arguments_;
   std::string function_name_;
-  std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> function_;  // builtins only
+  std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> function_;
   bool is_user_defined_{false};
-  int64_t user_function_id_{-1};  // slot in EvaluationContext::resolved_user_functions
+  int64_t user_function_id_{-1};
 
   Function *Clone(AstStorage *storage) const override {
     Function *object = storage->Create<Function>();

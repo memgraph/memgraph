@@ -20,6 +20,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "query/common.hpp"
@@ -36,6 +37,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
 
@@ -44,20 +46,30 @@ class VirtualEdge;
 
 class FineGrainedAuthChecker;
 
-// Picks the callable for a Function node: builtins are baked into the AST; user-defined functions come from the
-// per-execution table, or are resolved on demand with `keep_alive` holding the backing module for the call.
-inline const func_impl *SelectFunctionImpl(const Function &function, const EvaluationContext &ctx,
-                                           user_func &keep_alive) {
+struct SelectedFunction {
+  std::variant<const func_impl *, user_func> impl;
+
+  TypedValue operator()(const TypedValue *args, int64_t n, const FunctionContext &fctx) const {
+    return std::visit(utils::Overloaded{[&](const func_impl *f) { return (*f)(args, n, fctx); },
+                                        [&](const user_func &u) { return u.first(args, n, fctx); }},
+                      impl);
+  }
+};
+
+inline SelectedFunction SelectFunctionImpl(const Function &function, const EvaluationContext &ctx) {
   if (!function.is_user_defined_) {
-    return &function.function_;
+    return {&function.function_};
   }
   const auto &resolved = ctx.resolved_user_functions;
-  if (resolved && function.user_function_id_ >= 0 &&
-      static_cast<size_t>(function.user_function_id_) < resolved->callables.size()) {
-    return &resolved->callables[function.user_function_id_];
+  if (resolved && function.user_function_id_ >= 0) {
+    const auto slot = static_cast<size_t>(function.user_function_id_);
+    MG_ASSERT(slot < resolved->functions.size(),
+              "user_function_id_ {} out of range for resolved table of size {}",
+              function.user_function_id_,
+              resolved->functions.size());
+    return {&resolved->functions[slot].first};
   }
-  keep_alive = ResolveUserFunction(function.function_name_);
-  return &keep_alive.first;
+  return {ResolveUserFunction(function.function_name_)};
 }
 
 class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *> {
@@ -178,8 +190,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
                                  .counters = &ctx_->counters,
                                  .view = storage::View::OLD};
     TypedValue res(ctx_->memory);
-    user_func on_demand;
-    const func_impl *impl = SelectFunctionImpl(function, *ctx_, on_demand);
+    const SelectedFunction impl = SelectFunctionImpl(function, *ctx_);
     if (function.arguments_.size() <= 8) {
       utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
       auto constructed_count = 0;
@@ -192,14 +203,14 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
         std::construct_at(&(*arguments.as())[i], function.arguments_[i]->Accept(*this));
         ++constructed_count;
       }
-      res = (*impl)(arguments.as()->data(), static_cast<int64_t>(function.arguments_.size()), function_ctx);
+      res = impl(arguments.as()->data(), static_cast<int64_t>(function.arguments_.size()), function_ctx);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      res = (*impl)(arguments.data(), static_cast<int64_t>(arguments.size()), function_ctx);
+      res = impl(arguments.data(), static_cast<int64_t>(arguments.size()), function_ctx);
     }
     return res;
   }
@@ -780,8 +791,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     };
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
-    user_func on_demand;
-    const func_impl *impl = SelectFunctionImpl(function, *ctx_, on_demand);
+    const SelectedFunction impl = SelectFunctionImpl(function, *ctx_);
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
@@ -796,14 +806,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         ++constructed_count;
       }
 
-      res = (*impl)(arguments.as()->data(), function.arguments_.size(), function_ctx);
+      res = impl(arguments.as()->data(), function.arguments_.size(), function_ctx);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      res = (*impl)(arguments.data(), arguments.size(), function_ctx);
+      res = impl(arguments.data(), arguments.size(), function_ctx);
     }
     MG_ASSERT(res.get_allocator().resource() == ctx_->memory);
     if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {

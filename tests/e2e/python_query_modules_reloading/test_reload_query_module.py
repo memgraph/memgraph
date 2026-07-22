@@ -13,6 +13,7 @@
 import os  # To be removed
 import sys
 
+import mgclient
 import pytest
 from common import connect, create_multi_db, execute_and_fetch_all, switch_db
 
@@ -209,8 +210,6 @@ def test_mg_load_all_reload_submodule(switch):
 
 @pytest.mark.parametrize("switch", [False, True])
 def test_mg_load_reload_magic_function(switch):
-    """A query using a magic function is cacheable; reloading the module must not be blocked by the cached
-    plan, and the next execution must run the reloaded implementation."""
     cursor = connect().cursor()
     if switch:
         create_multi_db(cursor)
@@ -218,15 +217,82 @@ def test_mg_load_reload_magic_function(switch):
     write_combine_function("+")
     execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
     try:
-        # populate the plan cache with a magic-function query
         assert execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")[0][0] == 5
         assert execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")[0][0] == 5
-        # swap the implementation; reload must succeed even though the query is cached
         write_combine_function("*")
         execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
-        # the cached query must re-resolve and run the new implementation
         assert execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")[0][0] == 6
     finally:
+        write_combine_function("+")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+
+
+def test_mg_load_removing_used_magic_function_errors():
+    cursor = connect().cursor()
+    write_combine_function("+")
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+    try:
+        assert execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")[0][0] == 5
+        with open(RELOAD_FUNC_MODULE_PATH, "w") as func_file:
+            func_file.write("import mgp\n")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(cursor, "RETURN reload_func_module.combine(2, 3) AS r;")
+    finally:
+        write_combine_function("+")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+
+
+def test_multiple_magic_functions_in_one_query():
+    cursor = connect().cursor()
+    with open(RELOAD_FUNC_MODULE_PATH, "w") as func_file:
+        func_file.write(
+            "import mgp\n\n\n"
+            "@mgp.function\n"
+            "def combine(ctx: mgp.FuncCtx, a: mgp.Number, b: mgp.Number):\n"
+            "    return a + b\n\n\n"
+            "@mgp.function\n"
+            "def diff(ctx: mgp.FuncCtx, a: mgp.Number, b: mgp.Number):\n"
+            "    return a - b\n"
+        )
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+    try:
+        row = execute_and_fetch_all(
+            cursor, "RETURN reload_func_module.combine(5, 3) AS c, reload_func_module.diff(5, 3) AS d;"
+        )[0]
+        assert row[0] == 8
+        assert row[1] == 2
+    finally:
+        write_combine_function("+")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+
+
+@pytest.mark.parametrize("switch", [False, True])
+def test_trigger_using_magic_function_reload(switch):
+    cursor = connect().cursor()
+    if switch:
+        create_multi_db(cursor)
+        switch_db(cursor)
+    write_combine_function("+")
+    execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+    try:
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+        execute_and_fetch_all(
+            cursor,
+            "CREATE TRIGGER combine_trigger ON () CREATE BEFORE COMMIT "
+            "EXECUTE UNWIND createdVertices AS v SET v.r = reload_func_module.combine(2, 3);",
+        )
+        execute_and_fetch_all(cursor, "CREATE (:A);")
+        assert execute_and_fetch_all(cursor, "MATCH (n:A) RETURN n.r;")[0][0] == 5
+        write_combine_function("*")
+        execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
+        execute_and_fetch_all(cursor, "CREATE (:B);")
+        assert execute_and_fetch_all(cursor, "MATCH (n:B) RETURN n.r;")[0][0] == 6
+    finally:
+        try:
+            execute_and_fetch_all(cursor, "DROP TRIGGER combine_trigger;")
+        except mgclient.DatabaseError:
+            pass
         write_combine_function("+")
         execute_and_fetch_all(cursor, "CALL mg.load('reload_func_module');")
 
