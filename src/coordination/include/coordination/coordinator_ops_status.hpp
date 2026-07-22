@@ -31,10 +31,6 @@ enum class SetCoordinatorSettingStatus : uint8_t {
   LEADER_FAILED
 };
 
-// Role/privilege ops forward to the leader (see CoordinatorInstance). SUCCESS/LEADER_FAILED/LEADER_NOT_FOUND make the
-// write enums satisfy the ForwardableStatus concept; the RPC round-trip preserves the leader's exact status so a
-// forwarded query reports the same outcome (e.g. ROLE_ALREADY_EXISTS) as a leader-local one. LEADER_FAILED also covers
-// a mixed-version leader that has no handler for the RPC (surfaced as an error, never a crash).
 enum class CreateRoleStatus : uint8_t {
   SUCCESS = 0,
   ROLE_ALREADY_EXISTS,

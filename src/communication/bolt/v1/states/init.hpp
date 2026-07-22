@@ -156,7 +156,12 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
       return false;
     }
     for (const auto &mapping : utils::Split(FLAGS_auth_module_mappings, ";")) {
-      if (auth_scheme == utils::Trim(utils::Split(mapping, ":")[0])) {
+      const auto module_and_scheme = utils::Split(mapping, ":");
+      // An empty element (e.g. from a trailing ';' in the flag) splits into an empty vector.
+      if (module_and_scheme.empty()) {
+        continue;
+      }
+      if (auth_scheme == utils::Trim(module_and_scheme[0])) {
         return true;
       }
     }
@@ -181,6 +186,7 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
         HandleAuthFailure(session);
         return State::Close;
       }
+      session.CoordinatorPassthroughAuthenticate();
       return std::nullopt;
     }
     if (scheme_in_module_mappings(schema)) {

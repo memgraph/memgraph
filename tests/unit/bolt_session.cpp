@@ -142,6 +142,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
       const std::string & /*scheme*/, const std::string & /*identity_provider_response*/) {
     return {/* success */};
   }
+
+  void CoordinatorPassthroughAuthenticate() {}
 #endif
 
   void LogOff() {}

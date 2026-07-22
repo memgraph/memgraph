@@ -177,13 +177,13 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
             res_builder);
       });
 
-  // Role/privilege writes forwarded from a follower. The response carries a bool success flag; the follower maps a
-  // false to a forwarding error rather than the leader's exact status.
+  // Role/privilege writes forwarded from a follower. The response carries the leader's exact status so the follower
+  // reports the same reason as the leader (and CREATE ROLE IF NOT EXISTS can treat ROLE_ALREADY_EXISTS as a no-op).
   server.Register<CreateRoleRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
                                      uint64_t const request_version,
                                      slk::Reader *req_reader,
                                      slk::Builder *res_builder) -> void {
-    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<CreateRoleRpc, CreateRoleStatus>(
+    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<CreateRoleRpc>(
         [&coordinator_instance](std::string_view role_name) -> CreateRoleStatus {
           return coordinator_instance.CreateRole(role_name);
         },
@@ -196,7 +196,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
                                    uint64_t const request_version,
                                    slk::Reader *req_reader,
                                    slk::Builder *res_builder) -> void {
-    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<DropRoleRpc, DropRoleStatus>(
+    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<DropRoleRpc>(
         [&coordinator_instance](std::string_view role_name) -> DropRoleStatus {
           return coordinator_instance.DropRole(role_name);
         },
@@ -210,7 +210,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           uint64_t const request_version,
           slk::Reader *req_reader,
           slk::Builder *res_builder) -> void {
-        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<GrantPrivilegeRpc, GrantPrivilegeStatus>(
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<GrantPrivilegeRpc>(
             [&coordinator_instance](std::pair<std::string, uint64_t> const &arg) -> GrantPrivilegeStatus {
               return coordinator_instance.GrantPrivilege(arg.first, arg.second);
             },
@@ -224,7 +224,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           uint64_t const request_version,
           slk::Reader *req_reader,
           slk::Builder *res_builder) -> void {
-        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<RevokePrivilegeRpc, RevokePrivilegeStatus>(
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<RevokePrivilegeRpc>(
             [&coordinator_instance](std::pair<std::string, uint64_t> const &arg) -> RevokePrivilegeStatus {
               return coordinator_instance.RevokePrivilege(arg.first, arg.second);
             },
@@ -248,15 +248,15 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
             res_builder);
       });
 
-  // Role/privilege reads forwarded from a follower. An unengaged optional means this coordinator is not the ready
-  // leader, which the follower surfaces as a forwarding error.
+  // Role/privilege reads forwarded from a follower. An unengaged optional means this coordinator couldn't serve the
+  // read as the ready leader (or reach one), which the follower surfaces as a forwarding error.
   server.Register<GetRolesRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
                                    uint64_t const request_version,
                                    slk::Reader *req_reader,
                                    slk::Builder *res_builder) -> void {
     CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<GetRolesRpc>(
         [&coordinator_instance]() -> std::optional<std::vector<CoordinatorRole>> {
-          return coordinator_instance.GetRolesAsLeader();
+          return coordinator_instance.GetRoles();
         },
         request_version,
         req_reader,

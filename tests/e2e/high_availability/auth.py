@@ -872,6 +872,11 @@ def test_privilege_queries_rejected_for_non_role_targets(test_name):
         # Multi-tenancy database access.
         "GRANT DATABASE mydb TO some_role",
         "REVOKE DATABASE mydb FROM some_role",
+        # SHOW PRIVILEGES with an ON clause targets a database; coordinators have none, so even a ROLE target is
+        # rejected.
+        "SHOW PRIVILEGES FOR ROLE some_role ON MAIN",
+        "SHOW PRIVILEGES FOR ROLE some_role ON CURRENT",
+        "SHOW PRIVILEGES FOR ROLE some_role ON DATABASE mydb",
     ]
     for query in rejected_queries:
         try:
@@ -944,9 +949,9 @@ def get_cursor(port):
 
 
 def test_role_crud_forwarded_from_follower(test_name):
-    # CREATE/DROP/SHOW ROLE run on a follower are forwarded to the leader. Successful writes/reads produce the same
-    # result as on the leader; a rejected write only surfaces as a generic forwarding error, since the follower learns
-    # success/failure over RPC, not the leader's exact status (exact reasons are asserted in test_role_crud_on_leader).
+    # CREATE/DROP/SHOW ROLE run on a follower are forwarded to the leader. The write responses carry the leader's
+    # exact status, so a follower produces the same result and the same error reasons as the leader — including
+    # CREATE ROLE IF NOT EXISTS treating an existing role as a no-op.
     inner_instances_description = get_coords_only_description(test_name=test_name)
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -963,25 +968,36 @@ def test_role_crud_forwarded_from_follower(test_name):
     execute_and_fetch_all(follower_cursor, "CREATE ROLE r2")
     assert show_roles(follower_cursor) == ["r1", "r2"]
 
-    # A write the leader rejects (here, a duplicate role) surfaces on the follower as a generic forwarding error rather
-    # than the leader's exact "already exists" reason.
+    # The CreateRole response carries the leader's exact status, so a duplicate CREATE ROLE forwarded from a follower
+    # reports the same "already exists" reason as on the leader.
     try:
         execute_and_fetch_all(follower_cursor, "CREATE ROLE r1")
         assert False, "Duplicate CREATE ROLE forwarded from a follower should error"
     except Exception as e:
-        assert "failed to process the request" in str(e), f"Unexpected error: {e}"
+        assert "already exists" in str(e), f"Unexpected error: {e}"
+
+    # CREATE ROLE IF NOT EXISTS of an existing role forwarded from a follower is a silent no-op, exactly as on the
+    # leader.
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE IF NOT EXISTS r1")
+    assert show_roles(follower_cursor) == ["r1", "r2"]
+
+    # IF NOT EXISTS still creates the role when it is missing.
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE IF NOT EXISTS r3")
+    assert show_roles(follower_cursor) == ["r1", "r2", "r3"]
+    assert show_roles(leader_cursor) == ["r1", "r2", "r3"]
+    execute_and_fetch_all(follower_cursor, "DROP ROLE r3")
 
     # DROP on a follower is forwarded and committed.
     execute_and_fetch_all(follower_cursor, "DROP ROLE r1")
     assert show_roles(follower_cursor) == ["r2"]
     assert show_roles(leader_cursor) == ["r2"]
 
-    # DROP of a missing role forwarded from a follower surfaces the same generic forwarding error.
+    # DROP of a missing role forwarded from a follower reports the leader's exact "doesn't exist" reason.
     try:
         execute_and_fetch_all(follower_cursor, "DROP ROLE r1")
         assert False, "DROP of a missing role forwarded from a follower should error"
     except Exception as e:
-        assert "failed to process the request" in str(e), f"Unexpected error: {e}"
+        assert "doesn't exist" in str(e), f"Unexpected error: {e}"
 
 
 def test_privilege_grant_revoke_show_forwarded_from_follower(test_name):
@@ -1016,13 +1032,18 @@ def test_privilege_grant_revoke_show_forwarded_from_follower(test_name):
     execute_and_fetch_all(follower_cursor, "REVOKE ALL PRIVILEGES FROM reader")
     assert show_privileges(follower_cursor, "reader") == []
 
-    # GRANT on a missing role forwarded from a follower surfaces a generic forwarding error rather than the leader's
-    # exact "doesn't exist" reason.
+    # GRANT/REVOKE on a missing role forwarded from a follower report the leader's exact "doesn't exist" reason.
     try:
         execute_and_fetch_all(follower_cursor, "GRANT COORDINATOR_READ TO missing_role")
         assert False, "GRANT on a missing role forwarded from a follower should error"
     except Exception as e:
-        assert "failed to process the request" in str(e), f"Unexpected error: {e}"
+        assert "doesn't exist" in str(e), f"Unexpected error: {e}"
+
+    try:
+        execute_and_fetch_all(follower_cursor, "REVOKE COORDINATOR_READ FROM missing_role")
+        assert False, "REVOKE on a missing role forwarded from a follower should error"
+    except Exception as e:
+        assert "doesn't exist" in str(e), f"Unexpected error: {e}"
 
 
 def test_lagging_follower_catch_up(test_name):
@@ -1339,6 +1360,45 @@ def test_sso_privilege_enforcement(test_name):
     # Bare-role session: a role with neither COORDINATOR_READ nor COORDINATOR_WRITE could not run any coordinator query
     # (not even the routing table), so the login itself is rejected rather than admitting a session denied everything.
     assert not sso_connects(leader_port, "oidc", "bare")
+
+
+def test_sso_privilege_revocation_applies_to_connected_session(test_name):
+    # REVOKE / DROP ROLE downgrades an already-connected SSO session without a reconnect: the effective mask is
+    # recomputed from the session's roles on every privilege check rather than captured once at login. Long-lived
+    # connections (driver routing pools, open admin shells) would otherwise keep revoked privileges until reconnect.
+    def bootstrap(cursor):
+        create_role_with_privilege(cursor, "ops", grant="COORDINATOR_WRITE")
+
+    start_sso_cluster(test_name, bootstrap)
+    leader_port = sso_wait_for_ready_leader_port()
+
+    with sso_driver(leader_port, "oidc", "ops") as driver:
+        with driver.session() as session:
+            # The session mutates freely while its role carries COORDINATOR_WRITE.
+            list(session.run("CREATE ROLE from_ops"))
+
+            # Downgrade the role from a separate admin session: grant READ first so the session keeps read access,
+            # then revoke WRITE.
+            sso_run(leader_port, "oidc", ADMIN_TOKEN, "GRANT COORDINATOR_READ TO ops")
+            sso_run(leader_port, "oidc", ADMIN_TOKEN, "REVOKE COORDINATOR_WRITE FROM ops")
+
+            # The open session is downgraded in place: mutating queries are now denied...
+            try:
+                list(session.run("CREATE ROLE from_ops_after_revoke"))
+                assert False, "A session whose role lost COORDINATOR_WRITE must not run a mutating query"
+            except Exception as e:
+                assert "required privilege" in str(e), f"Unexpected error: {e}"
+
+            # ...while reads keep working through the remaining COORDINATOR_READ.
+            assert "from_ops" in [name for (name,) in session.run("SHOW ROLES")]
+
+            # Dropping the role removes the last privilege: the open session is denied everything.
+            sso_run(leader_port, "oidc", ADMIN_TOKEN, "DROP ROLE ops")
+            try:
+                list(session.run("SHOW ROLES"))
+                assert False, "A session whose role was dropped must not run coordinator queries"
+            except Exception as e:
+                assert "required privilege" in str(e), f"Unexpected error: {e}"
 
 
 def test_sso_show_current_role(test_name):

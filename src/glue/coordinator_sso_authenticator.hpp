@@ -52,8 +52,7 @@ class CoordinatorSSOAuthenticator {
   // Authenticates the SSO connection. On success returns the session's effective privilege mask (the union of the
   // matched roles' masks) together with the matched role names, or nullopt on rejection. Rejection cases: the module
   // fails / returns an invalid token, the module returns no roles, or any returned role does not exist in the committed
-  // role set. A returned role that exists but carries no grant contributes a zero mask, so a bare-role session
-  // authenticates with an all-denying (zero) effective mask.
+  // role set or role exists but without any privilege
   std::optional<AuthResult> Authenticate(std::string const &scheme,
                                          std::string const &identity_provider_response) const;
 

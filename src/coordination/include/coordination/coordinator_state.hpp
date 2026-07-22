@@ -66,7 +66,9 @@ class CoordinatorState {
 
   auto DropRole(std::string_view role_name) const -> DropRoleStatus;
 
-  auto GetRoles() const -> std::vector<CoordinatorRole>;
+  // Strong read served by the leader: nullopt when the leader is unreachable, never local replicated state, so
+  // consumers (SSO authentication, privilege checks, SHOW ROLES) fail closed instead of acting on stale roles.
+  auto GetRoles() const -> std::optional<std::vector<CoordinatorRole>>;
 
   auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> GrantPrivilegeStatus;
 

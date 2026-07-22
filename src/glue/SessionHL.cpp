@@ -366,10 +366,16 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::CoordinatorSSOA
     return std::unexpected{communication::bolt::AuthFailure::kGeneric};
   }
 
-  // Snapshot the coordinator's committed role set once (forwarded to the leader if this coordinator is a follower,
-  // falling back to local replicated state when the leader is unreachable). The role-existence and mask lookup below
-  // read this Raft-replicated set -- the auth kvstore is never consulted for coordinator roles.
-  auto const roles = coordinator_state->GetRoles();
+  // Snapshot the leader's committed role set once (read locally if this coordinator is the ready leader, otherwise
+  // forwarded to the leader). Authentication is fail-closed: when the leader is unreachable the login is rejected
+  // rather than validated against possibly-stale local replicated state, which could still contain a dropped role or
+  // an already-revoked mask. The auth kvstore is never consulted for coordinator roles.
+  auto const maybe_roles = coordinator_state->GetRoles();
+  if (!maybe_roles.has_value()) {
+    spdlog::warn("Rejecting SSO login on coordinator: the leader is unreachable so the role set cannot be validated.");
+    return std::unexpected{communication::bolt::AuthFailure::kGeneric};
+  }
+  auto const &roles = *maybe_roles;
 
   auto role_mask_provider = [&roles](std::string const &role_name) -> std::optional<uint64_t> {
     auto const it = std::ranges::find(roles, role_name, &coordination::CoordinatorRole::name);
@@ -391,13 +397,20 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::CoordinatorSSOA
     return std::unexpected{communication::bolt::AuthFailure::kGeneric};
   }
 
-  // The session carries the effective privilege mask; the coordinator privilege checks (query gate and ROUTE handler)
-  // consult it rather than the auth kvstore. Authentication already rejects any identity without COORDINATOR_READ or
-  // COORDINATOR_WRITE, so a surviving session can run at least read queries. The matched role names are carried too so
-  // SHOW CURRENT ROLE can report the session's roles.
+  // The session carries the matched role names; the coordinator privilege checks (query gate and ROUTE handler)
+  // recompute the effective mask from these roles against the leader's committed role set on every check, so a
+  // later REVOKE or DROP ROLE downgrades this session without a reconnect. The login-time mask is stored too, but it
+  // is authoritative only for role-less (basic-auth passthrough) sessions. Authentication already rejects any identity
+  // without COORDINATOR_READ or COORDINATOR_WRITE, so a surviving session starts with at least read privileges.
   interpreter_.SetCoordinatorPrivileges(auth_result->effective_mask);
   interpreter_.SetCoordinatorRoles(std::move(auth_result->roles));
   return {};
+}
+
+void SessionHL::CoordinatorPassthroughAuthenticate() {
+  interpreter_.SetCoordinatorPrivileges(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
+                                        static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE));
+  interpreter_.SetCoordinatorRoles({});
 }
 #endif
 
@@ -405,6 +418,10 @@ void SessionHL::LogOff() {
   Abort();
 #ifdef MG_ENTERPRISE
   interpreter_.ResetDB();
+  // Defense-in-depth: a logged-off session carries no coordinator privileges until the next LOGON re-establishes
+  // them (SSO or basic passthrough).
+  interpreter_.SetCoordinatorPrivileges(0);
+  interpreter_.SetCoordinatorRoles({});
 #endif
   interpreter_.ResetUser();
   session_user_or_role_.reset();

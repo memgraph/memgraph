@@ -176,7 +176,7 @@ auto CoordinatorState::DropRole(std::string_view const role_name) const -> DropR
   return std::get<CoordinatorInstance>(data_).DropRole(role_name);
 }
 
-auto CoordinatorState::GetRoles() const -> std::vector<CoordinatorRole> {
+auto CoordinatorState::GetRoles() const -> std::optional<std::vector<CoordinatorRole>> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator roles cannot be retrieved since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).GetRoles();

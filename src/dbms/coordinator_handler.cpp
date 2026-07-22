@@ -67,7 +67,7 @@ auto CoordinatorHandler::DropRole(std::string_view const role_name) const -> coo
   return coordinator_state_.DropRole(role_name);
 }
 
-auto CoordinatorHandler::GetRoles() const -> std::vector<coordination::CoordinatorRole> {
+auto CoordinatorHandler::GetRoles() const -> std::optional<std::vector<coordination::CoordinatorRole>> {
   return coordinator_state_.GetRoles();
 }
 

@@ -719,9 +719,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   std::vector<std::string> ShowRoles() override {
-    // A follower serves the read from local replicated state when the leader is unreachable, so this always succeeds.
+    // Strong read served by the leader; when the leader is unreachable the query fails rather than serving
+    // possibly-stale local replicated state.
     auto const roles = coordinator_handler_.GetRoles();
-    return roles | rv::transform([](auto const &role) { return role.name; }) | ranges::to_vector;
+    if (!roles.has_value()) {
+      throw QueryRuntimeException(GetLeaderNotFoundForwardedQueryMessage());
+    }
+    return *roles | rv::transform([](auto const &role) { return role.name; }) | ranges::to_vector;
   }
 
   void GrantCoordinatorPrivilege(std::string_view const role_name, uint64_t const privileges) override {
@@ -9829,6 +9833,29 @@ void Interpreter::RollbackTransaction() {
 }
 
 #ifdef MG_ENTERPRISE
+uint64_t Interpreter::EffectiveCoordinatorPermissions() const {
+  // Role-less (basic-auth passthrough) sessions keep the mask fixed at login. Sessions with coordinator roles derive
+  // the mask from the leader's committed role set on every check, so REVOKE/DROP ROLE applies to connected sessions
+  // immediately -- long-lived connections (driver routing pools, open admin shells) would otherwise keep revoked
+  // privileges until reconnect. A dropped role contributes nothing; an unreachable leader yields no privileges
+  // (fail closed) rather than a decision on possibly-stale local state.
+  if (coordinator_roles_.empty()) {
+    return coordinator_permissions_;
+  }
+  auto const roles = interpreter_context_->coordinator_state_->GetRoles();
+  if (!roles.has_value()) {
+    return 0;
+  }
+  uint64_t mask = 0;
+  for (auto const &role_name : coordinator_roles_) {
+    if (auto const it = std::ranges::find(*roles, role_name, &coordination::CoordinatorRole::name);
+        it != roles->end()) {
+      mask |= it->permissions;
+    }
+  }
+  return mask;
+}
+
 auto Interpreter::Route(std::optional<std::string> const &db) -> RouteResult {
   if (!interpreter_context_->coordinator_state_) {
     throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
@@ -9839,7 +9866,7 @@ auto Interpreter::Route(std::optional<std::string> const &db) -> RouteResult {
 
   // The routing table is a Bolt ROUTE message that bypasses the query privilege path, so gate it here: reading the
   // routing table requires READ (WRITE satisfies it). A basic-auth passthrough session carries full WRITE.
-  if (!auth::CoordinatorMaskSatisfies(coordinator_permissions_, auth::Permission::COORDINATOR_READ)) {
+  if (!auth::CoordinatorMaskSatisfies(EffectiveCoordinatorPermissions(), auth::Permission::COORDINATOR_READ)) {
     throw QueryException("You don't have permission to read the routing table on the coordinator!");
   }
 
@@ -10285,7 +10312,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator() &&
         !IsCoordinatorSelfServiceAuthQuery(parsed_query.query)) {
       auto const required = RequiredCoordinatorPermission(parsed_query.query);
-      if (!auth::CoordinatorMaskSatisfies(coordinator_permissions_, required)) {
+      if (!auth::CoordinatorMaskSatisfies(EffectiveCoordinatorPermissions(), required)) {
         throw QueryRuntimeException("You don't have the required privilege to run this query on the coordinator!");
       }
     }
