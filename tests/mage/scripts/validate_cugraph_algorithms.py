@@ -62,9 +62,10 @@ TOLERANCE = 0.05  # 5% relative tolerance
 ABS_TOLERANCE = 1e-6  # Absolute tolerance for near-zero values
 
 # Expected nodes in the test graph
-EXPECTED_NODES = {'A1', 'A2', 'A3', 'A4', 'B1', 'B2', 'B3', 'B4', 'HUB'}
-COMMUNITY_A = {'A1', 'A2', 'A3', 'A4'}
-COMMUNITY_B = {'B1', 'B2', 'B3', 'B4'}
+EXPECTED_NODES = {"A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "HUB"}
+COMMUNITY_A = {"A1", "A2", "A3", "A4"}
+COMMUNITY_B = {"B1", "B2", "B3", "B4"}
+
 
 def build_networkx_graph() -> nx.DiGraph:
     """Build the same test graph in NetworkX for ground truth comparison."""
@@ -72,37 +73,47 @@ def build_networkx_graph() -> nx.DiGraph:
 
     # Add nodes with names
     nodes = [
-        (1, {'name': 'A1'}),
-        (2, {'name': 'A2'}),
-        (3, {'name': 'A3'}),
-        (4, {'name': 'A4'}),
-        (5, {'name': 'B1'}),
-        (6, {'name': 'B2'}),
-        (7, {'name': 'B3'}),
-        (8, {'name': 'B4'}),
-        (9, {'name': 'HUB'}),
+        (1, {"name": "A1"}),
+        (2, {"name": "A2"}),
+        (3, {"name": "A3"}),
+        (4, {"name": "A4"}),
+        (5, {"name": "B1"}),
+        (6, {"name": "B2"}),
+        (7, {"name": "B3"}),
+        (8, {"name": "B4"}),
+        (9, {"name": "HUB"}),
     ]
     G.add_nodes_from(nodes)
 
     # Community 1 edges (A1-A4)
     community1_edges = [
-        (1, 2), (2, 3), (3, 4), (4, 1),  # Ring
-        (1, 3), (2, 4),  # Cross connections
+        (1, 2),
+        (2, 3),
+        (3, 4),
+        (4, 1),  # Ring
+        (1, 3),
+        (2, 4),  # Cross connections
     ]
 
     # Community 2 edges (B1-B4)
     community2_edges = [
-        (5, 6), (6, 7), (7, 8), (8, 5),  # Ring
-        (5, 7), (6, 8),  # Cross connections
+        (5, 6),
+        (6, 7),
+        (7, 8),
+        (8, 5),  # Ring
+        (5, 7),
+        (6, 8),  # Cross connections
     ]
 
     # Hub connections
     hub_edges = [
-        (1, 9), (9, 5),  # A1 -> HUB -> B1
-        (9, 1), (5, 9),  # HUB -> A1, B1 -> HUB
+        (1, 9),
+        (9, 5),  # A1 -> HUB -> B1
+        (9, 1),
+        (5, 9),  # HUB -> A1, B1 -> HUB
     ]
 
-    all_edges = [(u, v, {'weight': 1.0}) for u, v in community1_edges + community2_edges + hub_edges]
+    all_edges = [(u, v, {"weight": 1.0}) for u, v in community1_edges + community2_edges + hub_edges]
     G.add_edges_from(all_edges)
 
     return G
@@ -111,7 +122,7 @@ def build_networkx_graph() -> nx.DiGraph:
 def get_networkx_ground_truth(G: nx.DiGraph) -> dict[str, Any]:
     """Compute ground truth values using NetworkX algorithms."""
     # Create name lookup
-    id_to_name = {node: G.nodes[node]['name'] for node in G.nodes()}
+    id_to_name = {node: G.nodes[node]["name"] for node in G.nodes()}
 
     # PageRank
     pagerank = nx.pagerank(G, alpha=0.85, max_iter=100, tol=1e-5)
@@ -149,13 +160,13 @@ def get_networkx_ground_truth(G: nx.DiGraph) -> dict[str, Any]:
     ppr_by_name = {id_to_name[k]: v for k, v in ppr.items()}
 
     return {
-        'pagerank': pagerank_by_name,
-        'betweenness': betweenness_by_name,
-        'hubs': hubs_by_name,
-        'authorities': authorities_by_name,
-        'katz': katz_by_name,
-        'communities': community_by_name,
-        'personalized_pagerank': ppr_by_name,
+        "pagerank": pagerank_by_name,
+        "betweenness": betweenness_by_name,
+        "hubs": hubs_by_name,
+        "authorities": authorities_by_name,
+        "katz": katz_by_name,
+        "communities": community_by_name,
+        "personalized_pagerank": ppr_by_name,
     }
 
 
@@ -177,6 +188,7 @@ def values_match(expected: float, actual: float, name: str = "") -> tuple[bool, 
 
 def communities_match(expected: dict[str, int], actual: dict[str, int]) -> tuple[bool, str]:
     """Check if community assignments group the same nodes together."""
+
     # Build sets of nodes in each community for both
     def get_community_sets(comm_dict):
         sets = {}
@@ -256,14 +268,23 @@ def setup_container():
     gid = os.getgid()
 
     cmd = [
-        "docker", "run", "-d",
-        "--name", CONTAINER_NAME,
-        "--user", f"{uid}:{gid}",
-        "--gpus", "all",
-        "-p", "7687:7687",
-        "-p", "7444:7444",
-        "-p", "3000:3000",
-        "-v", f"{MEMGRAPH_DATA_DIR}:/var/lib/memgraph:z",
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        CONTAINER_NAME,
+        "--user",
+        f"{uid}:{gid}",
+        "--gpus",
+        "all",
+        "-p",
+        "7687:7687",
+        "-p",
+        "7444:7444",
+        "-p",
+        "3000:3000",
+        "-v",
+        f"{MEMGRAPH_DATA_DIR}:/var/lib/memgraph:z",
         IMAGE_NAME,
         "--storage-mode=IN_MEMORY_ANALYTICAL",
         "--query-execution-timeout-sec=0",
@@ -364,7 +385,7 @@ def validate_node_identities(records: list, algorithm_name: str) -> tuple[bool, 
         errors.append(f"Expected 9 nodes, got {len(records)}")
 
     # Check all node names are present
-    returned_names = {r['name'] for r in records}
+    returned_names = {r["name"] for r in records}
     missing = EXPECTED_NODES - returned_names
     extra = returned_names - EXPECTED_NODES
 
@@ -380,12 +401,14 @@ def test_pagerank(session, ground_truth: dict) -> bool:
     """Test PageRank algorithm against NetworkX ground truth."""
     print("\n--- Testing PageRank ---")
     try:
-        result = session.run("""
+        result = session.run(
+            """
             CALL cugraph.pagerank.get(100, 0.85, 1e-5)
             YIELD node, pagerank
             RETURN node.id AS id, node.name AS name, pagerank
             ORDER BY pagerank DESC
-        """)
+        """
+        )
 
         records = list(result)
 
@@ -399,12 +422,12 @@ def test_pagerank(session, ground_truth: dict) -> bool:
         print(f"✓ PageRank: {len(records)} nodes returned")
 
         # Compare against NetworkX ground truth
-        expected = ground_truth['pagerank']
+        expected = ground_truth["pagerank"]
         all_match = True
 
         for r in records:
-            name = r['name']
-            actual = r['pagerank']
+            name = r["name"]
+            actual = r["pagerank"]
             exp = expected[name]
             match, err = values_match(exp, actual, name)
             if not match:
@@ -414,7 +437,7 @@ def test_pagerank(session, ground_truth: dict) -> bool:
                 print(f"  ✓ {name}: {actual:.6f} (expected: {exp:.6f})")
 
         # Verify ranking order matches
-        actual_ranking = [r['name'] for r in records]
+        actual_ranking = [r["name"] for r in records]
         expected_ranking = sorted(expected.keys(), key=lambda x: expected[x], reverse=True)
 
         # Check top 3 ranking
@@ -433,12 +456,14 @@ def test_betweenness_centrality(session, ground_truth: dict) -> bool:
     """Test Betweenness Centrality - HUB must be highest."""
     print("\n--- Testing Betweenness Centrality ---")
     try:
-        result = session.run("""
+        result = session.run(
+            """
             CALL cugraph.betweenness_centrality.get(true, true)
             YIELD node, betweenness
             RETURN node.id AS id, node.name AS name, betweenness
             ORDER BY betweenness DESC
-        """)
+        """
+        )
 
         records = list(result)
 
@@ -450,12 +475,12 @@ def test_betweenness_centrality(session, ground_truth: dict) -> bool:
 
         print(f"✓ Betweenness Centrality: {len(records)} nodes returned")
 
-        expected = ground_truth['betweenness']
+        expected = ground_truth["betweenness"]
         all_match = True
 
         for r in records:
-            name = r['name']
-            actual = r['betweenness']
+            name = r["name"]
+            actual = r["betweenness"]
             exp = expected[name]
             match, err = values_match(exp, actual, name)
             if not match:
@@ -467,11 +492,11 @@ def test_betweenness_centrality(session, ground_truth: dict) -> bool:
         # Semantic check: HUB should be in top 3 and have high betweenness (it's the bridge)
         # Note: In linear chain topology, chain endpoints (A1, B1) have higher betweenness
         # because all paths from their chains must pass through them
-        sorted_records = sorted(records, key=lambda r: r['betweenness'], reverse=True)
-        top_3_names = [r['name'] for r in sorted_records[:3]]
-        hub_bc = next((r['betweenness'] for r in records if r['name'] == 'HUB'), None)
+        sorted_records = sorted(records, key=lambda r: r["betweenness"], reverse=True)
+        top_3_names = [r["name"] for r in sorted_records[:3]]
+        hub_bc = next((r["betweenness"] for r in records if r["name"] == "HUB"), None)
 
-        if 'HUB' not in top_3_names:
+        if "HUB" not in top_3_names:
             print(f"  ✗ CRITICAL: HUB should be in top 3 betweenness nodes")
             print(f"    Top 3: {top_3_names}")
             return False
@@ -492,12 +517,14 @@ def test_hits(session, ground_truth: dict) -> bool:
     """Test HITS algorithm against NetworkX ground truth."""
     print("\n--- Testing HITS ---")
     try:
-        result = session.run("""
+        result = session.run(
+            """
             CALL cugraph.hits.get(100, 1e-5, true)
             YIELD node, hub, authority
             RETURN node.id AS id, node.name AS name, hub, authority
             ORDER BY hub DESC
-        """)
+        """
+        )
 
         records = list(result)
 
@@ -509,15 +536,15 @@ def test_hits(session, ground_truth: dict) -> bool:
 
         print(f"✓ HITS: {len(records)} nodes returned")
 
-        expected_hubs = ground_truth['hubs']
-        expected_auths = ground_truth['authorities']
+        expected_hubs = ground_truth["hubs"]
+        expected_auths = ground_truth["authorities"]
         all_match = True
 
         for r in records:
-            name = r['name']
+            name = r["name"]
 
             # Check hub values
-            actual_hub = r['hub']
+            actual_hub = r["hub"]
             exp_hub = expected_hubs[name]
             match, err = values_match(exp_hub, actual_hub, f"{name} hub")
             if not match:
@@ -525,7 +552,7 @@ def test_hits(session, ground_truth: dict) -> bool:
                 all_match = False
 
             # Check authority values
-            actual_auth = r['authority']
+            actual_auth = r["authority"]
             exp_auth = expected_auths[name]
             match, err = values_match(exp_auth, actual_auth, f"{name} authority")
             if not match:
@@ -546,12 +573,14 @@ def test_louvain(session, ground_truth: dict) -> bool:
     """Test Louvain community detection - A1-A4 and B1-B4 should be grouped."""
     print("\n--- Testing Louvain ---")
     try:
-        result = session.run("""
+        result = session.run(
+            """
             CALL cugraph.louvain.get()
             YIELD node, partition
             RETURN node.id AS id, node.name AS name, partition AS community
             ORDER BY partition, id
-        """)
+        """
+        )
 
         records = list(result)
 
@@ -561,7 +590,7 @@ def test_louvain(session, ground_truth: dict) -> bool:
                 print(f"  ✗ {err}")
             return False
 
-        actual_communities = {r['name']: r['community'] for r in records}
+        actual_communities = {r["name"]: r["community"] for r in records}
         communities = set(actual_communities.values())
         print(f"✓ Louvain: {len(records)} nodes in {len(communities)} communities")
 
@@ -583,8 +612,8 @@ def test_louvain(session, ground_truth: dict) -> bool:
         print(f"  ✓ B1-B4 are in same community ({b_comms.pop()})")
 
         # Check that A and B communities are different
-        a_comm = actual_communities['A1']
-        b_comm = actual_communities['B1']
+        a_comm = actual_communities["A1"]
+        b_comm = actual_communities["B1"]
         if a_comm == b_comm:
             print(f"  ✗ A and B communities should be different but both are {a_comm}")
             return False
@@ -601,12 +630,14 @@ def test_leiden(session, ground_truth: dict) -> bool:
     """Test Leiden community detection - A1-A4 and B1-B4 should be grouped."""
     print("\n--- Testing Leiden ---")
     try:
-        result = session.run("""
+        result = session.run(
+            """
             CALL cugraph.leiden.get()
             YIELD node, partition
             RETURN node.id AS id, node.name AS name, partition AS community
             ORDER BY partition, id
-        """)
+        """
+        )
 
         records = list(result)
 
@@ -616,7 +647,7 @@ def test_leiden(session, ground_truth: dict) -> bool:
                 print(f"  ✗ {err}")
             return False
 
-        actual_communities = {r['name']: r['community'] for r in records}
+        actual_communities = {r["name"]: r["community"] for r in records}
         communities = set(actual_communities.values())
         print(f"✓ Leiden: {len(records)} nodes in {len(communities)} communities")
 
@@ -648,12 +679,14 @@ def test_katz_centrality(session, ground_truth: dict) -> bool:
     """Test Katz Centrality algorithm."""
     print("\n--- Testing Katz Centrality ---")
     try:
-        result = session.run("""
+        result = session.run(
+            """
             CALL cugraph.katz_centrality.get(0.1, 1.0, 1e-6, 100, false)
             YIELD node, katz
             RETURN node.id AS id, node.name AS name, katz
             ORDER BY katz DESC
-        """)
+        """
+        )
 
         records = list(result)
 
@@ -665,7 +698,7 @@ def test_katz_centrality(session, ground_truth: dict) -> bool:
 
         print(f"✓ Katz Centrality: {len(records)} nodes returned")
 
-        expected = ground_truth['katz']
+        expected = ground_truth["katz"]
         if expected is None:
             print("  ⚠ NetworkX Katz did not converge, skipping value comparison")
             for r in records:
@@ -674,8 +707,8 @@ def test_katz_centrality(session, ground_truth: dict) -> bool:
 
         all_match = True
         for r in records:
-            name = r['name']
-            actual = r['katz']
+            name = r["name"]
+            actual = r["katz"]
             exp = expected[name]
             match, err = values_match(exp, actual, name)
             if not match:
@@ -695,13 +728,15 @@ def test_personalized_pagerank(session, ground_truth: dict) -> bool:
     """Test Personalized PageRank from A1."""
     print("\n--- Testing Personalized PageRank ---")
     try:
-        result = session.run("""
+        result = session.run(
+            """
             MATCH (source:Node {id: 1})
             CALL cugraph.personalized_pagerank.get(source, 100, 0.85, 1e-5)
             YIELD node, pagerank
             RETURN node.id AS id, node.name AS name, pagerank
             ORDER BY pagerank DESC
-        """)
+        """
+        )
 
         records = list(result)
 
@@ -713,12 +748,12 @@ def test_personalized_pagerank(session, ground_truth: dict) -> bool:
 
         print(f"✓ Personalized PageRank: {len(records)} nodes returned")
 
-        expected = ground_truth['personalized_pagerank']
+        expected = ground_truth["personalized_pagerank"]
         all_match = True
 
         for r in records:
-            name = r['name']
-            actual = r['pagerank']
+            name = r["name"]
+            actual = r["pagerank"]
             exp = expected[name]
             match, err = values_match(exp, actual, name)
             if not match:
@@ -728,8 +763,8 @@ def test_personalized_pagerank(session, ground_truth: dict) -> bool:
                 print(f"  ✓ {name}: {actual:.6f} (expected: {exp:.6f})")
 
         # A1 should have highest PPR (it's the source)
-        a1_ppr = next((r['pagerank'] for r in records if r['name'] == 'A1'), None)
-        max_ppr = max(r['pagerank'] for r in records)
+        a1_ppr = next((r["pagerank"] for r in records if r["name"] == "A1"), None)
+        max_ppr = max(r["pagerank"] for r in records)
 
         if a1_ppr != max_ppr:
             print(f"  ⚠ A1 should have highest PPR but doesn't (A1={a1_ppr}, max={max_ppr})")
@@ -747,12 +782,14 @@ def test_balanced_cut_clustering(session, ground_truth: dict) -> bool:
     """Test Balanced Cut Clustering."""
     print("\n--- Testing Balanced Cut Clustering ---")
     try:
-        result = session.run("""
+        result = session.run(
+            """
             CALL cugraph.balanced_cut_clustering.get(2)
             YIELD node, cluster
             RETURN node.id AS id, node.name AS name, cluster
             ORDER BY cluster, id
-        """)
+        """
+        )
 
         records = list(result)
 
@@ -762,7 +799,7 @@ def test_balanced_cut_clustering(session, ground_truth: dict) -> bool:
                 print(f"  ✗ {err}")
             return False
 
-        clusters = set(r['cluster'] for r in records)
+        clusters = set(r["cluster"] for r in records)
         print(f"✓ Balanced Cut Clustering: {len(records)} nodes in {len(clusters)} clusters")
 
         for r in records:
@@ -784,12 +821,14 @@ def test_spectral_clustering(session, ground_truth: dict) -> bool:
     """Test Spectral Clustering."""
     print("\n--- Testing Spectral Clustering ---")
     try:
-        result = session.run("""
+        result = session.run(
+            """
             CALL cugraph.spectral_clustering.get(2)
             YIELD node, cluster
             RETURN node.id AS id, node.name AS name, cluster
             ORDER BY cluster, id
-        """)
+        """
+        )
 
         records = list(result)
 
@@ -799,7 +838,7 @@ def test_spectral_clustering(session, ground_truth: dict) -> bool:
                 print(f"  ✗ {err}")
             return False
 
-        clusters = set(r['cluster'] for r in records)
+        clusters = set(r["cluster"] for r in records)
         print(f"✓ Spectral Clustering: {len(records)} nodes in {len(clusters)} clusters")
 
         for r in records:
@@ -833,12 +872,12 @@ def main():
 
     # Show expected values
     print("\n  Expected PageRank (top 3):")
-    pr = ground_truth['pagerank']
+    pr = ground_truth["pagerank"]
     for name in sorted(pr.keys(), key=lambda x: pr[x], reverse=True)[:3]:
         print(f"    {name}: {pr[name]:.6f}")
 
     print("\n  Expected Betweenness (top 3):")
-    bc = ground_truth['betweenness']
+    bc = ground_truth["betweenness"]
     for name in sorted(bc.keys(), key=lambda x: bc[x], reverse=True)[:3]:
         print(f"    {name}: {bc[name]:.6f}")
 
@@ -860,15 +899,15 @@ def main():
 
             results = {}
 
-            results['PageRank'] = test_pagerank(session, ground_truth)
-            results['Betweenness Centrality'] = test_betweenness_centrality(session, ground_truth)
-            results['HITS'] = test_hits(session, ground_truth)
-            results['Louvain'] = test_louvain(session, ground_truth)
-            results['Leiden'] = test_leiden(session, ground_truth)
-            results['Katz Centrality'] = test_katz_centrality(session, ground_truth)
-            results['Personalized PageRank'] = test_personalized_pagerank(session, ground_truth)
-            results['Balanced Cut Clustering'] = test_balanced_cut_clustering(session, ground_truth)
-            results['Spectral Clustering'] = test_spectral_clustering(session, ground_truth)
+            results["PageRank"] = test_pagerank(session, ground_truth)
+            results["Betweenness Centrality"] = test_betweenness_centrality(session, ground_truth)
+            results["HITS"] = test_hits(session, ground_truth)
+            results["Louvain"] = test_louvain(session, ground_truth)
+            results["Leiden"] = test_leiden(session, ground_truth)
+            results["Katz Centrality"] = test_katz_centrality(session, ground_truth)
+            results["Personalized PageRank"] = test_personalized_pagerank(session, ground_truth)
+            results["Balanced Cut Clustering"] = test_balanced_cut_clustering(session, ground_truth)
+            results["Spectral Clustering"] = test_spectral_clustering(session, ground_truth)
 
             print("\n" + "=" * 60)
             print("TEST SUMMARY")
