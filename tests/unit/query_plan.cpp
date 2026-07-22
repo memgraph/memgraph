@@ -1231,6 +1231,31 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex1) {
             ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, EdgeTypePropertyStartsWithWIndex) {
+  // Test MATCH (n)-[r:TYPE]->(m) WHERE r.prop STARTS WITH "ab" RETURN n
+  FakeDbAccessor dba;
+  const auto edge_type_name = "TYPE";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(edge_type, property.second, 1);
+
+  auto *starts_with = FN("startsWith", PROPERTY_LOOKUP(dba, "r", property.second), LITERAL("ab"));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(
+          PATTERN(NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {edge_type_name}, false), NODE("m"))),
+      WHERE(starts_with),
+      RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  // Prefix range on the edge index, so the residual Filter is dropped (no ExpectFilter). Crucially this is a
+  // range scan, not the equality ScanAllByEdgeTypePropertyValue.
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAllByEdgeTypePropertyRange(edge_type, property.second, ExpressionRange::Prefix(LITERAL("ab"))),
+            ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex2) {
   // Test MATCH (n)-[r:TYPE]->(m) WHERE 10 >= r.prop > 1 RETURN n
   FakeDbAccessor dba;

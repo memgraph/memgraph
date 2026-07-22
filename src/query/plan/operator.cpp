@@ -199,8 +199,10 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       auto const &prefix = typed_value.ValueString();
       auto lower_bound = utils::MakeBoundInclusive(storage::PropertyValue(std::string(prefix)));
       auto const successor = utils::PrefixSuccessor(prefix);
-      auto upper_bound = successor ? std::make_optional(utils::MakeBoundExclusive(storage::PropertyValue(*successor)))
-                                   : storage::UpperBoundForType(storage::PropertyValueType::String);
+      // No successor (empty / all-0xFF prefix): leave the upper bound unset so the index supplies the
+      // string-type upper bound itself (consistent for node and edge scans).
+      std::optional<utils::Bound<storage::PropertyValue>> upper_bound;
+      if (successor) upper_bound = utils::MakeBoundExclusive(storage::PropertyValue(*successor));
       return storage::PropertyValueRange::Bounded(std::move(lower_bound), std::move(upper_bound));
     }
 
@@ -283,8 +285,9 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
       auto const &prefix = property_value.ValueString();
       auto lower_bound = utils::MakeBoundInclusive(storage::PropertyValue(prefix));
       auto const successor = utils::PrefixSuccessor(prefix);
-      auto upper_bound = successor ? std::make_optional(utils::MakeBoundExclusive(storage::PropertyValue(*successor)))
-                                   : storage::UpperBoundForType(storage::PropertyValueType::String);
+      // No successor: leave the upper bound unset (the index supplies the string-type upper bound).
+      std::optional<utils::Bound<storage::PropertyValue>> upper_bound;
+      if (successor) upper_bound = utils::MakeBoundExclusive(storage::PropertyValue(*successor));
       return storage::PropertyValueRange::Bounded(std::move(lower_bound), std::move(upper_bound));
     }
 
@@ -1390,6 +1393,16 @@ ScanAllByEdgeTypePropertyRange::ScanAllByEdgeTypePropertyRange(
       lower_bound_(lower_bound),
       upper_bound_(upper_bound) {}
 
+ScanAllByEdgeTypePropertyRange::ScanAllByEdgeTypePropertyRange(const std::shared_ptr<LogicalOperator> &input,
+                                                               Symbol edge_symbol, Symbol node1_symbol,
+                                                               Symbol node2_symbol, EdgeAtom::Direction direction,
+                                                               storage::EdgeTypeId edge_type,
+                                                               storage::PropertyId property,
+                                                               ExpressionRange expression_range, storage::View view)
+    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {edge_type}, view),
+      property_(property),
+      expression_range_(std::move(expression_range)) {}
+
 ACCEPT_WITH_INPUT(ScanAllByEdgeTypePropertyRange)
 
 UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource *mem,
@@ -1401,6 +1414,16 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyRange::MakeCursor(utils::MemoryResource
           view_, common_.edge_types[0], property_, std::nullopt, std::nullopt))> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
+
+    if (expression_range_) {
+      // STARTS WITH prefix seek: a null/non-string term yields an invalid or null-bounded range (no match).
+      auto range = expression_range_->Evaluate(evaluator);
+      if (range.type_ == storage::PropertyValueRange::Type::INVALID ||
+          (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
+        return std::nullopt;
+      }
+      return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, range.lower_, range.upper_));
+    }
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     if (!maybe_lower && !maybe_upper) return std::nullopt;
@@ -1442,6 +1465,9 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeTypePropertyRange::Clone(AstStorag
   if (upper_bound_) {
     object->upper_bound_.emplace(
         utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
+  }
+  if (expression_range_) {
+    object->expression_range_.emplace(*expression_range_, *storage);
   }
   return object;
 }
@@ -1542,6 +1568,14 @@ ScanAllByEdgePropertyRange::ScanAllByEdgePropertyRange(const std::shared_ptr<Log
       lower_bound_(lower_bound),
       upper_bound_(upper_bound) {}
 
+ScanAllByEdgePropertyRange::ScanAllByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input,
+                                                       Symbol edge_symbol, Symbol node1_symbol, Symbol node2_symbol,
+                                                       EdgeAtom::Direction direction, storage::PropertyId property,
+                                                       ExpressionRange expression_range, storage::View view)
+    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {}, view),
+      property_(property),
+      expression_range_(std::move(expression_range)) {}
+
 ACCEPT_WITH_INPUT(ScanAllByEdgePropertyRange)
 
 UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *mem,
@@ -1553,6 +1587,16 @@ UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *me
           view_, common_.edge_types[0], property_, std::nullopt, std::nullopt))> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
+
+    if (expression_range_) {
+      // STARTS WITH prefix seek: a null/non-string term yields an invalid or null-bounded range (no match).
+      auto range = expression_range_->Evaluate(evaluator);
+      if (range.type_ == storage::PropertyValueRange::Type::INVALID ||
+          (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull())) {
+        return std::nullopt;
+      }
+      return std::make_optional(db->Edges(view_, property_, range.lower_, range.upper_));
+    }
 
     auto [maybe_lower, maybe_upper] = ConvertBoundsAndCheckNull(lower_bound_, upper_bound_, evaluator);
     if (!maybe_lower && !maybe_upper) return std::nullopt;
@@ -1587,6 +1631,9 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgePropertyRange::Clone(AstStorage *s
   if (upper_bound_) {
     object->upper_bound_.emplace(
         utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
+  }
+  if (expression_range_) {
+    object->expression_range_.emplace(*expression_range_, *storage);
   }
   return object;
 }

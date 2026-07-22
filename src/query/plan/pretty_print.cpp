@@ -748,6 +748,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeTypePropertyRange &op) {
   self["property"] = ToJson(op.property_, *dba_);
   self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
+  if (op.expression_range_) self["expression_range"] = ToJson(*op.expression_range_, *dba_);
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
 
   op.input_->Accept(*this);
@@ -790,6 +791,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgePropertyRange &op) {
   self["property"] = ToJson(op.property_, *dba_);
   self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
+  if (op.expression_range_) self["expression_range"] = ToJson(*op.expression_range_, *dba_);
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
 
   op.input_->Accept(*this);

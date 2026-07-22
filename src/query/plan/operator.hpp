@@ -747,6 +747,12 @@ class ScanAllByEdgeTypePropertyRange : public memgraph::query::plan::ScanAllByEd
                                  Symbol node2_symbol, EdgeAtom::Direction direction, storage::EdgeTypeId edge_type,
                                  storage::PropertyId property, std::optional<Bound> lower_bound,
                                  std::optional<Bound> upper_bound, storage::View view = storage::View::OLD);
+  // STARTS WITH prefix seek: the range (incl. its exclusive upper bound) is derived at runtime from
+  // expression_range; lower_bound_/upper_bound_ are unused in this mode.
+  ScanAllByEdgeTypePropertyRange(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                                 Symbol node2_symbol, EdgeAtom::Direction direction, storage::EdgeTypeId edge_type,
+                                 storage::PropertyId property, ExpressionRange expression_range,
+                                 storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
@@ -761,6 +767,7 @@ class ScanAllByEdgeTypePropertyRange : public memgraph::query::plan::ScanAllByEd
   storage::PropertyId property_;
   std::optional<Bound> lower_bound_;
   std::optional<Bound> upper_bound_;
+  std::optional<ExpressionRange> expression_range_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
@@ -832,6 +839,10 @@ class ScanAllByEdgePropertyRange : public memgraph::query::plan::ScanAllByEdge {
                              Symbol node2_symbol, EdgeAtom::Direction direction, storage::PropertyId property,
                              std::optional<Bound> lower_bound, std::optional<Bound> upper_bound,
                              storage::View view = storage::View::OLD);
+  // STARTS WITH prefix seek: the range is derived at runtime from expression_range; bounds are unused.
+  ScanAllByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                             Symbol node2_symbol, EdgeAtom::Direction direction, storage::PropertyId property,
+                             ExpressionRange expression_range, storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
@@ -846,6 +857,7 @@ class ScanAllByEdgePropertyRange : public memgraph::query::plan::ScanAllByEdge {
   storage::PropertyId property_;
   std::optional<Bound> lower_bound_;
   std::optional<Bound> upper_bound_;
+  std::optional<ExpressionRange> expression_range_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
