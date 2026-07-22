@@ -12,20 +12,20 @@ import pytest
 import yaml
 from gqlalchemy import Memgraph
 from query_neo_mem import (
-  Graph,
-  clean_memgraph_db,
-  clean_neo4j_db,
-  create_memgraph_db,
-  create_neo4j_driver,
-  execute_query_neo4j,
-  mg_execute_cyphers,
-  mg_get_graph,
-  neo4j_execute_cyphers,
-  neo4j_get_graph,
-  parse_mem,
-  parse_neo4j,
-  run_memgraph_query,
-  run_neo4j_query,
+    Graph,
+    clean_memgraph_db,
+    clean_neo4j_db,
+    create_memgraph_db,
+    create_neo4j_driver,
+    execute_query_neo4j,
+    mg_execute_cyphers,
+    mg_get_graph,
+    neo4j_execute_cyphers,
+    neo4j_get_graph,
+    parse_mem,
+    parse_neo4j,
+    run_memgraph_query,
+    run_neo4j_query,
 )
 
 logging.basicConfig(format="%(asctime)-15s [%(levelname)s]: %(message)s")

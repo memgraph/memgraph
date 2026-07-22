@@ -369,21 +369,21 @@ can be run. Make sure that the Memgraph instance with **MAGE** is up and
 running.
 
 ```
-# Running unit tests for C++ and Python
+# Running unit tests for C++ and Python (from mage/)
 python3 tests/test_unit
 
-# Running end-to-end tests
-python3 tests/test_e2e
+# Running end-to-end tests (from the repo root)
+cd tests/mage && python3 test_e2e
 ```
 
 Furthermore, to test only specific end-to-end tests, you can add argument `-k`
 with substring referring to the algorithm that needs to be tested. To test a
-module named `<query_module>`, you would have to run `python3 tests/test_e2e -k <query_module>` where `<query_module>` is the name of the specific module you
+module named `<query_module>`, you would have to run `python3 test_e2e -k <query_module>` where `<query_module>` is the name of the specific module you
 want to test.
 
 ```
-# Running specific end-to-end tests
-python3 tests/test_e2e -k weakly_connected_components
+# Running specific end-to-end tests (from tests/mage/)
+python3 test_e2e -k weakly_connected_components
 ```
 
 ## Contributing

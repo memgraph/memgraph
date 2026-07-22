@@ -2389,7 +2389,7 @@ test_mage() {
   fi
 
   function create_e2e_test_env() {
-    cd $PROJECT_ROOT/mage
+    cd $PROJECT_ROOT/tests/mage
     if [[ -d env ]]; then
       echo -e "${YELLOW_BOLD}E2E test environment already exists${RESET}"
       return
@@ -2477,11 +2477,11 @@ test_mage() {
         esac
       done
       create_e2e_test_env
-      cd $PROJECT_ROOT/mage
+      cd $PROJECT_ROOT/tests/mage
       source env/bin/activate
-      cd tests/e2e/ && python3 -m pytest . -k "not cugraph and not embeddings_test-test_cuda_compute"
+      cd e2e/ && python3 -m pytest . -k "not cugraph and not embeddings_test-test_cuda_compute"
       if [[ "$clean_env" = true ]]; then
-        rm -rf env
+        rm -rf $PROJECT_ROOT/tests/mage/env
       fi
     ;;
     e2e-correctness)
@@ -2537,8 +2537,8 @@ test_mage() {
       }
       trap cleanup_container EXIT INT TERM
       create_e2e_test_env
-      cd $PROJECT_ROOT/mage/tests
-      source ../env/bin/activate
+      cd $PROJECT_ROOT/tests/mage
+      source env/bin/activate
       ./run_e2e_correctness_tests.sh \
         $memgraph_port \
         $neo4j_port \
@@ -2547,7 +2547,7 @@ test_mage() {
         $memgraph_network
       cleanup_container
       if [[ "$clean_env" = true ]]; then
-        rm -rf ../env
+        rm -rf $PROJECT_ROOT/tests/mage/env
       fi
       trap - EXIT INT TERM
     ;;
@@ -2600,8 +2600,8 @@ test_mage() {
       # Set trap to cleanup on exit/interrupt (scoped to this case branch)
       trap cleanup_containers EXIT INT TERM
       create_e2e_test_env
-      cd $PROJECT_ROOT/mage/tests
-      source ../env/bin/activate
+      cd $PROJECT_ROOT/tests/mage
+      source env/bin/activate
       ./run_e2e_migration_tests.sh \
         --mage-container $mage_container \
         --mysql-container $mysql_container \
@@ -2609,7 +2609,7 @@ test_mage() {
       # Normal cleanup
       cleanup_containers
       if [[ "$clean_env" = true ]]; then
-        rm -rf ../env
+        rm -rf $PROJECT_ROOT/tests/mage/env
       fi
       # Remove trap since we're done with this branch
       trap - EXIT INT TERM
