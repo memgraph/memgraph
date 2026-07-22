@@ -290,15 +290,6 @@ class Graph {
   /// @note For the reason why the process must abort consider using MustAbort method instead
   void CheckMustAbort() const;
 
-  /// @brief Returns whether a ready label-property index over (`label`, `property`) exists.
-  bool HasLabelPropertyIndex(std::string_view label, std::string_view property) const;
-
-  /// @brief Returns an iterable of nodes with `label` whose `property` falls within the given bounds,
-  /// scanning a label-property index (which must already exist — check with HasLabelPropertyIndex).
-  /// A null bound pointer leaves that side unbounded.
-  GraphNodes NodesByLabelPropertyRange(std::string_view label, std::string_view property, const Value *lower,
-                                       bool lower_inclusive, const Value *upper, bool upper_inclusive) const;
-
  private:
   mgp_graph *graph_;
 };
@@ -2430,37 +2421,6 @@ inline int64_t Graph::Size() const {
 
 inline GraphNodes Graph::Nodes() const {
   auto *nodes_it = mgp::MemHandlerCallback(graph_iter_vertices, graph_);
-  if (nodes_it == nullptr) {
-    throw mg_exception::NotEnoughMemoryException();
-  }
-  return GraphNodes(nodes_it);
-}
-
-inline bool Graph::HasLabelPropertyIndex(std::string_view label, std::string_view property) const {
-  return mgp::graph_has_label_property_index(graph_, label.data(), property.data());
-}
-
-inline GraphNodes Graph::NodesByLabelPropertyRange(std::string_view label, std::string_view property,
-                                                   const Value *lower, bool lower_inclusive, const Value *upper,
-                                                   bool upper_inclusive) const {
-  const auto bound_type = [](bool inclusive) {
-    return inclusive ? mgp_bound_type::MGP_BOUND_TYPE_INCLUSIVE : mgp_bound_type::MGP_BOUND_TYPE_EXCLUSIVE;
-  };
-  auto *range = mgp::MemHandlerCallback(label_property_range_make);
-  mgp_vertices_iterator *nodes_it = nullptr;
-  try {
-    mgp::label_property_range_add_property(range,
-                                           property.data(),
-                                           lower ? lower->ptr() : nullptr,
-                                           bound_type(lower_inclusive),
-                                           upper ? upper->ptr() : nullptr,
-                                           bound_type(upper_inclusive));
-    nodes_it = mgp::MemHandlerCallback(graph_vertices_by_label_property_range, graph_, label.data(), range);
-  } catch (...) {
-    mgp::label_property_range_destroy(range);
-    throw;
-  }
-  mgp::label_property_range_destroy(range);
   if (nodes_it == nullptr) {
     throw mg_exception::NotEnoughMemoryException();
   }

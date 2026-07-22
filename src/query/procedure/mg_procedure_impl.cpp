@@ -4048,24 +4048,6 @@ mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int
   });
 }
 
-mgp_error mgp_graph_has_label_property_index(mgp_graph *graph, const char *label, const char *property, int *result) {
-  return WrapExceptions([graph, label, property, result]() {
-    const auto has_index = [label, property](memgraph::query::DbAccessor *impl) {
-      std::array<memgraph::storage::PropertyPath, 1> properties{
-          memgraph::storage::PropertyPath{impl->NameToProperty(property)}};
-      return impl->LabelPropertyIndexReady(impl->NameToLabel(label), properties) ? 1 : 0;
-    };
-    *result = std::visit(
-        memgraph::utils::Overloaded{
-            has_index,
-            [&](memgraph::query::SubgraphDbAccessor *impl) { return has_index(impl->GetAccessor()); },
-            [](memgraph::query::VirtualGraphDbAccessor *) -> int {
-              throw ImmutableObjectException{"mgp_graph_has_label_property_index is not supported on a virtual graph"};
-            }},
-        graph->impl);
-  });
-}
-
 mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memory *memory) {
   auto get_vertex_by_gid = memgraph::utils::Overloaded{
       [graph, id, memory](memgraph::query::DbAccessor *impl) -> mgp_vertex * {
@@ -5034,109 +5016,10 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
   }
 }
 
-/// @throw anything VerticesIterable may throw
-mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, memgraph::storage::LabelId label,
-                                             std::span<memgraph::storage::PropertyPath const> properties,
-                                             std::span<memgraph::storage::PropertyValueRange const> property_ranges,
-                                             allocator_type alloc)
-    : alloc(alloc), graph(graph) {
-  auto vertices = std::visit(
-      memgraph::utils::Overloaded{
-          [&](memgraph::query::DbAccessor *impl) {
-            // Guard the index-only fast path: storage's index lookup only DMG_ASSERTs the index exists
-            // (a no-op in Release), so without a ready index it would be UB. Fail cleanly instead.
-            if (!impl->LabelPropertyIndexReady(label, properties)) {
-              throw std::logic_error{
-                  "label-property index range scan requires a ready index over the given label and property"};
-            }
-            return impl->Vertices(graph->view, label, properties, property_ranges);
-          },
-          [](memgraph::query::SubgraphDbAccessor *) -> memgraph::query::VerticesIterable {
-            throw std::logic_error{"label-property index range scan is not supported on a projected subgraph"};
-          },
-          [](memgraph::query::VirtualGraphDbAccessor *) -> memgraph::query::VerticesIterable {
-            throw ImmutableObjectException{"label-property index range scan is not supported on a virtual graph"};
-          }},
-      graph->impl);
-  auto &rc = cursor.emplace<RealCursor>(std::move(vertices));
-#ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    NextPermitted(rc, *graph);
-  }
-#endif
-  if (rc.it != rc.vertices.end()) {
-    current_v.emplace(*rc.it, graph, alloc);
-  }
-}
-
 void mgp_vertices_iterator_destroy(mgp_vertices_iterator *it) { DeleteRawMgpObject(it); }
 
 mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vertices_iterator **result) {
   return WrapExceptions([graph, memory] { return NewRawMgpObject<mgp_vertices_iterator>(memory, graph); }, result);
-}
-
-mgp_error mgp_label_property_range_make(mgp_memory *memory, mgp_label_property_range **result) {
-  return WrapExceptions([memory] { return NewRawMgpObject<mgp_label_property_range>(memory); }, result);
-}
-
-void mgp_label_property_range_destroy(mgp_label_property_range *range) { DeleteRawMgpObject(range); }
-
-mgp_error mgp_label_property_range_add_property(mgp_label_property_range *range, const char *property, mgp_value *lower,
-                                                mgp_bound_type lower_type, mgp_value *upper,
-                                                mgp_bound_type upper_type) {
-  return WrapExceptions([range, property, lower, lower_type, upper, upper_type] {
-    const auto to_bound =
-        [](mgp_value *value,
-           mgp_bound_type type) -> std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> {
-      if (value == nullptr) return std::nullopt;  // unbounded on this side
-      switch (value->type) {
-        case MGP_VALUE_TYPE_LIST:
-        case MGP_VALUE_TYPE_MAP:
-        case MGP_VALUE_TYPE_VERTEX:
-        case MGP_VALUE_TYPE_EDGE:
-        case MGP_VALUE_TYPE_PATH:
-          throw std::logic_error{"a label-property range bound must be a scalar value"};
-        default:
-          break;
-      }
-      // Scalars/temporals never dereference the name mapper, so nullptr is safe here.
-      auto property_value = ToPropertyValue(*value, nullptr);
-      return type == mgp_bound_type::MGP_BOUND_TYPE_INCLUSIVE
-                 ? memgraph::utils::MakeBoundInclusive(std::move(property_value))
-                 : memgraph::utils::MakeBoundExclusive(std::move(property_value));
-    };
-    auto lower_bound = to_bound(lower, lower_type);
-    auto upper_bound = to_bound(upper, upper_type);
-    range->properties.emplace_back(property);
-    range->ranges.push_back(
-        memgraph::storage::PropertyValueRange::Bounded(std::move(lower_bound), std::move(upper_bound)));
-  });
-}
-
-mgp_error mgp_graph_vertices_by_label_property_range(mgp_graph *graph, const char *label,
-                                                     mgp_label_property_range *range, mgp_memory *memory,
-                                                     mgp_vertices_iterator **result) {
-  return WrapExceptions(
-      [graph, label, range, memory]() -> mgp_vertices_iterator * {
-        // The ABI accepts a composite spec (several properties), but the index range scan currently
-        // supports only a single-property index; composite is a separate follow-up.
-        if (range->properties.size() != 1) {
-          throw std::logic_error{range->properties.empty()
-                                     ? "label-property range requires at least one property"
-                                     : "composite label-property range lookup is not yet supported"};
-        }
-        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
-        const auto property_id =
-            std::visit([range](auto *impl) { return impl->NameToProperty(range->properties.front()); }, graph->impl);
-        std::array<memgraph::storage::PropertyPath, 1> properties{memgraph::storage::PropertyPath{property_id}};
-        return NewRawMgpObject<mgp_vertices_iterator>(
-            memory,
-            graph,
-            label_id,
-            std::span<memgraph::storage::PropertyPath const>{properties},
-            std::span<memgraph::storage::PropertyValueRange const>{range->ranges});
-      },
-      result);
 }
 
 mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
