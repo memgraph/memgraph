@@ -20,6 +20,7 @@
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan_v2/frontend/egraph_converter.hpp"
@@ -196,6 +197,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
     ast_storage.properties_ = parsed_statements_.ast_storage.properties_;
     ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
     ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
+    ast_storage.user_functions_ = parsed_statements_.ast_storage.user_functions_;
 
     std::vector<Identifier *> predefined_identifiers;
     predefined_identifiers.reserve(identifiers.size());
@@ -254,6 +256,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
   ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, dba);
   ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
   ctx.evaluation_context.edgetypes = NamesToEdgeTypes(plan.ast_storage().edge_types_, dba);
+  ctx.evaluation_context.resolved_user_functions = ResolveUserFunctions(plan.ast_storage().user_functions_);
   ctx.stopping_context = {
       .transaction_status = transaction_status,
       .is_shutting_down = is_shutting_down,

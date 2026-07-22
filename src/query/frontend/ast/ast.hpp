@@ -1285,7 +1285,7 @@ class Function : public Expression {
   std::string function_name_;
   std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> function_;  // builtins only
   bool is_user_defined_{false};
-  int64_t user_function_id_{-1};  // slot in ExecutionContext::resolved_user_functions
+  int64_t user_function_id_{-1};  // slot in EvaluationContext::resolved_user_functions
 
   Function *Clone(AstStorage *storage) const override {
     Function *object = storage->Create<Function>();
