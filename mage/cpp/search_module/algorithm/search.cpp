@@ -142,8 +142,9 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
       record.Insert(kResultNode, graph.GetNodeById(id));
     };
 
-    // STARTS WITH / ENDS WITH / CONTAINS throw on a non-string property (the comparison operators just don't
-    // match); guard them so a non-string property yields no match instead.
+    // STARTS WITH / ENDS WITH / CONTAINS raise a runtime error on a non-string property (unlike the comparison
+    // operators, which simply do not match). That error would surface here as an empty result and silently
+    // drop rows, so these operators must be guarded to never be evaluated against a non-string.
     const bool string_only = comparison == "STARTS WITH" || comparison == "ENDS WITH" || comparison == "CONTAINS";
 
     // TODO(ivan): run these sub-queries inside the caller's transaction instead of a fresh one, so the search
@@ -152,7 +153,9 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
     for (const auto &[label, properties] : label_properties) {
       for (const auto &property : properties) {
         const std::string node_property = "n.`" + EscapeIdentifier(property) + "`";
-        // CASE guards the operator: IfOperator evaluates only the taken branch, so a non-string never reaches it.
+        // The guard must be a CASE, not `valueType(...) = 'STRING' AND n.p <op> ...`: the planner does not
+        // preserve AND operand order, so the operator can be evaluated before the type check and still throw.
+        // A CASE evaluates only the branch it takes, so the operator is applied to string properties only.
         std::string predicate = node_property + " " + comparison + " $value";
         if (string_only) {
           predicate = "CASE WHEN valueType(" + node_property + ") = 'STRING' THEN " + predicate + " ELSE false END";
