@@ -1,8 +1,10 @@
-# Codepoint ordering again: lowercase names (a=97, z=122) are >= 'a'; uppercase (A=65, Z=90) sort before it.
+# `>=` at an uppercase bound pulls in every lowercase letter: 'Z'(90) < a(97) < z(122), so lowercase
+# apple/zebra and Z-prefixed Zebra match, while earlier-uppercase Apple (A=65) is excluded.
 query: >
-  CALL search.node({W: 'name'}, '>=', 'a') YIELD node
+  CALL search.node({W: 'name'}, '>=', 'Z') YIELD node
   RETURN node ORDER BY node.name;
 
 output:
+  - node: {"labels": ["W"], "properties": {"name": "Zebra"}}
   - node: {"labels": ["W"], "properties": {"name": "apple"}}
   - node: {"labels": ["W"], "properties": {"name": "zebra"}}
