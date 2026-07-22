@@ -23,6 +23,8 @@
 #include <utility>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 namespace Search {
 namespace {
 
@@ -83,6 +85,7 @@ bool IsIndexable(Op op) {
     case Op::kGreaterEqual:
     case Op::kStartsWith:
       return true;
+    // TODO: support via text index
     case Op::kNotEqual:
     case Op::kEndsWith:
     case Op::kContains:
@@ -189,128 +192,39 @@ void ScanPath(const mgp::Graph &graph, std::string_view label, const std::string
   }
 }
 
-// --- Minimal JSON parser for the label-property map string form: an object whose values are a string
-// or an array of strings (e.g. {"Person":"name","Movie":["title","tagline"]}). ---
-class JsonMapParser {
- public:
-  explicit JsonMapParser(std::string_view text) : text_(text) {}
-
-  LabelProperties Parse() {
-    LabelProperties result;
-    SkipWhitespace();
-    Expect('{');
-    SkipWhitespace();
-    if (Peek() == '}') {
-      Advance();
-      return result;  // empty object
-    }
-    while (true) {
-      SkipWhitespace();
-      std::string label = ParseString();
-      SkipWhitespace();
-      Expect(':');
-      SkipWhitespace();
-      std::vector<std::string> properties;
-      if (Peek() == '[') {
-        Advance();
-        SkipWhitespace();
-        if (Peek() != ']') {
-          while (true) {
-            SkipWhitespace();
-            properties.push_back(ParseString());
-            SkipWhitespace();
-            if (Peek() == ',') {
-              Advance();
-              continue;
-            }
-            break;
-          }
-        }
-        SkipWhitespace();
-        Expect(']');
-      } else {
-        properties.push_back(ParseString());
+// Parse the label-property map's JSON-string form: an object whose values are a string or an array of
+// strings (e.g. {"Person":"name","Movie":["title","tagline"]}).
+LabelProperties ParseJsonLabelPropertyMap(std::string_view text) {
+  nlohmann::json json;
+  try {
+    json = nlohmann::json::parse(text);
+  } catch (const nlohmann::json::parse_error &e) {
+    throw mgp::ValueException(std::string{"label_property_map: malformed JSON: "} + e.what());
+  }
+  if (!json.is_object()) throw mgp::ValueException("label_property_map JSON must be an object");
+  LabelProperties result;
+  for (const auto &[label, value] : json.items()) {
+    std::vector<std::string> properties;
+    if (value.is_string()) {
+      properties.emplace_back(value.get<std::string>());
+    } else if (value.is_array()) {
+      for (const auto &element : value) {
+        if (!element.is_string()) throw mgp::ValueException("label_property_map values must be strings");
+        properties.emplace_back(element.get<std::string>());
       }
-      result.emplace_back(std::move(label), std::move(properties));
-      SkipWhitespace();
-      if (Peek() == ',') {
-        Advance();
-        continue;
-      }
-      break;
+    } else {
+      throw mgp::ValueException("label_property_map values must be a string or a list of strings");
     }
-    SkipWhitespace();
-    Expect('}');
-    return result;
+    result.emplace_back(label, std::move(properties));
   }
-
- private:
-  char Peek() const {
-    if (pos_ >= text_.size()) throw mgp::ValueException("label_property_map: malformed JSON (unexpected end)");
-    return text_[pos_];
-  }
-
-  void Advance() { ++pos_; }
-
-  void SkipWhitespace() {
-    while (pos_ < text_.size() && std::isspace(static_cast<unsigned char>(text_[pos_]))) ++pos_;
-  }
-
-  void Expect(char c) {
-    if (Peek() != c) throw mgp::ValueException("label_property_map: malformed JSON");
-    Advance();
-  }
-
-  std::string ParseString() {
-    Expect('"');
-    std::string out;
-    while (true) {
-      if (pos_ >= text_.size()) throw mgp::ValueException("label_property_map: malformed JSON (unterminated string)");
-      const char c = text_[pos_++];
-      if (c == '"') break;
-      if (c == '\\') {
-        if (pos_ >= text_.size()) throw mgp::ValueException("label_property_map: malformed JSON (bad escape)");
-        const char esc = text_[pos_++];
-        switch (esc) {
-          case '"':
-          case '\\':
-          case '/':
-            out.push_back(esc);
-            break;
-          case 'n':
-            out.push_back('\n');
-            break;
-          case 't':
-            out.push_back('\t');
-            break;
-          case 'r':
-            out.push_back('\r');
-            break;
-          case 'b':
-            out.push_back('\b');
-            break;
-          case 'f':
-            out.push_back('\f');
-            break;
-          default:
-            throw mgp::ValueException("label_property_map: unsupported JSON escape");
-        }
-      } else {
-        out.push_back(c);
-      }
-    }
-    return out;
-  }
-
-  std::string_view text_;
-  size_t pos_ = 0;
-};
+  return result;
+}
 
 LabelProperties ParseLabelPropertyMap(const mgp::Value &argument) {
   if (argument.IsNull()) {
     throw mgp::ValueException(R"(label_property_map cannot be null. Example: {Person: ["name"], Company: "name"})");
   }
-  if (argument.IsString()) return JsonMapParser(argument.ValueString()).Parse();
+  if (argument.IsString()) return ParseJsonLabelPropertyMap(argument.ValueString());
   if (!argument.IsMap()) {
     throw mgp::ValueException("label_property_map must be a map or a JSON string");
   }
