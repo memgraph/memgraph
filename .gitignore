@@ -120,11 +120,6 @@ __pycache__/
 *$py.class
 
 # packaging
-mage/scripts/package/debian/.debhelper/
-mage/scripts/package/debian/memgraph-mage/
-mage/scripts/package/debian/memgraph-mage.substvars
-mage/scripts/package/debian/files
-mage/scripts/package/debian/debhelper-build-stamp
 
 **/.cache
 **/__pycache__

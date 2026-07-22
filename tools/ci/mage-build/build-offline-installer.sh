@@ -36,7 +36,7 @@ CUDA_VERSION="13.0"
 MALLOC="false"
 CUGRAPH="false"
 OUTPUT=""
-WHEELS_PREBUILT_DIR="$PROJECT_ROOT/mage/wheels"
+WHEELS_PREBUILT_DIR="$PROJECT_ROOT/release/package/mage/wheels"
 
 usage() {
   cat <<EOF
@@ -55,7 +55,7 @@ Options:
   --cugraph true|false      Variant flag — implies --cuda true
   --output PATH             Output .run file
                             (default: memgraph-mage-offline-<version>-<arch><suffix>.run)
-  --wheels-dir PATH         Pre-built host wheels to bundle (default: \$PROJECT_ROOT/mage/wheels)
+  --wheels-dir PATH         Pre-built host wheels to bundle (default: \$PROJECT_ROOT/release/package/mage/wheels)
 EOF
 }
 

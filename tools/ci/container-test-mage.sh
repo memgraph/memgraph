@@ -75,7 +75,7 @@ else
 fi
 docker cp src/mage/python/$requirements_file $CONTAINER_NAME:/tmp/$requirements_file
 docker cp src/auth/reference_modules/requirements.txt $CONTAINER_NAME:/tmp/auth_module-requirements.txt
-docker exec -i -u mg $CONTAINER_NAME bash -c "export PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=8 && cd \$HOME/memgraph/mage/ && \
+docker exec -i -u mg $CONTAINER_NAME bash -c "export PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=8 && cd \$HOME/memgraph/release/package/mage/ && \
   ./install_python_requirements.sh --ci --cache-present $CACHE_PRESENT --cuda $CUDA --arch $ARCH && \
   pip install -r \$HOME/memgraph/src/mage/python/tests/requirements.txt --break-system-packages"
 docker exec -i -u mg $CONTAINER_NAME bash -c "cd \$HOME/memgraph/src/mage/python/ && python3 -m pytest ."
