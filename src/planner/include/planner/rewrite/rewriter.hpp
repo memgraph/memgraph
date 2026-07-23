@@ -21,9 +21,13 @@
 #include <span>
 #include <vector>
 
+#include <boost/unordered/unordered_flat_set.hpp>
+
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/vm/executor.hpp"
+#include "planner/rewrite/pass_driver.hpp"
 #include "planner/rewrite/rule.hpp"
+#include "planner/rewrite/rule_latch.hpp"
 #include "planner/rewrite/rule_set.hpp"
 
 import memgraph.planner.core.egraph;
@@ -143,7 +147,7 @@ class RewriteContext {
  *   // RuleSet copy is cheap (shared_ptr increment); the graph type is deduced
  *   Rewriter rewriter(graph, ruleset);
  *
- *   auto result = rewriter.saturate(RewriteConfig::Default());
+ *   auto result = rewriter.saturate_incremental(RewriteConfig::Default());
  *   if (result.saturated()) {
  *     // Fixed point reached
  *   }
@@ -165,8 +169,7 @@ class Rewriter {
    *
    * @param graph The graph to rewrite; must remain valid
    */
-  explicit Rewriter(Graph &graph)
-      : egraph_(&graph.core()), matcher_(graph.core()), vm_executor_(graph.core()), ctx_(graph) {}
+  explicit Rewriter(Graph &graph) : Rewriter(graph, RuleSet<Graph>{}) {}
 
   /**
    * @brief Construct a rewriter with a shared rule set
@@ -182,84 +185,102 @@ class Rewriter {
         rules_(std::move(rules)),
         matcher_(graph.core()),
         vm_executor_(graph.core()),
-        ctx_(graph) {}
+        ctx_(graph) {
+    reseat_latch();
+  }
 
   /**
    * @brief Set or replace the rule set
    *
    * @param rules New rule set to use
    */
-  void set_rules(RuleSet<Graph> rules) { rules_ = std::move(rules); }
+  void set_rules(RuleSet<Graph> rules) {
+    rules_ = std::move(rules);
+    reseat_latch();  // new rules: re-seed the latch so the next incremental saturate arms all once
+  }
 
-  /**
-   * @brief Run equality saturation with the configured rules
-   *
-   * Applies all rules repeatedly until one of:
-   * - Fixed point (no rule produces any rewrites)
-   * - Iteration limit reached
-   * - E-node limit exceeded
-   * - Timeout exceeded
-   *
-   * After rewrites, the e-graph is rebuilt to restore invariants
-   * and the matcher index is refreshed.
-   *
-   * @param config Limits and timeout configuration
-   * @return Result containing statistics and stop reason
-   */
-  auto saturate(RewriteConfig const &config = RewriteConfig::Default()) -> RewriteResult {
+  /// Run equality saturation under a given pass driver, to fixpoint or a config
+  /// limit (iterations, e-node count, timeout). The loop is driver-agnostic: the
+  /// driver owns the touched-set lifecycle and supplies each pass's armed
+  /// predicate and root restriction. This is the seam FullDriver and
+  /// IncrementalDriver sit at; the convenience entry points below funnel through
+  /// it. The e-graph is rebuilt and the matcher index refreshed after each pass.
+  template <PassDriver<EGraph> Driver>
+  auto saturate(RewriteConfig const &config, Driver &driver) -> RewriteResult {
     RewriteResult result;
     result.rewrites_per_rule.resize(num_rules(), 0);  // Initialize per-rule counters
     auto const start_time = std::chrono::steady_clock::now();
 
+    driver.begin(*egraph_);
+
     for (std::size_t iter = 0; iter < config.max_iterations; ++iter) {
       result.iterations = iter + 1;
 
-      // Check timeout
       auto const elapsed = std::chrono::steady_clock::now() - start_time;
       if (elapsed >= config.timeout) {
         result.stop_reason = RewriteResult::StopReason::Timeout;
         return result;
       }
-
-      // Check e-node limit
       if (egraph_->num_nodes() > config.max_enodes) {
         result.stop_reason = RewriteResult::StopReason::ENodeLimit;
         return result;
       }
 
-      auto rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule);
+      driver.before_pass(*egraph_);
+      auto const rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule, driver.armed(), driver.active());
       result.rewrites_applied += rewrites_this_iter;
 
-      // Fixed point reached
       if (rewrites_this_iter == 0) {
         result.stop_reason = RewriteResult::StopReason::Saturated;
         return result;
       }
+
+      driver.after_pass(*egraph_);
     }
 
-    // Reached iteration limit
     result.stop_reason = RewriteResult::StopReason::IterationLimit;
     return result;
   }
 
+  /// Saturate running every rule every pass - the reference behaviour and
+  /// differential oracle. Leaves the e-graph's touched-set intact.
+  auto saturate_full(RewriteConfig const &config) -> RewriteResult {
+    FullDriver driver;
+    return saturate(config, driver);
+  }
+
+  /// Saturate running only the rules a pass could newly enable. Reaches the same
+  /// fixpoint as saturate_full given enough iterations, but may need a few more
+  /// passes; if max_iterations stops it first the e-graph is valid but less
+  /// saturated, never incorrect. Drives the persistent latch, so a later
+  /// saturate on the same rewriter arms from the touched-set left by the prior.
+  auto saturate_incremental(RewriteConfig const &config) -> RewriteResult {
+    IncrementalDriver<Symbol, Analysis> driver{latch_};
+    return saturate(config, driver);
+  }
+
   /**
-   * @brief Apply all rules once (single iteration)
+   * @brief Apply every rule once (a single Full pass)
    *
-   * Useful for testing and debugging individual rewrite steps.
-   * Rebuilds the e-graph for congruence closure if needed.
-   * Does incremental matcher rebuild for any new e-classes created.
-   *
-   * Note: For per-rule statistics, use saturate() with max_iterations=1 and
-   * check result.rewrites_per_rule.
+   * One pass under FullDriver: every rule, every candidate, rebuilding the
+   * e-graph and refreshing the matcher index. FullDriver leaves the touched-set
+   * intact, so a change made here folds into the arm of a subsequent incremental
+   * saturate - which is why this doubles as the differential oracle at the end of
+   * an incremental run.
    *
    * @return Total number of rewrites applied across all rules
    */
   auto iterate_once() -> std::size_t {
-    std::vector<std::size_t> unused_stats(num_rules(), 0);
-    return apply_once_with_stats(unused_stats);
+    auto config = RewriteConfig::Unlimited();
+    config.max_iterations = 1;
+    return saturate_full(config).rewrites_applied;
   }
 
  private:
+  /// Re-seed the latch from the current rule set's derived data. Called on
+  /// construction and whenever set_rules replaces the rules.
+  void reseat_latch() { latch_.reset(rules_.arming_index(), rules_.max_pattern_depth(), rules_.size()); }
+
   /**
    * @brief Apply all rules once and accumulate per-rule statistics
    *
@@ -269,17 +290,22 @@ class Rewriter {
    * @param per_rule_stats Vector to accumulate per-rule counts (must be sized to rules_.size())
    * @return Total number of rewrites applied across all rules
    */
-  auto apply_once_with_stats(std::vector<std::size_t> &per_rule_stats) -> std::size_t {
+  auto apply_once_with_stats(std::vector<std::size_t> &per_rule_stats, std::vector<std::uint8_t> const *armed = nullptr,
+                             RootRestriction active = RootRestriction::MatchAll()) -> std::size_t {
     assert(!egraph_->needs_rebuild() && "E-graph must be clean at start of rewrite iteration");
 
     ctx_.clear_new_eclasses();
     std::size_t total_rewrites = 0;
-    std::size_t stat_idx = 0;
 
-    for (auto const &rule_ptr : rules_.rules()) {
-      rule_ptr->match(matcher_, vm_executor_, ctx_.matcher_ctx());
-      auto rewrites = rule_ptr->apply(ctx_.rule_ctx(), ctx_.matcher_ctx());
-      per_rule_stats[stat_idx++] += rewrites;
+    auto const &rules = rules_.rules();
+    for (std::size_t idx = 0; idx < rules.size(); ++idx) {
+      if (armed != nullptr && (*armed)[idx] == 0) continue;  // incremental: skip un-armed rules
+      // The root restriction is sound only for qualifying rules; others match
+      // every candidate. See RewriteRule::supports_active_root_restriction().
+      auto const rule_roots = rules[idx]->supports_active_root_restriction() ? active : RootRestriction::MatchAll();
+      rules[idx]->match(matcher_, vm_executor_, ctx_.matcher_ctx(), rule_roots);
+      auto rewrites = rules[idx]->apply(ctx_.rule_ctx(), ctx_.matcher_ctx());
+      per_rule_stats[idx] += rewrites;
       total_rewrites += rewrites;
     }
 
@@ -325,6 +351,11 @@ class Rewriter {
   pattern::vm::VMExecutor<Symbol, Analysis> vm_executor_;  ///< VM pattern matcher
   ProcessingContext<Symbol> proc_ctx_;
   RewriteContext<Graph> ctx_;
+
+  // The arming engine IncrementalDriver drives: decides the armed rule set and
+  // active-set restriction each pass. Seeded from rules_ on construction and
+  // set_rules; a long-lived member so its scratch is reused across passes.
+  RuleLatch<Symbol, Analysis> latch_;
 };
 
 /// Deduce the graph type at the construction site, so callers write
