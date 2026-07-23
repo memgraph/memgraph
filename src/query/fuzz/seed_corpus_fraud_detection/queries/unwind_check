@@ -1,0 +1,1 @@
+UNWIND [1, 2, 3, 4, 5] AS id MATCH (a:Account {id: id}) RETURN a.name, a.balance

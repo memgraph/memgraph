@@ -1,0 +1,1 @@
+RETURN [x in ['one', 'two', 'three'] WHERE x = 'one' | toUpper(x)]

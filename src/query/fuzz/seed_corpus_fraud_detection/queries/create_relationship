@@ -1,0 +1,1 @@
+MATCH (a:Account {id: 1}), (b:Account {id: 5}) CREATE (a)-[:TRANSFERRED_TO {amount: 999, timestamp: '2024-01-15'}]->(b) RETURN a.name, b.name
