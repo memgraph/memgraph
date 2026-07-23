@@ -2219,10 +2219,6 @@ package_mage_docker() {
   cp $PROJECT_ROOT/src/mage/python/requirements.txt $PROJECT_ROOT/release/package/mage/requirements.txt
   cp $PROJECT_ROOT/src/mage/python/requirements-gpu.txt $PROJECT_ROOT/release/package/mage/requirements-gpu.txt
 
-  # Stage the memgraph-mage deb(s) built by package-mage-deb into the docker
-  # context under fixed names (the Dockerfiles extract their payload instead
-  # of the old mage.tar.gz hand-off). Globs tolerate the -malloc/-cuda/
-  # -cugraph filename suffixes.
   local mage_deb
   mage_deb=$(ls -1 $PROJECT_ROOT/output/memgraph-mage_*.deb 2>/dev/null | head -n 1)
   if [[ -z "$mage_deb" ]]; then
@@ -2406,9 +2402,6 @@ test_mage() {
       done
 
       local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-      # Same rust selection as build_memgraph's ACTIVATE_CARGO: the images'
-      # default rustc is too old for bindgen 0.71's generated bindings
-      # (`unsafe extern` blocks need >= 1.82).
       echo -e "${GREEN_BOLD}Running tests in container: $build_container${RESET}"
 
       echo -e "${GREEN_BOLD}Installing Rust $DEFAULT_RUST_VERSION${RESET}"
@@ -2418,8 +2411,7 @@ test_mage() {
       docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && source \$HOME/.cargo/env && cd \$HOME/memgraph/src/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
 
       echo -e "${GREEN_BOLD}Running C++ tests${RESET}"
-      # MAGE unit tests are registered in the root build tree with the
-      # mage__ prefix (the standalone src/mage/cpp/build no longer exists).
+      # MAGE unit tests are registered in the root build tree with the mage__ prefix
       docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/build && ctest -R mage__ --output-on-failure -j\$(nproc)"
 
       echo -e "${GREEN_BOLD}Running Python tests${RESET}"
