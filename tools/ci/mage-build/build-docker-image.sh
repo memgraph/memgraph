@@ -122,7 +122,7 @@ fi
 
 ./release/package/mgbuild.sh \
   ${MGBUILD_ARGS[*]} \
-  build-mage ${BUILD_MAGE_ARGS[*]:-}
+  build-memgraph --mage only ${BUILD_MAGE_ARGS[*]:-}
 
 ./release/package/mgbuild.sh \
   ${MGBUILD_ARGS[*]} \
