@@ -44,9 +44,6 @@ class Graph : public GraphView<TSize> {
   /// Create object Graph
   explicit Graph() = default;
 
-  // No user-declared destructor: it would suppress (and, under
-  // -Werror=deprecated, forbid) the implicit copy operations tests rely on.
-
   /// Gets all graph nodes.
   ///
   /// @return Vector of nodes
