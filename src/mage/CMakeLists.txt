@@ -34,11 +34,14 @@ mg_add_stamped_custom_target(mage_grappolo_license ALL
 install(DIRECTORY ${_grappolo_license_dir}
         DESTINATION ${MG_MAGE_INSTALL_DIR} COMPONENT mage)
 
+# CUDA flavour: same modules, but ships the GPU (CUDA torch) python
+# requirements and a postinst that installs them. Implied by cuGraph.
+option(MG_MAGE_CUDA "Ship the GPU (CUDA) python requirements in the mage package" OFF)
+
 # Python dependency manifest + installer, consumed by the mage package's
 # post-install scriptlet (deb postinst / rpm %post run
-# install_python_requirements.sh against mage-requirements.txt). GPU builds
-# ship the requirements-gpu manifest instead.
-if(MG_ENABLE_CUGRAPH)
+# install_python_requirements.sh against mage-requirements.txt).
+if(MG_ENABLE_CUGRAPH OR MG_MAGE_CUDA)
     set(_mage_requirements ${CMAKE_CURRENT_SOURCE_DIR}/python/requirements-gpu.txt)
 else()
     set(_mage_requirements ${CMAKE_CURRENT_SOURCE_DIR}/python/requirements.txt)

@@ -152,6 +152,7 @@ print_help () {
   echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
   echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
+  echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph). Also accepted by build-mage."
   echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
   echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
@@ -580,6 +581,7 @@ build_memgraph () {
   local link_threads=0
   local split_debug=false
   local mage_mode="off"
+  local mage_cuda=false
   local python_build_version=""
   local python_build_version_flag=""
   local python_runtime_version=""
@@ -654,6 +656,11 @@ build_memgraph () {
           exit 1
         fi
         shift 2
+      ;;
+      --cuda)
+        # CUDA flavour of the mage package (GPU python requirements, no cuGraph).
+        mage_cuda=true
+        shift 1
       ;;
       --python-build-version)
         python_build_version="$2"
@@ -865,6 +872,9 @@ build_memgraph () {
     # in /opt/conda (the old tools/ci/mage-build/build.sh convention).
     if [[ "$cugraph" == "true" ]]; then
       additional_options="$additional_options -DMG_ENABLE_CUGRAPH=ON -DMG_CUGRAPH_ROOT=/opt/conda"
+    fi
+    if [[ "$mage_cuda" == "true" ]]; then
+      additional_options="$additional_options -DMG_MAGE_CUDA=ON"
     fi
   fi
 
@@ -2059,6 +2069,10 @@ build_mage() {
         passthrough+=("--split-debug")
         shift 1
       ;;
+      --cuda)
+        passthrough+=("--cuda")
+        shift 1
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -2107,6 +2121,16 @@ _package_mage() {
 
   if [[ "$cugraph" = true ]]; then
     cuda=true
+  fi
+
+  # The GPU requirements manifest + postinst CUDA flag are baked into the
+  # payload at configure time — a packaging-time --cuda can't change them.
+  if [[ "$cuda" = true ]]; then
+    if ! docker exec -i -u mg $build_container bash -c \
+        "grep -Eq '^(MG_MAGE_CUDA|MG_ENABLE_CUGRAPH):[A-Za-z]*=(ON|TRUE|1)\$' $MGBUILD_ROOT_DIR/build/CMakeCache.txt"; then
+      echo -e "${RED_BOLD}Error: --cuda requires a build configured with MG_MAGE_CUDA=ON (build-mage --cuda) or MG_ENABLE_CUGRAPH=ON${RESET}" >&2
+      exit 1
+    fi
   fi
 
   local suffix=""
