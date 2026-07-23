@@ -1231,6 +1231,31 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex1) {
             ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, EdgeTypePropertyStartsWithWIndex) {
+  // Test MATCH (n)-[r:TYPE]->(m) WHERE r.prop STARTS WITH "ab" RETURN n
+  FakeDbAccessor dba;
+  const auto edge_type_name = "TYPE";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(edge_type, property.second, 1);
+
+  auto *starts_with = FN("startsWith", PROPERTY_LOOKUP(dba, "r", property.second), LITERAL("ab"));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(
+          PATTERN(NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {edge_type_name}, false), NODE("m"))),
+      WHERE(starts_with),
+      RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  // Prefix range on the edge index, so the residual Filter is dropped (no ExpectFilter). Crucially this is a
+  // range scan, not the equality ScanAllByEdgeTypePropertyValue.
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAllByEdgeTypePropertyRange(edge_type, property.second, ExpressionRange::Prefix(LITERAL("ab"))),
+            ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex2) {
   // Test MATCH (n)-[r:TYPE]->(m) WHERE 10 >= r.prop > 1 RETURN n
   FakeDbAccessor dba;
@@ -2204,6 +2229,64 @@ TYPED_TEST(TestPlanner, FilterRegexMatchIndex) {
                 label, std::vector{ms::PropertyPath{prop}}, std::vector{ExpressionRange::RegexMatch()}),
             ExpectFilter(),
             ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, FilterStartsWithIndex) {
+  // Test MATCH (n :label) WHERE n.prop STARTS WITH "abc" RETURN n
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto label = dba.Label("label");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, prop, 0);
+  auto *prefix = LITERAL("abc");
+  auto *starts_with = FN("startsWith", PROPERTY_LOOKUP(dba, "n", prop), prefix);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))), WHERE(starts_with), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  // The prefix range is exact for strings, so the residual Filter is dropped (no ExpectFilter).
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAllByLabelProperties(
+                label, std::vector{ms::PropertyPath{prop}}, std::vector{ExpressionRange::Prefix(prefix)}),
+            ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, FilterStartsWithPreferEqualityIndex) {
+  // Test MATCH (n :label) WHERE n.prop STARTS WITH "abc" AND n.prop = "abcdef" RETURN n
+  FakeDbAccessor dba;
+  auto prop = PROPERTY_PAIR(dba, "prop");
+  auto label = dba.Label("label");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, prop.second, 0);
+  auto *starts_with = FN("startsWith", PROPERTY_LOOKUP(dba, "n", prop), LITERAL("abc"));
+  auto *lit_val = LITERAL("abcdef");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(AND(starts_with, EQ(PROPERTY_LOOKUP(dba, "n", prop), lit_val))),
+                                   RETURN("n")));
+  // Equality (score 10) is preferred over the prefix range (score 8); the residual STARTS WITH stays a Filter.
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAllByLabelProperties(
+                label, std::vector{ms::PropertyPath{prop.second}}, std::vector{ExpressionRange::Equal(lit_val)}),
+            ExpectFilter(),
+            ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, FilterEndsWithNoIndex) {
+  // Test MATCH (n :label) WHERE n.prop ENDS WITH "abc" RETURN n
+  // endsWith is not prefix-expressible, so it must stay ScanAllByLabel + Filter.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto label = dba.Label("label");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, prop, 0);
+  auto *ends_with = FN("endsWith", PROPERTY_LOOKUP(dba, "n", prop), LITERAL("abc"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))), WHERE(ends_with), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex) {

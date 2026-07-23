@@ -2486,32 +2486,44 @@ TYPED_TEST(FunctionTest, Rand) {
 
 TYPED_TEST(FunctionTest, StartsWith) {
   EXPECT_THROW(this->EvaluateFunction(kStartsWith), QueryRuntimeException);
-  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "a", TypedValue()).IsNull());
-  EXPECT_THROW(this->EvaluateFunction(kStartsWith, TypedValue(), 1.3), QueryRuntimeException);
   EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "abc", "abc").ValueBool());
   EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "abcdef", "abc").ValueBool());
   EXPECT_FALSE(this->EvaluateFunction(kStartsWith, "abcdef", "aBc").ValueBool());
   EXPECT_FALSE(this->EvaluateFunction(kStartsWith, "abc", "abcd").ValueBool());
+  // A null or non-string operand (either side) is a non-match (Null), never an error.
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "a", TypedValue()).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, TypedValue(), "a").IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, TypedValue(), 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, 123, "a").IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, 1.3, "a").IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, true, "a").IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kStartsWith, "abc", 1).IsNull());
 }
 
 TYPED_TEST(FunctionTest, EndsWith) {
   EXPECT_THROW(this->EvaluateFunction(kEndsWith), QueryRuntimeException);
-  EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "a", TypedValue()).IsNull());
-  EXPECT_THROW(this->EvaluateFunction(kEndsWith, TypedValue(), 1.3), QueryRuntimeException);
   EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "abc", "abc").ValueBool());
   EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "abcdef", "def").ValueBool());
   EXPECT_FALSE(this->EvaluateFunction(kEndsWith, "abcdef", "dEf").ValueBool());
   EXPECT_FALSE(this->EvaluateFunction(kEndsWith, "bcd", "abcd").ValueBool());
+  // A null or non-string operand (either side) is a non-match (Null), never an error.
+  EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "a", TypedValue()).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kEndsWith, TypedValue(), 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kEndsWith, 123, "a").IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kEndsWith, "abc", 1).IsNull());
 }
 
 TYPED_TEST(FunctionTest, Contains) {
   EXPECT_THROW(this->EvaluateFunction(kContains), QueryRuntimeException);
-  EXPECT_TRUE(this->EvaluateFunction(kContains, "a", TypedValue()).IsNull());
-  EXPECT_THROW(this->EvaluateFunction(kContains, TypedValue(), 1.3), QueryRuntimeException);
   EXPECT_TRUE(this->EvaluateFunction(kContains, "abc", "abc").ValueBool());
   EXPECT_TRUE(this->EvaluateFunction(kContains, "abcde", "bcd").ValueBool());
   EXPECT_FALSE(this->EvaluateFunction(kContains, "cde", "abcdef").ValueBool());
   EXPECT_FALSE(this->EvaluateFunction(kContains, "abcdef", "dEf").ValueBool());
+  // A null or non-string operand (either side) is a non-match (Null), never an error.
+  EXPECT_TRUE(this->EvaluateFunction(kContains, "a", TypedValue()).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kContains, TypedValue(), 1.3).IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kContains, 123, "a").IsNull());
+  EXPECT_TRUE(this->EvaluateFunction(kContains, "abc", 1).IsNull());
 }
 
 TYPED_TEST(FunctionTest, Assert) {

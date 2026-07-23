@@ -215,6 +215,11 @@ nlohmann::json ToJson(const ExpressionRange &expression_range, const DbAccessor 
       result["type"] = "Regex";
       break;
     }
+    case PropertyFilter::Type::PREFIX: {
+      result["type"] = "Prefix";
+      result["expression"] = ToJson(expression_range.lower_->value(), dba);
+      break;
+    }
     case PropertyFilter::Type::RANGE: {
       result["type"] = "Range";
       result["lower_bound"] = expression_range.lower_ ? ToJson(*expression_range.lower_, dba) : json();
@@ -743,6 +748,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeTypePropertyRange &op) {
   self["property"] = ToJson(op.property_, *dba_);
   self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
+  if (op.expression_range_) self["expression_range"] = ToJson(*op.expression_range_, *dba_);
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
 
   op.input_->Accept(*this);
@@ -785,6 +791,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgePropertyRange &op) {
   self["property"] = ToJson(op.property_, *dba_);
   self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
+  if (op.expression_range_) self["expression_range"] = ToJson(*op.expression_range_, *dba_);
   self["output_symbol"] = ToJson(op.common_.edge_symbol);
 
   op.input_->Accept(*this);
