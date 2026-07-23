@@ -17,16 +17,15 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   try {
     const mgp::MemoryDispatcherGuard guard{memory};
 
-    const auto register_procedure = [module](const char *name, mgp_proc_cb callback) {
-      auto *proc = mgp::module_add_read_procedure(module, name, callback);
+    const auto add_signature = [](mgp_proc *proc) {
       mgp::proc_add_arg(proc, Search::kArgumentLabelPropertyMap, mgp::type_any());
       mgp::proc_add_arg(proc, Search::kArgumentOperator, mgp::type_string());
       mgp::proc_add_arg(proc, Search::kArgumentValue, mgp::type_nullable(mgp::type_string()));
       mgp::proc_add_result(proc, Search::kResultNode, mgp::type_node());
     };
 
-    register_procedure(Search::kProcedureNode, Search::Node);
-    register_procedure(Search::kProcedureNodeAll, Search::NodeAll);
+    add_signature(mgp::module_add_read_procedure(module, Search::kProcedureNode, Search::Node));
+    add_signature(mgp::module_add_read_procedure(module, Search::kProcedureNodeAll, Search::NodeAll));
   } catch (const std::exception &e) {
     return 1;
   }
