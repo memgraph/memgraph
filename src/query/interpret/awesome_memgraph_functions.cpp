@@ -2171,7 +2171,6 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
 
 auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
-    // Lock on the module is already acquired in the AST construction
     procedure::ValidateArguments(std::span(args, args + nargs), func, fully_qualified_name);
 
     auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
@@ -2197,6 +2196,16 @@ auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name)
   };
 }
 
+std::optional<user_func> TryResolveUserFunction(const std::string &name) {
+  auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, name);
+  if (!maybe_found) {
+    return std::nullopt;
+  }
+  auto module_ptr = std::move(maybe_found->first);
+  const auto *func = maybe_found->second;
+  return user_func{UserFunction(*func, name), std::move(module_ptr)};
+}
+
 }  // namespace
 
 // There are some builtin functions that look like modules but are not. To ensure user defined functions don't conflict
@@ -2214,16 +2223,33 @@ auto NameToFunction(const std::string &function_name) -> std::variant<std::monos
     return buildin_it->second.func_;
   }
 
-  // Next lookip for user-defined function from a module
-  auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, function_name);
-  if (maybe_found) {
-    auto module_ptr = std::move((*maybe_found).first);
-    const auto *func = (*maybe_found).second;
-    return std::make_pair(UserFunction(*func, function_name), std::move(module_ptr));
+  // Next lookup for user-defined function from a module
+  if (auto user_function = TryResolveUserFunction(function_name)) {
+    return std::move(*user_function);
   }
 
   // Does not exist
   return std::monostate{};
+}
+
+auto ResolveUserFunction(const std::string &name) -> user_func {
+  auto user_function = TryResolveUserFunction(name);
+  if (!user_function) {
+    throw QueryRuntimeException("Function '{}' doesn't exist.", name);
+  }
+  return std::move(*user_function);
+}
+
+auto ResolveUserFunctions(const std::vector<std::string> &names) -> std::shared_ptr<ResolvedUserFunctions> {
+  if (names.empty()) {
+    return nullptr;
+  }
+  auto resolved = std::make_shared<ResolvedUserFunctions>();
+  resolved->functions.reserve(names.size());
+  for (const auto &name : names) {
+    resolved->functions.push_back(ResolveUserFunction(name));
+  }
+  return resolved;
 }
 
 bool IsFunctionPure(std::string_view function_name) {

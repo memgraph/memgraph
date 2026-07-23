@@ -108,6 +108,7 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
     result.ast_storage.properties_ = cached_query.ast_storage.properties_;
     result.ast_storage.labels_ = cached_query.ast_storage.labels_;
     result.ast_storage.edge_types_ = cached_query.ast_storage.edge_types_;
+    result.ast_storage.user_functions_ = cached_query.ast_storage.user_functions_;
 
     result.query = cached_query.query->Clone(&result.ast_storage);
     result.required_privileges = cached_query.required_privileges;

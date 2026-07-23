@@ -30,7 +30,6 @@
 #include "query/frontend/ast/query/where.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
-#include "query/procedure/module_fwd.hpp"
 #include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
@@ -1284,8 +1283,8 @@ class Function : public Expression {
   std::vector<memgraph::query::Expression *> arguments_;
   std::string function_name_;
   std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> function_;
-  // This is needed to acquire the shared lock on the module so it doesn't get reloaded while the query is running
-  std::shared_ptr<procedure::Module> module_;
+  bool is_user_defined_{false};
+  int64_t user_function_id_{-1};
 
   Function *Clone(AstStorage *storage) const override {
     Function *object = storage->Create<Function>();
@@ -1295,13 +1294,14 @@ class Function : public Expression {
     }
     object->function_name_ = function_name_;
     object->function_ = function_;
-    object->module_ = module_;
+    object->is_user_defined_ = is_user_defined_;
+    object->user_function_id_ = user_function_id_;
     return object;
   }
 
-  bool IsBuiltin() const { return not bool(module_); }
+  bool IsBuiltin() const { return !is_user_defined_; }
 
-  bool IsUserDefined() const { return bool(module_); }
+  bool IsUserDefined() const { return is_user_defined_; }
 
  protected:
   Function(const std::string &function_name, const std::vector<Expression *> &arguments)
@@ -1309,14 +1309,8 @@ class Function : public Expression {
     auto func_result = NameToFunction(function_name_);
 
     std::visit(utils::Overloaded{
-                   [this](func_impl function) {
-                     function_ = function;
-                     module_.reset();
-                   },
-                   [this](std::pair<func_impl, std::shared_ptr<procedure::Module>> &function) {
-                     function_ = function.first;
-                     module_ = std::move(function.second);
-                   },
+                   [this](func_impl &function) { function_ = std::move(function); },
+                   [this](user_func & /*function*/) { is_user_defined_ = true; },
                    [&](std::monostate) { throw SemanticException("Function '{}' doesn't exist.", function_name); }},
                func_result);
   }

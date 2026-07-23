@@ -4063,14 +4063,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
 
   auto *function_expr = storage_->Create<Function>(function_name, expressions);
 
-  // Don't cache queries which call user-defined functions. For performance reasons we want to avoid
-  // repeativly finding the function at call time, this means user-defined functions have there lifetime
-  // tied to the ast Function operation. We do not want that cached, because we want to be able to reload
-  // query module that is not currently being used.
-  query_info_.is_cacheable &= !function_expr->IsUserDefined();
-
   // user defined functions are case sensitive, built-in functions work only with upper case
-  if (!function_expr->IsUserDefined()) {
+  if (function_expr->IsUserDefined()) {
+    function_expr->user_function_id_ = storage_->FindOrAddUserFunction(function_name);
+  } else {
     function_expr->function_name_ = upper_function_name;
   }
 
