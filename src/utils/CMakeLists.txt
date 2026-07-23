@@ -56,6 +56,7 @@ target_sources(mg-utils
     FILES
     allocator/page_aligned.hpp
     allocator/page_slab_memory_resource.hpp
+    contiguous_iterator.hpp
     crc_accumulator.hpp
     data_queue.hpp
     exponential_backoff.hpp

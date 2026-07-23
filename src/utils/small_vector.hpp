@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "utils/contiguous_iterator.hpp"
 #include "utils/memory_layout.hpp"
 
 #include <cassert>
@@ -53,152 +54,8 @@ struct small_vector : private Alloc {  // EBO: empty Alloc adds 0 bytes
   using pointer = value_type *;
   using const_pointer = value_type const *;
 
-  struct const_iterator;
-
-  struct iterator {
-    friend struct const_iterator;
-    using value_type = T;
-    using iterator_category = std::contiguous_iterator_tag;
-    using difference_type = std::ptrdiff_t;
-    using pointer = value_type *;
-    using reference = value_type &;
-
-    iterator() = default;
-
-    explicit iterator(pointer p) : ptr{p} {}
-
-    auto operator++() -> iterator & {
-      ++ptr;
-      return *this;
-    }
-
-    auto operator++(int) -> iterator {
-      auto cpy = *this;
-      ++(*this);
-      return cpy;
-    }
-
-    auto operator--() -> iterator & {
-      --ptr;
-      return *this;
-    }
-
-    auto operator--(int) -> iterator {
-      auto cpy = *this;
-      --(*this);
-      return cpy;
-    }
-
-    auto operator+=(difference_type n) -> iterator & {
-      ptr += n;
-      return *this;
-    }
-
-    auto operator-=(difference_type n) -> iterator & { return this->operator+=(-n); }
-
-    auto operator+(const difference_type n) const -> iterator { return iterator(ptr + n); }
-
-    friend auto operator+(const difference_type n, iterator other) -> iterator { return iterator(other.ptr + n); }
-
-    auto operator*() const -> reference { return *ptr; }
-
-    auto operator->() const -> pointer { return ptr; }
-
-    auto operator[](difference_type n) const -> reference { return ptr[n]; }
-
-    friend auto operator==(iterator const &lhs, iterator const &rhs) -> bool { return lhs.ptr == rhs.ptr; }
-
-    friend auto operator<(iterator const &lhs, iterator const &rhs) -> bool { return lhs.ptr < rhs.ptr; }
-
-    friend auto operator>(iterator const &lhs, iterator const &rhs) -> bool { return rhs < lhs; }
-
-    friend auto operator>=(iterator const &lhs, iterator const &rhs) -> bool { return !(lhs < rhs); }
-
-    friend auto operator<=(iterator const &lhs, iterator const &rhs) -> bool { return !(rhs < lhs); }
-
-    auto operator-(const iterator &rv) const -> std::ptrdiff_t { return ptr - rv.ptr; }
-
-    auto operator-(const difference_type n) const -> iterator { return iterator(ptr - n); }
-
-   private:
-    value_type *ptr{};
-  };
-
-  struct const_iterator {
-    using value_type = T const;
-    using iterator_category = std::contiguous_iterator_tag;
-    using difference_type = std::ptrdiff_t;
-    using pointer = value_type *;
-    using reference = value_type &;
-
-    const_iterator() = default;
-
-    explicit(false) const_iterator(iterator p) : ptr{p.ptr} {}
-
-    explicit const_iterator(pointer p) : ptr{p} {}
-
-    auto operator++() -> const_iterator & {
-      ++ptr;
-      return *this;
-    }
-
-    auto operator++(int) -> const_iterator {
-      const_iterator temp = *this;
-      ++(*this);
-      return temp;
-    }
-
-    auto operator--() -> const_iterator & {
-      --ptr;
-      return *this;
-    }
-
-    auto operator--(int) -> const_iterator {
-      const_iterator temp = *this;
-      --(*this);
-      return temp;
-    }
-
-    auto operator+=(difference_type n) -> const_iterator & {
-      ptr += n;
-      return *this;
-    }
-
-    auto operator-=(difference_type n) -> const_iterator & { return this->operator+=(-n); }
-
-    auto operator+(const difference_type n) const -> const_iterator { return const_iterator(ptr + n); }
-
-    friend auto operator+(const difference_type n, const_iterator other) -> const_iterator {
-      return const_iterator(other.ptr + n);
-    }
-
-    auto operator*() const -> reference { return *ptr; }
-
-    auto operator->() const -> pointer { return ptr; }
-
-    auto operator[](difference_type n) const -> reference { return ptr[n]; }
-
-    friend auto operator==(const_iterator const &lhs, const_iterator const &rhs) -> bool { return lhs.ptr == rhs.ptr; }
-
-    friend auto operator<(const_iterator const &lhs, const_iterator const &rhs) -> bool { return lhs.ptr < rhs.ptr; }
-
-    friend auto operator>(const_iterator const &lhs, const_iterator const &rhs) -> bool { return rhs < lhs; }
-
-    friend auto operator>=(const_iterator const &lhs, const_iterator const &rhs) -> bool { return !(lhs < rhs); }
-
-    friend auto operator<=(const_iterator const &lhs, const_iterator const &rhs) -> bool { return !(rhs < lhs); }
-
-    friend auto operator==(iterator const &lhs, const_iterator const &rhs) -> bool {
-      return const_iterator{lhs} == rhs;
-    }
-
-    auto operator-(const const_iterator &rv) const -> std::ptrdiff_t { return ptr - rv.ptr; }
-
-    auto operator-(const difference_type n) const -> const_iterator { return const_iterator(ptr - n); }
-
-   private:
-    value_type *ptr{};
-  };
+  using iterator = contiguous_iterator<T>;
+  using const_iterator = contiguous_const_iterator<T>;
 
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
