@@ -12,75 +12,25 @@
 """
 E2E regression tests for the Bolt RESET-scoped "sticky state" leak fixes.
 
-Background
-----------
-A pooled Bolt connection can be handed to a logically unrelated session after a
-RESET (Bolt HandleReset -> session.Abort(), see
-src/communication/bolt/v1/states/handlers.hpp and src/glue/SessionHL.cpp). Two
-kinds of per-connection state used to leak across that boundary:
+A pooled Bolt connection can be handed to an unrelated session after a RESET
+(HandleReset -> SessionHL::Abort()). Two kinds of per-connection state used to leak across that
+boundary: isolation-level overrides (SET NEXT / SET SESSION TRANSACTION ISOLATION LEVEL) and USE
+DATABASE (plus a stale in_explicit_db_ that also blocked a later USE). Fix:
+Interpreter::ResetForConnectionReuse() + RuntimeConfig::ResetForConnectionReuse() (which
+invalidates the run_time_info cache), called ONLY from SessionHL::Abort() (RESET/LogOff), never
+from a mid-session ROLLBACK/error -- so a mid-session abort must NOT clear this state.
 
-  1. Isolation level overrides: SET NEXT TRANSACTION ISOLATION LEVEL (one-shot,
-     meant for the very next transaction on this connection) and SET SESSION
-     TRANSACTION ISOLATION LEVEL (meant for the rest of this Bolt session) were
-     never cleared on RESET, so the next, unrelated, pooled session silently
-     inherited them.
+Why a real Bolt RESET, not session.close(): the neo4j driver avoids sending a wire RESET on a
+clean connection, so force_bolt_reset() below uses the one guaranteed case -- a deliberately
+invalid query, after which the driver must RESET before reuse.
 
-  2. USE DATABASE (Bolt-level db routing / explicit `USE <db>`, enterprise
-     multi-tenancy) similarly stuck around after RESET; a stale
-     `in_explicit_db_ == true` flag additionally blocked a *subsequent*
-     explicit `USE <db>` from taking effect.
+Known limitation: a clean-closed no-`database=` session sends neither a RESET nor a `db` field, so
+the server sees byte-identical traffic to the same session continuing and (correctly) keeps the
+sticky db (like Postgres SET across pgbouncer). Leak-free usage is driver.session(database=...),
+which sends `db` on every RUN (asserted as the MITIGATION in the USE-DATABASE test).
 
-The fix (see src/query/interpreter.{hpp,cpp}, src/glue/SessionHL.{hpp,cpp}):
-  * Interpreter::ResetForConnectionReuse() clears next_transaction_isolation_level,
-    interpreter_isolation_level, and (enterprise only) calls ResetDB() -- which now
-    also resets in_explicit_db_ (src/query/interpreter.hpp CurrentDB::ResetDB()).
-  * RuntimeConfig::ResetForConnectionReuse() (src/glue/SessionHL.hpp) invalidates the
-    "run_time_info unchanged since last call => skip re-derivation" cache in
-    RuntimeConfig::Configure(), so the very next RUN after RESET is forced through the
-    full db/user re-derivation path instead of silently keeping the previous session's
-    resolved db.
-  * Both are called ONLY from SessionHL::Abort() (RESET and LogOff), never from the
-    ordinary mid-session ROLLBACK / CheckAuthorized-failure / autocommit-abort paths
-    (those call Interpreter::Abort()/RollbackTransaction() directly without touching
-    the new reset hooks) -- so a mid-session abort must NOT clear this state.
-
-Why a real Bolt RESET, not driver.session().close()
-----------------------------------------------------
-The high-level neo4j driver session API is designed to *avoid* ever sending a
-wire-level RESET on a clean connection: Session.close() drains/rolls back
-anything outstanding itself and only asks the connection pool to send RESET if
-the connection isn't already back in the READY state (see the vendored
-`neo4j` package's `_sync/io/_pool.py::release()` and `_bolt5.py::is_reset`). A
-plain `SET ... ISOLATION LEVEL ...` or `USE DATABASE ...` followed by
-`session.close()` never dirties the connection, so no RESET is ever put on the
-wire that way.
-
-The Bolt protocol *does* guarantee a real RESET is sent in one standard,
-public-API situation: after a FAILURE response, the client must RESET before
-reusing the connection (see HandleReset's signature check, Marker::TinyStruct,
-0x0F, in src/communication/bolt/v1/states/handlers.hpp), and the neo4j driver
-implements this automatically. `force_bolt_reset()` below uses exactly that --
-a deliberately invalid query -- to get a deterministic, protocol-correct RESET
-onto the wire without reaching into driver-private internals or hand-rolling
-PackStream framing.
-
-Known limitation: clean pooled reuse of a no-`database=` session
-----------------------------------------------------------------
-Because a clean session.close() sends no RESET (above) and a `database=None` session sends no
-`db` field on its RUN, the server sees byte-identical traffic whether the same logical session
-is continuing or a new logical session is reusing the pooled connection. It therefore cannot
-know a boundary occurred, and (correctly) keeps the connection-sticky state -- so a `USE
-DATABASE` (and equally SET SESSION isolation/trace/setting) from one no-`database=` session
-persists into the next no-`database=` session on the same pooled connection. This is a protocol
-limitation, analogous to Postgres `SET` leaking across pgbouncer transaction-pooled clients, not
-a server bug: the RESET-scoped reset is complete for every case the driver *does* signal (a real
-RESET, or an explicit `db` field on the RUN). The leak-free, recommended usage is
-`driver.session(database=...)`, which sends the `db` field on every RUN and routes correctly
-regardless of connection stickiness (asserted as the MITIGATION in the USE-DATABASE test below).
-
-Coverage note: the same Interpreter::ResetForConnectionReuse() also clears the per-connection
-SessionLogContext overlay -- SET SESSION TRACE and SET SESSION SETTING -- on RESET/LogOff (unit-
-tested in tests/unit/logging.cpp), closing the same leak class for those in-band session settings.
+Coverage note: ResetForConnectionReuse() also clears the SessionLogContext overlay (SET SESSION
+TRACE/SETTING) -- unit-tested in tests/unit/logging.cpp.
 """
 
 import os
@@ -116,8 +66,7 @@ def get_instances_description(test_name: str):
                 "--bolt-port",
                 str(BOLT_PORT),
                 "--log-level=TRACE",
-                # Pin the default so the leak probes (which compare against "the default
-                # isolation level") are deterministic regardless of the build's compiled-in default.
+                # Pin the default so the leak probes are deterministic across builds.
                 "--isolation-level=SNAPSHOT_ISOLATION",
             ],
             "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
@@ -144,12 +93,8 @@ def _bolt_uri() -> str:
 
 
 def force_bolt_reset(session) -> None:
-    """Force a real wire-level Bolt RESET onto `session`'s underlying connection.
-
-    See the module docstring for why this (an intentionally invalid query, which the
-    driver reacts to by auto-sending RESET) is the deterministic, public-API way to do
-    this, and why session.close() alone does not reach the same server-side code path.
-    """
+    """Force a real wire-level Bolt RESET via an intentionally invalid query (the driver
+    auto-RESETs after a failure). See the module docstring for why session.close() won't."""
     with pytest.raises(Exception):
         session.run("THIS IS NOT VALID CYPHER SYNTAX !!!").consume()
 
@@ -174,19 +119,10 @@ def _create_clean_database(db_name: str) -> None:
 
 
 def _sees_uncommitted_write(reader_session, writer_session, label: str) -> bool:
-    """Behavioral probe for the isolation level actually in effect on `reader_session`.
-
-    Starts a transaction on reader_session, has writer_session CREATE a node of `label`
-    and leave it uncommitted, then checks whether reader_session's transaction can see
-    it:
-      * SNAPSHOT ISOLATION / READ COMMITTED -> does not see it (returns False)
-      * READ UNCOMMITTED                    -> sees it (returns True)
-
-    This mirrors tests/e2e/isolation_levels/isolation_levels.cpp's
-    TestSnapshotIsolation/TestReadCommitted/TestReadUncommitted: there is no SHOW
-    TRANSACTIONS column exposing "isolation level of this transaction", so the
-    established way to verify it e2e is this dirty-read-visibility technique.
-    """
+    """Behavioral probe for the isolation level in effect on `reader_session`: does its transaction
+    see an uncommitted write from writer_session? READ UNCOMMITTED sees it (True); SNAPSHOT/READ
+    COMMITTED do not (False). Dirty-read-visibility is the established e2e way to check this (no SHOW
+    TRANSACTIONS column exposes the level)."""
     tx_r = reader_session.begin_transaction()
     tx_r.run(f"MATCH (n:{label}) RETURN count(n) AS c").consume()  # starts the tx / takes its snapshot
     tx_w = writer_session.begin_transaction()
@@ -203,12 +139,8 @@ def _sees_uncommitted_write(reader_session, writer_session, label: str) -> bool:
 
 
 def test_reset_clears_next_transaction_isolation_override(test_name):
-    """SET NEXT TRANSACTION ISOLATION LEVEL must not leak across a Bolt RESET.
-
-    Needs the post-rebuild binary: on the pre-fix binary, `next_transaction_isolation_level`
-    is never cleared by SessionHL::Abort(), so the first transaction after RESET can run
-    under the leaked READ UNCOMMITTED override instead of the connection's default.
-    """
+    """SET NEXT TRANSACTION ISOLATION LEVEL must not leak across a Bolt RESET (pre-fix, the first
+    transaction after RESET ran under the leaked READ UNCOMMITTED override)."""
     instances = get_instances_description(test_name)
     interactive_mg_runner.start_all(instances, keep_directories=False)
 
@@ -237,12 +169,8 @@ def test_reset_clears_next_transaction_isolation_override(test_name):
 
 
 def test_reset_clears_session_isolation_override(test_name):
-    """SET SESSION TRANSACTION ISOLATION LEVEL must not leak across a Bolt RESET.
-
-    Needs the post-rebuild binary: on the pre-fix binary, `interpreter_isolation_level`
-    is never cleared by SessionHL::Abort(), so a session-scoped override set before RESET
-    can still be in effect for the next, logically unrelated, pooled session.
-    """
+    """SET SESSION TRANSACTION ISOLATION LEVEL must not leak across a Bolt RESET (pre-fix, a
+    session-scoped override survived into the next pooled session)."""
     instances = get_instances_description(test_name)
     interactive_mg_runner.start_all(instances, keep_directories=False)
 
@@ -276,14 +204,8 @@ def test_reset_clears_session_isolation_override(test_name):
 
 def test_reset_clears_use_database_and_allows_subsequent_use(test_name):
     """USE DATABASE must not leak across a Bolt RESET, and a later USE must not be rejected.
-
-    Needs the post-rebuild binary: on the pre-fix binary, RuntimeConfig::Configure()'s
-    "run_time_info unchanged since last call => skip" cache is never invalidated across a
-    RESET, so a query with no db-routing metadata after RESET can still silently target the
-    previously-USE'd database. Also covers the in_explicit_db_ stuck-true regression: before
-    the CurrentDB::ResetDB() fix, a stale in_explicit_db_ == true could block a subsequent
-    explicit USE from being accepted.
-    """
+    Pre-fix, a no-metadata query after RESET still targeted the previously-USE'd db, and a stale
+    in_explicit_db_ could block a subsequent explicit USE."""
     instances = get_instances_description(test_name)
     interactive_mg_runner.start_all(instances, keep_directories=False)
     _create_clean_database("db_b")
@@ -297,8 +219,7 @@ def test_reset_clears_use_database_and_allows_subsequent_use(test_name):
 
         force_bolt_reset(pooled)
 
-        # No db routing metadata on this session (driver.session() with no `database=` param):
-        # a query here must target the DEFAULT db, not the leaked db_b.
+        # No db routing metadata on this session: a query must target the DEFAULT db, not db_b.
         current_after_reset = pooled.run("SHOW DATABASE").single()["Current"]
         assert current_after_reset == "memgraph", (
             f"USE DATABASE leaked across RESET: a query with no db routing metadata after RESET "
@@ -312,14 +233,9 @@ def test_reset_clears_use_database_and_allows_subsequent_use(test_name):
 
         pooled.close()  # clean close: driver leaves the connection READY and sends NO wire RESET
 
-        # KNOWN LIMITATION (documented protocol gap, NOT a fix failure): a pooled connection reused
-        # WITHOUT a wire-level RESET keeps its connection-sticky USE'd db. On a clean close the neo4j
-        # driver sends no RESET (it only RESETs a connection left mid-stream/FAILED) and nothing on
-        # checkout; a session opened with no `database=` then sends no `db` field on its RUN. So the
-        # server sees byte-identical traffic to "the same session continuing" and has no signal that
-        # a new logical session began -- it therefore (correctly) keeps the sticky db. Analogous to
-        # Postgres `SET` leaking across pgbouncer transaction-pooled clients. Assert the actual,
-        # documented behaviour (sticky db_b), not an outcome the server has no signal to produce:
+        # KNOWN LIMITATION (protocol gap, see module docstring): a pooled connection reused without
+        # a wire RESET and with no `db` field keeps its sticky USE'd db -- the server sees identical
+        # traffic to the same session continuing. Assert the actual (sticky db_b) behaviour.
         reopened = driver.session()
         current_reopened = reopened.run("SHOW DATABASE").single()["Current"]
         assert current_reopened == "db_b", (
@@ -328,9 +244,8 @@ def test_reset_clears_use_database_and_allows_subsequent_use(test_name):
         )
         reopened.close()
 
-        # MITIGATION (recommended usage): a session that names its database explicitly always routes
-        # correctly regardless of connection stickiness -- the `db` field is sent on every RUN and
-        # bypasses the run_time_info short-circuit. This is the leak-free way to use pooled connections.
+        # MITIGATION: a session naming its database routes correctly regardless of stickiness (the
+        # `db` field is sent on every RUN) -- the leak-free way to use pooled connections.
         explicit_default = driver.session(database="memgraph")
         assert explicit_default.run("SHOW DATABASE").single()["Current"] == "memgraph"
         explicit_default.close()
@@ -347,15 +262,9 @@ def test_reset_clears_use_database_and_allows_subsequent_use(test_name):
 
 
 def test_rollback_without_reset_preserves_use_database_and_session_isolation(test_name):
-    """A mid-session BEGIN...ROLLBACK (no RESET) must keep USE'd db + SET SESSION isolation.
-
-    This is the guard rail proving the fix is RESET-scoped: Interpreter::ResetForConnectionReuse()
-    is called ONLY from SessionHL::Abort() (Bolt RESET / LogOff), never from the ordinary
-    ROLLBACK / autocommit-abort path (Interpreter::RollbackTransaction() / Interpreter::Abort()).
-    This test should already pass on the pre-fix binary (it never touches the new code path);
-    it exists to catch a regression where the fix is applied too broadly (e.g. folded into
-    Interpreter::Abort() directly) rather than scoped to RESET/LogOff as intended.
-    """
+    """A mid-session BEGIN...ROLLBACK (no RESET) must keep USE'd db + SET SESSION isolation. Guard
+    rail proving the fix is RESET-scoped (called only from SessionHL::Abort(), not every abort) --
+    catches the fix being applied too broadly."""
     instances = get_instances_description(test_name)
     interactive_mg_runner.start_all(instances, keep_directories=False)
     _create_clean_database("db_b")

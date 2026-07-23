@@ -693,10 +693,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   spdlog::info("Received snapshot saved to {}", dst_snapshot_file);
   {
-    // NOTE (IP-1 coro-prepare-accessor-yield, R3.1): this UNIQUE main_lock_ release (replica-side
-    // recovery RPC handler) is deliberately NOT wired to NotifyMainLockReleased() -- it's a
-    // raw-lock acquisition outside the Accessor path, not on any query hot path, and a coro-prepare
-    // waiter missing this wake is backstopped by the ~1s deadline sweep (B2).
+    // Deliberately not wired to NotifyMainLockReleased(): raw-lock acquisition outside the Accessor
+    // path, off any query hot path; a coro-prepare waiter is backstopped by the ~1s deadline sweep.
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
       spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
@@ -894,8 +892,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(
       return;
     }
     {
-      // NOTE (IP-1 coro-prepare-accessor-yield, R3.1): deliberately not wired to
-      // NotifyMainLockReleased() -- see the SnapshotHandler occurrence above for rationale.
+      // Not wired to NotifyMainLockReleased() -- see SnapshotHandler above.
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
         spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
@@ -1038,8 +1035,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
       return;
     }
     {
-      // NOTE (IP-1 coro-prepare-accessor-yield, R3.1): deliberately not wired to
-      // NotifyMainLockReleased() -- see the SnapshotHandler occurrence above for rationale.
+      // Not wired to NotifyMainLockReleased() -- see SnapshotHandler above.
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
         spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());

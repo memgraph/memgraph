@@ -384,14 +384,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       while (true) {
         const auto outcome = session_.Execute();
         if (outcome == bolt::ExecuteResult::kNeedsCoroPrepare) {
-          // R4.7 (Session-surgery Stage B, IP-1 design doc): this outcome is only ever returned when
-          // GetCurrentWorkerId() is set, which requires running on a PriorityThreadPool (LP) worker.
-          // The ASIO scheduler (this method) never runs on a pool worker -- it executes directly on
-          // the connection's ASIO strand -- so Execute_'s own gate makes this branch unreachable in
-          // practice. Defense in depth: rather than looping forever on a state_ that would otherwise
-          // never leave State::Parsed, drain the (in this configuration always-synchronous, since
-          // AcquireAccessorCoro's own DMG_ASSERT would fire before ever registering a park attempt
-          // from a non-pool thread) coroutine Prepare chain to completion right here and continue.
+          // Unreachable in practice: this outcome requires GetCurrentWorkerId() to be set (a pool
+          // worker), but the ASIO scheduler runs on the connection's strand, never a pool worker.
+          // Defense in depth: drain the (here always-synchronous) coroutine Prepare chain rather
+          // than spin forever on a state_ stuck in State::Parsed.
           DMG_ASSERT(false,
                      "Execute_ returned kNeedsCoroPrepare on the ASIO scheduler path -- expected to be "
                      "unreachable (GetCurrentWorkerId() should never be set here).");
@@ -408,54 +404,33 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
   }
 
-  // Session-surgery Stage B (IP-1 design doc REVISION 3 §R3.3 / REVISION 4, opencode-work/
-  // resource-lock-starvation/coro-prepare/ip1-design.md): owns the parked top-level Prepare
-  // coroutine, if any. Only ever engaged when flags::run_time::CoroPrepareAccessorYieldEnabled()
-  // AND this connection is being driven via DoWork (PRIORITY_QUEUE_WITH_SIDECAR scheduler, i.e. on a
-  // PriorityThreadPool worker) -- see the ExecuteResult::kNeedsCoroPrepare doc comment. While
-  // engaged, this session's single in-flight-task slot is retained by the parked frame: no DoRead,
-  // no further dispatch, until the pinned resume drives it back through RunLoop (B3).
+  // Owns the parked top-level Prepare coroutine, if any. Engaged only when the flag is on AND this
+  // connection is driven via DoWork (a pool worker). While engaged the session's single in-flight
+  // slot is retained by the parked frame: no DoRead, no dispatch, until the pinned resume re-drives
+  // it through RunLoop.
   std::optional<utils::Task<void>> parked_prepare_;
 
-  // Drives a single connection iteration exactly like DoWork's original inline loop did: repeatedly
-  // calls session_.Execute() until it signals kNoMoreData (arm a fresh read) or kNeedsCoroPrepare
-  // (drive the coroutine Prepare chain via DrivePreparedRun, parking this connection's slot if it
-  // suspends). Shared by DoWork's initial dispatch and DrivePreparedRun's post-park continuation
-  // (re-entry after a resume) so both a fresh dispatch and a resumed-after-park connection are
-  // driven by IDENTICAL logic -- this is the "single in-flight slot" invariant (B3): whichever path
-  // is currently driving RunLoop is the only one allowed to touch this connection's Execute()/state_
-  // until it returns.
+  // Drives one connection iteration like DoWork's original inline loop: calls session_.Execute()
+  // until kNoMoreData (arm a read) or kNeedsCoroPrepare (drive the coroutine chain, parking the slot
+  // if it suspends). Shared by the initial dispatch and the post-park continuation so both are
+  // driven by identical logic -- the "single in-flight slot" invariant: whoever is currently in
+  // RunLoop is the only one allowed to touch Execute()/state_ until it returns.
   void RunLoop(std::shared_ptr<Session> shared_this, utils::Priority thread_priority) {
     try {
       while (true) {
         const auto outcome = shared_this->session_.Execute();
         if (outcome == bolt::ExecuteResult::kNeedsCoroPrepare) {
-          // R4.1: shared_this is captured HERE, in an ordinary (non-coroutine) function, and handed
-          // down as an opaque std::function -- DrivePreparedRun's own coroutine frame therefore never
-          // stores a separately-named shared_ptr<Session> of its own (which would look like, and
-          // partially be, a session -> parked_prepare_ -> frame -> shared_ptr<session> cycle); it
-          // only ever forwards this closure, exactly like every other frame in the chain already has
-          // to (AcquireAccessorCoro holds it as a frame local across its whole retry loop, by
-          // necessity). The closure itself is the sole thing keeping the session alive across the
-          // park (see its own body below and query::detail::AcquireAwaitable's doc comment).
-          // Adversarial-review finding (post R4.4): PriorityThreadPool::ShutDown()'s shutdown-drain
-          // can resume a parked frame to completion INLINE, on the draining thread, WITHOUT ever
-          // going through this worker's own pinned queue (RescheduleTaskOnWorker's
-          // IsShuttingDown()-inline branch) -- so the usual "same worker, therefore sequential"
-          // argument that makes the NORMAL (non-shutdown) resume path race-free does NOT apply to a
-          // shutdown-triggered resume, which can run concurrently with this very thread. `parked_
-          // prepare_` MUST therefore already hold the Task (and be visible via the registries' own
-          // mutex acquire/release, transitively covering this write) BEFORE `Resume()` is called --
-          // i.e. before there is any `ParkState` for another thread to claim at all -- not populated
-          // only after `Resume()` returns. Emplacing here, first, closes that race: by the time
-          // anything could register a `ParkState` (inside `Resume()`, below), `parked_prepare_` is
-          // already engaged and its write already happened-before (via the registry mutex) any
-          // concurrent claim+resume.
+          // shared_this is captured here and forwarded down as an opaque std::function, so no frame
+          // in the chain stores a named shared_ptr<Session> (which would form a session ->
+          // parked_prepare_ -> frame -> session cycle); the closure is the sole thing keeping the
+          // session alive across the park.
+          // parked_prepare_ MUST already hold the Task before Resume() is called: a shutdown-drain
+          // can resume the frame concurrently on another thread, so this write must happen-before
+          // (via the registry mutex) any ParkState a resumer could claim. Emplace first closes that.
           shared_this->parked_prepare_.emplace(shared_this->DrivePreparedRun([shared_this] {
             auto &parked = shared_this->parked_prepare_;
             if (!parked || !parked->Done()) {
-              // Still genuinely parked (this resume's re-probe re-parked on a fresh ParkState) --
-              // nothing to do yet; a later resume will find Done() == true and take the branch below.
+              // Still parked (re-parked on a fresh ParkState); a later resume will find Done().
               return;
             }
             try {
@@ -463,31 +438,22 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
             } catch (const std::exception &e) {
               spdlog::error("Parked Prepare coroutine finished with an unexpected exception: {}", e.what());
             }
-            // Safe here (unlike inside DrivePreparedRun's own body): this closure runs OUTSIDE any
-            // coroutine frame's execution, strictly after h.resume() already returned control to the
-            // pinned reschedule closure -- the frame is merely sitting at its final_suspend by now.
+            // Safe here (unlike inside DrivePreparedRun's body): runs outside the frame's execution,
+            // after h.resume() already returned.
             parked.reset();
-            // Re-drive exactly like a fresh DoWork iteration. The pinned closure this runs from
-            // always executes on a mixed-work (LP) worker (RescheduleTaskOnWorker only ever targets
-            // those), so Priority::LOW is always the accurate thread priority here -- there is no way
-            // to observe the resuming worker's own ambient priority (RescheduleTaskOnWorker's
-            // closure signature discards it), and LOW is also always what a plain resumed pool task
-            // would run at.
+            // Re-drive like a fresh DoWork iteration. The pinned resume always runs on an LP worker,
+            // so Priority::LOW is accurate.
             shared_this->RunLoop(shared_this, utils::Priority::LOW);
           }));
           shared_this->parked_prepare_->Resume();
           if (!shared_this->parked_prepare_->Done()) {
-            // PARKED (B3/R3.3): retain this connection's single in-flight slot. Do NOT arm DoRead,
-            // do NOT dispatch/re-post -- the ONLY thing that re-drives this connection is the pinned
-            // resume (RescheduleTaskOnWorker), which re-enters via this same coroutine chain and,
-            // once it fully completes, calls back into RunLoop itself (see DrivePreparedRun).
+            // PARKED: retain the single in-flight slot. Do NOT arm DoRead or re-dispatch -- only the
+            // pinned resume re-drives this connection, re-entering via the same chain and eventually
+            // calling back into RunLoop (see DrivePreparedRun).
             return;
           }
-          // Completed synchronously: Resume()'s single call above ran the WHOLE chain to completion
-          // without ever suspending -- i.e. no ParkState was ever created or exposed to another
-          // thread for this attempt (had it suspended even once, the `if (!Done())` check above
-          // would already have returned). Nothing else can be concurrently touching parked_prepare_
-          // here; this branch is unreachable from any racing resume.
+          // Completed synchronously (never suspended, so no ParkState was ever exposed) -- no racing
+          // resume can be touching parked_prepare_ here.
           auto finished = std::move(*shared_this->parked_prepare_);
           shared_this->parked_prepare_.reset();
           finished.TakeValue();  // rethrow, if DrivePreparedRun itself somehow escaped an exception
@@ -512,21 +478,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
   }
 
-  // Session-surgery Stage B top-level drive coroutine (IP-1 design doc REVISION 4 §R4.1/§R4.2). Its
-  // OWN body is deliberately just the co_await -- no post-await bookkeeping lives here, because this
-  // coroutine's frame is owned by `parked_prepare_` itself: touching (let alone destroying/resetting)
-  // that member from WITHIN this frame's own execution would destroy the very coroutine currently
-  // running. All the "what happens once this whole chain is done" logic instead lives in the caller-
-  // supplied `on_park_resumed` closure (built by RunLoop, see above), which runs from the pinned
-  // reschedule closure strictly AFTER it resumes the parked handle -- i.e. OUTSIDE this frame's
-  // execution entirely (see query::detail::AcquireAwaitable's on_park_resumed doc comment for why
-  // that ordering is safe).
-  //
-  // R4.1: takes `on_park_resumed` as an opaque std::function, NOT a `shared_ptr<Session>` -- this
-  // frame stores exactly the same kind of caller-supplied closure every OTHER frame in the chain
-  // already has to (AcquireAccessorCoro holds it as a frame local across its whole retry loop), never
-  // a separately-named session shared_ptr of its own (which would look like, and partially be, a
-  // session -> parked_prepare_ -> frame -> shared_ptr<session> cycle).
+  // Top-level drive coroutine. Its body is deliberately just the co_await: no post-await
+  // bookkeeping, because this frame is owned by `parked_prepare_`, so resetting that member from
+  // within this frame would destroy the running coroutine. The "what happens once done" logic lives
+  // in the `on_park_resumed` closure (built by RunLoop), which runs outside this frame's execution.
+  // Takes it as an opaque std::function, not a shared_ptr<Session>, to avoid a session->frame cycle.
   utils::Task<void> DrivePreparedRun(std::function<void()> on_park_resumed) {
     co_await bolt::HandlePrepareCoro(session_, std::move(on_park_resumed));
   }

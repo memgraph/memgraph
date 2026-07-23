@@ -155,10 +155,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   void TestHook_ShouldAbort() { should_abort_ = true; }
 
   void Execute() {
-    // TestSession never runs on a PriorityThreadPool worker and never defines
-    // InterpretPrepareCoro(), so Execute_'s coroutine-park gate (flag-on AND
-    // GetCurrentWorkerId().has_value()) can never fire here -- ExecuteResult::kNeedsCoroPrepare is
-    // unreachable in this test driver, exactly like today's synchronous HandlePrepare path.
+    // TestSession never runs on a pool worker, so Execute_'s coroutine-park gate never fires here
+    // (kNeedsCoroPrepare is unreachable) -- same as the synchronous HandlePrepare path.
     while (Execute_(*this) == memgraph::communication::bolt::ExecuteResult::kMoreData) {
       // Execute now exists on result, so it can be schduled again.
       // No scheduler here, just loop until done

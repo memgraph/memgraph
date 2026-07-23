@@ -337,44 +337,27 @@ class Storage {
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level);
   std::unique_ptr<Accessor> ReadOnlyAccess();
 
-  /// Non-blocking counterpart to Access(): attempts to acquire main_lock_ in the requested mode
-  /// WITHOUT blocking. Returns std::nullopt (creating NO transaction, throwing NOTHING) if the
-  /// lock is not immediately available -- the caller must fall back to the blocking Access() (or
-  /// simply retry TryAccess() later) if it still wants the access.
-  ///
-  /// WRITE/READ probe via a plain non-blocking try_lock_shared: they never gate other acquirers,
-  /// so there is nothing to register as pending. READ_ONLY probes via a single-shot
-  /// utils::ReadOnlyPendingScope::try_acquire() so that a caller retrying TryAccess(READ_ONLY,
-  /// ...) in a loop gets the same priority-over-new-WRITE a blocking ReadOnlyAccess() call
-  /// already gets (see utils::ReadOnlyPendingScope's docs in resource_lock.hpp).
-  ///
-  /// Base implementation is a safe no-op stub: it always returns std::nullopt without ever
-  /// touching main_lock_, so storage engines that don't (yet) implement non-blocking access
-  /// (currently: DiskStorage) get correct, side-effect-free behaviour for free. InMemoryStorage
-  /// overrides this with the real non-blocking implementation.
+  /// Non-blocking counterpart to Access(): returns std::nullopt (no transaction, no throw) if
+  /// main_lock_ is not immediately available. WRITE/READ use a plain try_lock_shared; READ_ONLY
+  /// uses a single-shot ReadOnlyPendingScope so a retrying caller keeps priority-over-new-WRITE.
+  /// Base is a safe no-op stub (always nullopt, never touches main_lock_); InMemoryStorage
+  /// overrides with the real implementation.
   virtual std::optional<std::unique_ptr<Accessor>> TryAccess(
       StorageAccessType rw_type, std::optional<IsolationLevel> override_isolation_level = std::nullopt);
 
-  /// Non-blocking counterpart to UniqueAccess(). Uses a single-shot
-  /// utils::UniquePendingScope::try_acquire() so a caller retrying TryUniqueAccess() in a loop
-  /// gets writer-preference against new shared (READ/WRITE/READ_ONLY) acquirers, same as a
-  /// blocking UniqueAccess() call. See TryAccess() for the no-transaction-on-failure contract and
-  /// the safe-stub default (inherited as-is by DiskStorage).
+  /// Non-blocking counterpart to UniqueAccess(); uses a single-shot UniquePendingScope so a
+  /// retrying caller keeps writer-preference. See TryAccess() for the contract and safe-stub default.
   virtual std::optional<std::unique_ptr<Accessor>> TryUniqueAccess(
       std::optional<IsolationLevel> override_isolation_level = std::nullopt);
 
-  /// Non-blocking counterpart to ReadOnlyAccess(). See TryAccess() for the contract and the
-  /// safe-stub default (inherited as-is by DiskStorage).
+  /// Non-blocking counterpart to ReadOnlyAccess(). See TryAccess() for the contract and safe-stub default.
   virtual std::optional<std::unique_ptr<Accessor>> TryReadOnlyAccess(
       std::optional<IsolationLevel> override_isolation_level = std::nullopt);
 
-  /// Whether this storage engine supports the coro-prepare park-acquire path (IP-1 design doc,
-  /// opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 4 §R4.6): a
-  /// caller-held pending scope (see InMemoryStorage::PendingHandle/TryAccessWithPending) kept
-  /// across an entire retry campaign, plus a real (non-stub) TryAccess* implementation to probe
-  /// against. Base default is false (DiskStorage never overrides TryAccess*, so parking against
-  /// it would spin against the always-nullopt stub until the deadline sweep fires every single
-  /// time -- the park benefit is InMemory-only for v1). Overridden `true` in InMemoryStorage.
+  /// Whether this engine supports the coro-prepare park-acquire path (a caller-held pending scope
+  /// kept across a retry campaign plus a real TryAccess*). False by default: DiskStorage never
+  /// overrides TryAccess*, so parking against it would just spin to the deadline -- park is
+  /// InMemory-only for v1. Overridden `true` in InMemoryStorage.
   virtual bool SupportsParkAcquire() const { return false; }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
@@ -382,27 +365,18 @@ class Storage {
   std::expected<void, SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
   IsolationLevel GetIsolationLevel() const noexcept;
 
-  /// Per-Storage wake event for a parked (coro-prepare) waiter blocked on `main_lock_` (IP-1
-  /// design doc, opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3
-  /// §R3.1, corrected by the F5 fix below). ALL release sites -- UNIQUE, READ_ONLY, WRITE, and
-  /// READ alike -- must poke this; see NotifyMainLockReleased().
+  /// Per-Storage wake event for a parked (coro-prepare) waiter blocked on `main_lock_`. ALL release
+  /// sites (UNIQUE/READ_ONLY/WRITE/READ) must poke it via NotifyMainLockReleased().
   utils::WorkerResumeEvent &main_lock_resume_event() { return main_lock_resume_event_; }
 
-  /// Wakes any coro-prepare waiter parked on `main_lock_resume_event()`, if the experimental flag
-  /// is on AND somebody is actually parked (R3.1/C5) -- cheap otherwise: one relaxed bool load
-  /// (flag off) or one relaxed size load (no waiters). Callers MUST invoke this AFTER the guard has
-  /// ACTUALLY released `main_lock_` (C3) -- never while still holding it.
+  /// Wakes any parked waiter, only if the flag is on AND someone is parked (otherwise one relaxed
+  /// load). MUST be called AFTER main_lock_ is actually released (C3), never while holding it.
   ///
-  /// F5 fix: call this for EVERY release mode, including plain READ/WRITE, not only UNIQUE/
-  /// READ_ONLY. main_lock_'s conflict matrix (utils::ResourceLock) is: UNIQUE excludes all;
-  /// READ_ONLY excludes WRITE (coexists with READ); READ/WRITE coexist with each other. So a
-  /// parked READ_ONLY/UNIQUE waiter is unblocked precisely when the LAST conflicting WRITE (or
-  /// READ, for UNIQUE) holder releases -- not only by another UNIQUE/READ_ONLY release. The
-  /// original "READ/WRITE never gate another acquirer" reasoning conflated "never blocks a NEW
-  /// READ/WRITE acquirer" (true) with "release can never unblock a WAITING acquirer of a different
-  /// mode" (false). The relaxed-load gate above keeps this cheap on every hot commit path
-  /// regardless of mode; only a genuinely parked waiter pays the (bounded, correctness-necessary)
-  /// extra wake-and-reprobe cost.
+  /// F5 fix: call for EVERY release mode, not just UNIQUE/READ_ONLY. Given main_lock_'s conflict
+  /// matrix (UNIQUE excludes all; READ_ONLY excludes WRITE; READ/WRITE coexist), a parked
+  /// READ_ONLY/UNIQUE waiter is unblocked when the last conflicting WRITE (or READ, for UNIQUE)
+  /// holder releases -- so a plain READ/WRITE release can unblock a waiting acquirer of another
+  /// mode. Only a genuinely parked waiter pays the extra wake-and-reprobe cost.
   void NotifyMainLockReleased();
 
   virtual StorageInfo GetBaseInfo() = 0;
@@ -455,36 +429,16 @@ class Storage {
 
     ttl_.Shutdown();
 
-    // Shutdown-latency/deadlock fix (IP-1 coro-prepare-accessor-yield, opencode-work/
-    // resource-lock-starvation/coro-prepare/ip1-design.md REVISION 4 §R4.4): drain any coro-prepare
-    // waiter still registered on THIS storage's main_lock_resume_event_.
+    // Shutdown-latency/leak fix: drain any coro-prepare waiter still registered on THIS storage's
+    // main_lock_resume_event_. A genuine park dual-registers the same ParkState in two registries
+    // (the pool's DeadlineParkRegistry AND this event); only the pool side was ever drained, so an
+    // undrained entry here kept its ParkState -- and the closure-captured Session and its
+    // Gatekeeper<Database>::Accessor -- alive forever, pinning Gatekeeper::count_ > 0 and hanging
+    // ~Gatekeeper() (5min cv wait) into a process-wide shutdown hang.
     //
-    // PriorityThreadPool::ShutDown() already drains its OWN DeadlineParkRegistry (priority_thread_
-    // pool.cpp), which claims+resumes every parked ParkState so the waiting connection completes or
-    // bails (observes IsShuttingDown()) almost immediately -- that part works. But a genuine park
-    // dual-registers the SAME shared_ptr<ParkState> in TWO registries (see
-    // query::detail::AcquireAwaitable::await_suspend, query/coro_accessor.hpp): the pool's
-    // DeadlineParkRegistry (deadline sweep backstop) AND this per-Storage main_lock_resume_event_
-    // (lock-release wake). Only the pool-side registry was ever drained anywhere in production code
-    // -- WorkerResumeEvent::Drain() existed (utils/worker_resume_event.hpp) but had NO caller. Left
-    // undrained, the entry in main_lock_resume_event_'s waiters_ list keeps its shared_ptr<ParkState>
-    // alive forever, and that ParkState's on_resume closure transitively keeps alive whatever it
-    // captured (the parked connection's Session, and therefore its DatabaseAccess/
-    // Gatekeeper<Database>::Accessor) -- a real leak, not just a slow path. That leaked accessor
-    // keeps Gatekeeper<Database>::count_ above zero forever, and ~Gatekeeper() blocks in
-    // cv_.wait_for(lock, 5min, count_==0) -- turning "a query was parked at some point against this
-    // database" into a process-wide shutdown hang (observed as the 17.3s+ -- in practice unbounded,
-    // only ever cut short externally -- shutdown latency this fix addresses).
-    //
-    // Draining here is safe and correct regardless of ordering relative to the pool's own drain:
-    // WorkerResumeEvent::Drain() unconditionally moves every entry out of waiters_ (releasing this
-    // registry's reference) and only invokes on_resume() for an entry it still WINS the single-owner
-    // ClaimPark on -- an entry already claimed by the pool's drain (the expected common case, since
-    // PriorityThreadPool::ShutDown() runs first in the memgraph.cpp shutdown sequence, well before
-    // this function is reached via dbms_handler->ForEach(StopAllBackgroundTasks)) simply loses that
-    // claim and is pruned without a second (dangling/UAF-risking) resume attempt. Cheap: this runs
-    // once per database at shutdown/drop time, never on a hot path, so no flag gate is needed (unlike
-    // NotifyMainLockReleased's per-release cost).
+    // Safe regardless of ordering vs the pool's drain: Drain() moves every entry out and invokes
+    // on_resume only for one it still wins ClaimPark on, so an entry the pool already claimed is
+    // pruned without a second (UAF-risking) resume. Once per DB at shutdown, so no flag gate.
     main_lock_resume_event_.Drain();
   }
 
@@ -499,9 +453,7 @@ class Storage {
   mutable utils::ResourceLock main_lock_;
 
   // Wake event for a coro-prepare waiter parked on main_lock_ (see main_lock_resume_event() /
-  // NotifyMainLockReleased() above; IP-1 design doc REVISION 3 §R3.1). Pool-agnostic by design
-  // (utils::WorkerResumeEvent has no knowledge of PriorityThreadPool/tasks/coroutines) -- each
-  // waiter's ParkState carries its own on_resume closure.
+  // NotifyMainLockReleased()). Pool-agnostic -- each waiter's ParkState carries its own closure.
   utils::WorkerResumeEvent main_lock_resume_event_;
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
@@ -609,14 +561,9 @@ class Accessor {
   Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
-  // "Owning" variants of the three tags above: used by Storage::TryAccess/TryUniqueAccess/
-  // TryReadOnlyAccess (see storage.cpp) once a non-blocking probe against main_lock_ has ALREADY
-  // succeeded. Unlike the timeout-taking constructors above (which perform the acquisition
-  // themselves via CreateSharedGuard/CreateUniqueGuard), these take an already-locked guard by
-  // value/move and simply adopt it -- no locking is attempted here, so construction can never
-  // block or fail. This mirrors ReleaseUniqueGuard()'s hand-off model in reverse: there, an
-  // Accessor gives up an already-held guard to a caller; here, a caller that already holds a
-  // guard (obtained via a non-blocking try_lock/try_acquire) hands it INTO a new Accessor.
+  // "Owning" variants of the tags above, used by Storage::Try*Access once a non-blocking probe has
+  // ALREADY acquired main_lock_: they adopt the already-locked guard by move rather than acquiring,
+  // so construction can never block or fail (the reverse of ReleaseUniqueGuard()'s hand-off).
   static constexpr struct SharedAccessOwning {
   } shared_access_owning;
 
@@ -639,14 +586,10 @@ class Accessor {
 
   Accessor(Accessor &&other) noexcept;
 
-  // Defined out-of-line (storage.cpp): on a UNIQUE/READ_ONLY accessor, explicitly releases
-  // storage_guard_/unique_guard_ here (instead of relying on their implicit member-destruction,
-  // which runs AFTER this body) so that Storage::NotifyMainLockReleased() can be called strictly
-  // after main_lock_ has actually been released (C3) -- see storage.cpp for the full rationale
-  // (Transaction's destructor is default/trivial and does not depend on the lock being held, so
-  // releasing it here, before transaction_'s own implicit destruction runs, is safe). READ/WRITE
-  // accessors skip all of this (cheap original_access_type_ check) and fall through to the
-  // ordinary implicit guard release -- unchanged, zero extra cost on that hot path.
+  // Defined out-of-line (storage.cpp): on a UNIQUE/READ_ONLY accessor, explicitly releases the
+  // guard here (before implicit member-destruction) so NotifyMainLockReleased() runs strictly after
+  // main_lock_ is released (C3). READ/WRITE accessors skip this and fall through to the ordinary
+  // implicit release -- zero extra cost on that hot path.
   virtual ~Accessor();
 
   StorageAccessType original_access_type() const { return original_access_type_; }
@@ -668,18 +611,10 @@ class Accessor {
     return NO_ACCESS;
   }
 
-  /// Hands off ownership of this accessor's UNIQUE lock on `main_lock_` to the caller.
-  /// Only valid when this accessor currently holds the UNIQUE lock (i.e. it was constructed
-  /// via UniqueAccess()). After this call, `type()` reports NO_ACCESS and the accessor no
-  /// longer performs any unlock at destruction — the returned std::unique_lock becomes the
-  /// SOLE owner of the acquisition and the caller is responsible for its eventual unlock.
-  ///
-  /// This exists so call sites that need to pass the already-held UNIQUE lock into another
-  /// function (e.g. CollectGarbage/FreeMemory) do so by moving the *same* std::unique_lock
-  /// object, instead of constructing a second std::unique_lock with std::adopt_lock over the
-  /// same mutex. Two std::unique_lock objects adopting one acquisition both believe they own
-  /// it and will each unlock it once, producing a double-unlock when both are eventually
-  /// released/destroyed.
+  /// Hands off this accessor's UNIQUE lock to the caller (valid only while it holds UNIQUE). The
+  /// returned unique_lock becomes the sole owner; the accessor no longer unlocks at destruction.
+  /// Move the SAME unique_lock rather than adopting the mutex into a second one -- two adopters
+  /// would each unlock once and double-unlock.
   auto ReleaseUniqueGuard() -> std::unique_lock<utils::ResourceLock> {
     MG_ASSERT(unique_guard_.owns_lock(), "ReleaseUniqueGuard requires the accessor to hold the UNIQUE lock");
     return std::move(unique_guard_);

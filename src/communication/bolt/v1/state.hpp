@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -63,17 +63,11 @@ enum class State : uint8_t {
 };
 
 /**
- * Tri-state outcome of Session::Execute_ (Session-surgery Stage B, IP-1 design doc
- * opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3 §R3.3 / REVISION 4
- * §R4.7). `kNoMoreData`/`kMoreData` are exactly today's `false`/`true` (kept as an enum, not a bool,
- * so the new third state can't be silently misread as either). `kNeedsCoroPrepare` is new: it means
- * the RUN currently being processed (state_ == State::Parsed) needs to be driven via the coroutine
- * Prepare chain (communication::bolt::HandlePrepareCoro) because that path can park a contended
- * accessor acquire -- Execute_ deliberately does NOT invoke HandlePrepare synchronously in that case;
- * the caller (communication::v2::Session::RunLoop) drives HandlePrepareCoro and reacts to whether it
- * parked. Only ever returned when --experimental-coro-prepare-accessor-yield is on AND the caller is
- * running on a PriorityThreadPool (LP) worker -- flag-off, or any other execution context (e.g. the
- * ASIO scheduler's OnReadAsio loop, which never runs on a pool worker), never sees it.
+ * Tri-state outcome of Session::Execute_. kNoMoreData/kMoreData are exactly today's false/true (an
+ * enum, not a bool, so the third state can't be misread). kNeedsCoroPrepare means the current RUN
+ * (state_ == Parsed) must be driven via the coroutine Prepare chain (which can park) rather than
+ * synchronous HandlePrepare; the caller (Session::RunLoop) drives HandlePrepareCoro. Only returned
+ * when the flag is on AND running on an LP worker; no other context ever sees it.
  */
 enum class ExecuteResult : uint8_t {
   kNoMoreData,        // no more data to process; caller should arm a fresh read (today's `false`)

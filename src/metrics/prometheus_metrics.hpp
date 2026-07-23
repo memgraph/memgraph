@@ -300,9 +300,8 @@ struct GlobalMetricHandles {
   prometheus::Counter *write_query;
   prometheus::Counter *read_write_query;
 
-  // Idle-in-transaction watchdog (global — instance-wide scan, not attributed to a single db).
-  // warnings: bumped every scan tick a transaction is found idle past the warn threshold.
-  // aborted: bumped once per transaction actually terminated past the abort threshold.
+  // Idle-in-transaction watchdog (global). warnings: bumped every scan tick a tx is past the warn
+  // threshold. aborted: bumped once per tx actually terminated.
   prometheus::Counter *idle_in_transaction_warnings;
   prometheus::Counter *idle_in_transaction_aborted;
 

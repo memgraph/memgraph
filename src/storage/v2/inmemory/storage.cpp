@@ -2943,10 +2943,8 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
-    // Hand off the SAME std::unique_lock that unique_accessor's construction acquired, rather
-    // than building a second std::unique_lock with std::adopt_lock over main_lock_. Two locks
-    // adopting one acquisition would each unlock it once (in CollectGarbage's OnScopeExit, then
-    // again at unique_accessor's destruction) -> double-unlock -> broken mutual exclusion.
+    // Hand off the SAME unique_lock rather than adopting main_lock_ into a second one -- two
+    // adopters would each unlock once -> double-unlock -> broken mutual exclusion.
     FreeMemory(unique_accessor->ReleaseUniqueGuard(), false);
   }
 }
@@ -2976,17 +2974,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   utils::OnScopeExit lock_releaser{[&] {
     if (main_guard.owns_lock()) {
-      // UNIQUE release (either handed off by SetStorageMode via ReleaseUniqueGuard(), or acquired
-      // by the aggressive-mode try_lock() above) -- notify AFTER the actual unlock (C3), same
-      // ordering as Storage::Accessor::~Accessor()/SetIsolationLevel.
+      // UNIQUE release -- notify AFTER the actual unlock (C3), like Accessor::~Accessor().
       main_guard.unlock();
       NotifyMainLockReleased();
     } else {
-      // Plain shared (WRITE-mode-tagged, see the lock_shared() call above) acquisition. F5 fix:
-      // this CAN unblock a parked READ_ONLY/UNIQUE waiter (a pending UNIQUE needs r_count==0 too,
-      // and a pending READ_ONLY needs w_count==0) so it must notify AFTER the actual unlock (C3),
-      // exactly like the UNIQUE branch above -- the old "nobody to wake" reasoning was the same bug
-      // fixed in Storage::Accessor::~Accessor().
+      // Plain shared (WRITE-tagged) release. F5 fix: this too can unblock a parked
+      // READ_ONLY/UNIQUE waiter, so notify AFTER the unlock (C3), like the UNIQUE branch.
       main_lock_.unlock_shared();
       NotifyMainLockReleased();
     }
@@ -4715,15 +4708,12 @@ std::optional<std::unique_ptr<Storage::Accessor>> InMemoryStorage::TryAccess(
   }
 
   if (rw_type == READ_ONLY) {
-    // READ_ONLY needs ro_pending_count's priority-over-WRITE mechanism, which plain
-    // try_lock_shared doesn't register -- route through the same single-shot
-    // ReadOnlyPendingScope path TryReadOnlyAccess() uses so a caller retrying
-    // TryAccess(READ_ONLY, ...) gets the same fairness a direct TryReadOnlyAccess() call would.
+    // READ_ONLY needs ro_pending_count's priority-over-WRITE, which plain try_lock_shared doesn't
+    // register -- route through the same ReadOnlyPendingScope path as TryReadOnlyAccess().
     return TryReadOnlyAccess(override_isolation_level);
   }
 
-  // WRITE/READ never gate other acquirers (see ResourceLock::lock_guard_condition), so a plain
-  // non-blocking try_lock_shared is enough -- no pending registration needed.
+  // WRITE/READ never gate other acquirers, so a plain non-blocking try_lock_shared is enough.
   const auto shared_type =
       rw_type == WRITE ? utils::SharedResourceLockGuard::Type::WRITE : utils::SharedResourceLockGuard::Type::READ;
   utils::SharedResourceLockGuard guard(main_lock_, shared_type, std::try_to_lock);
@@ -4738,9 +4728,8 @@ std::optional<std::unique_ptr<Storage::Accessor>> InMemoryStorage::TryAccess(
 
 std::optional<std::unique_ptr<Storage::Accessor>> InMemoryStorage::TryUniqueAccess(
     std::optional<IsolationLevel> override_isolation_level) {
-  // Single-shot probe: registers as pending for the (very short) duration of this one attempt,
-  // giving new shared acquirers the same momentary writer-preference gate a longer-held
-  // utils::UniquePendingScope campaign would (see resource_lock.hpp for the full rationale).
+  // Single-shot probe: registers as pending for this one attempt, giving the momentary
+  // writer-preference gate a longer-held UniquePendingScope campaign would (see resource_lock.hpp).
   utils::UniquePendingScope scope(main_lock_);
   auto guard = scope.try_acquire();
   if (!guard) return std::nullopt;
@@ -4798,9 +4787,8 @@ std::optional<std::unique_ptr<Storage::Accessor>> InMemoryStorage::TryAccessWith
                                                                   std::move(*guard)});
   }
 
-  // WRITE/READ never gate other acquirers (see ResourceLock::lock_guard_condition), so -- exactly
-  // like TryAccess() above -- a plain non-blocking try_lock_shared is enough; `pending` is
-  // expected empty for these types and is simply not consulted.
+  // WRITE/READ never gate other acquirers, so -- like TryAccess() -- a plain non-blocking
+  // try_lock_shared is enough; `pending` is unused (expected empty) for these types.
   const auto shared_type =
       rw_type == WRITE ? utils::SharedResourceLockGuard::Type::WRITE : utils::SharedResourceLockGuard::Type::READ;
   utils::SharedResourceLockGuard guard(main_lock_, shared_type, std::try_to_lock);

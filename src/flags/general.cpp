@@ -255,15 +255,11 @@ DEFINE_string(query_callable_mappings_path, "",
               "pairs in a json file. With this option query module procedures that do not exist in memgraph can be "
               "mapped to ones that exist.");
 
-// Idle-in-transaction watchdog. An explicit BEGIN holds its storage accessor (and any
-// main_lock_ share/unique) until COMMIT/ROLLBACK/RESET/close; the per-query execution timeout
-// (--query-execution-timeout-sec) only fires while a query is actually running, so a session
-// that issues BEGIN and then goes idle can hold those resources forever. The background scan
-// (InterpreterContext::ScanIdleTransactions) always tracks + warns once idle time crosses the
-// warn threshold (set to 0 to disable warning); it only *aborts* -- via the same cross-thread
-// termination path TERMINATE TRANSACTIONS uses -- when the abort threshold is explicitly set
-// above 0. Default is 0 (disabled): no deployment starts auto-terminating idle sessions unless
-// an operator opts in.
+// Idle-in-transaction watchdog. A BEGIN'd transaction holds its accessor/main_lock_ until
+// COMMIT/ROLLBACK/RESET, and the per-query timeout only fires while a query runs, so an idle
+// session can hold those resources forever. The background scan warns past the warn threshold
+// (0 = disabled) and only aborts (via the TERMINATE TRANSACTIONS path) when the abort threshold
+// is set > 0 (default 0 = opt-in).
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(query_idle_in_transaction_warn_sec, 60,
                         "Warn (and count in metrics) when an explicit (BEGIN'd) transaction has been idle -- no "

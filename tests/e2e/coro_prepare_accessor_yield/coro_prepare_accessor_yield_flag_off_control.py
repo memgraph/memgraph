@@ -9,16 +9,10 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# CONTROL for the coroutine-park Prepare path e2e (coro_prepare_accessor_yield.py). Runs the
-# IDENTICAL scenario (common.run_responsiveness_scenario) against a cluster where
-# --experimental-coro-prepare-accessor-yield is absent (default false), and asserts the OPPOSITE
-# outcome: the probe must be SLOW.
-#
-# Why this file exists: a "P is fast" assertion alone proves nothing unless we also demonstrate
-# that the same scenario, without parking, makes P slow. Without this contrast, a fast box, a
-# scenario that never actually contends, or parking being silently broken could all produce a
-# passing flag-ON test for the wrong reason. This file is what makes the flag-ON <1s result
-# meaningful.
+# Control for the flag-ON e2e: runs the IDENTICAL scenario with the flag absent (default false) and
+# asserts the OPPOSITE outcome -- the probe must be SLOW. This contrast is what makes the flag-ON
+# <1s result meaningful (a fast box or a non-contending scenario could otherwise pass for the
+# wrong reason).
 
 import sys
 

@@ -21,19 +21,11 @@
 
 namespace memgraph::utils {
 
-/// Minimal, general-purpose LAZY coroutine task type (IP-1 §3 item 1: `utils/coro_task.hpp`).
-///
-/// `Task<T>` does not start running when constructed -- its body only executes once it is
-/// `co_await`ed (or driven via `SyncWait`), via `initial_suspend() == suspend_always`. Chaining
-/// `co_await`s use a symmetric-transfer `final_suspend` so a completing child jumps directly into
-/// its awaiting continuation (or `std::noop_coroutine()` if there is none) instead of returning to
-/// a generic scheduler/trampoline -- this keeps nested `Task` chains O(1) stack depth regardless of
-/// how many awaits are chained.
-///
-/// This type is deliberately narrow: single-awaiter, move-only, no scheduler/executor integration.
-/// It is the foundation the parkable-Prepare coroutine work builds on (see
-/// opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md §3); scheduling-specific
-/// awaitables (e.g. an accessor-acquire await) are layered on top, not here.
+/// Minimal, general-purpose LAZY coroutine task. `Task<T>` starts only when co_await'ed (or driven
+/// via SyncWait): initial_suspend == suspend_always. A symmetric-transfer final_suspend jumps a
+/// completing child straight into its continuation, keeping nested chains O(1) stack depth.
+/// Deliberately narrow: single-awaiter, move-only, no scheduler integration -- the foundation
+/// parkable Prepare builds on; scheduling awaitables layer on top.
 template <typename T>
 class Task;
 
@@ -41,8 +33,7 @@ namespace detail {
 
 /// Storage + continuation plumbing shared by the void and non-void promise specializations.
 struct PromiseBase {
-  /// The coroutine to resume when this Task's body finishes (set by the Awaiter on co_await).
-  /// Left null when the Task is driven directly (e.g. by SyncWait) rather than awaited.
+  /// Coroutine to resume when this Task finishes (set by the Awaiter); null when driven directly.
   std::coroutine_handle<> continuation_{nullptr};
   std::exception_ptr exception_{nullptr};
 
@@ -50,8 +41,7 @@ struct PromiseBase {
 
   void unhandled_exception() noexcept { exception_ = std::current_exception(); }
 
-  /// Symmetric-transfer final awaiter: resumes the continuation (if any) in place of returning to
-  /// the caller of resume(), or hands control to a no-op coroutine when nobody is waiting.
+  /// Symmetric-transfer final awaiter: resumes the continuation, or a no-op coroutine if none.
   struct FinalAwaiter {
     bool await_ready() const noexcept { return false; }
 
@@ -69,9 +59,8 @@ struct PromiseBase {
 
 template <typename T>
 struct Promise : PromiseBase {
-  // Constructed lazily: engaged by return_value, read (and moved out) by the Awaiter/SyncWait.
-  // Storing it directly on the frame (not behind a pointer) keeps the result colocated with the
-  // rest of the promise -- no extra heap allocation beyond the coroutine frame itself.
+  // Engaged by return_value, moved out by the Awaiter/SyncWait; union avoids default-constructing
+  // T and any heap allocation beyond the coroutine frame.
   union {
     T value_;
   };
@@ -136,8 +125,8 @@ class [[nodiscard]] Task {
 
   ~Task() { Destroy(); }
 
-  /// Awaiter binding this Task's completion to the awaiting coroutine's continuation. Starts the
-  /// (still-suspended) lazy body via symmetric transfer on the first co_await.
+  /// Binds this Task's completion to the awaiting coroutine and starts the lazy body via symmetric
+  /// transfer on first co_await.
   struct Awaiter {
     std::coroutine_handle<promise_type> handle_;
 
@@ -156,35 +145,28 @@ class [[nodiscard]] Task {
     return Awaiter{handle_};
   }
 
-  /// Drive this (not-yet-started) Task to completion on the CURRENT thread, without an enclosing
-  /// coroutine, and return its result (or rethrow its exception). For use by non-coroutine callers
-  /// (tests, sync entry points). See free function `SyncWait` below for the ergonomic form.
+  /// Drive this Task to completion on the current thread and return its result (or rethrow). For
+  /// non-coroutine callers (tests, sync entry points); see `SyncWait` for the ergonomic form.
   T Run() {
     DMG_ASSERT(handle_, "Run() on an empty/moved-from Task.");
     handle_.resume();
     return handle_.promise().TakeValue();
   }
 
-  /// Starts (if not yet started) or resumes this Task exactly once, WITHOUT assuming it runs to
-  /// completion (Session-surgery Stage B: driving a top-level Task that may genuinely park mid-body,
-  /// see communication/v2/session.hpp's DrivePreparedRun / opencode-work/resource-lock-starvation/
-  /// coro-prepare/ip1-design.md R4.2). Unlike `Run()`/`SyncWait`, the caller MUST check `Done()`
-  /// afterwards before calling `TakeValue()` -- if the resumed chain suspended (parked) instead of
-  /// completing, the promise holds neither a value nor an exception yet.
+  /// Start or resume this Task exactly once, WITHOUT assuming it completes (for driving a top-level
+  /// Task that may park mid-body; see session.hpp's DrivePreparedRun). Caller MUST check `Done()`
+  /// before `TakeValue()` -- a parked chain holds neither value nor exception yet.
   void Resume() {
     DMG_ASSERT(handle_ && !handle_.done(), "Resume() on an empty/moved-from/already-done Task.");
     handle_.resume();
   }
 
-  /// True once this Task's body has run to completion (co_returned or threw) -- i.e. it is safe to
-  /// call `TakeValue()`. False for an empty/moved-from Task as well (nothing to take), matching the
-  /// "nothing to do" reading callers of `Resume()`/`Done()` want.
+  /// True once the body completed (co_returned or threw), so `TakeValue()` is safe; also true for
+  /// an empty/moved-from Task.
   bool Done() const noexcept { return !handle_ || handle_.done(); }
 
-  /// Reads out this (Done()) Task's result, or rethrows its exception. Precondition: `Done()`.
-  /// Companion to `Resume()`/`Done()` for callers driving a Task without assuming synchronous
-  /// completion (see the doc comment on `Resume()`); `Run()`/`SyncWait` remain the ergonomic choice
-  /// when synchronous completion IS assumed.
+  /// Reads out a Done() Task's result, or rethrows. Precondition: `Done()`. Companion to
+  /// `Resume()`/`Done()`; use `Run()`/`SyncWait` when synchronous completion is assumed.
   T TakeValue() {
     DMG_ASSERT(handle_, "TakeValue() on an empty/moved-from Task.");
     return handle_.promise().TakeValue();
@@ -214,8 +196,7 @@ inline Task<void> Promise<void>::get_return_object() noexcept {
 
 }  // namespace detail
 
-/// Run a lazy Task to completion on the current thread and return its value (or rethrow its
-/// exception). `task` must not have been co_await'd/Run() already (a fresh, not-yet-started Task).
+/// Run a fresh lazy Task to completion on the current thread and return its value (or rethrow).
 template <typename T>
 T SyncWait(Task<T> &&task) {
   return task.Run();

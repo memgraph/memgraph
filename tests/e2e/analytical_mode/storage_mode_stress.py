@@ -10,32 +10,15 @@
 # licenses/APL.txt.
 
 """
-Stress regression test for the InMemoryStorage::SetStorageMode double-unlock fix
-(src/storage/v2/inmemory/storage.cpp).
+Stress regression test for the InMemoryStorage::SetStorageMode double-unlock fix.
 
-Background
-----------
-SetStorageMode(), after taking a UNIQUE accessor on `main_lock_` (via UniqueAccess()),
-used to hand FreeMemory() a *second* std::unique_lock built with std::adopt_lock over
-main_lock_ -- adopting a lock acquisition that unique_accessor's own guard already
-owned. Two std::unique_lock objects "owning" the same acquisition each unlock it once:
-CollectGarbage's OnScopeExit unlocked it first, and then unique_accessor's destructor
-unlocked it *again* -- a double-unlock that leaves `main_lock_`'s internal bookkeeping
-broken, silently defeating mutual exclusion between UNIQUE (storage mode change) and
-concurrent SHARED (ordinary read/write) accessors.
+SetStorageMode() used to hand FreeMemory() a second std::unique_lock adopting main_lock_ that
+unique_accessor's guard already owned -- two owners each unlocking once => double-unlock, breaking
+mutual exclusion between UNIQUE (mode change) and SHARED accessors. The fix
+(Accessor::ReleaseUniqueGuard()) hands FreeMemory() the same lock by move.
 
-The fix (src/storage/v2/storage.hpp Accessor::ReleaseUniqueGuard(),
-src/storage/v2/inmemory/storage.cpp SetStorageMode()) hands FreeMemory() the *same*
-std::unique_lock object via a move, so there is exactly one owner and exactly one
-unlock.
-
-This test is belt-and-suspenders: it does not target the exact double-unlock
-mechanism (that needs a lock-internals unit test), it just hammers the observable
-symptom -- flip storage mode in a loop from one connection while other connections
-run concurrent reads/writes, and confirm the server survives the whole run without
-crashing, hanging, or throwing unexpected errors. A correctly-synchronized
-implementation just serializes the UNIQUE/SHARED acquisitions (readers/writers block
-briefly during a mode flip); a broken one can crash, corrupt state, or deadlock.
+Belt-and-suspenders: hammers the observable symptom (flip mode in a loop while other connections
+read/write) and asserts the server survives without crash/hang/unexpected error.
 """
 
 import sys
@@ -94,15 +77,9 @@ def _hammer_reads(worker_id: int, stop_event: threading.Event, errors: list) -> 
 
 
 def test_storage_mode_flip_under_concurrent_load(connect):
-    """Flip storage mode under concurrent read/write load; assert no crash/hang/error.
-
-    Needs the post-rebuild binary to be a meaningful proof of the fix (the pre-fix
-    binary may or may not manifest the double-unlock symptom within this bounded run --
-    it is a race, not a deterministic failure). A hang here (surfaced as a
-    concurrent.futures.TimeoutError from as_completed) is just as valid a failure signal
-    as a raised exception or a dead connection: broken mutual exclusion can manifest as
-    either.
-    """
+    """Flip storage mode under concurrent read/write load; assert no crash/hang/error. The pre-fix
+    binary manifests the double-unlock only racily. A hang (TimeoutError) is as valid a failure
+    signal as an exception -- broken mutual exclusion can present as either."""
     stop_event = threading.Event()
     errors: list = []
 

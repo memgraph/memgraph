@@ -1,7 +1,6 @@
 bolt_port: &bolt_port "7687"
 
-# Small pool + bounded timeout so the responsiveness contrast (parking vs. blocking) is large
-# and deterministic. See common.py for the full mechanism writeup.
+# Small pool + bounded timeout so the parking-vs-blocking contrast is large. See common.py.
 coro_prepare_accessor_yield_on_cluster: &coro_prepare_accessor_yield_on_cluster
   cluster:
     main:
@@ -18,8 +17,7 @@ coro_prepare_accessor_yield_on_cluster: &coro_prepare_accessor_yield_on_cluster
       setup_queries: []
       validation_queries: []
 
-# Control cluster: identical args except the flag is ABSENT (default false) -- see
-# coro_prepare_accessor_yield_flag_off_control.py for why this contrast matters.
+# Control cluster: identical args but the flag is absent (default false).
 coro_prepare_accessor_yield_off_cluster: &coro_prepare_accessor_yield_off_cluster
   cluster:
     main:

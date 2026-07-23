@@ -41,12 +41,9 @@ class RuntimeConfig {
 
   void Configure(const bolt_map_t &run_time_info, bool in_explicit_tx);
 
-  // Invalidate the "run_time_info unchanged since last call => skip" cache below (see
-  // Configure()) so the next RUN/BEGIN after a Bolt RESET/LogOff is forced to fully re-derive
-  // user + db instead of silently keeping whatever a previous, logically unrelated, pooled
-  // session configured. Without this, Interpreter::ResetForConnectionReuse()'s ResetDB() would
-  // have no visible effect whenever the next session's extra/metadata map happens to be
-  // identical to the one before RESET/LogOff.
+  // Invalidate the "run_time_info unchanged => skip" cache so the next RUN/BEGIN after RESET/LogOff
+  // re-derives user + db. Without this, ResetForConnectionReuse()'s ResetDB() would have no effect
+  // when the next session's metadata map happens to match the one before RESET.
   void ResetForConnectionReuse() { previous_run_time_info_.reset(); }
 
   bool db_explicit_ = false;
@@ -90,21 +87,11 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare();
 
-  /// Coroutine variant of InterpretPrepare() (Session-surgery Stage A). Mirrors InterpretPrepare()
-  /// exactly except it `co_await`s Interpreter::PrepareCoro() instead of calling the blocking
-  /// Interpreter::Prepare() -- see interpreter.hpp/.cpp for the accessor-acquire park mechanics.
-  ///
-  /// `parsed_res_` is moved out only INSIDE the coroutine body: since utils::Task<T> is lazily
-  /// started (it does not run until first driven/co_await'd/Run()), this means the parse result is
-  /// not actually consumed until whatever drives this Task starts doing so -- i.e. not before the
-  /// accessor acquire is genuinely under way, matching the IP-1 design doc's ip1-design.md
-  /// requirement ("moving parsed_res_ only INSIDE the coroutine").
-  ///
-  /// `on_park_resumed` (Session-surgery Stage B, IP-1 R4.2): forwarded to Interpreter::PrepareCoro ->
-  /// query::AcquireAccessorCoro. Invoked (once per genuine cross-thread resume, never for a
-  /// synchronous completion) by the pinned reschedule closure right after it resumes the parked
-  /// handle -- see communication::v2::Session::DrivePreparedRun (the only real caller; empty/default
-  /// for tests and any other caller that never expects a park, e.g. a plain SyncWait).
+  /// Coroutine variant of InterpretPrepare(): mirrors it but `co_await`s Interpreter::PrepareCoro()
+  /// instead of the blocking Prepare(). `parsed_res_` is moved out only inside the coroutine body,
+  /// so (Task being lazy) the parse result isn't consumed until the accessor acquire is under way.
+  /// `on_park_resumed` is forwarded down and invoked once per genuine cross-thread resume; empty for
+  /// callers that never park (tests, SyncWait).
   utils::Task<std::pair<std::vector<std::string>, std::optional<int>>> InterpretPrepareCoro(
       std::function<void()> on_park_resumed = {});
 

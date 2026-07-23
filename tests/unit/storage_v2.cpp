@@ -2831,13 +2831,8 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterAbort) {
   }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Storage::TryAccess / TryUniqueAccess / TryReadOnlyAccess: non-blocking counterparts to
-// Access()/UniqueAccess()/ReadOnlyAccess(). InMemoryStorage provides the real (main_lock_-probing)
-// implementation, so these tests exercise it directly rather than going through the
-// InMemoryStorage/DiskStorage TYPED_TEST_SUITE above (DiskStorage currently inherits Storage's
-// safe no-op stub, which always returns std::nullopt regardless of contention -- there is nothing
-// meaningful to assert about "returns a valid accessor when free" for that stub).
+// Storage::Try*Access: non-blocking counterparts to Access()/UniqueAccess()/ReadOnlyAccess().
+// Tested directly on InMemoryStorage (the real implementation); DiskStorage inherits the no-op stub.
 class StorageTryAccessTest : public ::testing::Test {
  protected:
   memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
@@ -2873,13 +2868,9 @@ TEST_F(StorageTryAccessTest, SucceedsAndReturnsUsableAccessorWhenFree) {
   EXPECT_NO_THROW((*ro_acc)->Abort());
 }
 
-// UNIQUE held -> every non-blocking probe (of every kind) must report nullopt, must not throw,
-// and -- crucially -- must not have silently created (and then discarded) a transaction while
-// probing. We prove the "no transaction created" part by comparing Transaction::transaction_id
-// sequencing: InMemoryStorage's transaction id counter is strictly monotonic and only advances
-// when Storage::CreateTransaction() actually runs (which only happens once an Accessor is
-// constructed), so if any nullopt attempt below had spuriously created a transaction, the id
-// observed after releasing UNIQUE would jump by more than 1.
+// UNIQUE held -> every non-blocking probe must report nullopt, not throw, and not create a
+// transaction. The "no transaction" part is proved via transaction_id monotonicity: the counter
+// only advances when an Accessor is constructed, so a spurious probe would make the id jump by >1.
 TEST_F(StorageTryAccessTest, UniqueHeldBlocksNewSharedWithoutCreatingATransaction) {
   using namespace memgraph::storage;
 
@@ -2903,8 +2894,7 @@ TEST_F(StorageTryAccessTest, UniqueHeldBlocksNewSharedWithoutCreatingATransactio
   (*after)->Abort();
 }
 
-// Mirror of the above but the OTHER conflict direction: a held shared (READ) lock must block a
-// new TryUniqueAccess(), while still allowing further compatible shared acquisitions through.
+// Other direction: a held READ lock blocks a new TryUniqueAccess() but not compatible shared ones.
 TEST_F(StorageTryAccessTest, SharedHeldBlocksNewUniqueButNotNewCompatibleShared) {
   using namespace memgraph::storage;
 
@@ -2921,8 +2911,7 @@ TEST_F(StorageTryAccessTest, SharedHeldBlocksNewUniqueButNotNewCompatibleShared)
   read_acc->Abort();
 }
 
-// READ_ONLY held -> conflicts with WRITE (both directly and via TryAccess(WRITE)), matching the
-// existing WRITE vs READ_ONLY mutual exclusion enforced by ResourceLock.
+// READ_ONLY held -> conflicts with WRITE, matching ResourceLock's WRITE vs READ_ONLY exclusion.
 TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
   using namespace memgraph::storage;
 
@@ -2939,13 +2928,8 @@ TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
   if (write_acc) EXPECT_NO_THROW((*write_acc)->Abort());
 }
 
-// --- IP-1 coro-prepare-accessor-yield: storage-side wake hook ---
-// (opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3 §R3.1)
-//
-// Storage::NotifyMainLockReleased() must fire (claim + invoke on_resume) a waiter parked on
-// main_lock_resume_event() exactly when: the experimental flag is ON, AND the release was of a
-// UNIQUE or READ_ONLY guard. It must NOT fire on a plain READ/WRITE release, and must be a cheap,
-// safe no-op with the flag off or with nobody parked.
+// Storage-side wake hook: NotifyMainLockReleased() must wake a parked waiter when the flag is on
+// (F5: on any release mode, incl. READ/WRITE), and be a cheap no-op with the flag off or nobody parked.
 class StorageMainLockWakeHookTest : public ::testing::Test {
  protected:
   StorageMainLockWakeHookTest() : saved_flag_(FLAGS_experimental_coro_prepare_accessor_yield) {}
@@ -2961,9 +2945,8 @@ class StorageMainLockWakeHookTest : public ::testing::Test {
     memgraph::flags::run_time::RefreshCoroPrepareAccessorYieldEnabled();
   }
 
-  // Registers a recording waiter on `store`'s main_lock_resume_event() at the current epoch and
-  // returns its ParkState; `*fired` becomes true exactly when some wake source claims and invokes
-  // it.
+  // Registers a recording waiter at the current epoch; `*fired` becomes true when a wake source
+  // claims and invokes it.
   auto RegisterRecordingWaiter(std::shared_ptr<bool> fired) -> std::shared_ptr<memgraph::utils::ParkState> {
     auto &event = store.main_lock_resume_event();
     auto ps = std::make_shared<memgraph::utils::ParkState>();
@@ -2975,8 +2958,8 @@ class StorageMainLockWakeHookTest : public ::testing::Test {
     return ps;
   }
 
-  // Periodic GC disabled: a background GC UNIQUE-release could otherwise call
-  // NotifyMainLockReleased() on its own and make these single-threaded assertions racy/flaky.
+  // Periodic GC disabled: a background GC UNIQUE-release could otherwise fire
+  // NotifyMainLockReleased() and make these assertions racy.
   memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::NONE},
       .transaction = {.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
@@ -3039,11 +3022,9 @@ TEST_F(StorageMainLockWakeHookTest, DoesNotFireWhenFlagOff) {
   EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 1U);
 }
 
-// F5 (IP-1 design doc REVISION 5): a parked READ_ONLY/UNIQUE waiter is unblocked precisely when
-// the LAST conflicting holder releases -- and that holder is very often a WRITE (a READ_ONLY acquire
-// is blocked by outstanding WRITEs) or, for a parked UNIQUE, any READ. So a WRITE/READ release MUST
-// now fire the wake when a waiter is parked. (Before F5 these releases were skipped, so a parked
-// query behind ongoing writes slept until its deadline instead of resuming when the writes drained.)
+// F5: a parked READ_ONLY/UNIQUE waiter is unblocked when the last conflicting holder releases,
+// often a WRITE (or a READ, for a parked UNIQUE), so a WRITE/READ release must fire the wake too.
+// (Before F5 these were skipped, so a parked query behind writes slept until its deadline.)
 TEST_F(StorageMainLockWakeHookTest, WriteReleaseFiresWhenFlagOnAndWaiterParked) {
   using namespace memgraph::storage;
   SetFlag(true);
@@ -3057,8 +3038,8 @@ TEST_F(StorageMainLockWakeHookTest, WriteReleaseFiresWhenFlagOnAndWaiterParked) 
     write_acc->Abort();
     EXPECT_FALSE(*fired) << "must not fire while the WRITE accessor still holds main_lock_";
   }
-  // write_acc destroyed here -> ~Accessor() releases the guard and calls NotifyMainLockReleased();
-  // with a parked waiter and the flag on, that must wake it (F5).
+  // write_acc destroyed here -> ~Accessor() calls NotifyMainLockReleased(), which must wake the
+  // parked waiter (F5).
 
   EXPECT_TRUE(*fired) << "a WRITE release must wake a parked READ_ONLY/UNIQUE waiter (F5)";
   EXPECT_EQ(store.main_lock_resume_event().WaitersPending(), 0U);

@@ -9,15 +9,9 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# e2e for the coroutine-park Prepare path (--experimental-coro-prepare-accessor-yield=true),
-# Session-surgery Stage B. See common.py for the full mechanism writeup and the shared scenario
-# helpers.
-#
-# This is the DISCRIMINATING half of the test: the assertion below must FAIL if parking is
-# broken (or silently falls back to plain blocking) and can only pass under genuine parking. Its
-# contrast/control counterpart, run against a cluster where the flag is off, lives in
-# coro_prepare_accessor_yield_flag_off_control.py and asserts the opposite outcome on the exact
-# same scenario -- see that file for why the contrast matters.
+# e2e for the coroutine-park Prepare path (flag ON). See common.py for the mechanism and scenario.
+# Discriminating half: the assertion must FAIL if parking is broken (or falls back to blocking).
+# Its flag-off control (coro_prepare_accessor_yield_flag_off_control.py) asserts the opposite.
 
 import sys
 

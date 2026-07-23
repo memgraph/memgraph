@@ -992,10 +992,8 @@ std::unordered_map<LabelId, uint64_t> DiskStorage::GetLabelCounts() const {
 }
 
 void DiskStorage::SetEdgeImportMode(EdgeImportMode edge_import_status) {
-  // NOTE (IP-1 coro-prepare-accessor-yield, R4.6): DiskStorage never overrides TryAccess*, so a
-  // coro-prepare waiter can never park against a DiskStorage's main_lock_ in the first place --
-  // this UNIQUE release is deliberately not wired to NotifyMainLockReleased() (the park path is
-  // InMemory-only for v1).
+  // Not wired to NotifyMainLockReleased(): DiskStorage never overrides TryAccess*, so nothing can
+  // park against its main_lock_ (park is InMemory-only for v1).
   std::unique_lock main_guard{main_lock_};
   if (edge_import_status == edge_import_status_) {
     return;

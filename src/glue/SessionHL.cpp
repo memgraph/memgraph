@@ -363,11 +363,9 @@ void SessionHL::LogOff() {
 void SessionHL::Abort() {
   interpreter_.ResetCachedFga();
   interpreter_.Abort();
-  // SessionHL::Abort() is RESET-specific: its only callers are the Bolt RESET handler
-  // (HandleReset -> session.Abort()) and LogOff() (full teardown). Neither is a mid-session
-  // rollback/error path (those call interpreter_.RollbackTransaction() / interpreter_.Abort()
-  // directly), so it is safe here -- and only here -- to clear per-connection sticky state that
-  // must not leak into the next logically-unrelated session on a pooled connection.
+  // RESET-specific (callers: Bolt RESET handler + LogOff(), never a mid-session rollback), so it is
+  // safe here -- and only here -- to clear per-connection sticky state that must not leak into the
+  // next pooled session.
   interpreter_.ResetForConnectionReuse();
 #ifdef MG_ENTERPRISE
   runtime_config_.ResetForConnectionReuse();
@@ -471,10 +469,8 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
   }
 }
 
-// Coroutine variant of InterpretPrepare() (Session-surgery Stage A) -- see the doc comment on the
-// declaration (SessionHL.hpp) for the parsed_res_-consumption-timing rationale. Structurally identical
-// to InterpretPrepare() above; the only two differences are `co_await`ing Interpreter::PrepareCoro()
-// instead of calling Interpreter::Prepare(), and returning via `co_return` instead of `return`.
+// Coroutine variant of InterpretPrepare() (see SessionHL.hpp for the rationale). Structurally
+// identical, but `co_await`s Interpreter::PrepareCoro() and returns via `co_return`.
 utils::Task<std::pair<std::vector<std::string>, std::optional<int>>> SessionHL::InterpretPrepareCoro(
     std::function<void()> on_park_resumed) {
   if (!parsed_res_) {

@@ -73,23 +73,16 @@ bool GetDebugQueryPlans();
 bool GetStorageGcAggressive();
 
 /**
- * @brief Cheap (relaxed-atomic) read of --experimental-coro-prepare-accessor-yield. Safe to call
- * from hot release paths (e.g. Storage::NotifyMainLockReleased()) -- unlike the Settings-backed
- * getters above, this flag is NOT registered with the runtime Settings store (it is a
- * startup-only experimental flag, mirroring storage_gc_aggressive_'s cached-atomic shape but
- * without the persistence/SET machinery). Populated by RefreshCoroPrepareAccessorYieldEnabled().
- *
- * @return bool
+ * @brief Cheap relaxed-atomic read of --experimental-coro-prepare-accessor-yield, safe from hot
+ * release paths (e.g. NotifyMainLockReleased()). Startup-only flag, not in the Settings store;
+ * populated by RefreshCoroPrepareAccessorYieldEnabled().
  */
 bool CoroPrepareAccessorYieldEnabled();
 
 /**
- * @brief Refresh the cached atomic snapshot of --experimental-coro-prepare-accessor-yield from the
- * gflag. Called once at startup, after gflags::ParseCommandLineFlags (see memgraph.cpp, alongside
- * the other experimental-flag materialization) -- a static-init-time cache would observe the
- * flag's default rather than its parsed command-line value. Exposed (not file-local) so tests can
- * flip FLAGS_experimental_coro_prepare_accessor_yield and re-sync the cache without a process
- * restart.
+ * @brief Refresh the cached snapshot from the gflag. Called once at startup after ParseCommandLine
+ * (a static-init cache would see the default, not the parsed value). Exposed so tests can flip the
+ * flag and re-sync without a restart.
  */
 void RefreshCoroPrepareAccessorYieldEnabled();
 

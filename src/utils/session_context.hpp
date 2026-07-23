@@ -76,11 +76,9 @@ class SessionLogContext {
     return std::string_view{it->second};
   }
 
-  // Clear the per-logical-session mutable overlay on a connection-reuse boundary (Bolt RESET /
-  // LogOff), so an in-band `SET SESSION TRACE` / `SET SESSION SETTING` from one logical session
-  // does not leak into the next logical session that reuses this pooled connection. Deliberately
-  // does NOT touch session_uuid_ (physical-connection identity), user_ (auth-managed via LOGON/
-  // LogOff), or tx_id_ (transaction-scoped) -- only the query-driven, session-scoped overlay.
+  // Clear the per-session mutable overlay on connection reuse (RESET/LogOff) so a `SET SESSION
+  // TRACE`/`SET SESSION SETTING` doesn't leak into the next pooled session. Does NOT touch
+  // session_uuid_ (connection identity), user_ (auth-managed), or tx_id_ (transaction-scoped).
   void ResetForConnectionReuse() noexcept {
     trace_enabled_ = false;
     session_settings_overlay_.clear();

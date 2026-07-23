@@ -27,11 +27,8 @@
 #include "utils/coro_task.hpp"
 #include "utils/priority_thread_pool.hpp"
 
-// --- Unit 4: AcquireAccessorCoro -- the acquire coroutine at the heart of parkable Prepare ---
-// (opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3 §R3.2, REVISION 4
-// §R4.3/§R4.6). Exercises the whole park -> wake -> re-acquire cycle on a REAL PriorityThreadPool
-// and a REAL InMemoryStorage, with no Bolt/session layer involved at all (that integration is a
-// later, separately-gated stage -- see coro_accessor.hpp's doc comment).
+// AcquireAccessorCoro tests: exercise the whole park -> wake -> re-acquire cycle on a real
+// PriorityThreadPool and InMemoryStorage, with no Bolt/session layer involved.
 
 namespace {
 
@@ -39,11 +36,8 @@ using memgraph::query::AcquireAccessorCoro;
 namespace storage = memgraph::storage;
 namespace utils = memgraph::utils;
 
-// Polls `pred` until it becomes true or `timeout` elapses; returns the final value of `pred()`.
-// Used instead of a blind fixed sleep so the pass/fail assertions below are as tight as the
-// scheduling jitter allows, while still tolerating CI slowness (bounded wait, per the task's
-// "latches/atomics, not sleeps where avoidable" guidance -- a bounded poll is the documented
-// exception for the wake itself).
+// Polls `pred` until true or `timeout` elapses; a bounded wait so assertions stay tight but
+// tolerate CI slowness.
 template <typename Pred>
 bool BoundedWaitUntil(Pred pred, std::chrono::milliseconds timeout,
                       std::chrono::milliseconds poll = std::chrono::milliseconds(2)) {
@@ -55,9 +49,7 @@ bool BoundedWaitUntil(Pred pred, std::chrono::milliseconds timeout,
   return true;
 }
 
-// RAII flag flip + cache refresh (mirrors StorageMainLockWakeHookTest in storage_v2.cpp) so a
-// test enabling the experimental flag can never leak that state into an unrelated test sharing
-// the process.
+// RAII flag flip + cache refresh so an enabled experimental flag can't leak into another test.
 class ScopedCoroPrepareFlag {
  public:
   explicit ScopedCoroPrepareFlag(bool enabled) : saved_(FLAGS_experimental_coro_prepare_accessor_yield) {
@@ -77,25 +69,17 @@ class ScopedCoroPrepareFlag {
   bool saved_;
 };
 
-// Periodic GC disabled everywhere below: a background GC UNIQUE-release could otherwise release
-// main_lock_ (and fire NotifyMainLockReleased()) on its own and make these assertions racy.
+// Periodic GC disabled: a background GC UNIQUE-release could otherwise fire NotifyMainLockReleased()
+// on its own and make these assertions racy.
 storage::Config NoGcConfig() {
   return storage::Config{.gc = {.type = storage::Config::Gc::Type::NONE},
                          .transaction = {.isolation_level = storage::IsolationLevel::SNAPSHOT_ISOLATION}};
 }
 
-// Drives (via `.Run()`, inside a pool task so utils::GetCurrentWorkerId() is published)
-// AcquireAccessorCoro(...) to completion, storing its result/exception in the caller-owned
-// `result`/`eptr` and signalling `done` when finished. Returns the driver Task<void> so the
-// caller can keep its coroutine frame alive for as long as the async operation may still be
-// running (the frame must outlive any in-flight park -- see the doc comment on `driver` in each
-// test below).
-//
-// Task<void>::Run() is safe to call even when the awaited AcquireAccessorCoro() genuinely parks:
-// Promise<void>::TakeValue() (unlike the generic Promise<T>::TakeValue()) does not assert
-// completion, only rethrows a stored exception -- so Run() returning after a real suspend deep in
-// the awaited chain is completely valid; the driver's body simply resumes later, off a pool
-// worker, when the parked coroutine's on_resume eventually fires.
+// Drives AcquireAccessorCoro(...) to completion (via .Run() inside a pool task so
+// GetCurrentWorkerId() is published), storing result/exception and signalling `done`. Returns the
+// driver Task<void> so the caller keeps the frame alive across any in-flight park. Run() is safe
+// even when the chain parks: Promise<void>::TakeValue() only rethrows, never asserts completion.
 utils::Task<void> MakeDriver(storage::Storage &storage, storage::StorageAccessType rw,
                              std::optional<storage::IsolationLevel> resolved_iso,
                              std::chrono::steady_clock::time_point deadline, utils::PriorityThreadPool &pool,
@@ -113,8 +97,8 @@ utils::Task<void> MakeDriver(storage::Storage &storage, storage::StorageAccessTy
 
 }  // namespace
 
-// (a) PARK -> WAKE -> ACQUIRE: a conflicting UNIQUE request parks while another UNIQUE accessor is
-// held, then wakes and completes once that accessor is released.
+// (a) PARK -> WAKE -> ACQUIRE: a conflicting UNIQUE request parks while a UNIQUE accessor is held,
+// then wakes and completes once it is released.
 TEST(CoroAccessor, ParkWakeAcquire) {
   ScopedCoroPrepareFlag flag_on{true};
 
@@ -128,8 +112,7 @@ TEST(CoroAccessor, ParkWakeAcquire) {
   std::exception_ptr eptr;
   std::atomic<bool> done{false};
 
-  // Kept alive for the whole test: the coroutine frame must outlive the in-flight park (it is
-  // resumed later, from a pool worker, via the ParkState's on_resume closure).
+  // Kept alive for the whole test: the frame must outlive the in-flight park (resumed later).
   auto driver = MakeDriver(store,
                            storage::UNIQUE,
                            std::nullopt,
@@ -142,8 +125,7 @@ TEST(CoroAccessor, ParkWakeAcquire) {
 
   pool.ScheduledAddTask([&](auto /*priority*/) { driver.Run(); }, utils::Priority::LOW);
 
-  // Wait until the coroutine has actually registered as a waiter (i.e. genuinely parked) rather
-  // than sleeping blindly.
+  // Wait until the coroutine has actually registered as a waiter (genuinely parked).
   ASSERT_TRUE(BoundedWaitUntil([&] { return store.main_lock_resume_event().WaitersPending() > 0; },
                                std::chrono::milliseconds(1000)));
   EXPECT_FALSE(done.load()) << "must not complete while the conflicting UNIQUE accessor is still held";
@@ -163,9 +145,8 @@ TEST(CoroAccessor, ParkWakeAcquire) {
   pool.AwaitShutdown();
 }
 
-// (b) PARK -> TIMEOUT: a conflicting UNIQUE request parks against a short absolute deadline and,
-// since the held accessor is NEVER released, must be woken by the pool's periodic deadline sweep
-// (not by a lock-release notify) and throw UniqueAccessTimeout at ~deadline.
+// (b) PARK -> TIMEOUT: with the holder never released, the parked request must be woken by the
+// deadline sweep (not a lock-release notify) and throw UniqueAccessTimeout.
 TEST(CoroAccessor, ParkTimeout) {
   ScopedCoroPrepareFlag flag_on{true};
 
@@ -179,8 +160,7 @@ TEST(CoroAccessor, ParkTimeout) {
   std::exception_ptr eptr;
   std::atomic<bool> done{false};
 
-  // Short deadline (well under the pool monitor's ~100ms sweep period, so this resolves within a
-  // couple of ticks) -- keeps the test fast while still exercising the real sched_mon sweep.
+  // Short deadline (a couple of ~100ms monitor sweep periods) -- fast but exercises the real sweep.
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
   auto driver =
       MakeDriver(store, storage::UNIQUE, std::nullopt, deadline, pool, /*is_high_priority=*/false, result, eptr, done);
@@ -201,8 +181,7 @@ TEST(CoroAccessor, ParkTimeout) {
   pool.AwaitShutdown();
 }
 
-// (c) FAST PATH: uncontended acquisition succeeds immediately and never parks -- no waiter is
-// ever registered on the storage's wake event.
+// (c) FAST PATH: uncontended acquisition succeeds immediately and never registers a waiter.
 TEST(CoroAccessor, FastPathNeverParks) {
   ScopedCoroPrepareFlag flag_on{true};
 
@@ -224,9 +203,8 @@ TEST(CoroAccessor, FastPathNeverParks) {
   pool.AwaitShutdown();
 }
 
-// (d) HIGH priority bypasses the park path entirely -- even with the flag on and InMemory
-// storage, it always takes the ordinary blocking Access()/UniqueAccess()/ReadOnlyAccess() path,
-// and still succeeds once a conflicting holder releases (behaviorally identical to today).
+// (d) HIGH priority bypasses the park path (even flag-on + InMemory): it blocks on the ordinary
+// path and still acquires once the holder releases.
 TEST(CoroAccessor, HighPriorityUsesBlockingPathAndStillAcquires) {
   ScopedCoroPrepareFlag flag_on{true};
 
@@ -244,9 +222,7 @@ TEST(CoroAccessor, HighPriorityUsesBlockingPathAndStillAcquires) {
     held.reset();
   });
 
-  // HIGH priority: this call BLOCKS the calling thread via the ordinary Storage::UniqueAccess()
-  // path (never parks, never touches main_lock_resume_event()) until the releaser thread above
-  // frees the lock.
+  // HIGH priority: blocks on the ordinary UniqueAccess() path (never parks) until the releaser frees it.
   auto acc = utils::SyncWait(AcquireAccessorCoro(store,
                                                  storage::UNIQUE,
                                                  std::nullopt,

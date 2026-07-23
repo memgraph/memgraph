@@ -198,9 +198,8 @@ std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<bool> debug_query_plans_{false};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 std::atomic<bool> storage_gc_aggressive_{false};
-// Cache for --experimental-coro-prepare-accessor-yield (NOT Settings-store-backed -- see the
-// declaration in run_time_configurable.hpp for why). Refreshed by
-// RefreshCoroPrepareAccessorYieldEnabled().
+// Cache for --experimental-coro-prepare-accessor-yield (not Settings-backed; see the header).
+// Refreshed by RefreshCoroPrepareAccessorYieldEnabled().
 std::atomic<bool> coro_prepare_accessor_yield_enabled_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};

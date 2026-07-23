@@ -244,11 +244,8 @@ struct CurrentDB {
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
-  // Same bookkeeping as SetupDatabaseTransaction (arena scope, execution_db_accessor_, transaction_gauge_,
-  // trigger_context_collector_), but for an accessor that has ALREADY been acquired elsewhere -- e.g. by
-  // the parkable-Prepare coroutine (query::AcquireAccessorCoro, PrepareCoro Phase 2/3), which holds the
-  // lock by the time this is called. Deliberately skips the Access/UniqueAccess/ReadOnlyAccess call (and
-  // therefore never blocks) -- see opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md §R3.2.
+  // Same bookkeeping as SetupDatabaseTransaction, but for an accessor already acquired elsewhere
+  // (the parkable-Prepare coroutine): skips the Access* call and so never blocks.
   void SetupDatabaseTransactionWith(std::unique_ptr<storage::Accessor> accessor, bool could_commit);
   void CleanupDBTransaction(bool abort);
 
@@ -263,10 +260,8 @@ struct CurrentDB {
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
-    // Without this, a session that pinned an explicit db (Bolt-level db-routing metadata, see
-    // RuntimeConfig::Configure()) would leave in_explicit_db_ == true even though db_acc_ is now
-    // empty, wrongly blocking `USE <db>` (see PrepareUseDatabaseQuery's in_explicit_db_ check) for
-    // whatever session/config comes next on this CurrentDB.
+    // Without this, in_explicit_db_ would stay true while db_acc_ is empty, wrongly blocking
+    // `USE <db>` for whatever session comes next on this CurrentDB.
     in_explicit_db_ = false;
   }
 
@@ -375,26 +370,13 @@ class Interpreter final {
   Interpreter::PrepareResult Prepare(ParseRes parse_res, UserParameters_fn params_getter, QueryExtras const &extras);
 
   /**
-   * Coroutine variant of Prepare() (Session-surgery Stage A, IP-1 design doc
-   * opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 3 §R3.2).
+   * Coroutine variant of Prepare(): same observable contract, but the accessor-acquire step is a
+   * `co_await` that can suspend (returning control to the driver) instead of blocking when the
+   * accessor is contended. See query::AcquireAccessorCoro for the park/retry mechanics; PrepareCoro
+   * only sequences the phases (resolve -> await accessor -> finish planning), never parks itself.
    *
-   * Same observable contract as Prepare() -- same PrepareResult, same exceptions, same ordering of
-   * user-visible side effects -- but the accessor-acquire step is a `co_await` that CAN suspend the
-   * coroutine (returning control to whoever is driving it) instead of blocking the calling thread,
-   * when the accessor is contended. See query::AcquireAccessorCoro (query/coro_accessor.hpp) for the
-   * park/retry mechanics; PrepareCoro itself only sequences the three phases (resolve requirements ->
-   * await the accessor -> finish planning) and never blocks/parks by itself.
-   *
-   * Stage A only builds this coroutine so it compiles and is unit-testable in isolation; Stage B
-   * (SessionHL::InterpretPrepareCoro / HandlePrepareCoro / the Bolt Execute_ PARKED state) is what
-   * actually schedules/drives it.
-   *
-   * `on_park_resumed` (Stage B, IP-1 design doc REVISION 4 §R4.2): forwarded verbatim to
-   * query::AcquireAccessorCoro, which threads it into the ParkState built if/when the accessor
-   * acquire genuinely parks. Invoked once per genuine cross-thread resume (never for a synchronous
-   * completion) by the pinned reschedule closure, after it resumes the parked handle -- see
-   * communication::v2::Session::DrivePreparedRun. Empty/default for any caller that never expects a
-   * park (tests, a plain SyncWait).
+   * `on_park_resumed` is forwarded to AcquireAccessorCoro and invoked once per genuine cross-thread
+   * resume (never for synchronous completion). Empty for callers that never park (tests, SyncWait).
    */
   utils::Task<Interpreter::PrepareResult> PrepareCoro(ParseRes parse_res, UserParameters_fn params_getter,
                                                       QueryExtras const &extras,
@@ -488,16 +470,10 @@ class Interpreter final {
   void Abort();
 
   /**
-   * Clear per-connection "sticky" state that must not leak across a pooled Bolt connection
-   * reuse (RESET) or a full LogOff/teardown.
-   *
-   * This is intentionally NOT folded into Abort(): Abort() is also invoked for ordinary
-   * ROLLBACK, CheckAuthorized() failures, and autocommit-abort paths (AbortCommand()), all of
-   * which happen mid-session -- clearing a USE'd db or the one-shot next-transaction isolation
-   * override there would incorrectly wipe out state set earlier in the very same logical
-   * session. Only call this from a RESET-specific or teardown path; today that is exactly
-   * SessionHL::Abort(), which is itself invoked only from the Bolt RESET handler and from
-   * SessionHL::LogOff() -- never from a mid-session rollback/error.
+   * Clear per-connection "sticky" state that must not leak across a pooled connection reuse (RESET)
+   * or LogOff/teardown. Deliberately NOT folded into Abort(), which also runs mid-session (ROLLBACK,
+   * auth failures, autocommit-abort) where clearing USE'd db / isolation override would wrongly wipe
+   * state set earlier in the same session. Call only from a RESET/teardown path (today: SessionHL).
    */
   void ResetForConnectionReuse();
 
@@ -542,16 +518,10 @@ class Interpreter final {
   std::chrono::steady_clock::time_point transaction_start_steady_{};
 
   // Idle-in-transaction watchdog support (InterpreterContext::ScanIdleTransactions).
-  // last_activity_steady_ns_ is stamped (steady_clock, nanosecond rep) every time this
-  // interpreter finishes a unit of work: transaction start (SetupInterpreterTransaction),
-  // Prepare(), or Pull(). query_in_progress_ is true strictly while a Prepare()/Pull() call is
-  // actually running on this interpreter's owning thread. Both are plain atomics with
-  // relaxed/acquire-release ordering local to themselves -- this is advisory monitoring data
-  // read by a background scan, not something other code depends on for correctness, so it does
-  // not need to ride the transaction_status_ VERIFYING protocol the way current_transaction_ and
-  // transaction_start_* do. The scan still reads in_explicit_transaction_ under
-  // TryAcquireForVerification() (same as ShowTransactionsUsingDBName), since that field itself
-  // is a plain bool with no atomicity of its own.
+  // last_activity_steady_ns_ is stamped on every finished unit of work (transaction start,
+  // Prepare, Pull); query_in_progress_ is true while a Prepare()/Pull() runs. Advisory monitoring
+  // data only, so plain atomics -- no need for the transaction_status_ VERIFYING protocol (the scan
+  // still reads in_explicit_transaction_ under TryAcquireForVerification()).
   std::atomic<int64_t> last_activity_steady_ns_{0};
   std::atomic<bool> query_in_progress_{false};
 
@@ -707,27 +677,23 @@ class Interpreter final {
   void SetupDatabaseTransaction(bool couldCommit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
 
-  // Shared Prepare()/PrepareCoro() tail (Session-surgery Stage A): the planning / plan-cache /
-  // PreparedQuery-dispatch code that runs identically, in the identical relative order, in both paths
-  // once a query's accessor (if any) is already set up -- see interpreter.cpp for the full rationale
-  // and exactly which lines this was extracted from (behavior-preserving extraction, not a rewrite).
+  // Shared Prepare()/PrepareCoro() tail: the planning/plan-cache/PreparedQuery-dispatch code that
+  // runs identically in both paths once the accessor (if any) is set up (behavior-preserving
+  // extraction; see interpreter.cpp).
   PrepareResult PlanAndFinalize(ParsedQuery &parsed_query, UserParameters_fn const &params_getter,
                                 std::unique_ptr<QueryExecution> &query_execution, std::optional<int> qid,
                                 bool parallel_execution,
                                 std::optional<memgraph::system::Transaction> system_transaction);
-  // Shared Prepare()/PrepareCoro() catch-block body (utils::BasicException path): logs, increments
-  // failed-prepare metrics, and calls AbortCommand(query_execution_ptr). Always rethrows via `throw;`
-  // at the call site (this helper does not itself rethrow).
+  // Shared Prepare()/PrepareCoro() catch-block body: logs, bumps failed-prepare metrics, aborts.
+  // Callers rethrow via `throw;` (this does not rethrow itself).
   void HandlePrepareFailure(std::unique_ptr<QueryExecution> *query_execution_ptr, const utils::BasicException &e);
 };
 
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
-  // Idle-in-transaction watchdog: mark this interpreter as actively working for the duration of
-  // Pull(), and stamp the last-activity clock on exit (success or exception) so a background scan
-  // (InterpreterContext::ScanIdleTransactions) never mistakes an in-flight pull for an idle gap
-  // between statements of an explicit (BEGIN'd) transaction.
+  // Idle-in-transaction watchdog: mark actively-working for the duration of Pull() and stamp
+  // last-activity on exit, so the background scan never mistakes an in-flight pull for an idle gap.
   query_in_progress_.store(true, std::memory_order_release);
   const utils::OnScopeExit idle_watchdog_activity_guard([this] {
     last_activity_steady_ns_.store(std::chrono::steady_clock::now().time_since_epoch().count(),

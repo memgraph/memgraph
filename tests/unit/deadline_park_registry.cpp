@@ -30,10 +30,8 @@ using memgraph::utils::WorkerResumeEvent;
 
 namespace {
 
-// Builds a ParkState whose on_resume pushes worker_id into *invoked_worker_ids (guarded by
-// *mutex, since some tests race Sweep from multiple threads). The registry never inspects or
-// resumes anything itself -- only the wake-source callback that wins the claim ever runs
-// on_resume -- so a plain recording closure is all these tests need (no real coroutine frame).
+// Builds a ParkState whose on_resume records worker_id into *invoked_worker_ids (guarded by *mutex,
+// since some tests race Sweep across threads). A plain recording closure, no coroutine frame.
 std::shared_ptr<ParkState> MakeParkState(size_t worker_id, std::chrono::steady_clock::time_point deadline,
                                          std::vector<size_t> *invoked_worker_ids, std::mutex *mutex) {
   auto ps = std::make_shared<ParkState>();
@@ -94,8 +92,8 @@ TEST(DeadlineParkRegistry, FutureDeadlineEntryIsLeftAlone) {
   EXPECT_EQ(invoked[0], 7u);
 }
 
-// (c) An entry already claimed (simulating the lock-release wake path having won the race first)
-// is pruned WITHOUT on_resume being invoked by the sweep, even though its deadline has passed.
+// (c) An already-claimed entry (lock-release wake won first) is pruned WITHOUT on_resume, even
+// though its deadline passed.
 TEST(DeadlineParkRegistry, AlreadyClaimedEntryIsPrunedWithoutReschedule) {
   DeadlineParkRegistry registry;
   const auto now = std::chrono::steady_clock::now();
@@ -104,8 +102,7 @@ TEST(DeadlineParkRegistry, AlreadyClaimedEntryIsPrunedWithoutReschedule) {
   auto ps = MakeParkState(/*worker_id=*/9, /*deadline=*/now - std::chrono::seconds(1), &invoked, &mutex);
   registry.Register(ps);
 
-  // Simulate the lock-release path claiming it first (without invoking on_resume itself, exactly
-  // like the abandon-path claim in R4.3).
+  // Simulate the lock-release path claiming it first (without invoking on_resume itself).
   EXPECT_TRUE(ClaimPark(*ps));
 
   registry.Sweep(now);
@@ -137,8 +134,7 @@ TEST(DeadlineParkRegistry, ConcurrentSweepsRescheduleAtMostOnce) {
   EXPECT_TRUE(ps->claimed.load(std::memory_order_acquire));
 }
 
-// (d-cont.) A Sweep racing a manual ClaimPark (simulating a concurrent lock-release wake) also
-// resolves to at most one winner.
+// (d-cont.) A Sweep racing a manual ClaimPark (a concurrent lock-release wake) has at most one winner.
 TEST(DeadlineParkRegistry, SweepRacingManualClaimParkResolvesToOneWinner) {
   DeadlineParkRegistry registry;
   const auto now = std::chrono::steady_clock::now();
@@ -247,12 +243,9 @@ TEST(DeadlineParkRegistry, DrainRacingSweepResolvesToOneWinner) {
   EXPECT_EQ(total_resumes.load(), 1) << "exactly one of {Sweep, Drain} must win the claim";
 }
 
-// (i) Cross-registry single ownership (R2/R4's whole point): a ParkState registered in BOTH a
-// WorkerResumeEvent AND a DeadlineParkRegistry, claimed and resumed by the WorkerResumeEvent's
-// NotifyAll (simulating the lock-release wake path firing first), must NOT be re-invoked by a
-// later DeadlineParkRegistry::Sweep even though its deadline has already passed -- the shared
-// ParkState::claimed flag is what makes these two independently-implemented registries agree on a
-// single winner.
+// (i) Cross-registry single ownership: a ParkState in BOTH a WorkerResumeEvent and a
+// DeadlineParkRegistry, claimed+resumed by NotifyAll, must NOT be re-invoked by a later Sweep even
+// past its deadline -- the shared ParkState::claimed flag makes the two registries agree.
 TEST(DeadlineParkRegistry, EntryClaimedByWorkerResumeEventNotifyAllNotReinvokedBySweep) {
   WorkerResumeEvent event;
   DeadlineParkRegistry registry;

@@ -239,24 +239,14 @@ State HandlePrepare(TSession &session) {
   }
 }
 
-/// Coroutine variant of HandlePrepare (Session-surgery Stage B, IP-1 design doc
-/// opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md REVISION 4 §R4.2). Same
-/// observable contract as HandlePrepare (same SUCCESS/FAILURE encoding, same State transitions) --
-/// the difference is that it is itself a coroutine, so `session.InterpretPrepareCoro()` can
-/// genuinely suspend (park) partway through a contended accessor acquire instead of blocking this
-/// call. Because a resume can happen asynchronously, on a different call stack, arbitrarily later,
-/// this function does NOT return a `State` to a synchronous caller the way HandlePrepare does --
-/// it writes `session.state_` directly, exactly like the sync path would have, so the result is
-/// correct regardless of whether this coroutine completes on the very first `Resume()` (fast/
-/// uncontended path) or only after one or more cross-thread resumes.
+/// Coroutine variant of HandlePrepare: same observable contract, but a coroutine, so
+/// `session.InterpretPrepareCoro()` can park partway through a contended acquire instead of
+/// blocking. Since a resume can arrive asynchronously and later, it writes `session.state_`
+/// directly rather than returning a State, so the result is correct whether it completes on the
+/// first Resume() or only after cross-thread resumes.
 ///
-/// `on_park_resumed` is threaded down (via SessionHL::InterpretPrepareCoro -> Interpreter::PrepareCoro
-/// -> query::AcquireAccessorCoro) to become part of the `ParkState::on_resume` closure built if/when
-/// this genuinely parks (query/coro_accessor.hpp's AcquireAwaitable). It is invoked -- exactly once
-/// per resume, and only for a GENUINE cross-thread resume, never for the synchronous fast path --
-/// right after the resumed handle is driven, from whatever pool worker services that resume. See the
-/// caller (communication::v2::Session::DrivePreparedRun) for what it actually does (session lifetime
-/// keep-alive + re-driving the connection once this whole chain is done).
+/// `on_park_resumed` is threaded down into the ParkState::on_resume closure and invoked once per
+/// genuine cross-thread resume (never for the sync fast path). See Session::DrivePreparedRun.
 template <typename TSession>
 utils::Task<void> HandlePrepareCoro(TSession &session, std::function<void()> on_park_resumed) {
   try {

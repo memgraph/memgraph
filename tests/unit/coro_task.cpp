@@ -36,9 +36,8 @@ Task<void> CompletesVoid(bool *ran) {
   co_return;
 }
 
-// Nested chaining: co_awaits two other Task<int>s in sequence and sums them, recording the
-// order in which each phase runs so we can assert symmetric transfer actually suspends/resumes
-// through the continuations rather than eagerly running everything up front.
+// Nested chaining: co_awaits two Task<int>s in sequence, recording phase order so the test can
+// assert symmetric transfer actually suspends/resumes rather than running everything up front.
 Task<int> SumTwoLeaves(std::vector<int> *order, int a, int b) {
   order->push_back(1);
   const int first = co_await ReturnsValue(a);
@@ -83,21 +82,17 @@ TEST(CoroTask, MoveOnlyNoDoubleFree) {
   static_assert(!std::is_copy_assignable_v<Task<int>>);
   static_assert(std::is_move_constructible_v<Task<int>>);
 
-  // A freshly-constructed lazy Task holds a suspended-at-initial-suspend frame; it must be safe
-  // to move it and then let both the moved-from (now empty) and the moved-to Task be destroyed
-  // without ever being awaited/run -- exercising the destructor's guard against a null handle and
-  // proving there is exactly one owner of the underlying coroutine frame at all times.
+  // A lazy Task holds a suspended frame; moving it and destroying both ends without ever running
+  // must be safe -- exercises the destructor's null-handle guard and single-ownership of the frame.
   Task<int> original = ReturnsValue(7);
   Task<int> moved = std::move(original);
 
-  // moved-from Task is now empty; destroying it must be a no-op (no double-destroy of `moved`'s
-  // frame).
+  // moved-from Task is empty; destroying it must be a no-op (no double-destroy).
   {
     Task<int> empty_dtor = std::move(original);
   }
 
-  // `moved` still owns the only live frame; letting it go out of scope destroys the
-  // never-started coroutine exactly once.
+  // `moved` owns the only live frame; going out of scope destroys the never-started coroutine once.
 }
 
 TEST(CoroTask, MultipleIndependentTasksDoNotInterfere) {

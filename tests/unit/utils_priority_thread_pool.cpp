@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -535,9 +535,8 @@ TEST(PriorityThreadPool, PinnedTaskNotStolenByIdleWorker) {
   using namespace memgraph;
   memgraph::utils::PriorityThreadPool pool{2, 1};
 
-  // Pin a blocking task onto worker 0 and confirm it actually starts there. While it blocks,
-  // worker 1 is idle and its steal loop repeatedly looks at worker 0 (has_pending_work_ &&
-  // working_) but must only ever find work_ (empty here) — work_pinned_ is invisible to it.
+  // Pin a blocking task onto worker 0. While it blocks, idle worker 1's steal loop keeps looking at
+  // worker 0 but only ever sees work_ (empty) -- work_pinned_ is invisible to it.
   std::atomic<bool> block{true};
   std::atomic<size_t> blocked_worker_id{999};
   pool.RescheduleTaskOnWorker(0, [&] {
@@ -567,8 +566,7 @@ TEST(PriorityThreadPool, PinnedTaskNotStolenByIdleWorker) {
     pinned_done.notify_one();
   });
 
-  // Give worker 1's steal loop (and the periodic sched_mon migrator) repeated chances to
-  // (wrongly) grab the pinned task while worker 0 is still blocked.
+  // Give worker 1's steal loop and sched_mon repeated chances to (wrongly) grab the pinned task.
   std::this_thread::sleep_for(std::chrono::milliseconds(300));
   ASSERT_FALSE(pinned_done.load()) << "pinned task must not run while its target worker is still busy";
 

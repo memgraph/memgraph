@@ -28,9 +28,7 @@ using memgraph::utils::WorkerResumeEvent;
 
 namespace {
 
-// Builds a ParkState whose on_resume increments *counter -- the recording-closure equivalent of
-// the old "resume a real coroutine handle" evidence, but without needing a coroutine frame at all
-// (ParkState::on_resume is now an opaque std::function<void()>, see utils/park_state.hpp).
+// Builds a ParkState whose on_resume increments *counter (a recording closure, no coroutine frame).
 std::shared_ptr<ParkState> MakeRecordingParkState(std::atomic<int> *counter, size_t worker_id) {
   auto ps = std::make_shared<ParkState>();
   ps->worker_id = worker_id;
@@ -51,8 +49,7 @@ TEST(WorkerResumeEvent, RegisterWaiterCurrentEpochSucceeds) {
   EXPECT_TRUE(event.RegisterWaiter(ps, epoch));
   EXPECT_EQ(event.WaitersPending(), 1u);
 
-  // Never resumed in this test -- best-effort unregister, exactly like the abandon path would do
-  // after winning its own claim.
+  // Never resumed here -- best-effort unregister, like the abandon path after winning its claim.
   EXPECT_TRUE(event.RemoveWaiter(ps));
   EXPECT_EQ(event.WaitersPending(), 0u);
   EXPECT_EQ(resumed.load(), 0);
@@ -151,10 +148,8 @@ TEST(WorkerResumeEvent, BackToBackNotifyAllResumesOnce) {
   EXPECT_EQ(resumed.load(), 1) << "waiter must not be double-resumed by a second NotifyAll";
 }
 
-// (f) Abandon-path claim (R4.3), WIN case: the awaitable's own re-probe succeeds and it wins
-// ClaimPark on its own ParkState BEFORE any wake source does. on_resume must never fire -- the
-// winning claimant is expected to drive its own continuation synchronously, not via on_resume --
-// and a later NotifyAll on the (best-effort, not-yet-removed) entry must be a harmless no-op.
+// (f) Abandon-path claim, WIN case: the waiter wins ClaimPark before any wake source. on_resume
+// must never fire (it drives itself synchronously), and a later NotifyAll must be a no-op.
 TEST(WorkerResumeEvent, AbandonPathWinPreventsLaterNotifyAllResume) {
   WorkerResumeEvent event;
   std::atomic<int> resumed{0};
@@ -173,10 +168,8 @@ TEST(WorkerResumeEvent, AbandonPathWinPreventsLaterNotifyAllResume) {
   EXPECT_EQ(resumed.load(), 0) << "on_resume must never fire once another party already won the claim";
 }
 
-// (g) Abandon-path claim (R4.3), LOSE case: a concurrent NotifyAll wins the race first (as if a
-// lock release happened between the waiter's re-probe and its own ClaimPark attempt). on_resume
-// fires exactly once (via NotifyAll), and the caller's own subsequent ClaimPark attempt correctly
-// observes the loss instead of double-invoking anything.
+// (g) Abandon-path claim, LOSE case: a concurrent NotifyAll wins first. on_resume fires once (via
+// NotifyAll) and the caller's own ClaimPark observes the loss instead of double-invoking.
 TEST(WorkerResumeEvent, AbandonPathLoseToNotifyAllResumesExactlyOnce) {
   WorkerResumeEvent event;
   std::atomic<int> resumed{0};
@@ -226,12 +219,9 @@ TEST(WorkerResumeEvent, DrainResumesAllWaitersExactlyOnce) {
   }
 }
 
-// (i) Multi-threaded stress: many threads each capture the epoch and register a ParkState while
-// dedicated notifier threads repeatedly call NotifyAll. Asserts every waiter's on_resume is
-// invoked exactly once and none is lost or double-invoked -- i.e. the register-before-recheck /
-// release-before-check protocol documented in worker_resume_event.hpp (R1 B1) actually holds
-// under contention, not just in single-threaded call order, now routed through ClaimPark on a
-// shared ParkState rather than a bare handle.resume().
+// (i) Multi-threaded stress: many threads register ParkStates while notifier threads call
+// NotifyAll. Asserts every on_resume fires exactly once -- the register-before-recheck /
+// release-before-check protocol holds under contention.
 TEST(WorkerResumeEvent, ConcurrentRegisterAndNotifyResumesEachExactlyOnce) {
   WorkerResumeEvent event;
   constexpr int kNumWaiters = 32;

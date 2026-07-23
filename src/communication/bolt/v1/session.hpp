@@ -115,18 +115,11 @@ class Session {
     // Phase 1: parse and deduce priority
     // Phase 2: actually prepare interpreter for the query
     if (state_ == State::Parsed) {
-      // Session-surgery Stage B (IP-1 design doc R3.3/R4.7): a contended accessor acquire during
-      // Prepare CAN park -- but only doing so is ever safe/meaningful when (a) the experimental flag
-      // is on and (b) we are actually running on a PriorityThreadPool (LP) worker, i.e. reachable via
-      // communication::v2::Session::RunLoop under the PRIORITY_QUEUE_WITH_SIDECAR scheduler.
-      // GetCurrentWorkerId() is unset on the ASIO scheduler's OnReadAsio path (and in any unit test
-      // driving Execute_ directly, e.g. TestSession in bolt_session.cpp) -- there, this branch is
-      // never taken and behavior is BYTE-IDENTICAL to before this change: HandlePrepare runs
-      // synchronously below, exactly like today. Deliberately no TImpl-specific call here (no
-      // HandlePrepareCoro/InterpretPrepareCoro reference) so this template instantiates cleanly for
-      // ANY TImpl, including test doubles that never define a coroutine Prepare path at all -- only
-      // the caller that actually wants the coroutine chain (communication::v2::Session) references
-      // HandlePrepareCoro, and only for TImpl = SessionHL.
+      // Prepare can park a contended accessor acquire, but only when the flag is on AND we run on a
+      // PriorityThreadPool (LP) worker. GetCurrentWorkerId() is unset on the ASIO path and in unit
+      // tests, where this branch is never taken and behavior is byte-identical to before. No
+      // TImpl-specific call here so this instantiates for any TImpl (incl. test doubles); only
+      // communication::v2::Session references HandlePrepareCoro, and only for TImpl = SessionHL.
       if (flags::run_time::CoroPrepareAccessorYieldEnabled() && utils::GetCurrentWorkerId().has_value()) {
         return ExecuteResult::kNeedsCoroPrepare;  // state_ stays Parsed; caller drives HandlePrepareCoro
       }

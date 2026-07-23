@@ -23,21 +23,12 @@
 
 namespace memgraph::utils {
 
-/// Deadline-sweep machinery for IP-1's B2 (see opencode-work/resource-lock-starvation/
-/// coro-prepare/ip1-design.md, REVISION 1 §B2, REVISION 2's "ParkState single-owner model", and
-/// REVISION 4 R4.4/R4.5). This header is deliberately COROUTINE-AGNOSTIC: `ParkState::on_resume`
-/// (see utils/park_state.hpp) is an opaque `std::function<void()>` this registry only ever
-/// invokes, never a coroutine handle it resumes/destroys/inspects itself. That keeps this type
-/// unit-testable with plain recording closures and independent of the `Task<T>`/awaitable
-/// machinery built on top of it.
+/// Deadline-sweep machinery: parked waiters that no other wake source resumes get their
+/// `on_resume` fired once their ~1s deadline passes (so a query surfaces `*AccessTimeout` instead
+/// of hanging). Coroutine-agnostic like WorkerResumeEvent -- `on_resume` is an opaque closure.
 ///
-/// Thread-safety: `Register`/`Deregister`/`Sweep`/`Drain` may all be called concurrently from
-/// different threads (the pool worker registering a park, the monitor thread sweeping, another
-/// thread deregistering on the lock-release wake path). Neither `Sweep` nor `Drain` ever invokes a
-/// waiter's `on_resume` while holding the internal mutex -- `on_resume` may run arbitrary
-/// scheduler/session code (e.g. re-post the closure onto a worker, or re-park), so calling it
-/// under the lock would risk deadlock/reentrancy exactly like `WorkerResumeEvent::NotifyAll` (see
-/// worker_resume_event.hpp's C3 discussion).
+/// Register/Deregister/Sweep/Drain are all thread-safe. As with WorkerResumeEvent (C3), neither
+/// Sweep nor Drain invokes `on_resume` while holding `mutex_` (it may re-park or re-post).
 class DeadlineParkRegistry {
  public:
   DeadlineParkRegistry() = default;
@@ -56,13 +47,9 @@ class DeadlineParkRegistry {
     size_.store(entries_.size(), std::memory_order_release);
   }
 
-  /// Best-effort removal of `ps` from the registry, used when a waiter resumes via a different
-  /// wake source (e.g. the lock-release path, or its own abandon-path claim per R4.3) and no
-  /// longer needs deadline tracking. Correctness does NOT depend on this being called promptly --
-  /// or at all -- for a given entry (R4.5): if it is still present when `Sweep` runs,
-  /// `claimed == true` makes `Sweep` prune it without invoking `on_resume` (see `Sweep`). This is
-  /// purely a cleanup optimization to keep the registry small; the hot re-park path may skip it
-  /// entirely and simply let a stale, already-claimed entry be pruned on the next sweep tick.
+  /// Best-effort removal when a waiter resumed via another wake source. Never required for
+  /// correctness: a stale entry left behind is claimed already, so Sweep prunes it without
+  /// invoking `on_resume`. Purely keeps the registry small.
   void Deregister(const std::shared_ptr<ParkState> &ps) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = std::find(entries_.begin(), entries_.end(), ps);
@@ -72,26 +59,16 @@ class DeadlineParkRegistry {
     }
   }
 
-  /// Sweeps the registry once, invoking `on_resume` for every waiter whose deadline has passed and
-  /// that this call wins the claim on. The invoked closure is expected to hand its frame back onto
-  /// its owning worker and re-probe its resource, see the deadline has passed, and throw its own
-  /// timeout -- this function itself never inspects, resumes, or reschedules anything beyond
-  /// calling `on_resume()`.
-  ///
-  /// Cheap when empty: the common case (nothing parked) is a single relaxed-ish atomic load with
-  /// NO mutex acquisition and no allocation -- important since this runs on every tick of the
-  /// pool's existing periodic monitor regardless of whether the deadline-park feature is in use.
-  ///
-  /// Never holds `mutex_` across `on_resume` (see class doc comment).
+  /// Sweeps once, invoking `on_resume` for every due waiter it wins the claim on. Cheap when empty
+  /// (single atomic load, no lock/alloc) since it runs on every tick of the pool's periodic
+  /// monitor. Never holds `mutex_` across `on_resume`.
   void Sweep(std::chrono::steady_clock::time_point now) {
     if (size_.load(std::memory_order_acquire) == 0) [[likely]] {
-      return;  // Cheap-when-empty fast path: no lock, no work.
+      return;
     }
 
-    // Under the lock: partition out every entry that is either past its deadline or already
-    // claimed by some other wake source (dead weight we can prune here regardless of deadline,
-    // R4.5's lazy-prune), and remove those from the live list. Entries that are neither stay
-    // untouched.
+    // Under the lock: partition out entries that are past their deadline OR already claimed
+    // elsewhere (lazy-pruned regardless of deadline), removing them from the live list.
     std::vector<std::shared_ptr<ParkState>> due_or_dead;
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -105,27 +82,18 @@ class DeadlineParkRegistry {
       size_.store(entries_.size(), std::memory_order_release);
     }
 
-    // Outside the lock: for each collected entry, try to claim it. `ClaimPark` alone correctly
-    // implements BOTH desired behaviors:
-    //   - an entry already claimed by another wake source (lock-release NotifyAll, a concurrent
-    //     Sweep, a shutdown Drain, or the waiter's own abandon-path claim) loses the exchange and
-    //     is simply dropped here -- pruned, no invocation, and `on_resume` is never called by this
-    //     (losing) call;
-    //   - an entry that is due AND not yet claimed wins the exchange and has `on_resume` invoked
-    //     exactly once -- no other wake source can win it afterwards.
+    // Outside the lock: invoke only entries that are due AND we win the claim on; anything already
+    // claimed elsewhere loses the exchange and is dropped (single-owner).
     for (auto &ps : due_or_dead) {
       if (now >= ps->deadline && ClaimPark(*ps)) {
         ps->on_resume();
       }
-      // Else: pruned without invoking on_resume -- either it was already claimed, or (in the
-      // racing-Sweep case) another concurrent caller won the claim first.
     }
   }
 
-  /// Shutdown drain (R4.4): claims and invokes `on_resume` for EVERY currently-registered entry,
-  /// regardless of deadline, so a pool teardown resumes every parked frame at least once (the
-  /// frame's `on_resume` is expected to observe shutdown and drive itself to a clean bail). Never
-  /// holds `mutex_` across `on_resume` (see class doc comment).
+  /// Shutdown drain: claims and invokes `on_resume` for every entry regardless of deadline, so a
+  /// pool teardown resumes every parked frame at least once (each is expected to observe shutdown
+  /// and bail). Never holds `mutex_` across `on_resume`.
   void Drain() {
     std::vector<std::shared_ptr<ParkState>> all;
     {
@@ -138,17 +106,14 @@ class DeadlineParkRegistry {
       if (ClaimPark(*ps)) {
         ps->on_resume();
       }
-      // Else: already claimed by some other wake source -- single-owner holds, do nothing.
     }
   }
 
  private:
   mutable std::mutex mutex_;
   std::vector<std::shared_ptr<ParkState>> entries_;
-  // Relaxed-ish size mirror of entries_.size(), read WITHOUT the mutex by Sweep's empty fast
-  // path. A benign race (Register racing a Sweep's fast-path load) can at worst defer noticing a
-  // freshly-registered entry until the next sweep tick -- acceptable since the sweep resolution is
-  // already coarse (one monitor period, ~100ms) relative to the ~1s deadlines it enforces.
+  // Lock-free size mirror read by Sweep's empty fast path. A benign race can defer noticing a new
+  // entry by one sweep tick (~100ms) -- fine against the ~1s deadlines it enforces.
   std::atomic<size_t> size_{0};
 };
 

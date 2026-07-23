@@ -25,11 +25,9 @@ DECLARE_string(experimental_enabled);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(experimental_config);
 
-// Standalone experimental bool flag (not part of the --experimental-enabled=x,y,z bitmask above):
-// gates the storage-side wake hook (and, in a later change, the query/session parking) for IP-1
-// "parkable Prepare via C++20 coroutine" -- see
-// opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md. Default OFF: with the flag
-// off, the release-path hook pays exactly one relaxed atomic load and does nothing else (R1 §C5).
+// Standalone experimental bool flag (not in the --experimental-enabled bitmask): gates parkable
+// Prepare (coroutine accessor-yield). Default OFF -- when off, the release-path hook pays exactly
+// one relaxed atomic load.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(experimental_coro_prepare_accessor_yield);
 

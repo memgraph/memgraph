@@ -101,21 +101,12 @@ struct IndexPerformanceTracker {
   bool impacts_edge_indexes_ = false;
 };
 
-/// Campaign-long pending-scope holder for IP-1's coro-prepare acquire loop (design doc REVISION 4
-/// §R4.6, opencode-work/resource-lock-starvation/coro-prepare/ip1-design.md). Built ONCE (via
-/// InMemoryStorage::MakePendingHandle()) before the retry loop starts and held across EVERY
-/// iteration -- including every suspend/resume -- so `main_lock_`'s writer-preference counters
-/// (`unique_pending_`/`ro_pending_count`) stay registered for the WHOLE campaign, not just a
-/// single probe (this is the load-bearing detail the whole park design exists to preserve; a
-/// retry loop that tears down and rebuilds a one-shot pending scope between attempts loses
-/// writer-preference and reopens the v0 starvation hole). Engages the scope matching `rw_type` at
-/// construction; stays empty (no scope engaged, matching TryAccess()'s plain non-blocking probe)
-/// for READ/WRITE, which never register as pending in the first place (see
-/// utils::ResourceLock::lock_guard_condition).
-///
-/// Non-copyable/non-movable (mirrors UniquePendingScope/ReadOnlyPendingScope themselves): built
-/// in place at its point of use via guaranteed copy elision (MakePendingHandle() returns a
-/// prvalue), so no move/copy is ever required.
+/// Campaign-long pending-scope holder for the coro-prepare acquire loop. Built once (via
+/// MakePendingHandle()) and held across every iteration incl. suspend/resume, so main_lock_'s
+/// writer-preference counters stay registered for the WHOLE campaign, not just one probe -- the
+/// load-bearing detail: rebuilding a one-shot scope between attempts loses writer-preference and
+/// reopens the starvation hole. Engages the scope matching `rw_type`; stays empty for READ/WRITE,
+/// which never register as pending. Non-copyable/non-movable (built in place via copy elision).
 class PendingHandle {
  public:
   PendingHandle(StorageAccessType rw_type, utils::ResourceLock &lock) {
@@ -245,17 +236,13 @@ class InMemoryStorage final : public Storage {
                               StorageMode storage_mode,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
-    // "Owning" constructors used by InMemoryStorage::TryAccess/TryUniqueAccess/TryReadOnlyAccess
-    // once a non-blocking probe against main_lock_ has already succeeded (see
-    // Storage::Accessor's SharedAccessOwning/UniqueAccessOwning/ReadOnlyAccessOwning tags in
-    // storage.hpp for the full rationale). No locking happens in these constructors -- the guard
-    // is already held and is simply adopted/forwarded to the base Accessor.
+    // "Owning" constructors used by InMemoryStorage::Try*Access once a non-blocking probe already
+    // succeeded (see the Owning tags in storage.hpp): no locking here, just adopt/forward the guard.
     explicit InMemoryAccessor(Storage::Accessor::SharedAccessOwning tag, InMemoryStorage *storage,
                               IsolationLevel isolation_level, StorageMode storage_mode, StorageAccessType rw_type,
                               utils::SharedResourceLockGuard already_locked_guard);
-    // Shared by UniqueAccessOwning (std::unique_lock<utils::ResourceLock>) and ReadOnlyAccessOwning
-    // (utils::SharedResourceLockGuard) -- disambiguated by the guard's type, same pattern as the
-    // generic `auto tag` overload above disambiguating on the timeout parameter's type.
+    // UniqueAccessOwning and ReadOnlyAccessOwning, disambiguated by the guard's type (same pattern
+    // as the `auto tag` overload above disambiguating on the timeout type).
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                               StorageMode storage_mode, std::unique_lock<utils::ResourceLock> already_locked_guard);
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
@@ -814,11 +801,8 @@ class InMemoryStorage final : public Storage {
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
                                            std::optional<std::chrono::milliseconds> timeout) override;
 
-  // Default arguments are not virtual/inherited: when TryAccess() etc. are called directly on a
-  // concrete InMemoryStorage expression (as opposed to through a Storage* / Storage& base
-  // reference), ordinary member lookup resolves to THIS class's own declaration, so the default
-  // has to be repeated here too (matching the base's std::nullopt) for e.g. `store.TryAccess(READ)`
-  // to compile without spelling out the isolation-level override.
+  // Default args are not inherited: a call on a concrete InMemoryStorage resolves to THIS
+  // declaration, so the default (matching the base's) must be repeated for `store.TryAccess(READ)`.
   std::optional<std::unique_ptr<Accessor>> TryAccess(
       StorageAccessType rw_type, std::optional<IsolationLevel> override_isolation_level = std::nullopt) override;
   std::optional<std::unique_ptr<Accessor>> TryUniqueAccess(
@@ -826,28 +810,20 @@ class InMemoryStorage final : public Storage {
   std::optional<std::unique_ptr<Accessor>> TryReadOnlyAccess(
       std::optional<IsolationLevel> override_isolation_level = std::nullopt) override;
 
-  /// InMemoryStorage supports the coro-prepare park-acquire path (IP-1 design doc REVISION 4
-  /// §R4.6); DiskStorage does not (it never overrides TryAccess*, so it inherits the base's
-  /// `false` -- see Storage::SupportsParkAcquire()'s doc comment).
+  /// InMemoryStorage supports the coro-prepare park-acquire path; DiskStorage does not (inherits
+  /// the base's `false`).
   bool SupportsParkAcquire() const override { return true; }
 
-  /// Builds the campaign-long pending-scope handle for `rw_type` (R4.6): see PendingHandle's doc
-  /// comment above. The caller (the coro-prepare acquire loop) holds the returned handle across
-  /// the WHOLE retry campaign -- every suspend/resume included -- and passes it to repeated
-  /// TryAccessWithPending() calls below, all with the SAME `rw_type`.
+  /// Builds the campaign-long pending-scope handle for `rw_type` (see PendingHandle). The caller
+  /// holds it across the whole retry campaign and passes it to TryAccessWithPending() with the SAME
+  /// `rw_type`.
   PendingHandle MakePendingHandle(StorageAccessType rw_type) { return PendingHandle{rw_type, main_lock_}; }
 
-  /// Non-blocking counterpart to Access()/UniqueAccess()/ReadOnlyAccess() that, unlike
-  /// TryAccess()/TryUniqueAccess()/TryReadOnlyAccess() above, takes the pending-scope
-  /// registration from the CALLER (`pending`, built once via MakePendingHandle(rw_type)) instead
-  /// of constructing (and tearing down) a fresh one-shot scope on every call. This is the
-  /// load-bearing detail R4.6 exists for: a retry campaign that loses its pending registration
-  /// between attempts loses UNIQUE/READ_ONLY's writer-preference over a continuous stream of
-  /// shared acquirers (the v0 starvation hole). `pending` MUST have been built via
-  /// `MakePendingHandle(rw_type)` with the SAME `rw_type` passed here -- see PendingHandle's
-  /// unique_scope()/read_only_scope() accessors, which DMG_ASSERT this invariant for UNIQUE/
-  /// READ_ONLY. READ/WRITE never register as pending (same as TryAccess()), so `pending` is
-  /// simply unused (and expected empty) for those.
+  /// Like Try*Access, but takes the pending-scope registration from the caller (`pending`, built
+  /// once via MakePendingHandle(rw_type)) rather than a fresh one-shot scope per call -- the
+  /// load-bearing detail: losing the registration between attempts reopens the starvation hole.
+  /// `pending` MUST have been built with the SAME `rw_type` (DMG_ASSERTed for UNIQUE/READ_ONLY);
+  /// unused/expected-empty for READ/WRITE.
   std::optional<std::unique_ptr<Accessor>> TryAccessWithPending(StorageAccessType rw_type,
                                                                 std::optional<IsolationLevel> override_isolation_level,
                                                                 PendingHandle &pending);
