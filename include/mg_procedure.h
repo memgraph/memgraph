@@ -1081,6 +1081,20 @@ enum mgp_error mgp_drop_label_property_index(struct mgp_graph *graph, const char
 enum mgp_error mgp_list_all_label_property_indices(struct mgp_graph *graph, struct mgp_memory *memory,
                                                    struct mgp_list **result);
 
+/// Creates global vertex-property index for given property.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if vertex-property index already exists, result will be 0, otherwise 1.
+enum mgp_error mgp_create_vertex_property_index(struct mgp_graph *graph, const char *property, int *result);
+
+/// Drops global vertex-property index for given property.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if dropping vertex-property index failed, result will be 0, otherwise 1.
+enum mgp_error mgp_drop_vertex_property_index(struct mgp_graph *graph, const char *property, int *result);
+
+/// List all global vertex-property indices.
+enum mgp_error mgp_list_all_vertex_property_indices(struct mgp_graph *graph, struct mgp_memory *memory,
+                                                    struct mgp_list **result);
+
 /// Creates existence constraint for given label and property.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.
 /// if creating existence constraint failed, result will be 0, otherwise 1.

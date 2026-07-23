@@ -41,6 +41,7 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "utils/exit_codes.hpp"
 #include "utils/file_owner.hpp"
@@ -373,6 +374,17 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
     spdlog::info("Edge index on property {} is recreated from metadata", name_id_mapper->IdToName(property.AsUint()));
   }
   spdlog::info("Global edge property indices are recreated.");
+
+  // Recover global vertex property indices.
+  spdlog::info("Recreating {} global vertex property indices from metadata.", indices_metadata.vertex_property.size());
+  auto *mem_vertex_property_index = static_cast<InMemoryVertexPropertyIndex *>(indices->vertex_property_index_.get());
+  for (const auto &property : indices_metadata.vertex_property) {
+    if (!mem_vertex_property_index->CreateIndexOnePass(property, vertices->access(), updater, snapshot_info)) {
+      throw RecoveryFailure("The global vertex property index must be created here!");
+    }
+    spdlog::info("Vertex index on property {} is recreated from metadata", name_id_mapper->IdToName(property.AsUint()));
+  }
+  spdlog::info("Global vertex property indices are recreated.");
 
   // Text idx
   auto recover_text_indices = [&](auto &text_index,

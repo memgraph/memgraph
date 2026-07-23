@@ -155,7 +155,7 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_
       continue;
     }
 
-    if (!CurrentEdgeVersionHasProperty(*index_iterator->edge, property, index_iterator->value, transaction, view)) {
+    if (!CurrentVersionHasProperty(*index_iterator->edge, property, index_iterator->value, transaction, view)) {
       continue;
     }
 

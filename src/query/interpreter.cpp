@@ -4430,6 +4430,68 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   auto *dba = &*current_db.execution_db_accessor_;
 
   auto *storage = db_acc->storage();
+
+  // Global vertex property index: no label, just a property.
+  if (index_query->label_.name.empty()) {
+    MG_ASSERT(index_query->properties_.size() == 1, "Global vertex property index requires exactly one property.");
+    auto property = storage->NameToProperty(index_query->properties_[0].path[0].name);
+    auto const &prop_name = index_query->properties_[0].path[0].name;
+
+    Notification index_notification(SeverityLevel::INFO);
+    std::function<void(Notification &)> handler;
+
+    switch (index_query->action_) {
+      case IndexQuery::Action::CREATE: {
+        index_notification.code = NotificationCode::CREATE_INDEX;
+        index_notification.title = fmt::format("Created global vertex property index on property {}.", prop_name);
+        handler = [dba, property, prop_name, stopping_context = std::move(stopping_context)](
+                      Notification &index_notification) mutable {
+          auto cancel_callback = make_create_index_cancel_callback(stopping_context);
+          auto maybe_error = dba->CreateGlobalVertexIndex(property, std::move(cancel_callback));
+          if (!maybe_error) {
+            std::visit(
+                [&]<typename T>(T const &) {
+                  if constexpr (std::is_same_v<T, storage::IndexDefinitionCancelationError>) {
+                    throw HintedAbortError(AbortReason::TERMINATED);
+                  } else {
+                    index_notification.code = NotificationCode::EXISTENT_INDEX;
+                    index_notification.title =
+                        fmt::format("Global vertex property index on property {} already exists.", prop_name);
+                  }
+                },
+                maybe_error.error());
+          }
+        };
+        break;
+      }
+      case IndexQuery::Action::DROP: {
+        index_notification.code = NotificationCode::DROP_INDEX;
+        index_notification.title = fmt::format("Dropped global vertex property index on property {}.", prop_name);
+        handler = [dba, property, prop_name](Notification &index_notification) mutable {
+          auto maybe_error = dba->DropGlobalVertexIndex(property);
+          if (!maybe_error) {
+            index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+            index_notification.title =
+                fmt::format("Global vertex property index on property {} doesn't exist.", prop_name);
+          }
+        };
+        break;
+      }
+    }
+
+    return PreparedQuery{
+        .header = {},
+        .privileges = std::move(parsed_query.required_privileges),
+        .query_handler =
+            [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
+                AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+              handler(index_notification);
+              notifications->push_back(index_notification);
+              return QueryHandlerResult::COMMIT;
+            },
+        .rw_type = RWType::W};
+  }
+
   auto label = storage->NameToLabel(index_query->label_.name);
 
   std::vector<storage::PropertyPath> properties;
@@ -6962,6 +7024,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         constexpr std::string_view edge_type_index_mark{"edge-type"};
         constexpr std::string_view edge_type_property_index_mark{"edge-type+property"};
         constexpr std::string_view edge_property_index_mark{"edge-property"};
+        constexpr std::string_view vertex_property_index_mark{"vertex-property"};
         constexpr std::string_view text_label_index_mark{"label_text"};
         constexpr std::string_view text_edge_type_index_mark{"edge-type_text"};
         constexpr std::string_view point_label_property_index_mark{"point"};
@@ -6970,8 +7033,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
         auto ai = storage->GetActiveIndices();
         DMG_ASSERT(ai && ai->label_ && ai->label_properties_ && ai->edge_type_ && ai->edge_type_properties_ &&
-                       ai->edge_property_ && ai->text_ && ai->text_edge_ && ai->point_ && ai->vector_ &&
-                       ai->vector_edge_,
+                       ai->edge_property_ && ai->vertex_property_ && ai->text_ && ai->text_edge_ && ai->point_ &&
+                       ai->vector_ && ai->vector_edge_,
                    "DatabaseInfoQuery (INDEX) called with partially-constructed ActiveIndices");
         auto const ts = storage::kLargestCommittedTimestamp;
         storage::IndicesInfo const info{
@@ -6980,6 +7043,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
             .edge_type = ai->edge_type_->ListIndices(ts),
             .edge_type_property = ai->edge_type_properties_->ListIndices(ts),
             .edge_property = ai->edge_property_->ListIndices(ts),
+            .vertex_property = ai->vertex_property_->ListIndices(ts),
             .text_indices = ai->text_->ListIndices(),
             .text_edge_indices = ai->text_edge_->ListIndices(),
             .point_label_property = ai->point_->ListIndices(),
@@ -7026,6 +7090,12 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(),
                              TypedValue(storage->PropertyToName(item)),
                              TypedValue(static_cast<int>(ai->edge_property_->ApproximateEdgeCount(item)))});
+        }
+        for (const auto &item : info.vertex_property) {
+          results.push_back({TypedValue(vertex_property_index_mark),
+                             TypedValue(),
+                             TypedValue(storage->PropertyToName(item)),
+                             TypedValue(static_cast<int>(ai->vertex_property_->ApproximateVertexCount(item)))});
         }
         for (const auto &[index_name, label, properties] : info.text_indices) {
           auto prop_names =

@@ -231,6 +231,34 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(ScanAllByVertexProperty &op) override {
+    cardinality_ *= db_accessor_->VerticesCount(op.property_);
+    IncrementCost(CostParam::kScanAllByVertexProperty);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByVertexPropertyValue &op) override {
+    auto intermediate_property_value = ConstPropertyValue(op.expression_);
+    double factor = 1.0;
+    if (intermediate_property_value) {
+      factor =
+          db_accessor_->VerticesCount(op.property_,
+                                      storage::ToPropertyValue(*intermediate_property_value,
+                                                               db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+    } else {
+      factor = db_accessor_->VerticesCount(op.property_) * CardParam::kFilter;
+    }
+    cardinality_ *= factor;
+    IncrementCost(CostParam::kScanAllByVertexPropertyValue);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByVertexPropertyRange &op) override {
+    cardinality_ *= EstimateVertexPropertyRangeCardinality(op.property_, op.lower_bound_, op.upper_bound_);
+    IncrementCost(CostParam::kScanAllByVertexPropertyRange);
+    return true;
+  }
+
   bool PostVisit(OrderBy & /*op*/) override {
     // OrderBy doesn't change cardinality; cardinality_ here is the sort input size
     IncrementOrderByCost();
@@ -346,6 +374,37 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanParallelByEdgePropertyRange &op) override {
     cardinality_ *= EstimateEdgePropertyRangeCardinality(op.property_, op.lower_bound_, op.upper_bound_);
     IncrementCost(CostParam::kScanAllByEdgePropertyRange);
+    num_threads_ = 1;  // End of parallel section
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByVertexProperty &op) override {
+    cardinality_ *= db_accessor_->VerticesCount(op.property_);
+    IncrementCost(CostParam::kScanAllByVertexProperty);
+    num_threads_ = 1;  // End of parallel section
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByVertexPropertyValue &op) override {
+    auto intermediate_property_value = ConstPropertyValue(op.expression_);
+    double factor = 1.0;
+    if (intermediate_property_value) {
+      factor =
+          db_accessor_->VerticesCount(op.property_,
+                                      storage::ToPropertyValue(*intermediate_property_value,
+                                                               db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+    } else {
+      factor = db_accessor_->VerticesCount(op.property_) * CardParam::kFilter;
+    }
+    cardinality_ *= factor;
+    IncrementCost(CostParam::kScanAllByVertexPropertyValue);
+    num_threads_ = 1;  // End of parallel section
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByVertexPropertyRange &op) override {
+    cardinality_ *= EstimateVertexPropertyRangeCardinality(op.property_, op.lower_bound_, op.upper_bound_);
+    IncrementCost(CostParam::kScanAllByVertexPropertyRange);
     num_threads_ = 1;  // End of parallel section
     return true;
   }
@@ -685,6 +744,26 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       factor = db_accessor_->EdgesCount(property, lower, upper);
     } else {
       factor = db_accessor_->EdgesCount(property);
+    }
+
+    if ((upper_bound && !upper) || (lower_bound && !lower)) {
+      factor *= CardParam::kFilter;
+    }
+
+    return factor;
+  }
+
+  double EstimateVertexPropertyRangeCardinality(storage::PropertyId property,
+                                                std::optional<utils::Bound<Expression *>> lower_bound,
+                                                std::optional<utils::Bound<Expression *>> upper_bound) {
+    auto lower = BoundToPropertyValue(lower_bound);
+    auto upper = BoundToPropertyValue(upper_bound);
+
+    double factor = 1.0;
+    if (upper || lower) {
+      factor = db_accessor_->VerticesCount(property, lower, upper);
+    } else {
+      factor = db_accessor_->VerticesCount(property);
     }
 
     if ((upper_bound && !upper) || (lower_bound && !lower)) {

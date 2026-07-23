@@ -5412,6 +5412,22 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
   return List(label_property_indices, StealType{});
 }
 
+inline bool CreateVertexPropertyIndex(mgp_graph *memgraph_graph, const std::string_view property) {
+  return create_vertex_property_index(memgraph_graph, property.data());
+}
+
+inline bool DropVertexPropertyIndex(mgp_graph *memgraph_graph, const std::string_view property) {
+  return drop_vertex_property_index(memgraph_graph, property.data());
+}
+
+inline List ListAllVertexPropertyIndices(mgp_graph *memgraph_graph) {
+  auto *indices = mgp::MemHandlerCallback(list_all_vertex_property_indices, memgraph_graph);
+  if (indices == nullptr) {
+    throw ValueException("Couldn't list all vertex-property indices");
+  }
+  return List(indices, StealType{});
+}
+
 inline constexpr std::string_view kErrorMsgKey = "error_msg";
 inline constexpr std::string_view kSearchResultsKey = "search_results";
 inline constexpr std::string_view kAggregationResultsKey = "aggregation_results";

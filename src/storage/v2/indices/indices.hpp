@@ -26,6 +26,7 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/indices/vertex_property_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 
 namespace memgraph::utils {
@@ -39,7 +40,8 @@ struct Indices {
           metrics::GaugeHandle active_label_indices = {}, metrics::GaugeHandle active_label_property_indices = {},
           metrics::GaugeHandle active_edge_type_indices = {},
           metrics::GaugeHandle active_edge_type_property_indices = {},
-          metrics::GaugeHandle active_edge_property_indices = {});
+          metrics::GaugeHandle active_edge_property_indices = {},
+          metrics::GaugeHandle active_vertex_property_indices = {});
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;
@@ -73,6 +75,7 @@ struct Indices {
     EdgeTypeIndex::AbortProcessor edge_type_;
     EdgeTypePropertyIndex::AbortProcessor edge_type_property_;
     EdgePropertyIndex::AbortProcessor edge_property_;
+    VertexPropertyIndex::AbortProcessor vertex_property_;
     // TODO: point? Nothing to abort, it gets built in Commit
     // TODO: text?
     VectorIndex::AbortProcessor vector_;
@@ -125,6 +128,7 @@ struct Indices {
   std::unique_ptr<EdgeTypeIndex> edge_type_index_;
   std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
   std::unique_ptr<EdgePropertyIndex> edge_property_index_;
+  std::unique_ptr<VertexPropertyIndex> vertex_property_index_;
   /// Centralized snapshot of active indices, shared by transactions via shared_ptr.
   /// Lock ordering:
   ///   - engine_lock_ → active_indices_.WithReadLock (in CreateTransaction)

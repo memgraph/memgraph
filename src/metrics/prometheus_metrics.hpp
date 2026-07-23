@@ -168,6 +168,9 @@ struct DatabaseMetricHandles {
   CounterHandle scan_all_by_edge_property_value_operator;
   CounterHandle scan_all_by_edge_property_range_operator;
   CounterHandle scan_all_by_edge_id_operator;
+  CounterHandle scan_all_by_vertex_property_operator;
+  CounterHandle scan_all_by_vertex_property_value_operator;
+  CounterHandle scan_all_by_vertex_property_range_operator;
   CounterHandle scan_all_by_point_distance_operator;
   CounterHandle scan_all_by_point_withinbbox_operator;
   CounterHandle expand_operator;
@@ -212,6 +215,7 @@ struct DatabaseMetricHandles {
   GaugeHandle active_edge_type_indices;
   GaugeHandle active_edge_type_property_indices;
   GaugeHandle active_edge_property_indices;
+  GaugeHandle active_vertex_property_indices;
   GaugeHandle active_point_indices;
   GaugeHandle active_text_indices;
   GaugeHandle active_text_edge_indices;
@@ -473,6 +477,9 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_property_value_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_property_range_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_id_operator_family_;
+  prometheus::Family<prometheus::Counter> &scan_all_by_vertex_property_operator_family_;
+  prometheus::Family<prometheus::Counter> &scan_all_by_vertex_property_value_operator_family_;
+  prometheus::Family<prometheus::Counter> &scan_all_by_vertex_property_range_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_point_distance_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_point_withinbbox_operator_family_;
   prometheus::Family<prometheus::Counter> &expand_operator_family_;
@@ -517,6 +524,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &active_edge_type_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_edge_type_property_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_edge_property_indices_family_;
+  prometheus::Family<prometheus::Gauge> &active_vertex_property_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_point_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_text_indices_family_;
   prometheus::Family<prometheus::Gauge> &active_text_edge_indices_family_;

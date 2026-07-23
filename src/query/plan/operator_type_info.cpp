@@ -71,6 +71,15 @@ constexpr utils::TypeInfo query::plan::ScanAllByEdgePropertyValue::kType{
 constexpr utils::TypeInfo query::plan::ScanAllByEdgePropertyRange::kType{
     utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY_RANGE, "ScanAllByEdgePropertyRange", &query::plan::ScanAllByEdge::kType};
 
+constexpr utils::TypeInfo query::plan::ScanAllByVertexProperty::kType{
+    utils::TypeId::SCAN_ALL_BY_VERTEX_PROPERTY, "ScanAllByVertexProperty", &query::plan::ScanAll::kType};
+
+constexpr utils::TypeInfo query::plan::ScanAllByVertexPropertyValue::kType{
+    utils::TypeId::SCAN_ALL_BY_VERTEX_PROPERTY_VALUE, "ScanAllByVertexPropertyValue", &query::plan::ScanAll::kType};
+
+constexpr utils::TypeInfo query::plan::ScanAllByVertexPropertyRange::kType{
+    utils::TypeId::SCAN_ALL_BY_VERTEX_PROPERTY_RANGE, "ScanAllByVertexPropertyRange", &query::plan::ScanAll::kType};
+
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeId::kType{
     .id = utils::TypeId::SCAN_ALL_BY_ID, .name = "ScanAllByEdgeId", .superclass = &query::plan::ScanAllByEdge::kType};
 
@@ -254,6 +263,21 @@ constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyValue::kType{
 constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyRange::kType{
     .id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY_RANGE,
     .name = "ScanParallelByEdgePropertyRange",
+    .superclass = &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByVertexProperty::kType{
+    .id = utils::TypeId::SCAN_PARALLEL_BY_VERTEX_PROPERTY,
+    .name = "ScanParallelByVertexProperty",
+    .superclass = &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByVertexPropertyValue::kType{
+    .id = utils::TypeId::SCAN_PARALLEL_BY_VERTEX_PROPERTY_VALUE,
+    .name = "ScanParallelByVertexPropertyValue",
+    .superclass = &query::plan::ScanParallel::kType};
+
+constexpr utils::TypeInfo query::plan::ScanParallelByVertexPropertyRange::kType{
+    .id = utils::TypeId::SCAN_PARALLEL_BY_VERTEX_PROPERTY_RANGE,
+    .name = "ScanParallelByVertexPropertyRange",
     .superclass = &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ParallelMerge::kType{

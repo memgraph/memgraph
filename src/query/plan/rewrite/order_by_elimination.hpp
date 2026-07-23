@@ -195,7 +195,8 @@ class OrderByEliminator {
            type_info == ScanAllByEdgeTypeProperty::kType || type_info == ScanAllByEdgeTypePropertyValue::kType ||
            type_info == ScanAllByEdgeTypePropertyRange::kType || type_info == ScanAllByEdgeProperty::kType ||
            type_info == ScanAllByEdgePropertyValue::kType || type_info == ScanAllByEdgePropertyRange::kType ||
-           type_info == ScanAllByEdgeId::kType;
+           type_info == ScanAllByEdgeId::kType || type_info == ScanAllByVertexProperty::kType ||
+           type_info == ScanAllByVertexPropertyValue::kType || type_info == ScanAllByVertexPropertyRange::kType;
   }
 
   /// Check if a mutation operator (SetProperty, RemoveProperty) modifies a property

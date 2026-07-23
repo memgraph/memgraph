@@ -15,6 +15,7 @@
 #include "storage/v2/disk/edge_type_property_index.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
+#include "storage/v2/disk/vertex_property_index.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
@@ -22,6 +23,7 @@
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 
@@ -30,6 +32,8 @@ namespace memgraph::storage {
 void Indices::RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const {
   static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
+      ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+  static_cast<InMemoryVertexPropertyIndex *>(vertex_property_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
 }
 
@@ -56,6 +60,7 @@ void Indices::DropGraphClearIndices() {
   static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->DropGraphClearIndices();
+  static_cast<InMemoryVertexPropertyIndex *>(vertex_property_index_.get())->DropGraphClearIndices();
   // DropGraphClearIndices is only reachable from IN_MEMORY_ANALYTICAL DropGraph
   // where aborts can't happen, so flipping deferred_drop synchronously is safe.
   // If a future caller invokes Clear() from a transactional path, the flip
@@ -72,6 +77,7 @@ void Indices::DropGraphClearIndices() {
                                                   edge_type_index_->GetActiveIndices(),
                                                   edge_type_property_index_->GetActiveIndices(),
                                                   edge_property_index_->GetActiveIndices(),
+                                                  vertex_property_index_->GetActiveIndices(),
                                                   text_index_.GetActiveIndices(),
                                                   text_edge_index_.GetActiveIndices(),
                                                   point_index_.GetActiveIndices(),
@@ -103,6 +109,7 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
                                   Vertex *vertex, Transaction &tx) {
   tx.active_indices_->label_properties_->UpdateOnSetProperty(property, old_value, new_value, vertex, tx);
+  tx.active_indices_->vertex_property_->UpdateOnSetProperty(property, new_value, vertex, tx.start_timestamp);
   tx.active_indices_->text_->UpdateOnSetProperty(vertex, tx, property);
   vector_index_.UpdateOnSetProperty(property, new_value, vertex);
 }
@@ -125,7 +132,7 @@ void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, E
 Indices::Indices(const Config &config, StorageMode storage_mode, utils::MemoryTracker *db_embedding_memory_tracker,
                  metrics::GaugeHandle active_label_indices, metrics::GaugeHandle active_label_property_indices,
                  metrics::GaugeHandle active_edge_type_indices, metrics::GaugeHandle active_edge_type_property_indices,
-                 metrics::GaugeHandle active_edge_property_indices)
+                 metrics::GaugeHandle active_edge_property_indices, metrics::GaugeHandle active_vertex_property_indices)
     : text_index_(config.durability.storage_directory),
       text_edge_index_(config.durability.storage_directory),
       vector_index_(db_embedding_memory_tracker),
@@ -137,19 +144,22 @@ Indices::Indices(const Config &config, StorageMode storage_mode, utils::MemoryTr
                active_label_property_indices,
                active_edge_type_indices,
                active_edge_type_property_indices,
-               active_edge_property_indices]() {
+               active_edge_property_indices,
+               active_vertex_property_indices]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>(active_label_indices);
       label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>(active_label_property_indices);
       edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>(active_edge_type_indices);
       edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>(active_edge_type_property_indices);
       edge_property_index_ = std::make_unique<InMemoryEdgePropertyIndex>(active_edge_property_indices);
+      vertex_property_index_ = std::make_unique<InMemoryVertexPropertyIndex>(active_vertex_property_indices);
     } else {
       label_index_ = std::make_unique<DiskLabelIndex>(config);
       label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(config);
       edge_type_index_ = std::make_unique<DiskEdgeTypeIndex>();
       edge_type_property_index_ = std::make_unique<DiskEdgeTypePropertyIndex>();
       edge_property_index_ = std::make_unique<DiskEdgePropertyIndex>();
+      vertex_property_index_ = std::make_unique<DiskVertexPropertyIndex>();
     }
   });
   // Build the composite snapshot outside the outer `active_indices_` lock so
@@ -164,6 +174,7 @@ Indices::Indices(const Config &config, StorageMode storage_mode, utils::MemoryTr
                                                   edge_type_index_->GetActiveIndices(),
                                                   edge_type_property_index_->GetActiveIndices(),
                                                   edge_property_index_->GetActiveIndices(),
+                                                  vertex_property_index_->GetActiveIndices(),
                                                   text_index_.GetActiveIndices(),
                                                   text_edge_index_.GetActiveIndices(),
                                                   point_index_.GetActiveIndices(),
@@ -178,6 +189,7 @@ Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_i
                         .edge_type_ = active_indices.edge_type_->GetAbortProcessor(),
                         .edge_type_property_ = active_indices.edge_type_properties_->GetAbortProcessor(),
                         .edge_property_ = active_indices.edge_property_->GetAbortProcessor(),
+                        .vertex_property_ = active_indices.vertex_property_->GetAbortProcessor(),
                         .vector_ = vector_index_.GetAbortProcessor(),
                         .vector_edge_ = vector_edge_index_.GetAbortProcessor()};
 }
@@ -200,6 +212,12 @@ void Indices::AbortProcessor::CollectOnLabelAddition(LabelId labelId, Vertex *ve
 void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value,
                                                       Vertex *vertex) {
   label_properties_.CollectOnPropertyChange(propId, vertex);
+  if (vertex_property_.IsInteresting(propId)) {
+    auto value = vertex->properties.GetProperty(propId);
+    if (!value.IsNull()) {
+      vertex_property_.CollectOnPropertyChange(propId, vertex, std::move(value));
+    }
+  }
   vector_.CollectOnPropertyChange(propId, old_value, vertex);
 }
 
@@ -233,6 +251,7 @@ void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices const &act
   active_indices.edge_type_->AbortEntries(edge_type_.cleanup_collection_, start_timestamp);
   active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, start_timestamp);
   active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, start_timestamp);
+  active_indices.vertex_property_->AbortEntries(vertex_property_.cleanup_collection_, start_timestamp);
   indices.vector_index_.AbortEntries(&indices, name_id_mapper, vector_.cleanup_collection);
   indices.vector_edge_index_.AbortEntries(vector_edge_.cleanup_collection);
 }

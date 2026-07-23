@@ -15,3 +15,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["skiplist_indices/plan_invalidation.py"]
     <<: *skiplist_indices_cluster
+  - name: "Vertex property indices"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["skiplist_indices/vertex_property_indices.py"]
+    <<: *skiplist_indices_cluster

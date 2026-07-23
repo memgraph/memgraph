@@ -16,6 +16,7 @@
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/indices/vertex_property_index.hpp"
 
 #include <memory>
 #include <vector>
@@ -38,6 +39,7 @@ struct IndicesCollection {
   std::vector<storage::EdgeTypeId> edge_type_;
   std::vector<std::pair<storage::EdgeTypeId, storage::PropertyId>> edge_type_properties_;
   std::vector<storage::PropertyId> edge_property_;
+  std::vector<storage::PropertyId> vertex_property_;
 };
 
 struct ActiveIndices {
@@ -47,7 +49,8 @@ struct ActiveIndices {
       std::shared_ptr<LabelIndexActiveIndices> label, std::shared_ptr<LabelPropertyIndexActiveIndices> label_properties,
       std::shared_ptr<EdgeTypeIndexActiveIndices> edge_type,
       std::shared_ptr<EdgeTypePropertyIndexActiveIndices> edge_type_properties,
-      std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property, std::shared_ptr<TextIndexActiveIndices> text,
+      std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property,
+      std::shared_ptr<VertexPropertyIndexActiveIndices> vertex_property, std::shared_ptr<TextIndexActiveIndices> text,
       std::shared_ptr<TextEdgeIndexActiveIndices> text_edge, std::shared_ptr<PointIndexActiveIndices> point,
       std::shared_ptr<VectorIndexActiveIndices> vector, std::shared_ptr<VectorEdgeIndexActiveIndices> vector_edge)
       : label_{std::move(label)},
@@ -55,13 +58,14 @@ struct ActiveIndices {
         edge_type_{std::move(edge_type)},
         edge_type_properties_{std::move(edge_type_properties)},
         edge_property_{std::move(edge_property)},
+        vertex_property_{std::move(vertex_property)},
         text_{std::move(text)},
         text_edge_{std::move(text_edge)},
         point_{std::move(point)},
         vector_{std::move(vector)},
         vector_edge_{std::move(vector_edge)} {
-    DMG_ASSERT(label_ && label_properties_ && edge_type_ && edge_type_properties_ && edge_property_ && text_ &&
-                   text_edge_ && point_ && vector_ && vector_edge_,
+    DMG_ASSERT(label_ && label_properties_ && edge_type_ && edge_type_properties_ && edge_property_ &&
+                   vertex_property_ && text_ && text_edge_ && point_ && vector_ && vector_edge_,
                "ActiveIndices constructed with a null sub-index snapshot");
   }
 
@@ -103,6 +107,11 @@ struct ActiveIndices {
       if (!edge_property_->IndexReady(property)) return false;
     }
 
+    // vertex property
+    for (auto const property : required_indices.vertex_property_) {
+      if (!vertex_property_->IndexReady(property)) return false;
+    }
+
     return true;
   }
 
@@ -111,6 +120,7 @@ struct ActiveIndices {
   std::shared_ptr<EdgeTypeIndexActiveIndices> edge_type_;
   std::shared_ptr<EdgeTypePropertyIndexActiveIndices> edge_type_properties_;
   std::shared_ptr<EdgePropertyIndexActiveIndices> edge_property_;
+  std::shared_ptr<VertexPropertyIndexActiveIndices> vertex_property_;
   std::shared_ptr<TextIndexActiveIndices> text_;
   std::shared_ptr<TextEdgeIndexActiveIndices> text_edge_;
   std::shared_ptr<PointIndexActiveIndices> point_;

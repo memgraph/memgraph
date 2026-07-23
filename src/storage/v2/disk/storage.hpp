@@ -95,6 +95,35 @@ class DiskStorage final : public Storage {
       throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
     }
 
+    VerticesChunkedIterable ChunkedVertices(PropertyId /*property*/, View /*view*/, size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
+    }
+
+    VerticesChunkedIterable ChunkedVertices(PropertyId /*property*/, const PropertyValue & /*value*/, View /*view*/,
+                                            size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
+    }
+
+    VerticesChunkedIterable ChunkedVertices(PropertyId /*property*/,
+                                            const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
+                                            const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/,
+                                            View /*view*/, size_t /*num_chunks*/) override {
+      throw utils::NotYetImplemented("ChunkedVertices is not implemented for DiskStorage.");
+    }
+
+    VerticesIterable Vertices(PropertyId /*property*/, View /*view*/) override {
+      throw utils::NotYetImplemented("Global vertex property index is not implemented for DiskStorage.");
+    }
+
+    VerticesIterable Vertices(PropertyId /*property*/, PropertyValue const & /*value*/, View /*view*/) override {
+      throw utils::NotYetImplemented("Global vertex property index is not implemented for DiskStorage.");
+    }
+
+    VerticesIterable Vertices(PropertyId /*property*/, std::optional<utils::Bound<PropertyValue>> const & /*lower*/,
+                              std::optional<utils::Bound<PropertyValue>> const & /*upper*/, View /*view*/) override {
+      throw utils::NotYetImplemented("Global vertex property index is not implemented for DiskStorage.");
+    }
+
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
@@ -164,6 +193,18 @@ class DiskStorage final : public Storage {
     uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyPath const> /*properties*/,
                                     std::span<PropertyValueRange const> /*bounds*/) const override {
       return 10;
+    }
+
+    uint64_t ApproximateVertexCount(PropertyId /*property*/) const override { return 0; }
+
+    uint64_t ApproximateVertexCount(PropertyId /*property*/, PropertyValue const & /*value*/) const override {
+      return 0;
+    }
+
+    uint64_t ApproximateVertexCount(PropertyId /*property*/,
+                                    std::optional<utils::Bound<PropertyValue>> const & /*lower*/,
+                                    std::optional<utils::Bound<PropertyValue>> const & /*upper*/) const override {
+      return 0;
     }
 
     uint64_t ApproximateEdgeCount() const override {
@@ -273,6 +314,10 @@ class DiskStorage final : public Storage {
 
     bool EdgePropertyIndexExists(PropertyId property) const override;
 
+    bool VertexPropertyIndexReady(PropertyId /*property*/) const override { return false; }
+
+    bool VertexPropertyIndexExists(PropertyId /*property*/) const override { return false; }
+
     bool PointIndexExists(LabelId label, PropertyId property) const override;
 
     IndicesInfo ListAllIndices() const override;
@@ -297,6 +342,7 @@ class DiskStorage final : public Storage {
 
     // Bring base class convenience overloads into scope (they provide default neverCancel)
     using Storage::Accessor::CreateGlobalEdgeIndex;
+    using Storage::Accessor::CreateGlobalVertexIndex;
     using Storage::Accessor::CreateIndex;
     using Storage::Accessor::Vertices;
 
@@ -315,6 +361,11 @@ class DiskStorage final : public Storage {
     std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(PropertyId property,
                                                                            CheckCancelFunction cancel_check) override;
 
+    std::expected<void, StorageIndexDefinitionError> CreateGlobalVertexIndex(
+        PropertyId /*property*/, CheckCancelFunction /*cancel_check*/) override {
+      return std::unexpected{IndexDefinitionError{}};
+    }
+
     std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label) override;
 
     std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
@@ -326,6 +377,10 @@ class DiskStorage final : public Storage {
     std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
 
     std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(PropertyId property) override;
+
+    std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(PropertyId /*property*/) override {
+      return std::unexpected{IndexDefinitionError{}};
+    }
 
     std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(storage::LabelId label,
                                                                                storage::PropertyId property) override;

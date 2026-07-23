@@ -65,6 +65,7 @@ DROP INDEX ON :__mg_vertex__(__mg_id__);
 MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;
 CREATE EDGE INDEX ON :`edge_type`;
 CREATE EDGE INDEX ON :`edge_type`(`prop`);
+CREATE GLOBAL INDEX ON :(prop);
 CREATE GLOBAL EDGE INDEX ON :(ttl);
 ANALYZE GRAPH;
 ENABLE TTL EVERY "1000s" AT "12:00:00";

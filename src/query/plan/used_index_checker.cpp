@@ -60,6 +60,21 @@ bool UsedIndexChecker::PreVisit(ScanAllByEdgePropertyRange &op) {
   return true;
 }
 
+bool UsedIndexChecker::PreVisit(ScanAllByVertexProperty &op) {
+  required_indices_.vertex_property_.emplace_back(op.property_);
+  return true;
+}
+
+bool UsedIndexChecker::PreVisit(ScanAllByVertexPropertyValue &op) {
+  required_indices_.vertex_property_.emplace_back(op.property_);
+  return true;
+}
+
+bool UsedIndexChecker::PreVisit(ScanAllByVertexPropertyRange &op) {
+  required_indices_.vertex_property_.emplace_back(op.property_);
+  return true;
+}
+
 bool UsedIndexChecker::PreVisit(ScanAllByEdgeTypeProperty &op) {
   required_indices_.edge_type_properties_.emplace_back(op.common_.edge_types[0], op.property_);
   return true;

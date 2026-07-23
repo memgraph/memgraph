@@ -300,6 +300,18 @@ inline mgp_list *list_all_label_property_indices(mgp_graph *graph, mgp_memory *m
   return MgInvoke<mgp_list *>(mgp_list_all_label_property_indices, graph, memory);
 }
 
+inline bool create_vertex_property_index(mgp_graph *graph, const char *property) {
+  return MgInvoke<int>(mgp_create_vertex_property_index, graph, property);
+}
+
+inline bool drop_vertex_property_index(mgp_graph *graph, const char *property) {
+  return MgInvoke<int>(mgp_drop_vertex_property_index, graph, property);
+}
+
+inline mgp_list *list_all_vertex_property_indices(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_vertex_property_indices, graph, memory);
+}
+
 inline bool create_existence_constraint(mgp_graph *graph, const char *label, const char *property) {
   return MgInvoke<int>(mgp_create_existence_constraint, graph, label, property);
 }

@@ -1688,6 +1688,20 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Failed to drop global edge property index on ({}).", data.property);
           }
         },
+        [&](WalVertexPropertyIndexCreate const &data) {
+          spdlog::trace("       Create global vertex property index on ({})", data.property);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          if (!transaction->CreateGlobalVertexIndex(storage->NameToProperty(data.property))) {
+            throw utils::BasicException("Failed to create global vertex property index on ({}).", data.property);
+          }
+        },
+        [&](WalVertexPropertyIndexDrop const &data) {
+          spdlog::trace("       Drop global vertex property index on ({})", data.property);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          if (!transaction->DropGlobalVertexIndex(storage->NameToProperty(data.property))) {
+            throw utils::BasicException("Failed to drop global vertex property index on ({}).", data.property);
+          }
+        },
         [&](WalTextIndexCreate const &data) {
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto label_id = storage->NameToLabel(data.label);

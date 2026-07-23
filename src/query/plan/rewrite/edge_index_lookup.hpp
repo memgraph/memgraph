@@ -121,6 +121,36 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(ScanAllByVertexProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByVertexProperty &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByVertexPropertyValue &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByVertexPropertyValue &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByVertexPropertyRange &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByVertexPropertyRange &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(ScanAllByPointDistance &op) override {
     prev_ops_.push_back(&op);
     return true;

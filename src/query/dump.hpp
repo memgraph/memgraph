@@ -79,6 +79,7 @@ struct PullPlanDump {
   PullChunk CreateEdgeTypeIndicesPullChunk();
   PullChunk CreateEdgeTypePropertyIndicesPullChunk();
   PullChunk CreateEdgePropertyIndicesPullChunk();
+  PullChunk CreateVertexPropertyIndicesPullChunk();
   PullChunk CreateTTLConfigPullChunk();
   PullChunk CreateDescriptionsPullChunk();
 };
