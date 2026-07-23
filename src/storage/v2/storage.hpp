@@ -338,18 +338,28 @@ class Storage {
 
   /// Non-blocking Access(): probe main_lock_ in the requested mode without blocking. Returns
   /// nullopt (no transaction created, nothing thrown) if the lock isn't immediately available.
-  /// WRITE/READ use a plain try_lock_shared; READ_ONLY routes through ReadOnlyPendingScope so a
-  /// retrying caller keeps priority-over-WRITE. Base is a safe no-op stub (see storage.cpp);
-  /// InMemoryStorage overrides with the real implementation.
+  /// This is a SINGLE-SHOT probe: WRITE/READ use a plain try_lock_shared, while READ_ONLY routes
+  /// through a local ReadOnlyPendingScope that bumps the pending counter for the duration of this
+  /// one call only. It is therefore NOT loop-fair: a retry loop over Try*Access gets no sustained
+  /// writer-preference, since the scope is destroyed (and the counter drops back) on each return.
+  /// A caller wanting sustained priority-over-WRITE across a retry loop must instead hold its own
+  /// ReadOnlyPendingScope (utils/resource_lock.hpp) across the whole loop. Base is a safe no-op
+  /// stub (see storage.cpp); InMemoryStorage overrides with the real implementation.
   virtual std::optional<std::unique_ptr<Accessor>> TryAccess(
       StorageAccessType rw_type, std::optional<IsolationLevel> override_isolation_level = std::nullopt);
 
-  /// Non-blocking UniqueAccess() via UniquePendingScope::try_acquire(), so a retrying caller keeps
-  /// writer-preference. See TryAccess() for the no-transaction-on-failure contract and safe stub.
+  /// Non-blocking UniqueAccess() via a local UniquePendingScope::try_acquire(): a SINGLE-SHOT probe
+  /// that momentarily bumps the pending counter for the duration of this one call only. A retry
+  /// loop over Try*Access is NOT loop-fair and gets no sustained writer-preference (the scope is
+  /// destroyed on each return, dropping the counter back to 0). A caller wanting sustained
+  /// writer-preference across a retry loop must instead hold its own UniquePendingScope
+  /// (utils/resource_lock.hpp) across the whole loop. See TryAccess() for the
+  /// no-transaction-on-failure contract and safe stub.
   virtual std::optional<std::unique_ptr<Accessor>> TryUniqueAccess(
       std::optional<IsolationLevel> override_isolation_level = std::nullopt);
 
-  /// Non-blocking ReadOnlyAccess(). See TryAccess() for the contract and safe stub.
+  /// Non-blocking, SINGLE-SHOT ReadOnlyAccess() via a local ReadOnlyPendingScope. See TryAccess()
+  /// for the single-shot / not-loop-fair contract, the sustained-preference caveat, and safe stub.
   virtual std::optional<std::unique_ptr<Accessor>> TryReadOnlyAccess(
       std::optional<IsolationLevel> override_isolation_level = std::nullopt);
 

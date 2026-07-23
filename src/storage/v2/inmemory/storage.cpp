@@ -4703,8 +4703,8 @@ std::optional<std::unique_ptr<Storage::Accessor>> InMemoryStorage::TryAccess(
   }
 
   if (rw_type == READ_ONLY) {
-    // READ_ONLY needs the ReadOnlyPendingScope priority-over-WRITE path; a plain try_lock_shared
-    // wouldn't register it. Route through TryReadOnlyAccess() for identical fairness.
+    // READ_ONLY needs the ReadOnlyPendingScope momentary priority-over-WRITE gate; a plain
+    // try_lock_shared wouldn't register it. Route through TryReadOnlyAccess() (same single-shot path).
     return TryReadOnlyAccess(override_isolation_level);
   }
 
@@ -4723,8 +4723,10 @@ std::optional<std::unique_ptr<Storage::Accessor>> InMemoryStorage::TryAccess(
 
 std::optional<std::unique_ptr<Storage::Accessor>> InMemoryStorage::TryUniqueAccess(
     std::optional<IsolationLevel> override_isolation_level) {
-  // Single-shot probe; registers as pending for this one attempt so new shared acquirers see the
-  // same momentary writer-preference gate as a blocking UniquePendingScope (see resource_lock.hpp).
+  // Single-shot probe: the local scope bumps the pending counter for this one attempt only, so the
+  // writer-preference gate is momentary. It is NOT loop-fair -- a retry loop drops the counter back
+  // to 0 between calls. For sustained writer-preference, hold a UniquePendingScope across the whole
+  // loop instead (see resource_lock.hpp).
   utils::UniquePendingScope scope(main_lock_);
   auto guard = scope.try_acquire();
   if (!guard) return std::nullopt;
