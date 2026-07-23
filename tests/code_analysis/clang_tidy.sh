@@ -106,10 +106,6 @@ fi
 ninja -C build -t inputs | { grep -E '\.cppm\.o$|\.o\.modmap$' || [[ $? -eq 1 ]]; } | xargs -r ninja -C build
 ninja -C build -t targets all | { grep -oP '^[^:]*\.bmi(?=:)' || [[ $? -eq 1 ]]; } | xargs -r ninja -C build
 
-# NOTE: MAGE builds in the unified CMake tree (src/mage, MG_BUILD_MAGE), so
-# its compile commands land directly in build/compile_commands.json — the
-# old standalone-build merge step (merge_compile_commands.py) is gone.
-
 echo "Running clang-tidy on changed files..."
 echo "Using clang-tidy: $(command -v clang-tidy)"
 echo "clang-tidy version: $(clang-tidy --version | head -1)"
