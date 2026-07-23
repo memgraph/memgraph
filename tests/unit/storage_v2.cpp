@@ -2827,13 +2827,9 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterAbort) {
   }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Storage::TryAccess / TryUniqueAccess / TryReadOnlyAccess: non-blocking counterparts to
-// Access()/UniqueAccess()/ReadOnlyAccess(). InMemoryStorage provides the real (main_lock_-probing)
-// implementation, so these tests exercise it directly rather than going through the
-// InMemoryStorage/DiskStorage TYPED_TEST_SUITE above (DiskStorage currently inherits Storage's
-// safe no-op stub, which always returns std::nullopt regardless of contention -- there is nothing
-// meaningful to assert about "returns a valid accessor when free" for that stub).
+// Storage::TryAccess / TryUniqueAccess / TryReadOnlyAccess non-blocking access. Tested directly
+// on InMemoryStorage (the only real implementation) rather than via the TYPED_TEST_SUITE, since
+// DiskStorage inherits the safe no-op stub that always returns std::nullopt.
 class StorageTryAccessTest : public ::testing::Test {
  protected:
   memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
@@ -2869,13 +2865,9 @@ TEST_F(StorageTryAccessTest, SucceedsAndReturnsUsableAccessorWhenFree) {
   EXPECT_NO_THROW((*ro_acc)->Abort());
 }
 
-// UNIQUE held -> every non-blocking probe (of every kind) must report nullopt, must not throw,
-// and -- crucially -- must not have silently created (and then discarded) a transaction while
-// probing. We prove the "no transaction created" part by comparing Transaction::transaction_id
-// sequencing: InMemoryStorage's transaction id counter is strictly monotonic and only advances
-// when Storage::CreateTransaction() actually runs (which only happens once an Accessor is
-// constructed), so if any nullopt attempt below had spuriously created a transaction, the id
-// observed after releasing UNIQUE would jump by more than 1.
+// UNIQUE held -> every probe returns nullopt without throwing or creating a transaction. The
+// "no transaction created" part is proven via the strictly-monotonic transaction_id: it only
+// advances on CreateTransaction(), so a spurious probe would make the next id jump by >1.
 TEST_F(StorageTryAccessTest, UniqueHeldBlocksNewSharedWithoutCreatingATransaction) {
   using namespace memgraph::storage;
 

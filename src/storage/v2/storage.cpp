@@ -136,11 +136,8 @@ std::unique_ptr<Accessor> Storage::ReadOnlyAccess(std::optional<IsolationLevel> 
 
 std::unique_ptr<Accessor> Storage::ReadOnlyAccess() { return ReadOnlyAccess({}, std::nullopt); }
 
-// Safe no-op stubs: a storage engine only gets real non-blocking access once it overrides these
-// (see InMemoryStorage::TryAccess/TryUniqueAccess/TryReadOnlyAccess). Never touching main_lock_
-// here means these are trivially correct for any Storage subtype that doesn't override them
-// (currently: DiskStorage) -- "would block" is always a truthful answer for a probe that was
-// never actually attempted.
+// Safe no-op stubs (inherited by DiskStorage): never touch main_lock_, always return nullopt.
+// Only engines that override these (InMemoryStorage) get real non-blocking access.
 std::optional<std::unique_ptr<Accessor>> Storage::TryAccess(
     StorageAccessType /*rw_type*/, std::optional<IsolationLevel> /*override_isolation_level*/) {
   return std::nullopt;
@@ -200,8 +197,7 @@ Storage::Accessor::Accessor(SharedAccessOwning /* tag */, Storage *storage, Isol
                             StorageMode storage_mode, StorageAccessType rw_type,
                             utils::SharedResourceLockGuard already_locked_guard)
     : storage_(storage),
-      // Already acquired by the caller (a successful non-blocking probe) -- just adopt it, no
-      // locking attempted here.
+      // Adopt the guard the caller's probe already acquired; no locking here.
       storage_guard_(std::move(already_locked_guard)),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
@@ -213,8 +209,7 @@ Storage::Accessor::Accessor(UniqueAccessOwning /* tag */, Storage *storage, Isol
                             StorageMode storage_mode, std::unique_lock<utils::ResourceLock> already_locked_guard)
     : storage_(storage),
       storage_guard_(storage_->main_lock_, {/* unused */}, std::defer_lock),
-      // Already acquired by the caller (a successful non-blocking probe) -- just adopt it, no
-      // locking attempted here.
+      // Adopt the guard the caller's probe already acquired; no locking here.
       unique_guard_(std::move(already_locked_guard)),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
@@ -224,8 +219,7 @@ Storage::Accessor::Accessor(UniqueAccessOwning /* tag */, Storage *storage, Isol
 Storage::Accessor::Accessor(ReadOnlyAccessOwning /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode, utils::SharedResourceLockGuard already_locked_guard)
     : storage_(storage),
-      // Already acquired by the caller (a successful non-blocking probe) -- just adopt it, no
-      // locking attempted here.
+      // Adopt the guard the caller's probe already acquired; no locking here.
       storage_guard_(std::move(already_locked_guard)),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
