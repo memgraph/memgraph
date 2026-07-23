@@ -11,6 +11,8 @@
 
 #include "utils/sysinfo/memory.hpp"
 
+#include <sys/sysinfo.h>
+
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <fstream>
@@ -40,12 +42,30 @@ std::optional<uint64_t> ExtractAmountFromMemInfo(const std::string_view header_n
   return std::nullopt;
 }
 
+std::optional<struct ::sysinfo> GetSysinfo() {
+  struct ::sysinfo info{};
+  if (::sysinfo(&info) != 0) {
+    SPDLOG_WARN("sysinfo() failed");
+    return std::nullopt;
+  }
+  return info;
+}
+
 }  // namespace
 
+// MemAvailable is a kernel estimate with no syscall equivalent, so it still comes from /proc/meminfo.
 std::optional<uint64_t> AvailableMemory() { return ExtractAmountFromMemInfo("MemAvailable"); }
 
-std::optional<uint64_t> TotalMemory() { return ExtractAmountFromMemInfo("MemTotal"); }
+std::optional<uint64_t> TotalMemory() {
+  const auto info = GetSysinfo();
+  if (!info) return std::nullopt;
+  return info->totalram * info->mem_unit / 1024;
+}
 
-std::optional<uint64_t> SwapTotalMemory() { return ExtractAmountFromMemInfo("SwapTotal"); }
+std::optional<uint64_t> SwapTotalMemory() {
+  const auto info = GetSysinfo();
+  if (!info) return std::nullopt;
+  return info->totalswap * info->mem_unit / 1024;
+}
 
 }  // namespace memgraph::utils::sysinfo
