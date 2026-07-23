@@ -655,14 +655,14 @@ class Accessor {
 
   Accessor(Accessor &&other) noexcept;
 
-  // Defined out-of-line (storage.cpp): on a UNIQUE/READ_ONLY accessor, explicitly releases
-  // storage_guard_/unique_guard_ here (instead of relying on their implicit member-destruction,
-  // which runs AFTER this body) so that Storage::NotifyMainLockReleased() can be called strictly
-  // after main_lock_ has actually been released (C3) -- see storage.cpp for the full rationale
-  // (Transaction's destructor is default/trivial and does not depend on the lock being held, so
-  // releasing it here, before transaction_'s own implicit destruction runs, is safe). READ/WRITE
-  // accessors skip all of this (cheap original_access_type_ check) and fall through to the
-  // ordinary implicit guard release -- unchanged, zero extra cost on that hot path.
+  // Defined out-of-line (storage.cpp): on ANY owning accessor (F5 -- UNIQUE/READ_ONLY/WRITE/READ),
+  // explicitly releases guard_ here, rather than relying on implicit member-destruction which runs
+  // AFTER this body, so Storage::NotifyMainLockReleased() runs strictly after main_lock_ is
+  // actually released (C3). The dtor branches on guard_.owns_lock() and notifies on every owning
+  // release; a guard handed off via ReleaseGuard() owns nothing here, so its new owner notifies
+  // instead. Releasing before transaction_'s implicit destruction is safe: Transaction's dtor does
+  // not depend on the hold. NotifyMainLockReleased() is a single relaxed flag load when nobody is
+  // parked, so the READ/WRITE hot path stays cheap.
   virtual ~Accessor();
 
   StorageAccessType original_access_type() const { return original_access_type_; }

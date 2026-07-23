@@ -430,27 +430,15 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       while (true) {
         const auto outcome = shared_this->session_.Execute();
         if (outcome == bolt::ExecuteResult::kNeedsCoroPrepare) {
-          // R4.1: shared_this is captured HERE, in an ordinary (non-coroutine) function, and handed
-          // down as an opaque std::function -- DrivePreparedRun's own coroutine frame therefore never
-          // stores a separately-named shared_ptr<Session> of its own (which would look like, and
-          // partially be, a session -> parked_prepare_ -> frame -> shared_ptr<session> cycle); it
-          // only ever forwards this closure, exactly like every other frame in the chain already has
-          // to (AcquireAccessorCoro holds it as a frame local across its whole retry loop, by
-          // necessity). The closure itself is the sole thing keeping the session alive across the
-          // park (see its own body below and query::detail::AcquireAwaitable's doc comment).
-          // Adversarial-review finding (post R4.4): PriorityThreadPool::ShutDown()'s shutdown-drain
-          // can resume a parked frame to completion INLINE, on the draining thread, WITHOUT ever
-          // going through this worker's own pinned queue (RescheduleTaskOnWorker's
-          // IsShuttingDown()-inline branch) -- so the usual "same worker, therefore sequential"
-          // argument that makes the NORMAL (non-shutdown) resume path race-free does NOT apply to a
-          // shutdown-triggered resume, which can run concurrently with this very thread. `parked_
-          // prepare_` MUST therefore already hold the Task (and be visible via the registries' own
-          // mutex acquire/release, transitively covering this write) BEFORE `Resume()` is called --
-          // i.e. before there is any `ParkState` for another thread to claim at all -- not populated
-          // only after `Resume()` returns. Emplacing here, first, closes that race: by the time
-          // anything could register a `ParkState` (inside `Resume()`, below), `parked_prepare_` is
-          // already engaged and its write already happened-before (via the registry mutex) any
-          // concurrent claim+resume.
+          // shared_this is captured here and forwarded down as an opaque std::function, so no frame
+          // in the chain stores a named shared_ptr<Session> (which would form a session ->
+          // parked_prepare_ -> frame -> session cycle); the closure is the sole thing keeping the
+          // session alive across the park.
+          // parked_prepare_ MUST already hold the Task before Resume() is called. Post-F1 every resume
+          // is posted pinned back to THIS worker via RescheduleTaskOnWorker (never inline, not even a
+          // shutdown drain -- priority_thread_pool.cpp), so the resume closure cannot run until this
+          // RunLoop returns; emplacing first still guarantees parked_prepare_ is engaged before any
+          // resume closure could observe it.
           shared_this->parked_prepare_.emplace(shared_this->DrivePreparedRun([shared_this] {
             auto &parked = shared_this->parked_prepare_;
             if (!parked || !parked->Done()) {
