@@ -542,7 +542,11 @@ jobs:
           rm -rf "$DBG_DIR"
 
       - name: Build DEB package in MGBUILD container
-        if: ${{ env.PACKAGE_MAGE == 'true' && (startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-')) }}
+        # Also runs when PACKAGE_MAGE is false but a docker image is built:
+        # the image installs the memgraph-mage deb as its ingredient (the
+        # old mage.tar.gz hand-off is gone). Ingredient-only debs are
+        # scrubbed from output/ before artifact/S3 upload below.
+        if: ${{ (env.PACKAGE_MAGE == 'true' || env.BUILD_DOCKER_IMAGE != 'none') && (startsWith(inputs.os, 'debian-') || startsWith(inputs.os, 'ubuntu-')) }}
         run: |
           PACKAGE_ARGS="${{ inputs.malloc && '--malloc' || '' }}${{ inputs.cuda && ' --cuda' || '' }}"
           ./release/package/mgbuild.sh \
@@ -1011,6 +1015,14 @@ jobs:
         if: ${{ inputs.run_tests == true && inputs.cugraph == false && (env.BUILD_DOCKER_IMAGE == 'prod' || env.BUILD_DOCKER_IMAGE == 'both') && always() }}
         run: |
           docker stop $MAGE_CONTAINER || true
+
+      - name: Scrub ingredient-only mage packages
+        # When PACKAGE_MAGE is false the deb was built solely as the docker
+        # image ingredient — drop it so the artifact/S3 upload steps below
+        # don't publish packages this flavour never shipped.
+        if: ${{ env.PACKAGE_MAGE != 'true' }}
+        run: |
+          rm -fv output/memgraph-mage*.deb output/memgraph-mage*.rpm
 
       - name: Save docker image(s)
         if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.BUILD_DOCKER_IMAGE != 'none' }}

@@ -41,6 +41,15 @@ foreach(_opt IN LISTS _mage_inherited_opts)
 endforeach()
 set_directory_properties(PROPERTIES COMPILE_OPTIONS "${_mage_wrapped_opts}")
 
+# Same for the inherited LINK_OPTIONS (the root's -fuse-ld=lld, --build-id):
+# CUDA targets must not link with clang-only flags.
+get_directory_property(_mage_inherited_link_opts LINK_OPTIONS)
+set(_mage_wrapped_link_opts "")
+foreach(_opt IN LISTS _mage_inherited_link_opts)
+    list(APPEND _mage_wrapped_link_opts "$<$<LINK_LANGUAGE:C,CXX>:${_opt}>")
+endforeach()
+set_directory_properties(PROPERTIES LINK_OPTIONS "${_mage_wrapped_link_opts}")
+
 find_package(Threads REQUIRED)
 find_package(OpenMP REQUIRED)
 
@@ -52,7 +61,8 @@ find_package(OpenMP REQUIRED)
 add_compile_options(
     "$<$<COMPILE_LANGUAGE:C>:${OpenMP_C_FLAGS}>"
     "$<$<COMPILE_LANGUAGE:CXX>:${OpenMP_CXX_FLAGS}>")
-add_link_options(${OpenMP_CXX_FLAGS})
+# -fopenmp=libomp is a clang spelling; keep it off CUDA (nvcc-driven) links.
+add_link_options("$<$<LINK_LANGUAGE:C,CXX>:${OpenMP_CXX_FLAGS}>")
 
 # Modules that link OpenMP need the toolchain's libomp.so at load time. In
 # the build tree that's an rpath into the toolchain; installed modules get
