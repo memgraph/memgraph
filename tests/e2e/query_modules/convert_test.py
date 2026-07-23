@@ -389,5 +389,29 @@ def test_to_json_path():
     assert parsed[2]["type"] == "node" and parsed[2]["properties"] == {"y": 3}
 
 
+def test_to_json_point_cartesian():
+    cursor = connect().cursor()
+    r2d = json.loads(execute_and_fetch_all(cursor, "RETURN convert.to_json(point({x: 1.0, y: 2.0})) AS r;")[0][0])
+    assert r2d == {"crs": "cartesian", "x": 1.0, "y": 2.0, "z": None}
+    r3d = json.loads(
+        execute_and_fetch_all(cursor, "RETURN convert.to_json(point({x: 1.0, y: 2.0, z: 3.0})) AS r;")[0][0]
+    )
+    assert r3d == {"crs": "cartesian-3d", "x": 1.0, "y": 2.0, "z": 3.0}
+
+
+def test_to_json_point_wgs84():
+    cursor = connect().cursor()
+    r2d = json.loads(
+        execute_and_fetch_all(cursor, "RETURN convert.to_json(point({latitude: 1.0, longitude: 2.0})) AS r;")[0][0]
+    )
+    assert r2d == {"crs": "wgs-84", "latitude": 1.0, "longitude": 2.0, "height": None}
+    r3d = json.loads(
+        execute_and_fetch_all(
+            cursor, "RETURN convert.to_json(point({latitude: 1.0, longitude: 2.0, height: 3.0})) AS r;"
+        )[0][0]
+    )
+    assert r3d == {"crs": "wgs-84-3d", "latitude": 1.0, "longitude": 2.0, "height": 3.0}
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

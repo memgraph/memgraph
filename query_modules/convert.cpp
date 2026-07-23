@@ -374,6 +374,44 @@ nlohmann::ordered_json MgpPathToJson(const mgp::Path &path) {
   return array;
 }
 
+// Neo4j/OGC spatial reference ids used to pick the coordinate names and CRS label.
+constexpr uint16_t kSridWgs84_2d = 4326;
+constexpr uint16_t kSridWgs84_3d = 4979;
+
+// Serializes a 2D point as {crs, x/y (or longitude/latitude), z/height=null}.
+nlohmann::ordered_json MgpPoint2dToJson(const mgp::Point2d &point) {
+  auto obj = nlohmann::ordered_json::object();
+  if (point.Srid() == kSridWgs84_2d) {
+    obj["crs"] = "wgs-84";
+    obj["latitude"] = point.Y();
+    obj["longitude"] = point.X();
+    obj["height"] = nullptr;
+  } else {
+    obj["crs"] = "cartesian";
+    obj["x"] = point.X();
+    obj["y"] = point.Y();
+    obj["z"] = nullptr;
+  }
+  return obj;
+}
+
+// Serializes a 3D point as {crs, x/y/z (or longitude/latitude/height)}.
+nlohmann::ordered_json MgpPoint3dToJson(const mgp::Point3d &point) {
+  auto obj = nlohmann::ordered_json::object();
+  if (point.Srid() == kSridWgs84_3d) {
+    obj["crs"] = "wgs-84-3d";
+    obj["latitude"] = point.Y();
+    obj["longitude"] = point.X();
+    obj["height"] = point.Z();
+  } else {
+    obj["crs"] = "cartesian-3d";
+    obj["x"] = point.X();
+    obj["y"] = point.Y();
+    obj["z"] = point.Z();
+  }
+  return obj;
+}
+
 nlohmann::ordered_json MgpValueToJson(const mgp::Value &value) {
   if (value.IsNull()) return nullptr;
   if (value.IsBool()) return value.ValueBool();
@@ -397,6 +435,8 @@ nlohmann::ordered_json MgpValueToJson(const mgp::Value &value) {
   if (value.IsNode()) return MgpNodeToJson(value.ValueNode());
   if (value.IsRelationship()) return MgpRelationshipToJson(value.ValueRelationship());
   if (value.IsPath()) return MgpPathToJson(value.ValuePath());
+  if (value.IsPoint2d()) return MgpPoint2dToJson(value.ValuePoint2d());
+  if (value.IsPoint3d()) return MgpPoint3dToJson(value.ValuePoint3d());
   if (value.IsDate()) return value.ValueDate().ToString();
   if (value.IsLocalTime()) return value.ValueLocalTime().ToString();
   if (value.IsLocalDateTime()) return value.ValueLocalDateTime().ToString();
