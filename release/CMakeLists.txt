@@ -162,7 +162,7 @@ if(MG_BUILD_MAGE)
     # which run install_python_requirements.sh at install time; it expects
     # --arch amd64|arm64. CPACK_-prefixed so they're serialized into
     # CPackConfig.cmake and available to the rpm spec template at cpack time.
-    if(MG_ENABLE_CUGRAPH)
+    if(MG_ENABLE_CUGRAPH OR MG_MAGE_CUDA)
         set(CPACK_MAGE_CUDA "true")
     else()
         set(CPACK_MAGE_CUDA "false")
