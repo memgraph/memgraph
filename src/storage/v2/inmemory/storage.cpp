@@ -2937,15 +2937,22 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // SetStorageMode will pass its unique_lock of main_lock_. We will use that lock,
   // as reacquiring the lock would cause deadlock. Otherwise, we need to get our own
   // lock.
+  // GC only reads the indices/constraints (each independently synchronized + COW), so in
+  // transactional mode it takes main_lock_ in READ, compatible with a concurrent READ_ONLY
+  // index/constraint DDL registration -- neither has to wait out the other. Analytical keeps the
+  // WRITE-mode shared hold (its snapshot/constraint vs GC interaction is not proven safe under
+  // READ). Captured once so lock and unlock use the same LockReq; SetStorageMode (UNIQUE) cannot
+  // flip the mode while we hold the shared lock.
+  const bool gc_read_shared = storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL;
   if (!main_guard.owns_lock()) {
-    // If aggressive mode is enabled, try to get unique lock first.
-    // Perf note: Do not try to get unique lock if aggressive mode is disabled. GC maybe expensive,
-    // do not assume it is fast, unique lock will blocks all new storage transactions.
+    // Aggressive mode escalates to a unique lock (blocks all new txns); otherwise take the shared
+    // hold, since GC can be slow and should not block everyone unless explicitly asked to.
     if (!flags::run_time::GetStorageGcAggressive() || !main_guard.try_lock()) {
-      // Because the garbage collector iterates through the indices and constraints
-      // to clean them up, it must take the main lock for reading to make sure that
-      // the indices and constraints aren't concurrently being modified.
-      main_lock_.lock_shared();
+      if (gc_read_shared) {
+        main_lock_.lock_shared<utils::ResourceLock::LockReq::READ>();
+      } else {
+        main_lock_.lock_shared();  // WRITE (analytical)
+      }
     }
   } else {
     DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
@@ -2954,8 +2961,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   utils::OnScopeExit lock_releaser{[&] {
     if (main_guard.owns_lock()) {
       main_guard.unlock();
+    } else if (gc_read_shared) {
+      main_lock_.unlock_shared<utils::ResourceLock::LockReq::READ>();
     } else {
-      main_lock_.unlock_shared();
+      main_lock_.unlock_shared();  // WRITE (analytical)
     }
   }};
 
