@@ -24,8 +24,12 @@ constexpr const std::string_view kFunctionStr2Object = "str2object";
 constexpr const std::string_view kParameterString = "string";
 
 constexpr const std::string_view kFunctionFromJsonMap = "from_json_map";
+constexpr const std::string_view kFunctionFromJsonList = "from_json_list";
 constexpr const std::string_view kFunctionToMap = "to_map";
+constexpr const std::string_view kFunctionToJson = "to_json";
 constexpr const std::string_view kParameterMap = "map";
+constexpr const std::string_view kParameterList = "list";
+constexpr const std::string_view kParameterValue = "value";
 constexpr const std::string_view kParameterPath = "path";
 
 // Forward declarations
@@ -233,6 +237,51 @@ void from_json_map(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, 
   }
 }
 
+// Parses a JSON array string into a Cypher list. A null string yields null. An
+// optional path selects a nested part of the document first: an unresolved path
+// yields null, a JSON null yields null, and a selection that is not an array is
+// rejected.
+void from_json_list(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
+  auto func_result = mgp::Result(res);
+  try {
+    const auto arguments = mgp::List(args);
+    const auto &argument = arguments[0];
+    if (argument.IsNull()) {
+      func_result.SetValue();
+      return;
+    }
+
+    const auto root = nlohmann::json::parse(argument.ValueString());
+
+    const auto &path_arg = arguments[1];
+    const auto pointer = path_arg.IsNull() ? nlohmann::json::json_pointer{} : JsonPathToPointer(path_arg.ValueString());
+
+    const nlohmann::json *selected = &root;
+    if (!pointer.empty()) {
+      if (!root.contains(pointer)) {
+        func_result.SetValue();  // unresolved path -> null
+        return;
+      }
+      selected = &root.at(pointer);
+    }
+
+    if (selected->is_null()) {
+      func_result.SetValue();
+      return;
+    }
+    if (!selected->is_array()) {
+      func_result.SetErrorMessage("The selected value does not represent a JSON array.");
+      return;
+    }
+
+    const auto list_value = ParseJsonToMgpList(*selected, memory);
+    func_result.SetValue(list_value.ValueList());
+  } catch (const std::exception &e) {
+    func_result.SetErrorMessage(e.what());
+  }
+}
+
 // Converts a value into a map: a map is returned unchanged, a node or relationship
 // yields its properties, null yields null, and anything else yields null.
 void to_map(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
@@ -264,6 +313,111 @@ void to_map(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_mem
   }
 }
 
+// Forward declaration for the recursive value serializer below.
+nlohmann::ordered_json MgpValueToJson(const mgp::Value &value);
+
+// Serializes a node as {id, type, labels, properties}. The id is stringified;
+// labels and properties are omitted when empty.
+nlohmann::ordered_json MgpNodeToJson(const mgp::Node &node) {
+  auto obj = nlohmann::ordered_json::object();
+  obj["id"] = std::to_string(node.Id().AsInt());
+  obj["type"] = "node";
+  const auto labels = node.Labels();
+  if (labels.Size() > 0) {
+    auto label_array = nlohmann::ordered_json::array();
+    for (size_t i = 0; i < labels.Size(); ++i) {
+      label_array.push_back(std::string(labels[i]));
+    }
+    obj["labels"] = std::move(label_array);
+  }
+  const auto properties = node.Properties();
+  if (!properties.empty()) {
+    auto props = nlohmann::ordered_json::object();
+    for (const auto &[key, value] : properties) {
+      props[key] = MgpValueToJson(value);
+    }
+    obj["properties"] = std::move(props);
+  }
+  return obj;
+}
+
+// Serializes a relationship as {id, type, label, start, end, properties}. The
+// endpoints are full node objects; properties are omitted when empty.
+nlohmann::ordered_json MgpRelationshipToJson(const mgp::Relationship &relationship) {
+  auto obj = nlohmann::ordered_json::object();
+  obj["id"] = std::to_string(relationship.Id().AsInt());
+  obj["type"] = "relationship";
+  obj["label"] = std::string(relationship.Type());
+  obj["start"] = MgpNodeToJson(relationship.From());
+  obj["end"] = MgpNodeToJson(relationship.To());
+  const auto properties = relationship.Properties();
+  if (!properties.empty()) {
+    auto props = nlohmann::ordered_json::object();
+    for (const auto &[key, value] : properties) {
+      props[key] = MgpValueToJson(value);
+    }
+    obj["properties"] = std::move(props);
+  }
+  return obj;
+}
+
+// Serializes a path as a flat array of interleaved nodes and relationships:
+// [node, relationship, node, ...].
+nlohmann::ordered_json MgpPathToJson(const mgp::Path &path) {
+  auto array = nlohmann::ordered_json::array();
+  const size_t length = path.Length();
+  for (size_t i = 0; i < length; ++i) {
+    array.push_back(MgpNodeToJson(path.GetNodeAt(i)));
+    array.push_back(MgpRelationshipToJson(path.GetRelationshipAt(i)));
+  }
+  array.push_back(MgpNodeToJson(path.GetNodeAt(length)));
+  return array;
+}
+
+nlohmann::ordered_json MgpValueToJson(const mgp::Value &value) {
+  if (value.IsNull()) return nullptr;
+  if (value.IsBool()) return value.ValueBool();
+  if (value.IsInt()) return value.ValueInt();
+  if (value.IsDouble()) return value.ValueDouble();
+  if (value.IsString()) return std::string(value.ValueString());
+  if (value.IsList()) {
+    auto array = nlohmann::ordered_json::array();
+    for (const auto item : value.ValueList()) {
+      array.push_back(MgpValueToJson(item));
+    }
+    return array;
+  }
+  if (value.IsMap()) {
+    auto obj = nlohmann::ordered_json::object();
+    for (const auto &item : value.ValueMap()) {
+      obj[std::string(item.key)] = MgpValueToJson(item.value);
+    }
+    return obj;
+  }
+  if (value.IsNode()) return MgpNodeToJson(value.ValueNode());
+  if (value.IsRelationship()) return MgpRelationshipToJson(value.ValueRelationship());
+  if (value.IsPath()) return MgpPathToJson(value.ValuePath());
+  if (value.IsDate()) return value.ValueDate().ToString();
+  if (value.IsLocalTime()) return value.ValueLocalTime().ToString();
+  if (value.IsLocalDateTime()) return value.ValueLocalDateTime().ToString();
+  if (value.IsDuration()) return value.ValueDuration().ToString();
+  if (value.IsZonedDateTime()) return value.ValueZonedDateTime().ToString();
+  throw std::invalid_argument("Unsupported value type for JSON conversion.");
+}
+
+// Serializes any value to a JSON string. Null yields the string "null".
+void to_json(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
+  auto func_result = mgp::Result(res);
+  try {
+    const auto arguments = mgp::List(args);
+    const auto serialized = MgpValueToJson(arguments[0]).dump();
+    func_result.SetValue(serialized);
+  } catch (const std::exception &e) {
+    func_result.SetErrorMessage(e.what());
+  }
+}
+
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard(memory);
@@ -280,8 +434,21 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
         from_json_map_func, std::string(kParameterPath).c_str(), mgp::type_nullable(mgp::type_string()), default_path);
     mgp::value_destroy(default_path);
 
+    auto *from_json_list_func =
+        mgp::module_add_function(module, std::string(kFunctionFromJsonList).c_str(), from_json_list);
+    mgp::func_add_arg(from_json_list_func, std::string(kParameterList).c_str(), mgp::type_nullable(mgp::type_string()));
+    auto *default_list_path = mgp::value_make_string("", memory);
+    mgp::func_add_opt_arg(from_json_list_func,
+                          std::string(kParameterPath).c_str(),
+                          mgp::type_nullable(mgp::type_string()),
+                          default_list_path);
+    mgp::value_destroy(default_list_path);
+
     auto *to_map_func = mgp::module_add_function(module, std::string(kFunctionToMap).c_str(), to_map);
     mgp::func_add_arg(to_map_func, std::string(kParameterMap).c_str(), mgp::type_nullable(mgp::type_any()));
+
+    auto *to_json_func = mgp::module_add_function(module, std::string(kFunctionToJson).c_str(), to_json);
+    mgp::func_add_arg(to_json_func, std::string(kParameterValue).c_str(), mgp::type_nullable(mgp::type_any()));
   } catch (const std::exception &e) {
     std::cerr << "Error while initializing query module: " << e.what() << '\n';
     return 1;

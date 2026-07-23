@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import json
 import sys
 
 import mgclient
@@ -254,6 +255,138 @@ def test_to_map_scalar_is_null():
     cursor = connect().cursor()
     assert execute_and_fetch_all(cursor, "RETURN convert.to_map('hello') AS result;")[0][0] is None
     assert execute_and_fetch_all(cursor, "RETURN convert.to_map(5) AS result;")[0][0] is None
+
+
+def test_from_json_list_basic():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN convert.from_json_list('[1, 2, 3]') AS result;")[0][0]
+    assert result == [1, 2, 3]
+
+
+def test_from_json_list_null():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN convert.from_json_list(null) AS result;")[0][0]
+    assert result is None
+
+
+def test_from_json_list_object_fails():
+    cursor = connect().cursor()
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": 1}') AS result;")
+
+
+def test_from_json_list_path_to_array():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": [1, 2, 3]}', '$.a') AS result;")[0][
+        0
+    ]
+    assert result == [1, 2, 3]
+
+
+def test_from_json_list_path_nested_and_index():
+    cursor = connect().cursor()
+    assert execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": {\"b\": [4, 5]}}', '$.a.b') AS r;")[0][
+        0
+    ] == [4, 5]
+    assert execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": [[1, 2], [3, 4]]}', '$.a[1]') AS r;")[
+        0
+    ][0] == [3, 4]
+
+
+def test_from_json_list_path_root_on_array():
+    cursor = connect().cursor()
+    assert execute_and_fetch_all(cursor, "RETURN convert.from_json_list('[7, 8, 9]', '$') AS r;")[0][0] == [7, 8, 9]
+
+
+def test_from_json_list_path_unresolved_and_json_null_is_null():
+    cursor = connect().cursor()
+    assert execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": [1]}', '$.zzz') AS r;")[0][0] is None
+    assert execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": null}', '$.a') AS r;")[0][0] is None
+
+
+def test_from_json_list_path_non_array_fails():
+    cursor = connect().cursor()
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": {\"b\": 1}}', '$.a') AS r;")
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": 5}', '$.a') AS r;")
+
+
+def test_to_json_scalars():
+    cursor = connect().cursor()
+    assert execute_and_fetch_all(cursor, "RETURN convert.to_json('hi') AS r;")[0][0] == '"hi"'
+    assert execute_and_fetch_all(cursor, "RETURN convert.to_json(5) AS r;")[0][0] == "5"
+    assert execute_and_fetch_all(cursor, "RETURN convert.to_json(1.5) AS r;")[0][0] == "1.5"
+    assert execute_and_fetch_all(cursor, "RETURN convert.to_json(true) AS r;")[0][0] == "true"
+    assert execute_and_fetch_all(cursor, "RETURN convert.to_json(null) AS r;")[0][0] == "null"
+
+
+def test_to_json_list():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN convert.to_json([1, 'a', true, null, [2]]) AS r;")[0][0]
+    assert json.loads(result) == [1, "a", True, None, [2]]
+
+
+def test_to_json_map():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN convert.to_json({a: 1, b: 'x', c: [1, 2], d: null}) AS r;")[0][0]
+    assert json.loads(result) == {"a": 1, "b": "x", "c": [1, 2], "d": None}
+
+
+def test_to_json_empty_map_and_list():
+    cursor = connect().cursor()
+    assert execute_and_fetch_all(cursor, "RETURN convert.to_json({}) AS r;")[0][0] == "{}"
+    assert execute_and_fetch_all(cursor, "RETURN convert.to_json([]) AS r;")[0][0] == "[]"
+
+
+def test_to_json_node():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor, "CREATE (n:Person:Human {name: 'Ana', age: 30}) RETURN convert.to_json(n) AS r;"
+    )[0][0]
+    parsed = json.loads(result)
+    assert isinstance(parsed["id"], str)
+    assert parsed["type"] == "node"
+    assert sorted(parsed["labels"]) == ["Human", "Person"]
+    assert parsed["properties"] == {"name": "Ana", "age": 30}
+
+
+def test_to_json_node_no_properties_omits_key():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "CREATE (n:Empty) RETURN convert.to_json(n) AS r;")[0][0]
+    parsed = json.loads(result)
+    assert parsed["type"] == "node"
+    assert parsed["labels"] == ["Empty"]
+    assert "properties" not in parsed
+
+
+def test_to_json_relationship():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor, "CREATE (a:A {p: 1})-[r:KNOWS {since: 2020}]->(b:B {q: 2}) RETURN convert.to_json(r) AS r;"
+    )[0][0]
+    parsed = json.loads(result)
+    assert parsed["type"] == "relationship"
+    assert parsed["label"] == "KNOWS"
+    assert parsed["properties"] == {"since": 2020}
+    assert parsed["start"]["type"] == "node" and parsed["start"]["labels"] == ["A"]
+    assert parsed["start"]["properties"] == {"p": 1}
+    assert parsed["end"]["labels"] == ["B"]
+    assert isinstance(parsed["start"]["id"], str)
+
+
+def test_to_json_path():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        "CREATE p=(a:A2 {x: 1})-[:R2 {w: 2}]->(b:B2 {y: 3}) RETURN convert.to_json(p) AS r;",
+    )[0][0]
+    parsed = json.loads(result)
+    assert isinstance(parsed, list) and len(parsed) == 3
+    assert parsed[0]["type"] == "node" and parsed[0]["properties"] == {"x": 1}
+    assert parsed[1]["type"] == "relationship" and parsed[1]["label"] == "R2"
+    assert parsed[1]["properties"] == {"w": 2}
+    assert parsed[2]["type"] == "node" and parsed[2]["properties"] == {"y": 3}
 
 
 if __name__ == "__main__":
