@@ -229,30 +229,25 @@ TEST(LRUCacheTest, PeekReturnsPresentAndAbsent) {
 }
 
 TEST(LRUCacheTest, PeekDoesNotBumpRecencyUnlikeGet) {
-  // With cache_size == 2, filling with 1, 2 then inserting 3 evicts whichever
-  // of {1, 2} is least-recently-used. peek() must NOT count as a use: even
-  // after peeking at key 1 many times, it should be evicted just like a
-  // plain unaccessed entry, whereas get() would have kept it alive.
+  // peek() must NOT bump recency: repeatedly peeking key 1 still lets it be
+  // the LRU victim, whereas get() would have kept it alive.
   memgraph::utils::LRUCache<int, int> peek_cache(2);
   peek_cache.put(1, 100);
   peek_cache.put(2, 200);
 
   auto const &const_peek_cache = peek_cache;
-  // Repeatedly peek at key 1 - must not affect recency.
   for (int i = 0; i < 5; ++i) {
     auto const value = const_peek_cache.peek(1);
     EXPECT_TRUE(value.has_value());
   }
 
-  // 2 was put after 1, so without any recency bump, 1 is the least-recently-used
-  // and must be the one evicted when 3 is inserted.
+  // 1 was put first and never bumped, so it is evicted when 3 is inserted.
   peek_cache.put(3, 300);
   EXPECT_FALSE(const_peek_cache.peek(1).has_value());
   EXPECT_TRUE(const_peek_cache.peek(2).has_value());
   EXPECT_TRUE(const_peek_cache.peek(3).has_value());
 
-  // Control: the same sequence but using get() on key 1 instead of peek()
-  // must bump its recency, so 2 (never re-touched) is evicted instead.
+  // Control: get() on key 1 bumps recency, so 2 is evicted instead.
   memgraph::utils::LRUCache<int, int> get_cache(2);
   get_cache.put(1, 100);
   get_cache.put(2, 200);

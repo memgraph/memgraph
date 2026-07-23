@@ -30,13 +30,9 @@ namespace memgraph::utils {
 /// An entry is immutable once inserted: a put for a key already present keeps
 /// the stored value and only refreshes its recency.
 ///
-/// Thread-safety: put()/get()/invalidate()/reset() mutate item_list (recency
-/// order) and/or index and are NOT thread-safe against each other or against
-/// themselves concurrently. peek() is the sole exception: it performs only an
-/// index lookup and a value copy, mutating neither item_list nor index, so it
-/// is safe to call concurrently with other peek() calls (e.g. many readers
-/// holding only a shared/read lock) as long as no put()/get()/invalidate()/
-/// reset() runs at the same time (those still require exclusive access).
+/// Thread-safety: put()/get()/invalidate()/reset() mutate state and need
+/// exclusive access. peek() mutates nothing, so concurrent peek()s are safe
+/// (e.g. readers under a shared lock) provided no mutator runs concurrently.
 template <class TKey, class TVal, class TAlloc = std::allocator<std::pair<const TKey, TVal>>>
 class LRUCache {
   using Entry = std::pair<const TKey, const TVal>;
@@ -65,19 +61,11 @@ class LRUCache {
     return (*it)->second;
   }
 
-  /// Non-mutating lookup: returns the cached value (a copy) without moving
-  /// the entry to the front of item_list, i.e. WITHOUT bumping LRU recency.
-  /// Use this from concurrent readers that only need the value (e.g. a
-  /// plan-cache hit path) and cannot tolerate taking an exclusive lock just
-  /// to call get(). Tradeoff: entries looked up only via peek() age towards
-  /// eviction as if they were never accessed, so hot entries that are always
-  /// read via peek() (never put()/invalidated()) can be evicted "early" by
-  /// try_clean() even though they are still in active use. For a bounded
-  /// plan cache this is acceptable — eviction becomes approximate-LRU rather
-  /// than exact-LRU, but correctness is unaffected: a cache miss just costs a
-  /// re-plan, and the returned value is an independent copy (a shared_ptr
-  /// copy for the plan cache), so it stays valid regardless of what later
-  /// happens to the cache entry.
+  /// Non-mutating lookup: returns a copy of the value without bumping LRU
+  /// recency, so it is safe for concurrent readers (unlike get()). Tradeoff:
+  /// entries only ever read via peek() age as if unaccessed, so eviction is
+  /// approximate-LRU. Correctness is unaffected: a miss just costs a re-plan,
+  /// and the returned copy stays valid regardless of later cache changes.
   std::optional<TVal> peek(const TKey &key) const {
     auto const it = index.find(key);
     if (it == index.end()) {
