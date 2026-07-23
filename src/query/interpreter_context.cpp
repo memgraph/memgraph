@@ -29,16 +29,12 @@
 namespace memgraph::query {
 
 namespace {
-// Poll cadence for the idle-in-transaction watchdog. Deliberately a fixed constant rather than
-// another flag: the warn/abort thresholds are configured in tens of seconds to minutes, so a 5s
-// granularity is more than fine, and the scan itself is a cheap walk of `interpreters` guarded by
-// per-interpreter atomics -- no need to make the poll interval independently tunable.
+// Poll cadence for the idle-in-transaction watchdog. Fixed (not a flag): thresholds are in tens of
+// seconds to minutes, so 5s granularity is fine and the scan is cheap.
 constexpr auto kIdleTransactionScanInterval = std::chrono::seconds(5);
 
-// Log lines for a still-idle transaction are throttled to at most once per this cooldown so a
-// transaction stuck idle for hours doesn't spam the log once per scan tick. The metric counter
-// (global.idle_in_transaction_warnings) is NOT throttled -- it increments every tick so its rate
-// stays meaningful for alerting.
+// Per-transaction log cooldown so a long-idle transaction doesn't spam the log once per tick. The
+// metric counter is NOT throttled -- it bumps every tick so its rate stays meaningful for alerting.
 constexpr auto kIdleWarnLogCooldown = std::chrono::seconds(60);
 }  // namespace
 
@@ -73,10 +69,8 @@ InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, mem
       system_{&system},
       bolt_server_context_(bolt_server_context),
       worker_pool(worker_pool) {
-  // Idle-in-transaction watchdog: always scheduled (mirrors the storage GC runner pattern of
-  // starting a periodic utils::Scheduler task from the owning object's constructor). The scan
-  // itself is cheap and no-ops immediately if both thresholds are 0, so there is no cost to
-  // leaving this on unconditionally rather than gating construction on a flag.
+  // Idle-in-transaction watchdog: always scheduled (like the storage GC runner). The scan no-ops
+  // when both thresholds are 0, so running it unconditionally costs nothing.
   idle_transaction_scanner_.SetInterval(kIdleTransactionScanInterval);
   idle_transaction_scanner_.Run("Idle Tx Watchdog", [this] { ScanIdleTransactions(); });
 }
@@ -170,26 +164,21 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
 void InterpreterContext::ScanIdleTransactions() {
   const uint64_t warn_threshold_sec = FLAGS_query_idle_in_transaction_warn_sec;
   const uint64_t abort_threshold_sec = FLAGS_query_idle_in_transaction_abort_sec;
-  // Fully disabled: neither warn-tracking nor abort is configured. Cheap early exit so an
-  // instance that doesn't want the watchdog pays essentially nothing for the scheduler tick.
+  // Disabled: nothing configured, cheap early exit.
   if (warn_threshold_sec == 0 && abort_threshold_sec == 0) return;
 
   const auto now = std::chrono::steady_clock::now();
   std::vector<uint64_t> to_abort;
-  // (transaction id, idle seconds) for transactions past the warn threshold this tick; used below
-  // to decide whether the log line is due (rate-limited) or just the metric bump.
+  // (transaction id, idle seconds) for transactions past the warn threshold this tick.
   std::vector<std::pair<uint64_t, int64_t>> to_warn;
 
   interpreters.WithLock([&](auto &interpreters_set) {
     for (Interpreter *interpreter : interpreters_set) {
-      // Cheap fast-path: skip interpreters actively executing a statement before paying for the
-      // TryAcquireForVerification() CAS below. query_in_progress_ is a plain atomic, safe to read
-      // from any thread.
+      // Fast-path: skip actively-executing interpreters before paying for the verification CAS.
       if (interpreter->query_in_progress_.load(std::memory_order_acquire)) continue;
 
-      // Same reused mechanism ShowTransactionsUsingDBName uses to safely read this interpreter's
-      // otherwise-unsynchronized transaction fields (in_explicit_transaction_ below) from another
-      // thread: CAS the transaction into VERIFYING for the duration of the read.
+      // CAS into VERIFYING to safely read the interpreter's transaction fields from this thread
+      // (same mechanism as ShowTransactionsUsingDBName).
       const auto verifier = interpreter->TryAcquireForVerification();
       if (!verifier) continue;  // no transaction alive enough to be worth watching right now
 
@@ -214,12 +203,9 @@ void InterpreterContext::ScanIdleTransactions() {
 
     if (to_abort.empty()) return;
 
-    // Reuse the exact TERMINATE TRANSACTIONS path -- the same transaction_status_ CAS both the
-    // owning session thread and TERMINATE TRANSACTIONS already contend on -- instead of inventing
-    // a new cross-thread abort. Passing user_or_role=nullptr with an always-true privilege
-    // checker makes this an unconditional system-initiated termination: the operator already
-    // opted in by setting --query-idle-in-transaction-abort-sec > 0, so no further per-user
-    // authorization is meaningful here.
+    // Reuse the TERMINATE TRANSACTIONS path rather than inventing a new cross-thread abort. The
+    // null user + always-true privilege check make this an unconditional system termination (the
+    // operator opted in via --query-idle-in-transaction-abort-sec > 0).
     auto results =
         TerminateTransactions(interpreters_set,
                               std::move(to_abort),
@@ -239,9 +225,7 @@ void InterpreterContext::ScanIdleTransactions() {
 
   if (to_warn.empty()) return;
 
-  // Metric: bump once per idle transaction per tick (unthrottled -- its rate is exactly "how many
-  // idle-transaction-ticks were observed", useful for alerting). Log: throttled per transaction
-  // id so a session stuck idle for hours logs once per cooldown window, not once per 5s tick.
+  // Metric bumps every tick (unthrottled, for alerting); the log line is throttled per tx id.
   idle_warn_last_logged_.WithLock([&](auto &last_logged) {
     for (const auto &[tx_id, idle_sec] : to_warn) {
       metrics::Metrics().global.idle_in_transaction_warnings->Increment();
@@ -260,8 +244,7 @@ void InterpreterContext::ScanIdleTransactions() {
       }
     }
 
-    // Prune entries for transactions that are no longer idle-past-threshold this tick (resolved,
-    // or activity resumed) so this map never grows unbounded over the process lifetime.
+    // Prune ids no longer idle-past-threshold this tick so the map can't grow unbounded.
     std::erase_if(last_logged, [&](const auto &entry) {
       return std::ranges::none_of(to_warn, [&](const auto &w) { return w.first == entry.first; });
     });

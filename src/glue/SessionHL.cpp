@@ -363,11 +363,9 @@ void SessionHL::LogOff() {
 void SessionHL::Abort() {
   interpreter_.ResetCachedFga();
   interpreter_.Abort();
-  // SessionHL::Abort() is RESET-specific: its only callers are the Bolt RESET handler
-  // (HandleReset -> session.Abort()) and LogOff() (full teardown). Neither is a mid-session
-  // rollback/error path (those call interpreter_.RollbackTransaction() / interpreter_.Abort()
-  // directly), so it is safe here -- and only here -- to clear per-connection sticky state that
-  // must not leak into the next logically-unrelated session on a pooled connection.
+  // RESET-specific path (only callers: Bolt RESET handler and LogOff, never a mid-session
+  // rollback), so clearing per-connection sticky state that must not leak onto a pooled
+  // connection's next session is safe only here.
   interpreter_.ResetForConnectionReuse();
 #ifdef MG_ENTERPRISE
   runtime_config_.ResetForConnectionReuse();

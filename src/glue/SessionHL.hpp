@@ -38,12 +38,9 @@ class RuntimeConfig {
 
   void Configure(const bolt_map_t &run_time_info, bool in_explicit_tx);
 
-  // Invalidate the "run_time_info unchanged since last call => skip" cache below (see
-  // Configure()) so the next RUN/BEGIN after a Bolt RESET/LogOff is forced to fully re-derive
-  // user + db instead of silently keeping whatever a previous, logically unrelated, pooled
-  // session configured. Without this, Interpreter::ResetForConnectionReuse()'s ResetDB() would
-  // have no visible effect whenever the next session's extra/metadata map happens to be
-  // identical to the one before RESET/LogOff.
+  // Invalidate Configure()'s "run_time_info unchanged => skip" cache so the next RUN/BEGIN after
+  // RESET/LogOff fully re-derives user + db (otherwise ResetDB() has no effect when the next
+  // session's metadata happens to match the previous one's).
   void ResetForConnectionReuse() { previous_run_time_info_.reset(); }
 
   bool db_explicit_ = false;

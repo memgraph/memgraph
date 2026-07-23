@@ -15,16 +15,12 @@ import mgclient
 
 
 def get_data_path(file: str, test: str):
-    """
-    Data is stored in the reset_session_isolation folder.
-    """
+    """Data path under the reset_session_isolation folder."""
     return f"reset_session_isolation/{file}/{test}"
 
 
 def get_logs_path(file: str, test: str):
-    """
-    Logs are stored in the reset_session_isolation folder.
-    """
+    """Logs path under the reset_session_isolation folder."""
     return f"reset_session_isolation/{file}/{test}"
 
 

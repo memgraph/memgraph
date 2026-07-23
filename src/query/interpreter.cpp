@@ -9750,10 +9750,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     accessor_type_ = cypher_access_type();
   }
 
-  // NOTE: could_commit_ intentionally stays false for PROFILE. PROFILE always ABORTs its
-  // transaction by design (PrepareProfileQuery returns QueryHandlerResult::ABORT, interpreter.cpp
-  // ~3932; the write never commits), so before/after-COMMIT triggers correctly do NOT fire — there
-  // is no commit. (Verified: a PROFILE'd write persists nothing; empirical stress run confirmed.)
+  // could_commit_ stays false: PROFILE always ABORTs its transaction (PrepareProfileQuery returns
+  // QueryHandlerResult::ABORT), so there is no commit and before/after-COMMIT triggers must not fire.
   void Visit(ProfileQuery & /*unused*/) override { accessor_type_ = cypher_access_type(); }
 
   void Visit(TriggerQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::WRITE; }
@@ -9823,10 +9821,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
-  // Idle-in-transaction watchdog: mark this interpreter as actively working for the duration of
-  // Prepare(), and stamp the last-activity clock on exit (success or exception) so a background
-  // scan (InterpreterContext::ScanIdleTransactions) never mistakes in-flight parsing/planning for
-  // an idle gap between statements of an explicit (BEGIN'd) transaction.
+  // Idle-in-transaction watchdog: flag active work for the duration of Prepare() and stamp the
+  // last-activity clock on exit, so the background scan never counts in-flight work as idle.
   query_in_progress_.store(true, std::memory_order_release);
   const utils::OnScopeExit idle_watchdog_activity_guard([this] {
     last_activity_steady_ns_.store(std::chrono::steady_clock::now().time_since_epoch().count(),
@@ -10449,10 +10445,8 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   current_transaction_ = tx_id;
   transaction_start_time_ = std::chrono::system_clock::now();
   transaction_start_steady_ = std::chrono::steady_clock::now();
-  // Idle-in-transaction watchdog: a freshly started transaction is, by definition, not idle yet.
-  // Without this the field could still hold a stale value (0 on a brand-new Interpreter, or the
-  // end-time of a previous transaction on this same connection), which would make the very first
-  // scan tick after BEGIN look idle for however long the process/connection has actually been up.
+  // Idle-in-transaction watchdog: a fresh transaction is not idle yet; reset the clock so the
+  // first scan tick after BEGIN doesn't treat a stale value as idle time.
   last_activity_steady_ns_.store(transaction_start_steady_.time_since_epoch().count(), std::memory_order_relaxed);
   // Release publishes the start-time writes above to verifier-holding readers.
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
@@ -10545,33 +10539,22 @@ void Interpreter::Abort() {
 }
 
 void Interpreter::ResetForConnectionReuse() {
-  // One-shot: `SET NEXT TRANSACTION ISOLATION LEVEL` targets the very next transaction on *this*
-  // connection. On RESET (or LogOff) that transaction will never start, so the pending override
-  // must be dropped here -- otherwise it silently leaks into the first transaction of whichever
-  // logically unrelated session picks up this (pooled) connection next.
+  // One-shot `SET NEXT TRANSACTION ISOLATION LEVEL`: its target transaction never starts on
+  // RESET/LogOff, so drop it or it leaks into the next pooled session's first transaction.
   next_transaction_isolation_level.reset();
 
 #ifdef MG_ENTERPRISE
-  // `USE <db>` / Bolt-level db-routing metadata sets current_db_.db_acc_ + in_explicit_db_, which
-  // is per-connection state. It must not leak into the next pooled session either --
-  // TryDefaultDB()/RuntimeConfig::Configure() re-establish the correct db (default, or explicitly
-  // requested) on the next RUN/BEGIN.
+  // `USE <db>` pins per-connection db state (db_acc_ + in_explicit_db_); clear it so the next
+  // pooled session re-establishes its db via TryDefaultDB()/RuntimeConfig::Configure().
   ResetDB();
 #endif
 
-  // `SET SESSION ISOLATION LEVEL ...` (session-scoped) is also cleared on RESET. RESET's documented
-  // intent (bolt HandleReset) is to return the connection to a clean state before it is handed back
-  // to a connection pool; the next, logically unrelated, pooled session must not inherit a previous
-  // session's isolation level. (A silently-wrong isolation level is a worse failure mode than a
-  // reset one; a client that RESETs mid-session and relies on its SET SESSION persisting can re-issue
-  // it.) After clearing, GetIsolationLevelOverride() falls back to the storage/config default.
+  // Session-scoped `SET SESSION ISOLATION LEVEL`: cleared so the next pooled session falls back to
+  // the storage/config default rather than inheriting a previous session's override.
   interpreter_isolation_level.reset();
 
-  // `SET SESSION TRACE` and `SET SESSION SETTING ...` mutate the per-connection SessionLogContext
-  // overlay in-band (outside the Bolt metadata that Configure() compares), so they are the same
-  // leak class as db/isolation above: without this they would persist into the next pooled logical
-  // session. Clear the query-driven overlay (trace flag + session runtime-setting overrides); the
-  // connection identity (session_uuid_) and auth user_ are intentionally preserved.
+  // `SET SESSION TRACE`/`SETTING` mutate the SessionLogContext overlay in-band (invisible to
+  // Configure()), so clear the query-driven overlay too; connection identity + auth user are kept.
   session_log_ctx_.ResetForConnectionReuse();
 }
 

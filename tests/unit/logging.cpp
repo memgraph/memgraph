@@ -305,10 +305,8 @@ TEST_F(SessionTraceEmitTest, LevelAboveInfoSkipsArgumentFormatting) {
   EXPECT_TRUE(sink_->messages.empty());
 }
 
-// SET SESSION TRACE / SET SESSION SETTING mutate the per-connection overlay in-band; a connection-
-// reuse boundary (Bolt RESET / LogOff, via Interpreter::ResetForConnectionReuse) must clear them so
-// they do not leak into the next pooled logical session -- while preserving connection identity and
-// the auth user (which are managed by connect/auth, not by the logical-session boundary).
+// ResetForConnectionReuse clears the session overlay (SET SESSION TRACE/SETTING) but keeps
+// connection identity and auth user.
 TEST(SessionLogContext, ResetForConnectionReuseClearsOverlayButKeepsIdentity) {
   SessionLogContext ctx;
   ctx.SetSessionUuid("conn-1");
