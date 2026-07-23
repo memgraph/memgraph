@@ -2939,19 +2939,25 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // lock.
   // GC only reads the indices/constraints (each independently synchronized + COW), so in
   // transactional mode it takes main_lock_ in READ, compatible with a concurrent READ_ONLY
-  // index/constraint DDL registration -- neither has to wait out the other. Analytical keeps the
+  // index/constraint DDL registration -- neither has to wait out the other. Analytical keeps a
   // WRITE-mode shared hold (its snapshot/constraint vs GC interaction is not proven safe under
-  // READ). Captured once so lock and unlock use the same LockReq; SetStorageMode (UNIQUE) cannot
-  // flip the mode while we hold the shared lock.
-  const bool gc_read_shared = storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL;
+  // READ). We take READ optimistically, then read storage_mode_ *under the hold* and swap to WRITE
+  // if analytical: SetStorageMode needs UNIQUE, so it cannot flip the mode while we hold any shared
+  // lock -- reading the mode only under the lock avoids both a data race on the non-atomic
+  // storage_mode_ and a stale read that could run analytical GC under READ. gc_read_shared then
+  // reflects the mode we actually hold, so lock and unlock always use the same LockReq.
+  bool gc_read_shared = false;
   if (!main_guard.owns_lock()) {
     // Aggressive mode escalates to a unique lock (blocks all new txns); otherwise take the shared
     // hold, since GC can be slow and should not block everyone unless explicitly asked to.
     if (!flags::run_time::GetStorageGcAggressive() || !main_guard.try_lock()) {
-      if (gc_read_shared) {
-        main_lock_.lock_shared<utils::ResourceLock::LockReq::READ>();
-      } else {
-        main_lock_.lock_shared();  // WRITE (analytical)
+      main_lock_.lock_shared<utils::ResourceLock::LockReq::READ>();
+      gc_read_shared = true;
+      if (storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
+        // Analytical: re-take in WRITE. Mode is stable here (a shared hold blocks SetStorageMode).
+        main_lock_.unlock_shared<utils::ResourceLock::LockReq::READ>();
+        main_lock_.lock_shared();  // WRITE
+        gc_read_shared = false;
       }
     }
   } else {
