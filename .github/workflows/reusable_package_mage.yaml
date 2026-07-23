@@ -500,8 +500,8 @@ jobs:
           #   1. memgraph's binary + query_modules built earlier in this job
           #      (skipped when an external memgraph package was downloaded —
           #      those symbols belong to the job that produced that package);
-          #   2. MAGE's own modules from mage-debug.tar.gz (mage.tar.gz is
-          #      modules only after the compress-query-modules.sh split).
+          #   2. MAGE's own module sidecars from the memgraph-mage-debuginfo
+          #      deb built earlier in this job.
           # All MAGE jobs share one s3_dest_dir, so the manifest filename
           # includes ARTIFACT_NAME to avoid collisions between
           # amd/arm/cugraph/malloc jobs.
