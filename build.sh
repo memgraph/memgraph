@@ -90,6 +90,10 @@ while [[ $# -gt 0 ]]; do
                 TARGETS+=("$1")
                 shift
             done
+            if [[ ${#TARGETS[@]} -eq 0 ]]; then
+                echo "Error: --target requires at least one target name" >&2
+                exit 1
+            fi
             ;;
         --config-only)
             config_only=true
