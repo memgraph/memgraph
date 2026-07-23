@@ -218,6 +218,13 @@ include(functions)
 # to match and sets both CMake options via the toolchain (see
 # `./build.sh --mage-only`).
 option(MG_BUILD_MEMGRAPH "Build the Memgraph database" ON)
+option(MG_BUILD_MAGE "Build all MAGE query modules (C++, Python, Rust)" OFF)
+
+if(NOT MG_BUILD_MEMGRAPH AND NOT MG_BUILD_MAGE)
+  message(FATAL_ERROR
+      "Nothing to build: MG_BUILD_MEMGRAPH=OFF requires MG_BUILD_MAGE=ON "
+      "(MAGE-only build).")
+endif()
 
 # Load conan dependencies in the correct order using explicit find_package calls
 # Load dependencies that don't depend on others first.
@@ -387,7 +394,6 @@ endif()
 
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
-option(MG_BUILD_MAGE "Build all MAGE query modules (C++, Python, Rust)" OFF)
 option(ASAN "Build with Address Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(UBSAN "Build with Undefined Behaviour Sanitizer" OFF)
@@ -534,12 +540,6 @@ set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the qu
 
 option(MG_ENABLE_TESTING "Set this to OFF to disable building test binaries" ON)
 message(STATUS "MG_ENABLE_TESTING: ${MG_ENABLE_TESTING}")
-
-if(NOT MG_BUILD_MEMGRAPH AND NOT MG_BUILD_MAGE)
-  message(FATAL_ERROR
-      "Nothing to build: MG_BUILD_MEMGRAPH=OFF requires MG_BUILD_MAGE=ON "
-      "(MAGE-only build).")
-endif()
 
 # Common. enable_testing() stays unconditional so MAGE's unit tests register
 # with CTest in MAGE-only builds too; unit_tests.cmake only defines memgraph

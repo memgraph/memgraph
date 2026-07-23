@@ -41,12 +41,6 @@ class Memgraph(ConanFile):
         "licenses/*",
         "config/*",
         "import/*",
-        # MAGE sources live under src/mage (covered by "src/*") and its
-        # packaging support under release/package/mage (covered by
-        # "release/*").
-        # NOTE: mgcxx/* is also referenced by the root CMake but missing
-        # here — pre-existing gap, `conan create` packaging is documented
-        # non-functional in package() below.
     )
 
     default_options = {
@@ -158,9 +152,7 @@ class Memgraph(ConanFile):
         if self.options.mage_only:
             return
 
-        # antlr4 generates the openCypher parser, part of memgraph itself.
         self.tool_requires("antlr4/4.13.1")
-
         self.test_requires("benchmark/[>=1.9 <2]")
         self.test_requires("rapidcheck/cci.20231215")
         self.test_requires("approvaltests.cpp/10.13.0")

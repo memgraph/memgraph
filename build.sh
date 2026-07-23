@@ -180,7 +180,7 @@ if [[ "$SPLIT_DEBUG" == "on" ]]; then
 fi
 
 if [[ "$MAGE" != "off" && "$MAGE" != "on" && "$MAGE" != "only" ]]; then
-    echo "Error: --mage must be 'off', 'on', or 'only' (got '$MAGE')"
+    echo "Error: --mage must be 'off', 'on', or 'only' (got '$MAGE')" >&2
     exit 1
 fi
 
@@ -189,7 +189,7 @@ fi
 # memgraph dependencies and break every full build. (The reverse is fine:
 # MAGE-only builds consume the full lockfile as a superset.)
 if [[ "$update_lockfile" = true && "$MAGE" == "only" ]]; then
-    echo "Error: --update-lockfile requires the full dependency graph; drop '--mage only'"
+    echo "Error: --update-lockfile requires the full dependency graph; drop '--mage only'" >&2
     exit 1
 fi
 
