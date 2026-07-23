@@ -63,6 +63,7 @@ target_sources(mg-query
     interpreter.cpp
     jsonl/reader.cpp
     metadata.cpp
+    parse_config_map.cpp
     plan/hint_provider.cpp
     plan/operator_type_info.cpp
     plan/operator.cpp

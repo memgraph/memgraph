@@ -84,6 +84,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
+#include "query/parse_config_map.hpp"
 #include "query/plan/fmt.hpp"
 #include "query/plan/hint_provider.hpp"
 #include "query/plan/parallel_checker.hpp"
@@ -168,26 +169,6 @@ InstanceStorageInfo GetInstanceStorageInfo() {
           .peak_memory_res = peak_memory_res,
           .disk_usage = disk_usage,
           .vm_max_map_count = vm_max_map_count};
-}
-
-auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
-                    ExpressionVisitor<TypedValue> &evaluator)
-    -> std::optional<std::map<std::string, std::string, std::less<>>> {
-  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
-        auto key_expr = entry.first->Accept(evaluator);
-        auto value_expr = entry.second->Accept(evaluator);
-        return !key_expr.IsString() || !value_expr.IsString();
-      })) {
-    spdlog::error("Config map must contain only string keys and values!");
-    return std::nullopt;
-  }
-
-  return rv::all(config_map) | rv::transform([&evaluator](const auto &entry) {
-           auto key_expr = entry.first->Accept(evaluator);
-           auto value_expr = entry.second->Accept(evaluator);
-           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
-         }) |
-         ranges::to<std::map<std::string, std::string, std::less<>>>;
 }
 
 TypedValue EvaluateConfigMapToTypedValue(std::unordered_map<Expression *, Expression *> const &config_map,
