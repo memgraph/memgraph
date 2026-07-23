@@ -19,6 +19,7 @@
 #include <utility>
 #include <vector>
 
+#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
 namespace Search {
@@ -28,6 +29,20 @@ namespace {
 using LabelProperties = std::vector<std::pair<std::string, std::vector<std::string>>>;
 
 constexpr std::string_view kWhitespace = " \t\n\r\f\v";
+
+// Canonical Cypher operators emitted into the sub-query. STARTS WITH / ENDS WITH / CONTAINS are string-only.
+namespace op {
+constexpr std::string_view kEqual = "=";
+constexpr std::string_view kNotEqual = "<>";
+constexpr std::string_view kLess = "<";
+constexpr std::string_view kLessEqual = "<=";
+constexpr std::string_view kGreater = ">";
+constexpr std::string_view kGreaterEqual = ">=";
+constexpr std::string_view kStartsWith = "STARTS WITH";
+constexpr std::string_view kEndsWith = "ENDS WITH";
+constexpr std::string_view kContains = "CONTAINS";
+constexpr std::string_view kRegex = "=~";
+}  // namespace op
 
 std::string NormalizeOperator(std::string_view raw) {
   const auto begin = raw.find_first_not_of(kWhitespace);
@@ -39,22 +54,28 @@ std::string NormalizeOperator(std::string_view raw) {
   return normalized;
 }
 
-std::string ComparisonOperator(std::string_view raw) {
-  const std::string op = NormalizeOperator(raw);
-  if (op == "=" || op == "exact") return "=";
-  if (op == "<>") return "<>";
-  if (op == "<") return "<";
-  if (op == "<=") return "<=";
-  if (op == ">") return ">";
-  if (op == ">=") return ">=";
-  if (op == "starts with") return "STARTS WITH";
-  if (op == "ends with") return "ENDS WITH";
-  if (op == "contains") return "CONTAINS";
-  if (op == "=~") return "=~";
+std::string_view ComparisonOperator(std::string_view raw) {
+  const std::string normalized = NormalizeOperator(raw);
+  if (normalized == "=" || normalized == "exact") return op::kEqual;
+  if (normalized == "<>") return op::kNotEqual;
+  if (normalized == "<") return op::kLess;
+  if (normalized == "<=") return op::kLessEqual;
+  if (normalized == ">") return op::kGreater;
+  if (normalized == ">=") return op::kGreaterEqual;
+  if (normalized == "starts with") return op::kStartsWith;
+  if (normalized == "ends with") return op::kEndsWith;
+  if (normalized == "contains") return op::kContains;
+  if (normalized == "=~") return op::kRegex;
   throw mgp::ValueException(
-      "operator `" + op +
+      "operator `" + normalized +
       "` invalid, it must be one of (case insensitive): [<=, =~, contains, <>, ends with, starts with, exact, <, =, "
       ">, >=].");
+}
+
+// STARTS WITH / ENDS WITH / CONTAINS raise a runtime error on a non-string property (unlike the comparison
+// operators, which simply do not match), so they must be guarded to only ever be evaluated against strings.
+bool IsStringOnlyOperator(std::string_view comparison) {
+  return comparison == op::kStartsWith || comparison == op::kEndsWith || comparison == op::kContains;
 }
 
 std::string EscapeIdentifier(std::string_view name) {
@@ -126,42 +147,45 @@ void Run(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
   const auto record_factory = mgp::RecordFactory(result);
   try {
     const auto label_properties = ParseLabelPropertyMap(arguments[0]);
-    const std::string comparison = ComparisonOperator(arguments[1].ValueString());
+    const std::string_view comparison = ComparisonOperator(arguments[1].ValueString());
     if (arguments[2].IsNull()) return;  // a null value matches nothing (checked after operator validation)
     const std::string_view value = arguments[2].ValueString();
 
-    const mgp::Graph graph{memgraph_graph};
     std::unordered_set<int64_t> seen;
-    // A sub-query node accessor is bound to the sub-query's transaction, freed with its result. Re-resolve
-    // each id against the caller's graph so the emitted node outlives that transaction.
+    // A sub-query node accessor is bound to the sub-query's transaction, freed with its result. Re-resolve each
+    // id against the caller's graph in a single lookup so the emitted node outlives that transaction; a null
+    // result means the id is not visible in the caller's snapshot, so skip it. The C API is used directly so the
+    // freshly-fetched vertex is handed straight to the result value instead of being copied into a wrapper.
     const auto emit = [&](int64_t node_id) {
       if (deduplicate && !seen.insert(node_id).second) return;
-      const auto id = mgp::Id::FromInt(node_id);
-      if (!graph.ContainsNode(id)) return;  // skip nodes not visible in the caller's snapshot
-      auto record = record_factory.NewRecord();
-      record.Insert(kResultNode, graph.GetNodeById(id));
+      auto *vertex =
+          mgp::MemHandlerCallback(mgp::graph_get_vertex_by_id, memgraph_graph, mgp_vertex_id{.as_int = node_id});
+      if (vertex == nullptr) return;
+      auto *value = mgp::value_make_vertex(vertex);  // takes ownership of vertex
+      mgp::result_record_insert(mgp::result_new_record(result), kResultNode, value);
+      mgp::value_destroy(value);  // frees the value and the vertex it owns
     };
 
-    // STARTS WITH / ENDS WITH / CONTAINS raise a runtime error on a non-string property (unlike the comparison
-    // operators, which simply do not match). That error would surface here as an empty result and silently
-    // drop rows, so these operators must be guarded to never be evaluated against a non-string.
-    const bool string_only = comparison == "STARTS WITH" || comparison == "ENDS WITH" || comparison == "CONTAINS";
+    // A non-string operand would silently drop rows (the sub-query error surfaces as an empty result), so
+    // string-only operators are guarded to never be evaluated against a non-string property.
+    const bool string_only = IsStringOnlyOperator(comparison);
 
     // TODO(ivan): run these sub-queries inside the caller's transaction instead of a fresh one, so the search
     // observes the caller's uncommitted writes and a single snapshot.
     const mgp::QueryExecution query_execution{memgraph_graph};
     for (const auto &[label, properties] : label_properties) {
       for (const auto &property : properties) {
-        const std::string node_property = "n.`" + EscapeIdentifier(property) + "`";
+        const std::string node_property = fmt::format("n.`{}`", EscapeIdentifier(property));
         // The guard must be a CASE, not `valueType(...) = 'STRING' AND n.p <op> ...`: the planner does not
         // preserve AND operand order, so the operator can be evaluated before the type check and still throw.
         // A CASE evaluates only the branch it takes, so the operator is applied to string properties only.
-        std::string predicate = node_property + " " + comparison + " $value";
+        std::string predicate = fmt::format("{} {} $value", node_property, comparison);
         if (string_only) {
-          predicate = "CASE WHEN valueType(" + node_property + ") = 'STRING' THEN " + predicate + " ELSE false END";
+          predicate =
+              fmt::format("CASE WHEN valueType({}) = 'STRING' THEN {} ELSE false END", node_property, predicate);
         }
         const std::string query =
-            "MATCH (n:`" + EscapeIdentifier(label) + "`) WHERE " + predicate + " RETURN id(n) AS node_id";
+            fmt::format("MATCH (n:`{}`) WHERE {} RETURN id(n) AS node_id", EscapeIdentifier(label), predicate);
 
         mgp::Map params;
         params.Insert("value", mgp::Value(value));
