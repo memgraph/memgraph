@@ -114,25 +114,15 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
   }
 }
 
-// Translates a subset of path syntax into an RFC 6901 JSON pointer string.
-// Supported: an optional leading '$', '.key' dot steps, "['key']"/'["key"]'
-// quoted steps, and '[index]' numeric steps. An empty path (or a lone '$')
+// Translates a subset of path syntax into a JSON pointer. Supported: an optional
+// leading '$', '.key' dot steps, "['key']"/'["key"]' quoted steps, and '[index]'
+// numeric steps. An empty path (or a lone '$') yields an empty pointer, which
 // selects the whole document. Unsupported constructs (wildcards, filters,
-// recursive descent, slices) throw.
-std::string JsonPathToPointer(std::string_view path) {
-  std::string pointer;
-  const auto append_key = [&pointer](std::string_view key) {
-    pointer.push_back('/');
-    for (const char c : key) {  // RFC 6901 escaping
-      if (c == '~') {
-        pointer += "~0";
-      } else if (c == '/') {
-        pointer += "~1";
-      } else {
-        pointer.push_back(c);
-      }
-    }
-  };
+// recursive descent, slices) throw. Reference-token escaping is handled by
+// json_pointer itself.
+nlohmann::json::json_pointer JsonPathToPointer(std::string_view path) {
+  nlohmann::json::json_pointer pointer;
+  const auto append_key = [&pointer](std::string_view key) { pointer.push_back(std::string(key)); };
 
   size_t i = 0;
   const size_t n = path.size();
@@ -216,11 +206,10 @@ void from_json_map(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, 
     const auto root = nlohmann::json::parse(argument.ValueString());
 
     const auto &path_arg = arguments[1];
-    const auto pointer_str = path_arg.IsNull() ? std::string{} : JsonPathToPointer(path_arg.ValueString());
+    const auto pointer = path_arg.IsNull() ? nlohmann::json::json_pointer{} : JsonPathToPointer(path_arg.ValueString());
 
     const nlohmann::json *selected = &root;
-    if (!pointer_str.empty()) {
-      const auto pointer = nlohmann::json::json_pointer(pointer_str);
+    if (!pointer.empty()) {
       if (!root.contains(pointer)) {
         func_result.SetValue();  // unresolved path -> null
         return;
