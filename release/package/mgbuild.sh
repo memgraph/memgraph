@@ -152,7 +152,7 @@ print_help () {
   echo -e "  --link-threads int            Cap the number of concurrent link steps via Ninja's job pools (default 0, no cap). Compile parallelism is unaffected."
   echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
   echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
-  echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph). Also accepted by build-mage."
+  echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph)."
   echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
   echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
   echo -e "  --conan-remote string         Specify conan remote (default \"\")"
@@ -182,10 +182,9 @@ print_help () {
   echo -e "  --package-flavour string        Docker package flavour: 'prod' or 'debug' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling."
 
   echo -e "\npackage-mage-deb / package-mage-rpm options:"
-  echo -e "  --version string              DEPRECATED, ignored — the version is derived from the build tree (get_version.py)"
   echo -e "  --malloc                      Variant flag — affects the output filename only"
   echo -e "  --cuda                        Variant flag — affects the output filename only (implied by global --cugraph; the GPU requirements ship when the build used --cugraph)"
-  echo -e "                                Packages come from the container's unified build (build-mage or build-memgraph --mage on|only)."
+  echo -e "                                Packages come from the container's unified build (build-memgraph --mage on|only)."
 
   echo -e "\npackage-mage-docker options:"
   echo -e "  --docker-repository-name str  Docker repository name (default \"memgraph/memgraph-mage\")"
@@ -557,7 +556,7 @@ report_libpython_link () {
 
 build_memgraph () {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env && rustup toolchain install $DEFAULT_RUST_VERSION && export RUSTUP_TOOLCHAIN=$DEFAULT_RUST_VERSION"
+  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
   local container_build_dir="$MGBUILD_ROOT_DIR/build"
   local container_output_dir="$container_build_dir/output"
   local arm_flag=""
@@ -648,17 +647,14 @@ build_memgraph () {
         shift 1
       ;;
       --mage)
-        # Mirrors build.sh: off (default), on (MAGE alongside memgraph),
-        # only (just MAGE — trims the conan graph via the mage_only option).
         mage_mode=$2
         if [[ "$mage_mode" != "off" && "$mage_mode" != "on" && "$mage_mode" != "only" ]]; then
-          echo "Error: --mage must be 'off', 'on', or 'only' (got '$mage_mode')"
+          echo "Error: --mage must be 'off', 'on', or 'only' (got '$mage_mode')" >&2
           exit 1
         fi
         shift 2
       ;;
       --cuda)
-        # CUDA flavour of the mage package (GPU python requirements, no cuGraph).
         mage_cuda=true
         shift 1
       ;;
@@ -710,6 +706,9 @@ build_memgraph () {
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
+
+  echo "Installing Rust $DEFAULT_RUST_VERSION..."
+  docker exec -u mg "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && install_rust $DEFAULT_RUST_VERSION"
 
   # Install the requested build-time Python (--python-build-version) from deadsnakes
   # and point libpython3.so at it, so the build links against exactly that
@@ -813,9 +812,7 @@ build_memgraph () {
   local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_v7 $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
 
   # MAGE-only: trim the conan graph; the generated toolchain then also sets
-  # MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON (see conanfile.py). The inner
-  # single quotes survive into the container's bash -c, keeping the '&'
-  # (conan's consumer-package pattern) from being parsed by the shell.
+  # MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON (see conanfile.py).
   if [[ "$mage_mode" == "only" ]]; then
     CONAN_PROFILE_ARGS="$CONAN_PROFILE_ARGS -o '&:mage_only=True'"
   fi
@@ -925,7 +922,6 @@ build_memgraph () {
       docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET --target $target -- -j"'$(nproc)'
     }
     # Force build that generate the header files needed by analysis (ie. clang-tidy)
-    # (memgraph-only target; MAGE-only builds have nothing to pre-generate)
     if [[ "$mage_mode" != "only" ]]; then
       build_target generated_code
     fi
@@ -2046,49 +2042,11 @@ copy_heaptrack() {
   docker cp $build_container:/tmp/heaptrack/ $dest_dir
 }
 
-# Thin wrapper over build_memgraph: MAGE builds in the unified CMake tree
-# (MG_BUILD_MAGE), so a MAGE-only CI build is just `--mage only`. The rust
-# toolchain comes from build_memgraph's ACTIVATE_CARGO (same one mgcxx uses)
-# and the compiler is the toolchain clang, like every other build. The old
-# tarball hand-off (mage.tar.gz) is gone — package-mage-deb/rpm package
-# straight from the build tree via package.sh.
-build_mage() {
-  echo -e "${GREEN_BOLD}Building MAGE (MAGE-only unified build)${RESET}"
-  local passthrough=()
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --rust-version)
-        echo -e "${YELLOW_BOLD}Warning: --rust-version is ignored; the unified build uses the mgbuild image's rust ($DEFAULT_RUST_VERSION)${RESET}"
-        shift 2
-      ;;
-      --config-only)
-        passthrough+=("--cmake-only")
-        shift 1
-      ;;
-      --split-debug)
-        passthrough+=("--split-debug")
-        shift 1
-      ;;
-      --cuda)
-        passthrough+=("--cuda")
-        shift 1
-      ;;
-      *)
-        echo "Error: Unknown flag '$1'"
-        print_help
-        exit 1
-      ;;
-    esac
-  done
-
-  build_memgraph --mage only "${passthrough[@]}"
-}
-
 # Shared implementation for package-mage-deb / package-mage-rpm. Packages
 # come straight out of the unified build tree via package.sh (CPack
 # components mage/mage_debuginfo) — no more tarball staging or
 # dpkg-buildpackage/rpmbuild descriptor rendering. The package version is
-# derived from the build tree (get_version.py), so --version is ignored.
+# derived from the build tree (get_version.py).
 # The -malloc/-cuda/-cugraph flavour spellings only ever renamed the
 # artifact; that rename now happens here, after copying to the host.
 _package_mage() {
@@ -2099,10 +2057,6 @@ _package_mage() {
   local cuda=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --version)
-        echo -e "${YELLOW_BOLD}Warning: --version is ignored; the package version comes from the build tree${RESET}"
-        shift 2
-      ;;
       --malloc)
         malloc=true
         shift 1
@@ -2128,7 +2082,7 @@ _package_mage() {
   if [[ "$cuda" = true ]]; then
     if ! docker exec -i -u mg $build_container bash -c \
         "grep -Eq '^(MG_MAGE_CUDA|MG_ENABLE_CUGRAPH):[A-Za-z]*=(ON|TRUE|1)\$' $MGBUILD_ROOT_DIR/build/CMakeCache.txt"; then
-      echo -e "${RED_BOLD}Error: --cuda requires a build configured with MG_MAGE_CUDA=ON (build-mage --cuda) or MG_ENABLE_CUGRAPH=ON${RESET}" >&2
+      echo -e "${RED_BOLD}Error: --cuda requires a build configured with MG_MAGE_CUDA=ON (build-memgraph --mage only --cuda) or MG_ENABLE_CUGRAPH=ON${RESET}" >&2
       exit 1
     fi
   fi
@@ -2455,12 +2409,13 @@ test_mage() {
       # Same rust selection as build_memgraph's ACTIVATE_CARGO: the images'
       # default rustc is too old for bindgen 0.71's generated bindings
       # (`unsafe extern` blocks need >= 1.82).
-      local ACTIVATE_CARGO="source \$HOME/.cargo/env && rustup toolchain install $DEFAULT_RUST_VERSION && export RUSTUP_TOOLCHAIN=$DEFAULT_RUST_VERSION"
-
       echo -e "${GREEN_BOLD}Running tests in container: $build_container${RESET}"
 
+      echo -e "${GREEN_BOLD}Installing Rust $DEFAULT_RUST_VERSION${RESET}"
+      docker exec -i -u mg $build_container bash -c "source \$HOME/memgraph/environment/util.sh && install_rust $DEFAULT_RUST_VERSION"
+
       echo -e "${GREEN_BOLD}Running Rust tests${RESET}"
-      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cd \$HOME/memgraph/src/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
+      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && source \$HOME/.cargo/env && cd \$HOME/memgraph/src/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
 
       echo -e "${GREEN_BOLD}Running C++ tests${RESET}"
       # MAGE unit tests are registered in the root build tree with the
@@ -3412,9 +3367,6 @@ case $command in
     ;;
     copy-heaptrack)
       copy_heaptrack $@
-    ;;
-    build-mage)
-      build_mage $@
     ;;
     package-mage-deb)
       package_mage_deb $@

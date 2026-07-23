@@ -296,7 +296,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --no-ccache \
-          build-mage --config-only
+          build-memgraph --mage only --cmake-only
 
       - name: Run clang-tidy
         run: |
@@ -396,7 +396,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --no-ccache \
-          build-mage --config-only
+          build-memgraph --mage only --cmake-only
 
       - name: Run clang-tidy
         run: |

@@ -417,6 +417,23 @@ jobs:
           copy \
           --sbom
 
+      - name: Stage memgraph debug symbols
+        # Must run BEFORE the MAGE build below: build-memgraph --mage only
+        # re-copies the repo and cleans the container build tree, wiping the
+        # memgraph .debug sidecars staged here. Skipped when an external
+        # memgraph package was downloaded — those symbols belong to the job
+        # that produced that package.
+        if: ${{ inputs.upload_debug_symbols && env.SPLIT_DEBUG == 'true' && inputs.memgraph_download_link == '' }}
+        run: |
+          mkdir -p build/debug-symbols
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          --cugraph $CUGRAPH \
+          copy-debug-symbols \
+          --dest-dir build/debug-symbols
+
       - name: Build Query Modules in MGBUILD container
         run: |
           SPLIT_DEBUG_ARG=""
@@ -434,7 +451,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --cugraph $CUGRAPH \
-          build-mage $SPLIT_DEBUG_ARG $CUDA_ARG
+          build-memgraph --mage only $SPLIT_DEBUG_ARG $CUDA_ARG
 
       - name: "Build heaptrack"
         if: ${{ inputs.build_type == 'RelWithDebInfo' && (env.BUILD_DOCKER_IMAGE == 'debug' || env.BUILD_DOCKER_IMAGE == 'both') }}
@@ -545,7 +562,6 @@ jobs:
             --build-type $BUILD_TYPE \
             --cugraph $CUGRAPH \
             package-mage-deb \
-            --version $MEMGRAPH_VERSION \
             $PACKAGE_ARGS
 
           DEB_PACKAGE="$(ls output/memgraph-mage_*.deb | head -n 1)"
@@ -564,7 +580,6 @@ jobs:
             --build-type $BUILD_TYPE \
             --cugraph $CUGRAPH \
             package-mage-rpm \
-            --version $MEMGRAPH_VERSION \
             $PACKAGE_ARGS
 
           # memgraph-mage-[0-9]* matches the main package; excludes the
