@@ -292,7 +292,7 @@ void Map::RemoveRecursionSet(mgp::Map &result, bool recursive, std::unordered_se
     result.Erase(erase_key);
   }
   for (auto &[update_key, value] : to_update) {
-    result.Update(update_key, std::move(value));
+    result.Update(update_key, value);
   }
 }
 
