@@ -59,9 +59,12 @@ if (MG_ENABLE_CUGRAPH)
   set(CMAKE_CUDA_STANDARD 17)
   set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-  # nvcc's default host compiler is the system g++, which can't find the
-  # toolchain's lld (CMAKE_LINKER_TYPE LLD); host-compile/link with our clang.
-  set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
+  # nvcc host-compiles/links with the system g++ (the only host RAPIDS
+  # headers support — clang chokes on them). g++ resolves the -fuse-ld=lld
+  # injected by CMAKE_LINKER_TYPE via -B prefix search, so point it at the
+  # toolchain's ld.lld.
+  string(APPEND CMAKE_EXE_LINKER_FLAGS " -B${MG_TOOLCHAIN_ROOT}/bin")
+  string(APPEND CMAKE_SHARED_LINKER_FLAGS " -B${MG_TOOLCHAIN_ROOT}/bin")
 
   include(rapids-cuda)
   rapids_cuda_init_architectures("${MEMGRAPH_MAGE_PROJECT_NAME}")
