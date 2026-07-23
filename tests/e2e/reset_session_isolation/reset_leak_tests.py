@@ -52,6 +52,13 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 FILE = "reset_session_isolation"
 BOLT_PORT = 17691
 
+# Multi-database (CREATE/USE DATABASE) is enterprise-gated, so tests that exercise it can only run
+# with a license present. Isolation-only tests below stay runnable on community builds.
+requires_enterprise = pytest.mark.skipif(
+    not (os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE") and os.environ.get("MEMGRAPH_ORGANIZATION_NAME")),
+    reason="multi-database RESET tests need an enterprise license (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)",
+)
+
 
 def get_instances_description(test_name: str):
     """Single instance is enough: the leak is entirely connection/session-local."""
@@ -193,6 +200,7 @@ def test_reset_clears_session_isolation_override(test_name):
 # ---------------------------------------------------------------------------
 
 
+@requires_enterprise
 def test_reset_clears_use_database_and_allows_subsequent_use(test_name):
     """USE DATABASE must not leak across a Bolt RESET, and a later USE must not be rejected
     (covers the in_explicit_db_ stuck-true regression)."""
@@ -251,6 +259,7 @@ def test_reset_clears_use_database_and_allows_subsequent_use(test_name):
 # ---------------------------------------------------------------------------
 
 
+@requires_enterprise
 def test_rollback_without_reset_preserves_use_database_and_session_isolation(test_name):
     """A mid-session BEGIN...ROLLBACK (no RESET) must keep USE'd db + SET SESSION isolation.
 

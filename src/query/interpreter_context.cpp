@@ -223,8 +223,10 @@ void InterpreterContext::ScanIdleTransactions() {
     }
   });
 
-  if (to_warn.empty()) return;
-
+  // Always run the prune block, even when to_warn is empty: the erase_if below is the only place
+  // that evicts resolved tx ids from idle_warn_last_logged_, so skipping it on quiet ticks would
+  // leak entries. With an empty to_warn the loop bumps no metric and logs nothing (preserving
+  // "bump only on a real warn"), while erase_if drops every stale entry.
   // Metric bumps every tick (unthrottled, for alerting); the log line is throttled per tx id.
   idle_warn_last_logged_.WithLock([&](auto &last_logged) {
     for (const auto &[tx_id, idle_sec] : to_warn) {
