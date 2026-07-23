@@ -74,12 +74,16 @@ struct ResourceLock {
   // If upon unlock we could possible unblock another lock then
   // we would want to notify to make sure we rapidly make progress
   // WRITE -> If w_count goes down to 0, READ_ONLY and UNIQUE maybe unblocked, hence: Notify All
-  // READ -> If r_count goes down to 0 (and other counts were already 0), UNIQUE maybe unblocked, hence: Notify One
+  // READ -> If r_count goes down to 0 (and other counts were already 0), UNIQUE maybe unblocked, hence: Notify All.
+  //   Must be All (not One): with writer-preference a READ acquirer can park on unique_pending_ != 0, so a lone
+  //   notify_one may wake such a shared waiter that immediately re-parks (its unique_pending_ == 0 predicate is
+  //   still false), consuming the only notification and stranding a pending UNIQUE whose predicate is now satisfied.
+  //   Notifying all wakes the UNIQUE too; the redundant shared wake just re-parks.
   // READ_ONLY -> If ro_count goes down to 0, WRITE and  UNIQUE maybe unblocked, hence: Notify All
   enum class NotifyKind : uint8_t { None, One, All };
   template <LockReq Req> NotifyKind unlock_should_notify() const;
   template <> NotifyKind unlock_should_notify<LockReq::WRITE>() const { return w_count == 0 ? NotifyKind::All : NotifyKind::None; }
-  template <> NotifyKind unlock_should_notify<LockReq::READ>() const { return (r_count == 0 && w_count == 0 && ro_count == 0) ? NotifyKind::One : NotifyKind::None; }
+  template <> NotifyKind unlock_should_notify<LockReq::READ>() const { return (r_count == 0 && w_count == 0 && ro_count == 0) ? NotifyKind::All : NotifyKind::None; }
   template <> NotifyKind unlock_should_notify<LockReq::READ_ONLY>() const { return ro_count == 0 ? NotifyKind::All : NotifyKind::None; }
 
   // A READ_ONLY lock request can block a WRITE lock request, on failure we should notify if ro_pending_count is now 0
@@ -115,8 +119,18 @@ struct ResourceLock {
     unique_pending_.fetch_add(1, std::memory_order_acq_rel);
     bool acquired = false;
     OnScopeExit pending_guard{[this, &acquired, &lock] {
-      if (unique_pending_.fetch_sub(1, std::memory_order_acq_rel) == 1 && !acquired) {
-        if (lock.owns_lock()) lock.unlock();
+      // Release the ambient lock (cv.wait re-acquires it on every exit path) so the decrement can
+      // retake mtx cleanly. Decrement under mtx, mirroring ~UniquePendingScope's discipline: it
+      // serializes against a shared acquirer testing unique_pending_ == 0 in its cv.wait predicate,
+      // so fetch_sub + notify can't slip between that check and its enqueue and lose the wake.
+      // Release mtx before notifying (never notify under mtx).
+      if (lock.owns_lock()) lock.unlock();
+      bool was_last_waiter = false;
+      {
+        auto guard = std::unique_lock{mtx};
+        was_last_waiter = unique_pending_.fetch_sub(1, std::memory_order_acq_rel) == 1;
+      }
+      if (was_last_waiter && !acquired) {
         cv.notify_all();
       }
     }};
@@ -143,8 +157,15 @@ struct ResourceLock {
     unique_pending_.fetch_add(1, std::memory_order_acq_rel);
     bool acquired = false;
     OnScopeExit pending_guard{[this, &acquired, &lock] {
-      if (unique_pending_.fetch_sub(1, std::memory_order_acq_rel) == 1 && !acquired) {
-        if (lock.owns_lock()) lock.unlock();
+      // See lock(): release the ambient lock, decrement under mtx (mirroring ~UniquePendingScope),
+      // then notify after releasing mtx (never notify under mtx).
+      if (lock.owns_lock()) lock.unlock();
+      bool was_last_waiter = false;
+      {
+        auto guard = std::unique_lock{mtx};
+        was_last_waiter = unique_pending_.fetch_sub(1, std::memory_order_acq_rel) == 1;
+      }
+      if (was_last_waiter && !acquired) {
         cv.notify_all();
       }
     }};

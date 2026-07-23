@@ -465,8 +465,9 @@ TEST_F(ResourceLockTest, UniqueStarvationUnderContinuousReadHammer) {
   } else {
     ADD_FAILURE() << "UNIQUE lock() did not acquire within " << kWatchdogBound.count()
                   << "s under continuous READ churn from " << kNumHammers
-                  << " hammer threads — ResourceLock::lock() has no anti-starvation mechanism against shared "
-                     "holders, this is a liveness/fairness bug, not a memory-safety one.";
+                  << " hammer threads — ResourceLock::lock() DOES have a unique_pending_ writer-preference "
+                     "mechanism, so this firing indicates a REGRESSION of that mechanism (e.g. the READ-release "
+                     "notify_all lost-wakeup bug), not an accepted absence of anti-starvation.";
     unique_future.get();  // reap the async thread now that hammers have stopped
   }
 }
@@ -510,8 +511,9 @@ TEST_F(ResourceLockTest, UniqueStarvationUnderContinuousWriteHammer) {
   } else {
     ADD_FAILURE() << "UNIQUE lock() did not acquire within " << kWatchdogBound.count()
                   << "s under continuous WRITE churn from " << kNumHammers
-                  << " hammer threads — ResourceLock::lock() has no anti-starvation mechanism against shared "
-                     "holders, this is a liveness/fairness bug, not a memory-safety one.";
+                  << " hammer threads — ResourceLock::lock() DOES have a unique_pending_ writer-preference "
+                     "mechanism, so this firing indicates a REGRESSION of that mechanism (e.g. the READ-release "
+                     "notify_all lost-wakeup bug), not an accepted absence of anti-starvation.";
     unique_future.get();
   }
 }
@@ -691,10 +693,10 @@ TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresWhileBareTryLockStarv
 
     if (control_result) {
       lock.unlock();  // release so later tests start from UNLOCKED
-      // The ungated control is expected to starve; its success is timing-dependent, so log
-      // (non-fatal) rather than abort.
-      ADD_FAILURE() << "bare try_lock() control unexpectedly acquired within " << control_result->count()
-                    << "ms under continuous WRITE churn — expected it to starve (soft/environment-dependent check)";
+      // The ungated control is expected to starve, but its success is probabilistic and
+      // environment-dependent, so record it (non-fatal) rather than abort — a chance acquire must not
+      // fail CI. The deterministic PendingScope campaign above is the real writer-preference signal.
+      RecordProperty("bare_try_lock_acquired_ms", std::to_string(control_result->count()));
     }
   }
 }
@@ -800,6 +802,68 @@ TEST_F(ResourceLockTest, UniquePendingScopeDestructionWakesBlockedSharedReader) 
   EXPECT_TRUE(reader_acquired.load(std::memory_order_acquire));
 
   guard_w0.unlock();
+}
+
+// Test 4c-iii: liveness smoke test for the B1 fix (READ-release notify_all). Holds a READ, then parks
+// both a UNIQUE lock() (blocked on state == SHARED, registering unique_pending_) and a second READ
+// acquirer (blocked on the unique_pending_ gate). Releasing the held READ must wake BOTH: the UNIQUE
+// acquires, and once it drains the gated READ acquires too.
+//
+// NOTE: this is a liveness smoke test, not a deterministic B1 tripwire. On glibc >= 2.34 the futex
+// wait queue is effectively FIFO, so even the pre-fix notify_one would usually wake the right waiter
+// and mask the lost-wakeup. It documents intent and guards the fix's shape (a READ release must be
+// able to wake a pending UNIQUE), and would catch a gross regression such as dropping the notify.
+TEST_F(ResourceLockTest, ReadReleaseWakesBothPendingUniqueAndGatedReader) {
+  using namespace std::chrono_literals;
+
+  auto held_read = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ);  // state == SHARED
+
+  std::atomic<bool> unique_acquired{false};
+  std::atomic<bool> reader_acquired{false};
+
+  auto unique_fut = std::async(std::launch::async, [&] {
+    lock.lock();  // parks (state == SHARED); registers unique_pending_
+    unique_acquired.store(true, std::memory_order_release);
+    lock.unlock();  // hand off to the gated reader
+  });
+
+  // Let the UNIQUE waiter register unique_pending_ before the reader parks on that gate.
+  std::this_thread::sleep_for(50ms);
+
+  auto reader_fut = std::async(std::launch::async, [&] {
+    lock.lock_shared<ResourceLock::LockReq::READ>();  // parks on unique_pending_ != 0
+    reader_acquired.store(true, std::memory_order_release);
+    lock.unlock_shared<ResourceLock::LockReq::READ>();
+  });
+
+  // Let the reader reach cv.wait, then confirm the gate (not scheduling) is holding both.
+  std::this_thread::sleep_for(50ms);
+  ASSERT_FALSE(unique_acquired.load(std::memory_order_acquire));
+  ASSERT_FALSE(reader_acquired.load(std::memory_order_acquire));
+
+  held_read.unlock();  // READ release -> notify_all must wake the pending UNIQUE
+
+  // Bounded so a lost/absent wake fails the test instead of hanging the suite forever.
+  const auto u_status = unique_fut.wait_for(5s);
+  const auto r_status = reader_fut.wait_for(5s);
+  EXPECT_EQ(u_status, std::future_status::ready)
+      << "pending UNIQUE lock() was not woken by the READ release (lost wakeup / B1 regression)";
+  EXPECT_EQ(r_status, std::future_status::ready)
+      << "READ acquirer gated on unique_pending_ was not woken after the UNIQUE drained";
+
+  if (u_status != std::future_status::ready || r_status != std::future_status::ready) {
+    // Failure path only: re-issue the notify_all that was apparently lost so the parked threads
+    // finish and ~future does not block the suite forever. State is already UNLOCKED here, so this
+    // unlock() only serves as a rescue notify. (On success this branch is never taken.)
+    lock.unlock();
+    unique_fut.wait();
+    reader_fut.wait();
+    return;
+  }
+  unique_fut.get();
+  reader_fut.get();
+  EXPECT_TRUE(unique_acquired.load(std::memory_order_acquire));
+  EXPECT_TRUE(reader_acquired.load(std::memory_order_acquire));
 }
 
 // Test 4d: mutual-exclusion fuzzer (like Test 1) with UniquePendingScope / ReadOnlyPendingScope
