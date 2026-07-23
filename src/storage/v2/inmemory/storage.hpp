@@ -195,6 +195,18 @@ class InMemoryStorage final : public Storage {
                               StorageMode storage_mode,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
+    // "Owning" constructors for Try*Access: the guard is already held (a non-blocking probe
+    // succeeded) and is simply adopted -- no locking happens here. See the *AccessOwning tags in
+    // storage.hpp.
+    explicit InMemoryAccessor(Storage::Accessor::SharedAccessOwning tag, InMemoryStorage *storage,
+                              IsolationLevel isolation_level, StorageMode storage_mode, StorageAccessType rw_type,
+                              utils::SharedResourceLockGuard already_locked_guard);
+    // UniqueAccessOwning and ReadOnlyAccessOwning, disambiguated by the guard's type.
+    explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
+                              StorageMode storage_mode, std::unique_lock<utils::ResourceLock> already_locked_guard);
+    explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
+                              StorageMode storage_mode, utils::SharedResourceLockGuard already_locked_guard);
+
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
 
     std::expected<void, ConstraintViolation> UniqueConstraintsViolation() const;
@@ -747,6 +759,15 @@ class InMemoryStorage final : public Storage {
   using Storage::ReadOnlyAccess;
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
                                            std::optional<std::chrono::milliseconds> timeout) override;
+
+  // Default args aren't inherited: a call on a concrete InMemoryStorage resolves to this
+  // declaration, so the base's std::nullopt default must be repeated here.
+  std::optional<std::unique_ptr<Accessor>> TryAccess(
+      StorageAccessType rw_type, std::optional<IsolationLevel> override_isolation_level = std::nullopt) override;
+  std::optional<std::unique_ptr<Accessor>> TryUniqueAccess(
+      std::optional<IsolationLevel> override_isolation_level = std::nullopt) override;
+  std::optional<std::unique_ptr<Accessor>> TryReadOnlyAccess(
+      std::optional<IsolationLevel> override_isolation_level = std::nullopt) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) override;
 

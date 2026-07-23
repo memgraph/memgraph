@@ -136,6 +136,23 @@ std::unique_ptr<Accessor> Storage::ReadOnlyAccess(std::optional<IsolationLevel> 
 
 std::unique_ptr<Accessor> Storage::ReadOnlyAccess() { return ReadOnlyAccess({}, std::nullopt); }
 
+// Safe no-op stubs (inherited by DiskStorage): never touch main_lock_, always return nullopt.
+// Only engines that override these (InMemoryStorage) get real non-blocking access.
+std::optional<std::unique_ptr<Accessor>> Storage::TryAccess(
+    StorageAccessType /*rw_type*/, std::optional<IsolationLevel> /*override_isolation_level*/) {
+  return std::nullopt;
+}
+
+std::optional<std::unique_ptr<Accessor>> Storage::TryUniqueAccess(
+    std::optional<IsolationLevel> /*override_isolation_level*/) {
+  return std::nullopt;
+}
+
+std::optional<std::unique_ptr<Accessor>> Storage::TryReadOnlyAccess(
+    std::optional<IsolationLevel> /*override_isolation_level*/) {
+  return std::nullopt;
+}
+
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode, StorageAccessType rw_type,
                             const std::optional<std::chrono::milliseconds> timeout)
@@ -170,6 +187,40 @@ Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, Isolatio
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(CreateSharedGuard(storage, READ_ONLY, timeout)),
+      unique_guard_(storage_->main_lock_, std::defer_lock),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      is_transaction_active_(true),
+      original_access_type_(StorageAccessType::READ_ONLY),
+      creation_storage_mode_(storage_mode) {}
+
+Storage::Accessor::Accessor(SharedAccessOwning /* tag */, Storage *storage, IsolationLevel isolation_level,
+                            StorageMode storage_mode, StorageAccessType rw_type,
+                            utils::SharedResourceLockGuard already_locked_guard)
+    : storage_(storage),
+      // Adopt the guard the caller's probe already acquired; no locking here.
+      storage_guard_(std::move(already_locked_guard)),
+      unique_guard_(storage_->main_lock_, std::defer_lock),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      is_transaction_active_(true),
+      original_access_type_(rw_type),
+      creation_storage_mode_(storage_mode) {}
+
+Storage::Accessor::Accessor(UniqueAccessOwning /* tag */, Storage *storage, IsolationLevel isolation_level,
+                            StorageMode storage_mode, std::unique_lock<utils::ResourceLock> already_locked_guard)
+    : storage_(storage),
+      storage_guard_(storage_->main_lock_, {/* unused */}, std::defer_lock),
+      // Adopt the guard the caller's probe already acquired; no locking here.
+      unique_guard_(std::move(already_locked_guard)),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      is_transaction_active_(true),
+      original_access_type_(StorageAccessType::UNIQUE),
+      creation_storage_mode_(storage_mode) {}
+
+Storage::Accessor::Accessor(ReadOnlyAccessOwning /* tag */, Storage *storage, IsolationLevel isolation_level,
+                            StorageMode storage_mode, utils::SharedResourceLockGuard already_locked_guard)
+    : storage_(storage),
+      // Adopt the guard the caller's probe already acquired; no locking here.
+      storage_guard_(std::move(already_locked_guard)),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),

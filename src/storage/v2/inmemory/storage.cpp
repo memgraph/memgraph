@@ -696,6 +696,25 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *s
                                                     std::optional<std::chrono::milliseconds> timeout)
     : Accessor(tag, storage, isolation_level, storage_mode, timeout), config_(storage->config_.salient.items) {}
 
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(Storage::Accessor::SharedAccessOwning tag, InMemoryStorage *storage,
+                                                    IsolationLevel isolation_level, StorageMode storage_mode,
+                                                    StorageAccessType rw_type,
+                                                    utils::SharedResourceLockGuard already_locked_guard)
+    : Accessor(tag, storage, isolation_level, storage_mode, rw_type, std::move(already_locked_guard)),
+      config_(storage->config_.salient.items) {}
+
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
+                                                    StorageMode storage_mode,
+                                                    std::unique_lock<utils::ResourceLock> already_locked_guard)
+    : Accessor(tag, storage, isolation_level, storage_mode, std::move(already_locked_guard)),
+      config_(storage->config_.salient.items) {}
+
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
+                                                    StorageMode storage_mode,
+                                                    utils::SharedResourceLockGuard already_locked_guard)
+    : Accessor(tag, storage, isolation_level, storage_mode, std::move(already_locked_guard)),
+      config_(storage->config_.salient.items) {}
+
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -2924,7 +2943,9 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
-    FreeMemory(std::unique_lock{main_lock_, std::adopt_lock}, false);
+    // Hand off the same std::unique_lock unique_accessor already holds; adopting main_lock_ into a
+    // second std::unique_lock would double-unlock it (once in CollectGarbage, again on destruction).
+    FreeMemory(unique_accessor->ReleaseUniqueGuard(), false);
   }
 }
 
@@ -4672,6 +4693,60 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
                                                                 override_isolation_level.value_or(isolation_level_),
                                                                 storage_mode_,
                                                                 timeout});
+}
+
+std::optional<std::unique_ptr<Storage::Accessor>> InMemoryStorage::TryAccess(
+    StorageAccessType rw_type, std::optional<IsolationLevel> override_isolation_level) {
+  using enum StorageAccessType;
+  if (rw_type == NO_ACCESS || rw_type == UNIQUE) {
+    LOG_FATAL("Invalid storage accessor type!");
+  }
+
+  if (rw_type == READ_ONLY) {
+    // READ_ONLY needs the ReadOnlyPendingScope momentary priority-over-WRITE gate; a plain
+    // try_lock_shared wouldn't register it. Route through TryReadOnlyAccess() (same single-shot path).
+    return TryReadOnlyAccess(override_isolation_level);
+  }
+
+  // WRITE/READ never gate other acquirers, so a plain non-blocking try_lock_shared suffices.
+  const auto shared_type =
+      rw_type == WRITE ? utils::SharedResourceLockGuard::Type::WRITE : utils::SharedResourceLockGuard::Type::READ;
+  utils::SharedResourceLockGuard guard(main_lock_, shared_type, std::try_to_lock);
+  if (!guard.owns_lock()) return std::nullopt;
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access_owning,
+                                                                this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_,
+                                                                rw_type,
+                                                                std::move(guard)});
+}
+
+std::optional<std::unique_ptr<Storage::Accessor>> InMemoryStorage::TryUniqueAccess(
+    std::optional<IsolationLevel> override_isolation_level) {
+  // Single-shot probe: the local scope bumps the pending counter for this one attempt only, so the
+  // writer-preference gate is momentary. It is NOT loop-fair -- a retry loop drops the counter back
+  // to 0 between calls. For sustained writer-preference, hold a UniquePendingScope across the whole
+  // loop instead (see resource_lock.hpp).
+  utils::UniquePendingScope scope(main_lock_);
+  auto guard = scope.try_acquire();
+  if (!guard) return std::nullopt;
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access_owning,
+                                                                this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_,
+                                                                std::move(*guard)});
+}
+
+std::optional<std::unique_ptr<Storage::Accessor>> InMemoryStorage::TryReadOnlyAccess(
+    std::optional<IsolationLevel> override_isolation_level) {
+  utils::ReadOnlyPendingScope scope(main_lock_);
+  auto guard = scope.try_acquire();
+  if (!guard) return std::nullopt;
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::read_only_access_owning,
+                                                                this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_,
+                                                                std::move(*guard)});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

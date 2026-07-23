@@ -336,6 +336,33 @@ class Storage {
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level);
   std::unique_ptr<Accessor> ReadOnlyAccess();
 
+  /// Non-blocking Access(): probe main_lock_ in the requested mode without blocking. Returns
+  /// nullopt (no transaction created, nothing thrown) if the lock isn't immediately available.
+  /// This is a SINGLE-SHOT probe: WRITE/READ use a plain try_lock_shared, while READ_ONLY routes
+  /// through a local ReadOnlyPendingScope that bumps the pending counter for the duration of this
+  /// one call only. It is therefore NOT loop-fair: a retry loop over Try*Access gets no sustained
+  /// writer-preference, since the scope is destroyed (and the counter drops back) on each return.
+  /// A caller wanting sustained priority-over-WRITE across a retry loop must instead hold its own
+  /// ReadOnlyPendingScope (utils/resource_lock.hpp) across the whole loop. Base is a safe no-op
+  /// stub (see storage.cpp); InMemoryStorage overrides with the real implementation.
+  virtual std::optional<std::unique_ptr<Accessor>> TryAccess(
+      StorageAccessType rw_type, std::optional<IsolationLevel> override_isolation_level = std::nullopt);
+
+  /// Non-blocking UniqueAccess() via a local UniquePendingScope::try_acquire(): a SINGLE-SHOT probe
+  /// that momentarily bumps the pending counter for the duration of this one call only. A retry
+  /// loop over Try*Access is NOT loop-fair and gets no sustained writer-preference (the scope is
+  /// destroyed on each return, dropping the counter back to 0). A caller wanting sustained
+  /// writer-preference across a retry loop must instead hold its own UniquePendingScope
+  /// (utils/resource_lock.hpp) across the whole loop. See TryAccess() for the
+  /// no-transaction-on-failure contract and safe stub.
+  virtual std::optional<std::unique_ptr<Accessor>> TryUniqueAccess(
+      std::optional<IsolationLevel> override_isolation_level = std::nullopt);
+
+  /// Non-blocking, SINGLE-SHOT ReadOnlyAccess() via a local ReadOnlyPendingScope. See TryAccess()
+  /// for the single-shot / not-loop-fair contract, the sustained-preference caveat, and safe stub.
+  virtual std::optional<std::unique_ptr<Accessor>> TryReadOnlyAccess(
+      std::optional<IsolationLevel> override_isolation_level = std::nullopt);
+
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
   std::expected<void, SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
@@ -506,6 +533,26 @@ class Accessor {
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+
+  // "Owning" variants used by Try*Access (storage.cpp) after a non-blocking probe already
+  // succeeded: they adopt an already-locked guard by move rather than acquiring one, so
+  // construction never blocks or fails. Inverse of ReleaseUniqueGuard()'s hand-off.
+  static constexpr struct SharedAccessOwning {
+  } shared_access_owning;
+
+  static constexpr struct UniqueAccessOwning {
+  } unique_access_owning;
+
+  static constexpr struct ReadOnlyAccessOwning {
+  } read_only_access_owning;
+
+  Accessor(SharedAccessOwning /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+           StorageAccessType rw_type, utils::SharedResourceLockGuard already_locked_guard);
+  Accessor(UniqueAccessOwning /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+           std::unique_lock<utils::ResourceLock> already_locked_guard);
+  Accessor(ReadOnlyAccessOwning /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+           utils::SharedResourceLockGuard already_locked_guard);
+
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;
   Accessor &operator=(Accessor &&other) = delete;
@@ -531,6 +578,15 @@ class Accessor {
       }
     }
     return NO_ACCESS;
+  }
+
+  /// Moves out this accessor's UNIQUE lock on `main_lock_`, making the returned std::unique_lock
+  /// its sole owner (the accessor then reports NO_ACCESS and unlocks nothing at destruction).
+  /// Callers passing the held lock onward (e.g. to FreeMemory) must move this same object rather
+  /// than adopt main_lock_ into a second std::unique_lock, which would double-unlock it.
+  auto ReleaseUniqueGuard() -> std::unique_lock<utils::ResourceLock> {
+    MG_ASSERT(unique_guard_.owns_lock(), "ReleaseUniqueGuard requires the accessor to hold the UNIQUE lock");
+    return std::move(unique_guard_);
   }
 
   virtual VertexAccessor CreateVertex() = 0;
