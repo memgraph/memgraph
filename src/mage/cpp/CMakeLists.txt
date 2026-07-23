@@ -20,8 +20,8 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Query modules are dlopen'ed by name: no "lib" prefix.
 set(CMAKE_SHARED_LIBRARY_PREFIX "")
 
-# MAGE has never built with LTO; keep it off (also required: nvcc rejects
-# the root's IPO flags for the cuGraph .cu targets).
+# LTO off: query modules are dlopen'ed leaf .so's (nothing to gain cross-
+# module, real link-time cost on 40+ targets), and nvcc can't take the flags.
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release FALSE)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo FALSE)
 
