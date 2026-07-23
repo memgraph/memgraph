@@ -42,9 +42,6 @@ class GraphView {
   /// Destroys the object.
   virtual ~GraphView() = 0;
 
-  // The user-provided destructor would otherwise suppress (and, under
-  // -Werror=deprecated, forbid) the implicit copy/move operations that
-  // concrete graphs rely on.
   GraphView() = default;
   GraphView(const GraphView &) = default;
   GraphView &operator=(const GraphView &) = default;

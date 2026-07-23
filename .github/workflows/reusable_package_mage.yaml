@@ -293,7 +293,7 @@ jobs:
           fi
           echo "Memgraph package downloaded"
           if [[ -n "$MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK" ]]; then
-            wget -O release/package/mage/memgraph.debuginfo.deb "$MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK"
+            wget -O release/package/mage/memgraph-debuginfo.deb "$MEMGRAPH_DEBUGINFO_DOWNLOAD_LINK"
             echo "Memgraph debuginfo package downloaded"
           elif [[ "$BUILD_DOCKER_IMAGE" == "debug" || "$BUILD_DOCKER_IMAGE" == "both" ]]; then
             echo "Error: build_docker_image='$BUILD_DOCKER_IMAGE' with a pre-built memgraph_download_link requires memgraph_debuginfo_download_link too (the relwithdebinfo Dockerfile target needs memgraph-debuginfo.deb)." >&2
@@ -519,7 +519,6 @@ jobs:
           fi
 
           # MAGE .debug sidecars ship in the memgraph-mage-debuginfo deb
-          # (the old mage-debug.tar.gz hand-off is gone).
           mage_dbg_deb="$(ls -t output/memgraph-mage-debuginfo_*.deb 2>/dev/null | head -n 1)"
           if [[ -n "$mage_dbg_deb" ]]; then
             dpkg-deb -x "$mage_dbg_deb" "$DBG_DIR"

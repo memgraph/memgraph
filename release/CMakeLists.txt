@@ -97,8 +97,6 @@ if(NOT "${MG_PYTHON_VERSION}" STREQUAL "")
 endif()
 
 # Configure CPack to build mgconsole using the unified install script.
-# Memgraph-only: MAGE packaging must not (and need not) build mgconsole —
-# package.sh also force-disables it at cpack time when packaging just mage.
 if(MG_BUILD_MEMGRAPH)
     set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
 endif()

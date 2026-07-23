@@ -28,8 +28,6 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
 
-# requirements files are staged into the build context by
-# package_mage_docker (they live in src/mage/python/, outside this context).
 COPY requirements-gpu.txt /tmp/requirements-gpu.txt
 COPY auth-module-requirements.txt /tmp/auth_module-requirements.txt
 
@@ -116,10 +114,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
   fi
 
-# Copy modules: extract the memgraph-mage package payload (query modules,
-# bundled toolchain libomp, python requirements manifest) WITHOUT running its
-# maintainer scripts — the postinst pip-installs the query-module python
-# deps, which this image gets from the python-base stage instead.
+# Copy modules: extract the memgraph-mage package payload
 RUN mkdir -p /usr/lib/memgraph/query_modules/
 RUN --mount=type=bind,source="./memgraph-mage.deb",target=/memgraph-mage.deb,ro \
   dpkg-deb -x /memgraph-mage.deb /
@@ -148,11 +143,7 @@ USER root
 RUN --mount=type=bind,source="./memgraph-debuginfo.deb",target=/memgraph-debuginfo.deb,ro \
   dpkg -i /memgraph-debuginfo.deb
 
-# Extract the MAGE .debug sidecars next to their .so files. Payload-only
-# extraction for the same reason as memgraph-mage.deb above (and the
-# debuginfo package has no maintainer scripts anyway). The package always
-# exists for this stage: the debug image flavour requires a RelWithDebInfo
-# build, which CI packages with --split-debug.
+# Extract the MAGE .debug sidecars next to their .so files.
 RUN --mount=type=bind,source="./memgraph-mage-debuginfo.deb",target=/memgraph-mage-debuginfo.deb,ro \
   dpkg-deb -x /memgraph-mage-debuginfo.deb /
 

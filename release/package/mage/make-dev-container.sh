@@ -56,12 +56,9 @@ curl -L "$TOOLCHAIN_URL" -o /toolchain.tar.gz
 tar xzvfm /toolchain.tar.gz -C /opt
 
 
-# TODO(matt): this dev-container flow needs a fuller pass for the monorepo
-# layout (MAGE now lives in memgraph/memgraph under mage/ and is built with
-# `./build.sh --mage on`); the /mage container path convention predates it.
 echo "Cloning Memgraph repo commit/tag: $MEMGRAPH_REF"
 cd /root
-git clone https://github.com/memgraph/memgraph.git --recurse-submodules mage
+git clone https://github.com/memgraph/memgraph.git
 cd /root/mage
 
 # Check if MEMGRAPH_REF matches a version tag format: vX.Y or vX.Y.Z
