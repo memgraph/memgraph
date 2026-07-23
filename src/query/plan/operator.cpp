@@ -9885,14 +9885,11 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
     auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
-    // Return empty chunks if bounds are null - need to handle this case
-    // For now, we'll create a dummy chunks object, but this might need special handling
-    return db->ChunkedVertices(view_,
-                               label_,
-                               properties_,
-                               maybe_prop_value_ranges.value_or(std::vector<storage::PropertyValueRange>{}),
-                               num_threads_,
-                               index_order_);
+    if (!maybe_prop_value_ranges) {
+      return db->ChunkedVertices(
+          view_, label_, properties_, std::vector<storage::PropertyValueRange>{}, 0, index_order_);
+    }
+    return db->ChunkedVertices(view_, label_, properties_, *maybe_prop_value_ranges, num_threads_, index_order_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10085,7 +10082,8 @@ UniqueCursorPtr ScanParallelByEdgePropertyValue::MakeCursor(utils::MemoryResourc
   auto get_chunks = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
     auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
-    return db->ChunkedEdges(view_, property_, maybe_prop_value.value_or(storage::PropertyValue()), num_threads_);
+    if (!maybe_prop_value) return db->ChunkedEdges(view_, property_, storage::PropertyValue(), 0);
+    return db->ChunkedEdges(view_, property_, *maybe_prop_value, num_threads_);
   };
   return MakeUniqueCursorPtr<ScanParallelCursor<decltype(get_chunks)>>(
       mem, *this, mem, metric_handles, std::move(get_chunks));
@@ -10229,7 +10227,7 @@ UniqueCursorPtr ScanParallelByEdgeTypePropertyValue::MakeCursor(utils::MemoryRes
     auto maybe_prop_value = EvaluateExpressionToPropertyValue(expression_, frame, context, view_);
     if (!maybe_prop_value) {
       // Return empty chunks
-      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, num_threads_);
+      return db->ChunkedEdges(view_, edge_type_, property_, std::nullopt, std::nullopt, 0);
     }
     // Use range with equal bounds to simulate value lookup
     auto bound = utils::MakeBoundInclusive(*maybe_prop_value);
