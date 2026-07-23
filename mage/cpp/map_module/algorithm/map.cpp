@@ -76,7 +76,7 @@ void Map::FromNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
     }
 
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(kResultFromNodes).c_str(), map_result);
+    record.Insert(kResultFromNodes, map_result);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());

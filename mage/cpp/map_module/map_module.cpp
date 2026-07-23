@@ -19,19 +19,17 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     const mgp::MemoryDispatcherGuard guard{memory};
 
     mgp::AddFunction(Map::Flatten,
-                     std::string(Map::kProcedureFlatten),
-                     {mgp::Parameter(std::string(Map::kArgumentMapFlatten), {mgp::Type::Map, mgp::Type::Any}),
-                      mgp::Parameter(std::string(Map::kArgumentDelimiterFlatten), mgp::Type::String, ".")},
+                     Map::kProcedureFlatten,
+                     {mgp::Parameter(Map::kArgumentMapFlatten, {mgp::Type::Map, mgp::Type::Any}),
+                      mgp::Parameter(Map::kArgumentDelimiterFlatten, mgp::Type::String, ".")},
                      module,
                      memory);
 
     {
       // Value list elements are nullable so null values are kept (keys must be non-null strings).
-      auto *func = mgp::module_add_function(module, std::string(Map::kProcedureFromLists).c_str(), Map::FromLists);
-      mgp::func_add_arg(func, std::string(Map::kArgumentListKeysFromLists).c_str(), mgp::type_list(mgp::type_string()));
-      mgp::func_add_arg(func,
-                        std::string(Map::kArgumentListValuesFromLists).c_str(),
-                        mgp::type_list(mgp::type_nullable(mgp::type_any())));
+      auto *func = mgp::module_add_function(module, Map::kProcedureFromLists, Map::FromLists);
+      mgp::func_add_arg(func, Map::kArgumentListKeysFromLists, mgp::type_list(mgp::type_string()));
+      mgp::func_add_arg(func, Map::kArgumentListValuesFromLists, mgp::type_list(mgp::type_nullable(mgp::type_any())));
     }
 
     mgp::AddFunction(Map::RemoveKey,
@@ -54,19 +52,18 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
       //                   mgp::Parameter(Map::kArgumentsInputMap2, mgp::Type::Any, mgp::Value(mgp::Map()))},
       //                  module, memory);
 
-      auto *func = mgp::module_add_function(module, std::string(Map::kProcedureMerge).c_str(), Map::Merge);
-      mgp::func_add_arg(func, std::string(Map::kArgumentsInputMap1).c_str(), mgp::type_nullable(mgp::type_map()));
-      mgp::func_add_arg(func, std::string(Map::kArgumentsInputMap2).c_str(), mgp::type_nullable(mgp::type_map()));
+      auto *func = mgp::module_add_function(module, Map::kProcedureMerge, Map::Merge);
+      mgp::func_add_arg(func, Map::kArgumentsInputMap1, mgp::type_nullable(mgp::type_map()));
+      mgp::func_add_arg(func, Map::kArgumentsInputMap2, mgp::type_nullable(mgp::type_map()));
     }
 
-    mgp::AddFunction(
-        Map::RemoveKeys,
-        std::string(Map::kProcedureRemoveKeys),
-        {mgp::Parameter(std::string(Map::kArgumentsInputMapRemoveKeys), mgp::Type::Map),
-         mgp::Parameter(std::string(Map::kArgumentsKeysListRemoveKeys), {mgp::Type::List, mgp::Type::String}),
-         mgp::Parameter(std::string(Map::kArgumentsRecursiveRemoveKeys), mgp::Type::Map, mgp::Value(mgp::Map()))},
-        module,
-        memory);
+    mgp::AddFunction(Map::RemoveKeys,
+                     Map::kProcedureRemoveKeys,
+                     {mgp::Parameter(Map::kArgumentsInputMapRemoveKeys, mgp::Type::Map),
+                      mgp::Parameter(Map::kArgumentsKeysListRemoveKeys, {mgp::Type::List, mgp::Type::String}),
+                      mgp::Parameter(Map::kArgumentsRecursiveRemoveKeys, mgp::Type::Map, mgp::Value(mgp::Map()))},
+                     module,
+                     memory);
 
     AddProcedure(Map::FromNodes,
                  Map::kProcedureFromNodes,
@@ -79,29 +76,27 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
 
     {
       // List elements are nullable so a null key can be passed (and skipped).
-      auto *func = mgp::module_add_function(module, std::string(Map::kProcedureFromValues).c_str(), Map::FromValues);
-      mgp::func_add_arg(
-          func, std::string(Map::kFromValuesArg1).c_str(), mgp::type_list(mgp::type_nullable(mgp::type_any())));
+      auto *func = mgp::module_add_function(module, Map::kProcedureFromValues, Map::FromValues);
+      mgp::func_add_arg(func, Map::kFromValuesArg1, mgp::type_list(mgp::type_nullable(mgp::type_any())));
     }
 
     {
       // Nullable params so a null map is treated as empty and a null key is a no-op.
-      auto *func = mgp::module_add_function(module, std::string(Map::kProcedureSetKey).c_str(), Map::SetKey);
-      mgp::func_add_arg(func, std::string(Map::kSetKeyArg1).c_str(), mgp::type_nullable(mgp::type_map()));
-      mgp::func_add_arg(func, std::string(Map::kSetKeyArg2).c_str(), mgp::type_nullable(mgp::type_string()));
-      mgp::func_add_arg(func, std::string(Map::kSetKeyArg3).c_str(), mgp::type_nullable(mgp::type_any()));
+      auto *func = mgp::module_add_function(module, Map::kProcedureSetKey, Map::SetKey);
+      mgp::func_add_arg(func, Map::kSetKeyArg1, mgp::type_nullable(mgp::type_map()));
+      mgp::func_add_arg(func, Map::kSetKeyArg2, mgp::type_nullable(mgp::type_string()));
+      mgp::func_add_arg(func, Map::kSetKeyArg3, mgp::type_nullable(mgp::type_any()));
     }
 
     {
       // value defaults to null and fail defaults to true.
-      auto *func = mgp::module_add_function(module, std::string(Map::kProcedureGet).c_str(), Map::Get);
-      mgp::func_add_arg(func, std::string(Map::kArgumentMapGet).c_str(), mgp::type_map());
-      mgp::func_add_arg(func, std::string(Map::kArgumentKeyGet).c_str(), mgp::type_string());
+      auto *func = mgp::module_add_function(module, Map::kProcedureGet, Map::Get);
+      mgp::func_add_arg(func, Map::kArgumentMapGet, mgp::type_map());
+      mgp::func_add_arg(func, Map::kArgumentKeyGet, mgp::type_string());
       const auto value_default = mgp::Value();
-      mgp::func_add_opt_arg(
-          func, std::string(Map::kArgumentValueGet).c_str(), mgp::type_nullable(mgp::type_any()), value_default.ptr());
+      mgp::func_add_opt_arg(func, Map::kArgumentValueGet, mgp::type_nullable(mgp::type_any()), value_default.ptr());
       const auto fail_default = mgp::Value(true);
-      mgp::func_add_opt_arg(func, std::string(Map::kArgumentFailGet).c_str(), mgp::type_bool(), fail_default.ptr());
+      mgp::func_add_opt_arg(func, Map::kArgumentFailGet, mgp::type_bool(), fail_default.ptr());
     }
 
     mgp::AddFunction(Map::MergeList,
