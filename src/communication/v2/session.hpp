@@ -424,9 +424,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           // in the chain stores a named shared_ptr<Session> (which would form a session ->
           // parked_prepare_ -> frame -> session cycle); the closure is the sole thing keeping the
           // session alive across the park.
-          // parked_prepare_ MUST already hold the Task before Resume() is called: a shutdown-drain
-          // can resume the frame concurrently on another thread, so this write must happen-before
-          // (via the registry mutex) any ParkState a resumer could claim. Emplace first closes that.
+          // parked_prepare_ MUST already hold the Task before Resume() is called. Post-F1 every resume
+          // is posted pinned back to THIS worker via RescheduleTaskOnWorker (never inline, not even a
+          // shutdown drain -- priority_thread_pool.cpp), so the resume closure cannot run until this
+          // RunLoop returns; emplacing first still guarantees parked_prepare_ is engaged before any
+          // resume closure could observe it.
           shared_this->parked_prepare_.emplace(shared_this->DrivePreparedRun([shared_this] {
             auto &parked = shared_this->parked_prepare_;
             if (!parked || !parked->Done()) {

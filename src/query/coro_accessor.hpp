@@ -194,8 +194,9 @@ inline utils::Task<std::unique_ptr<storage::Accessor>> AcquireAccessorCoro(
       co_return std::move(*abandon_result);
     }
 
-    // Genuinely resumed. Bail before touching storage state if tearing down (a shutdown drain's
-    // on_resume may run on the draining thread, not a pool worker).
+    // Genuinely resumed. Post-F1 the resume always runs on this pool worker (on_resume posts pinned
+    // via RescheduleTaskOnWorker, never inline on the draining thread), but a shutdown drain can be
+    // what woke us, so bail before touching storage state if the pool is tearing down.
     if (pool.IsShuttingDown()) {
       throw utils::BasicException("AcquireAccessorCoro: pool is shutting down, abandoning parked accessor acquire");
     }

@@ -586,10 +586,12 @@ class Accessor {
 
   Accessor(Accessor &&other) noexcept;
 
-  // Defined out-of-line (storage.cpp): on a UNIQUE/READ_ONLY accessor, explicitly releases the
-  // guard here (before implicit member-destruction) so NotifyMainLockReleased() runs strictly after
-  // main_lock_ is released (C3). READ/WRITE accessors skip this and fall through to the ordinary
-  // implicit release -- zero extra cost on that hot path.
+  // Defined out-of-line (storage.cpp): on ANY owning accessor (F5 -- UNIQUE/READ_ONLY/WRITE/READ),
+  // explicitly releases the guard here (before implicit member-destruction) so
+  // NotifyMainLockReleased() runs strictly after main_lock_ is released (C3). The dtor branches on
+  // owns_lock() and notifies on every owning release; a handed-off guard (ReleaseUniqueGuard) owns
+  // nothing here, so its new owner notifies instead. NotifyMainLockReleased() itself is a single
+  // relaxed flag load when nobody is parked, so the READ/WRITE hot path stays cheap.
   virtual ~Accessor();
 
   StorageAccessType original_access_type() const { return original_access_type_; }

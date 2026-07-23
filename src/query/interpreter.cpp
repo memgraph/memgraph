@@ -10581,25 +10581,12 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
           license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "PARALLEL EXECUTION"));
   }
 
-  // Phase 1 continued: resolve the needed accessor and read+reset the isolation override ONCE
-  // (before any co_await, since the acquire coroutine no longer owns that call).
+  // Phase 1 continued: the accessor requirements / isolation override are resolved inside the try
+  // below (still ONCE, before any co_await, since the acquire coroutine no longer owns that call) so
+  // their throws route through HandlePrepareFailure -- see the NB1 note at the resolve site.
   std::optional<storage::StorageAccessType> accessor_type;
   bool could_commit = false;
   std::optional<storage::IsolationLevel> resolved_iso;
-
-  if (!in_explicit_transaction_) {
-    auto transaction_requirements = ResolveTransactionRequirements(current_db_, parsed_query);
-    CheckBrokenDatabaseGate(current_db_, parsed_query.query);
-
-    accessor_type = transaction_requirements.accessor_type_;
-    could_commit = transaction_requirements.could_commit_;
-    if (accessor_type) {
-      if (transaction_requirements.isolation_level_override_) {
-        SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
-      }
-      resolved_iso = GetIsolationLevelOverride();  // read+reset ONCE, Phase 1 (design doc §R3.2)
-    }
-  }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
@@ -10616,6 +10603,25 @@ utils::Task<Interpreter::PrepareResult> Interpreter::PrepareCoro(ParseRes parse_
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");
     }
 #endif
+
+    // Resolve accessor requirements + broken-DB gate. Kept inside this try (query_execution_ptr still
+    // null, which HandlePrepareFailure handles) so a broken-DB / transaction-requirement rejection
+    // routes through the same cleanup/metrics path as Prepare() -- bumps failed_prepare /
+    // FirstFailedQuery and emits the [failed-query] log (NB1). Still resolved ONCE, before the Phase 2
+    // co_await, since the acquire coroutine no longer owns that call.
+    if (!in_explicit_transaction_) {
+      auto transaction_requirements = ResolveTransactionRequirements(current_db_, parsed_query);
+      CheckBrokenDatabaseGate(current_db_, parsed_query.query);
+
+      accessor_type = transaction_requirements.accessor_type_;
+      could_commit = transaction_requirements.could_commit_;
+      if (accessor_type) {
+        if (transaction_requirements.isolation_level_override_) {
+          SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
+        }
+        resolved_iso = GetIsolationLevelOverride();  // read+reset ONCE, Phase 1 (design doc §R3.2)
+      }
+    }
 
     // ---- PHASE 2: suspendable acquire. Only for a new autocommit query that needs a fresh
     // accessor (same guard as Prepare()'s SetupDatabaseTransaction call site). ----
