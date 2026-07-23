@@ -12,12 +12,6 @@ project("${MEMGRAPH_MAGE_PROJECT_NAME}" LANGUAGES C CXX)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cugraph_cmake)
 
-# MAGE stays on C11/C++20 (directory-scoped; the root tree is C++23).
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 # No C++23 modules in MAGE; skip the clang-scan-deps pass.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
