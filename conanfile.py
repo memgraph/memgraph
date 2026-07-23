@@ -97,6 +97,7 @@ class Memgraph(ConanFile):
         # full Boost::headers config) and overrides transitive boost ranges
         self.requires("boost/1.88.0-memgraph", force=True)
         self.requires("fmt/11.2.0")
+        self.requires("nlohmann_json/3.11.3-memgraph")
 
         if self.options.mage_only:
             return
@@ -117,7 +118,6 @@ class Memgraph(ConanFile):
         self.requires("librdkafka/2.6.1")
         self.requires("librdtsc/0.3-memgraph")
         self.requires("mgclient/1.4.3")
-        self.requires("nlohmann_json/3.11.3-memgraph")
         self.requires("nuraft/2.1.0-memgraph")
         has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
         openssl_shared = not has_sanitizers

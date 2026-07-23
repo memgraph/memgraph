@@ -228,10 +228,11 @@ endif()
 
 # Load conan dependencies in the correct order using explicit find_package calls
 # Load dependencies that don't depend on others first.
-# These three are needed by every build mode (MAGE links fmt/Boost/GTest).
+# These are needed by every build mode (MAGE links fmt/Boost/GTest/nlohmann_json).
 find_package(GTest REQUIRED)
 find_package(fmt REQUIRED)
 find_package(Boost REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 if(MG_BUILD_MEMGRAPH)
     find_package(ApprovalTests REQUIRED)
@@ -255,7 +256,6 @@ if(MG_BUILD_MEMGRAPH)
     find_package(jemalloc REQUIRED)
     find_package(libbcrypt REQUIRED)
     find_package(librdtsc REQUIRED)
-    find_package(nlohmann_json REQUIRED)
     find_package(nuraft REQUIRED CONFIG)
     find_package(pulsar-client-cpp REQUIRED CONFIG)
     find_package(protobuf REQUIRED CONFIG)
