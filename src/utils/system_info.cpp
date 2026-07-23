@@ -24,6 +24,7 @@
 
 #include "utils/file.hpp"
 #include "utils/string.hpp"
+#include "utils/sysinfo/memory.hpp"
 
 namespace memgraph::utils {
 
@@ -42,24 +43,9 @@ std::string GetMachineId() {
 }
 
 MemoryInfo GetMemoryInfo() {
-  // Parse `/proc/meminfo`.
-  uint64_t memory{0};
-  uint64_t swap{0};
-  auto mem_data = utils::ReadLines("/proc/meminfo");
-  for (auto &row : mem_data) {
-    auto tmp = utils::Trim(row);
-    if (utils::StartsWith(tmp, "MemTotal")) {
-      auto split = utils::Split(tmp);
-      if (split.size() < 2) continue;
-      memory = std::stoull(split[1]);
-    } else if (utils::StartsWith(tmp, "SwapTotal")) {
-      auto split = utils::Split(tmp);
-      if (split.size() < 2) continue;
-      swap = std::stoull(split[1]);
-    }
-  }
-  memory *= 1024;
-  swap *= 1024;
+  // sysinfo reports KiB; MemoryInfo is in bytes.
+  const uint64_t memory = sysinfo::TotalMemory().value_or(0) * 1024;
+  const uint64_t swap = sysinfo::SwapTotalMemory().value_or(0) * 1024;
   return {memory, swap};
 }
 
