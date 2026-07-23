@@ -517,34 +517,24 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
         run: |
-          # Stage all .debug sidecars from this job into a single dir.
-          # Two sources feed staging:
-          #   1. memgraph's binary + query_modules built earlier in this job
-          #      (skipped when an external memgraph package was downloaded —
-          #      those symbols belong to the job that produced that package);
-          #   2. MAGE's own module sidecars from the memgraph-mage-debuginfo
-          #      deb built earlier in this job.
-          # All MAGE jobs share one s3_dest_dir, so the manifest filename
-          # includes ARTIFACT_NAME to avoid collisions between
-          # amd/arm/cugraph/malloc jobs.
+          # memgraph's sidecars were staged into DBG_DIR before the MAGE
+          # build (see "Stage memgraph debug symbols"); this second
+          # copy-debug-symbols pass picks up MAGE's own sidecars from the
+          # container's current (mage-only) build tree — works for both deb
+          # and rpm distros, unlike extracting them from a package. All MAGE
+          # jobs share one s3_dest_dir, so the manifest filename includes
+          # ARTIFACT_NAME to avoid collisions between amd/arm/cugraph/malloc
+          # jobs.
           DBG_DIR=build/debug-symbols
           mkdir -p "$DBG_DIR"
 
-          if [[ -z "$MEMGRAPH_DOWNLOAD_LINK" ]]; then
-            ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os "$OS" \
-            --arch $ARCH \
-            --cugraph $CUGRAPH \
-            copy-debug-symbols \
-            --dest-dir "$DBG_DIR"
-          fi
-
-          # MAGE .debug sidecars ship in the memgraph-mage-debuginfo deb
-          mage_dbg_deb="$(ls -t output/memgraph-mage-debuginfo_*.deb 2>/dev/null | head -n 1)"
-          if [[ -n "$mage_dbg_deb" ]]; then
-            dpkg-deb -x "$mage_dbg_deb" "$DBG_DIR"
-          fi
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          --cugraph $CUGRAPH \
+          copy-debug-symbols \
+          --dest-dir "$DBG_DIR"
 
           manifest_url="s3://deps.memgraph.io/${S3_DEST_DIR}/debug-symbols-manifest-${ARTIFACT_NAME}.tsv"
           bash tools/ci/upload-debug-symbols.sh "$DBG_DIR" \

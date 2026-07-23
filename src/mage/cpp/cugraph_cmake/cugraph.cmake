@@ -53,12 +53,15 @@ if (MG_ENABLE_CUGRAPH)
                 ${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake)
   include(${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake)
 
+  # Must be set BEFORE enable_language: the ABI-detection try_compile
+  # otherwise resolves a CUDA23 dialect (from the root's C++23) that nvcc
+  # can't compile.
+  set(CMAKE_CUDA_STANDARD 17)
+  set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
   include(rapids-cuda)
   rapids_cuda_init_architectures("${MEMGRAPH_MAGE_PROJECT_NAME}")
   enable_language(CUDA)
-
-  set(CMAKE_CUDA_STANDARD 17)
-  set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
   message(STATUS "MAGE cuGraph root: ${MG_CUGRAPH_ROOT}")
   # Skip downloading if root is configured
