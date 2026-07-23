@@ -2220,7 +2220,7 @@ package_mage_docker() {
   cp $PROJECT_ROOT/src/mage/python/requirements-gpu.txt $PROJECT_ROOT/release/package/mage/requirements-gpu.txt
 
   local mage_deb
-  mage_deb=$(ls -1 $PROJECT_ROOT/output/memgraph-mage_*.deb 2>/dev/null | head -n 1)
+  mage_deb=$(ls -1 $PROJECT_ROOT/output/memgraph-mage_*.deb 2>/dev/null | head -n 1 || true)
   if [[ -z "$mage_deb" ]]; then
     echo -e "${RED_BOLD}Error: no memgraph-mage deb in $PROJECT_ROOT/output — run package-mage-deb first${RESET}" >&2
     exit 1
@@ -2228,7 +2228,7 @@ package_mage_docker() {
   cp -v "$mage_deb" $PROJECT_ROOT/release/package/mage/memgraph-mage.deb
   if [[ "$docker_target" == "relwithdebinfo" ]]; then
     local mage_debuginfo_deb
-    mage_debuginfo_deb=$(ls -1 $PROJECT_ROOT/output/memgraph-mage-debuginfo_*.deb 2>/dev/null | head -n 1)
+    mage_debuginfo_deb=$(ls -1 $PROJECT_ROOT/output/memgraph-mage-debuginfo_*.deb 2>/dev/null | head -n 1 || true)
     if [[ -z "$mage_debuginfo_deb" ]]; then
       echo -e "${RED_BOLD}Error: no memgraph-mage-debuginfo deb in $PROJECT_ROOT/output — package a --split-debug build first${RESET}" >&2
       exit 1
