@@ -296,7 +296,7 @@ struct symbol_build_traits<symbol::Function> {
     auto args = children.get<slots::args>() | ranges::to<std::vector>;
     auto *function = state.ast_storage.Create<Function>(name, args);
     if (function->IsUserDefined()) {
-      function->user_function_id_ = state.ast_storage.AddUserFunction(name);
+      function->user_function_id_ = state.ast_storage.FindOrAddUserFunction(name);
     }
     return function;
   }

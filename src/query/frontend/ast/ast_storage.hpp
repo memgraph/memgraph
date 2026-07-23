@@ -107,7 +107,7 @@ class AstStorage {
 
   EdgeTypeIx GetEdgeTypeIx(const std::string &name) { return EdgeTypeIx{name, FindOrAddName(name, &edge_types_)}; }
 
-  int64_t AddUserFunction(const std::string &name) { return FindOrAddName(name, &user_functions_); }
+  int64_t FindOrAddUserFunction(const std::string &name) { return FindOrAddName(name, &user_functions_); }
 
   // TODO: would be good if these were stable memory locations, then *Ix could have string_view rather than stringq
   std::vector<std::string> labels_;

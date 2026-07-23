@@ -4065,7 +4065,7 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
 
   // user defined functions are case sensitive, built-in functions work only with upper case
   if (function_expr->IsUserDefined()) {
-    function_expr->user_function_id_ = storage_->AddUserFunction(function_name);
+    function_expr->user_function_id_ = storage_->FindOrAddUserFunction(function_name);
   } else {
     function_expr->function_name_ = upper_function_name;
   }
