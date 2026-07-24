@@ -23,6 +23,7 @@ module;
 
 #include <chrono>
 #include <exception>
+#include <stdexcept>
 #include <string_view>
 #include <thread>
 
@@ -175,6 +176,18 @@ auto LoadFileFromDisk(std::string file_path)
   return file_reader;
 }
 
+// Multiply a tick count by us_per_unit to convert it to microseconds, throwing instead of silently overflowing
+// int64. Signed overflow is UB and, in practice, would wrap and store a bogus temporal value; a large enough
+// TIMESTAMP[s]/DURATION[s] (x1'000'000) or [ms] (x1000) value can trigger it. Surfacing an error is correct here.
+auto TicksToMicroseconds(int64_t const count, int64_t const us_per_unit) -> int64_t {
+  int64_t microseconds = 0;
+  if (__builtin_mul_overflow(count, us_per_unit, &microseconds)) {
+    throw std::overflow_error(
+        fmt::format("temporal value {} does not fit into the supported microsecond range", count));
+  }
+  return microseconds;
+}
+
 // Return to microseconds
 auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t {
   switch (arrow_time_unit) {
@@ -186,12 +199,10 @@ auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t 
       return std::chrono::duration_cast<std::chrono::microseconds>(ns).count();
     }
     case arrow::TimeUnit::MILLI: {
-      auto const ms = std::chrono::milliseconds(arrow_val);
-      return std::chrono::duration_cast<std::chrono::microseconds>(ms).count();
+      return TicksToMicroseconds(arrow_val, 1000);
     }
     case arrow::TimeUnit::SECOND: {
-      auto const secs = std::chrono::seconds(arrow_val);
-      return std::chrono::duration_cast<std::chrono::microseconds>(secs).count();
+      return TicksToMicroseconds(arrow_val, 1'000'000);
     }
     default: {
       throw std::invalid_argument("Unsupported time unit. TIME32 should only support seconds and milliseconds");
@@ -313,8 +324,7 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
       auto date_array = std::static_pointer_cast<arrow::Date64Array>(column);
       return [date_array, resource](int64_t const i) -> TypedValue {
         if (date_array->IsNull(i)) return TypedValue(resource);
-        auto const ms = std::chrono::milliseconds(date_array->Value(i));
-        auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms);
+        auto const us = std::chrono::microseconds{TicksToMicroseconds(date_array->Value(i), 1000)};
         return TypedValue(Date{us}, resource);
       };
     }
