@@ -1,5 +1,7 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://pypi.nvidia.com
 boto3==1.36.23
+cuopt-sh-client==25.10.*
 defusedxml==0.7.1
 duckdb==1.2.1
 elasticsearch==8.17.0
