@@ -193,6 +193,26 @@ nlohmann::json::json_pointer JsonPathToPointer(std::string_view path) {
   return pointer;
 }
 
+// Parses a nullable JSON string and applies the optional path selector, returning
+// the selected sub-document. Returns nullopt when the result should be null: a null
+// input string, an unresolved path, or a JSON null leaf. Throws on parse or
+// path-syntax errors.
+std::optional<nlohmann::json> ResolveJsonPath(const mgp::Value &json_arg, const mgp::Value &path_arg) {
+  if (json_arg.IsNull()) {
+    return std::nullopt;
+  }
+  auto root = nlohmann::json::parse(json_arg.ValueString());
+  const auto pointer = path_arg.IsNull() ? nlohmann::json::json_pointer{} : JsonPathToPointer(path_arg.ValueString());
+  if (!pointer.empty() && !root.contains(pointer)) {
+    return std::nullopt;  // unresolved path -> null
+  }
+  auto &selected = pointer.empty() ? root : root.at(pointer);
+  if (selected.is_null()) {
+    return std::nullopt;
+  }
+  return std::move(selected);
+}
+
 // Parses a JSON object string into a Cypher map. A null string yields null. An
 // optional path selects a nested part of the document first: an unresolved path
 // yields null, a JSON null yields null, and a selection that is not an object is
@@ -202,27 +222,8 @@ void from_json_map(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, 
   auto func_result = mgp::Result(res);
   try {
     const auto arguments = mgp::List(args);
-    const auto &argument = arguments[0];
-    if (argument.IsNull()) {
-      func_result.SetValue();
-      return;
-    }
-
-    const auto root = nlohmann::json::parse(argument.ValueString());
-
-    const auto &path_arg = arguments[1];
-    const auto pointer = path_arg.IsNull() ? nlohmann::json::json_pointer{} : JsonPathToPointer(path_arg.ValueString());
-
-    const nlohmann::json *selected = &root;
-    if (!pointer.empty()) {
-      if (!root.contains(pointer)) {
-        func_result.SetValue();  // unresolved path -> null
-        return;
-      }
-      selected = &root.at(pointer);
-    }
-
-    if (selected->is_null()) {
+    const auto selected = ResolveJsonPath(arguments[0], arguments[1]);
+    if (!selected) {
       func_result.SetValue();
       return;
     }
@@ -230,7 +231,6 @@ void from_json_map(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, 
       func_result.SetErrorMessage("The selected value does not represent a JSON object.");
       return;
     }
-
     const auto map_value = ParseJsonToMgpMap(*selected, memory);
     func_result.SetValue(map_value.ValueMap());
   } catch (const std::exception &e) {
@@ -247,27 +247,8 @@ void from_json_list(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res,
   auto func_result = mgp::Result(res);
   try {
     const auto arguments = mgp::List(args);
-    const auto &argument = arguments[0];
-    if (argument.IsNull()) {
-      func_result.SetValue();
-      return;
-    }
-
-    const auto root = nlohmann::json::parse(argument.ValueString());
-
-    const auto &path_arg = arguments[1];
-    const auto pointer = path_arg.IsNull() ? nlohmann::json::json_pointer{} : JsonPathToPointer(path_arg.ValueString());
-
-    const nlohmann::json *selected = &root;
-    if (!pointer.empty()) {
-      if (!root.contains(pointer)) {
-        func_result.SetValue();  // unresolved path -> null
-        return;
-      }
-      selected = &root.at(pointer);
-    }
-
-    if (selected->is_null()) {
+    const auto selected = ResolveJsonPath(arguments[0], arguments[1]);
+    if (!selected) {
       func_result.SetValue();
       return;
     }
@@ -275,7 +256,6 @@ void from_json_list(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res,
       func_result.SetErrorMessage("The selected value does not represent a JSON array.");
       return;
     }
-
     const auto list_value = ParseJsonToMgpList(*selected, memory);
     func_result.SetValue(list_value.ValueList());
   } catch (const std::exception &e) {
@@ -441,35 +421,55 @@ std::string DurationToString(int64_t total_microseconds) {
 }
 
 nlohmann::json MgpValueToJson(const mgp::Value &value) {
-  if (value.IsNull()) return nullptr;
-  if (value.IsBool()) return value.ValueBool();
-  if (value.IsInt()) return value.ValueInt();
-  if (value.IsDouble()) return value.ValueDouble();
-  if (value.IsString()) return std::string(value.ValueString());
-  if (value.IsList()) {
-    auto array = nlohmann::json::array();
-    for (const auto item : value.ValueList()) {
-      array.push_back(MgpValueToJson(item));
+  switch (value.Type()) {
+    case mgp::Type::Null:
+      return nullptr;
+    case mgp::Type::Bool:
+      return value.ValueBool();
+    case mgp::Type::Int:
+      return value.ValueInt();
+    case mgp::Type::Double:
+      return value.ValueDouble();
+    case mgp::Type::String:
+      return std::string(value.ValueString());
+    case mgp::Type::List: {
+      auto array = nlohmann::json::array();
+      for (const auto item : value.ValueList()) {
+        array.push_back(MgpValueToJson(item));
+      }
+      return array;
     }
-    return array;
-  }
-  if (value.IsMap()) {
-    auto obj = nlohmann::json::object();
-    for (const auto &item : value.ValueMap()) {
-      obj[std::string(item.key)] = MgpValueToJson(item.value);
+    case mgp::Type::Map: {
+      auto obj = nlohmann::json::object();
+      for (const auto &item : value.ValueMap()) {
+        obj[std::string(item.key)] = MgpValueToJson(item.value);
+      }
+      return obj;
     }
-    return obj;
+    case mgp::Type::Node:
+      return MgpNodeToJson(value.ValueNode());
+    case mgp::Type::Relationship:
+      return MgpRelationshipToJson(value.ValueRelationship());
+    case mgp::Type::Path:
+      return MgpPathToJson(value.ValuePath());
+    case mgp::Type::Point2d:
+      return MgpPoint2dToJson(value.ValuePoint2d());
+    case mgp::Type::Point3d:
+      return MgpPoint3dToJson(value.ValuePoint3d());
+    case mgp::Type::Date:
+      return value.ValueDate().ToString();
+    case mgp::Type::LocalTime:
+      return value.ValueLocalTime().ToString();
+    case mgp::Type::LocalDateTime:
+      return value.ValueLocalDateTime().ToString();
+    case mgp::Type::Duration:
+      return DurationToString(value.ValueDuration().Microseconds());
+    case mgp::Type::ZonedDateTime:
+      return value.ValueZonedDateTime().ToString();
+    case mgp::Type::Any:
+    case mgp::Type::Enum:
+      break;
   }
-  if (value.IsNode()) return MgpNodeToJson(value.ValueNode());
-  if (value.IsRelationship()) return MgpRelationshipToJson(value.ValueRelationship());
-  if (value.IsPath()) return MgpPathToJson(value.ValuePath());
-  if (value.IsPoint2d()) return MgpPoint2dToJson(value.ValuePoint2d());
-  if (value.IsPoint3d()) return MgpPoint3dToJson(value.ValuePoint3d());
-  if (value.IsDate()) return value.ValueDate().ToString();
-  if (value.IsLocalTime()) return value.ValueLocalTime().ToString();
-  if (value.IsLocalDateTime()) return value.ValueLocalDateTime().ToString();
-  if (value.IsDuration()) return DurationToString(value.ValueDuration().Microseconds());
-  if (value.IsZonedDateTime()) return value.ValueZonedDateTime().ToString();
   throw std::invalid_argument("Unsupported value type for JSON conversion.");
 }
 
@@ -494,23 +494,24 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
         str2object, kFunctionStr2Object, {mgp::Parameter(kParameterString, mgp::Type::String)}, module, memory);
 
     // These accept a null argument, which mgp::AddFunction cannot express, so register them directly.
+    // func_add_opt_arg copies the default value, so a single RAII-owned instance serves both.
+    const auto default_path = mgp::Value("");
+
     auto *from_json_map_func =
         mgp::module_add_function(module, std::string(kFunctionFromJsonMap).c_str(), from_json_map);
     mgp::func_add_arg(from_json_map_func, std::string(kParameterMap).c_str(), mgp::type_nullable(mgp::type_string()));
-    auto *default_path = mgp::value_make_string("", memory);
-    mgp::func_add_opt_arg(
-        from_json_map_func, std::string(kParameterPath).c_str(), mgp::type_nullable(mgp::type_string()), default_path);
-    mgp::value_destroy(default_path);
+    mgp::func_add_opt_arg(from_json_map_func,
+                          std::string(kParameterPath).c_str(),
+                          mgp::type_nullable(mgp::type_string()),
+                          default_path.ptr());
 
     auto *from_json_list_func =
         mgp::module_add_function(module, std::string(kFunctionFromJsonList).c_str(), from_json_list);
     mgp::func_add_arg(from_json_list_func, std::string(kParameterList).c_str(), mgp::type_nullable(mgp::type_string()));
-    auto *default_list_path = mgp::value_make_string("", memory);
     mgp::func_add_opt_arg(from_json_list_func,
                           std::string(kParameterPath).c_str(),
                           mgp::type_nullable(mgp::type_string()),
-                          default_list_path);
-    mgp::value_destroy(default_list_path);
+                          default_path.ptr());
 
     auto *to_map_func = mgp::module_add_function(module, std::string(kFunctionToMap).c_str(), to_map);
     mgp::func_add_arg(to_map_func, std::string(kParameterMap).c_str(), mgp::type_nullable(mgp::type_any()));
