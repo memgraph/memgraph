@@ -32,6 +32,10 @@ namespace memgraph::flags {
 enum class Experiments : uint8_t {
   NONE = 0,
   PLANNER_V2 = 1 << 0,
+  // Drive query-plan cursors through the coroutine pull path (DoPull) instead of the legacy
+  // bool Pull(). Phase 1: selects legacy-vs-coroutine pull only (no cooperative yield yet); the two
+  // paths are parity-tested to be identical. Later phases also gate the scheduler yield on this bit.
+  COROUTINE_CURSORS = 1 << 1,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);
