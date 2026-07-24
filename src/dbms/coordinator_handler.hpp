@@ -61,7 +61,7 @@ class CoordinatorHandler {
 
   auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> coordination::RevokePrivilegeStatus;
 
-  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<uint64_t>;
+  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
 
   auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
 

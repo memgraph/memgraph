@@ -1153,26 +1153,11 @@ ADMIN_SCHEME = "oidc"
 ADMIN_TOKEN = "architect"
 
 
-def start_sso_cluster(test_name, bootstrap=None):
-    """Bring up an SSO-gated coordinator cluster the way SSO is meant to be enabled in production.
-
-    Once an SSO module is configured, basic/none auth is denied on the coordinator, so roles cannot be created that
-    way (and even the ADD COORDINATOR bootstrap could not authenticate). So: start the coordinators with no auth
-    module, form the cluster and create the roles through the basic/none passthrough, then restart every coordinator
-    with the SSO module configured. The roles persist across the restart through the Raft log, and after the restart
-    all access is via SSO. The 'architect' admin role (COORDINATOR_WRITE) is always created; `bootstrap(admin_cursor)`
-    may create additional test-specific roles. Returns the description (now carrying the SSO flag)."""
-    description = get_coords_only_description(test_name=test_name)
-    interactive_mg_runner.start_all(description, keep_directories=False)
-
-    admin_cursor = get_leader_cursor()
-    create_role_with_privilege(admin_cursor, ADMIN_TOKEN, grant="COORDINATOR_WRITE")
-    if bootstrap is not None:
-        bootstrap(admin_cursor)
-
-    # Restart every coordinator with the SSO module configured, preserving data directories. Clearing setup_queries
-    # both avoids re-issuing ADD COORDINATOR against an already-formed cluster and skips the basic/none connection the
-    # runner would otherwise open to run them (which SSO now denies); the state comes back from the durable log.
+def enable_sso_on_cluster(description):
+    """Restart every coordinator of an already-formed cluster with the SSO module configured, preserving data
+    directories. Clearing setup_queries both avoids re-issuing ADD COORDINATOR against an already-formed cluster and
+    skips the basic/none connection the runner would otherwise open to run them (which SSO now denies); the state
+    comes back from the durable log."""
     for name in ("coordinator_1", "coordinator_2", "coordinator_3"):
         description[name]["setup_queries"] = []
         description[name]["args"].append(SSO_MAPPINGS)
@@ -1185,6 +1170,28 @@ def start_sso_cluster(test_name, bootstrap=None):
         for future in concurrent.futures.as_completed(futures):
             future.result()
     return description
+
+
+def start_sso_cluster(test_name, bootstrap=None):
+    """Bring up an SSO-gated coordinator cluster the way SSO is meant to be enabled in production.
+
+    Once an SSO module is configured and a COORDINATOR_WRITE role exists, basic/none auth is denied on the coordinator,
+    so roles can no longer be created that way (and even the ADD COORDINATOR bootstrap could not authenticate). This
+    helper uses the clean two-phase enablement rather than leaning on the no-writable-role break-glass (exercised
+    separately by test_basic_auth_break_glass_when_no_writable_role): start the coordinators with no auth module, form
+    the cluster and create the roles through the basic/none passthrough, then restart every coordinator with the SSO
+    module configured. The roles persist across the restart through the Raft log, and after the restart all access is
+    via SSO. The 'architect' admin role (COORDINATOR_WRITE) is always created; `bootstrap(admin_cursor)` may create
+    additional test-specific roles. Returns the description (now carrying the SSO flag)."""
+    description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(description, keep_directories=False)
+
+    admin_cursor = get_leader_cursor()
+    create_role_with_privilege(admin_cursor, ADMIN_TOKEN, grant="COORDINATOR_WRITE")
+    if bootstrap is not None:
+        bootstrap(admin_cursor)
+
+    return enable_sso_on_cluster(description)
 
 
 def sso_try_find_leader_port(scheme=ADMIN_SCHEME, token=ADMIN_TOKEN):
@@ -1244,6 +1251,16 @@ def sso_connects(port, scheme, token):
         return False
 
 
+def sso_connect_error(port, scheme, token):
+    """The handshake rejection message for an SSO connection, or None if the connection is accepted."""
+    try:
+        with sso_driver(port, scheme, token) as driver:
+            driver.verify_connectivity()
+        return None
+    except Exception as e:
+        return str(e)
+
+
 def sso_route_denied(port, scheme, token):
     """Whether the coordinator denies the routing table (Bolt ROUTE) for this SSO session.
 
@@ -1287,11 +1304,12 @@ def test_sso_success_and_failures(test_name, scheme):
     # Success: the module returns "architect", which exists and carries a privilege.
     assert sorted(name for (name,) in sso_run(leader_port, scheme, "architect", "SHOW ROLES")) == ["architect"]
 
-    # Bad token: the module reports authentication failure -> the connection is rejected.
-    assert not sso_connects(leader_port, scheme, "bad_token")
+    # Bad token: the module reports authentication failure -> the connection is rejected with the SSO-failure message.
+    assert "sso authentication failed" in (sso_connect_error(leader_port, scheme, "bad_token") or "").lower()
 
-    # Missing role: the module authenticates but returns a role that doesn't exist on the coordinator -> rejected.
-    assert not sso_connects(leader_port, scheme, "ghost_role")
+    # Missing role: the module authenticates but returns a role that doesn't exist on the coordinator -> rejected with
+    # the same SSO-failure message.
+    assert "sso authentication failed" in (sso_connect_error(leader_port, scheme, "ghost_role") or "").lower()
 
 
 def test_sso_multi_role(test_name):
@@ -1422,32 +1440,156 @@ def test_sso_show_current_role(test_name):
 
 
 def test_basic_auth_denied_when_sso_configured(test_name):
-    # Once an SSO module is configured on a coordinator, credential-less basic/none passthrough is denied: it would
-    # otherwise grant full COORDINATOR_WRITE without checking anything, bypassing the SSO privilege model. Contrast with
-    # test_basic_auth_passthrough, where no SSO module is configured and basic auth is accepted.
+    # Once an SSO module is configured on a coordinator (and the enterprise license is valid, as in CI), credential-less
+    # basic/none passthrough is denied: it would otherwise grant full COORDINATOR_WRITE without checking anything,
+    # bypassing the SSO privilege model. Contrast with test_basic_auth_passthrough, where no SSO module is configured
+    # and basic auth is accepted, and with test_basic_auth_break_glass_when_license_invalid, where SSO is configured
+    # but the license is invalid so basic auth is accepted again.
     start_sso_cluster(test_name)
     leader_port = sso_wait_for_ready_leader_port()
 
-    # Basic auth with credentials is rejected at the Bolt handshake.
+    # Basic auth with credentials is rejected at the Bolt handshake, with a message naming the cause (basic disabled
+    # under SSO) rather than a generic authentication failure.
     try:
         connect(host="localhost", port=leader_port, username="whoever", password="whatever")
         assert False, "Basic auth must be denied on a coordinator with SSO configured"
     except Exception as e:
-        assert "authentication" in str(e).lower(), f"Unexpected error: {e}"
+        assert "basic authentication is disabled" in str(e).lower(), f"Unexpected error: {e}"
 
-    # Credential-less (none) auth is rejected too.
+    # Credential-less (none) auth is rejected too, with the same distinct message.
     try:
         connect(host="localhost", port=leader_port)
         assert False, "Credential-less auth must be denied on a coordinator with SSO configured"
     except Exception as e:
-        assert "authentication" in str(e).lower(), f"Unexpected error: {e}"
+        assert "basic authentication is disabled" in str(e).lower(), f"Unexpected error: {e}"
+
+
+@pytest.mark.skipif(
+    not (os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE") and os.environ.get("MEMGRAPH_ORGANIZATION_NAME")),
+    reason="Needs a valid enterprise license in MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME to exercise "
+    "the valid->invalid->valid license transition",
+)
+def test_basic_auth_break_glass_when_license_invalid(test_name):
+    # SSO on coordinators requires a valid enterprise license, so when the license expires or is removed the SSO path
+    # rejects every login. Basic/none must then fall back to the license-free passthrough instead of being denied too:
+    # otherwise a license transition would leave no successful auth path on any coordinator Bolt session (total
+    # lockout), recoverable only by a restart with SSO unconfigured. The passthrough is the break-glass that lets an
+    # operator connect and re-install the license over Bolt.
+    #
+    # The coordinators must never see the license through the environment: the env candidate is captured once at
+    # process startup and would keep the license valid no matter what is done at runtime. So the env vars are stripped
+    # for the whole cluster lifetime and the license is installed per-instance via SET DATABASE SETTING instead (the
+    # winning license is persisted into the settings kvstore, so it survives the SSO-enabling restart), which also
+    # makes it revocable at runtime by clearing the setting.
+    license_key = os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE")
+    organization = os.environ.get("MEMGRAPH_ORGANIZATION_NAME")
+    saved_env = {
+        var: os.environ.pop(var, None) for var in ("MEMGRAPH_ENTERPRISE_LICENSE", "MEMGRAPH_ORGANIZATION_NAME")
+    }
+
+    def install_license(cursor):
+        execute_and_fetch_all(cursor, f'SET DATABASE SETTING "organization.name" TO "{organization}"')
+        execute_and_fetch_all(cursor, f'SET DATABASE SETTING "enterprise.license" TO "{license_key}"')
+
+    def basic_auth_denied(port):
+        try:
+            connect(host="localhost", port=port, username="whoever", password="whatever")
+            return False
+        except Exception:
+            return True
+
+    try:
+        # Form the cluster with the license installed through settings only. The ADD COORDINATOR bootstrap is a
+        # coordinator query and needs the license, so it is run manually after the settings are in place instead of
+        # through the runner's setup_queries.
+        description = get_coords_only_description(test_name=test_name)
+        formation_queries = description["coordinator_3"]["setup_queries"]
+        description["coordinator_3"]["setup_queries"] = []
+        interactive_mg_runner.start_all(description, keep_directories=False)
+        for port in COORD_PORTS:
+            install_license(get_cursor(port))
+        bootstrap_cursor = get_cursor(7692)
+        for query in formation_queries:
+            execute_and_fetch_all(bootstrap_cursor, query)
+
+        create_role_with_privilege(get_leader_cursor(), ADMIN_TOKEN, grant="COORDINATOR_WRITE")
+        enable_sso_on_cluster(description)
+        leader_port = sso_wait_for_ready_leader_port()
+
+        # While the license is valid: SSO works and basic/none is denied.
+        assert basic_auth_denied(leader_port)
+
+        # Revoke the license on the leader at runtime (clearing the setting leaves no valid license source).
+        sso_run(leader_port, ADMIN_SCHEME, ADMIN_TOKEN, 'SET DATABASE SETTING "enterprise.license" TO ""')
+
+        # SSO logins are now rejected on the leader...
+        assert not sso_connects(leader_port, ADMIN_SCHEME, ADMIN_TOKEN)
+
+        # ...but basic auth falls back to the passthrough instead of locking the coordinator out entirely, and the
+        # break-glass session has full COORDINATOR_WRITE: it can re-install the license over Bolt.
+        recovery_cursor = connect(host="localhost", port=leader_port, username="whoever", password="whatever").cursor()
+        install_license(recovery_cursor)
+
+        # With the license restored, SSO works again and basic/none is denied again.
+        assert sorted(name for (name,) in sso_run(leader_port, ADMIN_SCHEME, ADMIN_TOKEN, "SHOW ROLES")) == [
+            "architect"
+        ]
+        assert basic_auth_denied(leader_port)
+    finally:
+        for var, value in saved_env.items():
+            if value is not None:
+                os.environ[var] = value
+
+
+def test_basic_auth_break_glass_when_no_writable_role(test_name):
+    # Break-glass companion to test_basic_auth_break_glass_when_license_invalid, covering the other way SSO can fail to
+    # provide any privileged session even with a valid license: the committed role set holds no COORDINATOR_WRITE role.
+    # This is the fresh-boot case (started with --auth-module-mappings and no roles) and, symmetrically, the state left
+    # by dropping the last writable role on a live cluster. SSO only admits identities whose roles already exist with a
+    # privilege, and only a COORDINATOR_WRITE role can create the first administrator, so denying basic too would be a
+    # permanent lockout. Basic/none must stay open as break-glass while no writable role exists and be denied again once
+    # one does -- then reopen if the last writable role is later dropped.
+    def basic_auth_denied(port):
+        try:
+            connect(host="localhost", port=port, username="whoever", password="whatever")
+            return False
+        except Exception:
+            return True
+
+    # Form the cluster through basic passthrough but create no roles, then enable SSO on top of the role-less cluster.
+    description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(description, keep_directories=False)
+    wait_for_ready_leader_port()
+    enable_sso_on_cluster(description)
+
+    # No COORDINATOR_WRITE role exists, so SSO can admit nobody -- basic/none stays open as break-glass. The leader is
+    # discovered over that basic session, since SSO cannot authenticate yet.
+    leader_port = wait_for_ready_leader_port()
+    assert not sso_connects(leader_port, ADMIN_SCHEME, ADMIN_TOKEN)
+    break_glass_cursor = connect(host="localhost", port=leader_port, username="whoever", password="whatever").cursor()
+    assert show_roles(break_glass_cursor) == []
+
+    # Bootstrap the first administrator through the break-glass session.
+    create_role_with_privilege(break_glass_cursor, ADMIN_TOKEN, grant="COORDINATOR_WRITE")
+
+    # A writable role now exists (the license is valid in CI), so basic/none is denied and SSO takes over.
+    assert basic_auth_denied(leader_port)
+    assert sso_connects(leader_port, ADMIN_SCHEME, ADMIN_TOKEN)
+
+    # Dropping the last COORDINATOR_WRITE role reopens the break-glass path so an admin is never locked out for good.
+    sso_run(leader_port, ADMIN_SCHEME, ADMIN_TOKEN, f"DROP ROLE {ADMIN_TOKEN}")
+    assert not sso_connects(leader_port, ADMIN_SCHEME, ADMIN_TOKEN)
+    reopened_cursor = connect(host="localhost", port=leader_port, username="whoever", password="whatever").cursor()
+    assert show_roles(reopened_cursor) == []
 
 
 def test_sso_unknown_scheme_rejected(test_name):
-    # A scheme that is not in --auth-module-mappings (and is not basic/none) is rejected on a coordinator.
+    # A scheme that is not in --auth-module-mappings (and is not basic/none) is rejected on a coordinator, with a
+    # message naming the unsupported scheme rather than a generic authentication failure.
     start_sso_cluster(test_name)
     leader_port = sso_wait_for_ready_leader_port()
-    assert not sso_connects(leader_port, "not-a-configured-scheme", "architect")
+    error = sso_connect_error(leader_port, "not-a-configured-scheme", "architect")
+    assert error is not None and "isn't supported on this coordinator" in error
 
 
 def test_sso_authenticates_through_follower(test_name):

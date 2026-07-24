@@ -412,6 +412,22 @@ void SessionHL::CoordinatorPassthroughAuthenticate() {
                                         static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE));
   interpreter_.SetCoordinatorRoles({});
 }
+
+std::optional<bool> SessionHL::CoordinatorHasWritableRole() const {
+  auto *coordinator_state = interpreter_context_->coordinator_state_;
+  if (coordinator_state == nullptr) {
+    return std::nullopt;
+  }
+  // Strong read from the leader; nullopt when the leader is unreachable. Fail-closed: an unknown role set is not
+  // treated as "no writable role", so a transient leader outage never opens the basic-auth break-glass path.
+  auto const maybe_roles = coordinator_state->GetRoles();
+  if (!maybe_roles.has_value()) {
+    return std::nullopt;
+  }
+  auto const write_bit = static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE);
+  return std::ranges::any_of(*maybe_roles,
+                             [write_bit](auto const &role) { return (role.permissions & write_bit) != 0U; });
+}
 #endif
 
 void SessionHL::LogOff() {

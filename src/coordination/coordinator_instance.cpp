@@ -1313,11 +1313,13 @@ auto CoordinatorInstance::GetRolePrivilegesAsLeader(std::string_view const role_
   return std::pair{true, it->permissions};
 }
 
-auto CoordinatorInstance::GetRolePrivileges(std::string_view const role_name) const -> std::optional<uint64_t> {
-  // SHOW PRIVILEGES FOR ROLE prefers a strong read from the leader; when the leader can't be reached a follower serves
-  // the read from its local replicated state, mirroring SHOW INSTANCES. An empty optional means the role doesn't exist.
+auto CoordinatorInstance::GetRolePrivileges(std::string_view const role_name) const
+    -> std::optional<std::pair<bool, uint64_t>> {
+  // Strong read served by the leader; when the leader is unreachable the query fails rather than serving
+  // possibly-stale local replicated state. An empty optional means the leader couldn't be reached; the returned pair
+  // is {role_found, mask}.
   if (auto const local = GetRolePrivilegesAsLeader(role_name); local.has_value()) {
-    return local->first ? std::optional{local->second} : std::nullopt;
+    return local;
   }
 
   auto const leader_id = raft_state_->GetLeaderId();
@@ -1325,18 +1327,12 @@ auto CoordinatorInstance::GetRolePrivileges(std::string_view const role_name) co
   if (leader_id != raft_state_->GetMyCoordinatorId() && leader_id != -1) {
     if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
       if (auto const res = leader->SendRpc<GetRolePrivilegesRpc>(std::string{role_name}); res.has_value()) {
-        return res->first ? std::optional{res->second} : std::nullopt;
+        return res;
       }
     }
   }
 
-  spdlog::trace("Couldn't reach leader for SHOW PRIVILEGES FOR ROLE; serving from local replicated state.");
-  auto const roles = raft_state_->GetRoles();
-  auto const it = std::ranges::find(roles, role_name, &CoordinatorRole::name);
-  if (it == roles.end()) {
-    return std::nullopt;
-  }
-  return it->permissions;
+  return std::nullopt;
 }
 
 void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name, InstanceState const &instance_state) {

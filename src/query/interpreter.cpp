@@ -763,13 +763,16 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   uint64_t ShowRolePrivileges(std::string_view const role_name) override {
-    // A follower serves the read from local replicated state when the leader is unreachable; nullopt means no such
-    // role.
+    // Strong read served by the leader; when the leader is unreachable the query fails rather than serving
+    // possibly-stale local replicated state. The returned pair is {role_found, mask}.
     auto const privileges = coordinator_handler_.GetRolePrivileges(role_name);
     if (!privileges.has_value()) {
+      throw QueryRuntimeException(GetLeaderNotFoundForwardedQueryMessage());
+    }
+    if (!privileges->first) {
       throw QueryRuntimeException("Role '{}' doesn't exist.", role_name);
     }
-    return *privileges;
+    return privileges->second;
   }
 
   std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() override {
@@ -1139,10 +1142,15 @@ Callback HandleCoordinatorRoleQuery(AuthQuery *auth_query, coordination::Coordin
   auto roles = auth_query->roles_;
   auto target_role = auth_query->user_or_role_;
 
-  // SSO, role management, privilege grants, SHOW PRIVILEGES FOR and enforcement are enterprise features. CREATE/DROP/
-  // SHOW ROLE remain available so a role set can be provisioned, but grants and privilege inspection require a license.
-  static constexpr std::array kLicensedActions{
-      AuthQuery::Action::GRANT_PRIVILEGE, AuthQuery::Action::REVOKE_PRIVILEGE, AuthQuery::Action::SHOW_PRIVILEGES};
+  // SSO, role management, privilege grants, SHOW PRIVILEGES FOR and enforcement are enterprise features requiring a
+  // valid license. SHOW CURRENT ROLE is exempt: it is a self-service identity query (see
+  // IsCoordinatorSelfServiceAuthQuery) that must keep working on the break-glass basic-auth session.
+  static constexpr std::array kLicensedActions{AuthQuery::Action::CREATE_ROLE,
+                                               AuthQuery::Action::DROP_ROLE,
+                                               AuthQuery::Action::SHOW_ROLES,
+                                               AuthQuery::Action::GRANT_PRIVILEGE,
+                                               AuthQuery::Action::REVOKE_PRIVILEGE,
+                                               AuthQuery::Action::SHOW_PRIVILEGES};
   if (auto const license_check_result = license::global_license_checker.IsEnterpriseValid();
       !license_check_result && std::ranges::contains(kLicensedActions, auth_query->action_)) {
     throw QueryRuntimeException(
