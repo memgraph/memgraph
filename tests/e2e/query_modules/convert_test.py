@@ -19,22 +19,20 @@ from common import connect, execute_and_fetch_all
 
 def test_convert_list1():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(cursor, f"RETURN convert.str2object('[2, 4, 8, [2]]') AS result;")[0][0]
+    result = execute_and_fetch_all(cursor, "RETURN convert.str2object('[2, 4, 8, [2]]') AS result;")[0][0]
     assert (result) == [2, 4, 8, [2]]
 
 
 def test_convert_list_wrong():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(cursor, f"RETURN convert.str2object('[2, 4, 8, [2]]') AS result;")[0][0]
+    result = execute_and_fetch_all(cursor, "RETURN convert.str2object('[2, 4, 8, [2]]') AS result;")[0][0]
     assert (result) != [3, 4, 8, [2]]
 
 
 def test_convert_map():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        'RETURN convert.str2object(\'{"test": "true", "test2": true, "test3": 1, "test4": 1.5, "test5": null, "test6": {"test7": true, "test8": 1, "test9": 1.5, "test10": null}, "test11": ["string", 1, 1.5, null, {"test12": "string", "test13": 1, "test14": 1.5, "test15": null}]}\');',
-    )[0][0]
+    query = """RETURN convert.str2object('{"test": "true", "test2": true, "test3": 1, "test4": 1.5, "test5": null, "test6": {"test7": true, "test8": 1, "test9": 1.5, "test10": null}, "test11": ["string", 1, 1.5, null, {"test12": "string", "test13": 1, "test14": 1.5, "test15": null}]}');"""
+    result = execute_and_fetch_all(cursor, query)[0][0]
     assert result == {
         "test": "true",
         "test11": ["string", 1, 1.5, None, {"test12": "string", "test13": 1, "test14": 1.5, "test15": None}],
@@ -48,80 +46,52 @@ def test_convert_map():
 
 def test_convert_null():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        'RETURN convert.str2object("null");',
-    )[
-        0
-    ][0]
+    result = execute_and_fetch_all(cursor, 'RETURN convert.str2object("null");')[0][0]
     assert result == None
 
 
 def test_convert_int():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        'RETURN convert.str2object("1");',
-    )[
-        0
-    ][0]
+    result = execute_and_fetch_all(cursor, 'RETURN convert.str2object("1");')[0][0]
     assert result == 1
 
 
 def test_convert_double():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        'RETURN convert.str2object("1.5");',
-    )[
-        0
-    ][0]
+    result = execute_and_fetch_all(cursor, 'RETURN convert.str2object("1.5");')[0][0]
     assert result == 1.5
 
 
 def test_convert_bool():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        'RETURN convert.str2object("true");',
-    )[
-        0
-    ][0]
+    result = execute_and_fetch_all(cursor, 'RETURN convert.str2object("true");')[0][0]
     assert result == True
 
 
 def test_convert_string():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        'RETURN convert.str2object("\\"Cool string\\"");',
-    )[
-        0
-    ][0]
+    query = r"""RETURN convert.str2object("\"Cool string\"");"""
+    result = execute_and_fetch_all(cursor, query)[0][0]
     assert result == "Cool string"
 
 
 def test_convert_invalid():
     cursor = connect().cursor()
     with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(
-            cursor,
-            'RETURN convert.str2object("this is not a string since it is not escaped");',
-        )
+        execute_and_fetch_all(cursor, 'RETURN convert.str2object("this is not a string since it is not escaped");')
 
 
 def test_from_json_map_basic():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(cursor, 'RETURN convert.from_json_map(\'{"name": "GDS"}\') AS result;')[0][0]
+    query = """RETURN convert.from_json_map('{"name": "GDS"}') AS result;"""
+    result = execute_and_fetch_all(cursor, query)[0][0]
     assert result == {"name": "GDS"}
 
 
 def test_from_json_map_nested():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        'RETURN convert.from_json_map(\'{"a": 1, "b": [1, 2, {"c": true}], "d": null, "e": 1.5}\') AS result;',
-    )[0][0]
+    query = """RETURN convert.from_json_map('{"a": 1, "b": [1, 2, {"c": true}], "d": null, "e": 1.5}') AS result;"""
+    result = execute_and_fetch_all(cursor, query)[0][0]
     assert result == {"a": 1, "b": [1, 2, {"c": True}], "d": None, "e": 1.5}
 
 
@@ -145,34 +115,29 @@ def test_from_json_map_scalar_fails():
 
 def test_from_json_map_path_object():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        'RETURN convert.from_json_map(\'{"a": 1, "b": {"c": 2, "d": [10, 20]}}\', \'$.b\') AS result;',
-    )[0][0]
+    query = """RETURN convert.from_json_map('{"a": 1, "b": {"c": 2, "d": [10, 20]}}', '$.b') AS result;"""
+    result = execute_and_fetch_all(cursor, query)[0][0]
     assert result == {"c": 2, "d": [10, 20]}
 
 
 def test_from_json_map_path_bracket():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        'RETURN convert.from_json_map(\'{"a": 1, "b": {"c": 2}}\', "$[\'b\']") AS result;',
-    )[0][0]
+    query = """RETURN convert.from_json_map('{"a": 1, "b": {"c": 2}}', "$['b']") AS result;"""
+    result = execute_and_fetch_all(cursor, query)[0][0]
     assert result == {"c": 2}
 
 
 def test_from_json_map_path_array_index():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor,
-        'RETURN convert.from_json_map(\'{"e": [{"x": 1}, {"x": 2}]}\', \'$.e[0]\') AS result;',
-    )[0][0]
+    query = """RETURN convert.from_json_map('{"e": [{"x": 1}, {"x": 2}]}', '$.e[0]') AS result;"""
+    result = execute_and_fetch_all(cursor, query)[0][0]
     assert result == {"x": 1}
 
 
 def test_from_json_map_array_root_with_path():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(cursor, "RETURN convert.from_json_map('[{\"x\": 1}]', '$[0]') AS result;")[0][0]
+    query = """RETURN convert.from_json_map('[{"x": 1}]', '$[0]') AS result;"""
+    result = execute_and_fetch_all(cursor, query)[0][0]
     assert result == {"x": 1}
 
 
@@ -195,7 +160,8 @@ def test_from_json_map_path_missing_is_null():
 
 def test_from_json_map_path_json_null_leaf_is_null():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(cursor, "RETURN convert.from_json_map('{\"a\": null}', '$.a') AS result;")[0][0]
+    query = """RETURN convert.from_json_map('{"a": null}', '$.a') AS result;"""
+    result = execute_and_fetch_all(cursor, query)[0][0]
     assert result is None
 
 
@@ -271,26 +237,24 @@ def test_from_json_list_null():
 
 def test_from_json_list_object_fails():
     cursor = connect().cursor()
+    query = """RETURN convert.from_json_list('{"a": 1}') AS result;"""
     with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": 1}') AS result;")
+        execute_and_fetch_all(cursor, query)
 
 
 def test_from_json_list_path_to_array():
     cursor = connect().cursor()
-    result = execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": [1, 2, 3]}', '$.a') AS result;")[0][
-        0
-    ]
+    query = """RETURN convert.from_json_list('{"a": [1, 2, 3]}', '$.a') AS result;"""
+    result = execute_and_fetch_all(cursor, query)[0][0]
     assert result == [1, 2, 3]
 
 
 def test_from_json_list_path_nested_and_index():
     cursor = connect().cursor()
-    assert execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": {\"b\": [4, 5]}}', '$.a.b') AS r;")[0][
-        0
-    ] == [4, 5]
-    assert execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": [[1, 2], [3, 4]]}', '$.a[1]') AS r;")[
-        0
-    ][0] == [3, 4]
+    q1 = """RETURN convert.from_json_list('{"a": {"b": [4, 5]}}', '$.a.b') AS r;"""
+    assert execute_and_fetch_all(cursor, q1)[0][0] == [4, 5]
+    q2 = """RETURN convert.from_json_list('{"a": [[1, 2], [3, 4]]}', '$.a[1]') AS r;"""
+    assert execute_and_fetch_all(cursor, q2)[0][0] == [3, 4]
 
 
 def test_from_json_list_path_root_on_array():
@@ -300,16 +264,20 @@ def test_from_json_list_path_root_on_array():
 
 def test_from_json_list_path_unresolved_and_json_null_is_null():
     cursor = connect().cursor()
-    assert execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": [1]}', '$.zzz') AS r;")[0][0] is None
-    assert execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": null}', '$.a') AS r;")[0][0] is None
+    q1 = """RETURN convert.from_json_list('{"a": [1]}', '$.zzz') AS r;"""
+    assert execute_and_fetch_all(cursor, q1)[0][0] is None
+    q2 = """RETURN convert.from_json_list('{"a": null}', '$.a') AS r;"""
+    assert execute_and_fetch_all(cursor, q2)[0][0] is None
 
 
 def test_from_json_list_path_non_array_fails():
     cursor = connect().cursor()
+    q1 = """RETURN convert.from_json_list('{"a": {"b": 1}}', '$.a') AS r;"""
     with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": {\"b\": 1}}', '$.a') AS r;")
+        execute_and_fetch_all(cursor, q1)
+    q2 = """RETURN convert.from_json_list('{"a": 5}', '$.a') AS r;"""
     with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "RETURN convert.from_json_list('{\"a\": 5}', '$.a') AS r;")
+        execute_and_fetch_all(cursor, q2)
 
 
 def test_to_json_scalars():
