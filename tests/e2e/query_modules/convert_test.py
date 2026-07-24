@@ -120,6 +120,13 @@ def test_from_json_map_path_object():
     assert result == {"c": 2, "d": [10, 20]}
 
 
+def test_from_json_map_path_nested_object():
+    cursor = connect().cursor()
+    query = """RETURN convert.from_json_map('{"a": {"b": {"c": 1, "d": [10, 20]}}}', '$.a.b') AS result;"""
+    result = execute_and_fetch_all(cursor, query)[0][0]
+    assert result == {"c": 1, "d": [10, 20]}
+
+
 def test_from_json_map_path_bracket():
     cursor = connect().cursor()
     query = """RETURN convert.from_json_map('{"a": 1, "b": {"c": 2}}', "$['b']") AS result;"""
