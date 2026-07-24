@@ -21,6 +21,7 @@
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/counter.hpp"
@@ -639,10 +640,14 @@ auto InMemoryUniqueConstraints::Validate(const std::unordered_set<Vertex const *
   return {};
 }
 
-void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t const oldest_active_start_timestamp,
+void InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage, uint64_t const oldest_active_start_timestamp,
                                                       const std::stop_token &token) {
   auto container = container_.ReadCopy();
+  if (container->empty()) return;
   auto maybe_stop = utils::ResettableCounter(2048);
+
+  // Pin vertices_ while sweeping: the loop dereferences raw Vertex* the epoch GC could free.
+  auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
 
   for (const auto &[label, map] : *container) {
     for (const auto &[properties, individual_constraint] : map) {

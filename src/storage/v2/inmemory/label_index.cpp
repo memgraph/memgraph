@@ -271,10 +271,15 @@ std::vector<LabelId> InMemoryLabelIndex::ActiveIndices::ListIndices(uint64_t sta
   return ret;
 }
 
-void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+void InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                               std::stop_token token) {
   CleanupAllIndices();
   auto maybe_stop = utils::ResettableCounter(2048);
   auto index_container = all_indices_.ReadCopy();
+  if (index_container->empty()) return;
+
+  // Pin vertices_ while sweeping: the loop dereferences raw Vertex* the epoch GC could free.
+  auto const vertex_pin = static_cast<InMemoryStorage const *>(storage)->MakeVertexPin();
 
   for (auto &[index, label] : *index_container) {
     // before starting index, check if stop_requested

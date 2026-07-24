@@ -4637,8 +4637,8 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRemoveObsoleteEntriesWithActiveTransactio
   // because it's still visible to the old transaction
   {
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-    mem_storage->indices_.RemoveObsoleteEdgeEntries(acc_old_transaction->GetTransaction()->start_timestamp,
-                                                    std::stop_token());
+    mem_storage->indices_.RemoveObsoleteEdgeEntries(
+        mem_storage, acc_old_transaction->GetTransaction()->start_timestamp, std::stop_token());
   }
 
   // The old transaction should still be able to see the edge
@@ -4697,8 +4697,8 @@ TYPED_TEST(IndexTest, EdgeTypeIndexRemoveObsoleteEntriesWithActiveTransaction) {
   // Call RemoveObsoleteEntries - this should NOT remove the edge from the index
   {
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-    mem_storage->indices_.RemoveObsoleteEdgeEntries(acc_old_transaction->GetTransaction()->start_timestamp,
-                                                    std::stop_token());
+    mem_storage->indices_.RemoveObsoleteEdgeEntries(
+        mem_storage, acc_old_transaction->GetTransaction()->start_timestamp, std::stop_token());
   }
 
   // The old transaction should still be able to see the edge
@@ -4758,8 +4758,8 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRemoveObsoleteEntriesWithActiveTransa
   // Call RemoveObsoleteEntries - this should NOT remove the edge from the index
   {
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-    mem_storage->indices_.RemoveObsoleteEdgeEntries(acc_old_transaction->GetTransaction()->start_timestamp,
-                                                    std::stop_token());
+    mem_storage->indices_.RemoveObsoleteEdgeEntries(
+        mem_storage, acc_old_transaction->GetTransaction()->start_timestamp, std::stop_token());
   }
 
   // The old transaction should still be able to see the edge

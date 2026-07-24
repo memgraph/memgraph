@@ -3315,27 +3315,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // in every index every time.
   gc_progress_.SetPhase(GcPhase::INDEX_CLEANUP);
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
-    // Pin the main object stores for the whole index-cleanup sweep.
-    // RemoveObsolete{Vertex,Edge}Entries dereference raw Vertex*/Edge* held in
-    // index skiplist entries (via AnyVersionHasLabelProperties /
-    // AnyVersionHasProperty, which read the object's PropertyStore buffer). Those
-    // objects are reclaimed by the SkipList accessor-epoch GC (run_gc), which can
-    // fire from any other thread's accessor destructor, or from a concurrent
-    // FreeMemory whose CollectGarbage early-returns on gc_lock_ but still calls
-    // {vertices_,edges_}.run_gc(). A live accessor here forbids reclaiming any
-    // object present at sweep start; combined with the invariant that an object's
-    // index entries are removed before the object leaves its store, every entry the
-    // sweep observes points at a still-live object. Without these pins the sweep
-    // reads a freed Edge -> SIGSEGV in HasExpectedProperty (issue #4473).
-    auto const vertices_gc_pin = vertices_.access();
-    auto const edges_gc_pin = edges_.access();
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
-      indices_.RemoveObsoleteVertexEntries(oldest_active_start_timestamp, token);
+      indices_.RemoveObsoleteVertexEntries(this, oldest_active_start_timestamp, token);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      mem_unique_constraints->RemoveObsoleteEntries(this, oldest_active_start_timestamp, token);
     }
     if (index_cleanup_edge_needed || index_cleanup_edge_performance) {
-      indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
+      indices_.RemoveObsoleteEdgeEntries(this, oldest_active_start_timestamp, token);
     }
   }
   {
