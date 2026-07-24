@@ -325,4 +325,168 @@ struct SharedResourceLockGuard {
   bool locked_{false};
 };
 
+// RAII guard over ResourceLock spanning every hold kind: the exclusive UNIQUE hold and the three
+// shared modes. The mode is a runtime tag rather than a std::variant<> because every alternative
+// shares the same payload (a ResourceLock*) -- there is no per-alternative state, so a tag + switch
+// is the whole of it. Move-only; releases in the correct mode on scope exit.
+struct ResourceLockGuard {
+ public:
+  enum Type : std::uint8_t { UNIQUE, WRITE, READ, READ_ONLY };
+
+  ResourceLockGuard(ResourceLock &l, Type type) : ptr_{&l}, type_{type} { lock(); }
+
+  ResourceLockGuard(ResourceLock &l, Type type, std::defer_lock_t /*tag*/) : ptr_{&l}, type_{type} {}
+
+  ResourceLockGuard(ResourceLock &l, Type type, std::try_to_lock_t /*tag*/) : ptr_{&l}, type_{type} { try_lock(); }
+
+  // Adopt a hold the caller already owns in `type` (e.g. SetStorageMode handing its UNIQUE hold to
+  // CollectGarbage, where reacquiring would deadlock). Mirrors std::adopt_lock: no acquisition, but
+  // the guard now owns the release.
+  ResourceLockGuard(ResourceLock &l, Type type, std::adopt_lock_t /*tag*/) : ptr_{&l}, type_{type}, locked_{true} {}
+
+  // Take over a std::unique_lock's exclusive hold: a UNIQUE-mode guard that adopts the hold if `lock`
+  // owns it, or is left unlocked (but bound to the same ResourceLock) otherwise. `lock` is
+  // disassociated from its mutex either way, so ownership is never duplicated.
+  explicit ResourceLockGuard(std::unique_lock<ResourceLock> &&lock)
+      : ptr_{lock.mutex()}, type_{UNIQUE}, locked_{lock.owns_lock()} {
+    lock.release();
+  }
+
+  ~ResourceLockGuard() { unlock(); }
+
+  ResourceLockGuard(const ResourceLockGuard &) = delete;
+  ResourceLockGuard &operator=(const ResourceLockGuard &) = delete;
+
+  ResourceLockGuard(ResourceLockGuard &&other) noexcept
+      : ptr_{std::exchange(other.ptr_, nullptr)}, type_{other.type_}, locked_{std::exchange(other.locked_, false)} {}
+
+  ResourceLockGuard &operator=(ResourceLockGuard &&other) noexcept {
+    if (this != &other) {
+      // First unlock if guard is protecting a resource
+      if (owns_lock()) unlock();
+      // Then move
+      ptr_ = std::exchange(other.ptr_, nullptr);
+      type_ = other.type_;
+      locked_ = std::exchange(other.locked_, false);
+    }
+    return *this;
+  }
+
+  void lock() {
+    if (ptr_ && !locked_) {
+      switch (type_) {
+        case UNIQUE:
+          ptr_->lock();
+          break;
+        case WRITE:
+          ptr_->lock_shared<ResourceLock::LockReq::WRITE>();
+          break;
+        case READ:
+          ptr_->lock_shared<ResourceLock::LockReq::READ>();
+          break;
+        case READ_ONLY:
+          ptr_->lock_shared<ResourceLock::LockReq::READ_ONLY>();
+          break;
+      }
+      locked_ = true;
+    }
+  }
+
+  bool try_lock() {
+    if (ptr_ && !locked_) {
+      switch (type_) {
+        case UNIQUE:
+          locked_ = ptr_->try_lock();
+          break;
+        case WRITE:
+          locked_ = ptr_->try_lock_shared<ResourceLock::LockReq::WRITE>();
+          break;
+        case READ:
+          locked_ = ptr_->try_lock_shared<ResourceLock::LockReq::READ>();
+          break;
+        case READ_ONLY:
+          locked_ = ptr_->try_lock_shared<ResourceLock::LockReq::READ_ONLY>();
+          break;
+      }
+    }
+    return locked_;
+  }
+
+  template <typename Rep, typename Period>
+  bool try_lock_for(std::chrono::duration<Rep, Period> const &time) {
+    if (ptr_ && !locked_) {
+      switch (type_) {
+        case UNIQUE:
+          locked_ = ptr_->try_lock_for(time);
+          break;
+        case WRITE:
+          locked_ = ptr_->try_lock_shared_for<Rep, Period, ResourceLock::LockReq::WRITE>(time);
+          break;
+        case READ:
+          locked_ = ptr_->try_lock_shared_for<Rep, Period, ResourceLock::LockReq::READ>(time);
+          break;
+        case READ_ONLY:
+          locked_ = ptr_->try_lock_shared_for<Rep, Period, ResourceLock::LockReq::READ_ONLY>(time);
+          break;
+      }
+    }
+    return locked_;
+  }
+
+  void unlock() {
+    if (ptr_ && locked_) {
+      switch (type_) {
+        case UNIQUE:
+          ptr_->unlock();
+          break;
+        case WRITE:
+          ptr_->unlock_shared<ResourceLock::LockReq::WRITE>();
+          break;
+        case READ:
+          ptr_->unlock_shared<ResourceLock::LockReq::READ>();
+          break;
+        case READ_ONLY:
+          ptr_->unlock_shared<ResourceLock::LockReq::READ_ONLY>();
+          break;
+      }
+      locked_ = false;
+    }
+  }
+
+  // Demote a held WRITE/READ_ONLY shared hold to READ. Not valid from UNIQUE (downgrade_to_read only
+  // transitions the SHARED state); a UNIQUE guard cannot be downgraded and reports false.
+  bool downgrade_to_read() {
+    if (ptr_ && locked_) {
+      switch (type_) {
+        case UNIQUE:
+          return false;
+        case READ:
+          return true;  // can't downgrade from read to read
+        case WRITE: {
+          auto res = ptr_->downgrade_to_read<ResourceLock::LockReq::WRITE>();
+          if (res) type_ = READ;
+          return res;
+        }
+        case READ_ONLY: {
+          auto res = ptr_->downgrade_to_read<ResourceLock::LockReq::READ_ONLY>();
+          if (res) type_ = READ;
+          return res;
+        }
+      }
+    }
+    return false;
+  }
+
+  bool is_exclusive() const { return type_ == UNIQUE; }
+
+  bool owns_lock() const { return ptr_ && locked_; }
+
+  Type type() const { return type_; }
+
+ private:
+  ResourceLock *ptr_;
+  Type type_;
+  bool locked_{false};
+};
+
 }  // namespace memgraph::utils

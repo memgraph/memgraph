@@ -2929,35 +2929,36 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
 }
 
 void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
-  // NOTE: You do not need to consider cleanup of deleted object that occurred in
-  // different storage modes within the same CollectGarbage call. This is because
-  // SetStorageMode will ensure CollectGarbage is called before any new transactions
-  // with the new storage mode can start.
+  // NOTE: A single call need not handle objects deleted under a different storage mode: SetStorageMode
+  // runs GC before any transaction in the new mode can start.
 
-  // SetStorageMode will pass its unique_lock of main_lock_. We will use that lock,
-  // as reacquiring the lock would cause deadlock. Otherwise, we need to get our own
-  // lock.
-  if (!main_guard.owns_lock()) {
-    // If aggressive mode is enabled, try to get unique lock first.
-    // Perf note: Do not try to get unique lock if aggressive mode is disabled. GC maybe expensive,
-    // do not assume it is fast, unique lock will blocks all new storage transactions.
-    if (!flags::run_time::GetStorageGcAggressive() || !main_guard.try_lock()) {
-      // Because the garbage collector iterates through the indices and constraints
-      // to clean them up, it must take the main lock for reading to make sure that
-      // the indices and constraints aren't concurrently being modified.
-      main_lock_.lock_shared();
-    }
-  } else {
-    DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
-  }
-
-  utils::OnScopeExit lock_releaser{[&] {
+  using Guard = utils::ResourceLockGuard;
+  auto const main_lock_guard = [&] -> Guard {
+    // Adopt SetStorageMode's UNIQUE hold if it passed one; reacquiring would deadlock.
     if (main_guard.owns_lock()) {
-      main_guard.unlock();
-    } else {
-      main_lock_.unlock_shared();
+      DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
+      return Guard{std::move(main_guard)};
     }
-  }};
+
+    // Aggressive GC escalates to UNIQUE (blocks new txns); otherwise a shared hold, so slow GC does
+    // not block everyone.
+    if (flags::run_time::GetStorageGcAggressive()) {
+      auto unique_guard = Guard{main_lock_, Guard::UNIQUE, std::try_to_lock};
+      if (unique_guard.owns_lock()) return unique_guard;
+    }
+
+    // Transactional GC only reads the COW indices/constraints, so READ suffices and stays compatible
+    // with concurrent READ_ONLY DDL; analytical needs WRITE (GC vs snapshot not proven safe under
+    // READ). storage_mode_ must be read under a shared hold -- it blocks SetStorageMode's UNIQUE, so
+    // an unlocked read would both data-race the write (TSan) and risk acting on a stale mode (TOCTOU).
+    auto read_guard = Guard{main_lock_, Guard::READ};
+    if (storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) return read_guard;
+
+    // Analytical: acquire WRITE before read_guard releases READ at scope exit, so the mode stays
+    // pinned across a continuous hold (one thread may hold READ+WRITE: lock_guard_condition<WRITE>
+    // checks only ro_count/ro_pending).
+    return Guard{main_lock_, Guard::WRITE};
+  }();
 
   // Only one gc run at a time
   auto gc_guard = std::unique_lock{gc_lock_, std::try_to_lock};
@@ -2966,7 +2967,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
 
   // Publish run-state for SHOW TRANSACTIONS; cleared on scope exit (see GcProgress).
-  gc_progress_.Start(periodic, main_guard.owns_lock());
+  gc_progress_.Start(periodic, main_lock_guard.is_exclusive());
   const utils::OnScopeExit gc_run_state_reset{[&] { gc_progress_.Reset(); }};
 
   // Diagnostic trace
@@ -3081,7 +3082,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // Deltas from previous GC runs or from aborts can be cleaned up here
     garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
       guard.unlock();
-      if (main_guard.owns_lock() || mark_timestamp == oldest_active_start_timestamp) {
+      if (main_lock_guard.is_exclusive() || mark_timestamp == oldest_active_start_timestamp) {
         // We know no transaction is active, it is safe to simply delete all the garbage undos
         // Nothing can be reading them
         garbage_undo_buffers.clear();
@@ -3335,7 +3336,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto guard = std::unique_lock{engine_lock_};
     uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
-    if (main_guard.owns_lock() || mark_timestamp == oldest_active_start_timestamp) {
+    if (main_lock_guard.is_exclusive() || mark_timestamp == oldest_active_start_timestamp) {
       guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them all now
