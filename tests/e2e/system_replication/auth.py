@@ -679,10 +679,7 @@ def test_auth_replication(connection, test_name):
 
     # 1/
     def check(f, expected_data):
-        # mg_sleep_and_assert(
-        # REPLICA 1 is SYNC, should already be ready
-        assert expected_data == f(cursor_replica1)()
-        # )
+        mg_sleep_and_assert(expected_data, f(cursor_replica1))
         mg_sleep_and_assert(expected_data, f(cursor_replica2))
 
     # CREATE USER
