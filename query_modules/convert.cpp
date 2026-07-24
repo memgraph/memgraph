@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -133,6 +134,13 @@ nlohmann::json::json_pointer JsonPathToPointer(std::string_view path) {
 
   size_t i = 0;
   const size_t n = path.size();
+  // Advances past a dot/bare key, stopping at the next step delimiter.
+  const auto scan_key = [&path, n](size_t from) {
+    while (from < n && path[from] != '.' && path[from] != '[') {
+      ++from;
+    }
+    return from;
+  };
   if (i < n && path[i] == '$') {
     ++i;
   }
@@ -143,9 +151,7 @@ nlohmann::json::json_pointer JsonPathToPointer(std::string_view path) {
         throw std::invalid_argument("Recursive descent ('..') is not supported in a path expression.");
       }
       const size_t start = i;
-      while (i < n && path[i] != '.' && path[i] != '[') {
-        ++i;
-      }
+      i = scan_key(i);
       const auto key = path.substr(start, i - start);
       if (key.empty() || key == "*") {
         throw std::invalid_argument("Wildcards and empty steps are not supported in a path expression.");
@@ -186,9 +192,7 @@ nlohmann::json::json_pointer JsonPathToPointer(std::string_view path) {
       }
     } else {  // leading bare key, e.g. "a.b" written without a '$' prefix
       const size_t start = i;
-      while (i < n && path[i] != '.' && path[i] != '[') {
-        ++i;
-      }
+      i = scan_key(i);
       append_key(path.substr(start, i - start));
     }
   }
@@ -215,11 +219,12 @@ std::optional<nlohmann::json> ResolveJsonPath(const mgp::Value &json_arg, const 
   return std::move(selected);
 }
 
-// Parses a JSON object string into a Cypher map. A null string yields null. An
-// optional path selects a nested part of the document first: an unresolved path
-// yields null, a JSON null yields null, and a selection that is not an object is
-// rejected.
-void from_json_map(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+// Shared body for from_json_map / from_json_list: resolves the optional path,
+// propagates null, then hands the selected JSON leaf to `emit`, which validates
+// its shape and assigns the result. Parse and path-syntax errors surface as a
+// function error.
+template <typename Emit>
+void FromJson(mgp_list *args, mgp_func_result *res, mgp_memory *memory, Emit emit) {
   const mgp::MemoryDispatcherGuard guard(memory);
   auto func_result = mgp::Result(res);
   try {
@@ -229,15 +234,24 @@ void from_json_map(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *
       func_result.SetValue();
       return;
     }
-    if (!selected->is_object()) {
-      func_result.SetErrorMessage("The selected value does not represent a JSON object.");
-      return;
-    }
-    const auto map_value = ParseJsonToMgpMap(*selected, memory);
-    func_result.SetValue(map_value.ValueMap());
+    emit(*selected, func_result);
   } catch (const std::exception &e) {
     func_result.SetErrorMessage(e.what());
   }
+}
+
+// Parses a JSON object string into a Cypher map. A null string yields null. An
+// optional path selects a nested part of the document first: an unresolved path
+// yields null, a JSON null yields null, and a selection that is not an object is
+// rejected.
+void from_json_map(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  FromJson(args, res, memory, [memory](const nlohmann::json &selected, mgp::Result &func_result) {
+    if (!selected.is_object()) {
+      func_result.SetErrorMessage("The selected value does not represent a JSON object.");
+      return;
+    }
+    func_result.SetValue(ParseJsonToMgpMap(selected, memory).ValueMap());
+  });
 }
 
 // Parses a JSON array string into a Cypher list. A null string yields null. An
@@ -245,24 +259,13 @@ void from_json_map(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *
 // yields null, a JSON null yields null, and a selection that is not an array is
 // rejected.
 void from_json_list(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
-  const mgp::MemoryDispatcherGuard guard(memory);
-  auto func_result = mgp::Result(res);
-  try {
-    const auto arguments = mgp::List(args);
-    const auto selected = ResolveJsonPath(arguments[0], arguments[1]);
-    if (!selected) {
-      func_result.SetValue();
-      return;
-    }
-    if (!selected->is_array()) {
+  FromJson(args, res, memory, [memory](const nlohmann::json &selected, mgp::Result &func_result) {
+    if (!selected.is_array()) {
       func_result.SetErrorMessage("The selected value does not represent a JSON array.");
       return;
     }
-    const auto list_value = ParseJsonToMgpList(*selected, memory);
-    func_result.SetValue(list_value.ValueList());
-  } catch (const std::exception &e) {
-    func_result.SetErrorMessage(e.what());
-  }
+    func_result.SetValue(ParseJsonToMgpList(selected, memory).ValueList());
+  });
 }
 
 // Converts a value into a map: a map is returned unchanged, a node or relationship
@@ -272,7 +275,7 @@ void to_map(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mg
   auto func_result = mgp::Result(res);
   try {
     const auto arguments = mgp::List(args);
-    const auto &argument = arguments[0];
+    const auto argument = arguments[0];
 
     if (argument.IsMap()) {
       func_result.SetValue(argument.ValueMap());
@@ -299,6 +302,15 @@ void to_map(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mg
 // Forward declaration for the recursive value serializer below.
 nlohmann::json MgpValueToJson(const mgp::Value &value);
 
+// Serializes a property map into a JSON object.
+nlohmann::json PropertiesToJson(const std::unordered_map<std::string, mgp::Value> &properties) {
+  auto props = nlohmann::json::object();
+  for (const auto &[key, value] : properties) {
+    props[key] = MgpValueToJson(value);
+  }
+  return props;
+}
+
 // Serializes a node as {id, type, labels, properties}. The id is stringified;
 // labels and properties are omitted when empty.
 nlohmann::json MgpNodeToJson(const mgp::Node &node) {
@@ -315,11 +327,7 @@ nlohmann::json MgpNodeToJson(const mgp::Node &node) {
   }
   const auto properties = node.Properties();
   if (!properties.empty()) {
-    auto props = nlohmann::json::object();
-    for (const auto &[key, value] : properties) {
-      props[key] = MgpValueToJson(value);
-    }
-    obj["properties"] = std::move(props);
+    obj["properties"] = PropertiesToJson(properties);
   }
   return obj;
 }
@@ -335,11 +343,7 @@ nlohmann::json MgpRelationshipToJson(const mgp::Relationship &relationship) {
   obj["end"] = MgpNodeToJson(relationship.To());
   const auto properties = relationship.Properties();
   if (!properties.empty()) {
-    auto props = nlohmann::json::object();
-    for (const auto &[key, value] : properties) {
-      props[key] = MgpValueToJson(value);
-    }
-    obj["properties"] = std::move(props);
+    obj["properties"] = PropertiesToJson(properties);
   }
   return obj;
 }
