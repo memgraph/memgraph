@@ -1525,7 +1525,7 @@ def test_multitenancy_snapshot_recovery(connection, test_name):
     # 6/ Validate that the transaction is still active and working and that the replica2 is not pointing to anything
 
     # 0/
-    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name, data_recovery=True)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     do_manual_setting_up(connection)
