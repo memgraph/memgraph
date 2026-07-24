@@ -1,0 +1,5 @@
+query: >
+  RETURN map.from_values(["a", null]) AS map;
+
+output:
+  - map: {a: null}

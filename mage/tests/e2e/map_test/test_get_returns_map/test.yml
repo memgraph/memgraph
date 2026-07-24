@@ -1,0 +1,5 @@
+query: >
+  RETURN map.get({inner: {x: 1}}, "inner") AS value;
+
+output:
+  - value: {x: 1}

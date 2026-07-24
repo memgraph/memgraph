@@ -10,12 +10,33 @@
 // licenses/APL.txt.
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <list>
-#include <sstream>
+#include <vector>
 
 #include "map.hpp"
 
 const auto number_of_elements_in_pair = 2;
+
+std::string Map::KeyToString(const mgp::Value &value) {
+  if (!value.IsDouble()) {
+    return value.ToString();
+  }
+  return fmt::format("{}", value.ValueDouble());
+}
+
+mgp::Map Map::ToMap(const mgp::Value &value) {
+  const auto build_map = [](const std::unordered_map<std::string, mgp::Value> &properties) {
+    mgp::Map map{};
+    for (const auto &[key, property_value] : properties) {
+      map.Insert(key, property_value);
+    }
+    return map;
+  };
+  if (value.IsNode()) return build_map(value.ValueNode().Properties());
+  if (value.IsRelationship()) return build_map(value.ValueRelationship().Properties());
+  return value.ValueMap();  // already returns a fresh Map by value
+}
 
 /*NOTE: FromNodes isn't 1:1 for graphQL, because first, we need to extend C and CPP API to iterate vertices using ctx
 object, since the `FromNodes` procedure (function if we want to change API) needs to iterate over all graph nodes*/
@@ -33,9 +54,7 @@ void Map::FromNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
     for (const auto node : all_nodes) {
       if (!node.HasLabel(label) || !node.Properties().contains(std::string(property))) continue;
 
-      std::ostringstream oss;
-      oss << node.GetProperty(std::string(property));
-      const auto key = oss.str();
+      const auto key = KeyToString(node.GetProperty(std::string(property)));
 
       mgp::Map map{};
       map.Update("identity", mgp::Value(node.Id().AsInt()));
@@ -57,7 +76,7 @@ void Map::FromNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
     }
 
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(kResultFromNodes).c_str(), map_result);
+    record.Insert(kResultFromNodes, map_result);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -80,16 +99,19 @@ void Map::FromValues(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result
 
     auto iterator = values.begin();
     while (iterator != values.end()) {
-      std::ostringstream oss;
-      oss << *iterator;
-      const auto key = oss.str();
-
+      const auto key_value = *iterator;
       ++iterator;
-      map.Update(key, *iterator);
+
+      // Skip pairs whose key is null (the value is still consumed).
+      if (key_value.IsNull()) {
+        ++iterator;
+        continue;
+      }
+      map.Update(KeyToString(key_value), *iterator);
       ++iterator;
     }
 
-    result.SetValue(map);
+    result.SetValue(std::move(map));
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());
@@ -103,10 +125,12 @@ void Map::SetKey(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *re
   auto result = mgp::Result(res);
 
   try {
-    auto map = arguments[0].ValueMap();
-    const auto key{std::string(arguments[1].ValueString())};
-    const auto value{arguments[2]};
-    map.Update(key, value);
+    // A null map is treated as empty and a null key is a no-op; a node/relationship is
+    // coerced to its properties map.
+    mgp::Map map = arguments[0].IsNull() ? mgp::Map() : ToMap(arguments[0]);
+    if (!arguments[1].IsNull()) {
+      map.Update(arguments[1].ValueString(), arguments[2]);
+    }
     result.SetValue(std::move(map));
 
   } catch (const std::exception &e) {
@@ -115,37 +139,18 @@ void Map::SetKey(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *re
   }
 }
 
-void Map::RemoveRecursion(mgp::Map &result, bool recursive, std::string_view key) {
-  for (auto element : result) {
-    if (element.key == key) {
-      result.Erase(element.key);
-      continue;
-    }
-    if (element.value.IsMap() && recursive) {
-      // TO-DO no need for non_const_value_map in new version of memgraph
-      mgp::Map non_const_value_map = mgp::Map(element.value.ValueMap());
-      RemoveRecursion(non_const_value_map, recursive, key);
-      if (non_const_value_map.Empty()) {
-        result.Erase(element.key);
-        continue;
-      }
-      result.Update(element.key, mgp::Value(std::move(non_const_value_map)));
-    }
-  }
-}
-
 void Map::RemoveKey(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
-    const auto map = arguments[0].ValueMap();
-    const auto key = std::string(arguments[1].ValueString());
+    const auto map = ToMap(arguments[0]);
     const auto config = arguments[2].ValueMap();
     const auto recursive = (config.At("recursive").IsBool()) ? config.At("recursive").ValueBool() : false;
     mgp::Map map_removed = mgp::Map(map);
 
-    RemoveRecursion(map_removed, recursive, key);
+    std::unordered_set<std::string> keys{std::string(arguments[1].ValueString())};
+    RemoveRecursionSet(map_removed, recursive, keys);
 
     result.SetValue(std::move(map_removed));
 
@@ -190,10 +195,10 @@ void Map::Merge(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res
   auto result = mgp::Result(res);
 
   try {
-    const auto map1 = arguments[0].IsMap() ? arguments[0].ValueMap() : mgp::Map();
-    const auto map2 = arguments[1].IsMap() ? arguments[1].ValueMap() : mgp::Map();
+    const auto map1 = arguments[0].IsNull() ? mgp::Map() : ToMap(arguments[0]);
+    auto map2 = arguments[1].IsNull() ? mgp::Map() : ToMap(arguments[1]);
 
-    mgp::Map merged_map = mgp::Map(map2);
+    mgp::Map merged_map = std::move(map2);
     for (const auto element : map1) {
       if (!merged_map.KeyExists(element.key)) {
         merged_map.Insert(element.key, element.value);
@@ -228,7 +233,7 @@ void Map::Flatten(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *r
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
-    const mgp::Map map = arguments[0].ValueMap();
+    const mgp::Map map = ToMap(arguments[0]);
     const std::string delimiter(arguments[1].ValueString());
     mgp::Map result_map = mgp::Map();
     FlattenRecursion(result_map, map, "", delimiter);
@@ -249,8 +254,8 @@ void Map::FromLists(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result 
     mgp::List list2 = arguments[1].ValueList();
 
     const auto expected_list_size = list1.Size();
-    if (expected_list_size != list2.Size() || expected_list_size == 0) {
-      throw mgp::ValueException("Lists must be of same size and not empty");
+    if (expected_list_size != list2.Size()) {
+      throw mgp::ValueException("keys and values lists have to be not null and of same size");
     }
     mgp::Map result = mgp::Map();
     for (size_t i = 0; i < expected_list_size; i++) {
@@ -265,24 +270,29 @@ void Map::FromLists(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result 
 }
 
 void Map::RemoveRecursionSet(mgp::Map &result, bool recursive, std::unordered_set<std::string> &set) {
-  for (auto element : result) {
-    bool inSet = false;
+  // Collect mutations first: erasing/updating while iterating invalidates the map iterator.
+  std::vector<std::string> to_erase;
+  std::vector<std::pair<std::string, mgp::Value>> to_update;
+  for (const auto element : result) {
     if (set.contains(std::string(element.key))) {
-      inSet = true;
-    }
-    if (inSet) {
-      result.Erase(element.key);
+      to_erase.emplace_back(element.key);
       continue;
     }
     if (element.value.IsMap() && recursive) {
       mgp::Map non_const_value_map = mgp::Map(element.value.ValueMap());
       RemoveRecursionSet(non_const_value_map, recursive, set);
       if (non_const_value_map.Empty()) {
-        result.Erase(element.key);
-        continue;
+        to_erase.emplace_back(element.key);
+      } else {
+        to_update.emplace_back(element.key, mgp::Value(std::move(non_const_value_map)));
       }
-      result.Update(element.key, mgp::Value(std::move(non_const_value_map)));
     }
+  }
+  for (const auto &erase_key : to_erase) {
+    result.Erase(erase_key);
+  }
+  for (auto &[update_key, value] : to_update) {
+    result.Update(update_key, value);
   }
 }
 
@@ -291,7 +301,7 @@ void Map::RemoveKeys(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result
   auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
-    mgp::Map map = arguments[0].ValueMap();
+    mgp::Map map = ToMap(arguments[0]);
     const mgp::List list = arguments[1].ValueList();
     const auto config = arguments[2].ValueMap();
     const auto recursive = (config.At("recursive").IsBool()) ? config.At("recursive").ValueBool() : false;
@@ -301,6 +311,64 @@ void Map::RemoveKeys(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result
     }
     RemoveRecursionSet(map, recursive, set);
     result.SetValue(std::move(map));
+
+  } catch (const std::exception &e) {
+    result.SetErrorMessage(e.what());
+    return;
+  }
+}
+
+void Map::Get(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  auto result = mgp::Result(res);
+
+  try {
+    const auto map = ToMap(arguments[0]);
+    const auto key = arguments[1].ValueString();
+    const auto default_value = arguments[2];
+    const auto fail = arguments[3].ValueBool();
+
+    // Precedence: an existing key always wins (even when its value is null), then a
+    // non-null default, then fail (throw) or a null result.
+    if (map.KeyExists(key)) {
+      result.SetValue(map.At(key));
+      return;
+    }
+    if (!default_value.IsNull()) {
+      result.SetValue(default_value);
+      return;
+    }
+    if (fail) {
+      std::vector<std::string_view> keys;
+      for (const auto element : map) {
+        keys.push_back(element.key);
+      }
+      throw mgp::ValueException(
+          fmt::format("Key {} is not of one of the existing keys [{}]", key, fmt::join(keys, ", ")));
+    }
+    result.SetValue();
+
+  } catch (const std::exception &e) {
+    result.SetErrorMessage(e.what());
+    return;
+  }
+}
+
+void Map::MergeList(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  auto result = mgp::Result(res);
+
+  try {
+    const auto maps = arguments[0].ValueList();
+    mgp::Map merged{};
+    for (const auto element_map : maps) {
+      for (const auto entry : ToMap(element_map)) {
+        merged.Update(entry.key, entry.value);  // last key wins
+      }
+    }
+    result.SetValue(std::move(merged));
 
   } catch (const std::exception &e) {
     result.SetErrorMessage(e.what());

@@ -1,0 +1,5 @@
+query: >
+  RETURN map.get({name: "Zdravko", age: 3}, "name") AS value;
+
+output:
+  - value: "Zdravko"

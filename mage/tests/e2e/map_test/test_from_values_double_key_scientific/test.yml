@@ -1,0 +1,5 @@
+query: >
+  RETURN map.from_values([1e-10, "b"]) AS map;
+
+output:
+  - map: {"1e-10": "b"}
