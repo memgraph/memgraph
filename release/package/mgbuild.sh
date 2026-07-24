@@ -2110,6 +2110,19 @@ _package_mage() {
     docker cp $build_container:$path output/
     local name
     name=$(basename "$path")
+    # Tag the distro into rpm filenames (old build-rpm.sh behavior): the mage
+    # S3 daily dir is flat, so untagged centos-9/centos-10 rpms collide.
+    if [[ "$format" == "rpm" ]]; then
+      local arch_tag
+      for arch_tag in x86_64 aarch64; do
+        if [[ "$name" == *."$arch_tag".rpm ]]; then
+          local tagged="${name%."$arch_tag".rpm}.$os.$arch_tag.rpm"
+          mv "output/$name" "output/$tagged"
+          name=$tagged
+          break
+        fi
+      done
+    fi
     if [[ -n "$suffix" ]]; then
       local new_name="${name%.$format}${suffix}.$format"
       mv "output/$name" "output/$new_name"

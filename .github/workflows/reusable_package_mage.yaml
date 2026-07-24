@@ -1024,6 +1024,31 @@ jobs:
         run: |
           rm -fv output/memgraph-mage*.deb output/memgraph-mage*.rpm
 
+      - name: Rename mage packages
+        # Daily builds rename to the PR-style scheme in MEMGRAPH_VERSION,
+        # mirroring the "Rename Package" step in reusable_package.yaml. Only
+        # the version substring is swapped, preserving the distro tag and
+        # flavour suffixes.
+        if: ${{ inputs.daily_build }}
+        run: |
+          core="$MEMGRAPH_VERSION"
+          shopt -s nullglob
+          for f in output/memgraph-mage*.deb; do
+            name="$(basename "$f")"
+            rest="${name#*_}"
+            old="${rest%%-1_*}"
+            [[ "$old" != "$core" ]] || continue
+            mv -v "$f" "output/${name/"$old"/"$core"}"
+          done
+          for f in output/memgraph-mage*.rpm; do
+            name="$(basename "$f")"
+            rest="${name#memgraph-mage-debuginfo-}"
+            rest="${rest#memgraph-mage-}"
+            old="${rest%%-*}"
+            [[ "$old" != "$core" ]] || continue
+            mv -v "$f" "output/${name/"$old"/"$core"}"
+          done
+
       - name: Save docker image(s)
         if: ${{ (inputs.push_to_github || inputs.push_to_s3) && env.BUILD_DOCKER_IMAGE != 'none' }}
         run: |
