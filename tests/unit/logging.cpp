@@ -305,6 +305,25 @@ TEST_F(SessionTraceEmitTest, LevelAboveInfoSkipsArgumentFormatting) {
   EXPECT_TRUE(sink_->messages.empty());
 }
 
+// ResetForConnectionReuse clears the session overlay (SET SESSION TRACE/SETTING) but keeps
+// connection identity and auth user.
+TEST(SessionLogContext, ResetForConnectionReuseClearsOverlayButKeepsIdentity) {
+  SessionLogContext ctx;
+  ctx.SetSessionUuid("conn-1");
+  ctx.SetUser("alice");
+  ctx.SetTrace(true);
+  ctx.SetSetting("query-log-min-duration-ms", "500");
+  ASSERT_TRUE(ctx.trace_enabled());
+  ASSERT_TRUE(ctx.GetSetting("query-log-min-duration-ms").has_value());
+
+  ctx.ResetForConnectionReuse();
+
+  EXPECT_FALSE(ctx.trace_enabled());
+  EXPECT_FALSE(ctx.GetSetting("query-log-min-duration-ms").has_value());
+  EXPECT_EQ(ctx.session_uuid(), "conn-1");  // physical-connection identity preserved
+  EXPECT_EQ(ctx.user(), "alice");           // auth user preserved (reset via LogOff, not RESET)
+}
+
 // Pre-formatted overload: braces in the payload are emitted verbatim, not as format spec.
 TEST_F(SessionTraceEmitTest, PreFormattedOverloadEmitsBracesVerbatim) {
   SessionLogContext ctx;

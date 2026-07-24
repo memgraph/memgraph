@@ -28,6 +28,7 @@
 #include "system/transaction.hpp"
 #include "utils/event_trigger.hpp"
 #include "utils/memory.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
 #include "utils/session_context.hpp"
 #include "utils/spin_lock.hpp"
@@ -255,6 +256,9 @@ struct CurrentDB {
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
+    // Clear too: a stale in_explicit_db_ == true with an empty db_acc_ would wrongly block a later
+    // `USE <db>` (PrepareUseDatabaseQuery's in_explicit_db_ check) on this CurrentDB.
+    in_explicit_db_ = false;
   }
 
   std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
@@ -448,6 +452,14 @@ class Interpreter final {
    */
   void Abort();
 
+  /**
+   * Clear per-connection "sticky" state that must not leak across a pooled Bolt connection reuse
+   * (RESET) or LogOff/teardown. Deliberately NOT folded into Abort(): Abort() also runs on
+   * mid-session ROLLBACK/auth-failure/autocommit-abort, where this state must survive. Call only
+   * from a RESET/teardown path (today just SessionHL::Abort()).
+   */
+  void ResetForConnectionReuse();
+
   struct TxVerifier {
     TxVerifier(TransactionStatus original_status, std::atomic<TransactionStatus> &transaction_status)
         : original_status_(original_status), transaction_status_(transaction_status) {}
@@ -487,6 +499,14 @@ class Interpreter final {
   // is used for start_time; steady_clock for elapsed_ms (immune to NTP / manual clock jumps).
   std::chrono::system_clock::time_point transaction_start_time_{};
   std::chrono::steady_clock::time_point transaction_start_steady_{};
+
+  // Idle-in-transaction watchdog support (InterpreterContext::ScanIdleTransactions).
+  // last_activity_steady_ns_ is stamped on every unit of work (transaction start, Prepare, Pull);
+  // query_in_progress_ is true only while a Prepare()/Pull() runs. Both are advisory monitoring
+  // data (plain atomics), not correctness-critical, so they skip the transaction_status_ VERIFYING
+  // protocol -- but the scan still reads in_explicit_transaction_ under TryAcquireForVerification().
+  std::atomic<int64_t> last_activity_steady_ns_{0};
+  std::atomic<bool> query_in_progress_{false};
 
   void ResetUser();
 
@@ -644,6 +664,15 @@ class Interpreter final {
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
+  // Idle-in-transaction watchdog: flag active work for the duration of Pull() and stamp the
+  // last-activity clock on exit, so the background scan never counts an in-flight pull as idle.
+  query_in_progress_.store(true, std::memory_order_release);
+  const utils::OnScopeExit idle_watchdog_activity_guard([this] {
+    last_activity_steady_ns_.store(std::chrono::steady_clock::now().time_since_epoch().count(),
+                                   std::memory_order_relaxed);
+    query_in_progress_.store(false, std::memory_order_release);
+  });
+
   // Update the TLS arena index used to route allocations to the correct database arena.
   // The previous arena is restored on scope exit so pool threads are unaffected.
   std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;

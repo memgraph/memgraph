@@ -255,6 +255,22 @@ DEFINE_string(query_callable_mappings_path, "",
               "pairs in a json file. With this option query module procedures that do not exist in memgraph can be "
               "mapped to ones that exist.");
 
+// Idle-in-transaction watchdog: a BEGIN'd transaction holds its accessor/main_lock_ until
+// COMMIT/ROLLBACK/RESET, and the per-query timeout never fires while idle. Warn-tracking always
+// runs; abort is opt-in via the TERMINATE TRANSACTIONS path (threshold 0 = disabled default).
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_uint64(query_idle_in_transaction_warn_sec, 60,
+                        "Warn (and count in metrics) when an explicit (BEGIN'd) transaction has been idle -- no "
+                        "query currently executing -- for this many seconds. Set to 0 to disable.",
+                        FLAG_IN_RANGE(0, 30UL * 24 * 3600));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_uint64(query_idle_in_transaction_abort_sec, 0,
+                        "Abort an explicit (BEGIN'd) transaction that has been idle -- no query currently executing "
+                        "-- for this many seconds, using the same cross-thread termination path as TERMINATE "
+                        "TRANSACTIONS. 0 (default) disables aborting; only --query-idle-in-transaction-warn-sec "
+                        "tracking is ever on by default.",
+                        FLAG_IN_RANGE(0, 30UL * 24 * 3600));
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

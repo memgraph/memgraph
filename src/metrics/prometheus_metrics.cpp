@@ -554,6 +554,17 @@ PrometheusMetrics::PrometheusMetrics()
                                           .Name("memgraph_database_resume_latency_seconds")
                                           .Help("Latency of a successful database RESUME in seconds")
                                           .Register(registry_)},
+      // Idle-in-transaction watchdog
+      idle_in_transaction_warnings_family_{prometheus::BuildCounter()
+                                               .Name("memgraph_idle_in_transaction_warnings_total")
+                                               .Help("Number of scan ticks that found an explicit transaction idle "
+                                                     "past the warn threshold")
+                                               .Register(registry_)},
+      idle_in_transaction_aborted_family_{prometheus::BuildCounter()
+                                              .Name("memgraph_idle_in_transaction_aborted_total")
+                                              .Help("Number of explicit transactions terminated by the "
+                                                    "idle-in-transaction watchdog")
+                                              .Register(registry_)},
       // HighAvailability counters
       successful_failovers_family_{prometheus::BuildCounter()
                                        .Name("memgraph_successful_failovers_total")
@@ -844,6 +855,8 @@ PrometheusMetrics::PrometheusMetrics()
   global.cold_databases = &cold_databases_family_.Add(no_labels);
   global.database_suspend_latency_seconds = &database_suspend_latency_family_.Add(no_labels, kLatencyBuckets);
   global.database_resume_latency_seconds = &database_resume_latency_family_.Add(no_labels, kLatencyBuckets);
+  global.idle_in_transaction_warnings = &idle_in_transaction_warnings_family_.Add(no_labels);
+  global.idle_in_transaction_aborted = &idle_in_transaction_aborted_family_.Add(no_labels);
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
@@ -2031,6 +2044,16 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   out.push_back({"ColdDatabases", "HotCold", "Gauge", static_cast<int64_t>(global.cold_databases->Value())});
   AppendHistogramPercentiles(out, "DatabaseSuspendLatency", "HotCold", *global.database_suspend_latency_seconds);
   AppendHistogramPercentiles(out, "DatabaseResumeLatency", "HotCold", *global.database_resume_latency_seconds);
+
+  // Idle-in-transaction watchdog (global only)
+  out.push_back({"IdleInTransactionWarnings",
+                 "Transaction",
+                 "Counter",
+                 static_cast<int64_t>(global.idle_in_transaction_warnings->Value())});
+  out.push_back({"IdleInTransactionAborted",
+                 "Transaction",
+                 "Counter",
+                 static_cast<int64_t>(global.idle_in_transaction_aborted->Value())});
 
   // Session
   out.push_back({"ActiveSessions", "Session", "Gauge", static_cast<int64_t>(global.active_sessions->Value())});

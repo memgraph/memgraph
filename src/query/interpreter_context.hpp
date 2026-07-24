@@ -13,9 +13,11 @@
 
 #include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -33,6 +35,7 @@
 #include "utils/gatekeeper.hpp"
 #include "utils/priority_thread_pool.hpp"
 #include "utils/resource_monitoring.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -105,6 +108,21 @@ struct InterpreterContext {
 
   static std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,
                                                            std::string_view db_name);
+
+  /// Idle-in-transaction watchdog scan over `interpreters`: warns (log + metric) past the warn
+  /// threshold, and past the opt-in abort threshold (default 0 = off) terminates via the same
+  /// transaction_status_ CAS path as TERMINATE TRANSACTIONS.
+  void ScanIdleTransactions();
+
+  // Throttles the per-tx log line (metric still bumps every tick); pruned each tick so it can't
+  // grow unbounded.
+  utils::Synchronized<std::unordered_map<uint64_t, std::chrono::steady_clock::time_point>, utils::SpinLock>
+      idle_warn_last_logged_;
+
+  // Drives ScanIdleTransactions(). MUST be the last-declared member: ~Scheduler() joins the scan
+  // thread, and reverse-order destruction then guarantees the members the scan touches
+  // (`interpreters`, `idle_warn_last_logged_`) still exist. Do not move it earlier.
+  utils::Scheduler idle_transaction_scanner_;
 
   // TODO: Make this constructor private
   InterpreterContext(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,

@@ -9732,6 +9732,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     accessor_type_ = cypher_access_type();
   }
 
+  // could_commit_ stays false: PROFILE always ABORTs its transaction (PrepareProfileQuery returns
+  // QueryHandlerResult::ABORT), so there is no commit and before/after-COMMIT triggers must not fire.
   void Visit(ProfileQuery & /*unused*/) override { accessor_type_ = cypher_access_type(); }
 
   void Visit(TriggerQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::WRITE; }
@@ -9801,6 +9803,15 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
+  // Idle-in-transaction watchdog: flag active work for the duration of Prepare() and stamp the
+  // last-activity clock on exit, so the background scan never counts in-flight work as idle.
+  query_in_progress_.store(true, std::memory_order_release);
+  const utils::OnScopeExit idle_watchdog_activity_guard([this] {
+    last_activity_steady_ns_.store(std::chrono::steady_clock::now().time_since_epoch().count(),
+                                   std::memory_order_relaxed);
+    query_in_progress_.store(false, std::memory_order_release);
+  });
+
   std::optional<memory::DbArenaScope> db_arena_scope;
   if (current_db_.db_acc_) {
     db_arena_scope.emplace(current_db_.db_acc_->get());
@@ -10416,6 +10427,9 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   current_transaction_ = tx_id;
   transaction_start_time_ = std::chrono::system_clock::now();
   transaction_start_steady_ = std::chrono::steady_clock::now();
+  // Idle-in-transaction watchdog: a fresh transaction is not idle yet; reset the clock so the
+  // first scan tick after BEGIN doesn't treat a stale value as idle time.
+  last_activity_steady_ns_.store(transaction_start_steady_.time_since_epoch().count(), std::memory_order_relaxed);
   // Release publishes the start-time writes above to verifier-holding readers.
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   session_log_ctx_.SetTxId(tx_id);
@@ -10504,6 +10518,26 @@ void Interpreter::Abort() {
     if (qe) qe->CleanRuntimeData();
   }
   frame_change_collector_.reset();
+}
+
+void Interpreter::ResetForConnectionReuse() {
+  // One-shot `SET NEXT TRANSACTION ISOLATION LEVEL`: its target transaction never starts on
+  // RESET/LogOff, so drop it or it leaks into the next pooled session's first transaction.
+  next_transaction_isolation_level.reset();
+
+#ifdef MG_ENTERPRISE
+  // `USE <db>` pins per-connection db state (db_acc_ + in_explicit_db_); clear it so the next
+  // pooled session re-establishes its db via TryDefaultDB()/RuntimeConfig::Configure().
+  ResetDB();
+#endif
+
+  // Session-scoped `SET SESSION ISOLATION LEVEL`: cleared so the next pooled session falls back to
+  // the storage/config default rather than inheriting a previous session's override.
+  interpreter_isolation_level.reset();
+
+  // `SET SESSION TRACE`/`SETTING` mutate the SessionLogContext overlay in-band (invisible to
+  // Configure()), so clear the query-driven overlay too; connection identity + auth user are kept.
+  session_log_ctx_.ResetForConnectionReuse();
 }
 
 std::optional<Interpreter::TxVerifier> Interpreter::TryAcquireForVerification() {

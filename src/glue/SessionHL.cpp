@@ -363,6 +363,13 @@ void SessionHL::LogOff() {
 void SessionHL::Abort() {
   interpreter_.ResetCachedFga();
   interpreter_.Abort();
+  // RESET-specific path (only callers: Bolt RESET handler and LogOff, never a mid-session
+  // rollback), so clearing per-connection sticky state that must not leak onto a pooled
+  // connection's next session is safe only here.
+  interpreter_.ResetForConnectionReuse();
+#ifdef MG_ENTERPRISE
+  runtime_config_.ResetForConnectionReuse();
+#endif
 }
 
 bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
