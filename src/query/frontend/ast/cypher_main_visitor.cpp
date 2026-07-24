@@ -3320,12 +3320,18 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
   }
 
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
+  // The heuristic lambda (introduced by the HEURISTIC keyword) reuses the relationshipLambda rule, so it also
+  // shows up in the list above. Pull it out so it is not miscounted as a weight/filter lambda.
+  auto *heuristic_lambda_ctx = relationshipDetail->heuristic_lambda;
+  if (heuristic_lambda_ctx != nullptr) {
+    std::erase(relationshipLambdas, heuristic_lambda_ctx);
+  }
   if (variableExpansion) {
     if (relationshipDetail->total_weight && edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH &&
-        edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS)
+        edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS && edge->type_ != EdgeAtom::Type::KSHORTEST)
       throw SemanticException(
-          "Variable for total weight is allowed only with weighted and all shortest "
-          "path expansion.");
+          "Variable for total weight is allowed only with weighted, all shortest "
+          "and k shortest path expansion.");
     auto visit_lambda = [this](auto *lambda) {
       EdgeAtom::Lambda edge_lambda;
       auto traversed_edge_variable = std::any_cast<std::string>(lambda->traversed_edge->accept(this));
@@ -3376,13 +3382,10 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         }
         break;
       case 1:
-        if (edge->type_ == EdgeAtom::Type::KSHORTEST) {
-          throw SemanticException("KSHORTEST expansion does not support filter lambda.");
-        }
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
-            edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
-          // For wShortest and allShortest, the first (and required) lambda is
-          // used for weight calculation.
+            edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS || edge->type_ == EdgeAtom::Type::KSHORTEST) {
+          // For wShortest, allShortest and kShortest, the first (and only, when a
+          // single lambda is supplied) lambda is used for weight calculation.
           edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
           visit_total_weight();
           // Add mandatory inner variables for filter lambda.
@@ -3406,7 +3409,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         }
         break;
       case 2:
-        if (edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH && edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS)
+        if (edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH &&
+            edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS && edge->type_ != EdgeAtom::Type::KSHORTEST)
           throw SemanticException("Only one filter lambda can be supplied.");
         edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
         visit_total_weight();
@@ -3414,6 +3418,16 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         break;
       default:
         throw SemanticException("Only one filter lambda can be supplied.");
+    }
+    if (heuristic_lambda_ctx != nullptr) {
+      if (edge->type_ != EdgeAtom::Type::KSHORTEST) {
+        throw SemanticException("A* heuristic (HEURISTIC lambda) is only supported with KSHORTEST path expansion.");
+      }
+      if (edge->weight_lambda_.expression == nullptr) {
+        throw SemanticException(
+            "A* heuristic (HEURISTIC lambda) requires a weight lambda in KSHORTEST path expansion.");
+      }
+      edge->heuristic_lambda_ = visit_lambda(heuristic_lambda_ctx);
     }
     if (edge->type_ != EdgeAtom::Type::KSHORTEST && edge->limit_ != nullptr) {
       throw SemanticException("Number of paths limit is only supported with KSHORTEST path expansion.");

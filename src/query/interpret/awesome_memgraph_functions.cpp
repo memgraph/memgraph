@@ -1157,6 +1157,39 @@ TypedValue Atan2(const TypedValue *args, int64_t nargs, const FunctionContext &c
   return TypedValue(atan2(y, x), ctx.memory);
 }
 
+TypedValue Haversine(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Number>, Or<Null, Number>, Or<Null, Number>, Or<Null, Number>>("haversine", args, nargs);
+  if (args[0].IsNull() || args[1].IsNull() || args[2].IsNull() || args[3].IsNull()) return TypedValue(ctx.memory);
+  auto to_double = [](const TypedValue &t) -> double {
+    if (t.IsInt()) {
+      return t.ValueInt();
+    } else {
+      return t.ValueDouble();
+    }
+  };
+  // Coordinates in degrees: (latitude1, longitude1, latitude2, longitude2).
+  const double latitude1 = to_double(args[0]);
+  const double longitude1 = to_double(args[1]);
+  const double latitude2 = to_double(args[2]);
+  const double longitude2 = to_double(args[3]);
+
+  // Mean Earth radius in meters, matching the unit used by point.distance.
+  constexpr double kEarthRadiusMeters = 6371000.0;
+  auto to_radians = [](double degrees) { return degrees * M_PI / 180.0; };
+
+  const double latitude1_rad = to_radians(latitude1);
+  const double latitude2_rad = to_radians(latitude2);
+  const double delta_latitude = to_radians(latitude2 - latitude1);
+  const double delta_longitude = to_radians(longitude2 - longitude1);
+
+  // Haversine formula for the great-circle distance between two points on a sphere.
+  const double a = std::sin(delta_latitude / 2.0) * std::sin(delta_latitude / 2.0) +
+                   std::cos(latitude1_rad) * std::cos(latitude2_rad) * std::sin(delta_longitude / 2.0) *
+                       std::sin(delta_longitude / 2.0);
+  const double c = 2.0 * atan2(std::sqrt(a), std::sqrt(1.0 - a));
+  return TypedValue(kEarthRadiusMeters * c, ctx.memory);
+}
+
 TypedValue Sign(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Number>>("sign", args, nargs);
   auto sign = [&](auto x) { return TypedValue((0 < x) - (x < 0), ctx.memory); };
@@ -2119,6 +2152,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
     {"ATAN", func_info{.func_ = Atan, .is_pure_ = true}},
     {"ATAN2", func_info{.func_ = Atan2, .is_pure_ = true}},
     {"COS", func_info{.func_ = Cos, .is_pure_ = true}},
+    {"HAVERSINE", func_info{.func_ = Haversine, .is_pure_ = true}},
     {"PI", func_info{.func_ = Pi, .is_pure_ = true}},
     {"SIN", func_info{.func_ = Sin, .is_pure_ = true}},
     {"TAN", func_info{.func_ = Tan, .is_pure_ = true}},
