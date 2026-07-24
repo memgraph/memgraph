@@ -74,8 +74,8 @@ TEST(Rpc, Abort) {
 
   std::thread thread([&client]() {
     std::this_thread::sleep_for(100ms);
-    spdlog::info("Shutting down the connection!");
-    client.Shutdown();
+    spdlog::info("Aborting the connection!");
+    client.Abort();
   });
 
   memgraph::utils::Timer const timer;
@@ -83,6 +83,7 @@ TEST(Rpc, Abort) {
   EXPECT_LT(timer.Elapsed(), 200ms);
 
   thread.join();
+  client.Shutdown();
 
   ASSERT_TRUE(server.Shutdown());
   server.AwaitShutdown();
