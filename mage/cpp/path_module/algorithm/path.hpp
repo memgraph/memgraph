@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,9 +13,11 @@
 
 #include <mgp.hpp>
 
+#include <functional>
 #include <limits>
 #include <queue>
 #include <set>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -97,9 +99,16 @@ struct LabelBoolsStatus {
 
 enum class RelDirection { kNone = -1, kAny = 0, kIncoming = 1, kOutgoing = 2, kBoth = 3 };
 
+// Enables heterogeneous string_view lookup so relationship types can be looked up without allocating.
+struct TransparentStringHash {
+  using is_transparent = void;
+
+  [[nodiscard]] size_t operator()(std::string_view sv) const noexcept { return std::hash<std::string_view>{}(sv); }
+};
+
 struct Config {
   LabelBoolsStatus label_bools_status;
-  std::unordered_map<std::string, RelDirection> relationship_sets;
+  std::unordered_map<std::string, RelDirection, TransparentStringHash, std::equal_to<>> relationship_sets;
   LabelSets label_sets;
   int64_t min_hops = 0;
   int64_t max_hops = std::numeric_limits<int64_t>::max();
@@ -115,11 +124,13 @@ class PathHelper {
   explicit PathHelper(const mgp::List &labels, const mgp::List &relationships, int64_t min_hops, int64_t max_hops);
   explicit PathHelper(const mgp::Map &config);
 
-  RelDirection GetDirection(const std::string &rel_type) const;
+  RelDirection GetDirection(std::string_view rel_type) const;
   LabelBools GetLabelBools(const mgp::Node &node) const;
 
   bool AnyDirected(bool outgoing) const { return outgoing ? config_.any_outgoing : config_.any_incoming; }
+
   bool IsNotStartOrFiltersStartNode(bool is_start) const { return (config_.filter_start_node || !is_start); }
+
   bool IsNotStartOrFilterStartRel(bool is_start) const { return (config_.begin_sequence_at_start || !is_start); }
 
   bool AreLabelsValid(const LabelBools &label_bools) const;
@@ -178,7 +189,7 @@ class PathSubgraph {
                                bool outgoing, std::queue<std::pair<mgp::Node, int64_t>> &queue,
                                std::set<std::pair<std::string_view, int64_t>> &seen);
   void Parse(const mgp::Value &value);
-  void TryInsertNode(const mgp::Node &node, int64_t hop_count, LabelBools &label_bools);
+  void TryInsertNode(const mgp::Node &node, int64_t hop_count, const LabelBools &label_bools);
   mgp::List BFS();
 
  private:

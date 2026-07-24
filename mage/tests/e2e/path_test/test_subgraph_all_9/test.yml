@@ -7,16 +7,11 @@ query: >
 output:
   - nodes:
       - labels:
-          - Cat
-        properties: {}
-      - labels:
           - Dog
         properties: {}
       - labels:
           - Human
         properties: {}
     rels:
-      - label: "CATCHES"
-        properties: {}
       - label: "OWNS"
         properties: {}
