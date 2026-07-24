@@ -188,6 +188,7 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
   add_if_set(kInstanceDownTimeoutSec, delta_state.instance_down_timeout_sec_);
   add_if_set(kInstanceHealthCheckFreqSec, delta_state.instance_health_check_frequency_sec_);
   add_if_set(kGlobalReadOnly, delta_state.global_read_only_);
+  add_if_set(kRoles, delta_state.roles_);
 
   return CreateLog(delta_state_json);
 }
@@ -246,6 +247,11 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
 
     if (json.contains(kGlobalReadOnly.data())) {
       delta_state.global_read_only_ = json[kGlobalReadOnly.data()].get<bool>();
+    }
+
+    if (json.contains(kRoles.data())) {
+      // roles is added later, read it optionally so older logs decode to an unset delta field
+      delta_state.roles_ = json[kRoles.data()].get<std::vector<CoordinatorRole>>();
     }
 
     return delta_state;
@@ -452,6 +458,8 @@ auto CoordinatorStateMachine::GetInstanceHealthCheckFrequencySec() const -> std:
 }
 
 auto CoordinatorStateMachine::GetGlobalReadOnly() const -> bool { return cluster_state_.GetGlobalReadOnly(); }
+
+auto CoordinatorStateMachine::GetRoles() const -> std::vector<CoordinatorRole> { return cluster_state_.GetRoles(); }
 
 }  // namespace memgraph::coordination
 #endif

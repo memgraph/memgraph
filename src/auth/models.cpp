@@ -137,8 +137,6 @@ std::string PermissionToString(Permission permission) {
       return "MULTI_DATABASE_EDIT";
     case Permission::MULTI_DATABASE_USE:
       return "MULTI_DATABASE_USE";
-    case Permission::COORDINATOR:
-      return "COORDINATOR";
     case Permission::IMPERSONATE_USER:
       return "IMPERSONATE_USER";
     case Permission::PROFILE_RESTRICTION:
@@ -151,6 +149,10 @@ std::string PermissionToString(Permission permission) {
       return "SERVER_SIDE_DESCRIPTIONS";
     case Permission::RELOAD_TLS:
       return "RELOAD_TLS";
+    case Permission::COORDINATOR_READ:
+      return "COORDINATOR_READ";
+    case Permission::COORDINATOR_WRITE:
+      return "COORDINATOR_WRITE";
   }
 }
 

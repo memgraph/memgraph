@@ -98,13 +98,16 @@ class AuthQuery : public memgraph::query::Query {
     TRANSACTION_MANAGEMENT,
     MULTI_DATABASE_EDIT,
     MULTI_DATABASE_USE,
-    COORDINATOR,
     IMPERSONATE_USER,
     PROFILE_RESTRICTION,
     PARALLEL_EXECUTION,
     SERVER_SIDE_PARAMETERS,
     SERVER_SIDE_DESCRIPTIONS,
-    RELOAD_TLS
+    RELOAD_TLS,
+    // Coordinator-only privileges (READ / WRITE in the grammar). Not part of kPrivilegesAll, so GRANT ALL PRIVILEGES on
+    // a data instance does not grant them; they gate queries only on coordinators.
+    COORDINATOR_READ,
+    COORDINATOR_WRITE
   };
 
   enum class FineGrainedPrivilege {
@@ -153,6 +156,9 @@ class AuthQuery : public memgraph::query::Query {
   memgraph::query::Expression *password_{nullptr};
   std::string database_;
   std::vector<memgraph::query::AuthQuery::Privilege> privileges_;
+  // True for GRANT/DENY/REVOKE ALL PRIVILEGES. On coordinators this maps to both COORDINATOR_READ and
+  // COORDINATOR_WRITE; privileges_ still carries the data-instance kPrivilegesAll expansion for other instances.
+  bool all_privileges_{false};
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       label_privileges_;
   std::vector<memgraph::query::AuthQuery::LabelMatchingMode> label_matching_modes_;
@@ -182,6 +188,7 @@ class AuthQuery : public memgraph::query::Query {
     object->password_ = password_ ? password_->Clone(storage) : nullptr;
     object->database_ = database_;
     object->privileges_ = privileges_;
+    object->all_privileges_ = all_privileges_;
     object->label_privileges_ = label_privileges_;
     object->label_matching_modes_ = label_matching_modes_;
     object->edge_type_privileges_ = edge_type_privileges_;
@@ -224,7 +231,59 @@ class AuthQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
-/// Constant that holds all available privileges.
+/// The two coordinator-only privileges (READ / WRITE in the grammar).
+inline bool IsCoordinatorPrivilege(AuthQuery::Privilege privilege) {
+  return privilege == AuthQuery::Privilege::COORDINATOR_READ || privilege == AuthQuery::Privilege::COORDINATOR_WRITE;
+}
+
+/// Coordinators expose only a small slice of the whole auth surface:
+///   - role management: CREATE ROLE, DROP ROLE, SHOW ROLES;
+///   - coordinator privilege management on roles: GRANT/REVOKE COORDINATOR_READ|COORDINATOR_WRITE|ALL PRIVILEGES,
+///     SHOW PRIVILEGES FOR ROLE <role>.
+/// GRANT/REVOKE are permitted only for the coordinator privileges (COORDINATOR_READ/COORDINATOR_WRITE, or
+/// ALL PRIVILEGES which maps to both) and never target a USER; fine-grained access control (label/edge-type entity
+/// privileges) is rejected. SHOW PRIVILEGES likewise never targets a USER (coordinators have no users). Every other
+/// auth query -- DENY in any form, GRANT DATABASE, property permissions, ... -- is rejected on a coordinator.
+inline bool IsCoordinatorPermittedAuthQuery(AuthQuery const &query) {
+  switch (query.action_) {
+    case AuthQuery::Action::CREATE_ROLE:
+    case AuthQuery::Action::DROP_ROLE:
+    case AuthQuery::Action::SHOW_ROLES:
+    case AuthQuery::Action::SHOW_CURRENT_ROLE:
+      return true;
+    case AuthQuery::Action::GRANT_PRIVILEGE:
+    case AuthQuery::Action::REVOKE_PRIVILEGE: {
+      if (query.entity_type_ == AuthQuery::UserOrRoleType::USER) {
+        return false;
+      }
+      // Reject fine-grained access control (GRANT ... ON NODES/EDGES ...); coordinators have no graph.
+      if (!query.label_privileges_.empty() || !query.edge_type_privileges_.empty()) {
+        return false;
+      }
+      // ALL PRIVILEGES maps to both coordinator privileges.
+      if (query.all_privileges_) {
+        return true;
+      }
+      if (query.privileges_.empty()) {
+        return false;
+      }
+      for (auto const privilege : query.privileges_) {
+        if (!IsCoordinatorPrivilege(privilege)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    case AuthQuery::Action::SHOW_PRIVILEGES:
+      // The ON MAIN|CURRENT|DATABASE clause targets a database; coordinators have none.
+      return query.entity_type_ != AuthQuery::UserOrRoleType::USER &&
+             query.database_specification_ == AuthQuery::DatabaseSpecification::NONE;
+    default:
+      return false;
+  }
+}
+
+/// Constant that holds all available privileges only for data instance. Coordinator privileges are excluded here.
 const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::CREATE,
     AuthQuery::Privilege::DELETE,
@@ -251,7 +310,6 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::STORAGE_MODE,
     AuthQuery::Privilege::MULTI_DATABASE_EDIT,
     AuthQuery::Privilege::MULTI_DATABASE_USE,
-    AuthQuery::Privilege::COORDINATOR,
     AuthQuery::Privilege::IMPERSONATE_USER,
     AuthQuery::Privilege::PROFILE_RESTRICTION,
     AuthQuery::Privilege::PARALLEL_EXECUTION,

@@ -55,7 +55,6 @@ class Client {
       {"PromoteToMainReq"sv, 10'000},          // coordinator sending to replica
       {"RegisterReplicaOnMainReq"sv, 10'000},  // coordinator sending to main
       {"UnregisterReplicaReq"sv, 10'000},      // coordinator sending to main
-      {"EnableWritingOnMainReq"sv, 10'000},    // coordinator to main
       {"ReplicationLagReq"sv, 5000},           // coordinator to main
       {"GetDatabaseHistoriesReq"sv, 10'000},   // coordinator to data instances
       {"StateCheckReq"sv, 5000},               // coordinator to data instances
@@ -67,7 +66,41 @@ class Client {
       {"FinalizeCommitReq"sv, 10'000},  // Waiting 10'' on a final response
       {"CurrentWalReq"sv, 30'000},      // Waiting 30'' on a progress/final response
       {"WalFilesReq"sv, 30'000},        // Waiting 30'' on a progress/final response
-      {"SnapshotReq"sv, 60'000}         // Waiting 60'' on a progress/final response
+      {"SnapshotReq"sv, 60'000},        // Waiting 60'' on a progress/final response
+      // Follower coordinator forwarding to the leader; these run on the caller's Bolt session thread, so a missing
+      // timeout would block the session forever against a reachable-but-stuck leader.
+      {"RegisterInstanceReq"sv, 10'000},
+      {"UnregisterInstanceReq"sv, 10'000},
+      {"SetInstanceToMainReq"sv, 10'000},
+      {"DemoteInstanceReq"sv, 10'000},
+      {"AddCoordinatorReq"sv, 10'000},
+      {"RemoveCoordinatorReq"sv, 10'000},
+      {"UpdateConfigReq"sv, 10'000},
+      {"ForceResetReq"sv, 10'000},
+      {"GetRoutingTableReq"sv, 10'000},
+      {"CoordReplLagReq"sv, 10'000},
+      {"CreateRoleReq"sv, 10'000},
+      {"DropRoleReq"sv, 10'000},
+      {"GetRolesReq"sv, 10'000},
+      {"GrantPrivilegeReq"sv, 10'000},
+      {"RevokePrivilegeReq"sv, 10'000},
+      {"GetRolePrivilegesReq"sv, 10'000},
+      {"SetCoordinatorSettingReq"sv, 10'000},
+      {"UpdateDataInstanceConfigReq"sv, 10'000},  // coordinator to data instances
+      // Main to replica system-delta RPCs; sent while committing a system transaction, so they too must not block
+      // indefinitely (a timeout marks the replica BEHIND and defers to system recovery).
+      {"UpdateAuthDataReq"sv, 10'000},
+      {"DropAuthDataReq"sv, 10'000},
+      {"FinalizeSystemTxReq"sv, 10'000},
+      {"CreateDatabaseReq"sv, 10'000},
+      {"DropDatabaseReq"sv, 10'000},
+      {"SuspendDatabaseReq"sv, 10'000},
+      {"ResumeDatabaseReq"sv, 10'000},
+      {"RenameDatabaseReq"sv, 10'000},
+      {"TenantProfileReq"sv, 10'000},
+      {"SetParameterReq"sv, 10'000},
+      {"UnsetParameterReq"sv, 10'000},
+      {"DeleteAllParametersReq"sv, 10'000},
   };
   // Dependency injection of rpc_timeouts
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,

@@ -183,6 +183,24 @@ class CoordinatorQueryHandler {
 
   virtual std::vector<std::pair<std::string, std::string>> ShowCoordinatorSettings() = 0;
 
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void CreateRole(std::string_view role_name, bool if_not_exists) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void DropRole(std::string_view role_name) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual std::vector<std::string> ShowRoles() = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void GrantCoordinatorPrivilege(std::string_view role_name, uint64_t privileges) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void RevokeCoordinatorPrivilege(std::string_view role_name, uint64_t privileges) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred. Returns the role's coordinator permission mask.
+  virtual uint64_t ShowRolePrivileges(std::string_view role_name) = 0;
+
   virtual std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() = 0;
 };
 #endif
@@ -311,6 +329,13 @@ class Interpreter final {
   std::shared_ptr<QueryUserOrRole>
       user_or_role_{};  // Deep copy is not needed here, since it is only used in the current thread
 #ifdef MG_ENTERPRISE
+  // Coordinator privilege mask captured at login (auth::Permission bits). Consulted directly only for role-less
+  // (basic-auth passthrough) sessions, which carry full WRITE; sessions with coordinator roles recompute their mask
+  // per check via EffectiveCoordinatorPermissions. Zero denies everything.
+  uint64_t coordinator_permissions_;
+  // Role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session). Reported
+  // by SHOW CURRENT ROLE; coordinator roles live in Raft, not the auth kvstore, so they can't be looked up on demand.
+  std::vector<std::string> coordinator_roles_;
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
@@ -492,6 +517,21 @@ class Interpreter final {
 
 #ifdef MG_ENTERPRISE
   void SetUser(std::shared_ptr<QueryUserOrRole> user, std::shared_ptr<utils::UserResources> user_resource = nullptr);
+
+  // Sets the session's effective coordinator privilege mask (auth::Permission bits). Called at authentication time on
+  // coordinators; a basic-auth passthrough session is granted full WRITE.
+  void SetCoordinatorPrivileges(uint64_t privileges) { coordinator_permissions_ = privileges; }
+
+  // Sets the role names the session authenticated with on a coordinator (reported by SHOW CURRENT ROLE).
+  void SetCoordinatorRoles(std::vector<std::string> roles) { coordinator_roles_ = std::move(roles); }
+
+  // The role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session).
+  const std::vector<std::string> &GetCoordinatorRoles() const { return coordinator_roles_; }
+
+  // The session's effective coordinator privilege mask. A role-less (basic-auth passthrough) session uses the mask
+  // fixed at login; an SSO session recomputes it from its role names against the leader's committed role set on
+  // every check, so REVOKE/DROP ROLE downgrades long-lived sessions without a reconnect.
+  uint64_t EffectiveCoordinatorPermissions() const;
 #else
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
 #endif

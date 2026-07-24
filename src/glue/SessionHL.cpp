@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <optional>
 #include <ranges>
 #include <utility>
@@ -18,6 +19,9 @@
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
+#ifdef MG_ENTERPRISE
+#include "coordination/coordinator_state.hpp"
+#endif
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "flags/coord_flag_env_handler.hpp"
@@ -25,6 +29,9 @@
 #include "frontend/ast/ast.hpp"
 #include "glue/SessionHL.hpp"
 #include "glue/auth_checker.hpp"
+#ifdef MG_ENTERPRISE
+#include "glue/coordinator_sso_authenticator.hpp"
+#endif
 #include "glue/communication.hpp"
 #include "glue/run_id.hpp"
 #include "license/license.hpp"
@@ -351,10 +358,86 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
   return {};
 }
 
+#ifdef MG_ENTERPRISE
+std::expected<void, communication::bolt::AuthFailure> SessionHL::CoordinatorSSOAuthenticate(
+    const std::string &scheme, const std::string &identity_provider_response) {
+  auto *coordinator_state = interpreter_context_->coordinator_state_;
+  if (coordinator_state == nullptr) {
+    return std::unexpected{communication::bolt::AuthFailure::kGeneric};
+  }
+
+  // Snapshot the leader's committed role set once (read locally if this coordinator is the ready leader, otherwise
+  // forwarded to the leader). Authentication is fail-closed: when the leader is unreachable the login is rejected
+  // rather than validated against possibly-stale local replicated state, which could still contain a dropped role or
+  // an already-revoked mask. The auth kvstore is never consulted for coordinator roles.
+  auto const maybe_roles = coordinator_state->GetRoles();
+  if (!maybe_roles.has_value()) {
+    spdlog::warn("Rejecting SSO login on coordinator: the leader is unreachable so the role set cannot be validated.");
+    return std::unexpected{communication::bolt::AuthFailure::kGeneric};
+  }
+  auto const &roles = *maybe_roles;
+
+  auto role_mask_provider = [&roles](std::string const &role_name) -> std::optional<uint64_t> {
+    auto const it = std::ranges::find(roles, role_name, &coordination::CoordinatorRole::name);
+    if (it == roles.end()) {
+      return std::nullopt;
+    }
+    return it->permissions;
+  };
+
+  auto module_runner = [this](std::string const &sso_scheme,
+                              std::string const &response) -> std::optional<std::vector<std::string>> {
+    auto locked_auth = auth_->Lock();
+    return locked_auth->SSOGetRoleNames(sso_scheme, response);
+  };
+
+  CoordinatorSSOAuthenticator const authenticator{std::move(module_runner), std::move(role_mask_provider)};
+  auto auth_result = authenticator.Authenticate(scheme, identity_provider_response);
+  if (!auth_result) {
+    return std::unexpected{communication::bolt::AuthFailure::kGeneric};
+  }
+
+  // The session carries the matched role names; the coordinator privilege checks (query gate and ROUTE handler)
+  // recompute the effective mask from these roles against the leader's committed role set on every check, so a
+  // later REVOKE or DROP ROLE downgrades this session without a reconnect. The login-time mask is stored too, but it
+  // is authoritative only for role-less (basic-auth passthrough) sessions. Authentication already rejects any identity
+  // without COORDINATOR_READ or COORDINATOR_WRITE, so a surviving session starts with at least read privileges.
+  interpreter_.SetCoordinatorPrivileges(auth_result->effective_mask);
+  interpreter_.SetCoordinatorRoles(std::move(auth_result->roles));
+  return {};
+}
+
+void SessionHL::CoordinatorPassthroughAuthenticate() {
+  interpreter_.SetCoordinatorPrivileges(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
+                                        static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE));
+  interpreter_.SetCoordinatorRoles({});
+}
+
+std::optional<bool> SessionHL::CoordinatorHasWritableRole() const {
+  auto *coordinator_state = interpreter_context_->coordinator_state_;
+  if (coordinator_state == nullptr) {
+    return std::nullopt;
+  }
+  // Strong read from the leader; nullopt when the leader is unreachable. Fail-closed: an unknown role set is not
+  // treated as "no writable role", so a transient leader outage never opens the basic-auth break-glass path.
+  auto const maybe_roles = coordinator_state->GetRoles();
+  if (!maybe_roles.has_value()) {
+    return std::nullopt;
+  }
+  auto const write_bit = static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE);
+  return std::ranges::any_of(*maybe_roles,
+                             [write_bit](auto const &role) { return (role.permissions & write_bit) != 0U; });
+}
+#endif
+
 void SessionHL::LogOff() {
   Abort();
 #ifdef MG_ENTERPRISE
   interpreter_.ResetDB();
+  // Defense-in-depth: a logged-off session carries no coordinator privileges until the next LOGON re-establishes
+  // them (SSO or basic passthrough).
+  interpreter_.SetCoordinatorPrivileges(0);
+  interpreter_.SetCoordinatorRoles({});
 #endif
   interpreter_.ResetUser();
   session_user_or_role_.reset();
@@ -470,33 +553,40 @@ auto SessionHL::Route(bolt_map_t const & /*routing*/, std::vector<bolt_value_t> 
     spdlog::trace("Handling routing request for the database: {}", *db);
   }
 
-  auto routing_table_res = interpreter_.Route(db);
+  // Route can throw a QueryException (e.g. the coordinator routing-table privilege denial). Rewrap it as a bolt
+  // ClientError like every other query path so it is reported as a non-retryable client error rather than a transient
+  // one -- an authorization denial must not be retried by the driver.
+  try {
+    auto routing_table_res = interpreter_.Route(db);
 
-  auto create_server = [](auto const &server_info) -> bolt_value_t {
-    auto const &[addresses, role] = server_info;
-    bolt_map_t server_map;
-    auto bolt_addresses = ranges::views::transform(addresses, [](auto const &addr) { return bolt_value_t{addr}; }) |
-                          ranges::to<std::vector<bolt_value_t>>();
+    auto create_server = [](auto const &server_info) -> bolt_value_t {
+      auto const &[addresses, role] = server_info;
+      bolt_map_t server_map;
+      auto bolt_addresses = ranges::views::transform(addresses, [](auto const &addr) { return bolt_value_t{addr}; }) |
+                            ranges::to<std::vector<bolt_value_t>>();
 
-    server_map["addresses"] = std::move(bolt_addresses);
-    server_map["role"] = bolt_value_t{role};
-    return bolt_value_t{std::move(server_map)};
-  };
+      server_map["addresses"] = std::move(bolt_addresses);
+      server_map["role"] = bolt_value_t{role};
+      return bolt_value_t{std::move(server_map)};
+    };
 
-  bolt_map_t communication_res;
-  communication_res["ttl"] = bolt_value_t{routing_table_res.ttl};
-  // Needed for routing from coordinators to data instances
-  if (db) {
-    communication_res["db"] = bolt_value_t{*db};
-  } else {
-    communication_res["db"] = bolt_value_t{};
+    bolt_map_t communication_res;
+    communication_res["ttl"] = bolt_value_t{routing_table_res.ttl};
+    // Needed for routing from coordinators to data instances
+    if (db) {
+      communication_res["db"] = bolt_value_t{*db};
+    } else {
+      communication_res["db"] = bolt_value_t{};
+    }
+
+    auto servers =
+        ranges::views::transform(routing_table_res.servers, create_server) | ranges::to<std::vector<bolt_value_t>>();
+    communication_res["servers"] = bolt_value_t{std::move(servers)};
+
+    return {{"rt", bolt_value_t{std::move(communication_res)}}};
+  } catch (const memgraph::query::QueryException &e) {
+    RewrapQueryException(e);
   }
-
-  auto servers =
-      ranges::views::transform(routing_table_res.servers, create_server) | ranges::to<std::vector<bolt_value_t>>();
-  communication_res["servers"] = bolt_value_t{std::move(servers)};
-
-  return {{"rt", bolt_value_t{std::move(communication_res)}}};
 }
 #endif
 

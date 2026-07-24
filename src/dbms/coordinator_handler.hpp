@@ -51,6 +51,18 @@ class CoordinatorHandler {
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> coordination::SetCoordinatorSettingStatus;
 
+  auto CreateRole(std::string_view role_name) const -> coordination::CreateRoleStatus;
+
+  auto DropRole(std::string_view role_name) const -> coordination::DropRoleStatus;
+
+  auto GetRoles() const -> std::optional<std::vector<coordination::CoordinatorRole>>;
+
+  auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> coordination::GrantPrivilegeStatus;
+
+  auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> coordination::RevokePrivilegeStatus;
+
+  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
+
   auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
 
   auto AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)

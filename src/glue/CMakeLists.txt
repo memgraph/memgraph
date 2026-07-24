@@ -3,6 +3,7 @@ target_sources(mg-glue PRIVATE auth.cpp
                                auth_checker.cpp
                                auth_handler.cpp
                                communication.cpp
+                               coordinator_sso_authenticator.cpp
                                SessionHL.cpp
                                ServerT.cpp
                                MonitoringServerT.cpp

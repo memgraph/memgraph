@@ -9,13 +9,17 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import base64
+import concurrent
 import os
 import sys
+import time
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
-from neo4j import GraphDatabase
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
+from mg_utils import mg_sleep_and_assert
+from neo4j import Auth, GraphDatabase
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -546,6 +550,1056 @@ def test_ha_mt_auth_scenario(test_name):
         result = session.run("MATCH (n) RETURN count(n) as cnt").single()
         assert result["cnt"] == 1  # Only AdminNode
     admin_driver.close()
+
+
+# ---------------------------------------------------------------------------
+# Coordinator role store: 3 coordinators, no data instances.
+#
+# Covers the foundational roles slice: basic-auth passthrough, rejection of
+# non-role auth queries, on-leader role CRUD and full-cluster-restart
+# persistence. Follower forwarding and SSO are exercised by later slices.
+# ---------------------------------------------------------------------------
+
+COORD_PORTS = [7690, 7691, 7692]
+
+
+def get_coords_only_description(test_name: str):
+    """Three coordinators, no data instances. The role list is the only cluster state we care about here."""
+    return {
+        "coordinator_1": {
+            "args": [
+                "--bolt-port=7690",
+                "--log-level=TRACE",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
+                "--management-port=10121",
+                "--coordinator-hostname",
+                "localhost",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator_1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator_1",
+            "setup_queries": [],
+        },
+        "coordinator_2": {
+            "args": [
+                "--bolt-port=7691",
+                "--log-level=TRACE",
+                "--coordinator-id=2",
+                "--coordinator-port=10112",
+                "--management-port=10122",
+                "--coordinator-hostname",
+                "localhost",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator_2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator_2",
+            "setup_queries": [],
+        },
+        "coordinator_3": {
+            "args": [
+                "--bolt-port=7692",
+                "--log-level=TRACE",
+                "--coordinator-id=3",
+                "--coordinator-port=10113",
+                "--management-port=10123",
+                "--coordinator-hostname",
+                "localhost",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator_3.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator_3",
+            "setup_queries": [
+                "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+                "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+                "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+            ],
+        },
+    }
+
+
+def try_find_leader_port():
+    """Return the bolt port of the up leader coordinator, or None if none is currently reachable."""
+    for port in COORD_PORTS:
+        try:
+            cursor = connect(host="localhost", port=port).cursor()
+            for row in show_instances(cursor):
+                # row = (name, bolt_server, coordinator_server, management_server, status, role)
+                if row[-1] == "leader" and row[-2] == "up":
+                    return int(row[1].split(":")[1])
+        except Exception:
+            continue
+    return None
+
+
+def wait_for_ready_leader_port():
+    """Return the leader coordinator's bolt port once it is ready to serve role queries.
+
+    A coordinator can report itself as leader in SHOW INSTANCES a moment before it reaches the ready state in which
+    role queries are served, so we poll SHOW ROLES until it stops returning the not-leader error.
+    """
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        port = try_find_leader_port()
+        if port is not None:
+            try:
+                cursor = connect(host="localhost", port=port).cursor()
+                execute_and_fetch_all(cursor, "SHOW ROLES")
+                return port
+            except Exception:
+                pass
+        time.sleep(0.5)
+    assert False, "Leader coordinator not ready to serve role queries"
+
+
+def get_leader_cursor():
+    return connect(host="localhost", port=wait_for_ready_leader_port()).cursor()
+
+
+def show_roles(cursor):
+    return sorted(name for (name,) in execute_and_fetch_all(cursor, "SHOW ROLES"))
+
+
+def show_current_role(cursor):
+    return sorted(name for (name,) in execute_and_fetch_all(cursor, "SHOW CURRENT ROLE"))
+
+
+def show_privileges(cursor, role):
+    return sorted(privilege for (privilege,) in execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR ROLE {role}"))
+
+
+def test_basic_auth_passthrough(test_name):
+    # Coordinators with no users accept any connection; credentials are ignored (basic-auth passthrough).
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+
+    # Connect without credentials and run a coordinator query.
+    no_auth_cursor = connect(host="localhost", port=leader_port).cursor()
+    assert show_roles(no_auth_cursor) == []
+    # A basic-auth passthrough session carries no roles, so SHOW CURRENT ROLE reports a single null row.
+    assert show_current_role(no_auth_cursor) == [None]
+
+    # Connect with arbitrary username/password: the credentials are ignored and the session works the same.
+    basic_auth_cursor = connect(host="localhost", port=leader_port, username="whoever", password="whatever").cursor()
+    assert show_roles(basic_auth_cursor) == []
+    assert show_current_role(basic_auth_cursor) == [None]
+    # A basic-auth session can run role management.
+    execute_and_fetch_all(basic_auth_cursor, "CREATE ROLE passthrough_role")
+    assert show_roles(basic_auth_cursor) == ["passthrough_role"]
+
+
+def test_disallowed_auth_queries_rejected(test_name):
+    # Every auth query other than CREATE/DROP/SHOW ROLE is rejected on a coordinator; conversely, the coordinator-only
+    # COORDINATOR_READ/COORDINATOR_WRITE privileges are rejected on a data instance.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    # A standalone data instance (not registered with the cluster) is enough to exercise its auth query path.
+    inner_instances_description["instance_1"] = {
+        "args": [
+            "--bolt-port=7687",
+            "--log-level=TRACE",
+            "--management-port=10011",
+        ],
+        "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
+        "data_directory": f"{get_data_path(file, test_name)}/instance_1",
+        "setup_queries": [],
+    }
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+
+    disallowed_queries = [
+        "CREATE USER foo IDENTIFIED BY 'bar'",
+        "DROP USER foo",
+        "SHOW USERS",
+        "SET PASSWORD FOR foo TO 'bar'",
+        # DENY in any form is rejected on a coordinator (only GRANT/REVOKE of coordinator privileges are supported).
+        "DENY COORDINATOR_READ TO foo",
+        "DENY MATCH TO foo",
+        "REVOKE MATCH FROM foo",
+        # SHOW PRIVILEGES / GRANT / REVOKE are permitted on a coordinator only for the coordinator READ/WRITE privileges
+        # on a role; a USER target or a data-instance privilege must be rejected.
+        "SHOW PRIVILEGES FOR USER foo",
+        "GRANT COORDINATOR_READ TO USER foo",
+        "GRANT MATCH TO foo",
+        "SET ROLE FOR foo TO bar",
+        "CLEAR ROLE FOR foo",
+        # Multi-tenancy database access grants are rejected on a coordinator (coordinators have no databases).
+        "GRANT DATABASE mydb TO foo",
+        "DENY DATABASE mydb FROM foo",
+        "REVOKE DATABASE mydb FROM foo",
+        "SET MAIN DATABASE mydb FOR foo",
+        # Fine-grained access control (label/edge-type entity privileges, property permissions) is rejected on a
+        # coordinator (coordinators have no graph to gate).
+        "GRANT CREATE, UPDATE ON NODES CONTAINING LABELS * TO foo",
+        "GRANT UPDATE ON EDGES OF TYPE * TO foo",
+        "GRANT READ {*} ON NODES CONTAINING LABELS * TO foo",
+    ]
+    for query in disallowed_queries:
+        try:
+            execute_and_fetch_all(cursor, query)
+            assert False, f"Query should have been rejected on a coordinator: {query}"
+        except Exception as e:
+            assert "Coordinator can run only coordinator queries!" in str(e), f"Unexpected error for {query}: {e}"
+
+    # COORDINATOR_READ/COORDINATOR_WRITE are coordinator-only privileges: setting them on a data instance (in any of
+    # GRANT/DENY/REVOKE form) must be rejected rather than silently accepted into a user's or role's mask.
+    data_instance_cursor = connect(host="localhost", port=7687).cursor()
+    coordinator_privilege_queries = [
+        "GRANT COORDINATOR_READ TO foo",
+        "GRANT COORDINATOR_WRITE TO foo",
+        "GRANT COORDINATOR_READ, COORDINATOR_WRITE TO foo",
+        "DENY COORDINATOR_READ TO foo",
+        "REVOKE COORDINATOR_WRITE FROM foo",
+    ]
+    for query in coordinator_privilege_queries:
+        try:
+            execute_and_fetch_all(data_instance_cursor, query)
+            assert False, f"Query should have been rejected on a data instance: {query}"
+        except Exception as e:
+            assert "coordinator-only privileges" in str(e), f"Unexpected error for {query}: {e}"
+
+
+def test_role_crud_on_leader(test_name):
+    # On the leader, CREATE/DROP/SHOW ROLE behave like on data instances.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+
+    assert show_roles(cursor) == []
+
+    # CREATE adds the role and it shows up.
+    execute_and_fetch_all(cursor, "CREATE ROLE admin")
+    assert show_roles(cursor) == ["admin"]
+
+    execute_and_fetch_all(cursor, "CREATE ROLE readonly")
+    assert show_roles(cursor) == ["admin", "readonly"]
+
+    # Duplicate CREATE errors.
+    try:
+        execute_and_fetch_all(cursor, "CREATE ROLE admin")
+        assert False, "Duplicate CREATE ROLE should error"
+    except Exception as e:
+        assert "already exists" in str(e)
+
+    # IF NOT EXISTS is a no-op on an existing role.
+    execute_and_fetch_all(cursor, "CREATE ROLE IF NOT EXISTS admin")
+    assert show_roles(cursor) == ["admin", "readonly"]
+
+    # DROP removes the role.
+    execute_and_fetch_all(cursor, "DROP ROLE admin")
+    assert show_roles(cursor) == ["readonly"]
+
+    # DROP of a missing role errors.
+    try:
+        execute_and_fetch_all(cursor, "DROP ROLE admin")
+        assert False, "DROP of a missing role should error"
+    except Exception as e:
+        assert "doesn't exist" in str(e)
+
+
+def test_privilege_grant_revoke_show_on_leader(test_name):
+    # On the leader, GRANT/REVOKE COORDINATOR_READ|COORDINATOR_WRITE update a role's persisted mask and
+    # SHOW PRIVILEGES FOR ROLE reports it.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+
+    execute_and_fetch_all(cursor, "CREATE ROLE reader")
+    execute_and_fetch_all(cursor, "CREATE ROLE writer")
+
+    # A freshly created (bare) role has no privileges.
+    assert show_privileges(cursor, "reader") == []
+    assert show_privileges(cursor, "writer") == []
+
+    # GRANT reflects in SHOW PRIVILEGES FOR ROLE.
+    execute_and_fetch_all(cursor, "GRANT COORDINATOR_READ TO reader")
+    assert show_privileges(cursor, "reader") == ["COORDINATOR_READ"]
+
+    # Granting COORDINATOR_WRITE too yields both (WRITE is a superset of READ, but both are reported as granted).
+    execute_and_fetch_all(cursor, "GRANT COORDINATOR_WRITE TO writer")
+    execute_and_fetch_all(cursor, "GRANT COORDINATOR_READ TO writer")
+    assert show_privileges(cursor, "writer") == ["COORDINATOR_READ", "COORDINATOR_WRITE"]
+
+    # REVOKE clears the specific privilege.
+    execute_and_fetch_all(cursor, "REVOKE COORDINATOR_READ FROM writer")
+    assert show_privileges(cursor, "writer") == ["COORDINATOR_WRITE"]
+
+    execute_and_fetch_all(cursor, "REVOKE COORDINATOR_WRITE FROM writer")
+    assert show_privileges(cursor, "writer") == []
+
+    # The other role's grant is untouched by operations on writer.
+    assert show_privileges(cursor, "reader") == ["COORDINATOR_READ"]
+
+    # GRANT ALL PRIVILEGES grants both coordinator privileges; REVOKE ALL PRIVILEGES removes both.
+    execute_and_fetch_all(cursor, "GRANT ALL PRIVILEGES TO writer")
+    assert show_privileges(cursor, "writer") == ["COORDINATOR_READ", "COORDINATOR_WRITE"]
+    execute_and_fetch_all(cursor, "REVOKE ALL PRIVILEGES FROM writer")
+    assert show_privileges(cursor, "writer") == []
+
+    # GRANT/REVOKE/SHOW PRIVILEGES on a non-existent role errors.
+    try:
+        execute_and_fetch_all(cursor, "GRANT COORDINATOR_READ TO missing_role")
+        assert False, "GRANT on a missing role should error"
+    except Exception as e:
+        assert "doesn't exist" in str(e)
+
+
+def test_privilege_queries_rejected_for_non_role_targets(test_name):
+    # GRANT/REVOKE/SHOW PRIVILEGES are accepted only for coordinator privileges on a role; USER targets, data-instance
+    # privileges, fine-grained access control, and database access grants are rejected with the coordinator-only error
+    # -- even when the target role exists.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+    execute_and_fetch_all(cursor, "CREATE ROLE some_role")
+
+    rejected_queries = [
+        # USER targets.
+        "GRANT COORDINATOR_READ TO USER some_role",
+        "REVOKE COORDINATOR_WRITE FROM USER some_role",
+        "SHOW PRIVILEGES FOR USER some_role",
+        # Data-instance system privileges.
+        "GRANT MATCH TO some_role",
+        "REVOKE AUTH FROM some_role",
+        # DENY is unsupported even for a coordinator privilege.
+        "DENY COORDINATOR_WRITE TO some_role",
+        # Fine-grained access control (label/edge-type entity privileges, property permissions).
+        "GRANT CREATE, UPDATE ON NODES CONTAINING LABELS * TO some_role",
+        "GRANT UPDATE ON EDGES OF TYPE * TO some_role",
+        "GRANT READ {*} ON NODES CONTAINING LABELS * TO some_role",
+        # Multi-tenancy database access.
+        "GRANT DATABASE mydb TO some_role",
+        "REVOKE DATABASE mydb FROM some_role",
+        # SHOW PRIVILEGES with an ON clause targets a database; coordinators have none, so even a ROLE target is
+        # rejected.
+        "SHOW PRIVILEGES FOR ROLE some_role ON MAIN",
+        "SHOW PRIVILEGES FOR ROLE some_role ON CURRENT",
+        "SHOW PRIVILEGES FOR ROLE some_role ON DATABASE mydb",
+    ]
+    for query in rejected_queries:
+        try:
+            execute_and_fetch_all(cursor, query)
+            assert False, f"Query should have been rejected on a coordinator: {query}"
+        except Exception as e:
+            assert "Coordinator can run only coordinator queries!" in str(e), f"Unexpected error for {query}: {e}"
+
+
+def test_roles_survive_full_cluster_restart(test_name):
+    # The role list is Raft-persisted, so it survives a full-cluster restart.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    cursor = get_leader_cursor()
+    execute_and_fetch_all(cursor, "CREATE ROLE admin")
+    execute_and_fetch_all(cursor, "CREATE ROLE readonly")
+    execute_and_fetch_all(cursor, "CREATE ROLE readwrite")
+    assert show_roles(cursor) == ["admin", "readonly", "readwrite"]
+
+    # Restart every coordinator, preserving data directories. Clear the bootstrap setup_queries first so restart does
+    # not re-issue ADD COORDINATOR against an already-formed cluster; the state comes back from the durable log.
+    for name in ["coordinator_1", "coordinator_2", "coordinator_3"]:
+        inner_instances_description[name]["setup_queries"] = []
+        interactive_mg_runner.kill(inner_instances_description, name)
+
+    with concurrent.futures.ThreadPoolExecutor(2) as executor:
+        futures = [
+            executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_1"),
+            executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_2"),
+            executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_3"),
+        ]
+        # Block until both coordinators have fully started and surface any startup errors,
+        # otherwise the connect below can race a coordinator whose Bolt server isn't up yet.
+        for future in concurrent.futures.as_completed(futures):
+            future.result()
+
+    # After the cluster re-forms, the role list must be reconstructed from the log/snapshot.
+    def get_roles_from_leader():
+        port = try_find_leader_port()
+        if port is None:
+            return None
+        try:
+            return show_roles(connect(host="localhost", port=port).cursor())
+        except Exception:
+            return None
+
+    mg_sleep_and_assert(["admin", "readonly", "readwrite"], get_roles_from_leader)
+
+
+# ---------------------------------------------------------------------------
+# Follower forwarding + persistence (slice 05).
+#
+# Every role/privilege query works from any coordinator: run on a follower it
+# is transparently forwarded to the leader (writes committed via Raft, reads
+# reflecting committed state). The role set survives lagging-follower catch-up
+# and leader failover.
+# ---------------------------------------------------------------------------
+
+PORT_TO_NAME = {7690: "coordinator_1", 7691: "coordinator_2", 7692: "coordinator_3"}
+
+
+def find_follower_ports(leader_port):
+    """Bolt ports of the (up) coordinators that are not the current leader."""
+    return [port for port in COORD_PORTS if port != leader_port]
+
+
+def get_cursor(port):
+    return connect(host="localhost", port=port).cursor()
+
+
+def test_role_crud_forwarded_from_follower(test_name):
+    # CREATE/DROP/SHOW ROLE run on a follower are forwarded to the leader. The write responses carry the leader's
+    # exact status, so a follower produces the same result and the same error reasons as the leader — including
+    # CREATE ROLE IF NOT EXISTS treating an existing role as a no-op.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    follower_port = find_follower_ports(leader_port)[0]
+    follower_cursor = get_cursor(follower_port)
+    leader_cursor = get_cursor(leader_port)
+
+    # CREATE on a follower is forwarded and committed; both the follower and the leader observe it.
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE r1")
+    assert show_roles(follower_cursor) == ["r1"]
+    assert show_roles(leader_cursor) == ["r1"]
+
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE r2")
+    assert show_roles(follower_cursor) == ["r1", "r2"]
+
+    # The CreateRole response carries the leader's exact status, so a duplicate CREATE ROLE forwarded from a follower
+    # reports the same "already exists" reason as on the leader.
+    try:
+        execute_and_fetch_all(follower_cursor, "CREATE ROLE r1")
+        assert False, "Duplicate CREATE ROLE forwarded from a follower should error"
+    except Exception as e:
+        assert "already exists" in str(e), f"Unexpected error: {e}"
+
+    # CREATE ROLE IF NOT EXISTS of an existing role forwarded from a follower is a silent no-op, exactly as on the
+    # leader.
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE IF NOT EXISTS r1")
+    assert show_roles(follower_cursor) == ["r1", "r2"]
+
+    # IF NOT EXISTS still creates the role when it is missing.
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE IF NOT EXISTS r3")
+    assert show_roles(follower_cursor) == ["r1", "r2", "r3"]
+    assert show_roles(leader_cursor) == ["r1", "r2", "r3"]
+    execute_and_fetch_all(follower_cursor, "DROP ROLE r3")
+
+    # DROP on a follower is forwarded and committed.
+    execute_and_fetch_all(follower_cursor, "DROP ROLE r1")
+    assert show_roles(follower_cursor) == ["r2"]
+    assert show_roles(leader_cursor) == ["r2"]
+
+    # DROP of a missing role forwarded from a follower reports the leader's exact "doesn't exist" reason.
+    try:
+        execute_and_fetch_all(follower_cursor, "DROP ROLE r1")
+        assert False, "DROP of a missing role forwarded from a follower should error"
+    except Exception as e:
+        assert "doesn't exist" in str(e), f"Unexpected error: {e}"
+
+
+def test_privilege_grant_revoke_show_forwarded_from_follower(test_name):
+    # GRANT/REVOKE and SHOW PRIVILEGES FOR ROLE run on a follower are forwarded to the leader.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    follower_port = find_follower_ports(leader_port)[0]
+    follower_cursor = get_cursor(follower_port)
+    leader_cursor = get_cursor(leader_port)
+
+    execute_and_fetch_all(follower_cursor, "CREATE ROLE reader")
+
+    # A bare role shows no privilege (forwarded read).
+    assert show_privileges(follower_cursor, "reader") == []
+
+    # GRANT forwarded from a follower is reflected in SHOW PRIVILEGES FOR ROLE from both coordinators.
+    execute_and_fetch_all(follower_cursor, "GRANT COORDINATOR_READ TO reader")
+    assert show_privileges(follower_cursor, "reader") == ["COORDINATOR_READ"]
+    assert show_privileges(leader_cursor, "reader") == ["COORDINATOR_READ"]
+
+    # GRANT ALL PRIVILEGES forwarded from a follower grants both.
+    execute_and_fetch_all(follower_cursor, "GRANT ALL PRIVILEGES TO reader")
+    assert show_privileges(follower_cursor, "reader") == ["COORDINATOR_READ", "COORDINATOR_WRITE"]
+
+    # REVOKE forwarded from a follower clears a single privilege.
+    execute_and_fetch_all(follower_cursor, "REVOKE COORDINATOR_READ FROM reader")
+    assert show_privileges(follower_cursor, "reader") == ["COORDINATOR_WRITE"]
+
+    # REVOKE ALL PRIVILEGES forwarded from a follower removes both.
+    execute_and_fetch_all(follower_cursor, "REVOKE ALL PRIVILEGES FROM reader")
+    assert show_privileges(follower_cursor, "reader") == []
+
+    # GRANT/REVOKE on a missing role forwarded from a follower report the leader's exact "doesn't exist" reason.
+    try:
+        execute_and_fetch_all(follower_cursor, "GRANT COORDINATOR_READ TO missing_role")
+        assert False, "GRANT on a missing role forwarded from a follower should error"
+    except Exception as e:
+        assert "doesn't exist" in str(e), f"Unexpected error: {e}"
+
+    try:
+        execute_and_fetch_all(follower_cursor, "REVOKE COORDINATOR_READ FROM missing_role")
+        assert False, "REVOKE on a missing role forwarded from a follower should error"
+    except Exception as e:
+        assert "doesn't exist" in str(e), f"Unexpected error: {e}"
+
+
+def test_lagging_follower_catch_up(test_name):
+    # A coordinator that is down while roles/privileges change reconstructs the exact role set on rejoin.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    leader_cursor = get_cursor(leader_port)
+
+    # Seed some state while all three coordinators are up.
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE stable")
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE to_drop")
+    execute_and_fetch_all(leader_cursor, "GRANT COORDINATOR_READ TO stable")
+
+    # Take one follower down.
+    lagging_port = find_follower_ports(leader_port)[0]
+    lagging_name = PORT_TO_NAME[lagging_port]
+    interactive_mg_runner.kill(inner_instances_description, lagging_name)
+
+    # Mutate roles/privileges while the follower is down (committed by the leader + the remaining follower).
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE added_while_down")
+    execute_and_fetch_all(leader_cursor, "GRANT COORDINATOR_WRITE TO added_while_down")
+    execute_and_fetch_all(leader_cursor, "GRANT COORDINATOR_WRITE TO stable")
+    execute_and_fetch_all(leader_cursor, "DROP ROLE to_drop")
+
+    expected_roles = ["added_while_down", "stable"]
+
+    # Bring the lagging follower back. Clear its setup so restart does not re-run ADD COORDINATOR.
+    inner_instances_description[lagging_name]["setup_queries"] = []
+    interactive_mg_runner.start(inner_instances_description, lagging_name)
+
+    # Once it rejoins, the rejoined coordinator agrees on the exact role set (its Bolt server may take a moment to come
+    # up, so poll through a fresh connection).
+    def roles_from_rejoined():
+        try:
+            return show_roles(get_cursor(lagging_port))
+        except Exception:
+            return None
+
+    mg_sleep_and_assert(expected_roles, roles_from_rejoined)
+
+    # Each role's mask survived too.
+    rejoined_cursor = get_cursor(lagging_port)
+    assert show_privileges(rejoined_cursor, "stable") == ["COORDINATOR_READ", "COORDINATOR_WRITE"]
+    assert show_privileges(rejoined_cursor, "added_while_down") == ["COORDINATOR_WRITE"]
+
+
+def test_leader_failover_preserves_roles(test_name):
+    # After the leader is killed and a new leader elected, the role set and masks are preserved.
+    inner_instances_description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    leader_port = wait_for_ready_leader_port()
+    leader_cursor = get_cursor(leader_port)
+
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE admin")
+    execute_and_fetch_all(leader_cursor, "CREATE ROLE readonly")
+    execute_and_fetch_all(leader_cursor, "GRANT ALL PRIVILEGES TO admin")
+    execute_and_fetch_all(leader_cursor, "GRANT COORDINATOR_READ TO readonly")
+    assert show_roles(leader_cursor) == ["admin", "readonly"]
+
+    # Kill the current leader. Clear its setup so a later restart would not re-bootstrap; here we just take it down.
+    leader_name = PORT_TO_NAME[leader_port]
+    inner_instances_description[leader_name]["setup_queries"] = []
+    interactive_mg_runner.kill(inner_instances_description, leader_name)
+
+    # A new leader is elected among the two survivors and serves the committed role set locally.
+    def roles_from_new_leader():
+        port = try_find_leader_port()
+        if port is None or port == leader_port:
+            return None
+        try:
+            return show_roles(get_cursor(port))
+        except Exception:
+            return None
+
+    mg_sleep_and_assert(["admin", "readonly"], roles_from_new_leader)
+
+    new_leader_port = try_find_leader_port()
+    new_leader_cursor = get_cursor(new_leader_port)
+    assert show_privileges(new_leader_cursor, "admin") == ["COORDINATOR_READ", "COORDINATOR_WRITE"]
+    assert show_privileges(new_leader_cursor, "readonly") == ["COORDINATOR_READ"]
+
+
+# ---------------------------------------------------------------------------
+# SSO authentication through the real coordinator Bolt handshake (slice 06).
+#
+# A dummy auth module (coordinator_dummy_sso_module.py) is mapped to three SSO
+# schemes (oidc / saml / kerberos). Because the coordinator SSO path is
+# scheme-agnostic the three behave identically; each is driven through the real
+# Bolt handshake with the neo4j driver's custom-scheme Auth. The token encodes
+# the role names the "IdP" returns, so a test controls acceptance/rejection and
+# the resulting effective privilege by choosing the token + the coordinator's
+# committed roles.
+# ---------------------------------------------------------------------------
+
+AUTH_MODULE_PATH = os.path.normpath(os.path.join(interactive_mg_runner.SCRIPT_DIR, "coordinator_dummy_sso_module.py"))
+# The same dummy module backs all three schemes; the coordinator treats them identically.
+SSO_SCHEMES = ["oidc", "saml", "kerberos"]
+SSO_MAPPINGS = "--auth-module-mappings=" + ";".join(f"{scheme}:{AUTH_MODULE_PATH}" for scheme in SSO_SCHEMES)
+
+
+# The dummy module returns "architect" for this token; every SSO cluster bootstraps it with COORDINATOR_WRITE so there
+# is a privileged identity to administer the cluster and discover the leader once basic/none auth is denied.
+ADMIN_SCHEME = "oidc"
+ADMIN_TOKEN = "architect"
+
+
+def enable_sso_on_cluster(description):
+    """Restart every coordinator of an already-formed cluster with the SSO module configured, preserving data
+    directories. Clearing setup_queries both avoids re-issuing ADD COORDINATOR against an already-formed cluster and
+    skips the basic/none connection the runner would otherwise open to run them (which SSO now denies); the state
+    comes back from the durable log."""
+    for name in ("coordinator_1", "coordinator_2", "coordinator_3"):
+        description[name]["setup_queries"] = []
+        description[name]["args"].append(SSO_MAPPINGS)
+        interactive_mg_runner.kill(description, name)
+    with concurrent.futures.ThreadPoolExecutor(3) as executor:
+        futures = [
+            executor.submit(interactive_mg_runner.start, description, name)
+            for name in ("coordinator_1", "coordinator_2", "coordinator_3")
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            future.result()
+    return description
+
+
+def start_sso_cluster(test_name, bootstrap=None):
+    """Bring up an SSO-gated coordinator cluster the way SSO is meant to be enabled in production.
+
+    Once an SSO module is configured and a COORDINATOR_WRITE role exists, basic/none auth is denied on the coordinator,
+    so roles can no longer be created that way (and even the ADD COORDINATOR bootstrap could not authenticate). This
+    helper uses the clean two-phase enablement rather than leaning on the no-writable-role break-glass (exercised
+    separately by test_basic_auth_break_glass_when_no_writable_role): start the coordinators with no auth module, form
+    the cluster and create the roles through the basic/none passthrough, then restart every coordinator with the SSO
+    module configured. The roles persist across the restart through the Raft log, and after the restart all access is
+    via SSO. The 'architect' admin role (COORDINATOR_WRITE) is always created; `bootstrap(admin_cursor)` may create
+    additional test-specific roles. Returns the description (now carrying the SSO flag)."""
+    description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(description, keep_directories=False)
+
+    admin_cursor = get_leader_cursor()
+    create_role_with_privilege(admin_cursor, ADMIN_TOKEN, grant="COORDINATOR_WRITE")
+    if bootstrap is not None:
+        bootstrap(admin_cursor)
+
+    return enable_sso_on_cluster(description)
+
+
+def sso_try_find_leader_port(scheme=ADMIN_SCHEME, token=ADMIN_TOKEN):
+    """Bolt port of the up leader coordinator (discovered over an SSO admin session), or None if none is reachable."""
+    for port in COORD_PORTS:
+        try:
+            for record in sso_run(port, scheme, token, "SHOW INSTANCES"):
+                # Address columns by name: SHOW INSTANCES ends with a last_succ_resp_ms column, so a positional row[-1]
+                # would read that timestamp instead of the role.
+                if record["role"] == "leader" and record["health"] == "up":
+                    return int(record["bolt_server"].split(":")[1])
+        except Exception:
+            continue
+    return None
+
+
+def sso_wait_for_ready_leader_port(scheme=ADMIN_SCHEME, token=ADMIN_TOKEN):
+    """Like wait_for_ready_leader_port, but discovers and probes the leader over SSO (basic/none is denied once SSO is
+    configured). Polls until the leader serves role queries, so it also covers post-restart cluster re-formation."""
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        port = sso_try_find_leader_port(scheme, token)
+        if port is not None:
+            try:
+                sso_run(port, scheme, token, "SHOW ROLES")
+                return port
+            except Exception:
+                pass
+        time.sleep(0.5)
+    assert False, "Leader coordinator not ready to serve role queries over SSO"
+
+
+def _encode_token(token: str) -> str:
+    return base64.b64encode(token.encode("utf-8")).decode("utf-8")
+
+
+def sso_driver(port, scheme, token):
+    """A neo4j driver that authenticates to a coordinator with a custom SSO scheme + token over bolt://."""
+    auth = Auth(scheme=scheme, credentials=_encode_token(token), principal="")
+    return GraphDatabase.driver(f"bolt://localhost:{port}", auth=auth)
+
+
+def sso_run(port, scheme, token, query):
+    """Authenticate via SSO and run a single query, returning the rows. Raises if auth or the query is rejected."""
+    with sso_driver(port, scheme, token) as driver:
+        with driver.session() as session:
+            return list(session.run(query))
+
+
+def sso_connects(port, scheme, token):
+    """Whether an SSO connection is accepted at the Bolt handshake (independent of per-query privileges)."""
+    try:
+        with sso_driver(port, scheme, token) as driver:
+            driver.verify_connectivity()
+        return True
+    except Exception:
+        return False
+
+
+def sso_connect_error(port, scheme, token):
+    """The handshake rejection message for an SSO connection, or None if the connection is accepted."""
+    try:
+        with sso_driver(port, scheme, token) as driver:
+            driver.verify_connectivity()
+        return None
+    except Exception as e:
+        return str(e)
+
+
+def sso_route_denied(port, scheme, token):
+    """Whether the coordinator denies the routing table (Bolt ROUTE) for this SSO session.
+
+    verify_connectivity() cannot be used to detect the denial: a neo4j routing driver swallows a ROUTE FAILURE during
+    discovery (Memgraph error codes are not "fatal during discovery"; that check only honours Neo.ClientError.Security.*
+    codes), fails over to the next router, and finally raises a generic ServiceUnavailable. That is indistinguishable
+    from a *permitted* ROUTE, because this coords-only cluster has no data instances, so the routing table lists routers
+    but no readers/writers and discovery fails for that unrelated reason too.
+
+    So drive a single ROUTE against the seed router via the pool's fetch_routing_info(), which surfaces the raw server
+    response instead of swallowing it: a privilege denial raises the server's "routing table" ClientError, whereas a
+    permitted ROUTE returns routing records (readers/writers are not required at this level).
+    """
+    auth = Auth(scheme=scheme, credentials=_encode_token(token), principal="")
+    driver = GraphDatabase.driver(f"neo4j://localhost:{port}", auth=auth)
+    try:
+        pool = driver._pool
+        # (address, database, imp_user, bookmarks, auth, acquisition_timeout); auth=None reuses the driver's SSO auth.
+        pool.fetch_routing_info(pool.address, None, None, None, None, None)
+        return False
+    except Exception as e:
+        return "routing table" in str(e)
+    finally:
+        driver.close()
+
+
+def create_role_with_privilege(cursor, role, grant=None):
+    execute_and_fetch_all(cursor, f"CREATE ROLE {role}")
+    if grant is not None:
+        execute_and_fetch_all(cursor, f"GRANT {grant} TO {role}")
+
+
+@pytest.mark.parametrize("scheme", SSO_SCHEMES)
+def test_sso_success_and_failures(test_name, scheme):
+    # OIDC/SAML/Kerberos each: success when the returned role exists (with a privilege), rejection on a bad token, and
+    # rejection on a role that doesn't exist on the coordinator. Kerberos in particular is exercised through the real
+    # coordinator Bolt handshake, not an isolated module import.
+    start_sso_cluster(test_name)  # bootstraps the "architect" role (COORDINATOR_WRITE)
+    leader_port = sso_wait_for_ready_leader_port()
+
+    # Success: the module returns "architect", which exists and carries a privilege.
+    assert sorted(name for (name,) in sso_run(leader_port, scheme, "architect", "SHOW ROLES")) == ["architect"]
+
+    # Bad token: the module reports authentication failure -> the connection is rejected with the SSO-failure message.
+    assert "sso authentication failed" in (sso_connect_error(leader_port, scheme, "bad_token") or "").lower()
+
+    # Missing role: the module authenticates but returns a role that doesn't exist on the coordinator -> rejected with
+    # the same SSO-failure message.
+    assert "sso authentication failed" in (sso_connect_error(leader_port, scheme, "ghost_role") or "").lower()
+
+
+def test_sso_multi_role(test_name):
+    # A multi-role identity is accepted only when every returned role exists; if any is missing the whole login fails.
+    start_sso_cluster(test_name, lambda cursor: create_role_with_privilege(cursor, "reader", grant="COORDINATOR_READ"))
+    leader_port = sso_wait_for_ready_leader_port()
+
+    # All roles exist -> accepted.
+    assert sso_connects(leader_port, "oidc", "architect,reader")
+
+    # One of the roles doesn't exist -> the whole multi-role login is rejected.
+    assert not sso_connects(leader_port, "oidc", "architect,ghost_role")
+
+
+def test_sso_role_provisioning(test_name):
+    # SSO login for a role is rejected before the role is created and succeeds after (role provisioning is observable).
+    start_sso_cluster(test_name)
+    leader_port = sso_wait_for_ready_leader_port()
+
+    # Before CREATE ROLE: the module returns "late_role", which does not exist -> rejected.
+    assert not sso_connects(leader_port, "oidc", "late_role")
+
+    # Provision the role over an SSO admin session (basic/none is denied now that SSO is on): the same login succeeds.
+    sso_run(leader_port, "oidc", ADMIN_TOKEN, "CREATE ROLE late_role")
+    sso_run(leader_port, "oidc", ADMIN_TOKEN, "GRANT COORDINATOR_READ TO late_role")
+    assert sso_connects(leader_port, "oidc", "late_role")
+    assert sorted(name for (name,) in sso_run(leader_port, "oidc", "late_role", "SHOW ROLES")) == [
+        "architect",
+        "late_role",
+    ]
+
+
+def test_sso_privilege_enforcement(test_name):
+    # The privilege model bites via SSO: a COORDINATOR_READ session reads but cannot mutate; a COORDINATOR_WRITE
+    # session runs everything; a bare-role session (no read/write privilege) is refused at login.
+    def bootstrap(cursor):
+        create_role_with_privilege(cursor, "reader", grant="COORDINATOR_READ")
+        create_role_with_privilege(cursor, "writer", grant="COORDINATOR_WRITE")
+        create_role_with_privilege(cursor, "bare", grant=None)
+
+    start_sso_cluster(test_name, bootstrap)
+    leader_port = sso_wait_for_ready_leader_port()
+
+    # READ-only session: read/introspection queries succeed.
+    assert len(sso_run(leader_port, "oidc", "reader", "SHOW INSTANCES")) >= 0
+    assert sorted(name for (name,) in sso_run(leader_port, "oidc", "reader", "SHOW ROLES")) == [
+        "architect",
+        "bare",
+        "reader",
+        "writer",
+    ]
+    # ... but every mutating query is denied.
+    try:
+        sso_run(leader_port, "oidc", "reader", "CREATE ROLE from_reader")
+        assert False, "A COORDINATOR_READ session must not run a mutating query"
+    except Exception as e:
+        assert "required privilege" in str(e), f"Unexpected error: {e}"
+    # The read-only session may read the routing table (COORDINATOR_READ is enough).
+    assert not sso_route_denied(leader_port, "oidc", "reader")
+
+    # WRITE session: runs everything, including mutating role management.
+    sso_run(leader_port, "oidc", "writer", "CREATE ROLE from_writer")
+    assert "from_writer" in [name for (name,) in sso_run(leader_port, "oidc", ADMIN_TOKEN, "SHOW ROLES")]
+    assert not sso_route_denied(leader_port, "oidc", "writer")
+
+    # Bare-role session: a role with neither COORDINATOR_READ nor COORDINATOR_WRITE could not run any coordinator query
+    # (not even the routing table), so the login itself is rejected rather than admitting a session denied everything.
+    assert not sso_connects(leader_port, "oidc", "bare")
+
+
+def test_sso_privilege_revocation_applies_to_connected_session(test_name):
+    # REVOKE / DROP ROLE downgrades an already-connected SSO session without a reconnect: the effective mask is
+    # recomputed from the session's roles on every privilege check rather than captured once at login. Long-lived
+    # connections (driver routing pools, open admin shells) would otherwise keep revoked privileges until reconnect.
+    def bootstrap(cursor):
+        create_role_with_privilege(cursor, "ops", grant="COORDINATOR_WRITE")
+
+    start_sso_cluster(test_name, bootstrap)
+    leader_port = sso_wait_for_ready_leader_port()
+
+    with sso_driver(leader_port, "oidc", "ops") as driver:
+        with driver.session() as session:
+            # The session mutates freely while its role carries COORDINATOR_WRITE.
+            list(session.run("CREATE ROLE from_ops"))
+
+            # Downgrade the role from a separate admin session: grant READ first so the session keeps read access,
+            # then revoke WRITE.
+            sso_run(leader_port, "oidc", ADMIN_TOKEN, "GRANT COORDINATOR_READ TO ops")
+            sso_run(leader_port, "oidc", ADMIN_TOKEN, "REVOKE COORDINATOR_WRITE FROM ops")
+
+            # The open session is downgraded in place: mutating queries are now denied...
+            try:
+                list(session.run("CREATE ROLE from_ops_after_revoke"))
+                assert False, "A session whose role lost COORDINATOR_WRITE must not run a mutating query"
+            except Exception as e:
+                assert "required privilege" in str(e), f"Unexpected error: {e}"
+
+            # ...while reads keep working through the remaining COORDINATOR_READ.
+            assert "from_ops" in [name for (name,) in session.run("SHOW ROLES")]
+
+            # Dropping the role removes the last privilege: the open session is denied everything.
+            sso_run(leader_port, "oidc", ADMIN_TOKEN, "DROP ROLE ops")
+            try:
+                list(session.run("SHOW ROLES"))
+                assert False, "A session whose role was dropped must not run coordinator queries"
+            except Exception as e:
+                assert "required privilege" in str(e), f"Unexpected error: {e}"
+
+
+def test_sso_show_current_role(test_name):
+    # SHOW CURRENT ROLE reports the role(s) the SSO session authenticated with. It is self-service (reveals only the
+    # caller's own roles), so it needs no privilege beyond what login already requires: a COORDINATOR_READ-only session
+    # can run it without COORDINATOR_WRITE.
+    def bootstrap(cursor):
+        create_role_with_privilege(cursor, "reader", grant="COORDINATOR_READ")
+
+    start_sso_cluster(test_name, bootstrap)  # bootstraps the "architect" role (COORDINATOR_WRITE) too
+    leader_port = sso_wait_for_ready_leader_port()
+
+    # A single-role (READ-only) session sees exactly its role.
+    assert sorted(name for (name,) in sso_run(leader_port, "oidc", "reader", "SHOW CURRENT ROLE")) == ["reader"]
+
+    # A multi-role session sees every role it authenticated with.
+    assert sorted(name for (name,) in sso_run(leader_port, "oidc", "architect,reader", "SHOW CURRENT ROLE")) == [
+        "architect",
+        "reader",
+    ]
+
+
+def test_basic_auth_denied_when_sso_configured(test_name):
+    # Once an SSO module is configured on a coordinator (and the enterprise license is valid, as in CI), credential-less
+    # basic/none passthrough is denied: it would otherwise grant full COORDINATOR_WRITE without checking anything,
+    # bypassing the SSO privilege model. Contrast with test_basic_auth_passthrough, where no SSO module is configured
+    # and basic auth is accepted, and with test_basic_auth_break_glass_when_license_invalid, where SSO is configured
+    # but the license is invalid so basic auth is accepted again.
+    start_sso_cluster(test_name)
+    leader_port = sso_wait_for_ready_leader_port()
+
+    # Basic auth with credentials is rejected at the Bolt handshake, with a message naming the cause (basic disabled
+    # under SSO) rather than a generic authentication failure.
+    try:
+        connect(host="localhost", port=leader_port, username="whoever", password="whatever")
+        assert False, "Basic auth must be denied on a coordinator with SSO configured"
+    except Exception as e:
+        assert "basic authentication is disabled" in str(e).lower(), f"Unexpected error: {e}"
+
+    # Credential-less (none) auth is rejected too, with the same distinct message.
+    try:
+        connect(host="localhost", port=leader_port)
+        assert False, "Credential-less auth must be denied on a coordinator with SSO configured"
+    except Exception as e:
+        assert "basic authentication is disabled" in str(e).lower(), f"Unexpected error: {e}"
+
+
+@pytest.mark.skipif(
+    not (os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE") and os.environ.get("MEMGRAPH_ORGANIZATION_NAME")),
+    reason="Needs a valid enterprise license in MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME to exercise "
+    "the valid->invalid->valid license transition",
+)
+def test_basic_auth_break_glass_when_license_invalid(test_name):
+    # SSO on coordinators requires a valid enterprise license, so when the license expires or is removed the SSO path
+    # rejects every login. Basic/none must then fall back to the license-free passthrough instead of being denied too:
+    # otherwise a license transition would leave no successful auth path on any coordinator Bolt session (total
+    # lockout), recoverable only by a restart with SSO unconfigured. The passthrough is the break-glass that lets an
+    # operator connect and re-install the license over Bolt.
+    #
+    # The coordinators must never see the license through the environment: the env candidate is captured once at
+    # process startup and would keep the license valid no matter what is done at runtime. So the env vars are stripped
+    # for the whole cluster lifetime and the license is installed per-instance via SET DATABASE SETTING instead (the
+    # winning license is persisted into the settings kvstore, so it survives the SSO-enabling restart), which also
+    # makes it revocable at runtime by clearing the setting.
+    license_key = os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE")
+    organization = os.environ.get("MEMGRAPH_ORGANIZATION_NAME")
+    saved_env = {
+        var: os.environ.pop(var, None) for var in ("MEMGRAPH_ENTERPRISE_LICENSE", "MEMGRAPH_ORGANIZATION_NAME")
+    }
+
+    def install_license(cursor):
+        execute_and_fetch_all(cursor, f'SET DATABASE SETTING "organization.name" TO "{organization}"')
+        execute_and_fetch_all(cursor, f'SET DATABASE SETTING "enterprise.license" TO "{license_key}"')
+
+    def basic_auth_denied(port):
+        try:
+            connect(host="localhost", port=port, username="whoever", password="whatever")
+            return False
+        except Exception:
+            return True
+
+    try:
+        # Form the cluster with the license installed through settings only. The ADD COORDINATOR bootstrap is a
+        # coordinator query and needs the license, so it is run manually after the settings are in place instead of
+        # through the runner's setup_queries.
+        description = get_coords_only_description(test_name=test_name)
+        formation_queries = description["coordinator_3"]["setup_queries"]
+        description["coordinator_3"]["setup_queries"] = []
+        interactive_mg_runner.start_all(description, keep_directories=False)
+        for port in COORD_PORTS:
+            install_license(get_cursor(port))
+        bootstrap_cursor = get_cursor(7692)
+        for query in formation_queries:
+            execute_and_fetch_all(bootstrap_cursor, query)
+
+        create_role_with_privilege(get_leader_cursor(), ADMIN_TOKEN, grant="COORDINATOR_WRITE")
+        enable_sso_on_cluster(description)
+        leader_port = sso_wait_for_ready_leader_port()
+
+        # While the license is valid: SSO works and basic/none is denied.
+        assert basic_auth_denied(leader_port)
+
+        # Revoke the license on the leader at runtime (clearing the setting leaves no valid license source).
+        sso_run(leader_port, ADMIN_SCHEME, ADMIN_TOKEN, 'SET DATABASE SETTING "enterprise.license" TO ""')
+
+        # SSO logins are now rejected on the leader...
+        assert not sso_connects(leader_port, ADMIN_SCHEME, ADMIN_TOKEN)
+
+        # ...but basic auth falls back to the passthrough instead of locking the coordinator out entirely, and the
+        # break-glass session has full COORDINATOR_WRITE: it can re-install the license over Bolt.
+        recovery_cursor = connect(host="localhost", port=leader_port, username="whoever", password="whatever").cursor()
+        install_license(recovery_cursor)
+
+        # With the license restored, SSO works again and basic/none is denied again.
+        assert sorted(name for (name,) in sso_run(leader_port, ADMIN_SCHEME, ADMIN_TOKEN, "SHOW ROLES")) == [
+            "architect"
+        ]
+        assert basic_auth_denied(leader_port)
+    finally:
+        for var, value in saved_env.items():
+            if value is not None:
+                os.environ[var] = value
+
+
+def test_basic_auth_break_glass_when_no_writable_role(test_name):
+    # Break-glass companion to test_basic_auth_break_glass_when_license_invalid, covering the other way SSO can fail to
+    # provide any privileged session even with a valid license: the committed role set holds no COORDINATOR_WRITE role.
+    # This is the fresh-boot case (started with --auth-module-mappings and no roles) and, symmetrically, the state left
+    # by dropping the last writable role on a live cluster. SSO only admits identities whose roles already exist with a
+    # privilege, and only a COORDINATOR_WRITE role can create the first administrator, so denying basic too would be a
+    # permanent lockout. Basic/none must stay open as break-glass while no writable role exists and be denied again once
+    # one does -- then reopen if the last writable role is later dropped.
+    def basic_auth_denied(port):
+        try:
+            connect(host="localhost", port=port, username="whoever", password="whatever")
+            return False
+        except Exception:
+            return True
+
+    # Form the cluster through basic passthrough but create no roles, then enable SSO on top of the role-less cluster.
+    description = get_coords_only_description(test_name=test_name)
+    interactive_mg_runner.start_all(description, keep_directories=False)
+    wait_for_ready_leader_port()
+    enable_sso_on_cluster(description)
+
+    # No COORDINATOR_WRITE role exists, so SSO can admit nobody -- basic/none stays open as break-glass. The leader is
+    # discovered over that basic session, since SSO cannot authenticate yet.
+    leader_port = wait_for_ready_leader_port()
+    assert not sso_connects(leader_port, ADMIN_SCHEME, ADMIN_TOKEN)
+    break_glass_cursor = connect(host="localhost", port=leader_port, username="whoever", password="whatever").cursor()
+    assert show_roles(break_glass_cursor) == []
+
+    # Bootstrap the first administrator through the break-glass session.
+    create_role_with_privilege(break_glass_cursor, ADMIN_TOKEN, grant="COORDINATOR_WRITE")
+
+    # A writable role now exists (the license is valid in CI), so basic/none is denied and SSO takes over.
+    assert basic_auth_denied(leader_port)
+    assert sso_connects(leader_port, ADMIN_SCHEME, ADMIN_TOKEN)
+
+    # Dropping the last COORDINATOR_WRITE role reopens the break-glass path so an admin is never locked out for good.
+    sso_run(leader_port, ADMIN_SCHEME, ADMIN_TOKEN, f"DROP ROLE {ADMIN_TOKEN}")
+    assert not sso_connects(leader_port, ADMIN_SCHEME, ADMIN_TOKEN)
+    reopened_cursor = connect(host="localhost", port=leader_port, username="whoever", password="whatever").cursor()
+    assert show_roles(reopened_cursor) == []
+
+
+def test_sso_unknown_scheme_rejected(test_name):
+    # A scheme that is not in --auth-module-mappings (and is not basic/none) is rejected on a coordinator, with a
+    # message naming the unsupported scheme rather than a generic authentication failure.
+    start_sso_cluster(test_name)
+    leader_port = sso_wait_for_ready_leader_port()
+    error = sso_connect_error(leader_port, "not-a-configured-scheme", "architect")
+    assert error is not None and "isn't supported on this coordinator" in error
+
+
+def test_sso_authenticates_through_follower(test_name):
+    # SSO can be performed against a follower coordinator: the role-existence lookup is forwarded to the leader, so the
+    # login is accepted regardless of which coordinator the client connected to.
+    start_sso_cluster(test_name, lambda cursor: create_role_with_privilege(cursor, "reader", grant="COORDINATOR_READ"))
+    leader_port = sso_wait_for_ready_leader_port()
+
+    follower_port = find_follower_ports(leader_port)[0]
+    assert sorted(name for (name,) in sso_run(follower_port, "saml", "reader", "SHOW ROLES")) == ["architect", "reader"]
 
 
 if __name__ == "__main__":

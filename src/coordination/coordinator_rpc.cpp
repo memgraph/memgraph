@@ -94,18 +94,6 @@ void UnregisterReplicaRes::Load(UnregisterReplicaRes *self, memgraph::slk::Reade
   memgraph::slk::Load(self, reader);
 }
 
-void EnableWritingOnMainRes::Save(EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-
-void EnableWritingOnMainRes::Load(EnableWritingOnMainRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-
-void EnableWritingOnMainReq::Save(EnableWritingOnMainReq const & /*self*/, memgraph::slk::Builder * /*builder*/) {}
-
-void EnableWritingOnMainReq::Load(EnableWritingOnMainReq * /*self*/, memgraph::slk::Reader * /*reader*/) {}
-
 // ShowInstances
 void ShowInstancesReq::Save(const ShowInstancesReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -335,14 +323,6 @@ void Load(memgraph::coordination::UnregisterReplicaRes *self, memgraph::slk::Rea
   memgraph::slk::Load(&self->arg_, reader);
 }
 
-void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.arg_, builder);
-}
-
-void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->arg_, reader);
-}
-
 // GetDatabaseHistoriesRpc
 
 void Save(const memgraph::coordination::GetDatabaseHistoriesResV1 &self, memgraph::slk::Builder *builder) {
@@ -493,6 +473,20 @@ SLK_EMPTY_MSG(coordination::StateCheckReqV1)
 SLK_EMPTY_MSG(coordination::StateCheckReqV2)
 SLK_EMPTY_MSG(coordination::StateCheckReq)
 SLK_SINGLE_ARG_MSG(coordination::StateCheckRes)
+SLK_SINGLE_ARG_MSG(coordination::CreateRoleReq)
+SLK_SINGLE_ARG_MSG(coordination::CreateRoleRes)
+SLK_SINGLE_ARG_MSG(coordination::DropRoleReq)
+SLK_SINGLE_ARG_MSG(coordination::DropRoleRes)
+SLK_EMPTY_MSG(coordination::GetRolesReq)
+SLK_SINGLE_ARG_MSG(coordination::GetRolesRes)
+SLK_SINGLE_ARG_MSG(coordination::GrantPrivilegeReq)
+SLK_SINGLE_ARG_MSG(coordination::GrantPrivilegeRes)
+SLK_SINGLE_ARG_MSG(coordination::RevokePrivilegeReq)
+SLK_SINGLE_ARG_MSG(coordination::RevokePrivilegeRes)
+SLK_SINGLE_ARG_MSG(coordination::GetRolePrivilegesReq)
+SLK_SINGLE_ARG_MSG(coordination::GetRolePrivilegesRes)
+SLK_SINGLE_ARG_MSG(coordination::SetCoordinatorSettingReq)
+SLK_SINGLE_ARG_MSG(coordination::SetCoordinatorSettingRes)
 }  // namespace slk
 
 }  // namespace memgraph

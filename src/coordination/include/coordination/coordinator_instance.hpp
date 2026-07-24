@@ -18,6 +18,8 @@
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_connector.hpp"
@@ -91,6 +93,28 @@ class CoordinatorInstance {
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;
 
+  auto CreateRole(std::string_view role_name) const -> CreateRoleStatus;
+
+  auto DropRole(std::string_view role_name) const -> DropRoleStatus;
+
+  // Strong read of the committed role set: served locally if this coordinator is the ready leader, otherwise
+  // forwarded to the leader. Returns nullopt when the leader is unreachable -- never local replicated state, so
+  // consumers (SSO authentication, privilege checks, SHOW ROLES) fail closed instead of acting on stale roles.
+  auto GetRoles() const -> std::optional<std::vector<CoordinatorRole>>;
+
+  auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> GrantPrivilegeStatus;
+
+  auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> RevokePrivilegeStatus;
+
+  // Strong read of a single role's privileges: served locally if this coordinator is the ready leader, otherwise
+  // forwarded to the leader. Returns nullopt when the leader is unreachable -- never local replicated state; the
+  // returned pair is {role_found, mask}.
+  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
+
+  // Leader-local read backing the GetRolePrivileges forwarding RPC. Returns nullopt if this coordinator is not the
+  // ready leader, otherwise {role_found, mask}.
+  auto GetRolePrivilegesAsLeader(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
+
   auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
   auto GetRoutingTableAsLeader(std::string_view db_name) const -> RoutingTable;
   auto GetRoutingTableAsFollower(auto leader_id, std::string_view db_name) const -> RoutingTable;
@@ -161,6 +185,25 @@ class CoordinatorInstance {
     }
     if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
       return leader->SendRpc<Rpc>(std::forward<Args>(args)...) ? StatusEnum::SUCCESS : StatusEnum::LEADER_FAILED;
+    }
+    return StatusEnum::LEADER_NOT_FOUND;
+  }
+
+  // Like ForwardToLeader, but for RPCs whose response carries the leader's exact status (as std::optional<StatusEnum>)
+  // instead of a bool success flag, so the follower can act on statuses like ROLE_ALREADY_EXISTS. An empty response
+  // (the RPC itself failed) maps to LEADER_FAILED.
+  template <rpc::IsRpc Rpc, ForwardableStatus StatusEnum, typename... Args>
+  auto ForwardStatusToLeader(Args &&...args) const -> std::optional<StatusEnum> {
+    auto const leader_id = raft_state_->GetLeaderId();
+    if (leader_id == raft_state_->GetMyCoordinatorId() &&
+        status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
+      return std::nullopt;
+    }
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      if (auto const res = leader->SendRpc<Rpc>(std::forward<Args>(args)...); res.has_value()) {
+        return *res;
+      }
+      return StatusEnum::LEADER_FAILED;
     }
     return StatusEnum::LEADER_NOT_FOUND;
   }

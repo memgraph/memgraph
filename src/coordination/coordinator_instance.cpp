@@ -834,6 +834,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
   metrics::Metrics().global.unregister_repl_instance->Increment();
+  auto lock = std::lock_guard{coord_instance_lock_};
 
   if (auto const res =
           ForwardToLeader<UnregisterInstanceRpc, UnregisterInstanceCoordinatorStatus>(std::string{instance_name});
@@ -844,8 +845,6 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
   }
-
-  auto lock = std::lock_guard{coord_instance_lock_};
 
   auto maybe_instance = FindReplicationInstance(instance_name, repl_instances_);
   if (!maybe_instance) {
@@ -909,6 +908,8 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
     return *res;
   }
 
+  auto lock = std::lock_guard{coord_instance_lock_};
+
   auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
 
   auto const existing_coord = std::ranges::find_if(
@@ -954,6 +955,8 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
   if (auto const res = ForwardToLeader<AddCoordinatorRpc, AddCoordinatorInstanceStatus>(config); res.has_value()) {
     return *res;
   }
+
+  auto lock = std::lock_guard{coord_instance_lock_};
 
   auto const bolt_server_to_add = config.bolt_server.SocketAddress();
   auto const id_to_add = config.coordinator_id;
@@ -1081,6 +1084,17 @@ auto CoordinatorInstance::AddSelfCoordinator(
 auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_name,
                                                 std::string_view const setting_value) const
     -> SetCoordinatorSettingStatus {
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res = ForwardToLeader<SetCoordinatorSettingRpc, SetCoordinatorSettingStatus>(
+          std::pair{std::string{setting_name}, std::string{setting_value}});
+      res.has_value()) {
+    return *res;
+  }
+
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return SetCoordinatorSettingStatus::NOT_LEADER;
+  }
+
   if (constexpr std::array settings{kEnabledReadsOnMain,
                                     kSyncFailoverOnly,
                                     kMaxFailoverLagOnReplica,
@@ -1147,6 +1161,178 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
   }
 
   return SetCoordinatorSettingStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::CreateRole(std::string_view const role_name) const -> CreateRoleStatus {
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res = ForwardStatusToLeader<CreateRoleRpc, CreateRoleStatus>(std::string{role_name});
+      res.has_value()) {
+    return *res;
+  }
+
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return CreateRoleStatus::NOT_LEADER;
+  }
+
+  auto lock = std::lock_guard{coord_instance_lock_};
+  auto roles = raft_state_->GetRoles();
+  if (std::ranges::contains(roles, role_name, &CoordinatorRole::name)) {
+    return CreateRoleStatus::ROLE_ALREADY_EXISTS;
+  }
+  // New roles start with an empty privilege mask; GRANT populates it later.
+  roles.emplace_back(CoordinatorRole{.name = std::string{role_name}, .permissions = 0});
+
+  CoordinatorClusterStateDelta delta_state;
+  delta_state.roles_ = std::move(roles);
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
+    spdlog::error("Aborting creation of role {}. Writing to Raft failed.", role_name);
+    return CreateRoleStatus::RAFT_LOG_ERROR;
+  }
+
+  return CreateRoleStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::DropRole(std::string_view const role_name) const -> DropRoleStatus {
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res = ForwardStatusToLeader<DropRoleRpc, DropRoleStatus>(std::string{role_name}); res.has_value()) {
+    return *res;
+  }
+
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return DropRoleStatus::NOT_LEADER;
+  }
+
+  auto lock = std::lock_guard{coord_instance_lock_};
+  auto roles = raft_state_->GetRoles();
+  auto const removed =
+      std::erase_if(roles, [role_name](CoordinatorRole const &role) { return role.name == role_name; });
+  if (removed == 0) {
+    return DropRoleStatus::NO_SUCH_ROLE;
+  }
+
+  CoordinatorClusterStateDelta delta_state;
+  delta_state.roles_ = std::move(roles);
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
+    spdlog::error("Aborting removal of role {}. Writing to Raft failed.", role_name);
+    return DropRoleStatus::RAFT_LOG_ERROR;
+  }
+
+  return DropRoleStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::GetRoles() const -> std::optional<std::vector<CoordinatorRole>> {
+  if (status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
+    return raft_state_->GetRoles();
+  }
+
+  auto const leader_id = raft_state_->GetLeaderId();
+  // Skip forwarding if we are the (not-yet-ready) leader or no leader is elected; otherwise ask the leader.
+  if (leader_id != raft_state_->GetMyCoordinatorId() && leader_id != -1) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      if (auto res = leader->SendRpc<GetRolesRpc>(); res.has_value()) {
+        return res;
+      }
+    }
+  }
+
+  return std::nullopt;
+}
+
+auto CoordinatorInstance::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
+    -> GrantPrivilegeStatus {
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res =
+          ForwardStatusToLeader<GrantPrivilegeRpc, GrantPrivilegeStatus>(std::pair{std::string{role_name}, privileges});
+      res.has_value()) {
+    return *res;
+  }
+
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return GrantPrivilegeStatus::NOT_LEADER;
+  }
+
+  auto lock = std::lock_guard{coord_instance_lock_};
+  auto roles = raft_state_->GetRoles();
+  auto const it = std::ranges::find(roles, role_name, &CoordinatorRole::name);
+  if (it == roles.end()) {
+    return GrantPrivilegeStatus::NO_SUCH_ROLE;
+  }
+  it->permissions |= privileges;
+
+  CoordinatorClusterStateDelta delta_state;
+  delta_state.roles_ = std::move(roles);
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
+    spdlog::error("Aborting grant of privileges to role {}. Writing to Raft failed.", role_name);
+    return GrantPrivilegeStatus::RAFT_LOG_ERROR;
+  }
+
+  return GrantPrivilegeStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::RevokePrivilege(std::string_view const role_name, uint64_t const privileges) const
+    -> RevokePrivilegeStatus {
+  // Run on a follower, the write is forwarded to the leader; the response collapses to success/failure.
+  if (auto const res = ForwardStatusToLeader<RevokePrivilegeRpc, RevokePrivilegeStatus>(
+          std::pair{std::string{role_name}, privileges});
+      res.has_value()) {
+    return *res;
+  }
+
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return RevokePrivilegeStatus::NOT_LEADER;
+  }
+
+  auto lock = std::lock_guard{coord_instance_lock_};
+  auto roles = raft_state_->GetRoles();
+  auto const it = std::ranges::find(roles, role_name, &CoordinatorRole::name);
+  if (it == roles.end()) {
+    return RevokePrivilegeStatus::NO_SUCH_ROLE;
+  }
+  it->permissions &= ~privileges;
+
+  CoordinatorClusterStateDelta delta_state;
+  delta_state.roles_ = std::move(roles);
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
+    spdlog::error("Aborting revoke of privileges from role {}. Writing to Raft failed.", role_name);
+    return RevokePrivilegeStatus::RAFT_LOG_ERROR;
+  }
+
+  return RevokePrivilegeStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::GetRolePrivilegesAsLeader(std::string_view const role_name) const
+    -> std::optional<std::pair<bool, uint64_t>> {
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return std::nullopt;
+  }
+  auto const roles = raft_state_->GetRoles();
+  auto const it = std::ranges::find(roles, role_name, &CoordinatorRole::name);
+  if (it == roles.end()) {
+    return std::pair{false, uint64_t{0}};
+  }
+  return std::pair{true, it->permissions};
+}
+
+auto CoordinatorInstance::GetRolePrivileges(std::string_view const role_name) const
+    -> std::optional<std::pair<bool, uint64_t>> {
+  // Strong read served by the leader; when the leader is unreachable the query fails rather than serving
+  // possibly-stale local replicated state. An empty optional means the leader couldn't be reached; the returned pair
+  // is {role_found, mask}.
+  if (auto const local = GetRolePrivilegesAsLeader(role_name); local.has_value()) {
+    return local;
+  }
+
+  auto const leader_id = raft_state_->GetLeaderId();
+  // Skip forwarding if we are the (not-yet-ready) leader or no leader is elected; otherwise ask the leader.
+  if (leader_id != raft_state_->GetMyCoordinatorId() && leader_id != -1) {
+    if (auto *leader = FindClientConnector(leader_id); leader != nullptr) {
+      if (auto const res = leader->SendRpc<GetRolePrivilegesRpc>(std::string{role_name}); res.has_value()) {
+        return res;
+      }
+    }
+  }
+
+  return std::nullopt;
 }
 
 void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name, InstanceState const &instance_state) {

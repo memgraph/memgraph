@@ -109,6 +109,26 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::expected<void, communication::bolt::AuthFailure> SSOAuthenticate(const std::string &scheme,
                                                                         const std::string &identity_provider_response);
 
+#ifdef MG_ENTERPRISE
+  // Called during Init on a coordinator for an SSO scheme present in --auth-module-mappings. Runs the coordinator SSO
+  // authenticator (which validates the module's roles against the coordinator's committed role set) and, on success,
+  // sets the session's effective coordinator privilege mask. No user is stored on coordinators.
+  std::expected<void, communication::bolt::AuthFailure> CoordinatorSSOAuthenticate(
+      const std::string &scheme, const std::string &identity_provider_response);
+
+  // Called during Init on a coordinator for basic/none auth when no SSO module is configured: credentials are ignored
+  // and the session carries the full coordinator privilege mask. Set explicitly so a LOGOFF -> LOGON passthrough
+  // re-authentication restores the privileges LogOff cleared.
+  void CoordinatorPassthroughAuthenticate();
+
+  // Whether the coordinator's committed role set contains a role holding COORDINATOR_WRITE, i.e. an identity that
+  // could administer the cluster once basic/none auth is denied. Returns nullopt when the role set can't be read
+  // (no coordinator state, or the leader is unreachable). Used by the Init break-glass decision: with SSO configured
+  // and a valid license, basic/none is denied only when such a role exists; otherwise SSO can never grant a
+  // privileged session and basic must stay open so an admin isn't permanently locked out.
+  std::optional<bool> CoordinatorHasWritableRole() const;
+#endif
+
   void LogOff();
 
   static std::optional<std::string> GetServerNameForInit();

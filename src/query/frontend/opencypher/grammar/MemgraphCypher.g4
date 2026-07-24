@@ -54,6 +54,8 @@ memgraphCypherKeyword : cypherKeyword
                       | CONSUMER_GROUP
                       | CONTAINING
                       | COORDINATOR
+                      | COORDINATOR_READ
+                      | COORDINATOR_WRITE
                       | CREDENTIALS
                       | CSV
                       | CURRENT
@@ -590,12 +592,13 @@ privilege : CREATE
           | STORAGE_MODE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
-          | COORDINATOR
           | IMPERSONATE_USER
           | PROFILE_RESTRICTION
           | PARALLEL_EXECUTION
           | SERVER_SIDE_PARAMETERS
           | RELOAD_TLS
+          | COORDINATOR_READ
+          | COORDINATOR_WRITE
           ;
 
 granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;

@@ -42,6 +42,19 @@ using nuraft::ptr;
 // NOLINTNEXTLINE
 using replication_coordination_glue::ReplicationRole;
 
+// A coordinator role: a name plus a coordinator permission bitmask. The mask carries auth::Permission bits
+// (COORDINATOR_READ / COORDINATOR_WRITE); the coordination layer only stores and replicates it. Roles live solely in
+// the Raft-replicated cluster state - there are no user records on coordinators.
+struct CoordinatorRole {
+  std::string name;
+  uint64_t permissions{0};
+
+  bool operator==(CoordinatorRole const &other) const = default;
+};
+
+void to_json(nlohmann::json &j, CoordinatorRole const &role);
+void from_json(nlohmann::json const &j, CoordinatorRole &role);
+
 struct CoordinatorClusterStateDelta {
   std::optional<std::vector<DataInstanceContext>> data_instances_;
   std::optional<std::vector<CoordinatorInstanceContext>> coordinator_instances_;
@@ -54,6 +67,7 @@ struct CoordinatorClusterStateDelta {
   std::optional<uint32_t> instance_down_timeout_sec_;
   std::optional<uint32_t> instance_health_check_frequency_sec_;
   std::optional<bool> global_read_only_;
+  std::optional<std::vector<CoordinatorRole>> roles_;
 
   bool operator==(const CoordinatorClusterStateDelta &other) const = default;
 };
@@ -107,6 +121,8 @@ class CoordinatorClusterState {
 
   auto GetGlobalReadOnly() const -> bool;
 
+  auto GetRoles() const -> std::vector<CoordinatorRole>;
+
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
   // Setter function used on parsing data from json
@@ -135,6 +151,9 @@ class CoordinatorClusterState {
 
   void SetGlobalReadOnly(bool global_read_only);
 
+  // Setter function used on parsing data from json
+  void SetRoles(std::vector<CoordinatorRole> roles);
+
   friend bool operator==(const CoordinatorClusterState &lhs, const CoordinatorClusterState &rhs) {
     if (&lhs == &rhs) {
       return true;
@@ -151,17 +170,19 @@ class CoordinatorClusterState {
                     lhs.deltas_batch_progress_size_,
                     lhs.instance_down_timeout_sec_,
                     lhs.instance_health_check_frequency_sec_,
-                    lhs.global_read_only_) == std::tie(rhs.data_instances_,
-                                                       rhs.coordinator_instances_,
-                                                       rhs.current_main_uuid_,
-                                                       rhs.enabled_reads_on_main_,
-                                                       rhs.sync_failover_only_,
-                                                       rhs.max_failover_replica_lag_,
-                                                       rhs.max_replica_read_lag_,
-                                                       rhs.deltas_batch_progress_size_,
-                                                       rhs.instance_down_timeout_sec_,
-                                                       rhs.instance_health_check_frequency_sec_,
-                                                       rhs.global_read_only_);
+                    lhs.global_read_only_,
+                    lhs.roles_) == std::tie(rhs.data_instances_,
+                                            rhs.coordinator_instances_,
+                                            rhs.current_main_uuid_,
+                                            rhs.enabled_reads_on_main_,
+                                            rhs.sync_failover_only_,
+                                            rhs.max_failover_replica_lag_,
+                                            rhs.max_replica_read_lag_,
+                                            rhs.deltas_batch_progress_size_,
+                                            rhs.instance_down_timeout_sec_,
+                                            rhs.instance_health_check_frequency_sec_,
+                                            rhs.global_read_only_,
+                                            rhs.roles_);
   }
 
  private:
@@ -189,6 +210,9 @@ class CoordinatorClusterState {
   // cluster does not unexpectedly freeze writes. It is the durable source of truth projected onto the main's writing
   // flag.
   bool global_read_only_{false};
+  // The roles the coordinator accepts from SSO, each with its coordinator permission mask. It is the sole source of
+  // truth for coordinator roles and their privileges; there are no user records stored on coordinators.
+  std::vector<CoordinatorRole> roles_;
   mutable utils::ResourceLock app_lock_;
 };
 
