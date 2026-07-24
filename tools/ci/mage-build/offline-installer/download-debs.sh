@@ -13,7 +13,7 @@ OUTPUT_DIR=${OUTPUT_DIR:-/output/debs}
 
 # Packages required at runtime by memgraph + MAGE on Ubuntu 24.04.
 # Sourced from:
-#   - mage/install_runtime_requirements.sh
+#   - release/package/mage/install_runtime_requirements.sh
 #   - CPACK_DEBIAN_MAGE_PACKAGE_DEPENDS in release/CMakeLists.txt (memgraph-mage Depends)
 #   - release/CMakeLists.txt (memgraph CPACK_DEBIAN_PACKAGE_DEPENDS + shlibdeps)
 RUNTIME_PACKAGES=(

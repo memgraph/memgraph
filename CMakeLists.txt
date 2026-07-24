@@ -216,7 +216,7 @@ include(functions)
 # -DMG_BUILD_MAGE=ON) for a MAGE-only build — the Conan side of that mode is
 # the `mage_only` option in conanfile.py, which trims the dependency graph
 # to match and sets both CMake options via the toolchain (see
-# `./build.sh --mage-only`).
+# `./build.sh --mage only`).
 option(MG_BUILD_MEMGRAPH "Build the Memgraph database" ON)
 option(MG_BUILD_MAGE "Build all MAGE query modules (C++, Python, Rust)" OFF)
 

@@ -15,7 +15,7 @@
 # Expects two RPMs staged into the build context under fixed names (as
 # Dockerfile.release does with ./memgraph.deb):
 #   ./memgraph.rpm        - the base memgraph package
-#   ./memgraph-mage.rpm   - the MAGE query-modules package built by build-rpm.sh
+#   ./memgraph-mage.rpm   - the MAGE query-modules package built by package.sh
 ARG BASE_IMAGE=quay.io/centos/centos:stream9
 FROM ${BASE_IMAGE} AS base
 

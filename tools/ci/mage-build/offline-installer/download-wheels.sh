@@ -3,7 +3,7 @@ set -euo pipefail
 # Run me inside a clean ubuntu:24.04 container as root.
 # Downloads every Python wheel needed by MAGE + the memgraph auth module into
 # /output/wheels/. Mirrors the wheel-selection logic in
-# mage/install_python_requirements.sh.
+# release/package/mage/install_python_requirements.sh.
 #
 # Inputs (env vars):
 #   ARCH         amd64 or arm64 (default amd64)
@@ -56,7 +56,7 @@ if [[ -d "$INPUT_DIR/wheels-prebuilt" ]]; then
   shopt -u nullglob
 fi
 
-# S3 wheel paths and filename suffixes mirror mage/install_python_requirements.sh:
+# S3 wheel paths and filename suffixes mirror release/package/mage/install_python_requirements.sh:
 #   arm64                 -> wheels/arm64/                   + linux_aarch64 tag
 #   amd64 + CUDA=false    -> wheels/amd64/                   + linux_x86_64 tag
 #   amd64 + CUDA=true     -> wheels/cuda-${CUDA_VERSION}/    + linux_x86_64 tag
@@ -81,7 +81,7 @@ fi
 # picking that over the S3 one we tested with).
 #
 # IMPORTANT: keep these in sync with the URLs in
-# mage/install_python_requirements.sh. The custom PyG/DGL wheels are hosted in
+# release/package/mage/install_python_requirements.sh. The custom PyG/DGL wheels are hosted in
 # our S3 bucket (not on PyPI), so both scripts have to agree on which version
 # to fetch — there's no upstream registry to derive a single answer from. Any
 # version bump here must be mirrored there and vice versa.

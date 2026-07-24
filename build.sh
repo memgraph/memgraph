@@ -24,9 +24,8 @@ OPTIONS:
     --mage MODE             MAGE query modules (C++, Python, Rust). MODE is one of:
                               off  = no MAGE (default)
                               on   = build MAGE together with Memgraph
-                              only = build just MAGE, not Memgraph itself (trims
-                                     the conan dependency graph; use a fresh build
-                                     directory when switching to/from full builds)
+                              only = build just MAGE, not Memgraph itself
+                                     (trims the conan dependency graph)
     --cugraph               Also build MAGE cuGraph GPU modules (implies --mage on)
     --profiling MODES       Comma-separated profiling build modes (e.g. --profiling fp,mem):
                               fp  = retain frame pointers for low-overhead 'perf' (MG_PROFILE)
@@ -201,8 +200,11 @@ if [[ "$CUGRAPH" == "on" ]]; then
         MAGE=on
     fi
 fi
-if [[ "$MAGE" != "off" ]]; then
-    CMAKE_ARGS="$CMAKE_ARGS -DMG_BUILD_MAGE=ON"
+
+if [[ "$MAGE" == "on" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_BUILD_MEMGRAPH=ON -DMG_BUILD_MAGE=ON"
+elif [[ "$MAGE" == "off" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_BUILD_MEMGRAPH=ON -DMG_BUILD_MAGE=OFF"
 fi
 
 # Map comma-separated --profiling tokens to CMake options.

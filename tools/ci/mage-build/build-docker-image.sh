@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Local convenience wrapper: build a memgraph-mage docker image from the
 # current checkout, end to end. Spins up an mgbuild container, builds MAGE in
-# the unified CMake tree (build-mage => MG_BUILD_MAGE-only build), packages
+# the unified CMake tree (build-memgraph --mage only), packages
 # the memgraph-mage deb(s) with package.sh, stages the docker context under
 # release/package/mage/ and drives package-mage-docker. The base memgraph
 # package is downloaded (latest release by default, --memgraph-url to

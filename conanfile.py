@@ -22,9 +22,9 @@ class Memgraph(ConanFile):
 
     options = {
         # Build only the MAGE query modules: trims the dependency graph to
-        # what mage/ links against (fmt, boost, gtest) and configures CMake
-        # with MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON. Used by
-        # `./build.sh --mage-only`.
+        # what src/mage/ links against (fmt, boost, gtest) and configures
+        # CMake with MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON. Used by
+        # `./build.sh --mage only`.
         "mage_only": [True, False],
     }
 
