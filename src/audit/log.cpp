@@ -19,6 +19,7 @@
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
+#include "utils/timestamp.hpp"
 
 #include <mutex>
 
@@ -122,22 +123,26 @@ inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
   return ret;
 }
 
-Log::Log(std::filesystem::path storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis)
-    : storage_directory_(std::move(storage_directory)),
+Log::Log(std::filesystem::path log_file, int32_t buffer_size, int32_t buffer_flush_interval_millis,
+         TimestampFormat timestamp_format)
+    : log_file_(std::move(log_file)),
       buffer_size_(buffer_size),
       buffer_flush_interval_millis_(buffer_flush_interval_millis),
+      timestamp_format_(timestamp_format),
       started_(false) {}
 
 bool Log::Start() {
   MG_ASSERT(!started_.load(std::memory_order_acquire), "Trying to start an already started audit log!");
 
-  utils::EnsureDirOrDie(storage_directory_);
+  if (auto parent = log_file_.parent_path(); !parent.empty()) {
+    utils::EnsureDirOrDie(parent);
+  }
 
   buffer_.emplace(buffer_size_);
 
   {
     auto guard = std::lock_guard{lock_};
-    if (!log_.Open(storage_directory_ / "audit.log", utils::OutputFile::Mode::APPEND_TO_EXISTING)) {
+    if (!log_.Open(log_file_, utils::OutputFile::Mode::APPEND_TO_EXISTING)) {
       return false;
     }
   }
@@ -160,6 +165,7 @@ Log::~Log() {
 void Log::Record(const std::string &address, const std::string &username, const std::string &query,
                  const memgraph::communication::bolt::map_t &params, const std::string &db) {
   if (!started_.load(std::memory_order_relaxed)) return;
+  // Captured as epoch microseconds; --audit-log-timestamp-format controls rendering at flush time.
   auto timestamp =
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
@@ -174,7 +180,7 @@ bool Log::ReopenLog() {
   }
   auto guard = std::lock_guard{lock_};
   if (log_.IsOpen()) log_.Close();
-  auto const res = log_.Open(storage_directory_ / "audit.log", utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  auto const res = log_.Open(log_file_, utils::OutputFile::Mode::APPEND_TO_EXISTING);
   if (!res) {
     spdlog::warn("Failed to reopen audit log file. Audit log file couldn't be opened.");
   }
@@ -192,9 +198,20 @@ void Log::Flush() {
       params_json.push_back(nlohmann::json::object_t::value_type(k, BoltValueToJson(v)));
     }
 
-    log_.Write(fmt::format("{}.{:06d},{},{},{},{},{}\n",
-                           item->timestamp / 1'000'000,
-                           item->timestamp % 1'000'000,
+    auto const timestamp_str = [&]() -> std::string {
+      switch (timestamp_format_) {
+        case TimestampFormat::Epoch:
+          return fmt::format("{}.{:06d}", item->timestamp / 1'000'000, item->timestamp % 1'000'000);
+        case TimestampFormat::ISO8601:
+          return utils::Timestamp{static_cast<std::time_t>(item->timestamp / 1'000'000),
+                                  (item->timestamp % 1'000'000) * 1000}
+              .ToIso8601();
+      }
+      std::unreachable();
+    }();
+
+    log_.Write(fmt::format("{},{},{},{},{},{}\n",
+                           timestamp_str,
                            item->address,
                            item->username,
                            item->db,

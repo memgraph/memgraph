@@ -45,6 +45,12 @@ startup_config_dict = {
     ),
     "audit_buffer_size": ("100000", "100000", "Maximum number of items in the audit log buffer."),
     "audit_enabled": ("false", "false", "Set to true to enable audit logging."),
+    "audit_log_file": ("", "", "Path to where the audit log should be stored."),
+    "audit_log_timestamp_format": (
+        "epoch",
+        "epoch",
+        "Timestamp format for audit log entries. Options: epoch, iso8601.",
+    ),
     "auth_user_or_role_name_regex": (
         "[a-zA-Z0-9_.+-@]+",
         "[a-zA-Z0-9_.+-@]+",
