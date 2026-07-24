@@ -1,13 +1,19 @@
 import argparse
 import json
 import time
+import warnings
 from abc import ABC, abstractmethod
 from multiprocessing import Array, Lock, Manager, Process, Value
 
-import psycopg2
-import psycopg2.extras
 from falkordb import FalkorDB
+from gqlalchemy import Memgraph
+from gqlalchemy.exceptions import GQLAlchemySubclassNotFoundWarning
 from neo4j import GraphDatabase
+
+# gqlalchemy's OGM warns when a returned node/relationship label has no registered
+# Python subclass. Benchmarks don't use the OGM mapping, so silence these — otherwise
+# they land on stderr and the runner flags the (valid) results as "probably invalid".
+warnings.filterwarnings("ignore", category=GQLAlchemySubclassNotFoundWarning)
 
 
 class PythonClient(ABC):
@@ -46,6 +52,24 @@ class FalkorDBClient(PythonClient):
         return (end - start) * self.MILLISECOND_MULTIPLIER
 
 
+class MemgraphClient(PythonClient):
+    MILLISECOND_MULTIPLIER = 1000
+
+    def __init__(self, host, port):
+        super().__init__()
+        # gqlalchemy wraps the C mgclient, giving native-accelerated latency
+        # comparable to FalkorDB's hiredis-backed driver (unlike the pure-Python
+        # neo4j Bolt driver).
+        self._db = Memgraph(host=host, port=int(port))
+
+    def execute_query(self, query, params):
+        start = time.time()
+        result = self._db.execute_and_fetch(query, parameters=params or {})
+        _ = list(result)  # Force client to pull results
+        end = time.time()
+        return (end - start) * self.MILLISECOND_MULTIPLIER
+
+
 class Neo4jClient(PythonClient):
     def __init__(self, host, port, user="", password=""):
         self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=(user, password))
@@ -65,6 +89,10 @@ class Neo4jClient(PythonClient):
 
 class PostgreSQLClient(PythonClient):
     def __init__(self, host, port, user="postgres", password="postgres", database="postgres"):
+        # Imported lazily so the other vendors' clients work without psycopg2 installed.
+        import psycopg2
+        import psycopg2.extras
+
         self._conn = psycopg2.connect(host=host, port=port, user=user, password=password, database=database)
         self._conn.autocommit = True
         self._cursor = self._conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
@@ -86,7 +114,9 @@ class PostgreSQLClient(PythonClient):
 
 
 def get_python_client(vendor):
-    if vendor == "memgraph" or vendor == "neo4j":
+    if vendor == "memgraph":
+        return MemgraphClient
+    if vendor == "neo4j":
         return Neo4jClient
     if vendor == "falkordb":
         return FalkorDBClient

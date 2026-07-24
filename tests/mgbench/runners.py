@@ -100,10 +100,12 @@ def run_command(command):
 def get_docker_cpu_usage(container_name):
     command = ["docker", "stats", container_name, "--no-stream", "--format", "{{.CPUPerc}}"]
     ret = run_command(command)
-    if not ret:
+    # ret is a CompletedProcess; the CPU percentage is in stdout, e.g. "12.34%".
+    output = ret.stdout.strip()
+    if not output:
         return 0
 
-    cpu_perc = float(ret[0].strip("%")) / 100
+    cpu_perc = float(output.strip("%")) / 100
     return cpu_perc
 
 
@@ -984,7 +986,7 @@ class MemgraphDocker(BaseRunner):
         self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else "7687"
         self._container_name = "memgraph_benchmark"
         self._image_name = "memgraph/memgraph"
-        self._image_version = "3.2.1"
+        self._image_version = "3.12.0"
         self._container_ip = None
         self._config_file = None
         _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
@@ -1289,10 +1291,42 @@ class FalkorDBDocker(BaseRunner):
         self._bolt_port = 7687
         self._container_name = "falkordb_benchmark"
         self._image_name = "falkordb/falkordb"
-        self._image_version = "v4.8.5"
+        self._image_version = "v4.20.1"
         self._container_ip = None
         self._config_file = None
+
+        # Benchmarking configuration, kept fair to the MemgraphDocker setup.
+        # These are load-time FalkorDB module args and must be passed when the
+        # container starts (they are not settable at runtime). All are
+        # overridable through --vendor-specific (e.g. cache-size=256).
+        #
+        # OMP_THREAD_COUNT=1 keeps a single query single-threaded, matching
+        # Memgraph's default per-query execution (no USING PARALLEL EXECUTION);
+        # raise it only when comparing against parallel-runtime workloads.
+        self._omp_thread_count = int(self._vendor_args.pop("omp-thread-count", 1))
+        # Memgraph caches query plans per session, so give FalkorDB a plan cache
+        # large enough to cover a workload group for fair "hot" runs (default 25).
+        self._cache_size = int(self._vendor_args.pop("cache-size", 1024))
+        # Node matrix pre-allocation block. Sized to roughly the dataset node count
+        # (rounded up to a power of 2 internally) so a large import triggers few/no
+        # matrix resizes. Default 16384; raised to cover the medium pokec dataset.
+        self._node_creation_buffer = int(self._vendor_args.pop("node-creation-buffer", 100000))
+        # Redis/FalkorDB server log verbosity: debug > verbose > notice > warning.
+        # Default "notice" matches Redis' default; bump to "verbose"/"debug" via
+        # --vendor-specific log-level=verbose to see startup, RDB save/fork and
+        # connection events (useful for diagnosing snapshot stalls / import progress).
+        self._log_level = self._vendor_args.pop("log-level", "notice")
         _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
+
+    def _falkordb_module_args(self):
+        # Load-time module configuration passed via the image's FALKORDB_ARGS env var.
+        # THREAD_COUNT (inter-query reader pool) is left at its default (hardware
+        # threads) to match MemgraphDocker, which does not pin bolt_num_workers.
+        return (
+            f"OMP_THREAD_COUNT {self._omp_thread_count} "
+            f"CACHE_SIZE {self._cache_size} "
+            f"NODE_CREATION_BUFFER {self._node_creation_buffer}"
+        )
 
     def start_db_init(self, message):
         log.init("Starting FalkorDB for import (init)...")
@@ -1310,6 +1344,13 @@ class FalkorDBDocker(BaseRunner):
                 f"{self._falkordb_port}:{self._falkordb_port}",
                 "-p",
                 f"{self._bolt_port}:{self._bolt_port}",
+                "-e",
+                f"FALKORDB_ARGS={self._falkordb_module_args()}",
+                # Disable periodic RDB/AOF persistence during the run to mirror
+                # Memgraph's storage_snapshot_interval_sec=0 + WAL disabled. The
+                # data is still persisted via the explicit SAVE on the import stop.
+                "-e",
+                f'REDIS_ARGS=--save "" --appendonly no --loglevel {self._log_level}',
                 f"{self._image_name}:{self._image_version}",
             ]
             command.extend(self._get_args(**self._vendor_args))
@@ -1321,7 +1362,7 @@ class FalkorDBDocker(BaseRunner):
             )
             raise e
 
-        _wait_for_server_socket(self._bolt_port, delay=0.5)
+        _wait_for_server_socket(self._falkordb_port, delay=0.5)
         log.log("Database started.")
 
     def start_db(self, message):
@@ -1334,7 +1375,12 @@ class FalkorDBDocker(BaseRunner):
     def stop_db_init(self, message):
         log.init("Stopping database (init)...")
         usage = self._get_cpu_memory_usage()
-        run_command(["docker", "exec", self._container_name, "redis-cli", "BGSAVE"])
+        # Persist the imported dataset once, synchronously. SAVE (not BGSAVE) blocks
+        # until the RDB is fully written, so the following `docker stop` cannot
+        # truncate an in-progress background save. Every later start_db reloads this
+        # immutable snapshot, giving each query a clean, identical starting state
+        # (mirrors MemgraphDocker snapshotting once on the import stop).
+        run_command(["docker", "exec", self._container_name, "redis-cli", "SAVE"])
 
         command = ["docker", "stop", self._container_name]
         run_command(command)
@@ -1344,8 +1390,11 @@ class FalkorDBDocker(BaseRunner):
     def stop_db(self, message):
         log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
-        run_command(["docker", "exec", self._container_name, "redis-cli", "BGSAVE"])
-
+        # No save here: snapshotting the whole graph on every query stop is expensive
+        # and, because FalkorDB holds a read lock while encoding, stalls writes. With
+        # `--save ""` the container exits without persisting, so the next start_db
+        # reloads the imported snapshot (a clean start, matching MemgraphDocker, whose
+        # per-query stop writes no snapshot either).
         command = ["docker", "stop", self._container_name]
         run_command(command)
         log.log("Database stopped.")
