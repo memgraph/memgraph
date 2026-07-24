@@ -361,7 +361,7 @@ nlohmann::json MgpPathToJson(const mgp::Path &path) {
   return array;
 }
 
-// Neo4j/OGC spatial reference ids used to pick the coordinate names and CRS label.
+// OGC spatial reference ids used to pick the coordinate names and CRS label.
 constexpr uint16_t kSridWgs84_2d = 4326;
 constexpr uint16_t kSridWgs84_3d = 4979;
 
