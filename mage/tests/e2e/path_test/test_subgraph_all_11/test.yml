@@ -20,10 +20,14 @@ output:
           name: C
     rels:
       - label: R
-        properties: {}
+        properties:
+          seq: 1
       - label: R
-        properties: {}
+        properties:
+          seq: 2
       - label: R
-        properties: {}
+        properties:
+          seq: 3
       - label: R
-        properties: {}
+        properties:
+          seq: 4
