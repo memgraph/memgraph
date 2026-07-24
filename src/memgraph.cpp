@@ -328,7 +328,7 @@ int main(int argc, char **argv) {
   memgraph::flags::SetFinalCoordinationSetup();
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
   bool const is_coordinator_instance = coordination_setup.management_port && coordination_setup.coordinator_port &&
-                                       coordination_setup.coordinator_id &&
+                                       coordination_setup.coordinator_id != memgraph::flags::kUnsetCoordinatorId &&
                                        !coordination_setup.coordinator_hostname.empty();
 
 #else
@@ -721,15 +721,15 @@ int main(int argc, char **argv) {
   // but DataInstanceManagementServer must be explicitly shut down before repl_state destruction (done in shutdown
   // lambda)
   std::shared_ptr<CoordinatorState> coordinator_state{};
-  auto const is_valid_data_instance =
-      coordination_setup.management_port && !coordination_setup.coordinator_port && !coordination_setup.coordinator_id;
+  auto const is_valid_data_instance = coordination_setup.management_port && !coordination_setup.coordinator_port &&
+                                      coordination_setup.coordinator_id == memgraph::flags::kUnsetCoordinatorId;
 
   auto try_init_coord_state = [&coordinator_state,
                                &extracted_bolt_port,
                                &is_valid_data_instance,
                                &is_coordinator_instance](auto const &coordination_setup) {
     if (!(coordination_setup.management_port || coordination_setup.coordinator_port ||
-          coordination_setup.coordinator_id)) {
+          coordination_setup.coordinator_id != memgraph::flags::kUnsetCoordinatorId)) {
       spdlog::trace("Aborting coordinator initialization.");
       return;
     }
