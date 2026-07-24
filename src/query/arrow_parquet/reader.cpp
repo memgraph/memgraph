@@ -22,6 +22,8 @@ module;
 #include "utils/temporal.hpp"
 
 #include <chrono>
+#include <exception>
+#include <stdexcept>
 #include <string_view>
 #include <thread>
 
@@ -174,6 +176,18 @@ auto LoadFileFromDisk(std::string file_path)
   return file_reader;
 }
 
+// Multiply a tick count by us_per_unit to convert it to microseconds, throwing instead of silently overflowing
+// int64. Signed overflow is UB and, in practice, would wrap and store a bogus temporal value; a large enough
+// TIMESTAMP[s]/DURATION[s] (x1'000'000) or [ms] (x1000) value can trigger it. Surfacing an error is correct here.
+auto TicksToMicroseconds(int64_t const count, int64_t const us_per_unit) -> int64_t {
+  int64_t microseconds = 0;
+  if (__builtin_mul_overflow(count, us_per_unit, &microseconds)) {
+    throw std::overflow_error(
+        fmt::format("temporal value {} does not fit into the supported microsecond range", count));
+  }
+  return microseconds;
+}
+
 // Return to microseconds
 auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t {
   switch (arrow_time_unit) {
@@ -185,12 +199,10 @@ auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t 
       return std::chrono::duration_cast<std::chrono::microseconds>(ns).count();
     }
     case arrow::TimeUnit::MILLI: {
-      auto const ms = std::chrono::milliseconds(arrow_val);
-      return std::chrono::duration_cast<std::chrono::microseconds>(ms).count();
+      return TicksToMicroseconds(arrow_val, 1000);
     }
     case arrow::TimeUnit::SECOND: {
-      auto const secs = std::chrono::seconds(arrow_val);
-      return std::chrono::duration_cast<std::chrono::microseconds>(secs).count();
+      return TicksToMicroseconds(arrow_val, 1'000'000);
     }
     default: {
       throw std::invalid_argument("Unsupported time unit. TIME32 should only support seconds and milliseconds");
@@ -312,8 +324,7 @@ std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<a
       auto date_array = std::static_pointer_cast<arrow::Date64Array>(column);
       return [date_array, resource](int64_t const i) -> TypedValue {
         if (date_array->IsNull(i)) return TypedValue(resource);
-        auto const ms = std::chrono::milliseconds(date_array->Value(i));
-        auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms);
+        auto const us = std::chrono::microseconds{TicksToMicroseconds(date_array->Value(i), 1000)};
         return TypedValue(Date{us}, resource);
       };
     }
@@ -521,6 +532,9 @@ struct ParquetReader::impl {
   utils::pmr::vector<Row> rows_;
   utils::DataQueue<utils::pmr::vector<Row>> work_queue_;
   Header header_;
+  // Set by the prefetcher thread if a batch fails to be read/converted, read by the consumer once the queue drains.
+  // Declared before prefetcher_thread_ so it outlives the thread (destroyed after the thread is joined).
+  std::exception_ptr prefetch_error_;
   std::jthread prefetcher_thread_;  // should get destroyed before all other variables that it uses as a reference
   uint64_t row_in_batch_{0};
   uint64_t current_batch_size_{0};
@@ -537,36 +551,49 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
       work_queue_(2),
       header_(std::move(header)),
       prefetcher_thread_{[this](std::stop_token stop_token) {
-        while (!stop_token.stop_requested()) {
-          auto const batch_ref = row_it_.Next();
-          // No more data
-          if (batch_ref.empty()) {
-            work_queue_.finish();
-            break;
-          }
-
-          auto const num_rows = batch_ref[0]->length();
-          utils::pmr::vector<Row> queued_batch(resource_);
-          queued_batch.reserve(num_rows);
-          for (auto i = 0; i < num_rows; ++i) {
-            // temporary needs to be created
-            // NOLINTNEXTLINE
-            queued_batch.emplace_back(Row{resource_});
-          }
-
-          std::vector<std::function<TypedValue(int64_t)>> converters;
-          converters.reserve(num_columns_);
-          for (int j = 0U; j < num_columns_; j++) {
-            converters.push_back(CreateColumnConverter(batch_ref[j], resource_));
-          }
-
-          for (int j = 0U; j < num_columns_; j++) {
-            auto const &converter = converters[j];
-            for (int64_t i = 0; i < num_rows; i++) {
-              queued_batch[i].emplace(header_[j], converter(i));  // RVO should kick in here
+        // Any exception thrown while reading a batch or converting a value (e.g. an out-of-range temporal value that
+        // fails LocalTime/LocalDateTime/Duration validation) must not escape this thread's top-level function - that
+        // would call std::terminate and crash the whole process. Capture it and hand it to the consumer instead, which
+        // rethrows it from GetNextRow so it surfaces as a regular query error.
+        try {
+          while (!stop_token.stop_requested()) {
+            auto const batch_ref = row_it_.Next();
+            // No more data
+            if (batch_ref.empty()) {
+              work_queue_.finish();
+              break;
             }
+
+            auto const num_rows = batch_ref[0]->length();
+            utils::pmr::vector<Row> queued_batch(resource_);
+            queued_batch.reserve(num_rows);
+            for (auto i = 0; i < num_rows; ++i) {
+              // temporary needs to be created
+              // NOLINTNEXTLINE
+              queued_batch.emplace_back(Row{resource_});
+            }
+
+            std::vector<std::function<TypedValue(int64_t)>> converters;
+            converters.reserve(num_columns_);
+            for (int j = 0U; j < num_columns_; j++) {
+              converters.push_back(CreateColumnConverter(batch_ref[j], resource_));
+            }
+
+            for (int j = 0U; j < num_columns_; j++) {
+              auto const &converter = converters[j];
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i].emplace(header_[j], converter(i));  // RVO should kick in here
+              }
+            }
+            work_queue_.push(std::move(queued_batch));
           }
-          work_queue_.push(std::move(queued_batch));
+        } catch (const std::exception &e) {
+          prefetch_error_ =
+              std::make_exception_ptr(QueryRuntimeException("Error while loading PARQUET file: {}", e.what()));
+          work_queue_.finish();
+        } catch (...) {
+          prefetch_error_ = std::current_exception();
+          work_queue_.finish();
         }
       }}
 
@@ -587,6 +614,12 @@ ParquetReader::impl::~impl() {
 auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   if (row_in_batch_ >= current_batch_size_) {
     if (!work_queue_.pop(rows_)) {
+      // The queue is drained. If the prefetcher aborted with an error, surface it on the consumer thread so it becomes
+      // a query error rather than a process crash. (finish() happens-before this pop() returning false, so the write to
+      // prefetch_error_ that precedes finish() is visible here without extra synchronization.)
+      if (prefetch_error_) {
+        std::rethrow_exception(prefetch_error_);
+      }
       return false;
     }
     row_in_batch_ = 0;
