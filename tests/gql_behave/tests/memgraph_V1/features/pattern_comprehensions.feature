@@ -421,3 +421,97 @@ Feature: Pattern comprehensions
         Then the result should be:
             | cnt | edges  |
             | 2   | [1, 1] |
+
+   Scenario: Pattern comprehension in WHERE whose filter references an outer variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a1:User {id: 1, active: true}), (a2:User {id: 2, active: true}),
+                   (b1:User {id: 3, active: false}), (b2:User {id: 4, active: false}),
+                   (a1)-[:FRIEND]->(b1), (a2)-[:FRIEND]->(b2)
+            """
+        And having executed:
+            """
+            MATCH (a:User {active: true}), (b:User {active: false})
+            WHERE none(x IN [(a)-[:FRIEND]->(c) WHERE c = b | 1] WHERE x = 1)
+            MERGE (a)-[m:MONITOR]->(b)
+            """
+        When executing query:
+            """
+            MATCH (a)-[m:MONITOR]->(b) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid
+            """
+        Then the result should be:
+            | aid | bid |
+            | 1   | 4   |
+            | 2   | 3   |
+
+   Scenario: Pattern comprehension in RETURN whose filter references an outer variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a1:User {id: 1, active: true}), (a2:User {id: 2, active: true}),
+                   (b1:User {id: 3, active: false}), (b2:User {id: 4, active: false}),
+                   (a1)-[:FRIEND]->(b1), (a2)-[:FRIEND]->(b2)
+            """
+        When executing query:
+            """
+            MATCH (a:User {active: true}), (b:User {active: false})
+            RETURN a.id AS aid, b.id AS bid,
+                   [(a)-[:FRIEND]->(c) WHERE c = b | 1] AS pc,
+                   none(x IN [(a)-[:FRIEND]->(c) WHERE c = b | 1] WHERE x = 1) AS pred
+            ORDER BY aid, bid
+            """
+        Then the result should be:
+            | aid | bid | pc  | pred  |
+            | 1   | 3   | [1] | false |
+            | 1   | 4   | []  | true  |
+            | 2   | 3   | []  | true  |
+            | 2   | 4   | [1] | false |
+
+   Scenario: Pattern comprehension outer variable filter when source node has an existing edge
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a1:U {id: 1, active: true}), (a2:U {id: 2, active: true}),
+                   (b1:U {id: 3, active: false}), (b2:U {id: 4, active: false}),
+                   (a1)-[:E]->(b1)
+            """
+        And having executed:
+            """
+            MATCH (a:U {active: true}), (b:U {active: false})
+            WHERE none(x IN [(a)-[:E]->(c) WHERE c = b | 1] WHERE x = 1)
+            CREATE (a)-[:M]->(b)
+            """
+        When executing query:
+            """
+            MATCH (a)-[:M]->(b) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid
+            """
+        Then the result should be:
+            | aid | bid |
+            | 1   | 4   |
+            | 2   | 3   |
+            | 2   | 4   |
+
+   Scenario: Size of pattern comprehension with outer variable filter in WHERE
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a1:U {id: 1, active: true}), (a2:U {id: 2, active: true}),
+                   (b1:U {id: 3, active: false}), (b2:U {id: 4, active: false}),
+                   (a1)-[:E]->(b1)
+            """
+        And having executed:
+            """
+            MATCH (a:U {active: true}), (b:U {active: false})
+            WHERE size([(a)-[:E]->(c) WHERE c = b | 1]) = 0
+            CREATE (a)-[:M]->(b)
+            """
+        When executing query:
+            """
+            MATCH (a)-[:M]->(b) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid
+            """
+        Then the result should be:
+            | aid | bid |
+            | 1   | 4   |
+            | 2   | 3   |
+            | 2   | 4   |
