@@ -2929,50 +2929,36 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
 }
 
 void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
-  // NOTE: You do not need to consider cleanup of deleted object that occurred in
-  // different storage modes within the same CollectGarbage call. This is because
-  // SetStorageMode will ensure CollectGarbage is called before any new transactions
-  // with the new storage mode can start.
+  // NOTE: A single call need not handle objects deleted under a different storage mode: SetStorageMode
+  // runs GC before any transaction in the new mode can start.
 
-  // SetStorageMode will pass its unique_lock of main_lock_. We will use that lock,
-  // as reacquiring the lock would cause deadlock. Otherwise, we need to get our own
-  // lock.
-  // GC only reads the indices/constraints (each independently synchronized + COW), so in
-  // transactional mode it takes main_lock_ in READ, compatible with a concurrent READ_ONLY
-  // index/constraint DDL registration -- neither has to wait out the other. Analytical keeps a
-  // WRITE-mode shared hold (its snapshot/constraint vs GC interaction is not proven safe under
-  // READ). We take READ optimistically, then read storage_mode_ *under the hold* and swap to WRITE
-  // if analytical: SetStorageMode needs UNIQUE, so it cannot flip the mode while we hold any shared
-  // lock -- reading the mode only under the lock avoids both a data race on the non-atomic
-  // storage_mode_ and a stale read that could run analytical GC under READ. gc_read_shared then
-  // reflects the mode we actually hold, so lock and unlock always use the same LockReq.
-  bool gc_read_shared = false;
-  if (!main_guard.owns_lock()) {
-    // Aggressive mode escalates to a unique lock (blocks all new txns); otherwise take the shared
-    // hold, since GC can be slow and should not block everyone unless explicitly asked to.
-    if (!flags::run_time::GetStorageGcAggressive() || !main_guard.try_lock()) {
-      main_lock_.lock_shared<utils::ResourceLock::LockReq::READ>();
-      gc_read_shared = true;
-      if (storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
-        // Analytical: re-take in WRITE. Mode is stable here (a shared hold blocks SetStorageMode).
-        main_lock_.unlock_shared<utils::ResourceLock::LockReq::READ>();
-        main_lock_.lock_shared();  // WRITE
-        gc_read_shared = false;
-      }
-    }
-  } else {
-    DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
-  }
-
-  utils::OnScopeExit lock_releaser{[&] {
+  using Guard = utils::ResourceLockGuard;
+  auto const main_lock_guard = [&] -> Guard {
+    // Adopt SetStorageMode's UNIQUE hold if it passed one; reacquiring would deadlock.
     if (main_guard.owns_lock()) {
-      main_guard.unlock();
-    } else if (gc_read_shared) {
-      main_lock_.unlock_shared<utils::ResourceLock::LockReq::READ>();
-    } else {
-      main_lock_.unlock_shared();  // WRITE (analytical)
+      DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
+      return Guard{std::move(main_guard)};
     }
-  }};
+
+    // Aggressive GC escalates to UNIQUE (blocks new txns); otherwise a shared hold, so slow GC does
+    // not block everyone.
+    if (flags::run_time::GetStorageGcAggressive()) {
+      auto unique_guard = Guard{main_lock_, Guard::UNIQUE, std::try_to_lock};
+      if (unique_guard.owns_lock()) return unique_guard;
+    }
+
+    // Transactional GC only reads the COW indices/constraints, so READ suffices and stays compatible
+    // with concurrent READ_ONLY DDL; analytical needs WRITE (GC vs snapshot not proven safe under
+    // READ). storage_mode_ must be read under a shared hold -- it blocks SetStorageMode's UNIQUE, so
+    // an unlocked read would both data-race the write (TSan) and risk acting on a stale mode (TOCTOU).
+    auto read_guard = Guard{main_lock_, Guard::READ};
+    if (storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) return read_guard;
+
+    // Analytical: acquire WRITE before read_guard releases READ at scope exit, so the mode stays
+    // pinned across a continuous hold (one thread may hold READ+WRITE: lock_guard_condition<WRITE>
+    // checks only ro_count/ro_pending).
+    return Guard{main_lock_, Guard::WRITE};
+  }();
 
   // Only one gc run at a time
   auto gc_guard = std::unique_lock{gc_lock_, std::try_to_lock};
@@ -2981,7 +2967,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
 
   // Publish run-state for SHOW TRANSACTIONS; cleared on scope exit (see GcProgress).
-  gc_progress_.Start(periodic, main_guard.owns_lock());
+  gc_progress_.Start(periodic, main_lock_guard.is_exclusive());
   const utils::OnScopeExit gc_run_state_reset{[&] { gc_progress_.Reset(); }};
 
   // Diagnostic trace
@@ -3096,7 +3082,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // Deltas from previous GC runs or from aborts can be cleaned up here
     garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
       guard.unlock();
-      if (main_guard.owns_lock() || mark_timestamp == oldest_active_start_timestamp) {
+      if (main_lock_guard.is_exclusive() || mark_timestamp == oldest_active_start_timestamp) {
         // We know no transaction is active, it is safe to simply delete all the garbage undos
         // Nothing can be reading them
         garbage_undo_buffers.clear();
@@ -3350,7 +3336,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto guard = std::unique_lock{engine_lock_};
     uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
-    if (main_guard.owns_lock() || mark_timestamp == oldest_active_start_timestamp) {
+    if (main_lock_guard.is_exclusive() || mark_timestamp == oldest_active_start_timestamp) {
       guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them all now
