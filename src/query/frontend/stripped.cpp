@@ -78,7 +78,12 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       }
       throw LexingException("Invalid query because of a wrong token.");
     }
-    tokens.emplace_back(token, original_.substr(i, len));
+    if (token == Token::PARAMETER) {
+      auto ws = MatchWhitespaceAndComments(i + 1);
+      tokens.emplace_back(token, "$" + original_.substr(i + 1 + ws, len - 1 - ws));
+    } else {
+      tokens.emplace_back(token, original_.substr(i, len));
+    }
     i += len;
 
     // If we notice execute, we possibly create a trigger which has defined statements.
@@ -485,13 +490,18 @@ int StrippedQuery::MatchParameter(int start) const {
   int len = original_.size();
   if (start + 1 == len) return 0;
   if (original_[start] != '$') return 0;
+  // ANTLR skips whitespace between '$' and the parameter name/number,
+  // so the stripper must do the same to stay in sync.
+  int ws = MatchWhitespaceAndComments(start + 1);
+  int after_ws = start + 1 + ws;
+  if (after_ws >= len) return 0;
   int max_len = 0;
-  max_len = std::max(max_len, MatchUnescapedName(start + 1));
-  max_len = std::max(max_len, MatchEscapedName(start + 1));
-  max_len = std::max(max_len, MatchKeyword(start + 1));
-  max_len = std::max(max_len, MatchDecimalInt(start + 1));
+  max_len = std::max(max_len, MatchUnescapedName(after_ws));
+  max_len = std::max(max_len, MatchEscapedName(after_ws));
+  max_len = std::max(max_len, MatchKeyword(after_ws));
+  max_len = std::max(max_len, MatchDecimalInt(after_ws));
   if (max_len == 0) return 0;
-  return 1 + max_len;
+  return 1 + ws + max_len;
 }
 
 int StrippedQuery::MatchEscapedName(int start) const {

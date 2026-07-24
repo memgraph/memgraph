@@ -704,6 +704,12 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
   }
 }
 
+TYPED_TEST(InterpreterTest, WhitespaceBetweenDollarAndParameterName) {
+  auto stream = this->Interpret("RETURN $ 1", {{"1", memgraph::storage::ExternalPropertyValue(42)}});
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 42);
+}
+
 // Test bfs end to end.
 TYPED_TEST(InterpreterTest, Bfs) {
   srand(0);
