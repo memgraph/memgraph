@@ -33,13 +33,15 @@ constexpr const std::string_view kParameterList = "list";
 constexpr const std::string_view kParameterValue = "value";
 constexpr const std::string_view kParameterPath = "path";
 
+namespace {
+
 // Forward declarations
 std::optional<mgp::Value> ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memory);
 
 mgp::Value ParseJsonToMgpMap(const nlohmann::json &json_obj, mgp_memory *memory) {
   auto map = mgp::Map();
 
-  for (auto &[key, value] : json_obj.items()) {
+  for (const auto &[key, value] : json_obj.items()) {
     auto sub_value = ParseJsonToMgpValue(value, memory).value();
     map.Insert(key, sub_value);
   }
@@ -78,9 +80,9 @@ std::optional<mgp::Value> ParseJsonToMgpValue(const nlohmann::json &json_obj, mg
   }
 }
 
-void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+void str2object(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard(memory);
+    const mgp::MemoryDispatcherGuard guard(memory);
 
     // Retrieve the string argument
     const auto string_arg = mgp::Value(mgp::ref_type, mgp::list_at(args, 0));
@@ -217,8 +219,8 @@ std::optional<nlohmann::json> ResolveJsonPath(const mgp::Value &json_arg, const 
 // optional path selects a nested part of the document first: an unresolved path
 // yields null, a JSON null yields null, and a selection that is not an object is
 // rejected.
-void from_json_map(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+void from_json_map(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard(memory);
   auto func_result = mgp::Result(res);
   try {
     const auto arguments = mgp::List(args);
@@ -242,8 +244,8 @@ void from_json_map(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, 
 // optional path selects a nested part of the document first: an unresolved path
 // yields null, a JSON null yields null, and a selection that is not an array is
 // rejected.
-void from_json_list(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+void from_json_list(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard(memory);
   auto func_result = mgp::Result(res);
   try {
     const auto arguments = mgp::List(args);
@@ -265,8 +267,8 @@ void from_json_list(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res,
 
 // Converts a value into a map: a map is returned unchanged, a node or relationship
 // yields its properties, null yields null, and anything else yields null.
-void to_map(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+void to_map(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard(memory);
   auto func_result = mgp::Result(res);
   try {
     const auto arguments = mgp::List(args);
@@ -474,8 +476,8 @@ nlohmann::json MgpValueToJson(const mgp::Value &value) {
 }
 
 // Serializes any value to a JSON string. Null yields the string "null".
-void to_json(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard(memory);
+void to_json(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *res, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard(memory);
   auto func_result = mgp::Result(res);
   try {
     const auto arguments = mgp::List(args);
@@ -486,9 +488,11 @@ void to_json(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_me
   }
 }
 
+}  // namespace
+
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::MemoryDispatcherGuard guard(memory);
+    const mgp::MemoryDispatcherGuard guard(memory);
 
     mgp::AddFunction(
         str2object, kFunctionStr2Object, {mgp::Parameter(kParameterString, mgp::Type::String)}, module, memory);
