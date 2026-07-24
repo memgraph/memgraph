@@ -96,9 +96,11 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
 
   // Cache the query's AST if it isn't already.
   auto const &cache_key = stripped_query.stripped_query();
-  const auto module_generation = procedure::gModuleRegistry.ModuleGeneration();
+  // sample the module generation under the cache lock so a reload while waiting for the lock isn't missed
+  uint64_t module_generation = 0;
   std::shared_ptr<const CachedQuery> cached;
   cache->WithLock([&](auto &lru) {
+    module_generation = procedure::gModuleRegistry.ModuleGeneration();
     if (auto entry = lru.get(cache_key); entry && (*entry)->module_generation == module_generation) cached = *entry;
   });
   std::unique_ptr<frontend::opencypher::Parser> parser;
