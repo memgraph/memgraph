@@ -8090,6 +8090,11 @@ class CallProcedureCursor : public Cursor {
     for (size_t i = 0UZ; i < self_->result_fields_.size(); ++i) {
       auto signature_it =
           proc_->results.find(memgraph::utils::pmr::string{self_->result_fields_[i], proc_->results.get_allocator()});
+      if (signature_it == proc_->results.end()) {
+        throw QueryRuntimeException("The procedure named '{}' has no result field named '{}'.",
+                                    self_->procedure_name_,
+                                    self_->result_fields_[i]);
+      }
       result_.signature.emplace(
           self_->result_fields_[i],
           ResultsMetadata{signature_it->second.first, signature_it->second.second, static_cast<uint32_t>(i)});
