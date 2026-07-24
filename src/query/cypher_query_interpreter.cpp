@@ -26,6 +26,7 @@
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/used_index_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "query/procedure/module.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/string.hpp"
@@ -45,7 +46,8 @@ DEFINE_VALIDATED_int32(query_ast_cache_max_size, 1000,
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace memgraph::query {
-PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
+PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan, uint64_t module_generation)
+    : plan_(std::move(plan)), module_generation_(module_generation) {}
 
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
                             parameters::Parameters const *server_parameters, std::string_view database_uuid)
@@ -94,9 +96,10 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
 
   // Cache the query's AST if it isn't already.
   auto const &cache_key = stripped_query.stripped_query();
+  const auto module_generation = procedure::gModuleRegistry.ModuleGeneration();
   std::shared_ptr<const CachedQuery> cached;
   cache->WithLock([&](auto &lru) {
-    if (auto entry = lru.get(cache_key)) cached = *entry;
+    if (auto entry = lru.get(cache_key); entry && (*entry)->module_generation == module_generation) cached = *entry;
   });
   std::unique_ptr<frontend::opencypher::Parser> parser;
 
@@ -154,11 +157,14 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
                       .query = visitor.query(),
                       .required_privileges = query::GetRequiredPrivileges(visitor.query()),
                       .is_cypher_read = read_check(),
-                      .using_schema_assert = visitor.GetQueryInfo().has_schema_assert});
+                      .using_schema_assert = visitor.GetQueryInfo().has_schema_assert,
+                      .module_generation = module_generation});
       cache->WithLock([&](auto &lru) {
-        if (auto winner = lru.get(cache_key)) {
+        if (auto winner = lru.get(cache_key); winner && (*winner)->module_generation == module_generation) {
           cached_query = *winner;
         } else {
+          // put won't overwrite an existing key, so drop a stale-generation entry before inserting the fresh one
+          lru.invalidate(cache_key);
           lru.put(cache_key, cached_query);
         }
       });
@@ -187,6 +193,7 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
       .is_cypher_read = result.is_cypher_read,
       .using_schema_assert = result.using_schema_assert,
       .is_cacheable = is_cacheable,
+      .module_generation = module_generation,
       .user_parameters = user_parameters,
       .parameters = std::move(query_parameters),
   };
@@ -238,6 +245,7 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
                                                CypherQuery *query, const Parameters &parameters,
                                                PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
                                                plan::v2::QueryPlannerContext &planner_context,
+                                               uint64_t module_generation,
                                                const std::vector<Identifier *> &predefined_identifiers) {
   // Enforce the global memory limit during query preparation. Without this,
   // MemoryTrackerCanThrow() is false here (the per-cursor
@@ -262,7 +270,7 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
       const_cast<plan::LogicalOperator &>(plan).Accept(checker);
 
       auto const all_satisfied = db_accessor->CheckIndicesAreReady(checker.required_indices_);
-      if (all_satisfied) {
+      if (all_satisfied && ptr->module_generation() == module_generation) {
         return ptr;
       } else {
         plan_cache->WithLock([&](PlanCache_t &cache) { cache.invalidate(stripped_query.stripped_query()); });
@@ -272,7 +280,7 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
 
   auto logical_plan =
       MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers, planner_context);
-  auto plan = std::make_shared<PlanWrapper>(std::move(logical_plan));
+  auto plan = std::make_shared<PlanWrapper>(std::move(logical_plan), module_generation);
 
   if (use_plan_cache) {
     plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.stripped_query(), plan); });

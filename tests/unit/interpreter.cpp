@@ -29,6 +29,7 @@
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/stripped.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
@@ -1515,13 +1516,33 @@ TYPED_TEST(InterpreterTest, CacheableQueries) {
   }
 
   {
-    SCOPED_TRACE("Uncacheable query");
-    // Queries which are calling procedure should not be cached because the
-    // result signature could be changed
-    this->Interpret("CALL mg.load_all()");
-    EXPECT_EQ(this->AstCacheSize(), 1U);
-    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+    SCOPED_TRACE("Cacheable procedure query");
+    this->Interpret("CALL mg.procedures() YIELD name RETURN name");
+    EXPECT_EQ(this->AstCacheSize(), 2U);
+    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 2U);
   }
+}
+
+TYPED_TEST(InterpreterTest, ProcedurePlanReuseAndGenerationInvalidation) {
+  const std::string query = "CALL mg.procedures() YIELD name RETURN name";
+  const auto key = memgraph::query::frontend::StrippedQuery{query}.stripped_query();
+  auto cached_plan = [&] {
+    return this->db->plan_cache()->WithLock([&](auto &cache) {
+      auto entry = cache.get(key);
+      return entry ? *entry : nullptr;
+    });
+  };
+
+  this->Interpret(query);
+  auto first = cached_plan();
+  ASSERT_NE(first, nullptr);
+
+  this->Interpret(query);
+  EXPECT_EQ(cached_plan(), first);
+
+  this->Interpret("CALL mg.load_all()");
+  this->Interpret(query);
+  EXPECT_NE(cached_plan(), first);
 }
 
 TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
