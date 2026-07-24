@@ -37,7 +37,7 @@ MAX_THREADS_BY_MEM=$((MAX_THREADS_BY_MEM > 0 ? MAX_THREADS_BY_MEM : 1))
 DEFAULT_THREADS=$((MAX_THREADS_BY_CPU < MAX_THREADS_BY_MEM ? MAX_THREADS_BY_CPU : MAX_THREADS_BY_MEM))
 THREADS=${THREADS:-$DEFAULT_THREADS}
 # Directories to exclude from clang-tidy analysis
-EXCLUSIONS=":!src/planner/test :!src/planner/bench :!src/csv/fuzz :!src/storage/v2/fuzz :!mage/cpp/community_detection_module/grappolo :!mage/cpp/text_module/utf8 :!mage/cpp/util_module/algorithm/md5.hpp :!mage/cpp/util_module/algorithm/md5.cpp"
+EXCLUSIONS=":!src/planner/test :!src/planner/bench :!src/csv/fuzz :!src/storage/v2/fuzz :!src/mage/cpp/community_detection_module/grappolo :!src/mage/cpp/text_module/utf8 :!src/mage/cpp/util_module/algorithm/md5.hpp :!src/mage/cpp/util_module/algorithm/md5.cpp"
 VENV_DIR="${VENV_DIR:-env}"
 FIX_FLAG=""
 CONFIG_FILE=".clang-tidy"
@@ -106,18 +106,6 @@ fi
 ninja -C build -t inputs | { grep -E '\.cppm\.o$|\.o\.modmap$' || [[ $? -eq 1 ]]; } | xargs -r ninja -C build
 ninja -C build -t targets all | { grep -oP '^[^:]*\.bmi(?=:)' || [[ $? -eq 1 ]]; } | xargs -r ninja -C build
 
-# Merge mage's compile_commands.json into the main one if it exists
-if [[ -f "mage/cpp/build/compile_commands.json" ]]; then
-  echo "Merging mage compile_commands.json into main build..."
-  if [[ -f "build/compile_commands.json" ]]; then
-    # Use Python script to merge the two JSON arrays and filter out GCC-specific flags
-    # that clang-tidy doesn't recognize
-    python3 "$PROJECT_ROOT/tools/github/clang-tidy/merge_compile_commands.py"
-  else
-    echo "Warning: Main build/compile_commands.json not found, cannot merge mage compile commands"
-  fi
-fi
-
 echo "Running clang-tidy on changed files..."
 echo "Using clang-tidy: $(command -v clang-tidy)"
 echo "clang-tidy version: $(clang-tidy --version | head -1)"
@@ -134,7 +122,7 @@ if [[ -n "$FIX_FLAG" ]]; then
   EXPORT_FIXES_FLAG="-export-fixes $FIXES_FILE"
 fi
 
-git diff -U0 $BASE_BRANCH... -- src mage/cpp $EXCLUSIONS | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build -regex ".+\.cppm?" -config-file "$CONFIG_FILE" $EXPORT_FIXES_FLAG 2>&1 | tee ./build/clang_tidy_output.txt
+git diff -U0 $BASE_BRANCH... -- src $EXCLUSIONS | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build -regex ".+\.cppm?" -config-file "$CONFIG_FILE" $EXPORT_FIXES_FLAG 2>&1 | tee ./build/clang_tidy_output.txt
 
 echo ""
 

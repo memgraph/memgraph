@@ -20,6 +20,14 @@ class Memgraph(ConanFile):
     description = "In-memory graph database"
     settings = "os", "compiler", "build_type", "arch"
 
+    options = {
+        # Build only the MAGE query modules: trims the dependency graph to
+        # what src/mage/ links against (fmt, boost, gtest) and configures
+        # CMake with MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON. Used by
+        # `./build.sh --mage only`.
+        "mage_only": [True, False],
+    }
+
     exports_sources = (
         "CMakeLists.txt",
         "cmake/*",
@@ -36,6 +44,7 @@ class Memgraph(ConanFile):
     )
 
     default_options = {
+        "mage_only": False,
         "aws-sdk-cpp/*:config": True,
         "aws-sdk-cpp/*:s3": True,
         "aws-sdk-cpp/*:monitoring": False,
@@ -82,27 +91,33 @@ class Memgraph(ConanFile):
     }
 
     def requirements(self):
+        # Dependencies MAGE links against; everything below the mage_only
+        # early-return is memgraph-only.
+        # force=True makes boost both a direct require (so CMakeDeps generates
+        # full Boost::headers config) and overrides transitive boost ranges
+        self.requires("boost/1.88.0-memgraph", force=True)
+        self.requires("fmt/11.2.0")
+        self.requires("nlohmann_json/3.11.3-memgraph")
+
+        if self.options.mage_only:
+            return
+
         # Direct dependencies — packages we #include or link against directly
         self.requires("abseil/20250512.1")
         self.requires("antlr4-cppruntime/4.13.2")
         self.requires("arrow/22.0.0")
         self.requires("asio/1.36.0")
         self.requires("aws-sdk-cpp/1.11.692")
-        # force=True makes this both a direct require (so CMakeDeps generates
-        # full Boost::headers config) and overrides transitive boost ranges
-        self.requires("boost/1.88.0-memgraph", force=True)
         self.requires("bzip2/1.0.8")
         self.requires("cppitertools/2.2")
         self.requires("croncpp/2023.03.30")
         self.requires("ctre/3.10.0")
-        self.requires("fmt/11.2.0")
         self.requires("gflags/2.2.0-memgraph", force=True)
         self.requires("jemalloc/5.2.1-memgraph")
         self.requires("libbcrypt/1.0-memgraph")
         self.requires("librdkafka/2.6.1")
         self.requires("librdtsc/0.3-memgraph")
         self.requires("mgclient/1.4.3")
-        self.requires("nlohmann_json/3.11.3-memgraph")
         self.requires("nuraft/2.1.0-memgraph")
         has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
         openssl_shared = not has_sanitizers
@@ -130,11 +145,15 @@ class Memgraph(ConanFile):
         self.tool_requires("cmake/[>=4 <5]")
         self.tool_requires("ninja/[>=1.13 <2]")
         self.tool_requires("ccache/4.12.3-memgraph")
-        self.tool_requires("antlr4/4.13.1")
 
-        self.test_requires("benchmark/[>=1.9 <2]")
         # force=True overrides older gtest pinned by transitive dependencies
         self.test_requires("gtest/[>=1.17 <2]", force=True)
+
+        if self.options.mage_only:
+            return
+
+        self.tool_requires("antlr4/4.13.1")
+        self.test_requires("benchmark/[>=1.9 <2]")
         self.test_requires("rapidcheck/cci.20231215")
         self.test_requires("approvaltests.cpp/10.13.0")
 
@@ -189,6 +208,10 @@ class Memgraph(ConanFile):
         if self.settings.get_safe("compiler.tsan"):
             tc.cache_variables["TSAN"] = "ON"
 
+        if self.options.mage_only:
+            tc.cache_variables["MG_BUILD_MEMGRAPH"] = "OFF"
+            tc.cache_variables["MG_BUILD_MAGE"] = "ON"
+
         tc.generate()
 
         # SBOM generation
@@ -206,7 +229,7 @@ class Memgraph(ConanFile):
         cmake.configure()
         cmake.build()
         # Only run unit tests if we can run them (not cross-compiling)
-        if can_run(self):
+        if can_run(self) and not self.options.mage_only:
             cmake.ctest(cli_args=["-R", "memgraph__unit", "--output-on-failure"])
 
     def package(self):

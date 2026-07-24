@@ -16,7 +16,7 @@ Flags:
 
 - `--target all`: scan both Memgraph and MAGE
 - `--target memgraph`: scan `src` and `query_modules`
-- `--target mage`: scan `mage/*`
+- `--target mage`: scan `src/mage/*`
 - `--compact`: emit compact JSON
 
 The script prints JSON to stdout with:
