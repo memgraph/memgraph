@@ -216,6 +216,20 @@ bool InMemoryLabelIndex::CreateIndexOnePass(
   return PublishIndex(label, 0);
 }
 
+auto InMemoryLabelIndex::GetPopulateInserter(LabelId label, std::optional<SnapshotObserverInfo> const &snapshot_info)
+    -> IndexInserterFactory {
+  auto index = GetIndividualIndex(label);
+  MG_ASSERT(index, "Index must be registered before collecting its population inserter.");
+  // snapshot_info is captured by reference: it outlives the single-pass population that invokes
+  // these factories/inserters (it is owned by the recovery call frame). SnapshotObserverInfo is
+  // non-copyable, so capturing by value would make the factory non-copyable.
+  return [index, label, &snapshot_info]() -> IndexVertexInserter {
+    return [acc = index->skiplist.access(), label, &snapshot_info](Vertex &vertex) mutable {
+      TryInsertLabelPropertiesIndex(vertex, label, acc, snapshot_info);
+    };
+  };
+}
+
 void InMemoryLabelIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                          const Transaction &tx) {
   auto it = index_container_->find(added_label);

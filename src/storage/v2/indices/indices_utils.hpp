@@ -29,6 +29,7 @@
 #include "memory/db_arena_fwd.hpp"
 
 #include <atomic>
+#include <exception>
 
 namespace memgraph::storage {
 
@@ -306,6 +307,123 @@ inline void PopulateIndexOnSingleThread(TVerticesAccessor &vertices, TSkipListAc
   auto acc = accessor_factory();
   for (Vertex &vertex : vertices) {
     func(vertex, acc);
+  }
+}
+
+// Populates many indices in a single parallel pass over the vertices, instead of one pass per
+// index. Each worker builds its own set of per-index inserters (each owning a private skip-list
+// accessor) and walks its share of the vertex batches once, offering every vertex to every index.
+// This way each vertex (and, for edge indices, each out-edge) is touched a single time regardless
+// of how many indices are being recovered. The indices must already be registered; publishing is
+// left to the caller. On out-of-memory the whole pass is aborted and the exception is rethrown.
+inline void PopulateIndicesSinglePass(
+    utils::SkipListDb<Vertex>::Accessor vertices, std::vector<IndexInserterFactory> const &inserter_factories,
+    std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info) {
+  if (inserter_factories.empty()) return;
+
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
+  auto const build_inserters = [&] {
+    std::vector<IndexVertexInserter> inserters;
+    inserters.reserve(inserter_factories.size());
+    for (auto const &factory : inserter_factories) inserters.emplace_back(factory());
+    return inserters;
+  };
+
+  // Single-threaded fallback: parallel recovery disabled or nothing to split across threads.
+  if (!parallel_exec_info || parallel_exec_info->thread_count <= 1 ||
+      parallel_exec_info->vertex_recovery_info.size() <= 1) {
+    auto inserters = build_inserters();
+    for (Vertex &vertex : vertices) {
+      for (auto &insert : inserters) insert(vertex);
+    }
+    return;
+  }
+
+  auto const &vertex_batches = parallel_exec_info->vertex_recovery_info;
+  auto const thread_count = std::min(parallel_exec_info->thread_count, vertex_batches.size());
+  std::atomic<uint64_t> batch_counter = 0;
+  auto maybe_error = utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock>{};
+  {
+    std::vector<memory::DbAwareThread> threads;
+    threads.reserve(thread_count);
+
+    for (auto i{0U}; i < thread_count; ++i) {
+      threads.emplace_back(parallel_exec_info->arena_pool, [&]() {
+        utils::MemoryTracker::OutOfMemoryExceptionEnabler thread_oom_exception;
+        // Each worker owns its inserters (and thus its own accessors) for its whole lifetime,
+        // so accessors are created once per worker rather than once per batch.
+        auto inserters = build_inserters();
+        while (!maybe_error.Lock()->has_value()) {
+          const auto batch_index = batch_counter++;
+          if (batch_index >= vertex_batches.size()) {
+            return;
+          }
+          const auto &batch = vertex_batches[batch_index];
+          auto it = vertices.find(batch.first);
+          try {
+            for (auto n{0U}; n < batch.second; ++n, ++it) {
+              for (auto &insert : inserters) insert(*it);
+            }
+          } catch (utils::OutOfMemoryException &failure) {
+            utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+            *maybe_error.Lock() = std::move(failure);
+          }
+        }
+      });
+    }
+  }
+  auto error = maybe_error.Lock();
+  if (error->has_value()) {
+    throw *std::move(*error);
+  }
+}
+
+// Runs one task per index across a worker pool, capturing the first exception thrown by any task
+// and rethrowing it after all workers join. Unlike PopulateIndicesSinglePass (which parallelizes
+// across vertex batches), this parallelizes across whole indices - meant for indices whose
+// per-index work is already internally parallel or cannot be split across threads (e.g. text
+// indices backed by tantivy's single-writer engine). Falls back to running the tasks serially when
+// parallel recovery is disabled or there is a single task. Tasks must not mutate shared state; only
+// per-index state may be touched.
+inline void RecoverIndicesInParallel(
+    std::vector<std::function<void()>> tasks,
+    std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info) {
+  if (tasks.empty()) return;
+
+  const auto thread_count = (parallel_exec_info && parallel_exec_info->thread_count > 1)
+                                ? std::min<uint64_t>(parallel_exec_info->thread_count, tasks.size())
+                                : 1U;
+  if (thread_count <= 1) {
+    for (auto &task : tasks) task();
+    return;
+  }
+
+  std::atomic<uint64_t> task_counter = 0;
+  auto maybe_error = utils::Synchronized<std::exception_ptr, utils::SpinLock>{};
+  {
+    std::vector<memory::DbAwareThread> threads;
+    threads.reserve(thread_count);
+    for (auto i{0U}; i < thread_count; ++i) {
+      threads.emplace_back(parallel_exec_info->arena_pool, [&]() {
+        while (!*maybe_error.Lock()) {
+          const auto task_index = task_counter++;
+          if (task_index >= tasks.size()) {
+            return;
+          }
+          try {
+            tasks[task_index]();
+          } catch (...) {
+            utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+            auto err = maybe_error.Lock();
+            if (!*err) *err = std::current_exception();
+          }
+        }
+      });
+    }
+  }
+  if (auto err = maybe_error.Lock(); *err) {
+    std::rethrow_exception(*err);
   }
 }
 
