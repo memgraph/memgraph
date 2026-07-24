@@ -22,10 +22,15 @@ Raft-replicated set of roles, each carrying a coordinator privilege (`COORDINATO
 
 From the user's perspective:
 
-- Connecting to a coordinator with **basic auth (username + password) always succeeds**,
-  exactly as today — credentials are ignored, and the session has full `COORDINATOR_WRITE`
-  access.
-  Nothing about existing tooling breaks.
+- Connecting to a coordinator with **basic auth (username + password) succeeds as a
+  passthrough** whenever SSO is not in effect — credentials are ignored, and the session has
+  full `COORDINATOR_WRITE` access. Nothing about existing tooling breaks. Once SSO is
+  configured (`--auth-module-mappings` non-empty) **and** the enterprise license is valid,
+  basic/none is denied so the credential-less passthrough cannot bypass the SSO privilege
+  model. If the license is missing, expired, or invalid, SSO itself rejects every login, so
+  basic/none **falls back to the passthrough** — a license transition never locks every Bolt
+  session out of a coordinator, and the break-glass session can re-install the license over
+  Bolt (`SET DATABASE SETTING "enterprise.license" TO ...`).
 - Connecting with an **SSO scheme** (one listed in `--auth-module-mappings`) now runs the
   corresponding auth module and **actually authenticates**: the connection is accepted
   only if the IdP token is valid and every role the module returns already exists on the
@@ -52,7 +57,9 @@ From the user's perspective:
 - SSO, role management, privilege grants, and privilege enforcement on coordinators are
   **enterprise features** (require a valid license); basic-auth passthrough remains free
   and retains full `COORDINATOR_WRITE` access, so community/unlicensed deployments are
-  unaffected.
+  unaffected. Because basic auth is license-free, the deny-basic-under-SSO rule above is
+  itself conditioned on a valid license: with SSO configured but no valid license, basic
+  auth still works (break-glass) while SSO logins are rejected with a license error.
 
 Separately, this work removes two unused constructs — the `COORDINATOR` privilege and
 `EnableWritingOnMainRpc` — to reduce confusion.
@@ -60,7 +67,8 @@ Separately, this work removes two unused constructs — the `COORDINATOR` privil
 ## User Stories
 
 1. As an operator, I want to connect to a coordinator with a username and password and
-   always succeed, so that my existing admin tooling keeps working unchanged.
+   succeed whenever SSO is not in effect (not configured, or configured without a valid
+   license), so that my existing admin tooling keeps working unchanged.
 2. As a security engineer, I want SSO clients to be rejected on a coordinator when they
    present an invalid IdP token, so that only authenticated identities reach the cluster
    control plane.
@@ -142,7 +150,10 @@ Separately, this work removes two unused constructs — the `COORDINATOR` privil
     a mixed-version window degrades safely.
 32. As an operator without an enterprise license, I want SSO auth, role queries, privilege
     grants, and enforcement on coordinators to be gated by a license error while basic-auth
-    still works with full access, so that licensing is consistent with the rest of auth.
+    still works with full access — **even when SSO is configured** — so that licensing is
+    consistent with the rest of auth and a license expiry never locks every Bolt session
+    out of a coordinator (basic auth is the break-glass through which the license can be
+    re-installed).
 33. As a developer, I want the unused `COORDINATOR` privilege removed, so that the privilege
     model does not advertise a permission that gates nothing.
 34. As a developer, I want the unused `EnableWritingOnMainRpc` removed, so that the RPC
@@ -157,8 +168,12 @@ Separately, this work removes two unused constructs — the `COORDINATOR` privil
 
 ### Auth semantics on coordinators
 
-- **Basic auth is a passthrough**: `basic`/`none` schemes always succeed on a coordinator,
-  credentials ignored (current behavior preserved). No license required.
+- **Basic auth is a passthrough**: `basic`/`none` schemes succeed on a coordinator with
+  credentials ignored (current behavior preserved), **except** when SSO is configured
+  (`--auth-module-mappings` non-empty) and the enterprise license is valid, in which case
+  they are denied. No license required. The deny condition deliberately mirrors the SSO
+  path's own license gate: basic/none is denied only while SSO can actually authenticate
+  someone, so there is always at least one working auth path on a coordinator.
 - **SSO authenticates**: for a scheme present in `--auth-module-mappings`, run the auth
   module for that scheme, then validate the returned roles. Authentication **succeeds only
   if every returned role exists** in the coordinator's role list. Invalid token, any
@@ -182,10 +197,14 @@ Separately, this work removes two unused constructs — the `COORDINATOR` privil
 - **Enterprise-gated**: SSO authentication, the role queries, privilege grants
   (`GRANT`/`REVOKE`), `SHOW PRIVILEGES FOR ROLE`, and privilege enforcement require
   `MG_ENTERPRISE` + a valid license; without it they are rejected with a license error.
-  Basic-auth passthrough works in any build and retains full `COORDINATOR_WRITE`.
+  Basic-auth passthrough works in any build and retains full `COORDINATOR_WRITE` — including
+  when SSO is configured but the license is missing/expired/invalid (break-glass): denying
+  basic there too would leave no successful auth path on any coordinator Bolt session,
+  recoverable only by restarting with `--auth-module-mappings` cleared.
 - The coordinator branch of the Bolt handshake's `AuthenticateUser` is changed from
-  "ignore auth on coordinators" to: basic/none → passthrough; SSO scheme in mappings →
-  the dedicated coordinator SSO path; otherwise reject.
+  "ignore auth on coordinators" to: basic/none → passthrough, unless SSO is configured
+  **and** the license is valid, in which case deny; SSO scheme in mappings → the dedicated
+  coordinator SSO path; otherwise reject.
 
 ### Coordinator SSO authenticator (deep module)
 
@@ -333,8 +352,12 @@ directory's `workloads.yaml` and `CMakeLists.txt`.
 
 Functional buckets:
 
-- **Basic-auth passthrough**: username/password always succeeds and the session can run
-  coordinator queries; an unknown/SSO scheme not in mappings is rejected.
+- **Basic-auth passthrough**: with no SSO module configured, username/password succeeds and
+  the session can run coordinator queries; an unknown/SSO scheme not in mappings is rejected.
+  With SSO configured and a valid license, basic/none is denied. With SSO configured but the
+  license revoked at runtime, basic/none falls back to the passthrough (break-glass): the
+  session retains full `COORDINATOR_WRITE`, can re-install the license over Bolt, and the
+  cluster returns to SSO-only access — no restart, no total lockout.
 - **SSO across all three schemes + failures**: OIDC, SAML, Kerberos each succeed when the
   returned role(s) exist; rejection on invalid token, on a missing role, and multi-role
   where all-exist succeeds and any-missing rejects. Kerberos is exercised through the Bolt

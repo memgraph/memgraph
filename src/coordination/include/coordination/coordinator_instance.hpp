@@ -106,8 +106,10 @@ class CoordinatorInstance {
 
   auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> RevokePrivilegeStatus;
 
-  // Returns the role's privilege mask, or nullopt if the role doesn't exist.
-  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<uint64_t>;
+  // Strong read of a single role's privileges: served locally if this coordinator is the ready leader, otherwise
+  // forwarded to the leader. Returns nullopt when the leader is unreachable -- never local replicated state; the
+  // returned pair is {role_found, mask}.
+  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
 
   // Leader-local read backing the GetRolePrivileges forwarding RPC. Returns nullopt if this coordinator is not the
   // ready leader, otherwise {role_found, mask}.

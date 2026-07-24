@@ -196,7 +196,8 @@ auto CoordinatorState::RevokePrivilege(std::string_view const role_name, uint64_
   return std::get<CoordinatorInstance>(data_).RevokePrivilege(role_name, privileges);
 }
 
-auto CoordinatorState::GetRolePrivileges(std::string_view const role_name) const -> std::optional<uint64_t> {
+auto CoordinatorState::GetRolePrivileges(std::string_view const role_name) const
+    -> std::optional<std::pair<bool, uint64_t>> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator role privileges cannot be retrieved since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).GetRolePrivileges(role_name);

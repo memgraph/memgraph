@@ -81,7 +81,8 @@ auto CoordinatorHandler::RevokePrivilege(std::string_view const role_name, uint6
   return coordinator_state_.RevokePrivilege(role_name, privileges);
 }
 
-auto CoordinatorHandler::GetRolePrivileges(std::string_view const role_name) const -> std::optional<uint64_t> {
+auto CoordinatorHandler::GetRolePrivileges(std::string_view const role_name) const
+    -> std::optional<std::pair<bool, uint64_t>> {
   return coordinator_state_.GetRolePrivileges(role_name);
 }
 

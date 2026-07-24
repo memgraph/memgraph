@@ -23,6 +23,7 @@
 #include "communication/exceptions.hpp"
 #include "flags/auth.hpp"
 #include "flags/coord_flag_env_handler.hpp"
+#include "license/license.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -32,9 +33,9 @@ namespace memgraph::communication::bolt {
 namespace details {
 
 template <typename TSession>
-void HandleAuthFailure(TSession &session) {
+void HandleAuthFailure(TSession &session, std::string const &message = "Authentication failure") {
   if (!session.encoder_.MessageFailure(
-          {{"code", "Memgraph.ClientError.Security.Unauthenticated"}, {"message", "Authentication failure"}})) {
+          {{"code", "Memgraph.ClientError.Security.Unauthenticated"}, {"message", message}})) {
     spdlog::trace("Couldn't send failure message to the client!");
   }
   // Throw an exception to indicate to the network stack that the session
@@ -133,7 +134,8 @@ std::optional<State> CoordinatorSSOAuthentication(TSession &session, memgraph::c
   if (!auth_res) {
     // Rejected: invalid token, a role the module returned that doesn't exist on the coordinator, or a missing
     // enterprise license. HandleAuthFailure sends the failure message and throws to close the connection.
-    HandleAuthFailure(session);
+    HandleAuthFailure(session,
+                      "SSO authentication failed: invalid token, an unknown role, or a missing enterprise license.");
   }
   return std::nullopt;
 }
@@ -174,17 +176,37 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
   if (auto const &coordination_setup = flags::CoordinationSetupInstance(); coordination_setup.IsCoordinator()) {
     // Coordinator auth: when no SSO module is configured, basic/none is a passthrough (credentials ignored, session
     // keeps full COORDINATOR_WRITE, no license required). Once SSO is configured (--auth-module-mappings non-empty),
-    // basic/none is denied -- the credential-less passthrough would otherwise bypass the SSO privilege model. An SSO
-    // scheme present in --auth-module-mappings runs the coordinator SSO path (enterprise-gated); any other/unknown
-    // scheme is rejected.
+    // basic/none is denied so the credential-less passthrough can't bypass the SSO privilege model -- but only while
+    // SSO can actually grant a privileged session. It can't when the enterprise license is invalid (SSO then rejects
+    // every login) or when the committed role set has no COORDINATOR_WRITE role (SSO validates the module's roles
+    // against that set, and only a WRITE role can create the first administrator). In either case basic stays open as
+    // the break-glass path so an admin is never permanently locked out -- covering a fresh boot with mappings and no
+    // roles, and dropping the last writable role on a live cluster. A transient leader outage leaves the role set
+    // unknown; that case is fail-closed (basic denied), matching the SSO path, since it is temporary and SSO is
+    // unavailable then too. An SSO scheme present in --auth-module-mappings runs the coordinator SSO path
+    // (enterprise-gated); any other/unknown scheme is rejected.
     const bool sso_configured = !FLAGS_auth_module_mappings.empty();
     if (schema == "basic" || schema == "none") {
       if (sso_configured) {
+        bool deny_basic = license::global_license_checker.IsEnterpriseValidFast();
+        if (deny_basic) {
+          // nullopt (leader unreachable / no coordinator state) => keep basic denied (fail-closed).
+          deny_basic = session.CoordinatorHasWritableRole().value_or(true);
+        }
+        if (deny_basic) {
+          spdlog::warn(
+              "Basic/none authentication is disabled on this coordinator because SSO is configured with a valid "
+              "license and a COORDINATOR_WRITE role exists; connect with an SSO scheme listed in the "
+              "auth-module-mappings flag.");
+          HandleAuthFailure(session,
+                            "Basic authentication is disabled on this coordinator because SSO is configured; connect "
+                            "with an SSO scheme listed in the auth-module-mappings flag.");
+          return State::Close;
+        }
         spdlog::warn(
-            "Basic/none authentication is disabled on this coordinator because SSO is configured; connect with an SSO "
-            "scheme listed in the auth-module-mappings flag.");
-        HandleAuthFailure(session);
-        return State::Close;
+            "Allowing basic-auth passthrough on this coordinator as a break-glass path: SSO can't currently grant a "
+            "privileged session (invalid enterprise license, or no COORDINATOR_WRITE role in the committed role "
+            "set).");
       }
       session.CoordinatorPassthroughAuthenticate();
       return std::nullopt;
@@ -196,7 +218,11 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
         "The \"{}\" authentication scheme isn't supported on coordinators: connect with basic auth or an SSO scheme "
         "listed in the auth-module-mappings flag.",
         schema);
-    HandleAuthFailure(session);
+    HandleAuthFailure(
+        session,
+        fmt::format("The \"{}\" authentication scheme isn't supported on this coordinator; connect with basic auth or "
+                    "an SSO scheme listed in the auth-module-mappings flag.",
+                    schema));
     return State::Close;
   }
 #endif

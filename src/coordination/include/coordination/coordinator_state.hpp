@@ -74,7 +74,9 @@ class CoordinatorState {
 
   auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> RevokePrivilegeStatus;
 
-  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<uint64_t>;
+  // Strong read served by the leader: nullopt when the leader is unreachable, never local replicated state; the
+  // returned pair is {role_found, mask}.
+  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
 
   auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
 
