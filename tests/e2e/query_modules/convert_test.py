@@ -23,12 +23,6 @@ def test_convert_list1():
     assert (result) == [2, 4, 8, [2]]
 
 
-def test_convert_list_wrong():
-    cursor = connect().cursor()
-    result = execute_and_fetch_all(cursor, "RETURN convert.str2object('[2, 4, 8, [2]]') AS result;")[0][0]
-    assert (result) != [3, 4, 8, [2]]
-
-
 def test_convert_map():
     cursor = connect().cursor()
     query = """RETURN convert.str2object('{"test": "true", "test2": true, "test3": 1, "test4": 1.5, "test5": null, "test6": {"test7": true, "test8": 1, "test9": 1.5, "test10": null}, "test11": ["string", 1, 1.5, null, {"test12": "string", "test13": 1, "test14": 1.5, "test15": null}]}');"""
