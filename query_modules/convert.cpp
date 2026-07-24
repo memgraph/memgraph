@@ -315,17 +315,17 @@ void to_map(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_mem
 }
 
 // Forward declaration for the recursive value serializer below.
-nlohmann::ordered_json MgpValueToJson(const mgp::Value &value);
+nlohmann::json MgpValueToJson(const mgp::Value &value);
 
 // Serializes a node as {id, type, labels, properties}. The id is stringified;
 // labels and properties are omitted when empty.
-nlohmann::ordered_json MgpNodeToJson(const mgp::Node &node) {
-  auto obj = nlohmann::ordered_json::object();
+nlohmann::json MgpNodeToJson(const mgp::Node &node) {
+  auto obj = nlohmann::json::object();
   obj["id"] = std::to_string(node.Id().AsInt());
   obj["type"] = "node";
   const auto labels = node.Labels();
   if (labels.Size() > 0) {
-    auto label_array = nlohmann::ordered_json::array();
+    auto label_array = nlohmann::json::array();
     for (size_t i = 0; i < labels.Size(); ++i) {
       label_array.push_back(std::string(labels[i]));
     }
@@ -333,7 +333,7 @@ nlohmann::ordered_json MgpNodeToJson(const mgp::Node &node) {
   }
   const auto properties = node.Properties();
   if (!properties.empty()) {
-    auto props = nlohmann::ordered_json::object();
+    auto props = nlohmann::json::object();
     for (const auto &[key, value] : properties) {
       props[key] = MgpValueToJson(value);
     }
@@ -344,8 +344,8 @@ nlohmann::ordered_json MgpNodeToJson(const mgp::Node &node) {
 
 // Serializes a relationship as {id, type, label, start, end, properties}. The
 // endpoints are full node objects; properties are omitted when empty.
-nlohmann::ordered_json MgpRelationshipToJson(const mgp::Relationship &relationship) {
-  auto obj = nlohmann::ordered_json::object();
+nlohmann::json MgpRelationshipToJson(const mgp::Relationship &relationship) {
+  auto obj = nlohmann::json::object();
   obj["id"] = std::to_string(relationship.Id().AsInt());
   obj["type"] = "relationship";
   obj["label"] = std::string(relationship.Type());
@@ -353,7 +353,7 @@ nlohmann::ordered_json MgpRelationshipToJson(const mgp::Relationship &relationsh
   obj["end"] = MgpNodeToJson(relationship.To());
   const auto properties = relationship.Properties();
   if (!properties.empty()) {
-    auto props = nlohmann::ordered_json::object();
+    auto props = nlohmann::json::object();
     for (const auto &[key, value] : properties) {
       props[key] = MgpValueToJson(value);
     }
@@ -364,8 +364,8 @@ nlohmann::ordered_json MgpRelationshipToJson(const mgp::Relationship &relationsh
 
 // Serializes a path as a flat array of interleaved nodes and relationships:
 // [node, relationship, node, ...].
-nlohmann::ordered_json MgpPathToJson(const mgp::Path &path) {
-  auto array = nlohmann::ordered_json::array();
+nlohmann::json MgpPathToJson(const mgp::Path &path) {
+  auto array = nlohmann::json::array();
   const size_t length = path.Length();
   for (size_t i = 0; i < length; ++i) {
     array.push_back(MgpNodeToJson(path.GetNodeAt(i)));
@@ -380,8 +380,8 @@ constexpr uint16_t kSridWgs84_2d = 4326;
 constexpr uint16_t kSridWgs84_3d = 4979;
 
 // Serializes a 2D point as {crs, x/y (or longitude/latitude), z/height=null}.
-nlohmann::ordered_json MgpPoint2dToJson(const mgp::Point2d &point) {
-  auto obj = nlohmann::ordered_json::object();
+nlohmann::json MgpPoint2dToJson(const mgp::Point2d &point) {
+  auto obj = nlohmann::json::object();
   if (point.Srid() == kSridWgs84_2d) {
     obj["crs"] = "wgs-84";
     obj["latitude"] = point.Y();
@@ -397,8 +397,8 @@ nlohmann::ordered_json MgpPoint2dToJson(const mgp::Point2d &point) {
 }
 
 // Serializes a 3D point as {crs, x/y/z (or longitude/latitude/height)}.
-nlohmann::ordered_json MgpPoint3dToJson(const mgp::Point3d &point) {
-  auto obj = nlohmann::ordered_json::object();
+nlohmann::json MgpPoint3dToJson(const mgp::Point3d &point) {
+  auto obj = nlohmann::json::object();
   if (point.Srid() == kSridWgs84_3d) {
     obj["crs"] = "wgs-84-3d";
     obj["latitude"] = point.Y();
@@ -440,21 +440,21 @@ std::string DurationToString(int64_t total_microseconds) {
   return result;
 }
 
-nlohmann::ordered_json MgpValueToJson(const mgp::Value &value) {
+nlohmann::json MgpValueToJson(const mgp::Value &value) {
   if (value.IsNull()) return nullptr;
   if (value.IsBool()) return value.ValueBool();
   if (value.IsInt()) return value.ValueInt();
   if (value.IsDouble()) return value.ValueDouble();
   if (value.IsString()) return std::string(value.ValueString());
   if (value.IsList()) {
-    auto array = nlohmann::ordered_json::array();
+    auto array = nlohmann::json::array();
     for (const auto item : value.ValueList()) {
       array.push_back(MgpValueToJson(item));
     }
     return array;
   }
   if (value.IsMap()) {
-    auto obj = nlohmann::ordered_json::object();
+    auto obj = nlohmann::json::object();
     for (const auto &item : value.ValueMap()) {
       obj[std::string(item.key)] = MgpValueToJson(item.value);
     }
