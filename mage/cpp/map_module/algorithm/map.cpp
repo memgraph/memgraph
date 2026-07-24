@@ -144,7 +144,7 @@ void Map::RemoveKey(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result 
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
-    const auto map = arguments[0].ValueMap();
+    const auto map = ToMap(arguments[0]);
     const auto config = arguments[2].ValueMap();
     const auto recursive = (config.At("recursive").IsBool()) ? config.At("recursive").ValueBool() : false;
     mgp::Map map_removed = mgp::Map(map);
@@ -233,7 +233,7 @@ void Map::Flatten(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *r
   const auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
-    const mgp::Map map = arguments[0].ValueMap();
+    const mgp::Map map = ToMap(arguments[0]);
     const std::string delimiter(arguments[1].ValueString());
     mgp::Map result_map = mgp::Map();
     FlattenRecursion(result_map, map, "", delimiter);
@@ -301,7 +301,7 @@ void Map::RemoveKeys(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result
   auto arguments = mgp::List(args);
   auto result = mgp::Result(res);
   try {
-    mgp::Map map = arguments[0].ValueMap();
+    mgp::Map map = ToMap(arguments[0]);
     const mgp::List list = arguments[1].ValueList();
     const auto config = arguments[2].ValueMap();
     const auto recursive = (config.At("recursive").IsBool()) ? config.At("recursive").ValueBool() : false;
