@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -258,4 +258,166 @@ TEST_F(ResourceLockTest, ReadOnlyLockTryForWillNotifyWaitingWriterUponFailure) {
     auto reader_result = ro_outcome.get();
     ASSERT_TRUE(reader_result);
   }
+}
+
+TEST_F(ResourceLockTest, GuardUniqueIsExclusive) {
+  {
+    auto guard = ResourceLockGuard(lock, ResourceLockGuard::UNIQUE);
+    ASSERT_TRUE(guard.owns_lock());
+    ASSERT_TRUE(guard.is_exclusive());
+    // UNIQUE hold blocks any other acquisition.
+    ASSERT_FALSE(lock.try_lock());
+    ASSERT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::READ>());
+  }
+  // Released on scope exit in UNIQUE mode.
+  ASSERT_TRUE(lock.try_lock());
+  lock.unlock();
+}
+
+TEST_F(ResourceLockTest, GuardSharedIsNotExclusive) {
+  auto guard = ResourceLockGuard(lock, ResourceLockGuard::READ);
+  ASSERT_TRUE(guard.owns_lock());
+  ASSERT_FALSE(guard.is_exclusive());
+  // A shared READ hold does not block another READ.
+  ASSERT_TRUE(lock.try_lock_shared<ResourceLock::LockReq::READ>());
+  lock.unlock_shared<ResourceLock::LockReq::READ>();
+}
+
+TEST_F(ResourceLockTest, GuardAdoptsPreLockedUnique) {
+  // Caller acquires UNIQUE directly, then hands ownership to the guard.
+  lock.lock();
+  {
+    auto guard = ResourceLockGuard(lock, ResourceLockGuard::UNIQUE, std::adopt_lock);
+    ASSERT_TRUE(guard.owns_lock());
+    ASSERT_TRUE(guard.is_exclusive());
+  }
+  // The guard released the adopted hold; the lock is free again.
+  ASSERT_TRUE(lock.try_lock());
+  lock.unlock();
+}
+
+TEST_F(ResourceLockTest, GuardMoveAssignSwapsReadToWriteKeepingHold) {
+  // Move-assigning a WRITE guard over a held READ guard keeps a continuous hold: WRITE is acquired
+  // before the READ hold is released.
+  auto guard = ResourceLockGuard(lock, ResourceLockGuard::READ);
+  ASSERT_EQ(guard.type(), ResourceLockGuard::READ);
+
+  guard = ResourceLockGuard(lock, ResourceLockGuard::WRITE);
+  ASSERT_TRUE(guard.owns_lock());
+  ASSERT_EQ(guard.type(), ResourceLockGuard::WRITE);
+
+  // The shared hold was never fully dropped, so UNIQUE cannot be acquired while it is held.
+  ASSERT_FALSE(lock.try_lock());
+
+  guard.unlock();
+  // Both the READ and WRITE holds are gone; the lock is fully free.
+  ASSERT_TRUE(lock.try_lock());
+  lock.unlock();
+}
+
+TEST_F(ResourceLockTest, GuardFromOwningUniqueLockAdopts) {
+  {
+    auto ul = std::unique_lock{lock};  // acquires UNIQUE
+    auto guard = ResourceLockGuard{std::move(ul)};
+    ASSERT_TRUE(guard.owns_lock());
+    ASSERT_TRUE(guard.is_exclusive());
+    ASSERT_FALSE(ul.owns_lock());  // ownership transferred, no double-unlock on ul's dtor
+  }
+  ASSERT_TRUE(lock.try_lock());
+  lock.unlock();
+}
+
+TEST_F(ResourceLockTest, GuardFromDeferredUniqueLockIsUnlockedUnique) {
+  auto ul = std::unique_lock{lock, std::defer_lock};
+  auto guard = ResourceLockGuard{std::move(ul)};
+  ASSERT_FALSE(guard.owns_lock());
+  ASSERT_TRUE(guard.is_exclusive());  // typed UNIQUE, ready to escalate
+  ASSERT_TRUE(guard.try_lock());
+  ASSERT_TRUE(guard.owns_lock());
+}
+
+TEST_F(ResourceLockTest, GuardMoveConstructTransfersOwnershipNoDoubleRelease) {
+  auto original = ResourceLockGuard{lock, ResourceLockGuard::WRITE};
+  ASSERT_TRUE(original.owns_lock());
+  {
+    auto moved = std::move(original);
+    ASSERT_TRUE(moved.owns_lock());
+    ASSERT_EQ(moved.type(), ResourceLockGuard::WRITE);
+    ASSERT_FALSE(original.owns_lock());  // source disowned by the move
+  }
+  // `moved` released WRITE on scope exit; the moved-from `original` must not double-release.
+  ASSERT_TRUE(lock.try_lock());
+  lock.unlock();
+}
+
+TEST_F(ResourceLockTest, GuardTryLockUniqueFailsWhenHeld) {
+  auto held = ResourceLockGuard(lock, ResourceLockGuard::READ);
+
+  auto guard = ResourceLockGuard(lock, ResourceLockGuard::UNIQUE, std::try_to_lock);
+  ASSERT_FALSE(guard.owns_lock());
+
+  held.unlock();
+  ASSERT_TRUE(guard.try_lock());
+  ASSERT_TRUE(guard.is_exclusive());
+}
+
+TEST_F(ResourceLockTest, GuardDowngradeFromUniqueIsRejected) {
+  auto guard = ResourceLockGuard{lock, ResourceLockGuard::UNIQUE};
+  // A UNIQUE hold cannot be downgraded (downgrade_to_read only transitions the SHARED state).
+  ASSERT_FALSE(guard.downgrade_to_read());
+  ASSERT_TRUE(guard.is_exclusive());  // still UNIQUE, hold intact
+  ASSERT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::READ>());
+}
+
+TEST_F(ResourceLockTest, GuardDowngradeWriteToReadReleasesWriteExclusivity) {
+  auto guard = ResourceLockGuard{lock, ResourceLockGuard::WRITE};
+  // WRITE blocks a READ_ONLY acquirer (READ_ONLY needs w_count == 0).
+  ASSERT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::READ_ONLY>());
+
+  ASSERT_TRUE(guard.downgrade_to_read());
+  ASSERT_EQ(guard.type(), ResourceLockGuard::READ);
+
+  // Now a READ_ONLY acquirer can proceed.
+  ASSERT_TRUE(lock.try_lock_shared<ResourceLock::LockReq::READ_ONLY>());
+  lock.unlock_shared<ResourceLock::LockReq::READ_ONLY>();
+}
+
+TEST_F(ResourceLockTest, GuardDowngradeReadOnlyToReadReleasesReadOnlyExclusivity) {
+  auto guard = ResourceLockGuard{lock, ResourceLockGuard::READ_ONLY};
+  // READ_ONLY blocks a WRITE acquirer (WRITE needs ro_count == 0).
+  ASSERT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::WRITE>());
+
+  ASSERT_TRUE(guard.downgrade_to_read());
+  ASSERT_EQ(guard.type(), ResourceLockGuard::READ);
+
+  // Now a WRITE acquirer can proceed.
+  ASSERT_TRUE(lock.try_lock_shared<ResourceLock::LockReq::WRITE>());
+  lock.unlock_shared<ResourceLock::LockReq::WRITE>();
+}
+
+TEST_F(ResourceLockTest, GuardDeferredThenExplicitLock) {
+  auto guard = ResourceLockGuard{lock, ResourceLockGuard::WRITE, std::defer_lock};
+  ASSERT_FALSE(guard.owns_lock());
+  guard.lock();
+  ASSERT_TRUE(guard.owns_lock());
+  ASSERT_EQ(guard.type(), ResourceLockGuard::WRITE);
+}
+
+TEST_F(ResourceLockTest, GuardTryLockForUniqueAcquiresWhenFree) {
+  using namespace std::chrono_literals;
+  auto guard = ResourceLockGuard{lock, ResourceLockGuard::UNIQUE, std::defer_lock};
+  ASSERT_TRUE(guard.try_lock_for(50ms));
+  ASSERT_TRUE(guard.owns_lock());
+  ASSERT_TRUE(guard.is_exclusive());
+}
+
+TEST_F(ResourceLockTest, GuardTryLockForUniqueTimesOutWhenHeld) {
+  using namespace std::chrono_literals;
+  auto held = ResourceLockGuard{lock, ResourceLockGuard::READ};  // a shared hold blocks UNIQUE
+  auto guard = ResourceLockGuard{lock, ResourceLockGuard::UNIQUE, std::defer_lock};
+
+  auto const start = std::chrono::steady_clock::now();
+  ASSERT_FALSE(guard.try_lock_for(10ms));
+  ASSERT_GE(std::chrono::steady_clock::now() - start, 10ms);
+  ASSERT_FALSE(guard.owns_lock());
 }
