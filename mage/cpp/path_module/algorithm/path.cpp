@@ -477,9 +477,10 @@ void Path::PathSubgraph::ExpandFromRelationships(const std::pair<mgp::Node, int6
       queue.emplace(next_node, pair.second + 1);
     } else if (wanted_direction == RelDirection::kBoth) {
       if (outgoing && seen.contains({type, relationship.To().Id().AsInt()})) {
+        // Enqueue only; the node is returned when dequeued via TryInsertNode, which applies the
+        // hop-range and label filters and avoids the double insert that a direct append would cause.
         path_data_.visited_.insert(next_node.Id().AsInt());
         queue.emplace(next_node, pair.second + 1);
-        to_be_returned_nodes_.AppendExtend(mgp::Value{next_node});
       } else {
         seen.insert({type, relationship.From().Id().AsInt()});
       }
