@@ -27,19 +27,22 @@
 
 namespace memgraph::storage {
 
-void Indices::RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const {
-  static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+void Indices::RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                          std::stop_token token) const {
+  static_cast<InMemoryLabelIndex *>(label_index_.get())
+      ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
-      ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
 }
 
-void Indices::RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const {
+void Indices::RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                        std::stop_token token) const {
   static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())
-      ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
   static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())
-      ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())
-      ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      ->RemoveObsoleteEntries(storage, oldest_active_start_timestamp, token);
 }
 
 void Indices::RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &vertices_to_remove) const {

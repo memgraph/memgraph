@@ -263,12 +263,18 @@ std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ActiveIndices::ListIndices(uint64
   return ret;
 }
 
-void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                                  std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   CleanupAllIndices();
 
   auto cpy = all_indices_.ReadCopy();
+  if (cpy->empty()) return;
+
+  // Pin the edge store while sweeping: the loop dereferences raw Edge* the epoch GC could free.
+  auto const edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
+
   for (auto &et_index : *cpy) {
     if (token.stop_requested()) return;
 

@@ -31,6 +31,7 @@
 namespace memgraph::storage {
 
 struct Transaction;
+class Storage;
 
 class InMemoryUniqueConstraints : public UniqueConstraints {
  public:
@@ -163,7 +164,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
                 uint64_t commit_timestamp) const -> std::expected<void, ConstraintViolation>;
 
   /// GC method that removes outdated entries from constraints' storages.
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, const std::stop_token &token);
+  void RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, const std::stop_token &token);
 
   void Clear() override;
 
