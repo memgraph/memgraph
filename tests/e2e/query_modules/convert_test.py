@@ -413,5 +413,26 @@ def test_to_json_point_wgs84():
     assert r3d == {"crs": "wgs-84-3d", "latitude": 1.0, "longitude": 2.0, "height": 3.0}
 
 
+def test_to_json_temporals():
+    cursor = connect().cursor()
+    assert execute_and_fetch_all(cursor, "RETURN convert.to_json(date('2020-01-02')) AS r;")[0][0] == '"2020-01-02"'
+    assert (
+        execute_and_fetch_all(cursor, "RETURN convert.to_json(localTime('03:04:05.123456')) AS r;")[0][0]
+        == '"03:04:05.123456"'
+    )
+    assert (
+        execute_and_fetch_all(cursor, "RETURN convert.to_json(localDateTime('2020-01-02T03:04:05.123456')) AS r;")[0][0]
+        == '"2020-01-02T03:04:05.123456"'
+    )
+    assert (
+        execute_and_fetch_all(cursor, "RETURN convert.to_json(duration('P1DT2H3M4.5S')) AS r;")[0][0]
+        == '"P1DT2H3M4.500000S"'
+    )
+    assert (
+        execute_and_fetch_all(cursor, "RETURN convert.to_json(datetime('2020-01-02T03:04:05+01:00')) AS r;")[0][0]
+        == '"2020-01-02T03:04:05.000000+01:00"'
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <format>
 #include <iostream>
 #include <mgp.hpp>
 #include <optional>
@@ -412,6 +413,33 @@ nlohmann::ordered_json MgpPoint3dToJson(const mgp::Point3d &point) {
   return obj;
 }
 
+// Formats a duration given in microseconds as P<d>DT<h>H<m>M<s>.<micros>S, matching
+// the canonical string form the engine uses for durations.
+std::string DurationToString(int64_t total_microseconds) {
+  constexpr int64_t kMicrosPerSecond = 1000000;
+  constexpr int64_t kMicrosPerMinute = 60 * kMicrosPerSecond;
+  constexpr int64_t kMicrosPerHour = 60 * kMicrosPerMinute;
+  constexpr int64_t kMicrosPerDay = 24 * kMicrosPerHour;
+
+  int64_t micros = total_microseconds;
+  const int64_t days = micros / kMicrosPerDay;
+  micros %= kMicrosPerDay;
+  const int64_t hours = micros / kMicrosPerHour;
+  micros %= kMicrosPerHour;
+  const int64_t minutes = micros / kMicrosPerMinute;
+  micros %= kMicrosPerMinute;
+  const int64_t seconds = micros / kMicrosPerSecond;
+  micros %= kMicrosPerSecond;
+
+  const int64_t fraction = micros < 0 ? -micros : micros;
+  auto result = std::format("P{}DT{}H{}M", days, hours, minutes);
+  if (seconds == 0 && micros < 0) {
+    result += '-';
+  }
+  result += std::format("{}.{:0>6}S", seconds, fraction);
+  return result;
+}
+
 nlohmann::ordered_json MgpValueToJson(const mgp::Value &value) {
   if (value.IsNull()) return nullptr;
   if (value.IsBool()) return value.ValueBool();
@@ -440,7 +468,7 @@ nlohmann::ordered_json MgpValueToJson(const mgp::Value &value) {
   if (value.IsDate()) return value.ValueDate().ToString();
   if (value.IsLocalTime()) return value.ValueLocalTime().ToString();
   if (value.IsLocalDateTime()) return value.ValueLocalDateTime().ToString();
-  if (value.IsDuration()) return value.ValueDuration().ToString();
+  if (value.IsDuration()) return DurationToString(value.ValueDuration().Microseconds());
   if (value.IsZonedDateTime()) return value.ValueZonedDateTime().ToString();
   throw std::invalid_argument("Unsupported value type for JSON conversion.");
 }
