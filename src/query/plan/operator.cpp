@@ -30,6 +30,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include <absl/base/no_destructor.h>
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 #include "ctre.hpp"
@@ -452,17 +453,42 @@ struct CreationHelper {
   }
 };
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-thread_local CreationHelper plan_creation_helper_{.cursor_ = nullptr};
+// Per-thread scratch state for parallel plan/cursor creation.
+//
+// CreationHelper owns std::shared_ptr/std::map members, so it is NOT trivially
+// destructible. A thread_local of such a type makes the compiler emit a lazy
+// __cxa_thread_atexit registration on the thread's first touch. That
+// registration performs a small glibc-internal allocation, which is routed
+// through Memgraph's tracked allocator (see src/memory/malloc_free.cpp). When a
+// query worker first touches this thread_local while already at the
+// --memory-limit ceiling, that allocation is refused (returns nullptr), and
+// glibc turns a failed TLS-destructor registration into a fatal abort() — an
+// uncatchable SIGABRT that bypasses the graceful OutOfMemoryException path
+// (QA-2026-07-16-TLS).
+//
+// Fix: hold the state in a never-destroyed, trivially destructible wrapper so no
+// __cxa_thread_atexit registration is ever emitted. CreationHelper is always
+// restored to an empty state between queries (see PlanCreationHelper), so
+// skipping its destructor at thread exit leaks nothing. The static_assert
+// enforces the invariant, mirroring the guard in src/utils/memory_tracker.cpp.
+inline CreationHelper &plan_creation_helper_() {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+  static thread_local absl::NoDestructor<CreationHelper> helper{CreationHelper{.cursor_ = nullptr}};
+  static_assert(std::is_trivially_destructible_v<decltype(helper)>,
+                "plan-creation TLS must be trivially destructible: a lazy __cxa_thread_atexit "
+                "registration allocates under memory pressure, and glibc aborts if that internal "
+                "allocation fails, bypassing graceful OOM handling (QA-2026-07-16-TLS).");
+  return *helper;
+}
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 struct PlanCreationHelper {
   explicit PlanCreationHelper(std::shared_ptr<utils::CollectionScheduler> collection_scheduler) {
     creation_helper_old_ =
-        std::exchange(plan_creation_helper_, CreationHelper{.collection_scheduler_ = collection_scheduler});
+        std::exchange(plan_creation_helper_(), CreationHelper{.collection_scheduler_ = collection_scheduler});
   }
 
-  ~PlanCreationHelper() { plan_creation_helper_ = std::move(creation_helper_old_); }
+  ~PlanCreationHelper() { plan_creation_helper_() = std::move(creation_helper_old_); }
 
  private:
   CreationHelper creation_helper_old_{.cursor_ = nullptr};
@@ -7551,7 +7577,7 @@ UniqueCursorPtr Distinct::MakeCursor(utils::MemoryResource *mem, metrics::Databa
 #ifdef MG_ENTERPRISE
   if (parallel_execution_) {
     // Parallel mode: use shared state for global deduplication
-    auto shared_state = plan_creation_helper_.GetSharedDistinctState(this, mem);
+    auto shared_state = plan_creation_helper_().GetSharedDistinctState(this, mem);
     if (shared_state) {
       return MakeUniqueCursorPtr<DistinctParallelCursor>(mem, *this, mem, metric_handles, std::move(shared_state));
     }
@@ -10300,12 +10326,12 @@ class ParallelMergeCursor : public Cursor {
                       metrics::DatabaseMetricHandles &metric_handles)
       : self_(self),
         // Collection scheduler is executed by the first parallel operator only
-        collection_scheduler_(std::exchange(plan_creation_helper_.collection_scheduler_, nullptr)),
+        collection_scheduler_(std::exchange(plan_creation_helper_().collection_scheduler_, nullptr)),
         input_cursor_(std::invoke([&]() {
-          if (!plan_creation_helper_.cursor_) {
-            plan_creation_helper_.cursor_ = self_.input_->MakeCursor(mem, metric_handles);
+          if (!plan_creation_helper_().cursor_) {
+            plan_creation_helper_().cursor_ = self_.input_->MakeCursor(mem, metric_handles);
           }
-          return plan_creation_helper_.cursor_;
+          return plan_creation_helper_().cursor_;
         })) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -10359,7 +10385,7 @@ class ParallelBranchCursor : public Cursor {
           cursors.reserve(num_threads);
           for (size_t i = 0UZ; i < num_threads; i++) {
             branch_plan_quotas_[i] = std::make_shared<std::vector<utils::SharedQuota *>>();
-            plan_creation_helper_.shared_plan_quotas_ = branch_plan_quotas_[i];  // Branch specific plan quotas
+            plan_creation_helper_().shared_plan_quotas_ = branch_plan_quotas_[i];  // Branch specific plan quotas
             cursors.push_back(branch_input->MakeCursor(mem, metric_handles));
           }
           return cursors;
@@ -11249,8 +11275,8 @@ Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem,
 #ifdef MG_ENTERPRISE
   if (self_.parallel_execution_) {
     // Use a globally defined quota for parallel execution
-    shared_quota_ = plan_creation_helper_.GetSharedQuota(&self_);
-    shared_quota_->SetPlanQuotas(plan_creation_helper_.shared_plan_quotas_);
+    shared_quota_ = plan_creation_helper_().GetSharedQuota(&self_);
+    shared_quota_->SetPlanQuotas(plan_creation_helper_().shared_plan_quotas_);
   }
 #endif
 }
@@ -11333,8 +11359,8 @@ Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem,
 #ifdef MG_ENTERPRISE
   if (self_.parallel_execution_) {
     // Use a globally defined quota for parallel execution
-    shared_quota_ = plan_creation_helper_.GetSharedQuota(&self_);
-    shared_quota_->SetPlanQuotas(plan_creation_helper_.shared_plan_quotas_);
+    shared_quota_ = plan_creation_helper_().GetSharedQuota(&self_);
+    shared_quota_->SetPlanQuotas(plan_creation_helper_().shared_plan_quotas_);
   }
 #endif
 }

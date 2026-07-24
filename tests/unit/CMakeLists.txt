@@ -517,6 +517,11 @@ add_unit_test(jemalloc_hook_stress_test
     LINK_TARGETS mg-memory mg-utils
 )
 
+add_unit_test(tls_destructor_oom_abort
+    SOURCES tls_destructor_oom_abort.cpp
+    LINK_TARGETS mg-memory mg-utils
+)
+
 add_unit_test(utils_on_scope_exit
     SOURCES utils_on_scope_exit.cpp
     LINK_TARGETS mg-utils
