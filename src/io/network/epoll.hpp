@@ -13,8 +13,8 @@
 
 #include <errno.h>
 #include <fmt/format.h>
-#include <malloc.h>
 #include <sys/epoll.h>
+#include <cstdlib>
 
 #include "io/network/socket.hpp"
 #include "utils/exceptions.hpp"
