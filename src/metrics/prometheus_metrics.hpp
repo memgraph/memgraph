@@ -248,6 +248,9 @@ struct DatabaseMetricHandles {
   CounterHandle write_query;
   CounterHandle read_write_query;
 
+  // Planner-level signal; per-DB only, not aggregated into the global JSON endpoint (see GetGlobalMetricsInfoForJson).
+  CounterHandle unindexed_scan_queries;
+
   // TTL
   CounterHandle deleted_nodes;
   CounterHandle deleted_edges;
@@ -455,6 +458,9 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &read_query_family_;
   prometheus::Family<prometheus::Counter> &write_query_family_;
   prometheus::Family<prometheus::Counter> &read_write_query_family_;
+
+  // Per-database metric families — query (planner-level signals)
+  prometheus::Family<prometheus::Counter> &unindexed_scan_queries_family_;
 
   // Per-database metric families — operators
   prometheus::Family<prometheus::Counter> &once_operator_family_;

@@ -28,13 +28,20 @@
 
 namespace memgraph::query::plan {
 
-std::vector<std::string> ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
+struct PlanHintsResult {
+  std::vector<std::string> hints;
+  // True if the plan has a label/label-property-filtered node scan that a matching index could have served.
+  bool has_unindexed_scan{false};
+};
+
+[[nodiscard]] PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
 
 class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
  public:
   explicit PlanHintsProvider(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
-  std::vector<std::string> &hints() { return hints_; }
+  // Single-use: constructed, Accept-ed once, then read. take_hints() moves hints_ out, so reuse is a bug.
+  PlanHintsProvider(PlanHintsProvider &&) = delete;
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -370,61 +377,29 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(RemoveNestedProperty & /*op*/) override { return true; }
 
  private:
+  // ProvidePlanHints owns the construct -> Accept -> read lifecycle; these accessors are valid only post-traversal.
+  friend PlanHintsResult ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
+
   const SymbolTable &symbol_table_;
   std::vector<std::string> hints_;
+  bool has_unindexed_scan_{false};
+
+  [[nodiscard]] std::vector<std::string> take_hints() { return std::move(hints_); }
+
+  [[nodiscard]] bool has_unindexed_scan() const { return has_unindexed_scan_; }
 
   bool DefaultPreVisit() override { LOG_FATAL("Operator not implemented for providing plan hints!"); }
 
-  void HintIndexUsage(Filter &op) {
-    if (auto *maybe_scan_operator = dynamic_cast<ScanAll *>(op.input().get()); !maybe_scan_operator) {
-      return;
-    }
-
-    auto const scan_symbol = dynamic_cast<ScanAll *>(op.input().get())->output_symbol_;
-    auto const scan_type = op.input()->GetTypeInfo();
-
-    Filters filters;
-    filters.CollectFilterExpression(op.expression_, symbol_table_);
-    const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol),
-                                                       [](const auto &item) { return fmt::format(":{0}", item.name); });
-    const std::string filtered_properties =
-        ExtractAndJoin(filters.FilteredProperties(scan_symbol), std::mem_fn(&PropertyIxPath::AsPathString));
-    if (filtered_labels.empty() && filtered_properties.empty()) {
-      return;
-    }
-
-    if (scan_type == ScanAll::kType) {
-      if (!filtered_labels.empty() && !filtered_properties.empty()) {
-        hints_.push_back(
-            fmt::format("Sequential scan will be used on symbol `{0}` although there is a filter on labels {1} and "
-                        "properties {2}. Consider "
-                        "creating a label-property index.",
-                        scan_symbol.name(),
-                        filtered_labels,
-                        filtered_properties));
-        return;
-      }
-
-      if (!filtered_labels.empty()) {
-        hints_.push_back(fmt::format(
-            "Sequential scan will be used on symbol `{0}` although there is a filter on labels {1}. Consider "
-            "creating a label index.",
-            scan_symbol.name(),
-            filtered_labels));
-        return;
-      }
-      return;
-    }
-
-    if (scan_type == ScanAllByLabel::kType && !filtered_properties.empty()) {
-      hints_.push_back(fmt::format(
-          "Label index will be used on symbol `{0}` although there is also a filter on properties {1}. Consider "
-          "creating a label-property index.",
-          scan_symbol.name(),
-          filtered_properties));
-      return;
-    }
+  // A missing-index hint always coincides with an unindexed scan: keep the two in lockstep here so a
+  // ScanAll branch can't push a hint without also being counted (the suboptimal case uses hints_ directly).
+  void AddUnindexedScanHint(std::string hint) {
+    hints_.push_back(std::move(hint));
+    has_unindexed_scan_ = true;
   }
+
+  // Records a missing- or suboptimal-index hint for a Filter. Marks has_unindexed_scan_ (via
+  // AddUnindexedScanHint) only for the missing-index cases (ScanAll + label/label-property).
+  void HintIndexUsage(Filter &op);
 
   template <typename Func>
   std::string ExtractAndJoin(auto &&collection, Func &&projection) {

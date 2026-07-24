@@ -117,6 +117,8 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "read_queries_total",
     "write_queries_total",
     "read_write_queries_total",
+    # Query / planner signals
+    "unindexed_scan_queries_total",
     # TTL
     "deleted_nodes_total",
     "deleted_edges_total",
@@ -288,6 +290,74 @@ def test_openmetrics_per_db_transaction_counters(populated_databases):
     m = parse_openmetrics(scrape_openmetrics())
     assert om_get(m, "memgraph_committed_transactions_total", "memgraph") > 0
     assert om_get(m, "memgraph_committed_transactions_total", "db2") > 0
+
+
+def test_unindexed_scan_queries_counter():
+    """Count queries whose plan did a ScanAll+Filter an index could have served.
+
+    Uses a fresh label (Unindexed) so populated_databases' indexes don't apply.
+    EXPLAIN/PROFILE must not advance the counter; counting is per-query, so a query
+    with several qualifying ScanAll+Filter pairs bumps by 1.
+    """
+    conn = mgclient.connect(host="localhost", port=7687)
+    conn.autocommit = True
+    cursor = conn.cursor()
+    execute(cursor, "USE DATABASE memgraph")
+
+    def counter():
+        return om_get(parse_openmetrics(scrape_openmetrics()), "memgraph_unindexed_scan_queries_total", "memgraph") or 0
+
+    # `expected` tracks the running count; each step bumps it only when it should count, so the
+    # assertions stay correct if steps are reordered or inserted.
+    expected = counter()
+
+    execute(cursor, "MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
+    expected += 1
+    assert counter() == expected
+
+    execute(cursor, "MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
+    expected += 1
+    assert counter() == expected
+
+    # EXPLAIN/PROFILE must not advance the counter.
+    execute(cursor, "EXPLAIN MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
+    assert counter() == expected
+    execute(cursor, "PROFILE MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
+    assert counter() == expected
+
+    # Creating the matching index stops further increments.
+    execute(cursor, "CREATE INDEX ON :Unindexed(name)")
+    try:
+        execute(cursor, "MATCH (n:Unindexed) WHERE n.name = 'x' RETURN n")
+        assert counter() == expected
+    finally:
+        execute(cursor, "DROP INDEX ON :Unindexed(name)")
+
+    # Two qualifying ScanAll+Filter pairs in one query (UNION) → +1 (per-query).
+    execute(
+        cursor,
+        "MATCH (n:UnindexedA) WHERE n.v = 1 RETURN n.v AS v "
+        "UNION ALL "
+        "MATCH (m:UnindexedB) WHERE m.v = 1 RETURN m.v AS v",
+    )
+    expected += 1
+    assert counter() == expected
+
+    # Parallel execution rewrites the scan into ScanChunk -> ParallelMerge -> ScanParallel;
+    # an unindexed parallel scan must still be counted (+1).
+    execute(cursor, "USING PARALLEL EXECUTION MATCH (n:Unindexed) WHERE n.name = 'x' RETURN count(n)")
+    expected += 1
+    assert counter() == expected
+
+    # The same parallel query backed by an index must NOT advance the counter.
+    execute(cursor, "CREATE INDEX ON :Unindexed(name)")
+    try:
+        execute(cursor, "USING PARALLEL EXECUTION MATCH (n:Unindexed) WHERE n.name = 'x' RETURN count(n)")
+        assert counter() == expected
+    finally:
+        execute(cursor, "DROP INDEX ON :Unindexed(name)")
+
+    conn.close()
 
 
 if __name__ == "__main__":
