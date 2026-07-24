@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
 #include "parameters/parameters.hpp"
@@ -75,7 +76,7 @@ auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserP
 
 class PlanWrapper {
  public:
-  explicit PlanWrapper(std::unique_ptr<LogicalPlan> plan);
+  explicit PlanWrapper(std::unique_ptr<LogicalPlan> plan, uint64_t module_generation = 0);
 
   auto plan() const -> plan::LogicalOperator const & { return plan_->GetRoot(); }
 
@@ -87,8 +88,11 @@ class PlanWrapper {
 
   auto rw_type() const { return plan_->RWType(); }
 
+  uint64_t module_generation() const { return module_generation_; }
+
  private:
   std::unique_ptr<LogicalPlan> plan_;
+  uint64_t module_generation_;
 };
 
 struct CachedQuery {
@@ -97,6 +101,7 @@ struct CachedQuery {
   std::vector<AuthQuery::Privilege> required_privileges;
   bool is_cypher_read{false};
   bool using_schema_assert{false};
+  uint64_t module_generation{0};
 };
 
 // keyed by text, not hash, so a hash collision can't return another query's
@@ -116,6 +121,7 @@ struct ParsedQuery {
   bool is_cypher_read{false};
   bool using_schema_assert{false};
   bool is_cacheable{true};
+  uint64_t module_generation{0};
   UserParameters user_parameters;
   Parameters parameters;
 };
@@ -166,6 +172,7 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
                                                CypherQuery *query, const Parameters &parameters,
                                                PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
                                                plan::v2::QueryPlannerContext &planner_context,
+                                               uint64_t module_generation,
                                                const std::vector<Identifier *> &predefined_identifiers = {});
 
 }  // namespace memgraph::query

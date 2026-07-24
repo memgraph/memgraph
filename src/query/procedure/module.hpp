@@ -21,6 +21,8 @@
 #include "utils/rw_lock.hpp"
 
 #include <dlfcn.h>
+#include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -63,6 +65,7 @@ class ModuleRegistry final {
 
  private:
   std::map<std::string, std::shared_ptr<Module>, std::less<>> modules_;
+  std::atomic<std::uint64_t> generation_{0};
   mutable utils::RWLock lock_{utils::RWLock::Priority::WRITE};
   std::unique_ptr<utils::MemoryResource> shared_{std::make_unique<utils::ResourceWithOutOfMemoryException>()};
 
@@ -114,6 +117,9 @@ class ModuleRegistry final {
   /// Find a module with given name or return nullptr.
   /// Takes a read lock.
   auto GetModuleNamed(std::string_view name) const -> std::shared_ptr<Module>;
+
+  /// Monotonically bumped whenever the set of loaded modules changes; cached query plans compare against it.
+  auto ModuleGeneration() const noexcept -> std::uint64_t { return generation_.load(); }
 
   /// Remove all loaded (non-builtin) modules.
   /// Takes a write lock.

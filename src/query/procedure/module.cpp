@@ -1336,6 +1336,7 @@ bool ModuleRegistry::TryEraseModule(std::string_view name) {
   }
 
   modules_.erase(it);
+  ++generation_;
   return true;
 }
 
@@ -1348,6 +1349,7 @@ bool ModuleRegistry::TryEraseAllModules() {
   }
 
   modules_.clear();
+  ++generation_;
   return true;
 }
 
@@ -1365,6 +1367,7 @@ bool ModuleRegistry::RegisterModule(const std::string_view name, std::unique_ptr
   }
 
   modules_.emplace(std::string(name), std::move(module));
+  ++generation_;
   return true;
 }
 

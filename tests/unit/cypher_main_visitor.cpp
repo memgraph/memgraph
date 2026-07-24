@@ -1119,6 +1119,17 @@ TEST_P(CypherMainVisitorTest, MagicFunctionCacheable) {
   EXPECT_EQ(storage.user_functions_[0], "mock_module.get");
 }
 
+TEST_P(CypherMainVisitorTest, CallProcedureCacheable) {
+  AddProc(*mock_module, "proc", {}, {"res"}, ProcedureType::READ);
+  ParsingContext context;
+  AstStorage storage;
+  Parameters parameters;
+  CypherMainVisitor visitor(context, &storage, &parameters);
+  ::frontend::opencypher::Parser parser("CALL mock_module.proc() YIELD res RETURN res");
+  visitor.visit(parser.tree());
+  EXPECT_TRUE(visitor.GetQueryInfo().is_cacheable);
+}
+
 TEST_P(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN \"mi'rko\""));
