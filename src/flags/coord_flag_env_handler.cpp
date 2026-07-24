@@ -41,17 +41,18 @@ std::string CoordinationSetup::ToString() {
       "coordinator_hostname: {}",
       management_port,
       coordinator_port,
-      coordinator_id,
+      coordinator_id == kUnsetCoordinatorId ? "not set" : std::to_string(coordinator_id),
       nuraft_log_file,
       coordinator_hostname);
 }
 
 [[nodiscard]] auto CoordinationSetup::IsDataInstanceManagedByCoordinator() const -> bool {
-  return management_port != 0 && coordinator_port == 0 && coordinator_id == 0;
+  return management_port != 0 && coordinator_port == 0 && coordinator_id == kUnsetCoordinatorId;
 }
 
 [[nodiscard]] auto CoordinationSetup::IsCoordinator() const -> bool {
-  return coordinator_id != 0 && coordinator_port != 0 && !coordinator_hostname.empty() && management_port != 0;
+  return coordinator_id != kUnsetCoordinatorId && coordinator_port != 0 && !coordinator_hostname.empty() &&
+         management_port != 0;
 }
 
 auto CoordinationSetupInstance() -> CoordinationSetup & {
@@ -73,7 +74,7 @@ void SetFinalCoordinationSetup() {
   auto const is_flag_set = []<typename T>(T const &flag) { return flag != T{}; };
 
   bool const any_flags_set = is_flag_set(FLAGS_management_port) || is_flag_set(FLAGS_coordinator_port) ||
-                             is_flag_set(FLAGS_coordinator_id) || is_flag_set(FLAGS_nuraft_log_file) ||
+                             FLAGS_coordinator_id != kUnsetCoordinatorId || is_flag_set(FLAGS_nuraft_log_file) ||
                              is_flag_set(FLAGS_coordinator_hostname);
 
   if (any_flags_set && any_envs_set) {
@@ -103,12 +104,12 @@ void SetFinalCoordinationSetup() {
 
     if (any_envs_set) {
       spdlog::trace("Coordinator will be initialized using environment variables.");
-      return CoordinationSetup{
-          .management_port = coord_envs[0] ? std::stoi(coord_envs[0].value()) : 0,
-          .coordinator_port = coord_envs[1] ? std::stoi(coord_envs[1].value()) : 0,
-          .coordinator_id = coord_envs[2] ? static_cast<int32_t>(std::stoul(coord_envs[2].value())) : 0,
-          .nuraft_log_file = coord_envs[3] ? coord_envs[3].value() : "",
-          .coordinator_hostname = coord_envs[4] ? coord_envs[4].value() : ""};
+      return CoordinationSetup{.management_port = coord_envs[0] ? std::stoi(coord_envs[0].value()) : 0,
+                               .coordinator_port = coord_envs[1] ? std::stoi(coord_envs[1].value()) : 0,
+                               .coordinator_id = coord_envs[2] ? static_cast<int32_t>(std::stoul(coord_envs[2].value()))
+                                                               : kUnsetCoordinatorId,
+                               .nuraft_log_file = coord_envs[3] ? coord_envs[3].value() : "",
+                               .coordinator_hostname = coord_envs[4] ? coord_envs[4].value() : ""};
     }
 
     spdlog::trace("Coordinator will be initialized using flags.");
