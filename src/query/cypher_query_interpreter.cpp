@@ -249,8 +249,11 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
   // Skip plan cache when using experimental v2 planner - plans may change as v2 evolves
   const bool use_plan_cache = plan_cache && !flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2);
   if (use_plan_cache) {
+    // Hit path: shared lock + peek() (non-mutating) instead of exclusive lock + get()
+    // (which bumps LRU recency), so concurrent Prepare()s don't serialize. Eviction
+    // becomes approximate-LRU; put()/invalidate() still take the write lock.
     auto existing_plan =
-        plan_cache->WithLock([&](PlanCache_t &cache) { return cache.get(stripped_query.stripped_query()); });
+        plan_cache->WithReadLock([&](PlanCache_t const &cache) { return cache.peek(stripped_query.stripped_query()); });
     if (existing_plan) {
       // validate the index usage
       auto &ptr = existing_plan.value();
