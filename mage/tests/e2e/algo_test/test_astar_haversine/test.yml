@@ -1,0 +1,8 @@
+query: >
+  MATCH (c1:City1), (c5:City5)
+  CALL algo.astar(c1,c5, {distance_prop:"distance"}) YIELD path, weight RETURN path AS result, weight;
+
+
+output:
+    - result:  {'nodes': [{'labels': ['City1'], 'properties': {'lat': -1, 'lon': -1}}, {'labels': ['MO1'], 'properties': {'lat': -0.5, 'lon': -0.5}}, {'labels': ['MO2'], 'properties': {'lat': 0.5, 'lon': -0.5}}, {'labels': ['City5'], 'properties': {'lat': 0, 'lon': 0}}], 'relationships': [{'label': 'RIVER', 'properties': {'distance': 90}}, {'label': 'RIVER', 'properties': {'distance': 125}}, {'label': 'ROAD', 'properties': {'distance': 90}}]}
+      weight: 305.0

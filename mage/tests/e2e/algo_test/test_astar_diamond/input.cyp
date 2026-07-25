@@ -1,0 +1,1 @@
+CREATE (a:N {lat: 0, lon: 0, name: 'a'}), (b:N {lat: 1, lon: 0, name: 'b'}), (c:N {lat: 0, lon: 1, name: 'c'}), (d:N {lat: 1, lon: 1, name: 'd'}), (a)-[:E {distance: 1}]->(b), (b)-[:E {distance: 2}]->(d), (a)-[:E {distance: 5}]->(c), (c)-[:E {distance: 5}]->(d)
