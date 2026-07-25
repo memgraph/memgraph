@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 
 #include "query/context.hpp"
 #include "query/plan/profile.hpp"
@@ -36,9 +37,7 @@ class ScopedProfile {
     if (!root_) {
       stats_ = &context_->stats;
       stats_->key = key;
-      op.dba_ = context->db_accessor;
-      stats_->name = op.ToString();
-      op.dba_ = nullptr;
+      stats_->name = OperatorName(op, context->db_accessor);
     } else {
       stats_ = nullptr;
 
@@ -50,9 +49,7 @@ class ScopedProfile {
         root_->children.emplace_back();
         stats_ = &root_->children.back();
         stats_->key = key;
-        op.dba_ = context->db_accessor;
-        stats_->name = op.ToString();
-        op.dba_ = nullptr;
+        stats_->name = OperatorName(op, context->db_accessor);
       } else {
         stats_ = &(*it);
       }
@@ -103,6 +100,21 @@ class ScopedProfile {
   }
 
  private:
+  // `ToString()` reads the operator's `dba_` field, which has to be populated
+  // just before the call and cleared right after. That field lives on the
+  // shared LogicalOperator instance, so under parallel execution multiple
+  // branch threads run this set->ToString->reset dance on the same object and
+  // race: one thread can clear `dba_` to nullptr while another is mid-ToString,
+  // causing a null dereference. Serialize name computation to make it safe.
+  static std::string OperatorName(const query::plan::NamedLogicalOperator &op, const query::DbAccessor *dba) {
+    static std::mutex to_string_mutex;
+    const std::lock_guard guard(to_string_mutex);
+    op.dba_ = dba;
+    auto name = op.ToString();
+    op.dba_ = nullptr;
+    return name;
+  }
+
   query::ExecutionContext *context_;
   ProfilingStats *root_{nullptr};
   ProfilingStats *stats_{nullptr};

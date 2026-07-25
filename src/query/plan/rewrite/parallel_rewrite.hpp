@@ -16,7 +16,9 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <set>
+#include <utility>
 #include <vector>
 #include "context.hpp"
 #include "flags/bolt.hpp"
@@ -33,8 +35,13 @@ namespace impl {
 template <class TDbAccessor>
 class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  ParallelRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db, size_t num_threads)
-      : symbol_table(symbolTable), ast_storage(astStorage), db(db), num_threads_(num_threads) {}
+  ParallelRewriter(SymbolTable *symbolTable, AstStorage *astStorage, TDbAccessor *db, size_t num_threads,
+                   const Parameters &parameters)
+      : symbol_table(symbolTable),
+        ast_storage(astStorage),
+        db(db),
+        num_threads_(num_threads),
+        parameters_(parameters) {}
 
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> root) {
     root_ = std::move(root);
@@ -247,6 +254,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   TDbAccessor *db;
   std::vector<LogicalOperator *> prev_ops_;
   size_t num_threads_;
+  const Parameters &parameters_;
 
   /**
    * Generic function to parallelize an operator.
@@ -732,6 +740,52 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  // Estimated number of rows produced by the leading (deepest reachable along
+  // the main/left input chain) scan of a branch. Used to decide which Cartesian
+  // branch is worth parallelizing. Only vertex scans are handled; anything else
+  // (edge scans, nested joins, ...) returns nullopt meaning "don't reorder".
+  std::optional<int64_t> LeadingScanCardinality(LogicalOperator *op) {
+    for (auto *current = op; current != nullptr;) {
+      const auto &type = current->GetTypeInfo();
+      if (type == ScanAllByLabelProperties::kType) {
+        auto *scan = static_cast<ScanAllByLabelProperties *>(current);
+        // Value-aware count: resolve the scan's expression ranges (e.g. `= 5`)
+        // to concrete property-value ranges so a unique-value lookup is
+        // estimated as ~1 row instead of the whole property index. Falls back
+        // to the index size when a range can't be resolved at plan time.
+        auto *name_id_mapper = db->GetStorageAccessor()->GetNameIdMapper();
+        std::vector<storage::PropertyValueRange> ranges;
+        ranges.reserve(scan->expression_ranges_.size());
+        bool all_resolved = true;
+        for (const auto &expression_range : scan->expression_ranges_) {
+          auto resolved = expression_range.ResolveAtPlantime(parameters_, name_id_mapper);
+          if (!resolved) {
+            all_resolved = false;
+            break;
+          }
+          ranges.push_back(*resolved);
+        }
+        if (all_resolved) {
+          return db->VerticesCount(scan->label_, scan->properties_, ranges);
+        }
+        return db->VerticesCount(scan->label_, scan->properties_);
+      }
+      if (type == ScanAllByLabel::kType) {
+        auto *scan = static_cast<ScanAllByLabel *>(current);
+        return db->VerticesCount(scan->label_);
+      }
+      if (type == ScanAll::kType) {
+        return db->VerticesCount();
+      }
+      if (type == ScanAllById::kType) {
+        return 1;
+      }
+      if (!current->HasSingleInput()) break;  // multi-input branch - bail out
+      current = current->input().get();
+    }
+    return std::nullopt;
+  }
+
   // Helper function to find the Scan operator that produces the required symbols
   // This traces symbol dependencies backwards through operators
   // Returns true if a suitable Scan is found, false otherwise
@@ -939,6 +993,23 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
             scan_parent = found_parent;
           }
         } else if (auto *cartesian_op = dynamic_cast<Cartesian *>(current)) {
+          // Only the LEFT branch of a Cartesian can be chunked for parallel
+          // execution. When we are free to choose which scan to parallelize
+          // (i.e. there are no required symbols pinning it down, as for
+          // count(*)), put the higher-cardinality scan on the left so a tiny
+          // scan (e.g. a unique-property lookup with a single hit) doesn't waste
+          // the parallel section. Cartesian children are independent, so the
+          // swap changes neither the result set nor - absent ORDER BY - the
+          // guaranteed row order.
+          if (symbols_to_find.empty()) {
+            auto left_card = LeadingScanCardinality(cartesian_op->left_op_.get());
+            auto right_card = LeadingScanCardinality(cartesian_op->right_op_.get());
+            if (left_card && right_card && *right_card > *left_card &&
+                !ConflictingOperators(cartesian_op->left_op_.get())) {
+              std::swap(cartesian_op->left_op_, cartesian_op->right_op_);
+              std::swap(cartesian_op->left_symbols_, cartesian_op->right_symbols_);
+            }
+          }
           if (ConflictingOperators(cartesian_op->right_op_.get())) break;
           if (FindScanForSymbols(cartesian_op->left_op_.get(),
                                  symbols_to_find,
@@ -1037,7 +1108,7 @@ std::unique_ptr<LogicalOperator> RewriteParallelExecution(
       // Default value
       return FLAGS_bolt_num_workers;
     };
-    impl::ParallelRewriter<TDbAccessor> rewriter{symbol_table, ast_storage, db, get_num_threads()};
+    impl::ParallelRewriter<TDbAccessor> rewriter{symbol_table, ast_storage, db, get_num_threads(), parameters};
     return rewriter.Rewrite(std::move(root_op));
   }
   return root_op;
