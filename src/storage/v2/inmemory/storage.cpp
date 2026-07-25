@@ -3317,12 +3317,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   gc_progress_.SetPhase(GcPhase::INDEX_CLEANUP);
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
-      indices_.RemoveObsoleteVertexEntries(oldest_active_start_timestamp, token);
+      indices_.RemoveObsoleteVertexEntries(this, oldest_active_start_timestamp, token);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      mem_unique_constraints->RemoveObsoleteEntries(this, oldest_active_start_timestamp, token);
     }
     if (index_cleanup_edge_needed || index_cleanup_edge_performance) {
-      indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
+      indices_.RemoveObsoleteEdgeEntries(this, oldest_active_start_timestamp, token);
     }
   }
   {

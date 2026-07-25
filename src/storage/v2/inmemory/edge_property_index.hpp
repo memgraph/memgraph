@@ -272,7 +272,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
       -> std::shared_ptr<IndividualIndex>;
   void RestoreIndex(PropertyId property, std::shared_ptr<IndividualIndex> evicted, ActiveIndicesUpdater const &updater);
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
+  void RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token);
 
   void DropGraphClearIndices() override;
 

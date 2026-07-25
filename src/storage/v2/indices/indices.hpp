@@ -34,6 +34,8 @@ class MemoryTracker;
 
 namespace memgraph::storage {
 
+class Storage;
+
 struct Indices {
   Indices(const Config &config, StorageMode storage_mode, utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
           metrics::GaugeHandle active_label_indices = {}, metrics::GaugeHandle active_label_property_indices = {},
@@ -50,12 +52,13 @@ struct Indices {
   /// This function should be called from garbage collection to clean up the
   /// vertex indices.
   /// TODO: unused in disk indices
-  void RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
+  void RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
+                                   std::stop_token token) const;
 
   /// This function should be called from garbage collection to clean up the
   /// edge indices.
   /// TODO: unused in disk indices
-  void RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
+  void RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token) const;
 
   void DropGraphClearIndices();
 

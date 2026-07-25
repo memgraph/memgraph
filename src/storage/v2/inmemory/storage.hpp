@@ -122,6 +122,7 @@ class InMemoryStorage final : public Storage {
   friend class InMemoryEdgeTypeIndex;
   friend class InMemoryEdgeTypePropertyIndex;
   friend class InMemoryEdgePropertyIndex;
+  friend class InMemoryUniqueConstraints;
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
@@ -894,6 +895,10 @@ class InMemoryStorage final : public Storage {
     }
     return edges_.access();
   }
+
+  // Keeps vertices_ objects alive for the accessor's lifetime. Vertices are always
+  // heavy, so (unlike MakeEdgePin) there is no light-mode variant.
+  [[nodiscard]] auto MakeVertexPin() const { return vertices_.access(); }
 
   utils::SkipListDb<Edge> edges_;
   // Present iff salient.items.enable_edges_metadata && salient.items.properties_on_edges.

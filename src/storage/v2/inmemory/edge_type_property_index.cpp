@@ -328,11 +328,15 @@ std::vector<std::pair<EdgeTypeId, PropertyId>> InMemoryEdgeTypePropertyIndex::Ac
   return ret;
 }
 
-void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp,
+void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp,
                                                           std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
   CleanupAllIndices();
   auto all_indices = all_indices_.ReadCopy();
+  if (all_indices->empty()) return;
+
+  // Pin the edge store while sweeping: the loop dereferences raw Edge* the epoch GC could free.
+  auto const edge_pin = static_cast<InMemoryStorage const *>(storage)->MakeEdgePin();
 
   for (auto &[index, property] : *all_indices) {
     if (token.stop_requested()) return;
