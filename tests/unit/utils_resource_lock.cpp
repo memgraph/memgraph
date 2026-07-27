@@ -1028,6 +1028,116 @@ TEST_F(ResourceLockTest, ReadReleaseWakesBothPendingUniqueAndGatedReader) {
   EXPECT_TRUE(reader_acquired.load(std::memory_order_acquire));
 }
 
+// A downgraded hold must still free the lock when released. Downgrading rewrites the shared counts
+// without consulting the admission rules, so a slip there leaves a count standing that no release
+// will ever clear: the lock never returns to unlocked and a waiting UNIQUE waits forever. Both
+// source modes are covered because both are downgraded in anger, WRITE by garbage collection and
+// READ_ONLY at the end of index creation.
+TEST_F(ResourceLockTest, DowngradedHoldStillFreesTheLockForAWaitingUnique) {
+  using namespace std::chrono_literals;
+
+  auto check = [this](SharedResourceLockGuard::Type from) {
+    auto guard = SharedResourceLockGuard(lock, from);
+    ASSERT_TRUE(guard.owns_lock());
+
+    std::atomic<bool> unique_acquired{false};
+    auto unique_fut = std::async(std::launch::async, [&] {
+      lock.lock();  // parks: the shared hold keeps the lock from being free
+      unique_acquired.store(true, std::memory_order_release);
+      lock.unlock();
+    });
+
+    std::this_thread::sleep_for(50ms);
+    ASSERT_FALSE(unique_acquired.load(std::memory_order_acquire));
+
+    ASSERT_TRUE(guard.downgrade_to_read());
+    // Still a shared hold, so the UNIQUE stays parked: downgrading gives up exclusivity against
+    // other shared modes, not the hold itself.
+    std::this_thread::sleep_for(50ms);
+    ASSERT_FALSE(unique_acquired.load(std::memory_order_acquire));
+
+    guard.unlock();  // releases in READ, the mode it now holds
+
+    // Bounded so a stranded count fails the test instead of hanging the suite forever.
+    const auto status = unique_fut.wait_for(5s);
+    EXPECT_EQ(status, std::future_status::ready)
+        << "UNIQUE never acquired after the downgraded hold was released: the release did not "
+           "return the lock to unlocked";
+    if (status != std::future_status::ready) {
+      unique_fut.wait();  // failure path only: the parked thread still owns the future
+      return;
+    }
+    unique_fut.get();
+  };
+
+  check(SharedResourceLockGuard::WRITE);
+  check(SharedResourceLockGuard::READ_ONLY);
+}
+
+// A timed UNIQUE request gates new shared acquisitions for as long as it is waiting, exactly as the
+// untimed one does. This is the storage access-timeout path: acquisitions that wait out a timeout
+// are routine, so the registration has to behave the same as on the path that waits forever.
+TEST_F(ResourceLockTest, TimedUniqueGatesNewSharedAcquisitionsWhilePending) {
+  using namespace std::chrono_literals;
+
+  // A READ hold keeps the lock SHARED so the timed UNIQUE cannot acquire and stays pending. READ is
+  // otherwise compatible with READ, so a refused probe below can only be the pending-UNIQUE gate.
+  auto held_read = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ);
+
+  auto timed_unique = std::async(std::launch::async, [&] { return lock.try_lock_for(1s); });
+
+  // Let it register as pending before probing.
+  std::this_thread::sleep_for(50ms);
+  EXPECT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::READ>());
+  EXPECT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::WRITE>());
+  EXPECT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::READ_ONLY>());
+
+  EXPECT_FALSE(timed_unique.get()) << "timed UNIQUE acquired while a READ was held";
+  held_read.unlock();
+}
+
+// A timed UNIQUE that gives up must take its gate down with it, and wake what it was gating. The
+// waiting side is the whole point: a shared acquirer parked on that gate has no other event coming,
+// since the timeout is not a state change anyone else observes. Leaving the registration behind
+// blocks every later shared acquisition of every kind, for the lifetime of the lock.
+TEST_F(ResourceLockTest, TimedUniqueTimeoutWakesSharedAcquirerItGated) {
+  using namespace std::chrono_literals;
+
+  auto held_read = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ);  // keeps state SHARED
+
+  auto timed_unique = std::async(std::launch::async, [&] { return lock.try_lock_for(200ms); });
+
+  // Let the timed UNIQUE register before the reader parks on its gate.
+  std::this_thread::sleep_for(50ms);
+
+  std::atomic<bool> reader_acquired{false};
+  auto reader = std::async(std::launch::async, [&] {
+    lock.lock_shared<ResourceLock::LockReq::READ>();  // parks on the pending-UNIQUE gate
+    reader_acquired.store(true, std::memory_order_release);
+    lock.unlock_shared<ResourceLock::LockReq::READ>();
+  });
+
+  // Let the reader reach cv.wait, then confirm the gate (not scheduling) is holding it.
+  std::this_thread::sleep_for(50ms);
+  ASSERT_FALSE(reader_acquired.load(std::memory_order_acquire));
+
+  EXPECT_FALSE(timed_unique.get()) << "timed UNIQUE acquired while a READ was held";
+
+  // Bounded so an absent wake fails the test instead of hanging the suite forever.
+  const auto status = reader.wait_for(5s);
+  EXPECT_EQ(status, std::future_status::ready)
+      << "READ acquirer gated by the timed UNIQUE was not woken when that UNIQUE timed out";
+  if (status != std::future_status::ready) {
+    held_read.unlock();  // failure path only: rescue the parked thread so ~future cannot block
+    reader.wait();
+    return;
+  }
+  reader.get();
+  EXPECT_TRUE(reader_acquired.load(std::memory_order_acquire));
+
+  held_read.unlock();
+}
+
 // A WRITE release that does not free the lock still has to notify. w_count reaching 0 admits
 // READ_ONLY, which is compatible with the READ hold that keeps the lock in SHARED, so the wake-up
 // cannot be deferred to whenever the lock happens to become free: the READ holder may hold for as
