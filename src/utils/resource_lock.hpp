@@ -42,18 +42,65 @@ struct ResourceLock {
  private:
   enum states : uint8_t { UNLOCKED, UNIQUE, SHARED };
 
+  // Acquire-path dispatch tag: the exclusive acquisition plus the three shared modes. Kept separate
+  // from the public LockReq (which names shared modes only) so UNIQUE never reaches the
+  // release-path tables, where it would have no meaning.
+  enum class AcquireKind : uint8_t { READ, WRITE, READ_ONLY, UNIQUE };
+
+  static constexpr AcquireKind acquire_kind_of(LockReq req) {
+    switch (req) {
+      case LockReq::READ:
+        return AcquireKind::READ;
+      case LockReq::WRITE:
+        return AcquireKind::WRITE;
+      case LockReq::READ_ONLY:
+        return AcquireKind::READ_ONLY;
+    }
+  }
+
+  // Notifying one is never correct here, hence no such alternative: all waiters share one condition
+  // variable but not one predicate, so notify_one can hand the wake-up to a waiter whose predicate
+  // is still false (a shared acquirer gated on unique_pending_count, say); it re-checks, sleeps
+  // again, and the waiter that could have made progress is never woken.
+  enum class NotifyKind : uint8_t { None, All };
+
   // clang-format off
-  // A waiting UNIQUE (unique_pending_) gates new shared acquisitions (writer-preference), mirroring
-  // ro_pending_count's READ_ONLY-over-WRITE priority.
-  template <LockReq Req> bool lock_guard_condition() const;
-  template <> bool lock_guard_condition<LockReq::WRITE>() const     { return ro_count == 0 && ro_pending_count.load(std::memory_order_acquire) == 0 && unique_pending_.load(std::memory_order_acquire) == 0; }
-  template <> bool lock_guard_condition<LockReq::READ>() const      { return unique_pending_.load(std::memory_order_acquire) == 0; }
-  template <> bool lock_guard_condition<LockReq::READ_ONLY>() const { return w_count == 0 && unique_pending_.load(std::memory_order_acquire) == 0; }
+  // Admission rule, evaluated under mtx (as the wait predicate, and by the non-blocking probes).
+  // A waiting UNIQUE (unique_pending_count) gates new shared acquisitions (writer-preference),
+  // mirroring ro_pending_count's READ_ONLY-over-WRITE priority.
+  template <AcquireKind K> bool can_acquire() const;
+  template <> bool can_acquire<AcquireKind::WRITE>() const      { return state != UNIQUE && ro_count == 0 && ro_pending_count == 0 && unique_pending_count == 0; }
+  template <> bool can_acquire<AcquireKind::READ>() const       { return state != UNIQUE && unique_pending_count == 0; }
+  template <> bool can_acquire<AcquireKind::READ_ONLY>() const  { return state != UNIQUE && w_count == 0 && unique_pending_count == 0; }
+  template <> bool can_acquire<AcquireKind::UNIQUE>() const     { return state == UNLOCKED; }
 
   template <LockReq Req> void lock_state_updater();
   template <> void lock_state_updater<LockReq::WRITE>()     { ++w_count; };
   template <> void lock_state_updater<LockReq::READ>()      { ++r_count; };
   template <> void lock_state_updater<LockReq::READ_ONLY>() { ++ro_count; }
+
+  // Applied once admitted; leaves the lock in the state the acquisition claims.
+  template <AcquireKind K> void commit_state();
+  template <> void commit_state<AcquireKind::WRITE>()     { state = SHARED; lock_state_updater<LockReq::WRITE>(); }
+  template <> void commit_state<AcquireKind::READ>()      { state = SHARED; lock_state_updater<LockReq::READ>(); }
+  template <> void commit_state<AcquireKind::READ_ONLY>() { state = SHARED; lock_state_updater<LockReq::READ_ONLY>(); }
+  template <> void commit_state<AcquireKind::UNIQUE>()    { state = UNIQUE; }
+
+  // Pending registration, held for as long as a caller is waiting to acquire, so the kinds it gates
+  // yield to it (see can_acquire). READ and WRITE gate nobody, so they register nothing.
+  template <AcquireKind K> void pending_add() {}
+  template <> void pending_add<AcquireKind::READ_ONLY>() { ++ro_pending_count; }
+  template <> void pending_add<AcquireKind::UNIQUE>()    { ++unique_pending_count; }
+
+  template <AcquireKind K> void pending_sub() {}
+  template <> void pending_sub<AcquireKind::READ_ONLY>() { --ro_pending_count; }
+  template <> void pending_sub<AcquireKind::UNIQUE>()    { --unique_pending_count; }
+
+  // Giving up without acquiring can be the event that ungates whoever we were holding back, and
+  // nothing else will wake them: their predicate came true because we deregistered.
+  template <AcquireKind K> NotifyKind pending_release_should_notify() const { return NotifyKind::None; }
+  template <> NotifyKind pending_release_should_notify<AcquireKind::READ_ONLY>() const { return ro_pending_count == 0 ? NotifyKind::All : NotifyKind::None; }
+  template <> NotifyKind pending_release_should_notify<AcquireKind::UNIQUE>() const { return unique_pending_count == 0 ? NotifyKind::All : NotifyKind::None; }
 
   template <LockReq Req> void unlock_state_updater();
   template <> void unlock_state_updater<LockReq::WRITE>()     { --w_count; };
@@ -65,116 +112,109 @@ struct ResourceLock {
   template <> bool unlock_has_fully_unlocked<LockReq::READ>() const      { return r_count == 0 && ro_count == 0 && w_count == 0; };
   template <> bool unlock_has_fully_unlocked<LockReq::READ_ONLY>() const { return ro_count == 0 && r_count == 0; };
 
-  template <LockReq Req> void lock_pre_state_change(){}
-  template <> void lock_pre_state_change<LockReq::READ_ONLY>(){ ro_pending_count.fetch_add(1,std::memory_order_acq_rel); }
-
-  template <LockReq Req> void lock_post_state_change(){}
-  template <> void lock_post_state_change<LockReq::READ_ONLY>(){ ro_pending_count.fetch_sub(1,std::memory_order_acq_rel); }
-
   // If upon unlock we could possible unblock another lock then
   // we would want to notify to make sure we rapidly make progress
   // WRITE -> If w_count goes down to 0, READ_ONLY and UNIQUE maybe unblocked, hence: Notify All
-  // READ -> If r_count goes down to 0 (and other counts were already 0), UNIQUE maybe unblocked, hence: Notify All.
-  //   Must be All (not One): with writer-preference a READ acquirer can park on unique_pending_ != 0, so a lone
-  //   notify_one may wake such a shared waiter that immediately re-parks (its unique_pending_ == 0 predicate is
-  //   still false), consuming the only notification and stranding a pending UNIQUE whose predicate is now satisfied.
-  //   Notifying all wakes the UNIQUE too; the redundant shared wake just re-parks.
+  // READ -> If r_count goes down to 0 (and other counts were already 0), UNIQUE maybe unblocked
   // READ_ONLY -> If ro_count goes down to 0, WRITE and  UNIQUE maybe unblocked, hence: Notify All
-  enum class NotifyKind : uint8_t { None, One, All };
   template <LockReq Req> NotifyKind unlock_should_notify() const;
   template <> NotifyKind unlock_should_notify<LockReq::WRITE>() const { return w_count == 0 ? NotifyKind::All : NotifyKind::None; }
   template <> NotifyKind unlock_should_notify<LockReq::READ>() const { return (r_count == 0 && w_count == 0 && ro_count == 0) ? NotifyKind::All : NotifyKind::None; }
   template <> NotifyKind unlock_should_notify<LockReq::READ_ONLY>() const { return ro_count == 0 ? NotifyKind::All : NotifyKind::None; }
 
-  // A READ_ONLY lock request can block a WRITE lock request, on failure we should notify if ro_pending_count is now 0
-  template <LockReq Req> NotifyKind lock_failed_wait_should_notify() const;
-  template <> NotifyKind lock_failed_wait_should_notify<LockReq::WRITE>() const { return NotifyKind::None; }
-  template <> NotifyKind lock_failed_wait_should_notify<LockReq::READ>() const { return NotifyKind::None; }
-  template <> NotifyKind lock_failed_wait_should_notify<LockReq::READ_ONLY>() const { return ro_pending_count.load(std::memory_order_acquire) == 0 ? NotifyKind::All : NotifyKind::None; }
-
   // clang-format on
 
-  template <LockReq Req>
   void maybe_notify(std::unique_lock<std::mutex> &lock, NotifyKind kind) {
     lock.unlock();
-    switch (kind) {
-      case NotifyKind::One:
-        cv.notify_one();
-        break;
-      case NotifyKind::All:
-        cv.notify_all();
-        break;
-      case NotifyKind::None:
-        break;
-    }
+    if (kind == NotifyKind::All) cv.notify_all();
+  }
+
+  /// Acquires in kind `K`, `wait` supplying the wait strategy. Requires `lock` to own mtx; leaves
+  /// it owned iff the acquisition succeeded.
+  ///
+  /// The pending registration is dropped by RAII because it must survive a timeout and an exception
+  /// out of the wait too: leak it once and every kind it gates is blocked for the lifetime of the
+  /// process. The handler runs with mtx still held (cv.wait/wait_for re-acquire it
+  /// on every exit path, and `lock` outlives the guard declared after it), which is what serializes
+  /// the deregistration against another thread reading that same counter inside its own wait
+  /// predicate: mutate it off-mtx and the decrement plus notify can land between that thread's
+  /// check and its enqueue on the cv, losing the wake.
+  template <AcquireKind K>
+  bool acquire(std::unique_lock<std::mutex> &lock, auto &&wait) {
+    pending_add<K>();
+    bool acquired = false;
+    OnScopeExit pending_guard{[&] {
+      pending_sub<K>();
+      if (!acquired) maybe_notify(lock, pending_release_should_notify<K>());
+    }};
+    if (!wait(lock, [this] { return can_acquire<K>(); })) return false;
+    commit_state<K>();
+    acquired = true;
+    return true;
+  }
+
+  /// Non-blocking probe. Requires mtx. Never registers as pending: an attempt that does not wait
+  /// has nothing to give priority to.
+  template <AcquireKind K>
+  bool try_acquire() {
+    if (!can_acquire<K>()) return false;
+    commit_state<K>();
+    return true;
+  }
+
+  auto blocking_wait() {
+    return [this](std::unique_lock<std::mutex> &lock, auto pred) {
+      cv.wait(lock, pred);
+      return true;
+    };
+  }
+
+  template <class Rep, class Period>
+  auto timed_wait(std::chrono::duration<Rep, Period> const &time) {
+    return [this, time](std::unique_lock<std::mutex> &lock, auto pred) { return cv.wait_for(lock, time, pred); };
+  }
+
+  // The pending registration acquire() holds across a wait, exposed for the pending scopes to hold
+  // across a campaign of non-blocking probes instead. See UniquePendingScope.
+  template <AcquireKind K>
+  void register_pending() {
+    auto guard = std::unique_lock{mtx};
+    pending_add<K>();
+  }
+
+  template <AcquireKind K>
+  void unregister_pending() {
+    auto lock = std::unique_lock{mtx};
+    pending_sub<K>();
+    maybe_notify(lock, pending_release_should_notify<K>());
+  }
+
+  /// Probe that also transitions pending -> held on success. Deregisters without notifying: as on
+  /// acquire()'s success path, waking the kinds we gated is deferred to the eventual release, since
+  /// we hold the resource now and they still cannot have it.
+  template <AcquireKind K>
+  bool try_acquire_pending() {
+    auto guard = std::unique_lock{mtx};
+    if (!try_acquire<K>()) return false;
+    pending_sub<K>();
+    return true;
   }
 
  public:
   void lock() {
     auto lock = std::unique_lock{mtx};
-    // Register as a pending UNIQUE waiter before blocking so new shared acquirers yield to us
-    // (writer-preference; see lock_guard_condition). RAII decrements on every exit path (incl. an
-    // exception out of cv.wait) and, if we were the last pending waiter without acquiring, wakes
-    // shared acquirers gated on unique_pending_. Unlock before notify_all (never notify under mtx).
-    unique_pending_.fetch_add(1, std::memory_order_acq_rel);
-    bool acquired = false;
-    OnScopeExit pending_guard{[this, &acquired, &lock] {
-      // Release the ambient lock (cv.wait re-acquires it on every exit path) so the decrement can
-      // retake mtx cleanly. Decrement under mtx, mirroring ~UniquePendingScope's discipline: it
-      // serializes against a shared acquirer testing unique_pending_ == 0 in its cv.wait predicate,
-      // so fetch_sub + notify can't slip between that check and its enqueue and lose the wake.
-      // Release mtx before notifying (never notify under mtx).
-      if (lock.owns_lock()) lock.unlock();
-      bool was_last_waiter = false;
-      {
-        auto guard = std::unique_lock{mtx};
-        was_last_waiter = unique_pending_.fetch_sub(1, std::memory_order_acq_rel) == 1;
-      }
-      if (was_last_waiter && !acquired) {
-        cv.notify_all();
-      }
-    }};
-    // block until available
-    cv.wait(lock, [this] { return state == UNLOCKED; });
-    state = UNIQUE;
-    acquired = true;
+    acquire<AcquireKind::UNIQUE>(lock, blocking_wait());
   }
 
   bool try_lock() {
     auto lock = std::unique_lock{mtx};
-    // Non-blocking: never registers as pending (nothing to give priority to).
-    if (state == UNLOCKED) {
-      state = UNIQUE;
-      return true;
-    }
-    return false;
+    return try_acquire<AcquireKind::UNIQUE>();
   }
 
   template <class Rep, class Period>
   bool try_lock_for(const std::chrono::duration<Rep, Period> &timeout_duration) {
     auto lock = std::unique_lock{mtx};
-    // Registers as a pending UNIQUE waiter; see lock() for the writer-preference rationale.
-    unique_pending_.fetch_add(1, std::memory_order_acq_rel);
-    bool acquired = false;
-    OnScopeExit pending_guard{[this, &acquired, &lock] {
-      // See lock(): release the ambient lock, decrement under mtx (mirroring ~UniquePendingScope),
-      // then notify after releasing mtx (never notify under mtx).
-      if (lock.owns_lock()) lock.unlock();
-      bool was_last_waiter = false;
-      {
-        auto guard = std::unique_lock{mtx};
-        was_last_waiter = unique_pending_.fetch_sub(1, std::memory_order_acq_rel) == 1;
-      }
-      if (was_last_waiter && !acquired) {
-        cv.notify_all();
-      }
-    }};
-    if (!cv.wait_for(lock, timeout_duration, [this] { return state == UNLOCKED; })) {
-      return false;
-    }
-    state = UNIQUE;
-    acquired = true;
-    return true;
+    return acquire<AcquireKind::UNIQUE>(lock, timed_wait(timeout_duration));
   }
 
   void unlock() {
@@ -188,24 +228,13 @@ struct ResourceLock {
   template <LockReq Req = LockReq::WRITE>
   void lock_shared() {
     auto lock = std::unique_lock{mtx};
-    lock_pre_state_change<Req>();
-    // RAII: run lock_post_state_change on every exit path (incl. an exception out of cv.wait) so a
-    // pending-counter (e.g. ro_pending_count) never leaks.
-    OnScopeExit post_state_change_guard{[this] { lock_post_state_change<Req>(); }};
-    cv.wait(lock, [this] { return state != UNIQUE && lock_guard_condition<Req>(); });
-    state = SHARED;
-    lock_state_updater<Req>();
+    acquire<acquire_kind_of(Req)>(lock, blocking_wait());
   }
 
   template <LockReq Req = LockReq::WRITE>
   bool try_lock_shared() {
     auto lock = std::unique_lock{mtx};
-    if (state != UNIQUE && lock_guard_condition<Req>()) {
-      state = SHARED;
-      lock_state_updater<Req>();
-      return true;
-    }
-    return false;
+    return try_acquire<acquire_kind_of(Req)>();
   }
 
   template <LockReq Req>
@@ -214,30 +243,14 @@ struct ResourceLock {
     if (state != SHARED) return false;
     unlock_state_updater<Req>();
     lock_state_updater<LockReq::READ>();
-    maybe_notify<Req>(lock, unlock_should_notify<Req>());
+    maybe_notify(lock, unlock_should_notify<Req>());
     return true;
   }
 
   template <typename Rep, typename Period, LockReq Req = LockReq::WRITE>
   bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
     auto lock = std::unique_lock{mtx};
-    lock_pre_state_change<Req>();
-    bool acquired = false;
-    // RAII: run lock_post_state_change on every exit path (see lock_shared); on the non-acquired
-    // path also notify so anything gated on the pending-counter reaching 0 is woken.
-    OnScopeExit post_state_change_guard{[this, &acquired, &lock] {
-      lock_post_state_change<Req>();
-      if (!acquired) {
-        maybe_notify<Req>(lock, lock_failed_wait_should_notify<Req>());
-      }
-    }};
-    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE && lock_guard_condition<Req>(); })) {
-      return false;
-    }
-    state = SHARED;
-    lock_state_updater<Req>();
-    acquired = true;
-    return true;
+    return acquire<acquire_kind_of(Req)>(lock, timed_wait(time));
   }
 
   template <LockReq Req = LockReq::WRITE>
@@ -247,20 +260,24 @@ struct ResourceLock {
     if (unlock_has_fully_unlocked<Req>()) {
       state = UNLOCKED;
     }
-    maybe_notify<Req>(lock, unlock_should_notify<Req>());
+    maybe_notify(lock, unlock_should_notify<Req>());
   }
 
  private:
+  // Every member below is read and written under mtx only, the pending counters included: a reader
+  // evaluates them inside its cv.wait predicate while holding mtx, so an off-mtx mutation could
+  // land between that check and the reader's enqueue on the cv and lose the wake. Plain integers
+  // rather than atomics, so that discipline is the only way to touch them.
   std::mutex mtx;
   std::condition_variable cv;
   states state = UNLOCKED;
   uint32_t ro_count = 0;
-  std::atomic<uint32_t> ro_pending_count = 0;
+  uint32_t ro_pending_count = 0;
   uint32_t w_count = 0;
   uint32_t r_count = 0;
-  // Threads waiting to acquire UNIQUE (blocking lock()/try_lock_for() or a UniquePendingScope).
-  // Gates new shared acquisitions for writer-preference; see lock_guard_condition.
-  std::atomic<uint32_t> unique_pending_ = 0;
+  // Callers waiting to acquire UNIQUE (blocking lock()/try_lock_for(), or a UniquePendingScope
+  // campaign). Gates new shared acquisitions for writer-preference; see can_acquire.
+  uint32_t unique_pending_count = 0;
 };
 
 struct SharedResourceLockGuard {
@@ -569,38 +586,27 @@ struct ResourceLockGuard {
 /// probe campaign, for callers that cannot block on lock()'s cv (e.g. a coroutine that must yield
 /// to a scheduler) but still want writer-preference while they poll try_acquire().
 ///
-/// A bare try_lock() loop never touches unique_pending_, so it is just another unprivileged
-/// contender each iteration and can starve behind back-to-back shared holders. This scope bumps
-/// unique_pending_ once up front, gating new shared acquirers (see lock_guard_condition) so the
-/// shared pool drains and the probe eventually finds state == UNLOCKED.
+/// A bare try_lock() loop never registers as pending, so it is just another unprivileged contender
+/// each iteration and can starve behind back-to-back shared holders. This scope registers once up
+/// front, gating new shared acquirers (see can_acquire) so the shared pool drains and the probe
+/// eventually finds state == UNLOCKED.
 ///
 /// Ownership: try_acquire() returns nullopt (still pending, gate stays up) or a
 /// std::unique_lock<ResourceLock> owning the acquired lock. On success the scope stops counting as
 /// pending and becomes inert (destructor is a no-op); the returned lock owns the unlock(). If
-/// destroyed without acquiring, the destructor decrements unique_pending_ and wakes gated shared
-/// acquirers (as lock()'s failure path does).
+/// destroyed without acquiring, the destructor deregisters and wakes gated shared acquirers (as
+/// acquire()'s failure path does).
 ///
 /// Not copyable or movable: the registration is tied 1:1 to this scope's lifetime.
 class UniquePendingScope {
  public:
   explicit UniquePendingScope(ResourceLock &lock) : lock_{&lock} {
-    auto guard = std::unique_lock{lock_->mtx};
-    lock_->unique_pending_.fetch_add(1, std::memory_order_acq_rel);
+    lock_->register_pending<ResourceLock::AcquireKind::UNIQUE>();
   }
 
   ~UniquePendingScope() {
     if (lock_ == nullptr) return;  // ownership transferred out by a successful try_acquire()
-    // Decrement under mtx to serialize against a shared acquirer testing unique_pending_ == 0 in
-    // cv.wait's predicate; otherwise fetch_sub + notify could slip between its check and enqueue
-    // and lose the wake. Release mtx before notifying (never notify under mtx).
-    bool was_last_waiter = false;
-    {
-      auto guard = std::unique_lock{lock_->mtx};
-      was_last_waiter = lock_->unique_pending_.fetch_sub(1, std::memory_order_acq_rel) == 1;
-    }
-    if (was_last_waiter) {
-      lock_->cv.notify_all();
-    }
+    lock_->unregister_pending<ResourceLock::AcquireKind::UNIQUE>();
   }
 
   UniquePendingScope(const UniquePendingScope &) = delete;
@@ -613,18 +619,7 @@ class UniquePendingScope {
   /// intact for the next attempt.
   std::optional<std::unique_lock<ResourceLock>> try_acquire() {
     if (lock_ == nullptr) return std::nullopt;  // already consumed by a prior successful call
-    bool acquired = false;
-    {
-      auto guard = std::unique_lock{lock_->mtx};
-      if (lock_->state == ResourceLock::UNLOCKED) {
-        lock_->state = ResourceLock::UNIQUE;
-        acquired = true;
-      }
-    }
-    if (!acquired) return std::nullopt;
-    // pending -> held: decrement (no longer waiting) without notifying; like lock()'s success path,
-    // waking gated shared acquirers is deferred to unlock() (state is still UNIQUE).
-    lock_->unique_pending_.fetch_sub(1, std::memory_order_acq_rel);
+    if (!lock_->try_acquire_pending<ResourceLock::AcquireKind::UNIQUE>()) return std::nullopt;
     ResourceLock *acquired_lock = std::exchange(lock_, nullptr);
     return std::unique_lock<ResourceLock>{*acquired_lock, std::adopt_lock};
   }
@@ -642,21 +637,12 @@ class UniquePendingScope {
 class ReadOnlyPendingScope {
  public:
   explicit ReadOnlyPendingScope(ResourceLock &lock) : lock_{&lock} {
-    auto guard = std::unique_lock{lock_->mtx};
-    lock_->ro_pending_count.fetch_add(1, std::memory_order_acq_rel);
+    lock_->register_pending<ResourceLock::AcquireKind::READ_ONLY>();
   }
 
   ~ReadOnlyPendingScope() {
     if (lock_ == nullptr) return;  // ownership transferred out by a successful try_acquire()
-    // Decrement under mtx; see ~UniquePendingScope for the lost-wakeup rationale.
-    bool was_last_waiter = false;
-    {
-      auto guard = std::unique_lock{lock_->mtx};
-      was_last_waiter = lock_->ro_pending_count.fetch_sub(1, std::memory_order_acq_rel) == 1;
-    }
-    if (was_last_waiter) {
-      lock_->cv.notify_all();
-    }
+    lock_->unregister_pending<ResourceLock::AcquireKind::READ_ONLY>();
   }
 
   ReadOnlyPendingScope(const ReadOnlyPendingScope &) = delete;
@@ -664,23 +650,11 @@ class ReadOnlyPendingScope {
   ReadOnlyPendingScope(ReadOnlyPendingScope &&) = delete;
   ReadOnlyPendingScope &operator=(ReadOnlyPendingScope &&) = delete;
 
-  /// Non-blocking attempt to take READ_ONLY; needs w_count == 0 && unique_pending_ == 0 (same as
-  /// lock_guard_condition<READ_ONLY>). Safe to call repeatedly.
+  /// Non-blocking attempt to take READ_ONLY, admitted by the same rule a blocking
+  /// lock_shared<READ_ONLY>() waits on (see can_acquire<READ_ONLY>). Safe to call repeatedly.
   std::optional<SharedResourceLockGuard> try_acquire() {
     if (lock_ == nullptr) return std::nullopt;  // already consumed by a prior successful call
-    bool acquired = false;
-    {
-      auto guard = std::unique_lock{lock_->mtx};
-      if (lock_->state != ResourceLock::UNIQUE && lock_->w_count == 0 &&
-          lock_->unique_pending_.load(std::memory_order_acquire) == 0) {
-        lock_->state = ResourceLock::SHARED;
-        ++lock_->ro_count;
-        acquired = true;
-      }
-    }
-    if (!acquired) return std::nullopt;
-    // pending -> held: decrement without notifying (see UniquePendingScope::try_acquire).
-    lock_->ro_pending_count.fetch_sub(1, std::memory_order_acq_rel);
+    if (!lock_->try_acquire_pending<ResourceLock::AcquireKind::READ_ONLY>()) return std::nullopt;
     ResourceLock *acquired_lock = std::exchange(lock_, nullptr);
     return SharedResourceLockGuard{*acquired_lock, SharedResourceLockGuard::Type::READ_ONLY, std::adopt_lock};
   }
