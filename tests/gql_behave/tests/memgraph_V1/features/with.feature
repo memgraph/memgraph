@@ -448,3 +448,23 @@ Feature: With
             MERGE ()-[r:edge_type.value.edge_type]->();
             """
         Then an error should be raised
+
+    Scenario: With test 29 (WHERE after ORDER BY reads a symbol the projection did not output):
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Zoe', age: 10})
+            CREATE (:Person {name: 'Regina', age: 20})
+            CREATE (:Person {name: 'Bob', age: 30})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p.name AS n
+            ORDER BY n
+            WHERE p.age > 25
+            RETURN n
+            """
+        Then the result should be:
+            | n     |
+            | 'Bob' |

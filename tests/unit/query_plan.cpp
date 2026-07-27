@@ -3061,6 +3061,93 @@ TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithWhereWithAggregation
   auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
   ASSERT_NE(rollup, nullptr) << "RollUpApply should be planned for the comprehension in WHERE";
   EXPECT_NE(dynamic_cast<Produce *>(rollup->input_.get()), nullptr) << "RollUpApply must come after the WITH's Produce";
+
+  // The branch must expand from the bound `n` rather than re-scanning it. Without this the test would still pass if
+  // the aggregating path stopped passing the return body's output symbols as extra bound symbols.
+  auto *branch_produce = dynamic_cast<Produce *>(rollup->list_collection_branch_.get());
+  ASSERT_NE(branch_produce, nullptr) << "Branch root should be Produce";
+  auto *branch_expand = dynamic_cast<Expand *>(branch_produce->input_.get());
+  ASSERT_NE(branch_expand, nullptr) << "Branch should expand from the correlated `n`";
+  EXPECT_NE(dynamic_cast<Once *>(branch_expand->input_.get()), nullptr)
+      << "Correlated branch must start at Once, not ScanAll";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInWithWhereWithOrderBy) {
+  // Test MATCH (n) WITH n ORDER BY n.prop WHERE [(n)--(m) | 1] = [] RETURN n
+  // OrderBy restores only its own output symbols, so a comprehension feeding the WHERE must be planned ABOVE it -
+  // below it, the Filter would read one frozen value for every row OrderBy replays.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WITH("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop))),
+                                   WHERE(EQ(pattern_comp, LIST())),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  // Produce (RETURN) -> Filter (WHERE) -> RollUpApply -> OrderBy -> Produce (WITH)
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "Filter should be directly under Produce";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should be planned for the comprehension in WHERE";
+  EXPECT_NE(dynamic_cast<OrderBy *>(rollup->input_.get()), nullptr)
+      << "RollUpApply for a WHERE comprehension must sit above OrderBy";
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInWithOrderByStaysBelowOrderBy) {
+  // Test MATCH (n) WITH n ORDER BY length([(n)--(m) | 1]) RETURN n
+  // A comprehension the ORDER BY itself reads must stay BELOW the OrderBy, which evaluates its sort keys during the
+  // collection sweep.
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  FakeDbAccessor dba;
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", ORDER_BY(FN("length", pattern_comp))), RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  // Produce (RETURN) -> OrderBy -> RollUpApply -> Produce (WITH)
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *order_by = dynamic_cast<OrderBy *>(produce->input_.get());
+  ASSERT_NE(order_by, nullptr) << "OrderBy should be directly under Produce";
+  auto *rollup = dynamic_cast<RollUpApply *>(order_by->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply for an ORDER BY comprehension must sit below OrderBy";
+  EXPECT_NE(dynamic_cast<Produce *>(rollup->input_.get()), nullptr) << "RollUpApply must come after the WITH's Produce";
+}
+
+TYPED_TEST(TestPlanner, OrderByRemembersSymbolsUsedByWhere) {
+  // Test MATCH (n) WITH n.prop AS x ORDER BY x WHERE n.prop2 = 1 RETURN x
+  // Filter(where) is planned above OrderBy, so every symbol the WHERE reads must be in OrderBy's remember set -
+  // otherwise `n` is frozen at the last row pulled during the collection sweep.
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto prop2 = dba.Property("prop2");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WITH(PROPERTY_LOOKUP(dba, "n", prop), AS("x"), ORDER_BY(IDENT("x"))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", prop2), LITERAL(1))),
+                                   RETURN("x")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "Filter should be directly under Produce";
+  auto *order_by = dynamic_cast<OrderBy *>(filter->input_.get());
+  ASSERT_NE(order_by, nullptr) << "OrderBy should be under the Filter";
+  EXPECT_TRUE(std::ranges::any_of(order_by->output_symbols_, [](const auto &sym) { return sym.name() == "n"; }))
+      << "OrderBy must remember `n`, which the WHERE above it reads";
 }
 
 TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {

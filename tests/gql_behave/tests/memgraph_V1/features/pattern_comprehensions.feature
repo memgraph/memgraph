@@ -540,3 +540,154 @@ Feature: Pattern comprehensions
             | 'Zoe'    |
             | 'Regina' |
             | 'Bob'    |
+
+    Scenario: Pattern comprehension in the WHERE of a WITH that also has an ORDER BY
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p
+            ORDER BY p.name
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Regina' |
+            | 'Zoe'    |
+
+    Scenario: Pattern comprehension in the WHERE of an aggregating WITH that also has an ORDER BY
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p, count(*) AS c
+            ORDER BY p.name
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Regina' |
+            | 'Zoe'    |
+
+    Scenario: Pattern comprehensions in both the ORDER BY and the WHERE of a WITH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p
+            ORDER BY size([(p)-[:ACTED_IN]->(m) | m]) DESC
+            WHERE size([(p)-[:ACTED_IN]->(x) | x]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+
+    Scenario: Pattern comprehension in the WHERE of a WITH that renames the variable it references
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p AS q
+            ORDER BY q.name
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN q.name AS name
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Regina' |
+            | 'Zoe'    |
+
+    Scenario: Pattern comprehension in the WHERE of a WITH preceded by a write clause
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            SET p.seen = 1
+            WITH p
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+
+    Scenario: Pattern comprehension in the WHERE of a WITH preceded by a CREATE
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            CREATE (:Marker)
+            WITH p
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+
+    Scenario: WITH ORDER BY LIMIT still filters after the limit
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p
+            ORDER BY p.name
+            LIMIT 2
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be:
+            | name     |
+            | 'Regina' |

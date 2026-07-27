@@ -47,10 +47,15 @@ struct PatternComprehensionPlanner {
   virtual ~PatternComprehensionPlanner() = default;
   /// @param extra_bound_symbols Symbols bound by an operator the comprehension will be planned after, but which are
   /// not yet in the planning context (the output symbols of a WITH/RETURN whose WHERE or ORDER BY holds the
-  /// comprehension).
+  /// comprehension). Has no default: a default argument on a virtual function is bound statically, so it would mean
+  /// something different depending on whether the call goes through this interface or through RuleBasedPlanner.
   virtual std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view,
-                                                const std::unordered_set<Symbol> &extra_bound_symbols = {}) = 0;
+                                                const std::unordered_set<Symbol> &extra_bound_symbols) = 0;
 };
+
+/// Passed as @c PatternComprehensionPlanner::Plan's @c extra_bound_symbols when the comprehension is planned in the
+/// position its own clause binds, so the planning context's bound symbols are already complete.
+inline const std::unordered_set<Symbol> kNoExtraBoundSymbols{};
 
 /// Context for on-demand pattern comprehension planning in RETURN/WITH bodies.
 struct PatternComprehensionContext {
@@ -209,12 +214,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
   /// Implements PatternComprehensionPlanner interface
   std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view,
-                                        const std::unordered_set<Symbol> &extra_bound_symbols = {}) override {
+                                        const std::unordered_set<Symbol> &extra_bound_symbols) override {
     if (extra_bound_symbols.empty()) {
       return PlanPatternComprehension(matching, *context_->symbol_table, context_->bound_symbols, view);
     }
     auto bound_symbols = context_->bound_symbols;
-    bound_symbols.insert(extra_bound_symbols.begin(), extra_bound_symbols.end());
+    bound_symbols.insert_range(extra_bound_symbols);
     return PlanPatternComprehension(matching, *context_->symbol_table, bound_symbols, view);
   }
 
@@ -269,7 +274,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
           symbols_bound_by_query_part.insert(merge_matching.expansion_symbols.begin(),
                                              merge_matching.expansion_symbols.end());
         }
-        // Add symbols from CREATE and FOREACH clauses
+        auto collect_return_body_symbols = [&](const ReturnBody &body) {
+          for (const auto *named_expr : body.named_expressions) {
+            symbols_bound_by_query_part.insert(context.symbol_table->at(*named_expr));
+          }
+        };
+        // Add symbols from CREATE, FOREACH and WITH/RETURN clauses
         std::function<void(Clause *)> collect_clause_symbols = [&](Clause *clause) {
           if (auto *create = utils::Downcast<Create>(clause)) {
             for (const auto *pattern : create->patterns_) {
@@ -284,6 +294,12 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
             for (auto *nested : foreach_clause->clauses_) {
               collect_clause_symbols(nested);
             }
+          } else if (auto *ret = utils::Downcast<Return>(clause)) {
+            // A WITH/RETURN re-declares its projected names. A comprehension in its WHERE or ORDER BY resolves to
+            // those new symbols, so it must not be drained before the clause that binds them - see deps_satisfied.
+            collect_return_body_symbols(ret->body_);
+          } else if (auto *with = utils::Downcast<query::With>(clause)) {
+            collect_return_body_symbols(with->body_);
           }
         };
         for (const auto &clause : single_query_part.remaining_clauses) {
@@ -353,7 +369,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
                   has_variable_length_expansion(pc)
                       ? storage::View::OLD
                       : ((write_occurred && references_external_symbols(pc)) ? storage::View::NEW : storage::View::OLD);
-              auto op = Plan(pc, view);
+              auto op = Plan(pc, view, kNoExtraBoundSymbols);
               auto symbols = op->ModifiedSymbols(*context.symbol_table);
               input_op = std::make_unique<RollUpApply>(std::move(input_op), std::move(op), symbols, sym);
               it = pending_comprehensions.erase(it);
@@ -1349,7 +1365,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
           return bound_symbols.contains(s);
         });
         if (deps_satisfied) {
-          auto pc_op = Plan(pc, storage::View::OLD);
+          auto pc_op = Plan(pc, storage::View::OLD, kNoExtraBoundSymbols);
           auto symbols = pc_op->ModifiedSymbols(symbol_table);
           op = std::make_unique<RollUpApply>(std::move(op), std::move(pc_op), symbols, sym);
           it = pending_comprehensions.erase(it);
