@@ -19,9 +19,9 @@
 // learned vectors. The goal is functional equivalence with gensim (same
 // parameters and qualitative behaviour), not bit-for-bit identical vectors.
 //
-// NOTE: this header is intentionally self-contained and is duplicated verbatim
-// in query_modules/node2vec_online_module/algorithm/word2vec.hpp. Keep the two
-// copies in sync.
+// Shared by the batch node2vec module (src/mage/cpp/node2vec_module) and the
+// online node2vec_online module (query_modules/node2vec_online_module); it lives
+// in the common include/ directory so there is a single source of truth.
 
 #pragma once
 

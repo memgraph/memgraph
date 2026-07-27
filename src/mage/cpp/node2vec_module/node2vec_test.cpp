@@ -21,8 +21,9 @@
 
 #include <gtest/gtest.h>
 
+#include <node2vec/word2vec.hpp>
+
 #include "algorithm/second_order_random_walk.hpp"
-#include "algorithm/word2vec.hpp"
 
 namespace {
 

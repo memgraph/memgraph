@@ -20,8 +20,9 @@
 #include <thread>
 #include <vector>
 
+#include <node2vec/word2vec.hpp>
+
 #include "algorithm/stream_walk_updater.hpp"
-#include "algorithm/word2vec.hpp"
 
 namespace {
 
