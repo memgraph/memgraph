@@ -74,7 +74,7 @@ startup_config_dict = {
     "cluster_key_file": ("", "", "Key file used for intra-cluster TLS communication."),
     "management_port": ("0", "0", "Port on which coordinator servers will be started."),
     "coordinator_port": ("0", "0", "Port on which raft servers will be started."),
-    "coordinator_id": ("0", "0", "Unique ID of the raft server."),
+    "coordinator_id": ("2147483647", "2147483647", "Unique ID of the raft server."),
     "coordinator_hostname": ("", "", "Instance's hostname. Used as output of SHOW INSTANCES query."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_dir_lock_acquisition_timeout_sec": (
