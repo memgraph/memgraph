@@ -432,8 +432,8 @@ TEST_F(ResourceLockTest, GuardTryLockForUniqueTimesOutWhenHeld) {
 // Stress tests: a varied TSan surface plus liveness probes (UNIQUE starvation vs shared holders,
 // READ_ONLY latency vs new writers).
 
-// Test 1: mutual-exclusion fuzzer. Threads hammer every entry point while atomic counters are
-// checked against the lock's invariants on each acquisition (catches violations + TSan races).
+// Mutual-exclusion fuzzer. Threads hammer every entry point while atomic counters are checked
+// against the lock's invariants on each acquisition (catches violations + TSan races).
 TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzz) {
   using namespace std::chrono_literals;
   constexpr int kNumThreads = 24;
@@ -584,9 +584,9 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzz) {
   ASSERT_FALSE(invariant_violated.load()) << violation_message;
 }
 
-// Test 2a: UNIQUE-starvation probe under continuous READ churn. With writer-preference,
-// unique_pending_ gates new READ holders so lock() acquires within the watchdog bound; a hung
-// acquire becomes a soft, logged failure instead of a hung binary.
+// UNIQUE-starvation probe under continuous READ churn. With writer-preference, unique_pending_
+// gates new READ holders so lock() acquires within the watchdog bound; a hung acquire becomes a
+// soft, logged failure instead of a hung binary.
 TEST_F(ResourceLockTest, UniqueStarvationUnderContinuousReadHammer) {
   using namespace std::chrono_literals;
   constexpr int kNumHammers = 8;
@@ -627,14 +627,14 @@ TEST_F(ResourceLockTest, UniqueStarvationUnderContinuousReadHammer) {
   } else {
     ADD_FAILURE() << "UNIQUE lock() did not acquire within " << kWatchdogBound.count()
                   << "s under continuous READ churn from " << kNumHammers
-                  << " hammer threads — ResourceLock::lock() DOES have a unique_pending_ writer-preference "
-                     "mechanism, so this firing indicates a REGRESSION of that mechanism (e.g. the READ-release "
-                     "notify_all lost-wakeup bug), not an accepted absence of anti-starvation.";
+                  << " hammer threads. lock() registers as pending and gates new shared acquirers, so this is a "
+                     "regression of that gate or of the wake-up that follows a shared release, not an accepted "
+                     "absence of anti-starvation.";
     unique_future.get();  // reap the async thread now that hammers have stopped
   }
 }
 
-// Test 2b: same probe, hammering WRITE instead of READ.
+// The same starvation probe, with WRITE the churning shared mode.
 TEST_F(ResourceLockTest, UniqueStarvationUnderContinuousWriteHammer) {
   using namespace std::chrono_literals;
   constexpr int kNumHammers = 8;
@@ -673,14 +673,14 @@ TEST_F(ResourceLockTest, UniqueStarvationUnderContinuousWriteHammer) {
   } else {
     ADD_FAILURE() << "UNIQUE lock() did not acquire within " << kWatchdogBound.count()
                   << "s under continuous WRITE churn from " << kNumHammers
-                  << " hammer threads — ResourceLock::lock() DOES have a unique_pending_ writer-preference "
-                     "mechanism, so this firing indicates a REGRESSION of that mechanism (e.g. the READ-release "
-                     "notify_all lost-wakeup bug), not an accepted absence of anti-starvation.";
+                  << " hammer threads. lock() registers as pending and gates new shared acquirers, so this is a "
+                     "regression of that gate or of the wake-up that follows a shared release, not an accepted "
+                     "absence of anti-starvation.";
     unique_future.get();
   }
 }
 
-// Test 3: READ_ONLY vs WRITE priority. A mid-stream READ_ONLY registers ro_pending_count, gating
+// READ_ONLY vs WRITE priority. A mid-stream READ_ONLY registers ro_pending_count, gating
 // new WRITEs, so its latency is bounded by draining in-flight writers, not by the queued burst.
 // Measured with a small and a large late-writer burst; latency must not grow with burst size.
 TEST_F(ResourceLockTest, ReadOnlyLatencyIndependentOfNewWriterCount) {
@@ -747,7 +747,7 @@ TEST_F(ResourceLockTest, ReadOnlyLatencyIndependentOfNewWriterCount) {
     inflight.clear();
 
     EXPECT_EQ(late_before_ro.load(), 0) << "new WRITE attempts registered after READ_ONLY was pending managed to "
-                                           "acquire before it — ro_pending_count priority not honoured";
+                                           "acquire before it: ro_pending_count priority not honoured";
 
     return std::chrono::duration_cast<std::chrono::microseconds>(t_acquired - t_start);
   };
@@ -758,13 +758,13 @@ TEST_F(ResourceLockTest, ReadOnlyLatencyIndependentOfNewWriterCount) {
   RecordProperty("ro_latency_small_burst_us", std::to_string(latency_small_burst.count()));
   RecordProperty("ro_latency_large_burst_us", std::to_string(latency_large_burst.count()));
 
-  // The large burst has 12x more new writers queued behind the READ_ONLY request; if priority is
+  // The large burst queues far more new writers behind the READ_ONLY request; if priority is
   // honoured, that should barely move the READ_ONLY latency (bounded by in-flight-writer drain
   // time), not scale with the queue length.
   EXPECT_LT(latency_large_burst, latency_small_burst + 50ms)
       << "READ_ONLY latency grew with the number of new writers queued behind it (small burst="
       << latency_small_burst.count() << "us, large burst=" << latency_large_burst.count()
-      << "us) — ro_pending_count priority/starvation regression";
+      << "us): ro_pending_count priority/starvation regression";
 }
 
 // UniquePendingScope / ReadOnlyPendingScope tests: a pending-scope retry loop gets writer-
@@ -792,7 +792,7 @@ std::vector<std::jthread> SpawnHammers(ResourceLock &target_lock, std::atomic<bo
 }
 }  // namespace
 
-// Test 4a: a UniquePendingScope retry loop acquires within a bound under continuous WRITE churn,
+// A UniquePendingScope retry loop acquires within a bound under continuous WRITE churn,
 // whereas a bare try_lock() loop is expected to starve (soft/environment-dependent control).
 TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresWhileBareTryLockStarves) {
   using namespace std::chrono_literals;
@@ -827,7 +827,7 @@ TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresWhileBareTryLockStarv
     } else {
       ADD_FAILURE() << "UniquePendingScope::try_acquire() campaign did not acquire within "
                     << kPendingScopeBound.count() << "s under continuous WRITE churn from " << kNumHammers
-                    << " hammer threads — pending-scope writer-preference regression";
+                    << " hammer threads: pending-scope writer-preference regression";
       scoped_future.get();  // reap the async thread now that hammers have stopped
     }
   }
@@ -856,14 +856,14 @@ TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresWhileBareTryLockStarv
     if (control_result) {
       lock.unlock();  // release so later tests start from UNLOCKED
       // The ungated control is expected to starve, but its success is probabilistic and
-      // environment-dependent, so record it (non-fatal) rather than abort — a chance acquire must not
+      // environment-dependent, so record it (non-fatal) rather than abort: a chance acquire must not
       // fail CI. The deterministic PendingScope campaign above is the real writer-preference signal.
       RecordProperty("bare_try_lock_acquired_ms", std::to_string(control_result->count()));
     }
   }
 }
 
-// Test 4b: same contrast, but ReadOnlyPendingScope against continuous WRITE hammers.
+// The same campaign for ReadOnlyPendingScope, against continuous WRITE hammers.
 TEST_F(ResourceLockTest, ReadOnlyPendingScopeCampaignAcquiresUnderContinuousWriteHammer) {
   using namespace std::chrono_literals;
   constexpr int kNumHammers = 8;
@@ -896,13 +896,13 @@ TEST_F(ResourceLockTest, ReadOnlyPendingScopeCampaignAcquiresUnderContinuousWrit
   } else {
     ADD_FAILURE() << "ReadOnlyPendingScope::try_acquire() campaign did not acquire within " << kBound.count()
                   << "s under continuous WRITE churn from " << kNumHammers
-                  << " hammer threads — pending-scope priority regression";
+                  << " hammer threads: pending-scope priority regression";
     scoped_future.get();  // reap the async thread now that hammers have stopped
   }
 }
 
-// Test 4c: deterministic check that a live, not-yet-successful UniquePendingScope gates new shared
-// acquisitions of every kind, and that the gate clears the moment it is destroyed unacquired.
+// A live, not-yet-successful UniquePendingScope gates new shared acquisitions of every kind, and
+// the gate clears the moment it is destroyed unacquired.
 TEST_F(ResourceLockTest, UniquePendingScopeGatesNewSharedAcquisitionUntilDestroyed) {
   // Hold WRITE so the scope's try_acquire() can't succeed (state != UNLOCKED), keeping it pending.
   auto guard_w0 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE);
@@ -922,10 +922,12 @@ TEST_F(ResourceLockTest, UniquePendingScopeGatesNewSharedAcquisitionUntilDestroy
   guard_w0.unlock();
 }
 
-// Test 4c-ii: destroying a still-pending UniquePendingScope must WAKE a thread genuinely blocked in
-// lock_shared() (parked in cv.wait), exercising the destructor's notify path. A dropped notify or
-// off-mtx counter would hang and fail via the bounded wait_for. (The narrow notify-races-enqueue
-// window isn't deterministically reproducible; that rests on the mtx discipline + the fuzz test.)
+// Destroying a still-pending UniquePendingScope must wake a thread genuinely blocked in
+// lock_shared(), not merely let the next acquirer through: the parked thread has no other event
+// coming, since deregistering is not a state change anyone else observes. A dropped notify, or a
+// counter mutated off mtx, hangs the reader and fails via the bounded wait_for. The window in which
+// an off-mtx notify races the waiter's enqueue is not deterministically reproducible; that rests on
+// the mtx discipline and the fuzz test.
 TEST_F(ResourceLockTest, UniquePendingScopeDestructionWakesBlockedSharedReader) {
   using namespace std::chrono_literals;
   // Hold WRITE so state == SHARED (never UNLOCKED): the scope stays pending, and a READ acquirer is
@@ -949,7 +951,7 @@ TEST_F(ResourceLockTest, UniquePendingScopeDestructionWakesBlockedSharedReader) 
 
   scope.reset();  // ~UniquePendingScope: unique_pending_ 1 -> 0 under mtx, then notify_all -> wake
 
-  // Bounded so a lost/absent wake fails the test (~5s) instead of hanging the suite forever.
+  // Bounded so a lost/absent wake fails the test instead of hanging the suite forever.
   const auto status = reader.wait_for(5s);
   EXPECT_EQ(status, std::future_status::ready)
       << "reader blocked in lock_shared() was not woken by ~UniquePendingScope (lost/absent wakeup)";
@@ -966,15 +968,13 @@ TEST_F(ResourceLockTest, UniquePendingScopeDestructionWakesBlockedSharedReader) 
   guard_w0.unlock();
 }
 
-// Test 4c-iii: liveness smoke test for the B1 fix (READ-release notify_all). Holds a READ, then parks
-// both a UNIQUE lock() (blocked on state == SHARED, registering unique_pending_) and a second READ
-// acquirer (blocked on the unique_pending_ gate). Releasing the held READ must wake BOTH: the UNIQUE
-// acquires, and once it drains the gated READ acquires too.
+// A READ release frees the lock for a pending UNIQUE, and the UNIQUE's own release then admits a
+// READ acquirer that was gated behind it. A held READ parks both: the UNIQUE on state == SHARED,
+// the second READ on the pending-UNIQUE gate, so releasing the READ must set the whole chain going.
 //
-// NOTE: this is a liveness smoke test, not a deterministic B1 tripwire. On glibc >= 2.34 the futex
-// wait queue is effectively FIFO, so even the pre-fix notify_one would usually wake the right waiter
-// and mask the lost-wakeup. It documents intent and guards the fix's shape (a READ release must be
-// able to wake a pending UNIQUE), and would catch a gross regression such as dropping the notify.
+// Liveness smoke test rather than a tripwire for the breadth of the notify: on glibc the futex wait
+// queue is effectively FIFO, so waking a single waiter would usually pick the right one anyway and
+// mask a too-narrow notify. What it does catch is a release that stops notifying at all.
 TEST_F(ResourceLockTest, ReadReleaseWakesBothPendingUniqueAndGatedReader) {
   using namespace std::chrono_literals;
 
@@ -1009,7 +1009,7 @@ TEST_F(ResourceLockTest, ReadReleaseWakesBothPendingUniqueAndGatedReader) {
   const auto u_status = unique_fut.wait_for(5s);
   const auto r_status = reader_fut.wait_for(5s);
   EXPECT_EQ(u_status, std::future_status::ready)
-      << "pending UNIQUE lock() was not woken by the READ release (lost wakeup / B1 regression)";
+      << "pending UNIQUE lock() was not woken by the READ release (lost wakeup)";
   EXPECT_EQ(r_status, std::future_status::ready)
       << "READ acquirer gated on unique_pending_ was not woken after the UNIQUE drained";
 
@@ -1211,8 +1211,8 @@ TEST_F(ResourceLockTest, ReadOnlyReleaseWakesGatedWriteWhileReadersStillHold) {
   held_read.unlock();
 }
 
-// Test 4d: mutual-exclusion fuzzer (like Test 1) with UniquePendingScope / ReadOnlyPendingScope
-// try_acquire() mixed in, to cover the new code paths (mtx-protected mutation + adopt_lock).
+// Mutual-exclusion fuzzer again, with UniquePendingScope / ReadOnlyPendingScope try_acquire() among
+// the hammered entry points, so a scope that adopts the lock is held to the same invariants.
 TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzzWithPendingScopes) {
   using namespace std::chrono_literals;
   constexpr int kNumThreads = 24;
