@@ -79,6 +79,10 @@ class PCSymbolCollector : public HierarchicalTreeVisitor {
 // aggregations and expressions used for group by.
 class ReturnBodyContext : public HierarchicalTreeVisitor {
  public:
+  // Where in the return body an expression sits, which determines where a pattern comprehension found in it must be
+  // spliced: the projection is evaluated by the Produce, ORDER BY below the OrderBy, and WHERE above it.
+  enum class BodyPosition : uint8_t { kProjection, kOrderBy, kWhere };
+
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
                     AstStorage &storage, PatternComprehensionContext *pc_ctx, Where *where = nullptr)
       : body_(body),
@@ -112,7 +116,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // ORDER BY and WHERE are evaluated after the Produce, so they see the named expression symbols. Pattern
     // comprehensions found there must be planned against those symbols and spliced in after the Produce.
     post_produce_bound_symbols_.insert(output_symbols_.begin(), output_symbols_.end());
-    in_post_produce_position_ = true;
     if (aggregations_.empty()) {
       // Visit order_by and where if we do not have aggregations. This way we
       // prevent collecting group_by expressions from order_by and where, which
@@ -120,11 +123,13 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       // only use new symbols (ensured in semantic analysis), so we don't care
       // about collecting used_symbols. Also, semantic analysis should
       // have prevented any aggregations from appearing here.
+      position_ = BodyPosition::kOrderBy;
       for (const auto &order_pair : body.order_by) {
         order_pair.expression->Accept(*this);
       }
 
       if (where) {
+        position_ = BodyPosition::kWhere;
         where->Accept(*this);
       }
       MG_ASSERT(aggregations_.empty(), "Unexpected aggregations in ORDER BY or WHERE");
@@ -132,14 +137,16 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       // With aggregations we must not visit ORDER BY and WHERE fully, or their expressions would pollute group_by_.
       // Pattern comprehensions in them still need planning, so discover them with a dedicated visitor.
       PostProduceComprehensionPlanner planner(*this);
+      position_ = BodyPosition::kOrderBy;
       for (const auto &order_pair : body.order_by) {
         order_pair.expression->Accept(planner);
       }
       if (where) {
+        position_ = BodyPosition::kWhere;
         where->Accept(planner);
       }
     }
-    in_post_produce_position_ = false;
+    position_ = BodyPosition::kProjection;
 
     // Handle pattern comprehensions in SKIP and LIMIT expressions
     // These are processed regardless of aggregation since SKIP/LIMIT come after aggregation
@@ -594,19 +601,21 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // named_expressions.
   const auto &output_symbols() const { return output_symbols_; }
 
-  bool has_pattern_comprehension() const {
-    return !pattern_comprehension_datas_.empty() || !post_produce_pattern_comprehension_datas_.empty();
-  }
-
   // Pattern comprehensions from the named expressions, planned before the Produce.
   std::unordered_map<Symbol, PatternComprehensionData> pattern_comprehension_data() const {
     return pattern_comprehension_datas_;
   }
 
-  // Pattern comprehensions from ORDER BY / WHERE, which read the named expression symbols and so must be planned
-  // after the Produce.
-  std::unordered_map<Symbol, PatternComprehensionData> post_produce_pattern_comprehension_data() const {
-    return post_produce_pattern_comprehension_datas_;
+  // Pattern comprehensions from ORDER BY, which read the named expression symbols and so must be planned after the
+  // Produce, but below the OrderBy that consumes them.
+  std::unordered_map<Symbol, PatternComprehensionData> order_by_pattern_comprehension_data() const {
+    return order_by_pattern_comprehension_datas_;
+  }
+
+  // Pattern comprehensions from WHERE. OrderBy restores only its own output symbols, so these must be planned above
+  // it - directly below the Filter that consumes them.
+  std::unordered_map<Symbol, PatternComprehensionData> where_pattern_comprehension_data() const {
+    return where_pattern_comprehension_datas_;
   }
 
   // Symbols that were bound before this RETURN/WITH clause (from MATCH, CREATE, etc.)
@@ -660,11 +669,23 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     if (it == pending.end()) {
       return;
     }
-    auto op = in_post_produce_position_ ? pc_ctx_->planner->Plan(it->second, pc_ctx_->view, post_produce_bound_symbols_)
-                                        : pc_ctx_->planner->Plan(it->second, pc_ctx_->view);
-    auto &datas = in_post_produce_position_ ? post_produce_pattern_comprehension_datas_ : pattern_comprehension_datas_;
+    const auto &extra_bound_symbols =
+        position_ == BodyPosition::kProjection ? kNoExtraBoundSymbols : post_produce_bound_symbols_;
+    auto op = pc_ctx_->planner->Plan(it->second, pc_ctx_->view, extra_bound_symbols);
+    auto &datas = Bucket(position_);
     datas[result_sym] = PatternComprehensionData(std::move(op), result_sym, it->second.expansion_symbols);
     pending.erase(it);
+  }
+
+  std::unordered_map<Symbol, PatternComprehensionData> &Bucket(BodyPosition position) {
+    switch (position) {
+      case BodyPosition::kProjection:
+        return pattern_comprehension_datas_;
+      case BodyPosition::kOrderBy:
+        return order_by_pattern_comprehension_datas_;
+      case BodyPosition::kWhere:
+        return where_pattern_comprehension_datas_;
+    }
   }
 
   const ReturnBody &body_;
@@ -688,9 +709,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   std::list<bool> has_aggregation_;
   std::vector<NamedExpression *> named_expressions_;
   std::unordered_map<Symbol, PatternComprehensionData> pattern_comprehension_datas_;
-  std::unordered_map<Symbol, PatternComprehensionData> post_produce_pattern_comprehension_datas_;
-  // True while visiting ORDER BY / WHERE, whose expressions are evaluated after the Produce.
-  bool in_post_produce_position_ = false;
+  std::unordered_map<Symbol, PatternComprehensionData> order_by_pattern_comprehension_datas_;
+  std::unordered_map<Symbol, PatternComprehensionData> where_pattern_comprehension_datas_;
+  // Which part of the return body is currently being visited. ORDER BY and WHERE are both evaluated after the
+  // Produce, but at different points in the operator chain, so their comprehensions need separate splice points.
+  BodyPosition position_ = BodyPosition::kProjection;
   // The named expression symbols, which a post-Produce comprehension may reference.
   std::unordered_set<Symbol> post_produce_bound_symbols_;
   // Pattern comprehension symbols that appear inside aggregate expressions.
@@ -801,20 +824,37 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   if (body.distinct()) {
     last_op = std::make_unique<Distinct>(std::move(last_op), body.output_symbols());
   }
-  // Pattern comprehensions from ORDER BY / WHERE reference the named expression symbols, so they can only be
-  // evaluated once Produce has written them.
-  auto post_produce_pc_data = body.post_produce_pattern_comprehension_data();
-  for (auto &[result_symbol, list_collection_data] : post_produce_pc_data) {
-    if (list_collection_data.op) {
-      auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
-      last_op = std::make_unique<RollUpApply>(
-          std::move(last_op), std::move(list_collection_data.op), list_collection_symbols, result_symbol);
+  // Splices a RollUpApply for each planned comprehension in @p pc_data onto last_op.
+  auto splice_comprehensions = [&](auto pc_data) {
+    for (auto &[result_symbol, list_collection_data] : pc_data) {
+      if (list_collection_data.op) {
+        auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
+        last_op = std::make_unique<RollUpApply>(
+            std::move(last_op), std::move(list_collection_data.op), list_collection_symbols, result_symbol);
+      }
     }
-  }
+  };
+
+  // Comprehensions in ORDER BY reference the named expression symbols, so they can only be evaluated once Produce has
+  // written them. OrderBy reads them during its collection sweep, so they belong directly below it.
+  splice_comprehensions(body.order_by_pattern_comprehension_data());
   // Like Where, OrderBy can read from symbols established by named expressions
   // in Produce, so it must come after it.
   if (!body.order_by().empty()) {
-    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), body.output_symbols());
+    // OrderBy restores only the symbols it is given, so anything an operator above it reads must be listed here.
+    // Filter(where) - and any comprehension branch feeding it - sits above OrderBy, so add what the WHERE reads.
+    auto remember = body.output_symbols();
+    if (body.where()) {
+      UsedSymbolsCollector collector(body.symbol_table());
+      body.where()->expression_->Accept(collector);
+      for (const auto &symbol : collector.symbols_) {
+        // Only symbols bound before this clause; the rest are written above OrderBy anyway.
+        if (body.bound_symbols().contains(symbol) && !std::ranges::contains(remember, symbol)) {
+          remember.push_back(symbol);
+        }
+      }
+    }
+    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(), remember);
   }
   // Finally, Skip and Limit must come after OrderBy.
   if (body.skip()) {
@@ -827,6 +867,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   // Where may see new symbols so it comes after we generate Produce and in
   // general, comes after any OrderBy, Skip or Limit.
   if (body.where()) {
+    // Directly below the Filter, because OrderBy restores only its own output symbols: a comprehension spliced below
+    // an OrderBy would hand the Filter one frozen value for every replayed row.
+    splice_comprehensions(body.where_pattern_comprehension_data());
     last_op = std::make_unique<Filter>(
         std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{}, body.where()->expression_);
   }
