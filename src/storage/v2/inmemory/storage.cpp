@@ -2954,10 +2954,16 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto read_guard = Guard{main_lock_, Guard::READ};
     if (storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) return read_guard;
 
-    // Analytical: acquire WRITE before read_guard releases READ at scope exit, so the mode stays
-    // pinned across a continuous hold (one thread may hold READ+WRITE: lock_guard_condition<WRITE>
-    // checks only ro_count/ro_pending).
-    return Guard{main_lock_, Guard::WRITE};
+    // Analytical. Release READ before requesting WRITE: acquiring a second shared hold while still
+    // holding one deadlocks against a UNIQUE acquirer that registers as pending in between, because
+    // lock_guard_condition<WRITE> is gated on unique_pending_ and that acquirer is in turn waiting
+    // on the READ we would still be holding.
+    read_guard.unlock();
+    auto write_guard = Guard{main_lock_, Guard::WRITE};
+    // The mode can flip in the gap, so re-read it under the hold we will actually use. Downgrading
+    // is non-blocking, unlike the escalation above.
+    if (storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) write_guard.downgrade_to_read();
+    return write_guard;
   }();
 
   // Only one gc run at a time

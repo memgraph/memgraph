@@ -12,8 +12,11 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <limits>
+#include <thread>
 
 #include "disk_test_utils.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -2824,4 +2827,59 @@ TYPED_TEST(StorageV2Test, UpdatesLabelsCountAfterAbort) {
     ASSERT_EQ(counts[label2], 1);
     ASSERT_EQ(counts[label3], 0);
   }
+}
+
+// A GC pass in analytical mode must never block a UNIQUE acquirer out. GC picks its lock mode by
+// reading storage_mode_ under a shared hold; escalating that hold rather than replacing it would
+// deadlock against a UNIQUE acquirer registering as pending in between, since the WRITE guard
+// condition is gated on unique_pending_ and that acquirer waits on the READ still held.
+//
+// The acquirers take a timeout so such a deadlock reports as a timeout instead of hanging the
+// binary. GC holds one mode at a time, so its holds are short and no acquirer should time out.
+TEST(StorageAnalyticalGcTest, GcDoesNotBlockOutUniqueAcquirers) {
+  using namespace std::chrono_literals;
+  constexpr auto kUniqueTimeout = 500ms;
+  constexpr auto kDuration = 2s;
+  constexpr int kGcThreads = 4;
+  constexpr int kUniqueThreads = 1;
+
+  memgraph::storage::InMemoryStorage store{memgraph::storage::Config{
+      .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
+  store.SetStorageMode(memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> unique_timeouts{0};
+  std::atomic<int> unique_acquisitions{0};
+
+  std::vector<std::jthread> threads;
+  threads.reserve(kGcThreads + kUniqueThreads);
+
+  for (int i = 0; i < kGcThreads; ++i) {
+    threads.emplace_back([&] {
+      // Qualified: InMemoryStorage's two-arg override hides the base's no-arg convenience overload.
+      while (!stop.load(std::memory_order_relaxed)) store.Storage::FreeMemory();
+    });
+  }
+
+  for (int i = 0; i < kUniqueThreads; ++i) {
+    threads.emplace_back([&] {
+      while (!stop.load(std::memory_order_relaxed)) {
+        try {
+          auto acc = store.UniqueAccess(std::nullopt, kUniqueTimeout);
+          unique_acquisitions.fetch_add(1, std::memory_order_relaxed);
+          acc->Abort();
+        } catch (memgraph::storage::UniqueAccessTimeout const &) {
+          unique_timeouts.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+    });
+  }
+
+  std::this_thread::sleep_for(kDuration);
+  stop.store(true, std::memory_order_relaxed);
+  threads.clear();
+
+  EXPECT_GT(unique_acquisitions.load(), 0) << "no UNIQUE acquirer ever got in; the test proved nothing";
+  EXPECT_EQ(unique_timeouts.load(), 0) << "a UNIQUE acquirer was blocked out for " << kUniqueTimeout.count()
+                                       << "ms by a concurrent analytical GC pass";
 }
