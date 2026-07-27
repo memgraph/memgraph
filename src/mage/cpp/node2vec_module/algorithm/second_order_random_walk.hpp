@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <random>
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -88,7 +89,9 @@ class N2vGraph {
         if (jt2 != it2->second.end()) return jt2->second;
       }
     }
-    return 0.0;
+    // EdgeWeight is only defined for existing edges; callers pass (node, neighbor)
+    // pairs, so this should be unreachable.
+    throw std::logic_error("EdgeWeight called for a non-existent edge");
   }
 
   // (prev, cur) directed pairs over which edge transition probabilities are
