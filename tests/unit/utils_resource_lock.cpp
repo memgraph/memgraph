@@ -792,9 +792,18 @@ std::vector<std::jthread> SpawnHammers(ResourceLock &target_lock, std::atomic<bo
 }
 }  // namespace
 
-// A UniquePendingScope retry loop acquires within a bound under continuous WRITE churn,
-// whereas a bare try_lock() loop is expected to starve (soft/environment-dependent control).
-TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresWhileBareTryLockStarves) {
+// A UniquePendingScope held across a try_acquire() retry loop should acquire within a
+// bounded time under a continuous stream of new WRITE shared acquirers. A bare `lock.try_lock()`
+// retry loop against the same hammer stream is expected to starve, since its probes never register
+// as pending and so never gate the hammers out.
+//
+// Only the campaign's acquisition is asserted; the control is recorded, not asserted. The hammers
+// overlap statistically rather than by construction, so "the bare loop did not get in" asserts that
+// a rare event did not occur across many probes, which no choice of bound makes reliable: a longer
+// bound makes it likelier to fire, a shorter one weakens it to nothing. The gate's mechanism has
+// its own deterministic test, holding a shared lock and checking that new shared acquisitions fail
+// while a pending scope lives and succeed once it dies.
+TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresUnderContinuousWriteHammer) {
   using namespace std::chrono_literals;
   constexpr int kNumHammers = 8;
   constexpr auto kPendingScopeBound = 5s;
@@ -854,11 +863,10 @@ TEST_F(ResourceLockTest, UniquePendingScopeCampaignAcquiresWhileBareTryLockStarv
     hammers.clear();
 
     if (control_result) {
-      lock.unlock();  // release so later tests start from UNLOCKED
-      // The ungated control is expected to starve, but its success is probabilistic and
-      // environment-dependent, so record it (non-fatal) rather than abort: a chance acquire must not
-      // fail CI. The deterministic PendingScope campaign above is the real writer-preference signal.
+      lock.unlock();  // it did acquire; release so later tests in the suite start from UNLOCKED
       RecordProperty("bare_try_lock_acquired_ms", std::to_string(control_result->count()));
+    } else {
+      RecordProperty("bare_try_lock_acquired_ms", "starved");
     }
   }
 }
