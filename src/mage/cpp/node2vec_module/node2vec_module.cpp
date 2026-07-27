@@ -196,16 +196,69 @@ void Help(mgp_list * /*args*/, mgp_graph * /*memgraph_graph*/, mgp_result *resul
   mgp::MemoryDispatcherGuard guard(memory);
   try {
     mgp::RecordFactory factory(result);
-    const std::pair<const char *, const char *> lines[] = {
-        {"node2vec.get_embeddings", "Computes node embeddings and returns (nodes, embeddings)."},
-        {"node2vec.set_embeddings", "Computes node embeddings and writes them to the 'embedding' property."},
-        {"node2vec.help", "Shows this help page."},
+
+    // Emits a manual-page section: `title` appears in the name column of the
+    // first line, subsequent lines have an empty name column (matching the
+    // previous Python help() output).
+    auto emit_section = [&](const char *title, std::initializer_list<const char *> body) {
+      bool first = true;
+      for (const char *line : body) {
+        auto record = factory.NewRecord();
+        record.Insert(kResultName, first ? title : "");
+        record.Insert(kResultValue, line);
+        first = false;
+      }
     };
-    for (const auto &line : lines) {
-      auto record = factory.NewRecord();
-      record.Insert(kResultName, line.first);
-      record.Insert(kResultValue, line.second);
-    }
+
+    emit_section("Procedure 'help'", {"Shows manual page for node2vec"});
+
+    emit_section("Procedure 'get_embeddings'",
+                 {"Function to get node embeddings. Uses Word2Vec parameters.",
+                  "",
+                  "Parameters",
+                  "----------",
+                  "is_directed : bool, optional",
+                  "    If bool=True, graph is treated as directed, else not directed.",
+                  "p : float, optional",
+                  "    Return hyperparameter for calculating transition probabilities.",
+                  "q : float, optional",
+                  "    Inout hyperparameter for calculating transition probabilities.",
+                  "num_walks : int, optional",
+                  "    Number of walks per node in walk sampling.",
+                  "walk_length : int, optional",
+                  "    Length of one walk in walk sampling.",
+                  "",
+                  "vector_size : int, optional",
+                  "    Dimensionality of the embedding vectors.",
+                  "window : int, optional",
+                  "    Maximum distance between the current and predicted word within a sentence.",
+                  "min_count : int, optional",
+                  "    Ignores all words with total frequency lower than this.",
+                  "workers : int, optional",
+                  "    Use these many worker threads to train the model (=faster training with multicore machines).",
+                  "sg : {0, 1}, optional",
+                  "    Training algorithm: 1 for skip-gram; otherwise CBOW.",
+                  "hs : {0, 1}, optional",
+                  "    If 1, hierarchical softmax will be used for model training.",
+                  "    If 0, and `negative` is non-zero, negative sampling will be used.",
+                  "negative : int, optional",
+                  "    If > 0, negative sampling will be used, the int for negative specifies how many \"noise words\"",
+                  "    should be drawn (usually between 5-20).",
+                  "    If set to 0, no negative sampling is used.",
+                  "alpha : float, optional",
+                  "    The initial learning rate.",
+                  "min_alpha : float, optional",
+                  "    Learning rate will linearly drop to `min_alpha` as training progresses.",
+                  "epochs : int, optional",
+                  "    Number of training iterations over the sampled walks.",
+                  "seed : int, optional",
+                  "    Seed for the random number generator; makes walk sampling and training reproducible.",
+                  "edge_weight_property : str, optional",
+                  "    Property from which to take edge weights (default \"weight\")."});
+
+    emit_section("Procedure 'set_embeddings'",
+                 {"Same as get_embeddings, but also writes each embedding to the node's",
+                  "'embedding' property. Accepts the same parameters as get_embeddings."});
   } catch (const std::exception &e) {
     mgp::result_set_error_msg(result, e.what());
   }
