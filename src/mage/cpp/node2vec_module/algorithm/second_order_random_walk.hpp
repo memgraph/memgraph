@@ -155,14 +155,21 @@ class SecondOrderRandomWalk {
   int num_walks_, walk_length_;
   uint64_t seed_;
 
-  std::unordered_map<NodeId, std::vector<double>> first_pass_;
-  std::unordered_map<int64_t, std::vector<double>> edge_probs_;  // key = EdgeKey(prev, cur)
+  using Edge = std::pair<NodeId, NodeId>;  // (previous node, current node)
 
-  static int64_t EdgeKey(NodeId a, NodeId b) {
-    // Combine two ids into one stable key. Ids in Memgraph fit comfortably in
-    // 32 bits for typical graphs; fall back to a hash mix otherwise.
-    return static_cast<int64_t>((static_cast<uint64_t>(a) * 0x9E3779B97F4A7C15ULL) ^ static_cast<uint64_t>(b));
-  }
+  // Hash for an (prev, cur) edge. A collision here is harmless: the unordered_map
+  // still compares the full pair with operator==, so distinct edges never share
+  // an entry (unlike packing both ids into a single integer key).
+  struct EdgeHash {
+    std::size_t operator()(const Edge &e) const noexcept {
+      auto h = static_cast<std::uint64_t>(e.first) * 0x9E3779B97F4A7C15ULL;
+      h ^= static_cast<std::uint64_t>(e.second) + 0x9E3779B97F4A7C15ULL + (h << 6) + (h >> 2);
+      return static_cast<std::size_t>(h);
+    }
+  };
+
+  std::unordered_map<NodeId, std::vector<double>> first_pass_;
+  std::unordered_map<Edge, std::vector<double>, EdgeHash> edge_probs_;
 
   static std::vector<double> Normalize(const std::vector<double> &v) {
     double sum = 0.0;
@@ -200,9 +207,9 @@ class SecondOrderRandomWalk {
   void SetGraphTransitionProbs(N2vGraph &graph) {
     for (const auto &e : graph.Edges()) {
       NodeId from = e.first, to = e.second;
-      edge_probs_[EdgeKey(from, to)] = CalculateEdgeTransitionProbs(graph, from, to);
+      edge_probs_[{from, to}] = CalculateEdgeTransitionProbs(graph, from, to);
       if (graph.IsDirected()) continue;
-      edge_probs_[EdgeKey(to, from)] = CalculateEdgeTransitionProbs(graph, to, from);
+      edge_probs_[{to, from}] = CalculateEdgeTransitionProbs(graph, to, from);
     }
   }
 
@@ -230,7 +237,7 @@ class SecondOrderRandomWalk {
         continue;
       }
       NodeId prev = walk[walk.size() - 2];
-      auto it = edge_probs_.find(EdgeKey(prev, current));
+      auto it = edge_probs_.find({prev, current});
       if (it == edge_probs_.end()) break;
       walk.push_back(WeightedChoice(nbrs, it->second, rng));
     }
