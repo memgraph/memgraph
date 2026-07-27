@@ -2249,6 +2249,8 @@ TEST_P(CypherMainVisitorTest, CreateNodeRangeIndexAlternativeSyntax) {
       ast_generator.ParseQuery("CREATE RANGE INDEX node_range_index FOR (n:Person) ON (n.surname)"));
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  ASSERT_TRUE(index_query->name_);
+  EXPECT_EQ(*index_query->name_, "node_range_index");
   EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
   ASSERT_EQ(index_query->properties_.size(), 1U);
   EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
