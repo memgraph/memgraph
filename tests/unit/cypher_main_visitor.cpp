@@ -2305,6 +2305,41 @@ TEST_P(CypherMainVisitorTest, RangeKeywordStillUsableAsIdentifier) {
   EXPECT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX range FOR (n:Person) ON (n.surname)"));
 }
 
+TEST_P(CypherMainVisitorTest, CreateNodeRangeIndexAlternativeSyntaxIfNotExists) {
+  auto &ast_generator = *GetParam();
+  // The RANGE keyword must compose with the optional IF NOT EXISTS clause.
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("CREATE RANGE INDEX idx IF NOT EXISTS FOR (n:Person) ON (n.surname)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  ASSERT_TRUE(index_query->name_);
+  EXPECT_EQ(*index_query->name_, "idx");
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
+}
+
+TEST_P(CypherMainVisitorTest, CreateRangeIndexNamedRange) {
+  auto &ast_generator = *GetParam();
+  // The RANGE keyword and an index literally named `range` must disambiguate:
+  // the first `range` is the keyword, the second is the index name.
+  auto *index_query =
+      dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("CREATE RANGE INDEX range FOR (n:Person) ON (n.surname)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  ASSERT_TRUE(index_query->name_);
+  EXPECT_EQ(*index_query->name_, "range");
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
+}
+
+TEST_P(CypherMainVisitorTest, RangeKeywordNotAllowedInOnStyleIndex) {
+  auto &ast_generator = *GetParam();
+  // RANGE is only an alias for the FOR-style syntax; the old ON syntax must still reject it.
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE RANGE INDEX ON :Person(surname)"), SyntaxException);
+}
+
 TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeNumericNameNotAllowed) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT 1 FOR (n:Book) REQUIRE n.isbn IS UNIQUE"), SyntaxException);

@@ -164,6 +164,7 @@ memgraphCypherKeyword : cypherKeyword
                       | PROFILES
                       | PULSAR
                       | QUOTE
+                      | RANGE
                       | READ
                       | READ_FILE
                       | RECOVER

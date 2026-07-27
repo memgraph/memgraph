@@ -163,6 +163,7 @@ PROFILE_RESTRICTION     : P R O F I L E UNDERSCORE R E S T R I C T I O N ;
 PROFILES                : P R O F I L E S ;
 PULSAR                  : P U L S A R ;
 QUOTE                   : Q U O T E ;
+RANGE                   : R A N G E ;
 READ                    : R E A D ;
 READ_FILE               : R E A D UNDERSCORE F I L E ;
 RECOVER                 : R E C O V E R ;
