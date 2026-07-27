@@ -225,18 +225,81 @@ void Help(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result, mgp_me
   try {
     CheckEnterprise();
     mgp::RecordFactory factory(result);
-    const std::pair<const char *, const char *> lines[] = {
-        {"node2vec_online.set_streamwalk_updater", "Sets the StreamWalk temporal walk-sampling parameters."},
-        {"node2vec_online.set_word2vec_learner", "Sets the incremental Word2Vec learner parameters."},
-        {"node2vec_online.update", "Updates embeddings from newly created edges (use in a trigger)."},
-        {"node2vec_online.get", "Returns the current node embeddings."},
-        {"node2vec_online.reset", "Clears the updater, learner and learned embeddings."},
+
+    // Emits a manual-page section: `title` appears in the name column of the
+    // first line, subsequent lines have an empty name column.
+    auto emit_section = [&](const char *title, std::initializer_list<const char *> body) {
+      bool first = true;
+      for (const char *line : body) {
+        auto record = factory.NewRecord();
+        record.Insert(kResultName, first ? title : "");
+        record.Insert(kResultValue, line);
+        first = false;
+      }
     };
-    for (const auto &line : lines) {
-      auto record = factory.NewRecord();
-      record.Insert(kResultName, line.first);
-      record.Insert(kResultValue, line.second);
-    }
+
+    emit_section("Procedure 'help'", {"Shows manual page for node2vec_online"});
+
+    emit_section("Procedure 'set_streamwalk_updater'",
+                 {"This function sets the updater to StreamWalk.",
+                  "",
+                  "If parameters are already set, the function doesn't reset them.",
+                  "",
+                  ":param half_life: Half-life in seconds for time decay",
+                  ":param max_length: Maximum length of the sampled temporal random walks",
+                  ":param beta: Damping factor for long paths",
+                  ":param cutoff: Temporal cutoff in seconds to exclude very distant past",
+                  ":param sampled_walks: Number of sampled walks for each edge update",
+                  ":param full_walks: Return every node of the sampled walk (full_walks=True) or",
+                  "    only the endpoints of the walk (full_walks=False)",
+                  "",
+                  "Example call (give all information):",
+                  "    CALL node2vec_online.set_streamwalk_updater(7200, 3, 0.9, 604800, 4, False) YIELD *;",
+                  "",
+                  "Example call (with predefined parameters):",
+                  "    CALL node2vec_online.set_streamwalk_updater() YIELD *;"});
+
+    emit_section("Procedure 'set_word2vec_learner'",
+                 {"This function needs to be called to set the learner parameters.",
+                  "",
+                  "If parameters are already set, the function doesn't reset them.",
+                  "",
+                  ":param embedding_dimension: number of dimensions of the embedding vector",
+                  ":param learning_rate: learning rate",
+                  ":param skip_gram: use the skip-gram model",
+                  ":param negative_rate: negative rate for the skip-gram model",
+                  ":param threads: maximum number of threads for parallelization",
+                  "",
+                  "Example call (give all information):",
+                  "    CALL node2vec_online.set_word2vec_learner(128, 0.01, True, 10, 1) YIELD *;",
+                  "",
+                  "Example call (with predefined parameters):",
+                  "    CALL node2vec_online.set_word2vec_learner() YIELD *;"});
+
+    emit_section("Procedure 'get'",
+                 {"Returns the current node embeddings as (node, embedding) records.",
+                  "",
+                  "Example call:",
+                  "    CALL node2vec_online.get() YIELD node, embedding RETURN node, embedding;"});
+
+    emit_section("Procedure 'update'",
+                 {"Updates node embeddings from newly created edges.",
+                  "The learner and updater must be set first.",
+                  "",
+                  "Typically invoked from a trigger:",
+                  "    CREATE TRIGGER update_embeddings ON --> CREATE BEFORE COMMIT",
+                  "        EXECUTE CALL node2vec_online.update(createdEdges);",
+                  "",
+                  "It can also be called directly on a collection of edges:",
+                  "    MATCH (n)-[e]->(m) WITH COLLECT(e) AS edges",
+                  "    CALL node2vec_online.update(edges);"});
+
+    emit_section("Procedure 'reset'",
+                 {"Clears the updater, the learner and all learned embeddings, so the",
+                  "parameters can be set again.",
+                  "",
+                  "Example call:",
+                  "    CALL node2vec_online.reset() YIELD *;"});
   } catch (const std::exception &e) {
     mgp::result_set_error_msg(result, e.what());
   }
