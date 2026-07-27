@@ -125,6 +125,7 @@ ORDER          : O R D E R ;
 PROCEDURE      : P R O C E D U R E ;
 PROFILE        : P R O F I L E ;
 QUERY          : Q U E R Y ;
+RANGE          : R A N G E ;
 REDUCE         : R E D U C E ;
 REGISTER       : R E G I S T E R;
 REMOVE         : R E M O V E ;

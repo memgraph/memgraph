@@ -435,6 +435,7 @@ cypherKeyword : ALL
               | PROCEDURE
               | PROFILE
               | QUERY
+              | RANGE
               | REDUCE
               | REGISTER
               | REMOVE
