@@ -23,22 +23,27 @@ if(MG_SPLIT_DEBUG)
     message(STATUS "MG_SPLIT_DEBUG enabled (using ${CMAKE_OBJCOPY})")
 endif()
 
-# mg_split_debug(target [INSTALL_DESTINATION <dir>])
+# mg_split_debug(target [INSTALL_DESTINATION <dir>] [COMPONENT <component>])
 #
 # POST_BUILD: extract DWARF into <target>.debug, strip the binary, and embed a
 # .gnu_debuglink pointing at the sidecar.
 #
-# If INSTALL_DESTINATION is given, the sidecar is installed into the
-# "debuginfo" CPack component, which ships in
-# memgraph-debuginfo_*.deb / memgraph-debuginfo*.rpm next to the matching
-# binary so gdb resolves it via .gnu_debuglink.
+# If INSTALL_DESTINATION is given, the sidecar is installed into the given
+# install COMPONENT (default "debuginfo", which ships in
+# memgraph-debuginfo_*.deb / memgraph-debuginfo*.rpm) next to the matching
+# binary so gdb resolves it via .gnu_debuglink. MAGE modules pass
+# COMPONENT mage_debuginfo so their sidecars stay out of the memgraph
+# debuginfo package.
 #
 # No-op when MG_SPLIT_DEBUG is OFF, so callers don't need to guard.
 function(mg_split_debug target)
     if(NOT MG_SPLIT_DEBUG)
         return()
     endif()
-    cmake_parse_arguments(MGSD "" "INSTALL_DESTINATION" "" ${ARGN})
+    cmake_parse_arguments(MGSD "" "INSTALL_DESTINATION;COMPONENT" "" ${ARGN})
+    if(NOT MGSD_COMPONENT)
+        set(MGSD_COMPONENT debuginfo)
+    endif()
 
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_OBJCOPY} --only-keep-debug --compress-debug-sections=zlib $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
@@ -54,7 +59,7 @@ function(mg_split_debug target)
     if(MGSD_INSTALL_DESTINATION)
         install(FILES $<TARGET_FILE:${target}>.debug
             DESTINATION ${MGSD_INSTALL_DESTINATION}
-            COMPONENT debuginfo
+            COMPONENT ${MGSD_COMPONENT}
             OPTIONAL)
 
         # Also lay down a build-id-indexed symlink at
@@ -89,6 +94,6 @@ function(mg_split_debug target)
                         SYMBOLIC)
                 endif()
             endif()
-        " COMPONENT debuginfo)
+        " COMPONENT ${MGSD_COMPONENT})
     endif()
 endfunction()

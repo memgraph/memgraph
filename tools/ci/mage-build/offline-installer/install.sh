@@ -106,7 +106,7 @@ echo "==> Installing Python wheels into /home/memgraph/.local"
 
 # pip.conf locks pip into our local wheel directory for every user on the box
 # for the duration of step 3 + step 4 (the memgraph-mage postinst runs pip
-# install too — see mage/install_python_requirements.sh --deb-package).
+# install too — see release/package/mage/install_python_requirements.sh --deb-package).
 PIP_CONF_BACKUP="/etc/pip.conf.memgraph-offline.bak"
 [[ -f /etc/pip.conf ]] && mv /etc/pip.conf "$PIP_CONF_BACKUP" || true
 cat > /etc/pip.conf <<EOF

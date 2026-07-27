@@ -212,44 +212,62 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # custom function definitions
 include(functions)
 
-# Load conan dependencies in the correct order using explicit find_package calls
-# Load dependencies that don't depend on others first
-find_package(ApprovalTests REQUIRED)
-find_package(benchmark REQUIRED)
-find_package(GTest REQUIRED)
-find_package(rapidcheck REQUIRED)
-find_package(spdlog REQUIRED)
-find_package(fmt REQUIRED)
-find_package(gflags REQUIRED)
-find_package(strong_type REQUIRED)
-find_package(Boost REQUIRED)
-find_package(BZip2 REQUIRED)
-find_package(antlr4-runtime REQUIRED)
-find_package(cppitertools REQUIRED)
-find_package(ctre REQUIRED)
-find_package(absl REQUIRED)
-find_package(croncpp REQUIRED)
-find_package(range-v3 REQUIRED)
-find_package(asio REQUIRED)
-find_package(RocksDB REQUIRED CONFIG)
-find_package(usearch CONFIG REQUIRED)
-find_package(ZLIB REQUIRED)
-find_package(RdKafka REQUIRED)
-find_package(jemalloc REQUIRED)
-find_package(libbcrypt REQUIRED)
-find_package(librdtsc REQUIRED)
-find_package(nlohmann_json REQUIRED)
-find_package(nuraft REQUIRED CONFIG)
-find_package(pulsar-client-cpp REQUIRED CONFIG)
-find_package(protobuf REQUIRED CONFIG)
-find_package(Snappy REQUIRED)
-find_package(Arrow REQUIRED)
-find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
+# Build the Memgraph database itself. Turn OFF (together with
+# -DMG_BUILD_MAGE=ON) for a MAGE-only build — the Conan side of that mode is
+# the `mage_only` option in conanfile.py, which trims the dependency graph
+# to match and sets both CMake options via the toolchain (see
+# `./build.sh --mage only`).
+option(MG_BUILD_MEMGRAPH "Build the Memgraph database" ON)
+option(MG_BUILD_MAGE "Build all MAGE query modules (C++, Python, Rust)" OFF)
 
-# Now load mgclient which depends on OpenSSL
-find_package(OpenSSL REQUIRED)
-find_package(mgclient REQUIRED)
-find_package(prometheus-cpp REQUIRED)
+if(NOT MG_BUILD_MEMGRAPH AND NOT MG_BUILD_MAGE)
+  message(FATAL_ERROR
+      "Nothing to build: MG_BUILD_MEMGRAPH=OFF requires MG_BUILD_MAGE=ON "
+      "(MAGE-only build).")
+endif()
+
+# Load conan dependencies in the correct order using explicit find_package calls
+# Load dependencies that don't depend on others first.
+# These are needed by every build mode (MAGE links fmt/Boost/GTest/nlohmann_json).
+find_package(GTest REQUIRED)
+find_package(fmt REQUIRED)
+find_package(Boost REQUIRED)
+find_package(nlohmann_json REQUIRED)
+
+if(MG_BUILD_MEMGRAPH)
+    find_package(ApprovalTests REQUIRED)
+    find_package(benchmark REQUIRED)
+    find_package(rapidcheck REQUIRED)
+    find_package(spdlog REQUIRED)
+    find_package(gflags REQUIRED)
+    find_package(strong_type REQUIRED)
+    find_package(BZip2 REQUIRED)
+    find_package(antlr4-runtime REQUIRED)
+    find_package(cppitertools REQUIRED)
+    find_package(ctre REQUIRED)
+    find_package(absl REQUIRED)
+    find_package(croncpp REQUIRED)
+    find_package(range-v3 REQUIRED)
+    find_package(asio REQUIRED)
+    find_package(RocksDB REQUIRED CONFIG)
+    find_package(usearch CONFIG REQUIRED)
+    find_package(ZLIB REQUIRED)
+    find_package(RdKafka REQUIRED)
+    find_package(jemalloc REQUIRED)
+    find_package(libbcrypt REQUIRED)
+    find_package(librdtsc REQUIRED)
+    find_package(nuraft REQUIRED CONFIG)
+    find_package(pulsar-client-cpp REQUIRED CONFIG)
+    find_package(protobuf REQUIRED CONFIG)
+    find_package(Snappy REQUIRED)
+    find_package(Arrow REQUIRED)
+    find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
+
+    # Now load mgclient which depends on OpenSSL
+    find_package(OpenSSL REQUIRED)
+    find_package(mgclient REQUIRED)
+    find_package(prometheus-cpp REQUIRED)
+endif()
 
 # -----------------------------------------------------------------------------
 
@@ -476,43 +494,46 @@ if (UBSAN)
   # To make the program abort on undefined behavior, use UBSAN_OPTIONS=halt_on_error=1.
 endif()
 
-# absl library is sensitive to sanitisers, 3rd party libs need building with sanitizer options
-add_library(rocksdb INTERFACE IMPORTED GLOBAL)
-set_property(TARGET rocksdb PROPERTY INTERFACE_LINK_LIBRARIES RocksDB::rocksdb)
+if(MG_BUILD_MEMGRAPH)
+  # absl library is sensitive to sanitisers, 3rd party libs need building with sanitizer options
+  add_library(rocksdb INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET rocksdb PROPERTY INTERFACE_LINK_LIBRARIES RocksDB::rocksdb)
 
-add_library(usearch INTERFACE IMPORTED GLOBAL)
-set_property(TARGET usearch PROPERTY INTERFACE_LINK_LIBRARIES usearch::usearch)
-# Suppress the guarded #warning in usearch/index_plugins.hpp.
-target_compile_options(usearch INTERFACE [[-Wno-#warnings]])
+  add_library(usearch INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET usearch PROPERTY INTERFACE_LINK_LIBRARIES usearch::usearch)
+  # Suppress the guarded #warning in usearch/index_plugins.hpp.
+  target_compile_options(usearch INTERFACE [[-Wno-#warnings]])
 
-add_library(nuraft INTERFACE IMPORTED GLOBAL)
-set_property(TARGET nuraft PROPERTY INTERFACE_LINK_LIBRARIES nuraft::nuraft)
+  add_library(nuraft INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET nuraft PROPERTY INTERFACE_LINK_LIBRARIES nuraft::nuraft)
 
-add_library(protobuf INTERFACE IMPORTED GLOBAL)
-set_property(TARGET protobuf PROPERTY INTERFACE_LINK_LIBRARIES protobuf::libprotobuf)
+  add_library(protobuf INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET protobuf PROPERTY INTERFACE_LINK_LIBRARIES protobuf::libprotobuf)
 
-add_library(pulsar INTERFACE IMPORTED GLOBAL)
-set_property(TARGET pulsar PROPERTY INTERFACE_LINK_LIBRARIES pulsar-client-cpp::pulsar-client-cpp)
+  add_library(pulsar INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET pulsar PROPERTY INTERFACE_LINK_LIBRARIES pulsar-client-cpp::pulsar-client-cpp)
 
-# Build mgconsole in isolation using the install script to avoid target
-# conflicts with Memgraph's dependencies (e.g., gflags). Keep these placeholder
-# targets available during the normal build graph.
-if(NOT DEFINED MGCONSOLE_GIT_TAG)
-  # Default used by release/install_mgconsole.cmake.
-  set(MGCONSOLE_GIT_TAG "v1.6.0")
+  # Build mgconsole in isolation using the install script to avoid target
+  # conflicts with Memgraph's dependencies (e.g., gflags). Keep these placeholder
+  # targets available during the normal build graph.
+  if(NOT DEFINED MGCONSOLE_GIT_TAG)
+    # Default used by release/install_mgconsole.cmake.
+    set(MGCONSOLE_GIT_TAG "v1.6.0")
+  endif()
+  add_custom_target(mgconsole-proj)
+  add_custom_target(mgconsole)
+
+  set(SPDLOG_FMT_EXTERNAL ON)
+  set(ABSL_PROPAGATE_CXX_STD ON)
+
+  # Include mgcxx text search bridge as part of the main build.
+  set(ENABLE_TESTS OFF CACHE BOOL "Enable tests" FORCE)
+  add_subdirectory(${CMAKE_SOURCE_DIR}/mgcxx ${CMAKE_BINARY_DIR}/mgcxx EXCLUDE_FROM_ALL)
+  target_link_libraries(mgcxx_text_search ${CMAKE_DL_LIBS})
+  add_library(tantivy_text_search ALIAS mgcxx_text_search)
 endif()
-add_custom_target(mgconsole-proj)
-add_custom_target(mgconsole)
 
-set(SPDLOG_FMT_EXTERNAL ON)
-set(ABSL_PROPAGATE_CXX_STD ON)
 message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
-
-# Include mgcxx text search bridge as part of the main build.
-set(ENABLE_TESTS OFF CACHE BOOL "Enable tests" FORCE)
-add_subdirectory(${CMAKE_SOURCE_DIR}/mgcxx ${CMAKE_BINARY_DIR}/mgcxx EXCLUDE_FROM_ALL)
-target_link_libraries(mgcxx_text_search ${CMAKE_DL_LIBS})
-add_library(tantivy_text_search ALIAS mgcxx_text_search)
 
 set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact Python version used by the query modules")
 set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the query modules")
@@ -520,38 +541,51 @@ set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the qu
 option(MG_ENABLE_TESTING "Set this to OFF to disable building test binaries" ON)
 message(STATUS "MG_ENABLE_TESTING: ${MG_ENABLE_TESTING}")
 
-# Common
+# Common. enable_testing() stays unconditional so MAGE's unit tests register
+# with CTest in MAGE-only builds too; unit_tests.cmake only defines memgraph
+# test helpers.
 if (MG_ENABLE_TESTING)
   enable_testing()
-  include(cmake/unit_tests.cmake)
+  if (MG_BUILD_MEMGRAPH)
+    include(cmake/unit_tests.cmake)
+  endif()
 endif ()
 
-# Add subprojects
-include_directories(src)
-add_subdirectory(src)
+if (MG_BUILD_MEMGRAPH)
+  # Add subprojects
+  include_directories(src)
+  add_subdirectory(src)
 
-# Release configuration
+  if (MG_ENABLE_TESTING)
+    add_subdirectory(tests)
+  endif()
+
+  if(QUERY_MODULES)
+    add_subdirectory(query_modules)
+  endif()
+endif()
+
+if(MG_BUILD_MAGE)
+  add_subdirectory(src/mage)
+endif()
+
+# Release/packaging configuration (CPack). Always included — the component
+# set it packages follows MG_BUILD_MEMGRAPH / MG_BUILD_MAGE, so MAGE-only
+# builds can still produce the memgraph-mage packages.
 add_subdirectory(release)
 
-if (MG_ENABLE_TESTING)
-  enable_testing()
-  add_subdirectory(tests)
+if (MG_BUILD_MEMGRAPH)
+  # Legacy target: prefer `ninja codegen` (CMake 3.31+ built-in, uses CODEGEN flag).
+  # Kept for backwards compatibility with CI scripts.
+  add_custom_target(generated_code DEPENDS
+    generate_opencypher_parser
+    mgcxx_text_search
+  )
+
+  # Build mgconsole during install stage (before installing the file)
+  install(SCRIPT "${CMAKE_SOURCE_DIR}/release/install_mgconsole.cmake")
+
+  install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
+    PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+    TYPE BIN)
 endif()
-
-if(QUERY_MODULES)
-  add_subdirectory(query_modules)
-endif()
-
-# Legacy target: prefer `ninja codegen` (CMake 3.31+ built-in, uses CODEGEN flag).
-# Kept for backwards compatibility with CI scripts.
-add_custom_target(generated_code DEPENDS
-  generate_opencypher_parser
-  mgcxx_text_search
-)
-
-# Build mgconsole during install stage (before installing the file)
-install(SCRIPT "${CMAKE_SOURCE_DIR}/release/install_mgconsole.cmake")
-
-install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
-  PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-  TYPE BIN)

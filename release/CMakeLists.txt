@@ -1,6 +1,8 @@
 # Install systemd service (must use absolute path).
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/memgraph.service
-    DESTINATION /lib/systemd/system)
+if(MG_BUILD_MEMGRAPH)
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/memgraph.service
+        DESTINATION /lib/systemd/system)
+endif()
 
 # Set parameters to recognize the host distro
 cmake_host_system_information(RESULT DISTRO QUERY DISTRIB_NAME)
@@ -94,17 +96,27 @@ if(NOT "${MG_PYTHON_VERSION}" STREQUAL "")
     set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "${CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES}, python${MG_PYTHON_VERSION}")
 endif()
 
-# Configure CPack to build mgconsole using the unified install script
-set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
+# Configure CPack to build mgconsole using the unified install script.
+if(MG_BUILD_MEMGRAPH)
+    set(CPACK_INSTALL_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/install_mgconsole.cmake")
+endif()
 
-# Component-based packaging. Produces:
+# Component-based packaging. Depending on MG_BUILD_MEMGRAPH / MG_BUILD_MAGE,
+# produces up to four packages (as DEB or RPM):
 #   * memgraph_<ver>_<arch>.deb / memgraph-<ver>-1.<arch>.rpm
 #       main package: binary, libstdc++, query modules, configs, systemd unit
 #   * memgraph-debuginfo_<ver>_<arch>.deb / memgraph-debuginfo-<ver>-1.<arch>.rpm
 #       companion: .debug sidecars for memgraph + query modules. Depends on
 #       the main package at the exact matching version. .debug files install
 #       alongside their binaries; gdb resolves them via .gnu_debuglink.
-set(CPACK_COMPONENTS_ALL memgraph debuginfo)
+#   * memgraph-mage_<ver>_<arch>.deb / memgraph-mage-<ver>-1.<arch>.rpm
+#       MAGE query modules + bundled toolchain libomp + python requirements
+#   * memgraph-mage-debuginfo_* — .debug sidecars for the MAGE modules
+#       (only when the build was configured with MG_SPLIT_DEBUG=ON)
+set(CPACK_COMPONENTS_ALL)
+if(MG_BUILD_MEMGRAPH)
+    list(APPEND CPACK_COMPONENTS_ALL memgraph debuginfo)
+endif()
 
 # --- DEB component config ---
 set(CPACK_DEB_COMPONENT_INSTALL ON)
@@ -141,6 +153,104 @@ set(CPACK_RPM_DEBUGINFO_PACKAGE_SUMMARY
     "Debug symbols for memgraph")
 set(CPACK_RPM_DEBUGINFO_PACKAGE_DESCRIPTION
     "Debug symbols (.debug sidecars) for the matching memgraph package.")
+
+# --- MAGE components (memgraph-mage / memgraph-mage-debuginfo) ---
+if(MG_BUILD_MAGE)
+    list(APPEND CPACK_COMPONENTS_ALL mage)
+
+    # Values consumed by the package scriptlets (deb postinst, rpm %post),
+    # which run install_python_requirements.sh at install time; it expects
+    # --arch amd64|arm64. CPACK_-prefixed so they're serialized into
+    # CPackConfig.cmake and available to the rpm spec template at cpack time.
+    if(MG_ENABLE_CUGRAPH OR MG_MAGE_CUDA)
+        set(CPACK_MAGE_CUDA "true")
+    else()
+        set(CPACK_MAGE_CUDA "false")
+    endif()
+    set(CPACK_MAGE_PKG_ARCH "${MG_ARCH_EXTENSION_DEB}")
+
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/mage/postinst.in
+        ${CMAKE_CURRENT_BINARY_DIR}/mage/postinst
+        @ONLY
+        FILE_PERMISSIONS
+            OWNER_READ OWNER_WRITE OWNER_EXECUTE
+            GROUP_READ GROUP_EXECUTE
+            WORLD_READ WORLD_EXECUTE)
+
+    # --- DEB ---
+    set(CPACK_DEBIAN_MAGE_PACKAGE_NAME "memgraph-mage")
+    set(CPACK_DEBIAN_MAGE_FILE_NAME
+        "memgraph-mage_${MEMGRAPH_VERSION_DEB}_${MG_ARCH_EXTENSION_DEB}.deb")
+    set(CPACK_DEBIAN_MAGE_PACKAGE_SECTION "database")
+    # The dependency on memgraph is deliberately UNVERSIONED so daily and
+    # release builds of the two packages can be mixed.
+    # No libgomp1: the modules use the bundled toolchain libomp instead.
+    # Dependencies are declared manually (mirroring the retired
+    # tools/ci/mage-build/package/debian/control), so shlibdeps stays off —
+    # it can't resolve the bundled libomp.so to a distro package anyway.
+    set(CPACK_DEBIAN_MAGE_PACKAGE_DEPENDS
+        "memgraph, libcurl4, libpython3.12, openssl, python3, python3-pip, python3-setuptools, adduser, libaio1t64, libatomic1, libdw1t64 | libdw1")
+    set(CPACK_DEBIAN_MAGE_PACKAGE_SHLIBDEPS OFF)
+    # Both memgraph and memgraph-mage ship the mage/ python package files
+    # (see query_modules/CMakeLists.txt); dpkg needs Replaces to allow that.
+    set(CPACK_DEBIAN_MAGE_PACKAGE_REPLACES "memgraph")
+    set(CPACK_DEBIAN_MAGE_PACKAGE_CONTROL_EXTRA
+        "${CMAKE_CURRENT_BINARY_DIR}/mage/postinst")
+    set(CPACK_DEBIAN_MAGE_DESCRIPTION
+        "Extra query modules for Memgraph
+ Additional query modules for Memgraph, installed under
+ /usr/lib/memgraph/query_modules/.")
+
+    # --- RPM ---
+    set(CPACK_RPM_MAGE_PACKAGE_NAME "memgraph-mage")
+    set(CPACK_RPM_MAGE_FILE_NAME
+        "memgraph-mage-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
+    set(CPACK_RPM_MAGE_USER_BINARY_SPECFILE
+        "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph-mage.spec.in")
+    # Unversioned memgraph dep (see DEB comment). util-linux provides
+    # runuser for the %post scriptlet. No libgomp (bundled libomp instead).
+    set(CPACK_RPM_MAGE_PACKAGE_REQUIRES
+        "memgraph, libcurl, openssl, python3, python3-pip, python3-setuptools, libatomic, util-linux")
+    set(CPACK_RPM_MAGE_PACKAGE_AUTOREQ "no")
+    set(CPACK_RPM_MAGE_PACKAGE_SUMMARY "Extra query modules for Memgraph")
+    set(CPACK_RPM_MAGE_PACKAGE_DESCRIPTION
+        "Additional query modules for Memgraph, installed under
+/usr/lib/memgraph/query_modules/.")
+
+    if(MG_SPLIT_DEBUG)
+        list(APPEND CPACK_COMPONENTS_ALL mage_debuginfo)
+
+        set(CPACK_DEBIAN_MAGE_DEBUGINFO_PACKAGE_NAME "memgraph-mage-debuginfo")
+        set(CPACK_DEBIAN_MAGE_DEBUGINFO_FILE_NAME
+            "memgraph-mage-debuginfo_${MEMGRAPH_VERSION_DEB}_${MG_ARCH_EXTENSION_DEB}.deb")
+        # Unlike the mage->memgraph dep, debug symbols only make sense for
+        # the exact matching build, so this one IS pinned.
+        set(CPACK_DEBIAN_MAGE_DEBUGINFO_PACKAGE_DEPENDS
+            "memgraph-mage (= ${MEMGRAPH_VERSION_DEB})")
+        set(CPACK_DEBIAN_MAGE_DEBUGINFO_PACKAGE_SECTION "debug")
+        set(CPACK_DEBIAN_MAGE_DEBUGINFO_PACKAGE_SHLIBDEPS OFF)
+        set(CPACK_DEBIAN_MAGE_DEBUGINFO_DESCRIPTION
+            "Debug symbols (.debug sidecars) for the matching memgraph-mage package.
+ Install alongside memgraph-mage for symbolicated stack traces; gdb
+ auto-locates each sidecar via .gnu_debuglink next to the corresponding
+ module.")
+
+        set(CPACK_RPM_MAGE_DEBUGINFO_PACKAGE_NAME "memgraph-mage-debuginfo")
+        set(CPACK_RPM_MAGE_DEBUGINFO_FILE_NAME
+            "memgraph-mage-debuginfo-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
+        # The debuginfo spec template is generic (all @CPACK_RPM_*@ tokens),
+        # so it serves both debuginfo components.
+        set(CPACK_RPM_MAGE_DEBUGINFO_USER_BINARY_SPECFILE
+            "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph-debuginfo.spec.in")
+        set(CPACK_RPM_MAGE_DEBUGINFO_PACKAGE_REQUIRES
+            "memgraph-mage = ${MEMGRAPH_VERSION_RPM}-1")
+        set(CPACK_RPM_MAGE_DEBUGINFO_PACKAGE_AUTOREQ "no")
+        set(CPACK_RPM_MAGE_DEBUGINFO_PACKAGE_SUMMARY
+            "Debug symbols for memgraph-mage")
+        set(CPACK_RPM_MAGE_DEBUGINFO_PACKAGE_DESCRIPTION
+            "Debug symbols (.debug sidecars) for the matching memgraph-mage package.")
+    endif()
+endif()
 
 # All variables must be set before including.
 include(CPack)

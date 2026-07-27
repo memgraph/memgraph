@@ -21,6 +21,12 @@ OPTIONS:
     --update-lockfile       Update conan.lock before installing dependencies
     --graph-info            Generate dependency graph as graph.html and exit
     --split-debug           Extract debug info into sidecar .debug files (requires RelWithDebInfo/Debug)
+    --mage MODE             MAGE query modules (C++, Python, Rust). MODE is one of:
+                              off  = no MAGE (default)
+                              on   = build MAGE together with Memgraph
+                              only = build just MAGE, not Memgraph itself
+                                     (trims the conan dependency graph)
+    --cugraph               Also build MAGE cuGraph GPU modules (implies --mage on)
     --profiling MODES       Comma-separated profiling build modes (e.g. --profiling fp,mem):
                               fp  = retain frame pointers for low-overhead 'perf' (MG_PROFILE)
                               mem = memory-profiling build, disables jemalloc (MG_MEMORY_PROFILE)
@@ -52,6 +58,15 @@ EXAMPLES:
     # Build multiple targets at once
     ./build.sh --target memgraph memgraph__unit
 
+    # Build Memgraph together with the MAGE query modules
+    ./build.sh --mage on
+
+    # Build just the MAGE query modules (no Memgraph)
+    ./build.sh --mage only
+
+    # MAGE-only with GPU modules against a prebuilt cuGraph
+    ./build.sh --mage only --cugraph -DMG_CUGRAPH_ROOT=/opt/conda
+
     # Configure only, don't build
     ./build.sh --config-only
 
@@ -76,6 +91,8 @@ graph_info=false
 RESERVE_CORES=0
 SPLIT_DEBUG=off
 PROFILING=""
+MAGE=off
+CUGRAPH=off
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -134,6 +151,14 @@ while [[ $# -gt 0 ]]; do
             SPLIT_DEBUG=on
             shift
             ;;
+        --mage)
+            MAGE="$2"
+            shift 2
+            ;;
+        --cugraph)
+            CUGRAPH=on
+            shift
+            ;;
         --profiling)
             PROFILING="$2"
             shift 2
@@ -151,6 +176,35 @@ done
 
 if [[ "$SPLIT_DEBUG" == "on" ]]; then
     CMAKE_ARGS="$CMAKE_ARGS -DMG_SPLIT_DEBUG=ON"
+fi
+
+if [[ "$MAGE" != "off" && "$MAGE" != "on" && "$MAGE" != "only" ]]; then
+    echo "Error: --mage must be 'off', 'on', or 'only' (got '$MAGE')" >&2
+    exit 1
+fi
+
+# conan.lock must always be generated from the FULL dependency graph; a
+# lockfile created from the trimmed MAGE-only graph would be missing the
+# memgraph dependencies and break every full build. (The reverse is fine:
+# MAGE-only builds consume the full lockfile as a superset.)
+if [[ "$update_lockfile" = true && "$MAGE" == "only" ]]; then
+    echo "Error: --update-lockfile requires the full dependency graph; drop '--mage only'" >&2
+    exit 1
+fi
+
+# cuGraph modules are part of MAGE, so --cugraph implies at least --mage on
+# (an explicit --mage only is respected).
+if [[ "$CUGRAPH" == "on" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_ENABLE_CUGRAPH=ON"
+    if [[ "$MAGE" == "off" ]]; then
+        MAGE=on
+    fi
+fi
+
+if [[ "$MAGE" == "on" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_BUILD_MEMGRAPH=ON -DMG_BUILD_MAGE=ON"
+elif [[ "$MAGE" == "off" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DMG_BUILD_MEMGRAPH=ON -DMG_BUILD_MAGE=OFF"
 fi
 
 # Map comma-separated --profiling tokens to CMake options.
@@ -187,6 +241,13 @@ CONAN_COMMON_ARGS=(
 
 if [[ "$offline" = true ]]; then
     CONAN_COMMON_ARGS+=("--no-remote")
+fi
+
+# MAGE-only mode: trim the conan dependency graph to what MAGE needs. The
+# conanfile also flips MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON via the
+# generated CMake toolchain (see conanfile.py generate()).
+if [[ "$MAGE" == "only" ]]; then
+    CONAN_COMMON_ARGS+=("-o" "&:mage_only=True")
 fi
 
 # delete existing build directory

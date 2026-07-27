@@ -13,7 +13,7 @@ GSSAPI_VERSION="1.11.1"
 # but CentOS Stream 9 ships 3.9 as python3 while memgraph is built against an
 # explicitly-installed python3.12 — so prefer python3.12 when present (otherwise
 # the wheel would be cp39 and rejected by the 3.12 install). Override with
-# PYTHON=<interpreter> if needed. Mirrors mage/install_python_requirements.sh.
+# PYTHON=<interpreter> if needed. Mirrors release/package/mage/install_python_requirements.sh.
 PYTHON="${PYTHON:-}"
 if [[ -z "$PYTHON" ]]; then
   if command -v python3.12 >/dev/null 2>&1; then
