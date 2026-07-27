@@ -2242,6 +2242,106 @@ TEST_P(CypherMainVisitorTest, CreateIndexAlternativeSyntaxNumericNameNotAllowed)
   EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX 1 FOR ()-[r:KNOWS]-() ON (r.since)"), SyntaxException);
 }
 
+TEST_P(CypherMainVisitorTest, CreateNodeRangeIndexAlternativeSyntax) {
+  auto &ast_generator = *GetParam();
+  // Explicit RANGE keyword is an alias for the plain FOR-style node index.
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("CREATE RANGE INDEX node_range_index FOR (n:Person) ON (n.surname)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  ASSERT_TRUE(index_query->name_);
+  EXPECT_EQ(*index_query->name_, "node_range_index");
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
+}
+
+TEST_P(CypherMainVisitorTest, CreateNodeRangeIndexAlternativeSyntaxNoName) {
+  auto &ast_generator = *GetParam();
+  auto *index_query =
+      dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("CREATE RANGE INDEX FOR (n:Person) ON (n.surname)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
+}
+
+TEST_P(CypherMainVisitorTest, CreateNodeRangeIndexAlternativeSyntaxComposite) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("CREATE RANGE INDEX composite_idx FOR (n:Person) ON (n.age, n.country)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  auto expected = std::vector{PropertyIxPath{ast_generator.Prop("age")}, PropertyIxPath{ast_generator.Prop("country")}};
+  EXPECT_EQ(index_query->properties_, expected);
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeRangeIndexAlternativeSyntax) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<EdgeIndexQuery *>(
+      ast_generator.ParseQuery("CREATE RANGE INDEX rel_range_index FOR ()-[r:KNOWS]-() ON (r.since)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, EdgeIndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->edge_type_, ast_generator.EdgeType("KNOWS"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], ast_generator.Prop("since"));
+}
+
+TEST_P(CypherMainVisitorTest, CreateEdgeRangeIndexAlternativeSyntaxNoName) {
+  auto &ast_generator = *GetParam();
+  auto *index_query =
+      dynamic_cast<EdgeIndexQuery *>(ast_generator.ParseQuery("CREATE RANGE INDEX FOR ()-[r:KNOWS]-() ON (r.since)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, EdgeIndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->edge_type_, ast_generator.EdgeType("KNOWS"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], ast_generator.Prop("since"));
+}
+
+TEST_P(CypherMainVisitorTest, RangeKeywordStillUsableAsIdentifier) {
+  auto &ast_generator = *GetParam();
+  // Making RANGE a token must not break the range() function nor an index named `range`.
+  EXPECT_NO_THROW(ast_generator.ParseQuery("RETURN range(1, 10) AS r"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX range FOR (n:Person) ON (n.surname)"));
+}
+
+TEST_P(CypherMainVisitorTest, CreateNodeRangeIndexAlternativeSyntaxIfNotExists) {
+  auto &ast_generator = *GetParam();
+  // The RANGE keyword must compose with the optional IF NOT EXISTS clause.
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("CREATE RANGE INDEX idx IF NOT EXISTS FOR (n:Person) ON (n.surname)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  ASSERT_TRUE(index_query->name_);
+  EXPECT_EQ(*index_query->name_, "idx");
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
+}
+
+TEST_P(CypherMainVisitorTest, CreateRangeIndexNamedRange) {
+  auto &ast_generator = *GetParam();
+  // The RANGE keyword and an index literally named `range` must disambiguate:
+  // the first `range` is the keyword, the second is the index name.
+  auto *index_query =
+      dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("CREATE RANGE INDEX range FOR (n:Person) ON (n.surname)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  ASSERT_TRUE(index_query->name_);
+  EXPECT_EQ(*index_query->name_, "range");
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  ASSERT_EQ(index_query->properties_.size(), 1U);
+  EXPECT_EQ(index_query->properties_[0], (PropertyIxPath{ast_generator.Prop("surname")}));
+}
+
+TEST_P(CypherMainVisitorTest, RangeKeywordNotAllowedInOnStyleIndex) {
+  auto &ast_generator = *GetParam();
+  // RANGE is only an alias for the FOR-style syntax; the old ON syntax must still reject it.
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE RANGE INDEX ON :Person(surname)"), SyntaxException);
+}
+
 TEST_P(CypherMainVisitorTest, CreateConstraintAlternativeNumericNameNotAllowed) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT 1 FOR (n:Book) REQUIRE n.isbn IS UNIQUE"), SyntaxException);
