@@ -26,11 +26,12 @@
 # approaches have to be employed.
 # NOTE: The instance description / context should be compatible with tests/e2e/runner.py
 
+import concurrent.futures
 import logging
 import os
+import readline
 import secrets
 import sys
-import termios
 import time
 from argparse import ArgumentParser
 from inspect import signature
@@ -70,63 +71,43 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
-def read_action_line(prompt="ACTION> "):
-    sys.stdout.write(prompt)
-    sys.stdout.flush()
+HISTORY_MAX_SIZE = 1000
+HISTORY_FILE = os.path.expanduser("~/.interactive_mg_runner_history")
+history_loaded = False
 
-    fd = sys.stdin.fileno()
-    old_attrs = termios.tcgetattr(fd)
-    new_attrs = termios.tcgetattr(fd)
 
-    # Turn off ECHO and ICANON (so keys don't print themselves and we read byte-by-byte)
-    new_attrs[3] &= ~(termios.ECHO | termios.ICANON)
-    termios.tcsetattr(fd, termios.TCSADRAIN, new_attrs)
-
+def load_history():
+    global history_loaded
+    if history_loaded:
+        return
+    history_loaded = True
+    readline.set_history_length(HISTORY_MAX_SIZE)
     try:
-        buf = []
-        while True:
-            ch = os.read(fd, 1)
-            if not ch:
-                continue
-            c = ch.decode("utf-8", "ignore")
+        readline.read_history_file(HISTORY_FILE)
+    except OSError:
+        pass
 
-            # Enter
-            if c in ("\n", "\r"):
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-                return "".join(buf)
 
-            # Backspace (DEL)
-            if c == "\x7f":
-                if buf:
-                    buf.pop()
-                    sys.stdout.write("\b \b")
-                    sys.stdout.flush()
-                continue
+def save_history():
+    try:
+        readline.write_history_file(HISTORY_FILE)
+    except OSError as e:
+        log.warning(f"Could not save action history to {HISTORY_FILE}: {e}")
 
-            # ESC sequences (arrows, Home/End, etc.) — swallow them completely
-            if c == "\x1b":
-                # Typical CSI: ESC [ ... final
-                nxt = os.read(fd, 1).decode("utf-8", "ignore")
-                if nxt == "[":
-                    # Read until final byte of CSI sequence (@ A–Z a–z ~)
-                    while True:
-                        d = os.read(fd, 1).decode("utf-8", "ignore")
-                        if not d:
-                            break
-                        if d.isalpha() or d in "@~":
-                            break
-                # Ignore whole sequence (don’t echo)
-                continue
 
-            # Regular printable characters
-            if c.isprintable():
-                buf.append(c)
-                sys.stdout.write(c)
-                sys.stdout.flush()
-            # ignore everything else silently
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+def read_action_line(prompt="ACTION> "):
+    load_history()
+    try:
+        line = input(prompt)
+    except EOFError:
+        sys.stdout.write("\n")
+        sys.exit(0)
+    # Drop consecutive duplicates, which readline adds unconditionally.
+    length = readline.get_current_history_length()
+    if length >= 2 and readline.get_history_item(length) == readline.get_history_item(length - 1):
+        readline.remove_history_item(length - 1)
+    save_history()
+    return line
 
 
 def clear_screen():
@@ -227,9 +208,16 @@ def _start(
     storage_snapshot_on_exit: bool = False,
     gdb_port=None,
 ):
-    assert (
-        name not in MEMGRAPH_INSTANCES.keys()
-    ), "If this raises, you are trying to start an instance with the same name as the one running."
+    """
+    Returns True if the instance was started, False if it was already running and the start was skipped.
+    """
+    existing_instance = MEMGRAPH_INSTANCES.get(name)
+    if existing_instance is not None:
+        if existing_instance.is_running():
+            log.info(f"Instance with name {name} is already running, skipping start.")
+            return False
+        log.info(f"Instance with name {name} is registered but not running, starting it again.")
+        MEMGRAPH_INSTANCES.pop(name)
 
     bolt_port = extract_bolt_port(args)
     assert wait_until_port_is_free(
@@ -263,6 +251,7 @@ def _start(
         storage_snapshot_on_exit=storage_snapshot_on_exit,
     )
     assert mg_instance.is_running(), "An error occurred after starting Memgraph instance: application stopped running."
+    return True
 
 
 def stop_all(keep_directories=True):
@@ -274,18 +263,27 @@ def stop_all(keep_directories=True):
     MEMGRAPH_INSTANCES.clear()
 
 
+def parse_instance_names(names):
+    """
+    Parses a comma-separated list of instance names, e.g. 'coordinator_1,coordinator_2', into a list of names.
+    """
+    return [name.strip() for name in str(names).split(",") if name.strip()]
+
+
 def stop(context, name, keep_directories=True):
     """
+    Stops one or more comma-separated instances, e.g. 'coordinator_1,coordinator_2'.
     Idempotent in a sense that stopping already stopped instance won't fail program.
     """
-    if name not in context:
-        log.error(f"{name} is not an active instance name")
-        return
-    for key, _ in context.items():
-        if key != name:
+    for instance_name in parse_instance_names(name):
+        if instance_name not in context:
+            log.error(f"{instance_name} is not an active instance name")
             continue
-        MEMGRAPH_INSTANCES[name].stop(keep_directories)
-        MEMGRAPH_INSTANCES.pop(name)
+        instance = MEMGRAPH_INSTANCES.pop(instance_name, None)
+        if instance is None:
+            log.info(f"Instance with name {instance_name} is not running, skipping stop.")
+            continue
+        instance.stop(keep_directories)
 
 
 def kill_all(keep_directories=True):
@@ -309,82 +307,107 @@ def kill(context, name, keep_directories=True):
 
 
 def start_wrapper(instances, instance_name, procdir="", gdb_port=None):
+    """
+    Starts 'all' instances, a single instance or multiple comma-separated instances,
+    e.g. 'coordinator_1,coordinator_2'. Multiple instances are started in parallel.
+    """
     if instance_name == "all":
-        start_all(instances, procdir, gdb_port=gdb_port)
-    else:
-        start(instances, instance_name, procdir, gdb_port=gdb_port)
-
-
-def start(instances, instance_name, procdir="", gdb_port=None):
-    mg_instances = {}
-
-    if instance_name not in instances:
-        log.error(f"{instance_name} is not an active instance name")
+        start_all(instances, procdir, gdb_port=gdb_port, ignore_setup_failures=True)
         return
 
-    for key, value in instances.items():
-        if key != instance_name:
-            continue
-        args = value["args"]
-        log_file = value["log_file"]
+    instance_names = parse_instance_names(instance_name)
+    known_names = [name for name in instance_names if name in instances]
+    for unknown_name in set(instance_names) - set(known_names):
+        log.error(f"{unknown_name} is not an active instance name")
 
-        setup_queries = value["setup_queries"] if "setup_queries" in value else []
-
-        use_ssl = False
-        if "ssl" in value:
-            use_ssl = bool(value["ssl"])
-            value.pop("ssl")
-
-        # If nothing specified, use 8-character random string.
-        data_directory = value["data_directory"] if "data_directory" in value else secrets.token_hex(4)
-
-        username = value["username"] if "username" in value else None
-        password = value["password"] if "password" in value else None
-
-        storage_snapshot_on_exit = value["storage_snapshot_on_exit"] if "storage_snapshot_on_exit" in value else False
-
-        instance = _start(
-            instance_name,
-            args,
-            log_file,
-            setup_queries,
-            use_ssl,
-            procdir,
-            data_directory,
-            username,
-            password,
-            storage_snapshot_on_exit=storage_snapshot_on_exit,
-            gdb_port=gdb_port,
+    if known_names:
+        start_all_keep_others(
+            {name: instances[name] for name in known_names}, procdir, gdb_port=gdb_port, ignore_setup_failures=True
         )
-        log.info(f"Instance with name {instance_name} started")
-        mg_instances[instance_name] = instance
-
-    assert len(mg_instances) == 1
 
 
-def start_all(context, procdir="", keep_directories=True, gdb_port=None):
+def start(instances, instance_name, procdir="", gdb_port=None, run_setup_queries=True):
     """
-    Start all instances by first stopping all instances and then calling start_instance for each instance from the `context`.
+    Returns True if the instance was started, False if it was skipped or unknown. When `run_setup_queries` is False,
+    setup queries are not executed and the caller is responsible for running them once all instances are up.
+    """
+    if instance_name not in instances:
+        log.error(f"{instance_name} is not an active instance name")
+        return False
+
+    value = instances[instance_name]
+    args = value["args"]
+    log_file = value["log_file"]
+
+    setup_queries = value["setup_queries"] if "setup_queries" in value else []
+    if not run_setup_queries:
+        setup_queries = []
+
+    use_ssl = False
+    if "ssl" in value:
+        use_ssl = bool(value["ssl"])
+        value.pop("ssl")
+
+    # If nothing specified, use 8-character random string.
+    data_directory = value["data_directory"] if "data_directory" in value else secrets.token_hex(4)
+
+    username = value["username"] if "username" in value else None
+    password = value["password"] if "password" in value else None
+
+    storage_snapshot_on_exit = value["storage_snapshot_on_exit"] if "storage_snapshot_on_exit" in value else False
+
+    started = _start(
+        instance_name,
+        args,
+        log_file,
+        setup_queries,
+        use_ssl,
+        procdir,
+        data_directory,
+        username,
+        password,
+        storage_snapshot_on_exit=storage_snapshot_on_exit,
+        gdb_port=gdb_port,
+    )
+    if started:
+        log.info(f"Instance with name {instance_name} started")
+    return started
+
+
+def start_all(context, procdir="", keep_directories=True, gdb_port=None, ignore_setup_failures=False):
+    """
+    Start all instances by first stopping all instances and then starting all instances from the `context` in parallel.
     If gdb_port is set, only the first instance will be started under gdbserver.
     """
     stop_all(keep_directories)
-    first_instance = True
-    for key, _ in context.items():
-        # Only attach gdb to the first instance to avoid port conflicts
-        port = gdb_port if first_instance else None
-        start(context, key, procdir, gdb_port=port)
-        first_instance = False
+    start_all_keep_others(context, procdir, gdb_port=gdb_port, ignore_setup_failures=ignore_setup_failures)
 
 
-def start_all_keep_others(context, procdir="", gdb_port=None):
+def start_all_keep_others(context, procdir="", gdb_port=None, ignore_setup_failures=False):
     """
-    Start all instances from the context but don't stop currently running instances.
+    Start all instances from the context in parallel but don't stop currently running instances.
+    Instances must be started in parallel because e.g. coordinators cannot finish their startup until a quorum of them
+    is reachable. Setup queries are executed sequentially in context order only after all instances are up.
+    When `ignore_setup_failures` is set, individual setup query failures are logged and skipped, e.g. when restarting
+    instances on which the queries were already applied.
     """
-    first_instance = True
-    for key, _ in context.items():
-        port = gdb_port if first_instance else None
-        start(context, key, procdir, gdb_port=port)
-        first_instance = False
+    if not context:
+        return
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(context)) as executor:
+        futures = {}
+        for idx, key in enumerate(context.keys()):
+            # Only attach gdb to the first instance to avoid port conflicts
+            port = gdb_port if idx == 0 else None
+            futures[executor.submit(start, context, key, procdir, gdb_port=port, run_setup_queries=False)] = key
+        started = {key: future.result() for future, key in futures.items()}
+
+    for key, value in context.items():
+        if not started.get(key):
+            continue
+        setup_queries = value.get("setup_queries", [])
+        if setup_queries:
+            MEMGRAPH_INSTANCES[key].execute_setup_queries(setup_queries, ignore_failures=ignore_setup_failures)
+            log.info(f"Executed setup queries for instance with name {key}.")
 
 
 def info(context):
@@ -403,7 +426,7 @@ def process_actions(instances, data):
     """
     Processes all `actions` using the `context` as context.
     """
-    data = data.split(" ")
+    data = data.split()
     data.reverse()
     while len(data) > 0:
         arg = data.pop()
@@ -423,7 +446,11 @@ def process_actions(instances, data):
             if len(data) == 0:
                 log.error(f"Not enough args provided. Expected 1 but found 0 for action {arg}")
             else:
-                action(instances, data.pop())
+                action_arg = data.pop()
+                # Merge comma-separated lists split by spaces, e.g. 'stop a, b' or 'stop a , b'.
+                while len(data) > 0 and (action_arg.endswith(",") or data[-1].startswith(",")):
+                    action_arg += data.pop()
+                action(instances, action_arg)
 
 
 if __name__ == "__main__":
