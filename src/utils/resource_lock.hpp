@@ -16,6 +16,7 @@
 #include <optional>
 #include <utility>
 
+#include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 
 namespace memgraph::utils {
@@ -87,10 +88,13 @@ struct ResourceLock {
   template <> NotifyKind pending_release_should_notify<LockReq::READ_ONLY>() const { return ro_pending_count == 0 ? NotifyKind::All : NotifyKind::None; }
   template <> NotifyKind pending_release_should_notify<LockReq::UNIQUE>() const { return unique_pending_count == 0 ? NotifyKind::All : NotifyKind::None; }
 
+  // The counts are unsigned: an unmatched release wraps one rather than going negative, and the
+  // mode it guards is then blocked for the lifetime of the process, silently and far from the
+  // cause. Assert the balance at the release itself.
   template <LockReq Req> void unlock_state_updater();
-  template <> void unlock_state_updater<LockReq::WRITE>()     { --w_count; }
-  template <> void unlock_state_updater<LockReq::READ>()      { --r_count; }
-  template <> void unlock_state_updater<LockReq::READ_ONLY>() { --ro_count; }
+  template <> void unlock_state_updater<LockReq::WRITE>()     { DMG_ASSERT(w_count > 0, "unlock_shared<WRITE> without a matching lock_shared<WRITE>"); --w_count; }
+  template <> void unlock_state_updater<LockReq::READ>()      { DMG_ASSERT(r_count > 0, "unlock_shared<READ> without a matching lock_shared<READ>"); --r_count; }
+  template <> void unlock_state_updater<LockReq::READ_ONLY>() { DMG_ASSERT(ro_count > 0, "unlock_shared<READ_ONLY> without a matching lock_shared<READ_ONLY>"); --ro_count; }
   template <> void unlock_state_updater<LockReq::UNIQUE>()    { }
 
   // WRITE omits ro_count, and READ_ONLY omits w_count, because the two are mutually exclusive by
@@ -195,6 +199,9 @@ struct ResourceLock {
   template <LockReq Req>
   void release() {
     auto lock = std::unique_lock{mtx};
+    // A second release of the same hold drops `state` while another thread owns it.
+    [[maybe_unused]] constexpr auto expected = Req == LockReq::UNIQUE ? UNIQUE : SHARED;
+    DMG_ASSERT(state == expected, "release() on a lock that is not held in the mode being released");
     unlock_state_updater<Req>();
     if (unlock_has_fully_unlocked<Req>()) {
       state = UNLOCKED;
