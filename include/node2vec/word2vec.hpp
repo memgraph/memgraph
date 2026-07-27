@@ -152,7 +152,7 @@ class Word2Vec {
   // uniform(-0.5/dim, 0.5/dim) initialization seeded per word.
   void InitRow(int index, Token token) {
     uint64_t s = seed_ ^ (static_cast<uint64_t>(token) * 0x9E3779B97F4A7C15ULL + 0x632BE59BD9B4E019ULL);
-    std::mt19937_64 rng(s);
+    std::mt19937_64 rng(s);  // NOSONAR
     std::uniform_real_distribution<float> dist(-0.5f / dim_, 0.5f / dim_);
     float *row = &syn0_[static_cast<size_t>(index) * dim_];
     for (int d = 0; d < dim_; ++d) row[d] = dist(rng);
@@ -225,7 +225,7 @@ class Word2Vec {
     cum_table_[vocab_size_ - 1] = 1.0;  // guard against fp drift
   }
 
-  inline int SampleNegative(std::mt19937_64 &rng) const {
+  inline int SampleNegative(std::mt19937_64 &rng) const {  // NOSONAR
     std::uniform_real_distribution<double> dist(0.0, 1.0);
     double r = dist(rng);
     int lo = 0, hi = vocab_size_ - 1;
@@ -347,7 +347,7 @@ class Word2Vec {
   // (Hogwild-style), matching gensim's multithreaded training.
   void TrainRange(const std::vector<std::vector<int>> &coded, size_t begin, size_t end,
                   std::atomic<int64_t> &words_done, int64_t total_train_words, uint64_t rng_seed) {
-    std::mt19937_64 rng(rng_seed);
+    std::mt19937_64 rng(rng_seed);         // NOSONAR
     std::vector<float> neu1(dim_, 0.0f);   // CBOW hidden layer
     std::vector<float> neu1e(dim_, 0.0f);  // accumulated gradient
 
@@ -391,7 +391,7 @@ class Word2Vec {
 
   // Skip-gram: each context word (input) predicts the center word (output).
   void TrainSGWord(const std::vector<int> &sentence, int i, int b, float alpha, std::vector<float> &neu1e,
-                   std::mt19937_64 &rng) {
+                   std::mt19937_64 &rng) {  // NOSONAR
     const int len = static_cast<int>(sentence.size());
     const int center = sentence[i];
     for (int a = b; a < 2 * p_.window + 1 - b; ++a) {
@@ -407,7 +407,7 @@ class Word2Vec {
 
   // CBOW: averaged context words predict the center word.
   void TrainCBOWWord(const std::vector<int> &sentence, int i, int b, float alpha, std::vector<float> &neu1,
-                     std::vector<float> &neu1e, std::mt19937_64 &rng) {
+                     std::vector<float> &neu1e, std::mt19937_64 &rng) {  // NOSONAR
     const int len = static_cast<int>(sentence.size());
     const int center = sentence[i];
     std::fill(neu1.begin(), neu1.end(), 0.0f);
@@ -437,7 +437,7 @@ class Word2Vec {
   // Updates output weights for predicting `target` given hidden vector `l1`,
   // accumulating the input-side gradient into `neu1e`. Applies hierarchical
   // softmax and/or negative sampling depending on parameters.
-  void TrainPair(int target, const float *l1, float alpha, float *neu1e, std::mt19937_64 &rng) {
+  void TrainPair(int target, const float *l1, float alpha, float *neu1e, std::mt19937_64 &rng) {  // NOSONAR
     if (p_.hs && !hs_codes_.empty()) {
       const std::vector<uint8_t> &code = hs_codes_[target];
       const std::vector<int> &point = hs_points_[target];

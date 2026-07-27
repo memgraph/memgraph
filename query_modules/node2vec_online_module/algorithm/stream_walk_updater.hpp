@@ -66,7 +66,7 @@ class StreamWalkUpdater {
   int64_t cutoff_;
   int max_length_;
   bool full_walks_;
-  std::mt19937_64 rng_;
+  std::mt19937_64 rng_;  // NOSONAR
 
   std::unordered_map<NodeId, std::vector<InEdge>> graph_;  // in-edges per node, arrival order
   std::unordered_map<NodeId, int64_t> last_timestamp_;

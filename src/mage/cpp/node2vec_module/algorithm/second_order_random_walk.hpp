@@ -137,7 +137,7 @@ class SecondOrderRandomWalk {
     SetFirstPassTransitionProbs(graph);
     SetGraphTransitionProbs(graph);
 
-    std::mt19937_64 rng(seed_);
+    std::mt19937_64 rng(seed_);  // NOSONAR
     std::vector<std::vector<NodeId>> walks;
     for (NodeId node : graph.Nodes()) {
       for (int i = 0; i < num_walks_; ++i) {
@@ -204,7 +204,7 @@ class SecondOrderRandomWalk {
   }
 
   static NodeId WeightedChoice(const std::vector<NodeId> &items, const std::vector<double> &probs,
-                               std::mt19937_64 &rng) {
+                               std::mt19937_64 &rng) {  // NOSONAR
     std::uniform_real_distribution<double> dist(0.0, 1.0);
     double r = dist(rng);
     double cum = 0.0;
@@ -215,7 +215,7 @@ class SecondOrderRandomWalk {
     return items.back();
   }
 
-  std::vector<NodeId> SampleWalk(N2vGraph &graph, NodeId start, std::mt19937_64 &rng) {
+  std::vector<NodeId> SampleWalk(N2vGraph &graph, NodeId start, std::mt19937_64 &rng) {  // NOSONAR
     std::vector<NodeId> walk{start};
     while (static_cast<int>(walk.size()) < walk_length_) {
       NodeId current = walk.back();
