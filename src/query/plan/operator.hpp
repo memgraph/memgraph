@@ -3191,6 +3191,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 

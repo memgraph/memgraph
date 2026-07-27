@@ -9188,6 +9188,11 @@ std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const
   return symbols;
 }
 
+std::vector<Symbol> RollUpApply::OutputSymbols(const SymbolTable &symbol_table) const {
+  // The result symbol is internal to expression evaluation, so only the input's output columns are propagated.
+  return input_->OutputSymbols(symbol_table);
+}
+
 bool RollUpApply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
     if (!input_ || !list_collection_branch_) {

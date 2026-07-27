@@ -421,3 +421,122 @@ Feature: Pattern comprehensions
         Then the result should be:
             | cnt | edges  |
             | 2   | [1, 1] |
+
+    Scenario: Pattern comprehension in the WHERE of a WITH filters on the bound variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be:
+            | name     |
+            | 'Regina' |
+
+    Scenario: Pattern comprehension in the WHERE of a WITH DISTINCT filters on the bound variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH DISTINCT p
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name
+            """
+        Then the result should be:
+            | name     |
+            | 'Regina' |
+
+    Scenario: Pattern comprehension in the ORDER BY of a WITH sorts on the bound variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p
+            ORDER BY size([(p)-[:ACTED_IN]->(m) | m]) DESC
+            RETURN p.name AS name
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+            | 'Bob'    |
+
+    Scenario: Pattern comprehension in the WHERE of an aggregating WITH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p, count(*) AS c
+            WHERE size([(p)-[:ACTED_IN]->(m) | m]) > 0
+            RETURN p.name AS name, c
+            """
+        Then the result should be:
+            | name     | c |
+            | 'Regina' | 1 |
+
+    Scenario: Pattern comprehension in the ORDER BY of an aggregating WITH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p, count(*) AS c
+            ORDER BY size([(p)-[:ACTED_IN]->(m) | m]) DESC
+            RETURN p.name AS name
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+            | 'Bob'    |
+
+    Scenario: Pattern comprehension in the ORDER BY of a RETURN sorts on the bound variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Person {name: 'Zoe'})-[:ACTED_IN]->(:Movie {title: 'M1'})
+            CREATE (a)-[:ACTED_IN]->(:Movie {title: 'M2'})
+            CREATE (:Person {name: 'Regina'})-[:ACTED_IN]->(:Movie {title: 'Jerry'})
+            CREATE (:Person {name: 'Bob'})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            RETURN p.name AS name
+            ORDER BY size([(p)-[:ACTED_IN]->(m) | m]) DESC
+            """
+        Then the result should be, in order:
+            | name     |
+            | 'Zoe'    |
+            | 'Regina' |
+            | 'Bob'    |
