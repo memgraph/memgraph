@@ -45,7 +45,11 @@ struct PatternComprehensionData {
 /// Interface for planning pattern comprehensions, avoiding std::function overhead.
 struct PatternComprehensionPlanner {
   virtual ~PatternComprehensionPlanner() = default;
-  virtual std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view) = 0;
+  /// @param extra_bound_symbols Symbols bound by an operator the comprehension will be planned after, but which are
+  /// not yet in the planning context (the output symbols of a WITH/RETURN whose WHERE or ORDER BY holds the
+  /// comprehension).
+  virtual std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view,
+                                                const std::unordered_set<Symbol> &extra_bound_symbols = {}) = 0;
 };
 
 /// Context for on-demand pattern comprehension planning in RETURN/WITH bodies.
@@ -204,8 +208,14 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   explicit RuleBasedPlanner(TPlanningContext *context) : context_(context) {}
 
   /// Implements PatternComprehensionPlanner interface
-  std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view) override {
-    return PlanPatternComprehension(matching, *context_->symbol_table, context_->bound_symbols, view);
+  std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view,
+                                        const std::unordered_set<Symbol> &extra_bound_symbols = {}) override {
+    if (extra_bound_symbols.empty()) {
+      return PlanPatternComprehension(matching, *context_->symbol_table, context_->bound_symbols, view);
+    }
+    auto bound_symbols = context_->bound_symbols;
+    bound_symbols.insert(extra_bound_symbols.begin(), extra_bound_symbols.end());
+    return PlanPatternComprehension(matching, *context_->symbol_table, bound_symbols, view);
   }
 
   /// @brief The result of plan generation is the root of the generated operator

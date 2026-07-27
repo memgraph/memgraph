@@ -2975,10 +2975,11 @@ TYPED_TEST(TestPlanner, PatternComprehensionInWithWhere) {
 
   auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", LITERAL(1))), WHERE(where_expr), RETURN("a")));
 
-  // Plan structure: Once -> RollUpApply -> Produce (WITH) -> Filter (WHERE) -> Produce (RETURN)
-  // The RollUpApply evaluates the pattern comprehension in the WHERE clause
+  // Plan structure: Once -> Produce (WITH) -> RollUpApply -> Filter (WHERE) -> Produce (RETURN)
+  // The comprehension is in WHERE, which is evaluated after the WITH's Produce, so the RollUpApply follows it.
   std::list<std::unique_ptr<BaseOpChecker>> input_ops;
   input_ops.push_back(std::make_unique<ExpectOnce>());
+  input_ops.push_back(std::make_unique<ExpectProduce>());
 
   // Pattern comprehension branch operations (bottom-up: Once -> ScanAll -> Expand -> Produce)
   std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
@@ -2987,12 +2988,79 @@ TYPED_TEST(TestPlanner, PatternComprehensionInWithWhere) {
   pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
   pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
 
-  CheckPlan<TypeParam>(query,
-                       this->storage,
-                       ExpectRollUpApply(input_ops, pattern_comp_branch_ops),
-                       ExpectProduce(),
-                       ExpectFilter(),
-                       ExpectProduce());
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithWhere) {
+  // Test MATCH (n) WITH n WHERE [(n)--(m) | 1] = [] RETURN n
+  // The comprehension expands from `n`, which WITH re-declares. Its branch must expand from the bound `n` rather
+  // than re-scanning it, which is only possible if the RollUpApply is planned after the WITH's Produce.
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n"), WHERE(EQ(pattern_comp, LIST())), RETURN("n")));
+
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectOnce>());
+  input_ops.push_back(std::make_unique<ExpectScanAll>());
+  input_ops.push_back(std::make_unique<ExpectProduce>());
+
+  // No ScanAll in the branch: `n` is bound, so the expansion starts from it.
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithOrderBy) {
+  // Test MATCH (n) WITH n ORDER BY length([(n)--(m) | 1]) RETURN n
+  // As above, but for ORDER BY: the sort key must be computed per row from the bound `n`.
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", ORDER_BY(FN("length", pattern_comp))), RETURN("n")));
+
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectOnce>());
+  input_ops.push_back(std::make_unique<ExpectScanAll>());
+  input_ops.push_back(std::make_unique<ExpectProduce>());
+
+  std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectOnce>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectOrderBy(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInWithWhereWithAggregation) {
+  // Test MATCH (n) WITH n, count(*) AS c WHERE [(n)--(m) | 1] = [] RETURN n
+  // With an aggregation present, ORDER BY / WHERE are not visited for group-by collection. The comprehension there
+  // must still be planned, and after the Produce - otherwise it is never planned at all and its frame slot is null.
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon1", EdgeAtom::Direction::BOTH), NODE("m")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WITH(IDENT("n"), AS("n"), COUNT(nullptr, false), AS("c")),
+                                   WHERE(EQ(pattern_comp, LIST())),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto &plan = planner.plan();
+
+  // Produce (RETURN) -> Filter (WHERE) -> RollUpApply -> Produce (WITH) -> Aggregate
+  auto *produce = dynamic_cast<Produce *>(&plan);
+  ASSERT_NE(produce, nullptr) << "Root should be Produce";
+  auto *filter = dynamic_cast<Filter *>(produce->input_.get());
+  ASSERT_NE(filter, nullptr) << "Filter should be directly under Produce";
+  auto *rollup = dynamic_cast<RollUpApply *>(filter->input_.get());
+  ASSERT_NE(rollup, nullptr) << "RollUpApply should be planned for the comprehension in WHERE";
+  EXPECT_NE(dynamic_cast<Produce *>(rollup->input_.get()), nullptr) << "RollUpApply must come after the WITH's Produce";
 }
 
 TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
@@ -3008,10 +3076,12 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
 
   auto *query = QUERY(SINGLE_QUERY(WITH(NEXPR("a", LITERAL(1))), WHERE(where_expr), RETURN("a")));
 
-  // Plan structure: Once -> RollUpApply (first PC) -> RollUpApply (second PC) -> Produce (WITH) -> Filter (WHERE) ->
-  // Produce (RETURN) First RollUpApply
+  // Plan structure: Once -> Produce (WITH) -> RollUpApply (first PC) -> RollUpApply (second PC) -> Filter (WHERE) ->
+  // Produce (RETURN). Both comprehensions are in WHERE, so both follow the WITH's Produce.
+  // First RollUpApply
   std::list<std::unique_ptr<BaseOpChecker>> input_ops1;
   input_ops1.push_back(std::make_unique<ExpectOnce>());
+  input_ops1.push_back(std::make_unique<ExpectProduce>());
 
   std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops1;
   pattern_comp_branch_ops1.push_back(std::make_unique<ExpectOnce>());
@@ -3029,12 +3099,8 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInWithWhere) {
   pattern_comp_branch_ops2.push_back(std::make_unique<ExpectExpand>());
   pattern_comp_branch_ops2.push_back(std::make_unique<ExpectProduce>());
 
-  CheckPlan<TypeParam>(query,
-                       this->storage,
-                       ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2),
-                       ExpectProduce(),
-                       ExpectFilter(),
-                       ExpectProduce());
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, NestedPatternComprehensionInMatchWhere) {
@@ -3162,10 +3228,11 @@ TYPED_TEST(TestPlanner, SinglePatternComprehensionInOrderBy) {
 
   auto *query = QUERY(SINGLE_QUERY(RETURN(NEXPR("x", LITERAL(1)), ORDER_BY(length_call))));
 
-  // Plan structure: Once -> RollUpApply -> Produce -> OrderBy
-  // The RollUpApply evaluates the pattern comprehension in the ORDER BY clause
+  // Plan structure: Once -> Produce -> RollUpApply -> OrderBy
+  // ORDER BY is evaluated after the Produce, so the RollUpApply follows it.
   std::list<std::unique_ptr<BaseOpChecker>> input_ops;
   input_ops.push_back(std::make_unique<ExpectOnce>());
+  input_ops.push_back(std::make_unique<ExpectProduce>());
 
   // Pattern comprehension branch operations (bottom-up: Once -> ScanAll -> Expand -> Produce)
   std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops;
@@ -3174,8 +3241,7 @@ TYPED_TEST(TestPlanner, SinglePatternComprehensionInOrderBy) {
   pattern_comp_branch_ops.push_back(std::make_unique<ExpectExpand>());
   pattern_comp_branch_ops.push_back(std::make_unique<ExpectProduce>());
 
-  CheckPlan<TypeParam>(
-      query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectProduce(), ExpectOrderBy());
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, pattern_comp_branch_ops), ExpectOrderBy());
 }
 
 TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInOrderBy) {
@@ -3190,10 +3256,11 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInOrderBy) {
 
   auto *query = QUERY(SINGLE_QUERY(RETURN(NEXPR("x", LITERAL(1)), ORDER_BY(length_call))));
 
-  // Plan structure: Once -> RollUpApply (first PC) -> RollUpApply (second PC) -> Produce -> OrderBy
+  // Plan structure: Once -> Produce -> RollUpApply (first PC) -> RollUpApply (second PC) -> OrderBy
   // First RollUpApply
   std::list<std::unique_ptr<BaseOpChecker>> input_ops1;
   input_ops1.push_back(std::make_unique<ExpectOnce>());
+  input_ops1.push_back(std::make_unique<ExpectProduce>());
 
   std::list<std::unique_ptr<BaseOpChecker>> pattern_comp_branch_ops1;
   pattern_comp_branch_ops1.push_back(std::make_unique<ExpectOnce>());
@@ -3211,8 +3278,7 @@ TYPED_TEST(TestPlanner, MultiplePatternComprehensionsInOrderBy) {
   pattern_comp_branch_ops2.push_back(std::make_unique<ExpectExpand>());
   pattern_comp_branch_ops2.push_back(std::make_unique<ExpectProduce>());
 
-  CheckPlan<TypeParam>(
-      query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectProduce(), ExpectOrderBy());
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops2, pattern_comp_branch_ops2), ExpectOrderBy());
 }
 
 // Note: Nested pattern comprehensions (e.g., RETURN [()--() | [()--() | 1]] AS x) are supported.
