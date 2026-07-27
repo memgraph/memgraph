@@ -1,0 +1,38 @@
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_all(a, {relationshipFilter: ['<R>'], maxHops: 5})
+  YIELD nodes, rels
+  UNWIND nodes AS node
+  WITH rels, node ORDER BY node.name
+  WITH collect(node) AS nodes, rels
+  UNWIND rels AS rel
+  WITH nodes, rel ORDER BY rel.seq
+  RETURN nodes, collect(rel) AS rels
+
+output:
+  - nodes:
+      - labels:
+          - Node
+        properties:
+          name: A
+      - labels:
+          - Node
+        properties:
+          name: B
+      - labels:
+          - Node
+        properties:
+          name: C
+    rels:
+      - label: R
+        properties:
+          seq: 1
+      - label: R
+        properties:
+          seq: 2
+      - label: R
+        properties:
+          seq: 3
+      - label: R
+        properties:
+          seq: 4

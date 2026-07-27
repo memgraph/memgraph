@@ -7,9 +7,6 @@ query: >
 output:
   - nodes:
       - labels:
-          - Cat
-        properties: {}
-      - labels:
           - Human
         properties: {}
     rels: []

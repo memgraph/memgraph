@@ -5,5 +5,8 @@ query: >
   RETURN nodes, rels
 
 output:
-  - nodes: []
+  - nodes:
+      - labels:
+          - Human
+        properties: {}
     rels: []
